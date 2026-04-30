@@ -1,0 +1,1380 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Clubify · Panel de Control</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F4F5F7;
+    --bg-2:#EEF0F3;
+    --surface:#FFFFFF;
+    --ink:#0F172A;
+    --ink-2:#1F2937;
+    --mute:#6B7280;
+    --mute-2:#9CA3AF;
+    --line:#E5E7EB;
+    --line-2:#EEF0F3;
+
+    --brand:#6366F1;
+    --brand-700:#4F46E5;
+    --brand-soft:#EEF2FF;
+    --brand-ink:#FFFFFF;
+
+    --sidebar-bg:#0E1A24;
+    --sidebar-bg-2:#0B1620;
+    --sidebar-ink:#E5E7EB;
+    --sidebar-mute:#6B7790;
+    --sidebar-section:#A5B4FC;
+    --sidebar-hover:#172534;
+    --sidebar-active:#5B5EEE;
+
+    --green:#16A34A;
+    --green-soft:#DCFCE7;
+    --green-ink:#166534;
+    --red:#DC2626;
+    --red-soft:#FEE2E2;
+    --red-ink:#991B1B;
+    --amber:#D97706;
+    --amber-soft:#FEF3C7;
+    --amber-ink:#92400E;
+    --blue:#2563EB;
+    --blue-soft:#DBEAFE;
+    --blue-ink:#1E40AF;
+
+    --av-1:#10B981; --av-2:#F97316; --av-3:#7C3AED; --av-4:#22C55E; --av-5:#A855F7; --av-6:#3B82F6; --av-7:#EC4899;
+
+    --r-card:16px; --r-pill:999px; --r-input:12px;
+    --shadow-sm:0 1px 2px rgba(15,23,42,.04),0 1px 1px rgba(15,23,42,.02);
+    --shadow-md:0 6px 18px -8px rgba(15,23,42,.12),0 2px 6px -2px rgba(15,23,42,.05);
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased;font-feature-settings:'cv11','ss01'}
+  a{color:inherit;text-decoration:none}
+  button,input,select,textarea{font-family:inherit;font-size:inherit;color:inherit}
+
+  /* ===== Demo nav (top) ===== */
+  .demo-bar{
+    position:sticky;top:0;z-index:50;background:#0E1A24;color:#fff;padding:10px 20px;
+    display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-bottom:1px solid #1E2A38
+  }
+  .demo-bar .logo{font-weight:700;font-size:14px;letter-spacing:.02em}
+  .demo-bar .pill{padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.06);font-size:12px;cursor:pointer;transition:.15s;white-space:nowrap;border:1px solid transparent}
+  .demo-bar .pill:hover{background:rgba(255,255,255,.12)}
+  .demo-bar .pill.active{background:#6366F1;color:#fff}
+  .demo-bar .small{margin-left:auto;font-size:11px;color:#6B7790}
+
+  /* ===== Screens ===== */
+  .screen{display:none;animation:fade .2s ease}
+  .screen.active{display:block}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+  /* ===== App shell ===== */
+  .shell{display:grid;grid-template-columns:240px 1fr;min-height:calc(100vh - 44px)}
+
+  .sidebar{background:var(--sidebar-bg);color:var(--sidebar-ink);padding:18px 14px;display:flex;flex-direction:column;gap:6px}
+  .side-head{display:flex;align-items:center;gap:12px;padding:8px 6px 16px}
+  .side-logo{width:42px;height:42px;border-radius:10px;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;letter-spacing:.02em}
+  .side-head .name{font-weight:700;color:#fff;font-size:15px;line-height:1.1}
+  .side-head .sub{font-size:11px;color:var(--sidebar-mute)}
+
+  .side-section{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--sidebar-section);padding:14px 12px 6px;font-weight:600;opacity:.85}
+
+  .side-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;font-size:13.5px;color:#CBD5E1;cursor:pointer;transition:.12s}
+  .side-item:hover{background:var(--sidebar-hover);color:#fff}
+  .side-item .ic{width:18px;height:18px;flex:none;opacity:.85}
+  .side-item.active{background:var(--sidebar-active);color:#fff;box-shadow:0 6px 18px -8px rgba(91,94,238,.6),inset 0 0 0 1px rgba(255,255,255,.08)}
+  .side-item.active .ic{opacity:1}
+
+  .side-foot{margin-top:auto;display:flex;align-items:center;gap:10px;padding:10px 8px;border-top:1px solid #172534;margin-top:auto}
+  .avatar{width:36px;height:36px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-weight:600;font-size:13px;flex:none}
+  .av-1{background:var(--av-1)} .av-2{background:var(--av-2)} .av-3{background:var(--av-3)} .av-4{background:var(--av-4)} .av-5{background:var(--av-5)} .av-6{background:var(--av-6)} .av-7{background:var(--av-7)}
+  .side-foot .who{font-size:13px;color:#fff;font-weight:600;line-height:1.1}
+  .side-foot .who small{display:block;color:var(--sidebar-mute);font-weight:400;font-size:11px;margin-top:2px}
+  .side-foot .out{margin-left:auto;width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--sidebar-mute);cursor:pointer;transition:.15s}
+  .side-foot .out:hover{background:var(--sidebar-hover);color:#fff}
+
+  /* ===== Main ===== */
+  .main{padding:22px 28px 40px;background:var(--bg);min-width:0}
+
+  .page-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:22px}
+  .page-head h1{font-size:24px;font-weight:700;margin:0;letter-spacing:-.01em}
+  .page-head .crumb{color:var(--mute-2);font-size:14px;margin-left:6px;font-weight:400}
+  .page-head .actions{display:flex;gap:8px;flex-wrap:wrap}
+
+  /* ===== Buttons ===== */
+  .btn{display:inline-flex;align-items:center;gap:7px;padding:9px 16px;border-radius:var(--r-pill);font-size:13px;font-weight:500;border:1px solid transparent;cursor:pointer;transition:.15s;line-height:1;background:transparent}
+  .btn .ic{width:15px;height:15px}
+  .btn-primary{background:var(--brand);color:#fff;border-color:var(--brand)}
+  .btn-primary:hover{background:var(--brand-700);border-color:var(--brand-700)}
+  .btn-ghost{background:#fff;color:var(--ink);border-color:var(--line)}
+  .btn-ghost:hover{background:var(--bg-2);border-color:#D1D5DB}
+  .btn-danger{background:#fff;color:var(--red);border-color:#FECACA}
+  .btn-link{color:var(--brand);background:transparent;padding:0;font-weight:500}
+
+  /* ===== Cards ===== */
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--shadow-sm)}
+  .card-pad{padding:20px}
+  .card-h{padding:18px 20px;border-bottom:1px solid var(--line-2);display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .card-h h3{margin:0;font-size:15px;font-weight:600}
+
+  /* ===== KPI ===== */
+  .kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:18px}
+  .kpi{background:#fff;border:1px solid var(--line);border-radius:var(--r-card);padding:18px 20px;box-shadow:var(--shadow-sm);position:relative}
+  .kpi .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+  .kpi .lbl{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
+  .kpi .lbl .ic{width:14px;height:14px}
+  .kpi .edit{width:24px;height:24px;border-radius:6px;color:var(--mute-2);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:.15s}
+  .kpi .edit:hover{background:var(--bg-2);color:var(--ink)}
+  .kpi .val{font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1.05}
+  .kpi .sub{font-size:12px;color:var(--mute);margin-top:6px}
+  .kpi.green .lbl{color:var(--green)} .kpi.green .val{color:var(--green)}
+  .kpi.red .lbl{color:var(--red)} .kpi.red .val{color:var(--red)}
+  .kpi.amber .lbl{color:var(--amber)} .kpi.amber .val{color:var(--amber)}
+  .kpi.blue .lbl{color:var(--blue)} .kpi.blue .val{color:var(--blue)}
+  .kpi.brand .lbl{color:var(--brand)} .kpi.brand .val{color:var(--brand)}
+  .kpi.neutral .lbl{color:var(--mute)} .kpi.neutral .val{color:var(--ink)}
+
+  /* ===== Form ===== */
+  .label{display:block;font-size:12px;font-weight:500;color:var(--mute);margin-bottom:6px}
+  .input,.select,textarea.input{
+    width:100%;padding:10px 14px;border:1px solid var(--line);background:#fff;
+    border-radius:var(--r-input);font-size:14px;outline:none;transition:.15s;color:var(--ink)
+  }
+  .input:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(99,102,241,.15)}
+  textarea.input{min-height:96px;resize:vertical}
+  .input-sel{position:relative}
+  .input-sel select{appearance:none;-webkit-appearance:none;padding-right:36px;background:#fff}
+  .input-sel::after{content:"";position:absolute;right:12px;top:50%;width:9px;height:9px;border-right:1.5px solid var(--mute);border-bottom:1.5px solid var(--mute);transform:translateY(-70%) rotate(45deg);pointer-events:none}
+
+  /* ===== Pills/tabs ===== */
+  .tabs{display:inline-flex;gap:6px;background:#fff;border:1px solid var(--line);border-radius:var(--r-pill);padding:4px}
+  .tab{padding:6px 14px;border-radius:var(--r-pill);font-size:13px;font-weight:500;color:var(--mute);cursor:pointer;border:0;background:transparent}
+  .tab.active{background:var(--brand);color:#fff}
+
+  /* ===== Tables ===== */
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  thead th{text-align:left;font-size:11px;font-weight:600;color:var(--mute);letter-spacing:.1em;text-transform:uppercase;padding:14px 18px;background:var(--bg-2);border-bottom:1px solid var(--line)}
+  tbody td{padding:14px 18px;border-bottom:1px solid var(--line-2);vertical-align:middle}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover{background:#FAFAFB}
+  td .row-name{display:flex;align-items:center;gap:10px}
+  td .row-name b{font-weight:500}
+
+  .badge{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:500;line-height:1}
+  .badge-green{background:var(--green-soft);color:var(--green-ink)}
+  .badge-red{background:var(--red-soft);color:var(--red-ink)}
+  .badge-amber{background:var(--amber-soft);color:var(--amber-ink)}
+  .badge-blue{background:var(--blue-soft);color:var(--blue-ink)}
+  .badge-mute{background:#F3F4F6;color:#374151}
+  .amount-pos{color:var(--green);font-weight:600}
+  .amount-neg{color:var(--red);font-weight:600}
+
+  /* ===== Charts mock (CSS bars) ===== */
+  .chart{padding:8px 4px 4px}
+  .chart .ax{display:grid;grid-template-columns:48px 1fr;gap:8px}
+  .chart .y{display:flex;flex-direction:column;justify-content:space-between;color:var(--mute-2);font-size:11px;text-align:right;padding:4px 0}
+  .chart .plot{position:relative;border-bottom:1px dashed var(--line);border-left:1px dashed var(--line);padding:0 8px}
+  .chart .plot::before,.chart .plot::after{content:"";position:absolute;left:0;right:0;border-top:1px dashed var(--line-2)}
+  .chart .plot::before{top:25%}
+  .chart .plot::after{top:50%}
+  .bars{display:flex;align-items:flex-end;justify-content:space-around;height:230px;gap:14px}
+  .bar{flex:1;max-width:120px;border-radius:8px 8px 0 0;background:var(--brand);min-height:4px;position:relative}
+  .bar-label{position:absolute;bottom:-22px;left:0;right:0;text-align:center;font-size:12px;color:var(--mute);white-space:nowrap}
+  .bar-green{background:#4ADE80}
+  .bar-red{background:#F87171}
+  .bar-blue{background:#60A5FA}
+  .legend{display:flex;justify-content:center;gap:18px;font-size:12px;color:var(--mute);margin-top:30px}
+  .legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:middle}
+
+  /* Donut */
+  .donut{width:160px;height:160px;border-radius:50%;background:conic-gradient(var(--green) 0 100%,#E5E7EB 0);position:relative}
+  .donut::after{content:"";position:absolute;inset:22px;background:#fff;border-radius:50%}
+  .donut-row{display:flex;align-items:center;gap:30px}
+  .legend-list{display:grid;gap:8px;font-size:13px}
+  .legend-list li{display:flex;align-items:center;gap:10px;list-style:none}
+  .legend-list i{width:10px;height:10px;border-radius:3px}
+  .legend-list b{margin-left:auto;font-weight:600}
+
+  /* ===== Pase de fidelización (anatomía Apple Wallet real) ===== */
+  .pass{
+    border-radius:18px;color:#fff;overflow:hidden;
+    background:#C9A974;
+    box-shadow:0 24px 48px -16px rgba(15,23,42,.35),0 0 0 1px rgba(0,0,0,.06) inset;
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;
+    display:flex;flex-direction:column
+  }
+  .pass-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:14px 16px 10px}
+  .pass-logo{display:flex;align-items:center;gap:8px;font-weight:700;font-size:13px;letter-spacing:.02em}
+  .pass-logo .pl-mark{width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700}
+  .pass-head .pass-side{text-align:right}
+  .pass-head .pass-side .lbl{font-size:9px;letter-spacing:.14em;text-transform:uppercase;opacity:.85}
+  .pass-head .pass-side .val{font-size:14px;font-weight:600;margin-top:1px}
+  .pass-strip{height:96px;background-size:cover;background-position:center;background-repeat:no-repeat;position:relative}
+  .pass-strip.solid{height:60px}
+  .pass-fields{padding:12px 16px 14px;background:transparent;display:grid;grid-template-columns:1fr auto;gap:14px;align-items:end}
+  .pass-fields .pf{min-width:0}
+  .pass-fields .pf .lbl{font-size:9px;letter-spacing:.14em;text-transform:uppercase;opacity:.85;font-weight:500}
+  .pass-fields .pf .val{font-size:14px;font-weight:600;margin-top:1px;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pass-fields .pf .val.lg{font-size:18px}
+  .pass-bar{background:#fff;color:#0F172A;padding:14px 16px;display:flex;flex-direction:column;align-items:center;gap:6px}
+  .pass-bar .qr{width:160px;height:160px}
+  .pass-bar .pager{display:flex;gap:4px;margin-top:4px}
+  .pass-bar .pager span{width:5px;height:5px;border-radius:50%;background:#D1D5DB}
+  .pass-bar .pager span.on{background:#9CA3AF}
+
+  /* sellos en strip */
+  .strip-stamps{display:flex;align-items:center;justify-content:center;gap:6px;height:100%;padding:0 12px}
+  .strip-stamp{width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.2);border:2px solid rgba(255,255,255,.5);display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:700}
+  .strip-stamp.full{background:rgba(255,255,255,.95);border-color:#fff;color:var(--brand)}
+
+  /* iPhone frame */
+  .iphone{
+    width:240px;background:#0F172A;border-radius:38px;padding:8px;
+    box-shadow:0 30px 60px -15px rgba(15,23,42,.35),0 0 0 1px #1E293B,0 0 0 4px #0B1220
+  }
+  .iphone-screen{background:#fff;border-radius:30px;overflow:hidden;position:relative;min-height:480px}
+  .iphone-bar{display:flex;align-items:center;justify-content:space-between;padding:10px 18px 6px;font-size:10px;color:#0F172A;font-weight:600}
+  .iphone-bar .right-icons{display:flex;align-items:center;gap:5px}
+  .iphone-bar .right-icons span{display:inline-block;width:14px;height:8px;background:#0F172A;border-radius:2px;opacity:.85}
+  .iphone-bar .right-icons span:nth-child(1){width:11px;height:9px;clip-path:polygon(0 100%,33% 70%,66% 40%,100% 0,100% 100%)}
+  .iphone-notch{position:absolute;top:6px;left:50%;transform:translateX(-50%);width:80px;height:18px;background:#0F172A;border-radius:0 0 12px 12px;z-index:5}
+  .wallet-actions{display:flex;align-items:center;justify-content:space-between;padding:0 14px 8px}
+  .wallet-actions .ok{font-size:13px;color:#2563EB;font-weight:500}
+  .wallet-actions .ic-row{display:flex;gap:6px}
+  .wallet-actions .ic-row span{width:26px;height:26px;border-radius:50%;background:#EEF0F3;display:flex;align-items:center;justify-content:center;color:#374151;font-size:13px}
+  .iphone-pass{margin:0 8px 8px}
+
+  .mini-pass{border-radius:14px;color:#fff;overflow:hidden;cursor:pointer;transition:.15s;box-shadow:0 8px 20px -8px rgba(15,23,42,.2);font-family:'Inter',sans-serif}
+  .mini-pass:hover{transform:translateY(-2px)}
+
+  /* ===== old generic stamps (para landing/scanner que ya no usan apple-pass) ===== */
+  .stamps{display:flex;flex-wrap:wrap;gap:9px}
+  .stamp{width:28px;height:28px;border-radius:50%;border:2px solid rgba(255,255,255,.45)}
+  .stamp.full{background:#fff;border-color:#fff}
+  .stamp-sm{width:20px;height:20px}
+
+  /* ===== Login & wallet & scanner ===== */
+  .center-screen{min-height:calc(100vh - 44px);display:flex;align-items:center;justify-content:center;padding:24px}
+  .login-card{width:100%;max-width:420px}
+  .wallet-page{max-width:440px;margin:0 auto;padding:32px 20px}
+  .scanner-page{max-width:420px;margin:0 auto;padding:24px}
+  .camera-box{background:#0E1A24;border-radius:18px;min-height:280px;display:flex;align-items:center;justify-content:center;color:#fff;background-image:radial-gradient(rgba(255,255,255,.08) 1px,transparent 1px);background-size:14px 14px;position:relative;overflow:hidden}
+  .camera-box::after{content:"";position:absolute;width:170px;height:170px;border:3px solid var(--brand);border-radius:14px;box-shadow:0 0 0 9999px rgba(0,0,0,.55)}
+
+  /* ===== Landing ===== */
+  .land-shell{max-width:1180px;margin:0 auto;padding:0 24px}
+  .land-nav{display:flex;justify-content:space-between;align-items:center;padding:18px 0}
+  .land-brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px}
+  .land-brand .b{width:32px;height:32px;border-radius:8px;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700}
+  .hero{display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:center;padding:60px 0}
+  .hero h1{font-size:54px;line-height:1.05;margin:0;font-weight:700;letter-spacing:-.025em}
+  .hero h1 em{font-style:normal;color:var(--brand)}
+  .hero p{color:var(--mute);font-size:17px;margin-top:18px;line-height:1.55;max-width:480px}
+  .hero .cta{display:flex;gap:10px;margin-top:24px}
+  .hero-card{transform:rotate(2deg);max-width:320px;margin:0 auto}
+  .feat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;padding:0 0 60px}
+  @media (max-width:920px){.hero{grid-template-columns:1fr} .feat-grid{grid-template-columns:repeat(2,1fr)}}
+
+  /* misc */
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+  @media (max-width:920px){.grid-2{grid-template-columns:1fr}}
+  .row{display:flex;align-items:center;gap:8px}
+  .right{margin-left:auto}
+  .muted{color:var(--mute)}
+  .small{font-size:12px}
+  .mt-2{margin-top:8px}.mt-3{margin-top:12px}.mt-4{margin-top:16px}.mt-6{margin-top:24px}
+
+  .qr-svg{width:120px;height:120px}
+</style>
+</head>
+<body>
+
+<!-- Demo top nav -->
+<div class="demo-bar">
+  <div class="logo">Clubify · demo</div>
+  <span class="pill" data-go="landing">Landing</span>
+  <span class="pill" data-go="login">Login</span>
+  <span class="pill" data-go="admin">Super Admin</span>
+  <span class="pill" data-go="admin-tenants">Negocios</span>
+  <span class="pill" data-go="tenant">Tenant</span>
+  <span class="pill" data-go="cards">Tarjetas</span>
+  <span class="pill" data-go="card-new">Constructor</span>
+  <span class="pill" data-go="customers">Clientes</span>
+  <span class="pill" data-go="locations">Ubicaciones</span>
+  <span class="pill" data-go="notifs">Notificaciones</span>
+  <span class="pill" data-go="scanner">Escáner</span>
+  <span class="pill" data-go="wallet">Wallet</span>
+  <span class="pill" data-go="refer">Refer</span>
+  <span class="small">click para navegar</span>
+</div>
+
+<!-- ICONOS reutilizables -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-grid" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></g></symbol>
+    <symbol id="i-store" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1.5-5h15L21 9"/><path d="M4 9v11h16V9"/><path d="M9 20v-6h6v6"/><path d="M3 9c0 1.7 1.3 3 3 3s3-1.3 3-3c0 1.7 1.3 3 3 3s3-1.3 3-3c0 1.7 1.3 3 3 3s3-1.3 3-3"/></g></symbol>
+    <symbol id="i-card" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 10h19"/></g></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></g></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></g></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></g></symbol>
+    <symbol id="i-gift" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5" rx="1"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></g></symbol>
+    <symbol id="i-qr" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h2v2h-2zM18 14h3M14 18v3M18 18h3v3"/></g></symbol>
+    <symbol id="i-trend-up" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 17 9 11 13 15 21 7"/><polyline points="14 7 21 7 21 14"/></g></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="8 12 11 15 16 9"/></g></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></g></symbol>
+    <symbol id="i-cash" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></g></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></g></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4z"/></g></symbol>
+    <symbol id="i-out" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></g></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="20" y1="20" x2="16.65" y2="16.65"/></g></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></g></symbol>
+    <symbol id="i-history" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><polyline points="3 3 3 8 8 8"/><polyline points="12 7 12 12 15 14"/></g></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z"/></g></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></g></symbol>
+  </defs>
+</svg>
+
+<!-- ============= LANDING ============= -->
+<section id="landing" class="screen active">
+  <div class="land-shell">
+    <div class="land-nav">
+      <div class="land-brand"><span class="b">C</span> Clubify</div>
+      <div style="display:flex;gap:8px">
+        <a class="btn btn-ghost" data-go="refer">Programa de referidos</a>
+        <a class="btn btn-primary" data-go="login">Ingresar</a>
+      </div>
+    </div>
+
+    <div class="hero">
+      <div>
+        <h1>Tarjetas de fidelización en <em>Apple</em> y <em>Google Wallet</em>.</h1>
+        <p>Convierte clientes ocasionales en clientes leales. Sellos, puntos, cupones, regalos y membresías digitales — sin apps, sin fricción.</p>
+        <div class="cta">
+          <a class="btn btn-primary" data-go="login"><svg class="ic"><use href="#i-spark"/></svg> Empezar</a>
+          <a class="btn btn-ghost" data-go="refer">Quiero ser referido</a>
+        </div>
+      </div>
+      <div>
+        <div class="pass hero-card">
+          <div class="pt">Café del Día</div>
+          <div class="pn">10 sellos</div>
+          <div class="stamps">
+            <span class="stamp full"></span><span class="stamp full"></span><span class="stamp full"></span>
+            <span class="stamp"></span><span class="stamp"></span><span class="stamp"></span>
+            <span class="stamp"></span><span class="stamp"></span><span class="stamp"></span><span class="stamp"></span>
+          </div>
+          <div class="reward-l">Recompensa</div>
+          <div class="reward">1 café gratis</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="feat-grid">
+      <div class="card card-pad"><div style="font-weight:600">Sellos</div><div class="muted small mt-2">Compra X y lleva 1 gratis</div></div>
+      <div class="card card-pad"><div style="font-weight:600">Puntos</div><div class="muted small mt-2">Cashback acumulable</div></div>
+      <div class="card card-pad"><div style="font-weight:600">Cupones</div><div class="muted small mt-2">Promos temporales</div></div>
+      <div class="card card-pad"><div style="font-weight:600">Regalo</div><div class="muted small mt-2">Tarjetas con saldo</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============= LOGIN ============= -->
+<section id="login" class="screen">
+  <div class="center-screen">
+    <div class="card login-card card-pad">
+      <div class="land-brand" style="margin-bottom:12px"><span class="b">C</span> Clubify</div>
+      <h2 style="margin:0;font-size:22px;font-weight:700">Inicia sesión</h2>
+      <p class="muted small mt-2" style="margin-top:4px">Accede a tu panel de control.</p>
+
+      <div class="mt-6"><label class="label">Email</label><input class="input" value="admin@clubify.local"/></div>
+      <div class="mt-3"><label class="label">Contraseña</label><input type="password" class="input" value="••••••••••"/></div>
+      <button class="btn btn-primary mt-4" style="width:100%;justify-content:center" data-go="admin">Entrar</button>
+
+      <div class="muted small mt-4" style="text-align:center;line-height:1.6">
+        Demo: <code>admin@clubify.local</code> / <code>Clubify123!</code><br/>
+        Tenant: <code>demo@clubify.local</code> / <code>Demo123!</code>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SUPER ADMIN
+     ============================================================ -->
+<section id="admin" class="screen">
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="side-head">
+        <div class="side-logo">C</div>
+        <div><div class="name">Admin Clubify</div><div class="sub">Panel de Control</div></div>
+      </div>
+
+      <div class="side-section">Principal</div>
+      <div class="side-item active" data-go="admin"><svg class="ic"><use href="#i-grid"/></svg> Dashboard</div>
+      <div class="side-item" data-go="admin-tenants"><svg class="ic"><use href="#i-store"/></svg> Negocios</div>
+
+      <div class="side-section">Programa</div>
+      <div class="side-item" data-go="admin-referrals"><svg class="ic"><use href="#i-gift"/></svg> Referidos</div>
+      <div class="side-item"><svg class="ic"><use href="#i-cash"/></svg> Comisiones</div>
+      <div class="side-item"><svg class="ic"><use href="#i-trend-up"/></svg> Reportes</div>
+
+      <div class="side-section">Sistema</div>
+      <div class="side-item"><svg class="ic"><use href="#i-card"/></svg> Planes</div>
+      <div class="side-item"><svg class="ic"><use href="#i-bell"/></svg> Notificaciones</div>
+
+      <div class="side-foot">
+        <div class="avatar av-3">AC</div>
+        <div class="who">Admin Clubify <small>admin@clubify.local</small></div>
+        <div class="out" data-go="login"><svg class="ic" width="16" height="16"><use href="#i-out"/></svg></div>
+      </div>
+    </aside>
+
+    <div class="main">
+      <div class="page-head">
+        <h1>Dashboard <span class="crumb">/ abril de 2026</span></h1>
+        <div class="actions">
+          <button class="btn btn-ghost"><svg class="ic"><use href="#i-history"/></svg> Historial</button>
+          <button class="btn btn-ghost"><svg class="ic"><use href="#i-trend-up"/></svg> Reporte global</button>
+          <button class="btn btn-primary" data-go="admin-tenants"><svg class="ic"><use href="#i-plus"/></svg> Nuevo negocio</button>
+        </div>
+      </div>
+
+      <div class="kpi-row">
+        <div class="kpi green">
+          <div class="top"><div class="lbl"><svg class="ic"><use href="#i-trend-up"/></svg> Negocios activos</div><div class="edit"><svg class="ic" width="13" height="13"><use href="#i-edit"/></svg></div></div>
+          <div class="val">12</div><div class="sub">+3 este mes</div>
+        </div>
+        <div class="kpi brand">
+          <div class="top"><div class="lbl"><svg class="ic"><use href="#i-card"/></svg> Pases emitidos</div><div class="edit"><svg class="ic" width="13" height="13"><use href="#i-edit"/></svg></div></div>
+          <div class="val">847</div><div class="sub">76% en Wallet</div>
+        </div>
+        <div class="kpi neutral">
+          <div class="top"><div class="lbl"><svg class="ic"><use href="#i-users"/></svg> Clientes finales</div><div class="edit"><svg class="ic" width="13" height="13"><use href="#i-edit"/></svg></div></div>
+          <div class="val">2.340</div><div class="sub">+412 este mes</div>
+        </div>
+        <div class="kpi amber">
+          <div class="top"><div class="lbl"><svg class="ic"><use href="#i-cash"/></svg> Comisiones pendientes</div><div class="edit"><svg class="ic" width="13" height="13"><use href="#i-edit"/></svg></div></div>
+          <div class="val">$ 1.250</div><div class="sub">3 referentes</div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-h"><h3>Pases emitidos por mes</h3><div class="muted small">Últimos 6 meses</div></div>
+          <div class="card-pad chart">
+            <div class="ax">
+              <div class="y"><span>1.0K</span><span>0.75K</span><span>0.5K</span><span>0.25K</span><span>0</span></div>
+              <div class="plot">
+                <div class="bars">
+                  <div class="bar bar-blue" style="height:25%"><span class="bar-label">Nov</span></div>
+                  <div class="bar bar-blue" style="height:38%"><span class="bar-label">Dic</span></div>
+                  <div class="bar bar-blue" style="height:46%"><span class="bar-label">Ene</span></div>
+                  <div class="bar bar-blue" style="height:60%"><span class="bar-label">Feb</span></div>
+                  <div class="bar bar-blue" style="height:72%"><span class="bar-label">Mar</span></div>
+                  <div class="bar" style="height:88%;background:#6366F1"><span class="bar-label">Abr</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>Estado de tenants</h3><div class="muted small">Total 12</div></div>
+          <div class="card-pad">
+            <div class="donut-row">
+              <div class="donut" style="background:conic-gradient(#16A34A 0 75%,#D97706 75% 92%,#DC2626 92% 100%)"></div>
+              <ul class="legend-list" style="margin:0;padding:0">
+                <li><i style="background:#16A34A"></i> Activos <b>9</b></li>
+                <li><i style="background:#D97706"></i> Trial <b>2</b></li>
+                <li><i style="background:#DC2626"></i> Suspendidos <b>1</b></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mt-4">
+        <div class="card-h"><h3>Tenants recientes</h3><a class="btn-link" data-go="admin-tenants">Ver todos</a></div>
+        <table>
+          <thead><tr><th>Marca</th><th>Plan</th><th>Estado</th><th>Pases</th><th>Clientes</th><th>Creado</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><div class="row-name"><span class="avatar av-1" style="width:30px;height:30px;font-size:11px">CD</span><b>Café del Día</b></div></td>
+              <td>Pro</td><td><span class="badge badge-green"><svg class="ic" width="10" height="10" style="display:inline-block;vertical-align:-2px"><use href="#i-check"/></svg> Activo</span></td>
+              <td>142</td><td>320</td><td class="muted">28 abr 2026</td>
+            </tr>
+            <tr>
+              <td><div class="row-name"><span class="avatar av-2" style="width:30px;height:30px;font-size:11px">PR</span><b>Pizza Roma</b></div></td>
+              <td>Free</td><td><span class="badge badge-amber"><svg class="ic" width="10" height="10" style="display:inline-block;vertical-align:-2px"><use href="#i-clock"/></svg> Trial</span></td>
+              <td>18</td><td>54</td><td class="muted">22 abr 2026</td>
+            </tr>
+            <tr>
+              <td><div class="row-name"><span class="avatar av-3" style="width:30px;height:30px;font-size:11px">SL</span><b>Spa Lotus</b></div></td>
+              <td>Pro</td><td><span class="badge badge-green"><svg class="ic" width="10" height="10" style="display:inline-block;vertical-align:-2px"><use href="#i-check"/></svg> Activo</span></td>
+              <td>320</td><td>510</td><td class="muted">18 abr 2026</td>
+            </tr>
+            <tr>
+              <td><div class="row-name"><span class="avatar av-2" style="width:30px;height:30px;font-size:11px">BB</span><b>Barber Bros</b></div></td>
+              <td>Business</td><td><span class="badge badge-red">Suspendido</span></td>
+              <td>50</td><td>120</td><td class="muted">10 abr 2026</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============= ADMIN TENANTS LIST ============= -->
+<section id="admin-tenants" class="screen">
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="side-head"><div class="side-logo">C</div><div><div class="name">Admin Clubify</div><div class="sub">Panel de Control</div></div></div>
+      <div class="side-section">Principal</div>
+      <div class="side-item" data-go="admin"><svg class="ic"><use href="#i-grid"/></svg> Dashboard</div>
+      <div class="side-item active"><svg class="ic"><use href="#i-store"/></svg> Negocios</div>
+      <div class="side-section">Programa</div>
+      <div class="side-item"><svg class="ic"><use href="#i-gift"/></svg> Referidos</div>
+      <div class="side-item"><svg class="ic"><use href="#i-cash"/></svg> Comisiones</div>
+      <div class="side-section">Sistema</div>
+      <div class="side-item"><svg class="ic"><use href="#i-card"/></svg> Planes</div>
+      <div class="side-item"><svg class="ic"><use href="#i-bell"/></svg> Notificaciones</div>
+      <div class="side-foot"><div class="avatar av-3">AC</div><div class="who">Admin Clubify <small>admin@clubify.local</small></div><div class="out" data-go="login"><svg class="ic" width="16" height="16"><use href="#i-out"/></svg></div></div>
+    </aside>
+    <div class="main">
+      <div class="page-head">
+        <h1>Negocios <span class="crumb">/ 12 registros</span></h1>
+        <div class="actions">
+          <div class="row" style="background:#fff;border:1px solid var(--line);border-radius:999px;padding:6px 12px;gap:8px">
+            <svg class="ic" width="14" height="14" style="color:var(--mute)"><use href="#i-search"/></svg>
+            <input class="input" style="border:0;padding:0;width:200px" placeholder="Buscar negocio..."/>
+          </div>
+          <button class="btn btn-ghost">Exportar CSV</button>
+          <button class="btn btn-primary"><svg class="ic"><use href="#i-plus"/></svg> Nuevo negocio</button>
+        </div>
+      </div>
+
+      <div class="row mt-3" style="gap:8px;margin-bottom:14px">
+        <div class="tabs"><button class="tab active">Todos</button><button class="tab">Activos</button><button class="tab">Trial</button><button class="tab">Suspendidos</button></div>
+      </div>
+
+      <div class="card">
+        <table>
+          <thead><tr><th>Negocio</th><th>Email</th><th>Plan</th><th>Estado</th><th>Tarjetas</th><th>Pases</th><th>Clientes</th><th></th></tr></thead>
+          <tbody>
+            <tr>
+              <td><div class="row-name"><span class="avatar av-1" style="width:32px;height:32px;font-size:12px">CD</span><div><b>Café del Día</b><div class="muted small">cafe-del-dia</div></div></div></td>
+              <td>demo@clubify.local</td><td>Pro</td>
+              <td><span class="badge badge-green"><svg class="ic" width="10" height="10" style="display:inline-block;vertical-align:-2px"><use href="#i-check"/></svg> Activo</span></td>
+              <td>3</td><td>142</td><td>320</td>
+              <td><a class="btn-link">Editar</a></td>
+            </tr>
+            <tr>
+              <td><div class="row-name"><span class="avatar av-2" style="width:32px;height:32px;font-size:12px">PR</span><div><b>Pizza Roma</b><div class="muted small">pizza-roma</div></div></div></td>
+              <td>pizza@example.com</td><td>Free</td>
+              <td><span class="badge badge-amber">Trial</span></td>
+              <td>1</td><td>18</td><td>54</td>
+              <td><a class="btn-link">Editar</a></td>
+            </tr>
+            <tr>
+              <td><div class="row-name"><span class="avatar av-3" style="width:32px;height:32px;font-size:12px">SL</span><div><b>Spa Lotus</b><div class="muted small">spa-lotus</div></div></div></td>
+              <td>info@spalotus.co</td><td>Pro</td>
+              <td><span class="badge badge-green">Activo</span></td>
+              <td>5</td><td>320</td><td>510</td>
+              <td><a class="btn-link">Editar</a></td>
+            </tr>
+            <tr>
+              <td><div class="row-name"><span class="avatar av-4" style="width:32px;height:32px;font-size:12px">BB</span><div><b>Barber Bros</b><div class="muted small">barber-bros</div></div></div></td>
+              <td>contacto@bb.co</td><td>Business</td>
+              <td><span class="badge badge-red">Suspendido</span></td>
+              <td>2</td><td>50</td><td>120</td>
+              <td><a class="btn-link">Editar</a></td>
+            </tr>
+            <tr>
+              <td><div class="row-name"><span class="avatar av-6" style="width:32px;height:32px;font-size:12px">FY</span><div><b>Frutería Yumi</b><div class="muted small">fruteria-yumi</div></div></div></td>
+              <td>hola@yumi.co</td><td>Pro</td>
+              <td><span class="badge badge-green">Activo</span></td>
+              <td>2</td><td>76</td><td>180</td>
+              <td><a class="btn-link">Editar</a></td>
+            </tr>
+            <tr>
+              <td><div class="row-name"><span class="avatar av-5" style="width:32px;height:32px;font-size:12px">ML</span><div><b>Mantra Lab</b><div class="muted small">mantra-lab</div></div></div></td>
+              <td>team@mantra.co</td><td>Pro</td>
+              <td><span class="badge badge-green">Activo</span></td>
+              <td>4</td><td>241</td><td>418</td>
+              <td><a class="btn-link">Editar</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     TENANT
+     ============================================================ -->
+<section id="tenant" class="screen">
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="side-head"><div class="side-logo" style="background:#10B981">C</div><div><div class="name">Café del Día</div><div class="sub">Panel de Control</div></div></div>
+
+      <div class="side-section">Principal</div>
+      <div class="side-item active" data-go="tenant"><svg class="ic"><use href="#i-grid"/></svg> Dashboard</div>
+      <div class="side-item" data-go="cards"><svg class="ic"><use href="#i-card"/></svg> Tarjetas</div>
+      <div class="side-item" data-go="customers"><svg class="ic"><use href="#i-users"/></svg> Clientes</div>
+
+      <div class="side-section">Engagement</div>
+      <div class="side-item" data-go="locations"><svg class="ic"><use href="#i-pin"/></svg> Ubicaciones</div>
+      <div class="side-item" data-go="notifs"><svg class="ic"><use href="#i-bell"/></svg> Notificaciones</div>
+      <div class="side-item"><svg class="ic"><use href="#i-spark"/></svg> Automatizaciones</div>
+
+      <div class="side-section">Operación</div>
+      <div class="side-item" data-go="scanner"><svg class="ic"><use href="#i-qr"/></svg> Escáner</div>
+      <div class="side-item"><svg class="ic"><use href="#i-trend-up"/></svg> Reportes</div>
+      <div class="side-item"><svg class="ic"><use href="#i-gift"/></svg> Referidos</div>
+
+      <div class="side-foot"><div class="avatar av-1">DD</div><div class="who">Dueño Demo <small>demo@clubify.local</small></div><div class="out" data-go="login"><svg class="ic" width="16" height="16"><use href="#i-out"/></svg></div></div>
+    </aside>
+
+    <div class="main">
+      <div class="page-head">
+        <h1>Dashboard <span class="crumb">/ miércoles, 29 de abril</span></h1>
+        <div class="actions">
+          <button class="btn btn-ghost"><svg class="ic"><use href="#i-bell"/></svg> Enviar push</button>
+          <button class="btn btn-primary" data-go="card-new"><svg class="ic"><use href="#i-plus"/></svg> Crear tarjeta</button>
+        </div>
+      </div>
+
+      <div class="kpi-row">
+        <div class="kpi brand">
+          <div class="top"><div class="lbl"><svg class="ic"><use href="#i-card"/></svg> Tarjetas activas</div><div class="edit"><svg class="ic" width="13" height="13"><use href="#i-edit"/></svg></div></div>
+          <div class="val">3</div><div class="sub">2 sellos · 1 puntos</div>
+        </div>
+        <div class="kpi green">
+          <div class="top"><div class="lbl"><svg class="ic"><use href="#i-trend-up"/></svg> Pases emitidos</div><div class="edit"><svg class="ic" width="13" height="13"><use href="#i-edit"/></svg></div></div>
+          <div class="val">98</div><div class="sub">76 en Wallet</div>
+        </div>
+        <div class="kpi neutral">
+          <div class="top"><div class="lbl"><svg class="ic"><use href="#i-users"/></svg> Clientes</div><div class="edit"><svg class="ic" width="13" height="13"><use href="#i-edit"/></svg></div></div>
+          <div class="val">142</div><div class="sub">+24 este mes</div>
+        </div>
+        <div class="kpi blue">
+          <div class="top"><div class="lbl"><svg class="ic"><use href="#i-check"/></svg> Sellos (30d)</div><div class="edit"><svg class="ic" width="13" height="13"><use href="#i-edit"/></svg></div></div>
+          <div class="val">412</div><div class="sub">28 redenciones</div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-h"><h3>Sellos vs Redenciones</h3><div class="muted small">Últimos 7 días</div></div>
+          <div class="card-pad chart">
+            <div class="ax">
+              <div class="y"><span>80</span><span>60</span><span>40</span><span>20</span><span>0</span></div>
+              <div class="plot">
+                <div class="bars">
+                  <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;max-width:80px">
+                    <div style="display:flex;gap:3px;align-items:flex-end">
+                      <div class="bar bar-blue" style="height:160px;width:18px"></div>
+                      <div class="bar bar-green" style="height:30px;width:18px"></div>
+                    </div>
+                    <span class="muted small" style="margin-top:4px">Lun</span>
+                  </div>
+                  <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;max-width:80px">
+                    <div style="display:flex;gap:3px;align-items:flex-end">
+                      <div class="bar bar-blue" style="height:120px;width:18px"></div>
+                      <div class="bar bar-green" style="height:20px;width:18px"></div>
+                    </div>
+                    <span class="muted small" style="margin-top:4px">Mar</span>
+                  </div>
+                  <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;max-width:80px">
+                    <div style="display:flex;gap:3px;align-items:flex-end">
+                      <div class="bar bar-blue" style="height:140px;width:18px"></div>
+                      <div class="bar bar-green" style="height:36px;width:18px"></div>
+                    </div>
+                    <span class="muted small" style="margin-top:4px">Mié</span>
+                  </div>
+                  <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;max-width:80px">
+                    <div style="display:flex;gap:3px;align-items:flex-end">
+                      <div class="bar bar-blue" style="height:180px;width:18px"></div>
+                      <div class="bar bar-green" style="height:50px;width:18px"></div>
+                    </div>
+                    <span class="muted small" style="margin-top:4px">Jue</span>
+                  </div>
+                  <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;max-width:80px">
+                    <div style="display:flex;gap:3px;align-items:flex-end">
+                      <div class="bar bar-blue" style="height:210px;width:18px"></div>
+                      <div class="bar bar-green" style="height:60px;width:18px"></div>
+                    </div>
+                    <span class="muted small" style="margin-top:4px">Vie</span>
+                  </div>
+                  <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;max-width:80px">
+                    <div style="display:flex;gap:3px;align-items:flex-end">
+                      <div class="bar bar-blue" style="height:230px;width:18px"></div>
+                      <div class="bar bar-green" style="height:80px;width:18px"></div>
+                    </div>
+                    <span class="muted small" style="margin-top:4px">Sáb</span>
+                  </div>
+                  <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;max-width:80px">
+                    <div style="display:flex;gap:3px;align-items:flex-end">
+                      <div class="bar bar-blue" style="height:90px;width:18px"></div>
+                      <div class="bar bar-green" style="height:24px;width:18px"></div>
+                    </div>
+                    <span class="muted small" style="margin-top:4px">Dom</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="legend"><span><i style="background:#60A5FA"></i> Sellos</span><span><i style="background:#4ADE80"></i> Recompensas</span></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><h3>Pases en Wallet</h3><div class="muted small">de 98 emitidos</div></div>
+          <div class="card-pad">
+            <div class="donut-row">
+              <div class="donut" style="background:conic-gradient(#6366F1 0 78%,#E5E7EB 78% 100%)"></div>
+              <ul class="legend-list" style="margin:0;padding:0">
+                <li><i style="background:#6366F1"></i> En Apple Wallet <b>52</b></li>
+                <li><i style="background:#A78BFA"></i> En Google Wallet <b>24</b></li>
+                <li><i style="background:#E5E7EB"></i> Sin agregar <b>22</b></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mt-4">
+        <div class="card-h"><h3>Últimos escaneos</h3><a class="btn-link" data-go="scanner">Abrir escáner</a></div>
+        <table>
+          <thead><tr><th>Cliente</th><th>Tarjeta</th><th>Acción</th><th>Operador</th><th>Sucursal</th><th>Hace</th></tr></thead>
+          <tbody>
+            <tr><td><div class="row-name"><span class="avatar av-1" style="width:30px;height:30px;font-size:11px">MP</span><b>María Pérez</b></div></td><td>Café del Día</td><td><span class="badge badge-blue">+1 sello</span></td><td>Carlos R.</td><td>Sede Centro</td><td class="muted">5 min</td></tr>
+            <tr><td><div class="row-name"><span class="avatar av-2" style="width:30px;height:30px;font-size:11px">JG</span><b>Juan Gómez</b></div></td><td>Café del Día</td><td><span class="badge badge-green">Recompensa</span></td><td>Carlos R.</td><td>Sede Centro</td><td class="muted">12 min</td></tr>
+            <tr><td><div class="row-name"><span class="avatar av-5" style="width:30px;height:30px;font-size:11px">SL</span><b>Sofía López</b></div></td><td>Café del Día</td><td><span class="badge badge-blue">+1 sello</span></td><td>Ana M.</td><td>Sede Norte</td><td class="muted">28 min</td></tr>
+            <tr><td><div class="row-name"><span class="avatar av-6" style="width:30px;height:30px;font-size:11px">CR</span><b>Carlos Ruiz</b></div></td><td>Café del Día</td><td><span class="badge badge-mute">Visita</span></td><td>Ana M.</td><td>Sede Norte</td><td class="muted">1 h</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============= TENANT CARDS LIST ============= -->
+<section id="cards" class="screen">
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="side-head"><div class="side-logo" style="background:#10B981">C</div><div><div class="name">Café del Día</div><div class="sub">Panel de Control</div></div></div>
+      <div class="side-section">Principal</div>
+      <div class="side-item" data-go="tenant"><svg class="ic"><use href="#i-grid"/></svg> Dashboard</div>
+      <div class="side-item active"><svg class="ic"><use href="#i-card"/></svg> Tarjetas</div>
+      <div class="side-item" data-go="customers"><svg class="ic"><use href="#i-users"/></svg> Clientes</div>
+      <div class="side-section">Engagement</div>
+      <div class="side-item" data-go="locations"><svg class="ic"><use href="#i-pin"/></svg> Ubicaciones</div>
+      <div class="side-item" data-go="notifs"><svg class="ic"><use href="#i-bell"/></svg> Notificaciones</div>
+      <div class="side-item"><svg class="ic"><use href="#i-spark"/></svg> Automatizaciones</div>
+      <div class="side-section">Operación</div>
+      <div class="side-item" data-go="scanner"><svg class="ic"><use href="#i-qr"/></svg> Escáner</div>
+      <div class="side-item"><svg class="ic"><use href="#i-trend-up"/></svg> Reportes</div>
+      <div class="side-foot"><div class="avatar av-1">DD</div><div class="who">Dueño Demo <small>demo@clubify.local</small></div><div class="out" data-go="login"><svg class="ic" width="16" height="16"><use href="#i-out"/></svg></div></div>
+    </aside>
+    <div class="main">
+      <div class="page-head">
+        <h1>Tarjetas <span class="crumb">/ 3 activas</span></h1>
+        <div class="actions">
+          <button class="btn btn-ghost">Importar diseño</button>
+          <button class="btn btn-primary" data-go="card-new"><svg class="ic"><use href="#i-plus"/></svg> Crear tarjeta</button>
+        </div>
+      </div>
+
+      <div class="grid-3">
+        <div class="card card-pad">
+          <div class="mini-pass" style="background:linear-gradient(135deg,#5B5EEE,#8B5CF6,#C026D3)">
+            <div class="pt">STAMPS</div>
+            <div class="pn">Café del Día</div>
+            <div class="stamps">
+              <span class="stamp stamp-sm full"></span><span class="stamp stamp-sm full"></span><span class="stamp stamp-sm full"></span>
+              <span class="stamp stamp-sm"></span><span class="stamp stamp-sm"></span><span class="stamp stamp-sm"></span>
+              <span class="stamp stamp-sm"></span><span class="stamp stamp-sm"></span><span class="stamp stamp-sm"></span><span class="stamp stamp-sm"></span>
+            </div>
+            <div class="reward-l">Recompensa</div>
+            <div class="reward">1 café gratis</div>
+          </div>
+          <div class="row mt-3"><b>10 sellos</b><span class="right muted small">142 pases</span></div>
+        </div>
+
+        <div class="card card-pad">
+          <div class="mini-pass" style="background:linear-gradient(135deg,#0EA5E9,#3B82F6,#6366F1)">
+            <div class="pt">POINTS</div>
+            <div class="pn">Membresía</div>
+            <div style="font-size:28px;font-weight:700;margin-top:24px">2,340 pts</div>
+            <div class="reward-l">Recompensa</div>
+            <div class="reward">5,000 pts → 1 día spa</div>
+          </div>
+          <div class="row mt-3"><b>Acumulación</b><span class="right muted small">89 pases</span></div>
+        </div>
+
+        <div class="card card-pad">
+          <div class="mini-pass" style="background:linear-gradient(135deg,#F97316,#EF4444,#EC4899)">
+            <div class="pt">COUPON</div>
+            <div class="pn">Black Friday</div>
+            <div style="font-size:38px;font-weight:700;margin-top:24px">-50%</div>
+            <div class="reward-l">Vigencia</div>
+            <div class="reward">Solo viernes 29 abr</div>
+          </div>
+          <div class="row mt-3"><b>Promo</b><span class="right muted small">0 pases</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============= CARD CONSTRUCTOR ============= -->
+<section id="card-new" class="screen">
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="side-head"><div class="side-logo" style="background:#10B981">C</div><div><div class="name">Café del Día</div><div class="sub">Panel de Control</div></div></div>
+      <div class="side-section">Principal</div>
+      <div class="side-item" data-go="tenant"><svg class="ic"><use href="#i-grid"/></svg> Dashboard</div>
+      <div class="side-item active" data-go="cards"><svg class="ic"><use href="#i-card"/></svg> Tarjetas</div>
+      <div class="side-item" data-go="customers"><svg class="ic"><use href="#i-users"/></svg> Clientes</div>
+      <div class="side-section">Engagement</div>
+      <div class="side-item" data-go="locations"><svg class="ic"><use href="#i-pin"/></svg> Ubicaciones</div>
+      <div class="side-item" data-go="notifs"><svg class="ic"><use href="#i-bell"/></svg> Notificaciones</div>
+      <div class="side-item"><svg class="ic"><use href="#i-spark"/></svg> Automatizaciones</div>
+      <div class="side-section">Operación</div>
+      <div class="side-item" data-go="scanner"><svg class="ic"><use href="#i-qr"/></svg> Escáner</div>
+      <div class="side-foot"><div class="avatar av-1">DD</div><div class="who">Dueño Demo <small>demo@clubify.local</small></div><div class="out" data-go="login"><svg class="ic" width="16" height="16"><use href="#i-out"/></svg></div></div>
+    </aside>
+    <div class="main">
+      <div class="page-head">
+        <h1>Nueva tarjeta <span class="crumb">/ Tarjetas</span></h1>
+        <div class="actions">
+          <button class="btn btn-ghost">Cancelar</button>
+          <button class="btn btn-primary" data-go="cards"><svg class="ic"><use href="#i-check"/></svg> Crear tarjeta</button>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card card-pad">
+          <div class="label">Tipo de tarjeta</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+            <button class="tab active" style="border-radius:10px">Sellos</button>
+            <button class="tab" style="border-radius:10px;background:#fff;border:1px solid var(--line)">Puntos</button>
+            <button class="tab" style="border-radius:10px;background:#fff;border:1px solid var(--line)">Descuento</button>
+            <button class="tab" style="border-radius:10px;background:#fff;border:1px solid var(--line)">Membresía</button>
+            <button class="tab" style="border-radius:10px;background:#fff;border:1px solid var(--line)">Cupón</button>
+            <button class="tab" style="border-radius:10px;background:#fff;border:1px solid var(--line)">Regalo</button>
+          </div>
+
+          <div class="mt-4"><label class="label">Nombre</label><input class="input" id="b-name" value="Café del Día — 10 sellos"/></div>
+          <div class="mt-3"><label class="label">Recompensa</label><input class="input" id="b-reward" value="1 café gratis"/></div>
+          <div class="grid-2 mt-3" style="gap:12px">
+            <div><label class="label">Sellos requeridos</label><input class="input" id="b-stamps" type="number" value="10"/></div>
+            <div><label class="label">Vigencia</label><input class="input" type="date" value="2026-12-31"/></div>
+          </div>
+          <div class="grid-2 mt-3" style="gap:12px">
+            <div><label class="label">Color principal</label><input class="input" id="b-c1" type="color" value="#5B5EEE" style="height:42px;padding:6px"/></div>
+            <div><label class="label">Color secundario</label><input class="input" id="b-c2" type="color" value="#C026D3" style="height:42px;padding:6px"/></div>
+          </div>
+          <div class="mt-3"><label class="label">Condiciones</label><textarea class="input">No acumulable con otras promociones. Válido en todas las sucursales.</textarea></div>
+        </div>
+
+        <div>
+          <div class="muted small" style="text-transform:uppercase;letter-spacing:.12em;font-weight:600;margin-bottom:10px">Así se verá en el iPhone</div>
+          <div style="display:flex;justify-content:center">
+            <div class="iphone">
+              <div class="iphone-notch"></div>
+              <div class="iphone-screen">
+                <div class="iphone-bar"><span>11:42</span><div class="right-icons"><span></span><span style="width:14px;height:7px;border-radius:2px;background:#0F172A"></span><span style="width:18px;height:9px;border:1.5px solid #0F172A;background:transparent;border-radius:3px"></span></div></div>
+                <div class="wallet-actions"><span class="ok">OK</span><div class="ic-row"><span>↑</span><span>···</span></div></div>
+                <div class="iphone-pass">
+                  <div class="pass" id="preview-pass" style="background:linear-gradient(135deg,#5B5EEE,#C026D3);color:#fff">
+                    <div class="pass-head">
+                      <div class="pass-logo"><span class="pl-mark" id="prev-mark" style="background:rgba(255,255,255,.18)">C</span> <span id="prev-brand">Café del Día</span></div>
+                      <div class="pass-side"><div class="lbl" id="prev-side-lbl">SELLOS</div><div class="val"><span id="prev-side-val">3</span>/<span id="prev-side-max">10</span></div></div>
+                    </div>
+                    <div class="pass-strip" id="prev-strip" style="background:linear-gradient(135deg,rgba(0,0,0,.15),rgba(0,0,0,.05));height:80px">
+                      <div class="strip-stamps" id="prev-strip-stamps"></div>
+                    </div>
+                    <div class="pass-fields">
+                      <div class="pf"><div class="lbl">TITULAR</div><div class="val">RICARDO PÉREZ</div></div>
+                      <div class="pf" style="text-align:right"><div class="lbl">RECOMPENSA</div><div class="val" id="prev-reward-val" style="font-size:12px">1 café gratis</div></div>
+                    </div>
+                    <div class="pass-bar">
+                      <svg class="qr" viewBox="0 0 21 21" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><rect width="21" height="21" fill="#fff"/><g fill="#0F172A"><rect x="0" y="0" width="7" height="7"/><rect x="1" y="1" width="5" height="5" fill="#fff"/><rect x="2" y="2" width="3" height="3"/><rect x="14" y="0" width="7" height="7"/><rect x="15" y="1" width="5" height="5" fill="#fff"/><rect x="16" y="2" width="3" height="3"/><rect x="0" y="14" width="7" height="7"/><rect x="1" y="15" width="5" height="5" fill="#fff"/><rect x="2" y="16" width="3" height="3"/><rect x="9" y="2" width="1" height="1"/><rect x="11" y="3" width="1" height="1"/><rect x="13" y="1" width="1" height="1"/><rect x="8" y="5" width="1" height="1"/><rect x="10" y="4" width="1" height="1"/><rect x="12" y="6" width="1" height="1"/><rect x="0" y="9" width="1" height="1"/><rect x="2" y="11" width="1" height="1"/><rect x="4" y="9" width="1" height="1"/><rect x="6" y="11" width="1" height="1"/><rect x="8" y="9" width="1" height="1"/><rect x="10" y="11" width="1" height="1"/><rect x="12" y="9" width="1" height="1"/><rect x="14" y="11" width="1" height="1"/><rect x="16" y="9" width="1" height="1"/><rect x="18" y="11" width="1" height="1"/><rect x="20" y="9" width="1" height="1"/><rect x="9" y="13" width="1" height="1"/><rect x="11" y="14" width="1" height="1"/><rect x="13" y="13" width="1" height="1"/><rect x="15" y="14" width="1" height="1"/><rect x="17" y="13" width="1" height="1"/><rect x="19" y="14" width="1" height="1"/><rect x="9" y="16" width="1" height="1"/><rect x="11" y="17" width="1" height="1"/><rect x="13" y="16" width="1" height="1"/><rect x="15" y="17" width="1" height="1"/><rect x="17" y="16" width="1" height="1"/><rect x="19" y="17" width="1" height="1"/><rect x="9" y="19" width="1" height="1"/><rect x="11" y="20" width="1" height="1"/><rect x="13" y="19" width="1" height="1"/><rect x="15" y="20" width="1" height="1"/><rect x="17" y="19" width="1" height="1"/><rect x="19" y="20" width="1" height="1"/></g></svg>
+                      <div class="pager"><span></span><span class="on"></span><span></span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card card-pad mt-4">
+            <div class="row"><svg class="ic" width="18" height="18" style="color:var(--brand)"><use href="#i-spark"/></svg><div><b>Tip:</b> usa los colores de tu marca para que tus clientes te reconozcan al primer vistazo en su Wallet.</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============= CUSTOMERS ============= -->
+<section id="customers" class="screen">
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="side-head"><div class="side-logo" style="background:#10B981">C</div><div><div class="name">Café del Día</div><div class="sub">Panel de Control</div></div></div>
+      <div class="side-section">Principal</div>
+      <div class="side-item" data-go="tenant"><svg class="ic"><use href="#i-grid"/></svg> Dashboard</div>
+      <div class="side-item" data-go="cards"><svg class="ic"><use href="#i-card"/></svg> Tarjetas</div>
+      <div class="side-item active"><svg class="ic"><use href="#i-users"/></svg> Clientes</div>
+      <div class="side-section">Engagement</div>
+      <div class="side-item" data-go="locations"><svg class="ic"><use href="#i-pin"/></svg> Ubicaciones</div>
+      <div class="side-item" data-go="notifs"><svg class="ic"><use href="#i-bell"/></svg> Notificaciones</div>
+      <div class="side-item"><svg class="ic"><use href="#i-spark"/></svg> Automatizaciones</div>
+      <div class="side-section">Operación</div>
+      <div class="side-item" data-go="scanner"><svg class="ic"><use href="#i-qr"/></svg> Escáner</div>
+      <div class="side-foot"><div class="avatar av-1">DD</div><div class="who">Dueño Demo <small>demo@clubify.local</small></div><div class="out" data-go="login"><svg class="ic" width="16" height="16"><use href="#i-out"/></svg></div></div>
+    </aside>
+    <div class="main">
+      <div class="page-head">
+        <h1>Clientes <span class="crumb">/ 142 registros</span></h1>
+        <div class="actions">
+          <div class="row" style="background:#fff;border:1px solid var(--line);border-radius:999px;padding:6px 12px;gap:8px">
+            <svg class="ic" width="14" height="14" style="color:var(--mute)"><use href="#i-search"/></svg>
+            <input class="input" style="border:0;padding:0;width:200px" placeholder="Buscar cliente..."/>
+          </div>
+          <button class="btn btn-ghost">Importar CSV</button>
+          <button class="btn btn-primary"><svg class="ic"><use href="#i-plus"/></svg> Nuevo cliente</button>
+        </div>
+      </div>
+
+      <div class="row" style="gap:8px;margin-bottom:14px">
+        <div class="tabs"><button class="tab active">Todos</button><button class="tab">Con pase</button><button class="tab">Activos 30d</button><button class="tab">Inactivos</button></div>
+      </div>
+
+      <div class="card">
+        <table>
+          <thead><tr><th>Cliente</th><th>Email</th><th>Teléfono</th><th>Pases</th><th>Sellos totales</th><th>Última visita</th><th></th></tr></thead>
+          <tbody>
+            <tr><td><div class="row-name"><span class="avatar av-1" style="width:32px;height:32px;font-size:12px">MP</span><div><b>María Pérez</b><div class="muted small">desde abr 2026</div></div></div></td><td>maria@example.com</td><td>+57 300 111 2222</td><td><span class="badge badge-blue">1</span></td><td>3</td><td class="muted">5 min</td><td><a class="btn-link">Ver</a></td></tr>
+            <tr><td><div class="row-name"><span class="avatar av-2" style="width:32px;height:32px;font-size:12px">JG</span><div><b>Juan Gómez</b><div class="muted small">desde mar 2026</div></div></div></td><td>juan@g.com</td><td>+57 311 222 3333</td><td><span class="badge badge-blue">2</span></td><td>17</td><td class="muted">12 min</td><td><a class="btn-link">Ver</a></td></tr>
+            <tr><td><div class="row-name"><span class="avatar av-3" style="width:32px;height:32px;font-size:12px">SL</span><div><b>Sofía López</b><div class="muted small">desde feb 2026</div></div></div></td><td>sofia@l.com</td><td>+57 320 555 4444</td><td><span class="badge badge-blue">1</span></td><td>9</td><td class="muted">28 min</td><td><a class="btn-link">Ver</a></td></tr>
+            <tr><td><div class="row-name"><span class="avatar av-4" style="width:32px;height:32px;font-size:12px">CR</span><div><b>Carlos Ruiz</b><div class="muted small">desde ene 2026</div></div></div></td><td>carlos@r.co</td><td>+57 305 999 8888</td><td><span class="badge badge-blue">3</span></td><td>42</td><td class="muted">1 h</td><td><a class="btn-link">Ver</a></td></tr>
+            <tr><td><div class="row-name"><span class="avatar av-5" style="width:32px;height:32px;font-size:12px">AM</span><div><b>Ana Mendoza</b><div class="muted small">desde dic 2025</div></div></div></td><td>ana.m@m.com</td><td>+57 312 444 5555</td><td><span class="badge badge-blue">2</span></td><td>28</td><td class="muted">3 h</td><td><a class="btn-link">Ver</a></td></tr>
+            <tr><td><div class="row-name"><span class="avatar av-6" style="width:32px;height:32px;font-size:12px">PR</span><div><b>Pablo Restrepo</b><div class="muted small">desde dic 2025</div></div></div></td><td>pablo@r.co</td><td>+57 318 121 3434</td><td><span class="badge badge-blue">1</span></td><td>14</td><td class="muted">1 d</td><td><a class="btn-link">Ver</a></td></tr>
+            <tr><td><div class="row-name"><span class="avatar av-7" style="width:32px;height:32px;font-size:12px">VC</span><div><b>Valentina Cortés</b><div class="muted small">desde nov 2025</div></div></div></td><td>vale@c.com</td><td>+57 316 789 0102</td><td><span class="badge badge-mute">0</span></td><td>0</td><td class="muted">—</td><td><a class="btn-link">Emitir</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============= LOCATIONS ============= -->
+<section id="locations" class="screen">
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="side-head"><div class="side-logo" style="background:#10B981">C</div><div><div class="name">Café del Día</div><div class="sub">Panel de Control</div></div></div>
+      <div class="side-section">Principal</div>
+      <div class="side-item" data-go="tenant"><svg class="ic"><use href="#i-grid"/></svg> Dashboard</div>
+      <div class="side-item" data-go="cards"><svg class="ic"><use href="#i-card"/></svg> Tarjetas</div>
+      <div class="side-item" data-go="customers"><svg class="ic"><use href="#i-users"/></svg> Clientes</div>
+      <div class="side-section">Engagement</div>
+      <div class="side-item active"><svg class="ic"><use href="#i-pin"/></svg> Ubicaciones</div>
+      <div class="side-item" data-go="notifs"><svg class="ic"><use href="#i-bell"/></svg> Notificaciones</div>
+      <div class="side-item"><svg class="ic"><use href="#i-spark"/></svg> Automatizaciones</div>
+      <div class="side-section">Operación</div>
+      <div class="side-item" data-go="scanner"><svg class="ic"><use href="#i-qr"/></svg> Escáner</div>
+      <div class="side-foot"><div class="avatar av-1">DD</div><div class="who">Dueño Demo <small>demo@clubify.local</small></div><div class="out" data-go="login"><svg class="ic" width="16" height="16"><use href="#i-out"/></svg></div></div>
+    </aside>
+    <div class="main">
+      <div class="page-head">
+        <h1>Ubicaciones <span class="crumb">/ 2 de 3 disponibles</span></h1>
+        <div class="actions">
+          <button class="btn btn-ghost">Solicitar ampliación</button>
+          <button class="btn btn-primary"><svg class="ic"><use href="#i-plus"/></svg> Agregar ubicación</button>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card card-pad">
+          <h3 style="margin:0 0 14px;font-size:15px;font-weight:600">Nueva ubicación</h3>
+          <div><label class="label">Nombre</label><input class="input" placeholder="Sede Centro"/></div>
+          <div class="mt-3"><label class="label">Dirección</label><input class="input" placeholder="Cra 7 # 10-20, Bogotá"/></div>
+          <div class="grid-2 mt-3" style="gap:12px"><div><label class="label">Latitud</label><input class="input" value="4.6097"/></div><div><label class="label">Longitud</label><input class="input" value="-74.0817"/></div></div>
+          <div class="mt-3"><label class="label">Radio de notificación</label>
+            <div class="input-sel"><select class="input"><option>100 m</option><option selected>300 m</option><option>500 m</option></select></div>
+          </div>
+          <button class="btn btn-primary mt-4" style="width:100%;justify-content:center">Agregar</button>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><h3>Tus ubicaciones</h3><span class="badge badge-mute">2 / 3</span></div>
+          <div style="padding:6px 0">
+            <div class="row" style="padding:14px 20px;border-bottom:1px solid var(--line-2)">
+              <div class="avatar av-1" style="width:36px;height:36px"><svg class="ic" width="16" height="16"><use href="#i-pin"/></svg></div>
+              <div><div style="font-weight:500">Sede Centro</div><div class="muted small">Cra 7 # 10-20, Bogotá · 300 m</div></div>
+              <div class="right row" style="gap:6px"><button class="btn btn-ghost"><svg class="ic"><use href="#i-edit"/></svg></button><button class="btn btn-danger"><svg class="ic"><use href="#i-trash"/></svg></button></div>
+            </div>
+            <div class="row" style="padding:14px 20px">
+              <div class="avatar av-3" style="width:36px;height:36px"><svg class="ic" width="16" height="16"><use href="#i-pin"/></svg></div>
+              <div><div style="font-weight:500">Sede Norte</div><div class="muted small">Cl 116 # 9-72, Bogotá · 500 m</div></div>
+              <div class="right row" style="gap:6px"><button class="btn btn-ghost"><svg class="ic"><use href="#i-edit"/></svg></button><button class="btn btn-danger"><svg class="ic"><use href="#i-trash"/></svg></button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============= NOTIFICATIONS ============= -->
+<section id="notifs" class="screen">
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="side-head"><div class="side-logo" style="background:#10B981">C</div><div><div class="name">Café del Día</div><div class="sub">Panel de Control</div></div></div>
+      <div class="side-section">Principal</div>
+      <div class="side-item" data-go="tenant"><svg class="ic"><use href="#i-grid"/></svg> Dashboard</div>
+      <div class="side-item" data-go="cards"><svg class="ic"><use href="#i-card"/></svg> Tarjetas</div>
+      <div class="side-item" data-go="customers"><svg class="ic"><use href="#i-users"/></svg> Clientes</div>
+      <div class="side-section">Engagement</div>
+      <div class="side-item" data-go="locations"><svg class="ic"><use href="#i-pin"/></svg> Ubicaciones</div>
+      <div class="side-item active"><svg class="ic"><use href="#i-bell"/></svg> Notificaciones</div>
+      <div class="side-item"><svg class="ic"><use href="#i-spark"/></svg> Automatizaciones</div>
+      <div class="side-section">Operación</div>
+      <div class="side-item" data-go="scanner"><svg class="ic"><use href="#i-qr"/></svg> Escáner</div>
+      <div class="side-foot"><div class="avatar av-1">DD</div><div class="who">Dueño Demo <small>demo@clubify.local</small></div><div class="out" data-go="login"><svg class="ic" width="16" height="16"><use href="#i-out"/></svg></div></div>
+    </aside>
+    <div class="main">
+      <div class="page-head">
+        <h1>Notificaciones push <span class="crumb">/ 18 enviadas este mes</span></h1>
+      </div>
+
+      <div class="grid-2">
+        <div class="card card-pad">
+          <h3 style="margin:0 0 14px;font-size:15px;font-weight:600">Nueva notificación</h3>
+          <div><label class="label">Tarjeta</label><div class="input-sel"><select class="input"><option>Todos los pases (98)</option><option>Café del Día — 10 sellos (76)</option></select></div></div>
+          <div class="mt-3"><label class="label">Título</label><input class="input" value="Estás cerca!"/></div>
+          <div class="mt-3"><label class="label">Mensaje</label><textarea class="input">Ven hoy a Café del Día y reclama tu beneficio.</textarea></div>
+          <div class="row mt-4">
+            <span class="muted small">Llegará a <b style="color:var(--ink)">142 dispositivos</b></span>
+            <button class="btn btn-primary right"><svg class="ic"><use href="#i-send"/></svg> Enviar</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><h3>Historial</h3><div class="tabs"><button class="tab active">Todos</button><button class="tab">Push</button><button class="tab">Geo</button></div></div>
+          <div style="padding:6px 0">
+            <div style="padding:14px 20px;border-bottom:1px solid var(--line-2)">
+              <div class="row"><span class="badge badge-blue">GEO</span><span class="muted small right">28 abr · 14:30</span></div>
+              <div style="font-weight:600;margin-top:6px">Estás cerca de Café del Día</div>
+              <div class="muted small">Ven hoy y reclama tu beneficio.</div>
+              <div class="muted small mt-2">Targeted: 142 · Entregadas: 138 · Abiertas: 41</div>
+            </div>
+            <div style="padding:14px 20px;border-bottom:1px solid var(--line-2)">
+              <div class="row"><span class="badge badge-green">RECOMPENSA</span><span class="muted small right">25 abr · 10:15</span></div>
+              <div style="font-weight:600;margin-top:6px">Tu recompensa está lista</div>
+              <div class="muted small">¡Felicidades! Llegaste a 10 sellos. Reclama tu café gratis.</div>
+              <div class="muted small mt-2">Targeted: 89 · Entregadas: 87 · Abiertas: 52</div>
+            </div>
+            <div style="padding:14px 20px">
+              <div class="row"><span class="badge badge-amber">REENGAGE</span><span class="muted small right">22 abr · 09:00</span></div>
+              <div style="font-weight:600;margin-top:6px">Te extrañamos</div>
+              <div class="muted small">Vuelve esta semana y te regalamos 2 sellos extra.</div>
+              <div class="muted small mt-2">Targeted: 34 · Entregadas: 33 · Abiertas: 19</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============= SCANNER ============= -->
+<section id="scanner" class="screen">
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="side-head"><div class="side-logo" style="background:#10B981">C</div><div><div class="name">Café del Día</div><div class="sub">Panel de Control</div></div></div>
+      <div class="side-section">Principal</div>
+      <div class="side-item" data-go="tenant"><svg class="ic"><use href="#i-grid"/></svg> Dashboard</div>
+      <div class="side-item" data-go="cards"><svg class="ic"><use href="#i-card"/></svg> Tarjetas</div>
+      <div class="side-item" data-go="customers"><svg class="ic"><use href="#i-users"/></svg> Clientes</div>
+      <div class="side-section">Engagement</div>
+      <div class="side-item" data-go="locations"><svg class="ic"><use href="#i-pin"/></svg> Ubicaciones</div>
+      <div class="side-item" data-go="notifs"><svg class="ic"><use href="#i-bell"/></svg> Notificaciones</div>
+      <div class="side-item"><svg class="ic"><use href="#i-spark"/></svg> Automatizaciones</div>
+      <div class="side-section">Operación</div>
+      <div class="side-item active"><svg class="ic"><use href="#i-qr"/></svg> Escáner</div>
+      <div class="side-foot"><div class="avatar av-1">DD</div><div class="who">Dueño Demo <small>demo@clubify.local</small></div><div class="out" data-go="login"><svg class="ic" width="16" height="16"><use href="#i-out"/></svg></div></div>
+    </aside>
+    <div class="main">
+      <div class="page-head"><h1>Escáner <span class="crumb">/ Sede Centro</span></h1></div>
+      <div style="max-width:480px;margin:0 auto">
+        <div class="camera-box"></div>
+
+        <div class="card card-pad mt-4">
+          <div class="row"><div class="avatar av-1" style="width:44px;height:44px;font-size:14px">MP</div>
+            <div><div style="font-weight:600">María Pérez</div><div class="muted small">Café del Día — 10 sellos</div></div>
+            <span class="badge badge-blue right">Verificado</span>
+          </div>
+
+          <div class="stamps mt-4">
+            <span class="stamp full" style="border-color:var(--brand);background:var(--brand)"></span>
+            <span class="stamp full" style="border-color:var(--brand);background:var(--brand)"></span>
+            <span class="stamp full" style="border-color:var(--brand);background:var(--brand)"></span>
+            <span class="stamp" style="border-color:#E5E7EB"></span><span class="stamp" style="border-color:#E5E7EB"></span><span class="stamp" style="border-color:#E5E7EB"></span><span class="stamp" style="border-color:#E5E7EB"></span><span class="stamp" style="border-color:#E5E7EB"></span><span class="stamp" style="border-color:#E5E7EB"></span><span class="stamp" style="border-color:#E5E7EB"></span>
+          </div>
+          <div class="row mt-3"><b style="font-size:18px">3 / 10</b> <span class="muted small right">faltan 7 sellos</span></div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:18px">
+            <button class="btn btn-primary" style="justify-content:center"><svg class="ic"><use href="#i-plus"/></svg> 1 sello</button>
+            <button class="btn btn-ghost" style="justify-content:center">+ 5 sellos</button>
+            <button class="btn btn-ghost" style="justify-content:center"><svg class="ic"><use href="#i-gift"/></svg> Redimir</button>
+            <button class="btn btn-ghost" style="justify-content:center"><svg class="ic"><use href="#i-history"/></svg> Historial</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============= WALLET ============= -->
+<section id="wallet" class="screen">
+  <div style="max-width:1180px;margin:0 auto;padding:32px 24px">
+    <div class="page-head">
+      <h1>Tarjetas en Wallet <span class="crumb">/ así las verán tus clientes</span></h1>
+      <div class="actions">
+        <button class="btn btn-ghost">Ver en Android</button>
+        <button class="btn btn-primary"><svg class="ic"><use href="#i-spark"/></svg> Probar en mi iPhone</button>
+      </div>
+    </div>
+
+    <p class="muted" style="max-width:680px;margin-bottom:22px">
+      Cuando un cliente agrega tu tarjeta a Apple Wallet, así se ve. Branded con tus colores, logo, hero image, datos del titular y QR único — actualizable en tiempo real cuando suma sellos o redime recompensas.
+    </p>
+
+    <!-- Galería de iPhones con 4 tarjetas distintas -->
+    <div style="display:flex;gap:18px;justify-content:center;flex-wrap:wrap;padding:10px 0 30px">
+
+      <!-- Card 1 — Coffee Corner / Sellos con strip de hero -->
+      <div class="iphone">
+        <div class="iphone-notch"></div>
+        <div class="iphone-screen">
+          <div class="iphone-bar"><span>11:42</span><div class="right-icons"><span></span><span style="width:14px;height:7px;border-radius:2px;background:#0F172A"></span><span style="width:18px;height:9px;border:1.5px solid #0F172A;background:transparent;border-radius:3px;position:relative"></span></div></div>
+          <div class="wallet-actions"><span class="ok">OK</span><div class="ic-row"><span>↑</span><span>···</span></div></div>
+          <div class="iphone-pass">
+            <div class="pass" style="background:#E8DCC4;color:#3B2A1B">
+              <div class="pass-head">
+                <div class="pass-logo"><span class="pl-mark" style="background:#3B2A1B;color:#E8DCC4">☕</span> Coffee Corner</div>
+                <div class="pass-side"><div class="lbl">CAFÉS GRATIS</div><div class="val">3</div></div>
+              </div>
+              <div class="pass-strip" style="background:linear-gradient(135deg,#5A3A24,#8B6F4F);height:80px">
+                <div class="strip-stamps">
+                  <div class="strip-stamp full" style="color:#5A3A24">✓</div>
+                  <div class="strip-stamp full" style="color:#5A3A24">✓</div>
+                  <div class="strip-stamp full" style="color:#5A3A24">✓</div>
+                  <div class="strip-stamp">☕</div>
+                  <div class="strip-stamp">☕</div>
+                  <div class="strip-stamp">☕</div>
+                </div>
+              </div>
+              <div class="pass-fields">
+                <div class="pf"><div class="lbl">TITULAR</div><div class="val">RICARDO PÉREZ</div></div>
+              </div>
+              <div class="pass-bar">
+                <svg class="qr" viewBox="0 0 21 21" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><rect width="21" height="21" fill="#fff"/><g fill="#0F172A"><rect x="0" y="0" width="7" height="7"/><rect x="1" y="1" width="5" height="5" fill="#fff"/><rect x="2" y="2" width="3" height="3"/><rect x="14" y="0" width="7" height="7"/><rect x="15" y="1" width="5" height="5" fill="#fff"/><rect x="16" y="2" width="3" height="3"/><rect x="0" y="14" width="7" height="7"/><rect x="1" y="15" width="5" height="5" fill="#fff"/><rect x="2" y="16" width="3" height="3"/><rect x="8" y="0" width="1" height="1"/><rect x="10" y="0" width="1" height="1"/><rect x="12" y="0" width="1" height="1"/><rect x="9" y="2" width="1" height="1"/><rect x="11" y="2" width="1" height="1"/><rect x="8" y="4" width="1" height="1"/><rect x="12" y="4" width="1" height="1"/><rect x="0" y="8" width="1" height="1"/><rect x="2" y="8" width="1" height="1"/><rect x="4" y="8" width="1" height="1"/><rect x="6" y="8" width="1" height="1"/><rect x="8" y="8" width="1" height="1"/><rect x="9" y="9" width="1" height="1"/><rect x="11" y="9" width="1" height="1"/><rect x="13" y="8" width="1" height="1"/><rect x="15" y="8" width="1" height="1"/><rect x="17" y="8" width="1" height="1"/><rect x="19" y="8" width="1" height="1"/><rect x="8" y="10" width="1" height="1"/><rect x="10" y="10" width="1" height="1"/><rect x="12" y="10" width="1" height="1"/><rect x="14" y="10" width="1" height="1"/><rect x="16" y="10" width="1" height="1"/><rect x="18" y="10" width="1" height="1"/><rect x="20" y="10" width="1" height="1"/><rect x="9" y="12" width="1" height="1"/><rect x="11" y="12" width="1" height="1"/><rect x="13" y="12" width="1" height="1"/><rect x="15" y="12" width="1" height="1"/><rect x="17" y="12" width="1" height="1"/><rect x="19" y="12" width="1" height="1"/><rect x="8" y="14" width="1" height="1"/><rect x="10" y="14" width="1" height="1"/><rect x="12" y="14" width="1" height="1"/><rect x="14" y="14" width="1" height="1"/><rect x="16" y="14" width="1" height="1"/><rect x="18" y="14" width="1" height="1"/><rect x="8" y="16" width="1" height="1"/><rect x="10" y="16" width="1" height="1"/><rect x="14" y="16" width="1" height="1"/><rect x="16" y="16" width="1" height="1"/><rect x="18" y="16" width="1" height="1"/><rect x="20" y="16" width="1" height="1"/><rect x="8" y="18" width="1" height="1"/><rect x="11" y="18" width="1" height="1"/><rect x="13" y="18" width="1" height="1"/><rect x="15" y="18" width="1" height="1"/><rect x="17" y="18" width="1" height="1"/><rect x="19" y="18" width="1" height="1"/></g></svg>
+                <div class="pager"><span></span><span class="on"></span><span></span><span></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 2 — Veterinaria / Saldo (gift card) con foto hero -->
+      <div class="iphone">
+        <div class="iphone-notch"></div>
+        <div class="iphone-screen">
+          <div class="iphone-bar"><span>19:16</span><div class="right-icons"><span></span><span style="width:14px;height:7px;border-radius:2px;background:#0F172A"></span><span style="width:18px;height:9px;border:1.5px solid #0F172A;background:transparent;border-radius:3px"></span></div></div>
+          <div class="wallet-actions"><span class="ok">OK</span><div class="ic-row"><span>↑</span><span>···</span></div></div>
+          <div class="iphone-pass">
+            <div class="pass" style="background:#9CA3AF;color:#fff">
+              <div class="pass-head">
+                <div class="pass-logo"><span class="pl-mark" style="background:#FCD34D;color:#78350F">🐾</span> Clínica Veterinaria</div>
+                <div class="pass-side"><div class="lbl">SALDO</div><div class="val">5,00 €</div></div>
+              </div>
+              <div class="pass-strip" style="background:linear-gradient(135deg,#D1D5DB,#6B7280);height:90px;display:flex;align-items:center;justify-content:center">
+                <div style="font-size:48px">🐩</div>
+              </div>
+              <div class="pass-fields">
+                <div class="pf"><div class="lbl">TITULAR</div><div class="val">ANTONIO FERNÁNDEZ</div></div>
+                <div class="pf" style="text-align:right"><div class="lbl">MASCOTA</div><div class="val" style="font-style:italic;font-weight:500">Perry</div></div>
+              </div>
+              <div class="pass-bar">
+                <svg class="qr" viewBox="0 0 21 21" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><rect width="21" height="21" fill="#fff"/><g fill="#0F172A"><rect x="0" y="0" width="7" height="7"/><rect x="1" y="1" width="5" height="5" fill="#fff"/><rect x="2" y="2" width="3" height="3"/><rect x="14" y="0" width="7" height="7"/><rect x="15" y="1" width="5" height="5" fill="#fff"/><rect x="16" y="2" width="3" height="3"/><rect x="0" y="14" width="7" height="7"/><rect x="1" y="15" width="5" height="5" fill="#fff"/><rect x="2" y="16" width="3" height="3"/><rect x="9" y="0" width="1" height="1"/><rect x="11" y="1" width="1" height="1"/><rect x="13" y="2" width="1" height="1"/><rect x="8" y="3" width="1" height="1"/><rect x="10" y="4" width="1" height="1"/><rect x="12" y="5" width="1" height="1"/><rect x="0" y="9" width="1" height="1"/><rect x="2" y="10" width="1" height="1"/><rect x="4" y="11" width="1" height="1"/><rect x="6" y="9" width="1" height="1"/><rect x="8" y="8" width="1" height="1"/><rect x="10" y="9" width="1" height="1"/><rect x="12" y="11" width="1" height="1"/><rect x="14" y="9" width="1" height="1"/><rect x="16" y="11" width="1" height="1"/><rect x="18" y="9" width="1" height="1"/><rect x="20" y="11" width="1" height="1"/><rect x="9" y="13" width="1" height="1"/><rect x="11" y="14" width="1" height="1"/><rect x="13" y="13" width="1" height="1"/><rect x="15" y="15" width="1" height="1"/><rect x="17" y="13" width="1" height="1"/><rect x="19" y="15" width="1" height="1"/><rect x="9" y="16" width="1" height="1"/><rect x="11" y="17" width="1" height="1"/><rect x="13" y="18" width="1" height="1"/><rect x="15" y="19" width="1" height="1"/><rect x="17" y="17" width="1" height="1"/><rect x="19" y="19" width="1" height="1"/><rect x="8" y="20" width="1" height="1"/><rect x="10" y="20" width="1" height="1"/><rect x="12" y="20" width="1" height="1"/><rect x="14" y="20" width="1" height="1"/><rect x="16" y="20" width="1" height="1"/><rect x="18" y="20" width="1" height="1"/></g></svg>
+                <div class="pager"><span></span><span class="on"></span><span></span><span></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 3 — Desayunería (puntos, naranja, sun rays) -->
+      <div class="iphone">
+        <div class="iphone-notch"></div>
+        <div class="iphone-screen">
+          <div class="iphone-bar"><span>11:12</span><div class="right-icons"><span></span><span style="width:14px;height:7px;border-radius:2px;background:#0F172A"></span><span style="width:18px;height:9px;border:1.5px solid #0F172A;background:transparent;border-radius:3px"></span></div></div>
+          <div class="wallet-actions"><span class="ok">OK</span><div class="ic-row"><span>↑</span><span>···</span></div></div>
+          <div class="iphone-pass">
+            <div class="pass" style="background:#F59E0B;color:#1C1917">
+              <div class="pass-head">
+                <div class="pass-logo"><span class="pl-mark" style="background:#1C1917;color:#F59E0B">🍳</span> La Desayunería</div>
+                <div class="pass-side"><div class="lbl">PUNTOS</div><div class="val">240</div></div>
+              </div>
+              <div class="pass-strip" style="background:radial-gradient(circle at center,#FCD34D 0%,#F59E0B 70%);height:90px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden">
+                <div style="position:absolute;inset:0;background:repeating-conic-gradient(from 0deg at 50% 50%,rgba(255,255,255,.15) 0deg 20deg,transparent 20deg 40deg);opacity:.5"></div>
+                <div style="background:#1C1917;color:#F59E0B;padding:6px 14px;border-radius:50%;font-weight:700;font-size:11px;letter-spacing:.05em;text-align:center;line-height:1;width:62px;height:62px;display:flex;flex-direction:column;justify-content:center;border:3px solid #FCD34D;position:relative;z-index:2">BREAK<br>FAST<br><span style="font-size:8px;opacity:.7">CLUB</span></div>
+              </div>
+              <div class="pass-fields">
+                <div class="pf"><div class="lbl">TITULAR</div><div class="val">JUAN IVÁN GONZÁLEZ</div></div>
+                <div class="pf" style="text-align:right"><div class="lbl">Nº TARJETA</div><div class="val" style="font-family:'Inter',sans-serif">C539003522</div></div>
+              </div>
+              <div class="pass-bar">
+                <svg class="qr" viewBox="0 0 21 21" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><rect width="21" height="21" fill="#fff"/><g fill="#0F172A"><rect x="0" y="0" width="7" height="7"/><rect x="1" y="1" width="5" height="5" fill="#fff"/><rect x="2" y="2" width="3" height="3"/><rect x="14" y="0" width="7" height="7"/><rect x="15" y="1" width="5" height="5" fill="#fff"/><rect x="16" y="2" width="3" height="3"/><rect x="0" y="14" width="7" height="7"/><rect x="1" y="15" width="5" height="5" fill="#fff"/><rect x="2" y="16" width="3" height="3"/><rect x="8" y="1" width="1" height="1"/><rect x="10" y="3" width="1" height="1"/><rect x="12" y="0" width="1" height="1"/><rect x="9" y="4" width="1" height="1"/><rect x="11" y="5" width="1" height="1"/><rect x="8" y="6" width="1" height="1"/><rect x="13" y="2" width="1" height="1"/><rect x="0" y="8" width="1" height="1"/><rect x="3" y="10" width="1" height="1"/><rect x="5" y="11" width="1" height="1"/><rect x="6" y="8" width="1" height="1"/><rect x="8" y="10" width="1" height="1"/><rect x="10" y="8" width="1" height="1"/><rect x="11" y="11" width="1" height="1"/><rect x="13" y="9" width="1" height="1"/><rect x="14" y="11" width="1" height="1"/><rect x="16" y="8" width="1" height="1"/><rect x="18" y="11" width="1" height="1"/><rect x="20" y="9" width="1" height="1"/><rect x="9" y="12" width="1" height="1"/><rect x="11" y="13" width="1" height="1"/><rect x="14" y="13" width="1" height="1"/><rect x="16" y="12" width="1" height="1"/><rect x="18" y="13" width="1" height="1"/><rect x="9" y="15" width="1" height="1"/><rect x="11" y="16" width="1" height="1"/><rect x="13" y="15" width="1" height="1"/><rect x="15" y="14" width="1" height="1"/><rect x="17" y="16" width="1" height="1"/><rect x="19" y="14" width="1" height="1"/><rect x="9" y="18" width="1" height="1"/><rect x="11" y="19" width="1" height="1"/><rect x="13" y="20" width="1" height="1"/><rect x="15" y="18" width="1" height="1"/><rect x="17" y="20" width="1" height="1"/><rect x="19" y="17" width="1" height="1"/></g></svg>
+                <div class="pager"><span></span><span class="on"></span><span></span><span></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 4 — Tardeos Grace (membresía elegante, burdeos + script logo) -->
+      <div class="iphone">
+        <div class="iphone-notch"></div>
+        <div class="iphone-screen">
+          <div class="iphone-bar"><span>11:42</span><div class="right-icons"><span></span><span style="width:14px;height:7px;border-radius:2px;background:#0F172A"></span><span style="width:18px;height:9px;border:1.5px solid #0F172A;background:transparent;border-radius:3px"></span></div></div>
+          <div class="wallet-actions"><span class="ok">OK</span><div class="ic-row"><span>↑</span><span>···</span></div></div>
+          <div class="iphone-pass">
+            <div class="pass" style="background:linear-gradient(180deg,#7B1A2E 0%,#5C0F22 100%);color:#F5E6D3">
+              <div class="pass-head">
+                <div class="pass-logo" style="font-family:'Inter',sans-serif;letter-spacing:.16em;font-size:11px;font-weight:600">TARDEOS GRACE</div>
+                <div class="pass-side"></div>
+              </div>
+              <div class="pass-strip" style="background:linear-gradient(180deg,#7B1A2E 0%,#5C0F22 100%);height:120px;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#E8C77F">
+                <div style="font-family:'Brush Script MT','Lucida Handwriting',cursive;font-size:64px;font-weight:400;letter-spacing:.02em;line-height:1;font-style:italic">Grace</div>
+                <div style="font-size:8px;letter-spacing:.4em;text-transform:uppercase;margin-top:2px;opacity:.85">— EVENTOS —</div>
+              </div>
+              <div class="pass-fields">
+                <div class="pf"><div class="lbl">TITULAR</div><div class="val">RICARDO PÉREZ</div></div>
+              </div>
+              <div class="pass-bar">
+                <svg class="qr" viewBox="0 0 21 21" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><rect width="21" height="21" fill="#fff"/><g fill="#0F172A"><rect x="0" y="0" width="7" height="7"/><rect x="1" y="1" width="5" height="5" fill="#fff"/><rect x="2" y="2" width="3" height="3"/><rect x="14" y="0" width="7" height="7"/><rect x="15" y="1" width="5" height="5" fill="#fff"/><rect x="16" y="2" width="3" height="3"/><rect x="0" y="14" width="7" height="7"/><rect x="1" y="15" width="5" height="5" fill="#fff"/><rect x="2" y="16" width="3" height="3"/><rect x="8" y="2" width="1" height="1"/><rect x="10" y="1" width="1" height="1"/><rect x="12" y="3" width="1" height="1"/><rect x="9" y="5" width="1" height="1"/><rect x="11" y="4" width="1" height="1"/><rect x="13" y="0" width="1" height="1"/><rect x="0" y="9" width="1" height="1"/><rect x="2" y="11" width="1" height="1"/><rect x="4" y="9" width="1" height="1"/><rect x="6" y="11" width="1" height="1"/><rect x="8" y="9" width="1" height="1"/><rect x="10" y="11" width="1" height="1"/><rect x="11" y="8" width="1" height="1"/><rect x="13" y="10" width="1" height="1"/><rect x="15" y="9" width="1" height="1"/><rect x="17" y="11" width="1" height="1"/><rect x="19" y="8" width="1" height="1"/><rect x="20" y="10" width="1" height="1"/><rect x="9" y="13" width="1" height="1"/><rect x="11" y="12" width="1" height="1"/><rect x="13" y="14" width="1" height="1"/><rect x="15" y="13" width="1" height="1"/><rect x="17" y="14" width="1" height="1"/><rect x="19" y="12" width="1" height="1"/><rect x="9" y="16" width="1" height="1"/><rect x="11" y="18" width="1" height="1"/><rect x="13" y="17" width="1" height="1"/><rect x="15" y="16" width="1" height="1"/><rect x="17" y="18" width="1" height="1"/><rect x="19" y="16" width="1" height="1"/><rect x="9" y="19" width="1" height="1"/><rect x="11" y="20" width="1" height="1"/><rect x="13" y="20" width="1" height="1"/><rect x="15" y="19" width="1" height="1"/><rect x="17" y="20" width="1" height="1"/><rect x="19" y="20" width="1" height="1"/></g></svg>
+                <div class="pager"><span></span><span class="on"></span><span></span><span></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- CTA agregar a Wallet -->
+    <div style="max-width:520px;margin:0 auto">
+      <div class="card card-pad" style="text-align:center">
+        <h3 style="margin:0;font-size:18px;font-weight:600">¿Tu cliente recibió el link?</h3>
+        <p class="muted small mt-2" style="line-height:1.5">Al abrir el link en el iPhone aparece "Add to Apple Wallet". En Android, "Save to Google Wallet". El pase se actualiza solo cuando sumas sellos o redime recompensas.</p>
+        <div style="display:grid;gap:10px;margin-top:18px">
+          <button class="btn btn-primary" style="width:100%;background:#000;border-color:#000;justify-content:center;padding:14px"> Add to Apple Wallet</button>
+          <button class="btn btn-ghost" style="width:100%;justify-content:center;padding:14px">Save to Google Wallet</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============= REFER ============= -->
+<section id="refer" class="screen">
+  <div class="land-shell" style="max-width:560px">
+    <div class="land-nav"><div class="land-brand"><span class="b">C</span> Clubify</div></div>
+    <h1 style="font-size:36px;font-weight:700;letter-spacing:-.02em;margin:14px 0 4px">Programa de referidos</h1>
+    <p class="muted">Recomienda Clubify y gana <b style="color:var(--brand)">20% de comisión</b> por cada negocio que se vuelva cliente pago.</p>
+
+    <div class="card card-pad mt-4">
+      <div><label class="label">Nombre completo</label><input class="input" placeholder="Tu nombre"/></div>
+      <div class="mt-3"><label class="label">WhatsApp</label><input class="input" placeholder="+57 300 000 0000"/></div>
+      <div class="mt-3"><label class="label">Correo electrónico</label><input class="input" placeholder="tu@correo.com"/></div>
+      <button class="btn btn-primary mt-4" style="width:100%;justify-content:center" onclick="document.getElementById('refer-result').style.display='block'"><svg class="ic"><use href="#i-spark"/></svg> Generar mi código</button>
+    </div>
+
+    <div class="card card-pad mt-4" id="refer-result" style="display:none">
+      <div class="row"><svg class="ic" width="22" height="22" style="color:var(--green)"><use href="#i-check"/></svg> <h3 style="margin:0;font-size:18px;font-weight:600">¡Tu código está listo!</h3></div>
+      <div class="muted small mt-3" style="text-transform:uppercase;letter-spacing:.12em;font-weight:600">Código</div>
+      <div style="font-size:42px;font-weight:700;color:var(--brand);letter-spacing:.04em;margin-top:4px">H7K2P9MX</div>
+      <div class="muted small mt-3" style="text-transform:uppercase;letter-spacing:.12em;font-weight:600">Link para compartir</div>
+      <div class="row mt-2" style="background:var(--brand-soft);padding:12px;border-radius:10px">
+        <code style="font-size:12px;color:var(--brand-700);flex:1">https://clubify.app/?ref=H7K2P9MX</code>
+        <button class="btn btn-link" style="padding:0;font-weight:600">Copiar</button>
+      </div>
+      <div class="muted small mt-3">Comisión: <b>20%</b> por cada cliente pago referido.</div>
+    </div>
+  </div>
+</section>
+
+<script>
+function go(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  const t = document.getElementById(id);
+  if (t) t.classList.add('active');
+  document.querySelectorAll('.demo-bar [data-go]').forEach(p=>p.classList.toggle('active', p.dataset.go===id));
+  window.scrollTo(0,0);
+}
+document.body.addEventListener('click', e => {
+  const t = e.target.closest('[data-go]');
+  if (t) go(t.dataset.go);
+});
+
+// constructor preview live (anatomía Apple Wallet)
+function renderPreview(){
+  const name = (document.getElementById('b-name')||{}).value || 'Tarjeta';
+  const reward = (document.getElementById('b-reward')||{}).value || '';
+  const stamps = parseInt((document.getElementById('b-stamps')||{}).value || '10', 10);
+  const c1 = (document.getElementById('b-c1')||{}).value || '#5B5EEE';
+  const c2 = (document.getElementById('b-c2')||{}).value || '#C026D3';
+  const pass = document.getElementById('preview-pass');
+  if (!pass) return;
+  pass.style.background = `linear-gradient(135deg, ${c1}, ${c2})`;
+  // brand label = primer fragmento del nombre antes del guión
+  const brand = name.split('—')[0].trim() || 'Tu marca';
+  document.getElementById('prev-brand').textContent = brand;
+  document.getElementById('prev-mark').textContent = (brand[0]||'C').toUpperCase();
+  document.getElementById('prev-mark').style.background = 'rgba(255,255,255,.18)';
+  document.getElementById('prev-reward-val').textContent = reward;
+  document.getElementById('prev-side-max').textContent = stamps;
+  // strip stamps (mostrar máx 7 visibles, 3 llenos)
+  const wrap = document.getElementById('prev-strip-stamps');
+  wrap.innerHTML = '';
+  const visible = Math.min(stamps, 7);
+  const filled = Math.min(3, visible);
+  for (let i=0;i<visible;i++){
+    const s = document.createElement('div');
+    s.className = 'strip-stamp' + (i<filled ? ' full' : '');
+    s.style.color = i<filled ? c1 : '#fff';
+    s.textContent = i<filled ? '✓' : '';
+    s.style.width='26px';s.style.height='26px';s.style.fontSize='12px';
+    wrap.appendChild(s);
+  }
+}
+['b-name','b-reward','b-stamps','b-c1','b-c2'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('input', renderPreview);
+});
+renderPreview();
+
+go('admin');
+</script>
+</body>
+</html>

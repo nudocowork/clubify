@@ -1,0 +1,45 @@
+{
+  "name": "Clubify Scanner",
+  "short_name": "Clubify",
+  "description": "Escáner de tarjetas y pases Clubify para staff",
+  "start_url": "/scan",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0E1A24",
+  "theme_color": "#6366F1",
+  "categories": ["business", "productivity"],
+  "lang": "es",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Escanear",
+      "url": "/scan",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Pedidos",
+      "url": "/app/orders",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

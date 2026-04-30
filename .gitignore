@@ -1,0 +1,36 @@
+node_modules
+.next
+dist
+.env
+.env.local
+.env.*.local
+*.log
+.DS_Store
+
+backend/certs/*
+!backend/certs/.gitkeep
+
+# build outputs
+backend/dist
+frontend/.next
+frontend/out
+
+# IDE
+.vscode
+.idea
+
+# Tools portables y artefactos locales
+.clubify-tools/
+/tmp/
+*.dmg
+backend/migrations/.snapshot
+.DS_Store
+
+# Vercel
+.vercel
+
+# Claude Code session data
+.claude/
+
+# TS build cache
+*.tsbuildinfo

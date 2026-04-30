@@ -1,0 +1,836 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+//                       ENUMS
+// ============================================================
+
+enum Role {
+  SUPER_ADMIN
+  TENANT_OWNER
+  TENANT_STAFF
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  TRIAL
+}
+
+enum CardType {
+  STAMPS
+  POINTS
+  DISCOUNT
+  MEMBERSHIP
+  COUPON
+  GIFT
+  MULTI
+}
+
+enum PassStatus {
+  ACTIVE
+  COMPLETED
+  REVOKED
+}
+
+enum WalletPlatform {
+  APPLE
+  GOOGLE
+}
+
+enum StampAction {
+  STAMP
+  POINTS_ADD
+  POINTS_DEDUCT
+  REDEEM
+  REFUND
+  VISIT
+}
+
+enum NotificationTrigger {
+  MANUAL
+  AUTOMATION
+  GEO
+}
+
+enum AutomationEvent {
+  STAMP_ADDED
+  POINTS_REACHED
+  INACTIVITY
+  GEO_ENTER
+  REWARD_REDEEMED
+  PASS_CREATED
+  ORDER_CREATED
+  ORDER_CONFIRMED
+  ORDER_DELIVERED
+  BIRTHDAY
+}
+
+enum ReferralStatus {
+  SIGNED_UP
+  ACTIVE
+  PAYING
+  CHURNED
+}
+
+enum PaymentStatus {
+  NOT_REQUIRED
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  CASH_ON_DELIVERY
+  STUB
+  STRIPE
+  MERCADO_PAGO
+  WOMPI
+  PSE
+}
+
+enum CommissionStatus {
+  PENDING
+  APPROVED
+  PAID
+  REJECTED
+}
+
+enum CartStatus {
+  OPEN
+  CHECKED_OUT
+  ABANDONED
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  READY
+  DELIVERED
+  CANCELLED
+}
+
+enum OrderChannel {
+  WHATSAPP_LINK
+  IN_APP
+  POS
+}
+
+enum Fulfillment {
+  PICKUP
+  DINE_IN
+  DELIVERY
+}
+
+enum OrderEventType {
+  CREATED
+  CONFIRMED
+  STATUS_CHANGED
+  MESSAGE_SENT
+  PAYMENT
+  NOTE
+  CANCELLED
+}
+
+enum PromotionType {
+  DISCOUNT_PCT
+  DISCOUNT_AMOUNT
+  BUY_X_GET_Y
+  COMBO
+  FREE_ITEM
+}
+
+enum ChannelType {
+  WHATSAPP_LINK
+  WHATSAPP_CLOUD
+  SMS_TWILIO
+  PUSH
+  EMAIL
+}
+
+enum MessageDirection {
+  OUT
+  IN
+}
+
+enum MessageStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum AutomationRunStatus {
+  SUCCESS
+  FAILED
+  SKIPPED
+}
+
+// ============================================================
+//                       CORE
+// ============================================================
+
+model Plan {
+  id            String   @id @default(uuid())
+  name          String   @unique
+  maxLocations  Int      @default(3)
+  maxCards      Int      @default(5)
+  maxCustomers  Int      @default(1000)
+  maxProducts   Int      @default(50)
+  maxOrdersMonth Int     @default(500)
+  pushIncluded  Int      @default(1000)
+  whatsappIncluded Int   @default(1000)
+  priceMonthly  Decimal  @default(0) @db.Decimal(10, 2)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  tenants       Tenant[]
+}
+
+model Tenant {
+  id                   String       @id @default(uuid())
+  name                 String
+  brandName            String
+  slug                 String       @unique
+  email                String
+  phone                String?
+  whatsappPhone        String?
+  logoUrl              String?
+  primaryColor         String       @default("#6366F1")
+  secondaryColor       String       @default("#C026D3")
+  status               TenantStatus @default(TRIAL)
+  planId               String
+  plan                 Plan         @relation(fields: [planId], references: [id])
+  maxLocationsOverride Int?
+  referredByCode       String?
+  currency             String       @default("COP")
+  timezone             String       @default("America/Bogota")
+  instagramUrl         String?
+  facebookUrl          String?
+  mapsUrl              String?
+  createdAt            DateTime     @default(now())
+
+  users         User[]
+  cards         Card[]
+  customers     Customer[]
+  passes        Pass[]
+  locations     Location[]
+  stamps        Stamp[]
+  walletNotifications Notification[]
+  automations   AutomationRule[]
+  referralUses  ReferralUse[]
+  categories    Category[]
+  products      Product[]
+  carts         Cart[]
+  orders        Order[]
+  promotions    Promotion[]
+  channelConfigs ChannelConfig[]
+  messages      Message[]
+  templates     MessageTemplate[]
+  storefront    Storefront?
+  infoLinks     InfoLink[]
+  events        Event[]
+
+  @@index([status])
+}
+
+model User {
+  id           String    @id @default(uuid())
+  tenantId     String?
+  tenant       Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  email        String    @unique
+  passwordHash String
+  fullName     String
+  phone        String?
+  role         Role
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+
+  stampsOperated Stamp[] @relation("operator")
+  referralCodes  ReferralCode[]
+  auditLogs      AuditLog[]
+
+  @@index([tenantId])
+  @@index([role])
+}
+
+model Customer {
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  email      String?
+  phone      String?
+  fullName   String
+  birthday   DateTime? @db.Date
+  externalId String?
+
+  // Extended for v2
+  firstOrderAt        DateTime?
+  lastOrderAt         DateTime?
+  totalOrdersCount    Int       @default(0)
+  totalOrdersAmount   Decimal   @default(0) @db.Decimal(12, 2)
+  tags                String[]
+  marketingOptIn      Boolean   @default(true)
+  whatsappVerified    Boolean   @default(false)
+
+  createdAt  DateTime @default(now())
+
+  passes  Pass[]
+  stamps  Stamp[]
+  carts   Cart[]
+  orders  Order[]
+  messages Message[]
+
+  @@unique([tenantId, email])
+  @@unique([tenantId, phone])
+  @@index([tenantId])
+}
+
+// ============================================================
+//                       LOYALTY (v1)
+// ============================================================
+
+model Card {
+  id                 String   @id @default(uuid())
+  tenantId           String
+  tenant             Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type               CardType
+  name               String
+  description        String   @default("")
+  terms              String   @default("")
+  primaryColor       String   @default("#6366F1")
+  secondaryColor     String   @default("#C026D3")
+  logoUrl            String?
+  heroImageUrl       String?
+  iconUrl            String?
+  stampsRequired     Int?
+  rewardText         String   @default("")
+  pointsPerCurrency  Decimal? @db.Decimal(10, 2)
+  discountPercent    Int?
+  validFrom          DateTime? @db.Date
+  validUntil         DateTime? @db.Date
+  socialLinks        Json     @default("{}")
+  googleClassId      String?
+  isActive           Boolean  @default(true)
+  // v2: si está activa la integración orders→sello
+  autoStampOnOrder   Boolean  @default(true)
+  autoStampAmount    Int      @default(1)
+  createdAt          DateTime @default(now())
+
+  passes        Pass[]
+  notifications Notification[]
+
+  @@index([tenantId])
+}
+
+model Pass {
+  id              String     @id @default(uuid())
+  tenantId        String
+  tenant          Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cardId          String
+  card            Card       @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  customerId      String
+  customer        Customer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  serialNumber    String     @unique
+  qrToken         String     @unique
+  authToken       String
+  stampsCount     Int        @default(0)
+  pointsBalance   Decimal    @default(0) @db.Decimal(12, 2)
+  status          PassStatus @default(ACTIVE)
+  issuedAt        DateTime   @default(now())
+  lastActivityAt  DateTime?
+  googleObjectId  String?
+  applePassUrl    String?
+
+  stamps        Stamp[]
+  walletDevices WalletDevice[]
+
+  @@unique([cardId, customerId])
+  @@index([tenantId])
+  @@index([customerId])
+}
+
+model WalletDevice {
+  id              String         @id @default(uuid())
+  passId          String
+  pass            Pass           @relation(fields: [passId], references: [id], onDelete: Cascade)
+  platform        WalletPlatform
+  deviceLibraryId String
+  pushToken       String
+  createdAt       DateTime       @default(now())
+
+  @@unique([passId, deviceLibraryId])
+  @@index([passId])
+}
+
+model Stamp {
+  id         String      @id @default(uuid())
+  tenantId   String
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  passId     String
+  pass       Pass        @relation(fields: [passId], references: [id], onDelete: Cascade)
+  customerId String
+  customer   Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  locationId String?
+  location   Location?   @relation(fields: [locationId], references: [id])
+  operatorId String?
+  operator   User?       @relation("operator", fields: [operatorId], references: [id])
+  orderId    String?
+  order      Order?      @relation(fields: [orderId], references: [id])
+  action     StampAction
+  amount     Decimal     @default(1) @db.Decimal(10, 2)
+  note       String?
+  createdAt  DateTime    @default(now())
+
+  @@index([passId, createdAt])
+  @@index([tenantId, createdAt])
+}
+
+model Location {
+  id            String   @id @default(uuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  address       String   @default("")
+  latitude      Decimal  @db.Decimal(10, 7)
+  longitude     Decimal  @db.Decimal(10, 7)
+  radiusMeters  Int      @default(300)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  stamps Stamp[]
+  orders Order[]
+
+  @@index([tenantId])
+}
+
+model Notification {
+  id           String              @id @default(uuid())
+  tenantId     String
+  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cardId       String?
+  card         Card?               @relation(fields: [cardId], references: [id])
+  segment      Json?
+  title        String
+  body         String
+  triggerType  NotificationTrigger @default(MANUAL)
+  sentAt       DateTime?
+  stats        Json                @default("{}")
+  createdAt    DateTime            @default(now())
+
+  @@index([tenantId, sentAt])
+}
+
+// ============================================================
+//                       CATALOG (v2)
+// ============================================================
+
+model Category {
+  id          String     @id @default(uuid())
+  tenantId    String
+  tenant      Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  parentId    String?
+  parent      Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children    Category[] @relation("CategoryTree")
+  name        String
+  slug        String
+  description String?
+  imageUrl    String?
+  position    Int        @default(0)
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+
+  products Product[]
+
+  @@unique([tenantId, parentId, slug])
+  @@index([tenantId, position])
+}
+
+model Product {
+  id            String   @id @default(uuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  categoryId    String
+  category      Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  name          String
+  description   String   @default("")
+  basePrice     Decimal  @db.Decimal(10, 2)
+  imageUrl      String?
+  tags          String[]
+  isAvailable   Boolean  @default(true)
+  position      Int      @default(0)
+  timesOrdered  Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  variants ProductVariant[]
+  extras   ProductExtra[]
+
+  @@index([tenantId, categoryId, position])
+}
+
+model ProductVariant {
+  id         String  @id @default(uuid())
+  productId  String
+  product    Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  groupName  String   @default("Tamaño")
+  name       String
+  priceDelta Decimal  @default(0) @db.Decimal(10, 2)
+  isDefault  Boolean  @default(false)
+  position   Int      @default(0)
+}
+
+model ProductExtra {
+  id          String  @id @default(uuid())
+  productId   String
+  product     Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name        String
+  price       Decimal  @db.Decimal(10, 2)
+  maxQty      Int      @default(1)
+  isAvailable Boolean  @default(true)
+}
+
+// ============================================================
+//                       ORDERS (v2)
+// ============================================================
+
+model Cart {
+  id              String     @id @default(uuid())
+  tenantId        String
+  tenant          Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId      String?
+  customer        Customer?  @relation(fields: [customerId], references: [id])
+  sessionId       String
+  items           Json       @default("[]")
+  subtotal        Decimal    @default(0) @db.Decimal(10, 2)
+  discount        Decimal    @default(0) @db.Decimal(10, 2)
+  appliedPromos   Json       @default("[]")
+  total           Decimal    @default(0) @db.Decimal(10, 2)
+  status          CartStatus @default(OPEN)
+  updatedAt       DateTime   @updatedAt
+  createdAt       DateTime   @default(now())
+
+  @@unique([tenantId, sessionId])
+  @@index([tenantId, status])
+}
+
+model Order {
+  id                String       @id @default(uuid())
+  tenantId          String
+  tenant            Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId        String
+  customer          Customer     @relation(fields: [customerId], references: [id])
+  code              String       @unique
+  items             Json
+  subtotal          Decimal      @db.Decimal(10, 2)
+  discount          Decimal      @default(0) @db.Decimal(10, 2)
+  total             Decimal      @db.Decimal(10, 2)
+  status            OrderStatus  @default(PENDING)
+  channel           OrderChannel @default(WHATSAPP_LINK)
+  fulfillment       Fulfillment  @default(PICKUP)
+  tableNumber       String?
+  deliveryAddress   Json?
+  customerNote      String?
+  locationId        String?
+  location          Location?    @relation(fields: [locationId], references: [id])
+  appliedPromos     Json         @default("[]")
+  whatsappLink      String?
+
+  // Pagos online (v3)
+  paymentStatus     PaymentStatus @default(NOT_REQUIRED)
+  paymentMethod     PaymentMethod @default(CASH_ON_DELIVERY)
+  paymentProvider   String?       // p.ej. "stripe", "mercado_pago", "wompi", "stub"
+  paymentRef        String?       // id de la transacción del gateway
+  paymentUrl        String?       // URL/redirect para pagar
+  paidAt            DateTime?
+
+  confirmedAt       DateTime?
+  readyAt           DateTime?
+  deliveredAt       DateTime?
+  cancelledAt       DateTime?
+  createdAt         DateTime     @default(now())
+
+  events   OrderEvent[]
+  stamps   Stamp[]
+  redemptions PromotionRedemption[]
+
+  @@index([tenantId, status, createdAt])
+  @@index([customerId, createdAt])
+}
+
+model OrderEvent {
+  id        String         @id @default(uuid())
+  orderId   String
+  order     Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  type      OrderEventType
+  metadata  Json           @default("{}")
+  actorId   String?
+  createdAt DateTime       @default(now())
+
+  @@index([orderId, createdAt])
+}
+
+// ============================================================
+//                       PROMOTIONS (v2)
+// ============================================================
+
+model Promotion {
+  id                          String        @id @default(uuid())
+  tenantId                    String
+  tenant                      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name                        String
+  description                 String        @default("")
+  type                        PromotionType
+  value                       Decimal       @db.Decimal(10, 2)
+  conditions                  Json          @default("{}")
+  validFrom                   DateTime?
+  validUntil                  DateTime?
+  maxRedemptions              Int?
+  maxRedemptionsPerCustomer   Int?
+  isActive                    Boolean       @default(true)
+  createdAt                   DateTime      @default(now())
+
+  redemptions PromotionRedemption[]
+
+  @@index([tenantId, isActive])
+}
+
+model PromotionRedemption {
+  id           String    @id @default(uuid())
+  promotionId  String
+  promotion    Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  orderId      String
+  order        Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  customerId   String
+  amountSaved  Decimal   @db.Decimal(10, 2)
+  createdAt    DateTime  @default(now())
+
+  @@index([promotionId])
+}
+
+// ============================================================
+//                       AUTOMATIONS (v2)
+// ============================================================
+
+model AutomationRule {
+  id          String          @id @default(uuid())
+  tenantId    String
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  description String          @default("")
+  trigger     Json
+  conditions  Json            @default("[]")
+  actions     Json
+  stats       Json            @default("{}")
+  isActive    Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+
+  runs AutomationRun[]
+
+  @@index([tenantId, isActive])
+}
+
+model AutomationRun {
+  id           String              @id @default(uuid())
+  ruleId       String
+  rule         AutomationRule      @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  eventPayload Json
+  status       AutomationRunStatus
+  error        String?
+  executedAt   DateTime            @default(now())
+
+  @@index([ruleId, executedAt])
+}
+
+// ============================================================
+//                       CHANNELS (v2)
+// ============================================================
+
+model ChannelConfig {
+  id          String      @id @default(uuid())
+  tenantId    String
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type        ChannelType
+  config      Json
+  isActive    Boolean     @default(true)
+  isDefault   Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+
+  @@index([tenantId, type])
+}
+
+model Message {
+  id           String           @id @default(uuid())
+  tenantId     String
+  tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId   String?
+  customer     Customer?        @relation(fields: [customerId], references: [id])
+  channel      ChannelType
+  direction    MessageDirection
+  templateId   String?
+  body         String
+  mediaUrl     String?
+  ruleId       String?
+  status       MessageStatus    @default(QUEUED)
+  error        String?
+  externalId   String?
+  metadata     Json             @default("{}")
+  createdAt    DateTime         @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([customerId, createdAt])
+}
+
+model MessageTemplate {
+  id              String       @id @default(uuid())
+  tenantId        String
+  tenant          Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name            String
+  channel         ChannelType
+  body            String
+  variables       String[]
+  metaTemplateId  String?
+  isActive        Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+
+  @@index([tenantId])
+}
+
+// ============================================================
+//                       STOREFRONT (v2)
+// ============================================================
+
+model Storefront {
+  id            String   @id @default(uuid())
+  tenantId      String   @unique
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customDomain  String?  @unique
+  theme         Json     @default("{}")
+  blocks        Json     @default("[]")
+  description   String   @default("")
+  heroImageUrl  String?
+  isPublished   Boolean  @default(true)
+  createdAt     DateTime @default(now())
+}
+
+// ============================================================
+//                 INFO LINKS (mini-páginas tipo Linktree+)
+// ============================================================
+
+model InfoLink {
+  id            String   @id @default(uuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  slug          String
+  title         String
+  subtitle      String?
+  heroImageUrl  String?
+  gallery       Json     @default("[]")
+  sections      Json     @default("[]")
+  buttons       Json     @default("[]")
+  theme         Json     @default("{}")
+  isActive      Boolean  @default(true)
+  views         Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  events InfoLinkEvent[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, isActive])
+}
+
+model InfoLinkEvent {
+  id         String   @id @default(uuid())
+  infoLinkId String
+  infoLink   InfoLink @relation(fields: [infoLinkId], references: [id], onDelete: Cascade)
+  type       String
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now())
+
+  @@index([infoLinkId, type, createdAt])
+}
+
+// ============================================================
+//                       EVENTS (audit/analytics sink)
+// ============================================================
+
+model Event {
+  id         String    @id @default(uuid())
+  tenantId   String?
+  tenant     Tenant?   @relation(fields: [tenantId], references: [id])
+  customerId String?
+  type       String
+  payload    Json
+  createdAt  DateTime  @default(now())
+
+  @@index([tenantId, type, createdAt])
+}
+
+// ============================================================
+//                       REFERRALS (v1)
+// ============================================================
+
+model ReferralCode {
+  id                 String   @id @default(uuid())
+  code               String   @unique
+  ownerName          String
+  ownerEmail         String
+  ownerWhatsapp      String
+  ownerUserId        String?
+  ownerUser          User?    @relation(fields: [ownerUserId], references: [id])
+  commissionPercent  Decimal  @default(20) @db.Decimal(5, 2)
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+
+  uses ReferralUse[]
+}
+
+model ReferralUse {
+  id              String         @id @default(uuid())
+  referralCodeId  String
+  referralCode    ReferralCode   @relation(fields: [referralCodeId], references: [id], onDelete: Cascade)
+  tenantId        String?
+  tenant          Tenant?        @relation(fields: [tenantId], references: [id])
+  status          ReferralStatus @default(SIGNED_UP)
+  createdAt       DateTime       @default(now())
+  convertedAt     DateTime?
+
+  commissions Commission[]
+
+  @@index([referralCodeId, status])
+}
+
+model Commission {
+  id            String           @id @default(uuid())
+  referralUseId String
+  referralUse   ReferralUse      @relation(fields: [referralUseId], references: [id], onDelete: Cascade)
+  amount        Decimal          @db.Decimal(10, 2)
+  currency      String           @default("USD")
+  status        CommissionStatus @default(PENDING)
+  paidAt        DateTime?
+  createdAt     DateTime         @default(now())
+
+  @@index([status])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  actorId   String?
+  actor     User?    @relation(fields: [actorId], references: [id])
+  tenantId  String?
+  action    String
+  resource  String
+  metadata  Json     @default("{}")
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+}

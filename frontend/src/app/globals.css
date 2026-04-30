@@ -1,0 +1,246 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+  body {
+    @apply bg-bg text-ink antialiased font-sans;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+}
+
+@layer components {
+  /* Buttons (pill shape, Nudo style) */
+  .btn {
+    @apply inline-flex items-center gap-2 px-4 py-2.5 rounded-pill text-sm font-medium border border-transparent transition cursor-pointer leading-none;
+  }
+  .btn-primary {
+    @apply btn bg-brand text-white border-brand hover:bg-brand-700 hover:border-brand-700;
+  }
+  .btn-ghost {
+    @apply btn bg-white text-ink border-line hover:bg-bg2 hover:border-gray-300;
+  }
+  .btn-danger {
+    @apply btn bg-white text-bad border-red-200;
+  }
+  .btn-link {
+    @apply text-brand bg-transparent p-0 font-medium hover:underline cursor-pointer;
+  }
+
+  /* Forms */
+  .label {
+    @apply block text-xs font-medium text-mute mb-1.5;
+  }
+  .input {
+    @apply w-full px-3.5 py-2.5 border border-line bg-white rounded-input text-sm outline-none transition text-ink placeholder:text-mute2;
+  }
+  .input:focus {
+    @apply border-brand;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  }
+  textarea.input {
+    @apply min-h-24 resize-y;
+  }
+
+  /* Cards */
+  .card {
+    @apply bg-surface border border-line rounded-card shadow-sm2;
+  }
+  .card-pad {
+    @apply p-5;
+  }
+  .card-h {
+    @apply px-5 py-4 border-b border-line2 flex items-center justify-between gap-2;
+  }
+  .card-h h3 {
+    @apply m-0 text-[15px] font-semibold;
+  }
+
+  /* KPI */
+  .kpi {
+    @apply bg-white border border-line rounded-card p-5 shadow-sm2 relative;
+  }
+  .kpi-top {
+    @apply flex items-center justify-between mb-2.5;
+  }
+  .kpi-lbl {
+    @apply flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-mute;
+  }
+  .kpi-val {
+    @apply text-3xl font-bold tracking-tight leading-none;
+  }
+  .kpi-sub {
+    @apply text-xs text-mute mt-1.5;
+  }
+
+  /* Tabs (pill group) */
+  .tabs {
+    @apply inline-flex gap-1.5 bg-white border border-line rounded-pill p-1;
+  }
+  .tab {
+    @apply px-3.5 py-1.5 rounded-pill text-[13px] font-medium text-mute cursor-pointer border-0 bg-transparent transition;
+  }
+  .tab-active {
+    @apply bg-brand text-white;
+  }
+
+  /* Badges */
+  .badge {
+    @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium leading-none;
+  }
+  .badge-ok { @apply bg-ok-soft text-ok-ink; }
+  .badge-bad { @apply bg-bad-soft text-bad-ink; }
+  .badge-warn { @apply bg-warn-soft text-warn-ink; }
+  .badge-info { @apply bg-info-soft text-info-ink; }
+  .badge-mute { @apply bg-gray-100 text-gray-700; }
+
+  /* Page head */
+  .page-head {
+    @apply flex items-center justify-between gap-3 flex-wrap mb-5;
+  }
+  .page-title {
+    @apply text-xl sm:text-2xl font-bold tracking-tight m-0;
+  }
+  .page-crumb {
+    @apply text-mute2 text-xs sm:text-sm font-normal ml-1;
+  }
+
+  /* Tablas responsive: si overflow horizontal, scroll suave */
+  .table-wrap {
+    @apply overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0;
+  }
+}
+
+/* Wallet pass styles (Apple Wallet anatomy) */
+@layer components {
+  .pass {
+    @apply rounded-2xl text-white overflow-hidden flex flex-col;
+    box-shadow: 0 24px 48px -16px rgba(15, 23, 42, 0.35),
+      inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+  }
+  .pass-head {
+    @apply flex items-start justify-between gap-2.5 px-4 pt-3.5 pb-2.5;
+  }
+  .pass-logo {
+    @apply flex items-center gap-2 font-bold text-[13px];
+  }
+  .pass-logo-mark {
+    @apply w-[22px] h-[22px] rounded-full bg-white/20 flex items-center justify-center text-[11px] font-bold;
+  }
+  .pass-side {
+    @apply text-right;
+  }
+  .pass-side-lbl {
+    @apply text-[9px] tracking-[0.14em] uppercase opacity-85;
+  }
+  .pass-side-val {
+    @apply text-sm font-semibold mt-px;
+  }
+  .pass-strip {
+    @apply h-20 bg-cover bg-center bg-no-repeat relative;
+  }
+  .pass-fields {
+    @apply px-4 pt-3 pb-3.5 grid grid-cols-[1fr_auto] gap-3.5 items-end;
+  }
+  .pf-lbl {
+    @apply text-[9px] tracking-[0.14em] uppercase opacity-85 font-medium;
+  }
+  .pf-val {
+    @apply text-sm font-semibold mt-px tracking-[0.01em] truncate;
+  }
+  .pass-bar {
+    @apply bg-white text-ink p-3 flex flex-col items-center gap-1.5;
+  }
+  .pass-bar canvas,
+  .pass-bar svg {
+    @apply rounded;
+  }
+  .pager {
+    @apply flex gap-1 mt-1;
+  }
+  .pager-dot {
+    @apply w-1 h-1 rounded-full bg-gray-300;
+  }
+  .pager-dot.on {
+    @apply bg-gray-400;
+  }
+
+  /* iPhone frame */
+  .iphone {
+    width: 260px;
+    background: #0F172A;
+    border-radius: 38px;
+    padding: 8px;
+    box-shadow: 0 30px 60px -15px rgba(15, 23, 42, 0.35),
+      0 0 0 1px #1E293B, 0 0 0 4px #0B1220;
+  }
+  .iphone-screen {
+    @apply bg-white rounded-[30px] overflow-hidden relative;
+    min-height: 500px;
+  }
+  .iphone-bar {
+    @apply flex items-center justify-between px-4 pt-2.5 pb-1.5 text-[10px] font-semibold text-ink;
+  }
+  .iphone-notch {
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 80px;
+    height: 18px;
+    background: #0F172A;
+    border-radius: 0 0 12px 12px;
+    z-index: 5;
+  }
+  .wallet-actions {
+    @apply flex items-center justify-between px-3.5 pb-2;
+  }
+  .wallet-ok {
+    @apply text-[13px] text-info font-medium;
+  }
+}
+
+/* Stamps generic */
+.stamp {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.stamp.full {
+  background: #fff;
+  border-color: #fff;
+}
+.stamp.sm {
+  width: 20px;
+  height: 20px;
+}
+.strip-stamps {
+  @apply flex items-center justify-center gap-1.5 h-full px-3;
+}
+.strip-stamp {
+  @apply w-7 h-7 rounded-full bg-white/20 border-2 border-white/50 flex items-center justify-center text-white text-sm font-bold;
+}
+.strip-stamp.full {
+  @apply bg-white border-white;
+  color: var(--brand-color, #5B5EEE);
+}
+
+/* Avatars */
+.avatar {
+  @apply w-9 h-9 rounded-full inline-flex items-center justify-center text-white font-semibold text-[13px] flex-none;
+}
+.avatar-1 { background: #10B981; }
+.avatar-2 { background: #F97316; }
+.avatar-3 { background: #7C3AED; }
+.avatar-4 { background: #22C55E; }
+.avatar-5 { background: #A855F7; }
+.avatar-6 { background: #3B82F6; }
+.avatar-7 { background: #EC4899; }
