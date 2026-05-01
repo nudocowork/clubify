@@ -64,12 +64,25 @@ async function main() {
   });
 
   // ============ Super Admin ============
-  const adminHash = await argon2.hash('Clubify123!', { type: argon2.argon2id });
+  // En producción, definir SEED_ADMIN_EMAIL + SEED_ADMIN_PASSWORD para evitar
+  // dejar credenciales por defecto. Si no están seteados, fallback al demo local.
+  const adminEmail = process.env.SEED_ADMIN_EMAIL ?? 'admin@clubify.local';
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD ?? 'Clubify123!';
+  const isProdSeed = !!process.env.SEED_ADMIN_EMAIL;
+
+  if (process.env.NODE_ENV === 'production' && !process.env.SEED_ADMIN_EMAIL) {
+    console.warn(
+      '⚠ ADVERTENCIA: corriendo seed en NODE_ENV=production sin SEED_ADMIN_EMAIL/PASSWORD.\n' +
+        '   Vas a quedar con el admin demo (admin@clubify.local / Clubify123!) — CAMBIALO YA en /app/account.',
+    );
+  }
+
+  const adminHash = await argon2.hash(adminPassword, { type: argon2.argon2id });
   await prisma.user.upsert({
-    where: { email: 'admin@clubify.local' },
-    update: {},
+    where: { email: adminEmail },
+    update: isProdSeed ? { passwordHash: adminHash } : {}, // sólo refresca password si la env var lo indica
     create: {
-      email: 'admin@clubify.local',
+      email: adminEmail,
       passwordHash: adminHash,
       fullName: 'Super Admin',
       role: 'SUPER_ADMIN',
@@ -378,7 +391,7 @@ async function main() {
   });
 
   console.log('✅ Seed completo');
-  console.log('   Super Admin: admin@clubify.local / Clubify123!');
+  console.log(`   Super Admin: ${adminEmail} / ${isProdSeed ? '<oculto>' : adminPassword}`);
   console.log('   Tenant demo: demo@clubify.local / Demo123!');
   console.log(`   Storefront público: /m/cafe-del-dia`);
   console.log(`   Info link demo: /i/cafe-del-dia/eventos-mayo`);
