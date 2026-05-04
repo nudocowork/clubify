@@ -1,5 +1,6 @@
 import {
   Controller,
+  Get,
   Post,
   UploadedFile,
   UseInterceptors,
@@ -14,6 +15,11 @@ import { Roles } from '../common/decorators/roles.decorator';
 @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
 export class MediaController {
   constructor(private svc: MediaService) {}
+
+  @Get('config')
+  config() {
+    return { configured: this.svc.isConfigured() };
+  }
 
   @Post('upload')
   @UseInterceptors(FileInterceptor('file'))

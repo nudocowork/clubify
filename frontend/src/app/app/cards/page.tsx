@@ -3,63 +3,212 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
+import { toast } from '@/components/Toast';
+
+type CardType =
+  | 'STAMPS'
+  | 'POINTS'
+  | 'DISCOUNT'
+  | 'MEMBERSHIP'
+  | 'COUPON'
+  | 'GIFT'
+  | 'MULTI';
+
+type Card = {
+  id: string;
+  name: string;
+  type: CardType;
+  rewardText: string;
+  primaryColor: string;
+  secondaryColor: string;
+  stampsRequired: number | null;
+  isActive: boolean;
+  _count?: { passes: number };
+};
+
+const TYPE_LABEL: Record<CardType, string> = {
+  STAMPS: 'Sellos',
+  POINTS: 'Puntos',
+  DISCOUNT: 'Descuento',
+  MEMBERSHIP: 'Membresía',
+  COUPON: 'Cupón',
+  GIFT: 'Regalo',
+  MULTI: 'Múltiple',
+};
+
+const TYPE_EMOJI: Record<CardType, string> = {
+  STAMPS: '☕',
+  POINTS: '⭐',
+  DISCOUNT: '%',
+  MEMBERSHIP: '👑',
+  COUPON: '🎟',
+  GIFT: '🎁',
+  MULTI: '✨',
+};
+
+// Colores por tipo — usados como fallback si el card no tiene primary/secondary
+const TYPE_COLORS: Record<CardType, { primary: string; accent: string }> = {
+  STAMPS: { primary: '#22C55E', accent: '#4ADE80' },
+  POINTS: { primary: '#0EA5E9', accent: '#06B6D4' },
+  DISCOUNT: { primary: '#F59E0B', accent: '#EC4899' },
+  MEMBERSHIP: { primary: '#0F172A', accent: '#475569' },
+  COUPON: { primary: '#10B981', accent: '#22C55E' },
+  GIFT: { primary: '#EC4899', accent: '#F97316' },
+  MULTI: { primary: '#7C3AED', accent: '#DB2777' },
+};
 
 export default function CardsList() {
-  const [list, setList] = useState<any[]>([]);
+  const [list, setList] = useState<Card[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  async function load() {
+    setLoading(true);
+    try {
+      setList(await api<Card[]>('/cards'));
+    } catch (e: any) {
+      toast(e.message || 'Error cargando tarjetas', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
   useEffect(() => {
-    api('/cards').then(setList);
+    load();
   }, []);
+
+  const totalPasses = list.reduce((s, c) => s + (c._count?.passes ?? 0), 0);
+  const activeCount = list.filter((c) => c.isActive).length;
 
   return (
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Tarjetas <span className="page-crumb">/ {list.length} activas</span>
+          Tarjetas{' '}
+          <span className="page-crumb">
+            / {activeCount} activa{activeCount === 1 ? '' : 's'}
+          </span>
         </h1>
         <Link className="btn-primary" href="/app/cards/new">
           <Icon name="plus" /> Crear tarjeta
         </Link>
       </div>
 
+      {/* Resumen rápido */}
+      {list.length > 0 && (
+        <div className="grid grid-cols-3 gap-3 mb-4">
+          <Kpi label="Tarjetas" value={list.length} />
+          <Kpi label="Activas" value={activeCount} accent="ok" />
+          <Kpi label="Pases emitidos" value={totalPasses} accent="brand" />
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-        {list.length === 0 && (
-          <div className="card card-pad text-mute md:col-span-2 lg:col-span-3">
-            Crea tu primera tarjeta para empezar a fidelizar clientes.
+        {loading &&
+          Array.from({ length: 3 }).map((_, i) => (
+            <div key={`sk-${i}`} className="card card-pad">
+              <div className="h-32 bg-bg2 rounded-2xl animate-shimmer" />
+              <div className="h-4 bg-bg2 rounded mt-3 animate-shimmer" />
+            </div>
+          ))}
+
+        {!loading && list.length === 0 && (
+          <div className="card card-pad md:col-span-2 lg:col-span-3 text-center py-12">
+            <div className="text-5xl mb-3">🎟️</div>
+            <div className="font-semibold text-lg">
+              Crea tu primera tarjeta de fidelización
+            </div>
+            <div className="text-sm text-mute mt-1.5 max-w-md mx-auto leading-relaxed">
+              Tarjetas de sellos o puntos que viven en Apple Wallet y Google
+              Wallet. Tus clientes las suman con cada pedido y vuelven 3× más.
+            </div>
+            <Link href="/app/cards/new" className="btn-primary inline-flex mt-5">
+              <Icon name="plus" /> Crear mi primera tarjeta
+            </Link>
           </div>
         )}
-        {list.map((c) => (
-          <Link key={c.id} href={`/app/cards/${c.id}`} className="block">
-            <div className="card card-pad hover:shadow-md2 transition cursor-pointer">
-              <div
-                className="rounded-2xl p-4 text-white shadow-md2"
-                style={{
-                  background: `linear-gradient(135deg, ${c.primaryColor}, ${c.secondaryColor})`,
-                }}
-              >
-                <div className="text-[10px] tracking-[0.18em] uppercase opacity-85">
-                  {c.type}
-                </div>
-                <div className="font-semibold text-lg mt-1 leading-tight">{c.name}</div>
-                {c.type === 'STAMPS' && (
-                  <div className="flex flex-wrap gap-1.5 mt-3.5">
-                    {Array.from({ length: c.stampsRequired ?? 10 }).map((_, i) => (
-                      <span key={i} className="stamp sm" />
-                    ))}
+
+        {!loading &&
+          list.map((c) => {
+            const fallback = TYPE_COLORS[c.type] ?? TYPE_COLORS.STAMPS;
+            const primary = c.primaryColor || fallback.primary;
+            const accent = c.secondaryColor || fallback.accent;
+            const passes = c._count?.passes ?? 0;
+            return (
+              <Link key={c.id} href={`/app/cards/${c.id}`} className="block group">
+                <div
+                  className={`rounded-2xl p-5 text-white relative overflow-hidden h-full flex flex-col shadow-md2 transition group-hover:scale-[1.02] group-hover:shadow-xl ${
+                    !c.isActive ? 'opacity-70 grayscale' : ''
+                  }`}
+                  style={{
+                    background: `linear-gradient(135deg, ${primary}, ${accent})`,
+                  }}
+                >
+                  {/* Emoji watermark gigante de fondo */}
+                  <div
+                    className="absolute -right-6 -top-8 text-[140px] leading-none opacity-10 select-none pointer-events-none"
+                    aria-hidden
+                  >
+                    {TYPE_EMOJI[c.type] ?? '🎟'}
                   </div>
-                )}
-                <div className="text-xs opacity-90 mt-3.5">{c.rewardText || '—'}</div>
-              </div>
-              <div className="flex items-center justify-between mt-3 text-sm">
-                <span className="font-medium">
-                  {c.type === 'STAMPS' ? `${c.stampsRequired ?? 10} sellos` : c.type}
-                </span>
-                <span className="text-mute text-xs">
-                  {c._count?.passes ?? 0} pases
-                </span>
-              </div>
-            </div>
-          </Link>
-        ))}
+
+                  {!c.isActive && (
+                    <span className="absolute top-3 right-3 bg-white/95 text-ink text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                      Pausada
+                    </span>
+                  )}
+
+                  <div className="relative">
+                    <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider font-bold opacity-90">
+                      <span className="text-base">{TYPE_EMOJI[c.type] ?? '🎟'}</span>
+                      {TYPE_LABEL[c.type] ?? c.type}
+                    </div>
+                    <div className="font-bold text-lg mt-2 leading-tight line-clamp-2">
+                      {c.name}
+                    </div>
+                    <div className="text-sm opacity-85 mt-1 line-clamp-2">
+                      {c.rewardText || '—'}
+                    </div>
+                  </div>
+
+                  <div className="relative mt-auto pt-6 flex items-end justify-between">
+                    <div>
+                      <div className="text-3xl font-black leading-none">{passes}</div>
+                      <div className="text-[10px] uppercase tracking-wider opacity-80 mt-1">
+                        {passes === 1 ? 'pase activo' : 'pases activos'}
+                      </div>
+                    </div>
+                    <div className="text-xs opacity-90 underline group-hover:opacity-100">
+                      Ver →
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+      </div>
+    </div>
+  );
+}
+
+function Kpi({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: number;
+  accent?: 'brand' | 'ok';
+}) {
+  const cls: Record<string, string> = {
+    brand: 'text-brand',
+    ok: 'text-ok',
+  };
+  return (
+    <div className="card p-4">
+      <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
+        {label}
+      </div>
+      <div className={`text-xl font-bold mt-1 ${accent ? cls[accent] : ''}`}>
+        {value}
       </div>
     </div>
   );

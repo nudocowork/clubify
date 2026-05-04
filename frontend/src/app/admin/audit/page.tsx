@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
+import { toast } from '@/components/Toast';
 
 type Audit = {
   id: string;
@@ -52,6 +53,8 @@ export default function AuditLogsPage() {
       params.set('take', '200');
       const data = await api<Audit[]>(`/audit?${params}`);
       setItems(data);
+    } catch (e: any) {
+      toast(e.message || 'Error cargando audit log', 'error');
     } finally {
       setLoading(false);
     }

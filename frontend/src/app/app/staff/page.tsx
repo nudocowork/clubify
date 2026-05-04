@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { api, getUser } from '@/lib/api';
 import { Icon } from '@/components/Icon';
+import { toast } from '@/components/Toast';
 
 type Staff = {
   id: string;
@@ -46,7 +47,11 @@ export default function StaffPage() {
   const [err, setErr] = useState<string | null>(null);
 
   async function load() {
-    setList(await api<Staff[]>('/tenants/me/staff'));
+    try {
+      setList(await api<Staff[]>('/tenants/me/staff'));
+    } catch (e: any) {
+      toast(e.message || 'Error cargando empleados', 'error');
+    }
   }
   useEffect(() => {
     load();
@@ -73,34 +78,53 @@ export default function StaffPage() {
   }
 
   async function toggleActive(u: Staff) {
-    await api(`/tenants/me/staff/${u.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ isActive: !u.isActive }),
-    });
-    await load();
+    try {
+      await api(`/tenants/me/staff/${u.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive: !u.isActive }),
+      });
+      toast(u.isActive ? 'Empleado desactivado' : 'Empleado activado', 'success');
+      await load();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo actualizar', 'error');
+    }
   }
 
   async function changeRole(u: Staff, role: 'TENANT_OWNER' | 'TENANT_STAFF') {
-    await api(`/tenants/me/staff/${u.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ role }),
-    });
-    await load();
+    try {
+      await api(`/tenants/me/staff/${u.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ role }),
+      });
+      toast('Rol actualizado', 'success');
+      await load();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo cambiar el rol', 'error');
+    }
   }
 
   async function resetPwd(u: Staff) {
     if (!confirm(`¿Generar contraseña temporal para ${u.fullName}?`)) return;
-    const r = await api<{ tempPassword: string }>(
-      `/tenants/me/staff/${u.id}/reset-password`,
-      { method: 'POST', body: JSON.stringify({}) },
-    );
-    setTempCred({ email: u.email, tempPassword: r.tempPassword });
+    try {
+      const r = await api<{ tempPassword: string }>(
+        `/tenants/me/staff/${u.id}/reset-password`,
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+      setTempCred({ email: u.email, tempPassword: r.tempPassword });
+    } catch (e: any) {
+      toast(e.message || 'No se pudo resetear la contraseña', 'error');
+    }
   }
 
   async function remove(u: Staff) {
     if (!confirm(`¿Eliminar a ${u.fullName}? Esta acción es permanente.`)) return;
-    await api(`/tenants/me/staff/${u.id}`, { method: 'DELETE' });
-    await load();
+    try {
+      await api(`/tenants/me/staff/${u.id}`, { method: 'DELETE' });
+      toast('Empleado eliminado', 'success');
+      await load();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo eliminar', 'error');
+    }
   }
 
   function copyCred() {
@@ -132,8 +156,9 @@ export default function StaffPage() {
 
       {!isOwner && (
         <div className="card card-pad text-mute mb-4">
-          Solo el propietario puede gestionar el equipo. Pídele a quien tenga rol
-          <b> TENANT_OWNER</b> que te invite o cambie tus permisos.
+          Solo el propietario puede gestionar el equipo. Pídele al{' '}
+          <b className="text-ink">propietario</b> de la cuenta que te invite o
+          actualice tus permisos.
         </div>
       )}
 
@@ -243,6 +268,16 @@ export default function StaffPage() {
       )}
 
       <div className="grid gap-2.5">
+        {list.length === 0 && (
+          <div className="card card-pad text-center py-10">
+            <div className="text-3xl mb-1">👥</div>
+            <div className="font-semibold text-sm">Aún sin equipo</div>
+            <p className="text-xs text-mute mt-1 max-w-md mx-auto">
+              Invita a tu cajero o staff para que escaneen tarjetas y vean los
+              pedidos sin compartir tu contraseña.
+            </p>
+          </div>
+        )}
         {list.map((u) => (
           <div
             key={u.id}

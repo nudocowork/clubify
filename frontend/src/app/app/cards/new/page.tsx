@@ -24,11 +24,12 @@ export default function NewCard() {
     name: '',
     description: '',
     terms: '',
-    primaryColor: '#5B5EEE',
-    secondaryColor: '#C026D3',
+    primaryColor: '#22C55E',
+    secondaryColor: '#15803D',
     stampsRequired: 10,
     rewardText: '1 producto gratis',
     discountPercent: 10,
+    pointsPerCurrency: 0.001, // 1 punto cada $1.000
   });
   const [err, setErr] = useState<string | null>(null);
 
@@ -144,6 +145,26 @@ export default function NewCard() {
               />
             </div>
           )}
+          {form.type === 'POINTS' && (
+            <div className="mt-3">
+              <label className="label">Puntos por cada $1.000 de compra</label>
+              <input
+                type="number"
+                step={0.1}
+                className="input"
+                min={0.1}
+                max={100}
+                value={Number((form.pointsPerCurrency * 1000).toFixed(2))}
+                onChange={(e) =>
+                  set('pointsPerCurrency', Number(e.target.value) / 1000)
+                }
+              />
+              <div className="text-[11px] text-mute mt-1">
+                Ej: 1 punto por cada $1.000 → un pedido de $50.000 acumula 50
+                puntos automáticamente al confirmar.
+              </div>
+            </div>
+          )}
 
           <div className="mt-3 grid grid-cols-2 gap-3">
             <div>
@@ -213,10 +234,18 @@ export default function NewCard() {
                       </div>
                       <div className="pass-side">
                         <div className="pass-side-lbl">
-                          {form.type === 'STAMPS' ? 'SELLOS' : form.type}
+                          {TYPE_LABEL[form.type].toUpperCase()}
                         </div>
                         <div className="pass-side-val">
-                          {form.type === 'STAMPS' ? `3/${form.stampsRequired}` : '—'}
+                          {form.type === 'STAMPS'
+                            ? `3/${form.stampsRequired}`
+                            : form.type === 'POINTS'
+                            ? '120'
+                            : form.type === 'DISCOUNT'
+                            ? '10%'
+                            : form.type === 'MEMBERSHIP'
+                            ? 'Activa'
+                            : '—'}
                         </div>
                       </div>
                     </div>

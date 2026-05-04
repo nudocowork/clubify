@@ -16,20 +16,25 @@ export default {
         line: '#E5E7EB',
         line2: '#EEF0F3',
 
+        // Brand verde Clubify (logo gradient: #4FE83F → #00B23A)
         brand: {
-          DEFAULT: '#6366F1',
-          700: '#4F46E5',
-          soft: '#EEF2FF',
+          DEFAULT: '#22C55E',
+          700: '#15803D',
+          soft: '#DCFCE7',
+          100: '#BBF7D0',
+          400: '#4ADE80',
+          500: '#22C55E',
+          600: '#16A34A',
         },
 
         sidebar: {
-          bg: '#0E1A24',
-          bg2: '#0B1620',
+          bg: '#0B1F14',     // verde muy oscuro casi negro
+          bg2: '#081A11',
           ink: '#E5E7EB',
           mute: '#6B7790',
-          section: '#A5B4FC',
-          hover: '#172534',
-          active: '#5B5EEE',
+          section: '#86EFAC', // green-300 para secciones
+          hover: '#143822',
+          active: '#22C55E',
         },
 
         ok: { DEFAULT: '#16A34A', soft: '#DCFCE7', ink: '#166534' },
@@ -55,10 +60,36 @@ export default {
       boxShadow: {
         sm2: '0 1px 2px rgba(15,23,42,.04), 0 1px 1px rgba(15,23,42,.02)',
         md2: '0 6px 18px -8px rgba(15,23,42,.12), 0 2px 6px -2px rgba(15,23,42,.05)',
-        active: '0 6px 18px -8px rgba(91,94,238,.6), inset 0 0 0 1px rgba(255,255,255,.08)',
+        active: '0 6px 18px -8px rgba(34,197,94,.6), inset 0 0 0 1px rgba(255,255,255,.08)',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
+      },
+      keyframes: {
+        shimmer: {
+          '0%': { backgroundPosition: '200% 0' },
+          '100%': { backgroundPosition: '-200% 0' },
+        },
+        'bounce-once': {
+          '0%, 100%': { transform: 'translateY(0)' },
+          '20%': { transform: 'translateY(-12px)' },
+          '40%': { transform: 'translateY(-6px)' },
+          '60%': { transform: 'translateY(-3px)' },
+        },
+        'pulse-once': {
+          '0%, 100%': { boxShadow: '0 0 0 0 rgba(34,197,94,0.0)' },
+          '50%': { boxShadow: '0 0 0 8px rgba(34,197,94,0.25)' },
+        },
+        marquee: {
+          '0%': { transform: 'translateX(0)' },
+          '100%': { transform: 'translateX(-33.333%)' },
+        },
+      },
+      animation: {
+        shimmer: 'shimmer 1.4s ease-in-out infinite',
+        'bounce-once': 'bounce-once 1.6s ease-out 1',
+        'pulse-once': 'pulse-once 1.6s ease-out 2',
+        marquee: 'marquee 28s linear infinite',
       },
     },
   },

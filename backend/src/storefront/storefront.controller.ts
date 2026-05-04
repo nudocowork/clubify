@@ -2,11 +2,13 @@ import { Body, Controller, Get, Patch, Query } from '@nestjs/common';
 import {
   IsArray,
   IsBoolean,
+  IsEnum,
   IsObject,
   IsOptional,
   IsString,
   ValidateIf,
 } from 'class-validator';
+import { MenuLayout } from '@prisma/client';
 import { StorefrontService } from './storefront.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -18,6 +20,7 @@ class StorefrontBody {
   @IsOptional() @IsObject() theme?: any;
   @IsOptional() @IsArray() blocks?: any[];
   @IsOptional() @IsBoolean() isPublished?: boolean;
+  @IsOptional() @IsEnum(MenuLayout) menuLayout?: MenuLayout;
   @ValidateIf((_, v) => v !== null) @IsOptional() @IsString()
   customDomain?: string | null;
 }

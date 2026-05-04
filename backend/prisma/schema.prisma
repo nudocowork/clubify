@@ -194,6 +194,18 @@ model Plan {
   tenants       Tenant[]
 }
 
+model PasswordResetToken {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+}
+
 model Tenant {
   id                   String       @id @default(uuid())
   name                 String
@@ -215,6 +227,19 @@ model Tenant {
   instagramUrl         String?
   facebookUrl          String?
   mapsUrl              String?
+  // Trial / billing
+  trialStartedAt       DateTime?
+  trialEndsAt          DateTime?
+  currentPeriodEnd     DateTime?
+  hotmartSubscriberCode String?
+  hotmartTransactionId String?
+  failedPaymentCount   Int          @default(0)
+  lastPaymentAttemptAt DateTime?
+  suspendedAt          DateTime?
+  // Integración Grow Business (proveedor externo de SMS, conectado por super admin)
+  growBusinessLocationId   String?
+  growBusinessApiKey       String?
+  growBusinessConnectedAt  DateTime?
   createdAt            DateTime     @default(now())
 
   users         User[]
@@ -257,6 +282,7 @@ model User {
   stampsOperated Stamp[] @relation("operator")
   referralCodes  ReferralCode[]
   auditLogs      AuditLog[]
+  passwordResetTokens PasswordResetToken[]
 
   @@index([tenantId])
   @@index([role])
@@ -278,6 +304,7 @@ model Customer {
   totalOrdersCount    Int       @default(0)
   totalOrdersAmount   Decimal   @default(0) @db.Decimal(12, 2)
   tags                String[]
+  notes               String?   @db.Text
   marketingOptIn      Boolean   @default(true)
   whatsappVerified    Boolean   @default(false)
 
@@ -468,6 +495,11 @@ model Product {
   isAvailable   Boolean  @default(true)
   position      Int      @default(0)
   timesOrdered  Int      @default(0)
+  /// Stock disponible. NULL = sin tracking de inventario (siempre disponible).
+  /// 0 = agotado, se auto-deshabilita en storefront.
+  stock         Int?
+  /// Umbral para alerta "stock bajo". NULL = sin alerta.
+  stockAlert    Int?
   createdAt     DateTime @default(now())
 
   variants ProductVariant[]
@@ -557,12 +589,18 @@ model Order {
   cancelledAt       DateTime?
   createdAt         DateTime     @default(now())
 
+  // Calificación post-entrega (1-5 estrellas + comentario opcional)
+  rating            Int?
+  ratingComment     String?
+  ratedAt           DateTime?
+
   events   OrderEvent[]
   stamps   Stamp[]
   redemptions PromotionRedemption[]
 
   @@index([tenantId, status, createdAt])
   @@index([customerId, createdAt])
+  @@index([tenantId, ratedAt])
 }
 
 model OrderEvent {
@@ -587,6 +625,7 @@ model Promotion {
   tenant                      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name                        String
   description                 String        @default("")
+  imageUrl                    String?
   type                        PromotionType
   value                       Decimal       @db.Decimal(10, 2)
   conditions                  Json          @default("{}")
@@ -708,16 +747,25 @@ model MessageTemplate {
 // ============================================================
 
 model Storefront {
-  id            String   @id @default(uuid())
-  tenantId      String   @unique
-  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  customDomain  String?  @unique
-  theme         Json     @default("{}")
-  blocks        Json     @default("[]")
-  description   String   @default("")
+  id            String     @id @default(uuid())
+  tenantId      String     @unique
+  tenant        Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customDomain  String?    @unique
+  theme         Json       @default("{}")
+  blocks        Json       @default("[]")
+  description   String     @default("")
   heroImageUrl  String?
-  isPublished   Boolean  @default(true)
-  createdAt     DateTime @default(now())
+  menuLayout    MenuLayout @default(CLASSIC)
+  isPublished   Boolean    @default(true)
+  createdAt     DateTime   @default(now())
+}
+
+enum MenuLayout {
+  CLASSIC      // foto izq + info der + tabs sticky (Rappi/UberEats)
+  GRID         // 2 columnas, fotos cuadradas grandes (Instagram)
+  CAROUSELS    // hero + scroll horizontal por categoría (Netflix)
+  CLEAN        // lista limpia sin fotos, serif (boutique)
+  COMPACT      // lista compacta + modal sheet (DoorDash)
 }
 
 // ============================================================

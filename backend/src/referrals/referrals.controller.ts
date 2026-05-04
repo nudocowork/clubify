@@ -39,6 +39,12 @@ export class ReferralsController {
     return this.svc.list(user);
   }
 
+  @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
+  @Get('me')
+  listMine(@CurrentUser() user: AuthUser) {
+    return this.svc.listMine(user);
+  }
+
   @Roles('SUPER_ADMIN')
   @Post('uses/:id/commission')
   createCommission(@Param('id') id: string, @Body() body: { amount: number }) {

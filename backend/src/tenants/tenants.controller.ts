@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/commo
 import { IsEmail, IsHexColor, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 import { TenantsService } from './tenants.service';
 import { Roles } from '../common/decorators/roles.decorator';
+import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { TenantStatus } from '@prisma/client';
 
 class CreateTenantBody {
@@ -56,6 +57,16 @@ export class TenantsController {
   @Patch(':id/status')
   status(@Param('id') id: string, @Body() body: { status: TenantStatus }) {
     return this.svc.setStatus(id, body.status);
+  }
+
+  @Post(':id/extend-trial')
+  extendTrial(@Param('id') id: string, @Body() body: { days?: number }) {
+    return this.svc.extendTrial(id, body?.days ?? 7);
+  }
+
+  @Post(':id/impersonate')
+  impersonate(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.svc.impersonate(id, user.id);
   }
 
   @Delete(':id')

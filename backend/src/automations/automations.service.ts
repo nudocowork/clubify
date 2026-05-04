@@ -1,5 +1,7 @@
 import {
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
@@ -20,6 +22,7 @@ export type AutomationEvent =
   | 'ORDER_CREATED'
   | 'ORDER_CONFIRMED'
   | 'ORDER_DELIVERED'
+  | 'ORDER_RATED'
   | 'BIRTHDAY';
 
 export type Trigger = { type: AutomationEvent; days?: number };
@@ -58,16 +61,19 @@ export class AutomationsService {
     return user.tenantId;
   }
 
-  list(user: AuthUser, override?: string) {
+  async list(user: AuthUser, override?: string) {
     const tid = this.tid(user, override);
+    // SUPER_ADMIN bypass: puede ver automations de cualquier tenant sin gate
+    if (user.role !== 'SUPER_ADMIN') await this.assertProPlan(tid);
     return this.prisma.automationRule.findMany({
       where: { tenantId: tid },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  create(user: AuthUser, dto: RuleDto, override?: string) {
+  async create(user: AuthUser, dto: RuleDto, override?: string) {
     const tid = this.tid(user, override);
+    await this.assertProPlan(tid);
     return this.prisma.automationRule.create({
       data: {
         tenantId: tid,
@@ -81,12 +87,35 @@ export class AutomationsService {
     });
   }
 
+  /** Las automatizaciones requieren el plan "Pro" (USD 99). Elite no las incluye. */
+  private async assertProPlan(tenantId: string) {
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      include: { plan: true },
+    });
+    if (!t) throw new NotFoundException('Tenant');
+    const allowed = ['Pro'];
+    if (!allowed.includes(t.plan.name)) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.PAYMENT_REQUIRED,
+          message:
+            'Las automatizaciones de WhatsApp requieren el plan Pro. Actualiza tu suscripción para activarlas.',
+          code: 'UPGRADE_REQUIRED',
+          requiredPlan: 'Pro',
+        },
+        HttpStatus.PAYMENT_REQUIRED,
+      );
+    }
+  }
+
   async update(user: AuthUser, id: string, dto: Partial<RuleDto>) {
     const r = await this.prisma.automationRule.findUnique({ where: { id } });
     if (!r) throw new NotFoundException();
     if (user.role !== 'SUPER_ADMIN' && r.tenantId !== user.tenantId) {
       throw new ForbiddenException();
     }
+    if (user.role !== 'SUPER_ADMIN') await this.assertProPlan(r.tenantId);
     return this.prisma.automationRule.update({
       where: { id },
       data: {
@@ -104,6 +133,7 @@ export class AutomationsService {
     if (user.role !== 'SUPER_ADMIN' && r.tenantId !== user.tenantId) {
       throw new ForbiddenException();
     }
+    if (user.role !== 'SUPER_ADMIN') await this.assertProPlan(r.tenantId);
     await this.prisma.automationRule.delete({ where: { id } });
     return { ok: true };
   }

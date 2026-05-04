@@ -38,6 +38,15 @@ export class PassesController {
   }
 
   @Public()
+  @Get('lookup/by-phone')
+  lookupByPhone(
+    @Query('slug') slug: string,
+    @Query('phone') phone: string,
+  ) {
+    return this.svc.findByPhonePublic(slug, phone);
+  }
+
+  @Public()
   @Get(':id/public')
   getPublic(@Param('id') id: string) {
     return this.svc.getPublic(id);

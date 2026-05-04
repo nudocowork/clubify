@@ -16,6 +16,22 @@ export class MetricsController {
     return this.svc.tenant(user, tenantId);
   }
 
+  @Get('insights')
+  insights(
+    @CurrentUser() user: AuthUser,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.svc.insights(user, tenantId);
+  }
+
+  @Get('activity')
+  activity(
+    @CurrentUser() user: AuthUser,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.svc.activity(user, tenantId);
+  }
+
   @Get('funnel/orders')
   funnelOrders(
     @CurrentUser() user: AuthUser,
@@ -56,5 +72,13 @@ export class MetricsController {
     @Query('tenantId') tenantId?: string,
   ) {
     return this.svc.heatmapOrders(user, tenantId);
+  }
+
+  @Get('onboarding-status')
+  onboardingStatus(
+    @CurrentUser() user: AuthUser,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.svc.onboardingStatus(user, tenantId);
   }
 }

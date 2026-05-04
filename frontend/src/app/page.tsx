@@ -1,380 +1,566 @@
 import Link from 'next/link';
+import { headers } from 'next/headers';
 import { Icon } from '@/components/Icon';
+import { detectCountryFromHeaders, getLocalPrice } from '@/lib/pricing';
+import { RefCapture } from '@/components/RefCapture';
+import { FadeIn } from '@/components/FadeIn';
+import { HeroTrio } from '@/components/HeroTrio';
+import { Logo } from '@/components/Logo';
 
-const FEATURES = [
+const PILLARS = [
   {
     icon: 'shopping-bag' as const,
-    title: 'Vendé sin app',
-    desc: 'Menú digital + carrito + checkout que dispara el pedido al WhatsApp del dueño en un click. Cero apps que descargar.',
+    color: '#22C55E',
+    title: 'Pedidos',
+    desc: 'Menú digital, carrito y checkout que dispara al WhatsApp del dueño.',
+    bullets: ['Sin app · sin contratos', 'Kanban en vivo', 'Tickets cocina + recibo cliente'],
   },
   {
     icon: 'card' as const,
-    title: 'Fidelizá con Wallet',
-    desc: 'Tarjetas de sellos y puntos que viven dentro de Apple Wallet y Google Wallet. Sin imprimir, sin perder.',
+    color: '#8B5CF6',
+    title: 'Fidelización',
+    desc: 'Tarjetas en Apple Wallet & Google Wallet, sellos y puntos automatizados.',
+    bullets: ['Apple + Google Wallet', 'Sellos por compra', 'Recompensas configurables'],
   },
   {
     icon: 'spark' as const,
-    title: 'Automatizá todo',
-    desc: 'Reglas IF→THEN que mandan WhatsApp, suman sellos, recuerdan cumpleaños. Una vez configuradas, trabajan solas.',
+    color: '#EC4899',
+    title: 'Automatización',
+    desc: 'WhatsApp, email y push automáticos por evento, cumpleaños, inactividad.',
+    bullets: ['Triggers IF→THEN', 'Plantillas WA Cloud', 'Mensajes con variables'],
   },
   {
-    icon: 'qr' as const,
-    title: 'Scanner para staff',
-    desc: 'PWA instalable en cualquier celular. Tu cajero escanea el QR del cliente y suma sello en 1 segundo.',
+    icon: 'users' as const,
+    color: '#16A34A',
+    title: 'CRM',
+    desc: 'Segmentación, tags, notas internas, LTV y campañas masivas WhatsApp.',
+    bullets: ['Tags + notas', 'Segmentos VIP / 7d / 30d', 'Importación CSV'],
   },
   {
     icon: 'history' as const,
-    title: 'Analítica que entiende',
-    desc: 'Funnels, heatmaps de horario pico, retención por cohortes. Sabés qué producto vender más fuerte cada hora.',
+    color: '#F59E0B',
+    title: 'Analítica',
+    desc: 'Funnels, top productos, heatmap por hora, retención por cohortes.',
+    bullets: ['Insights accionables', 'Series 7d/30d/90d', 'CSV export'],
   },
   {
     icon: 'arrow-right' as const,
-    title: 'Mini-páginas + dominio',
-    desc: 'Links informativos tipo Linktree con embed de menú/promos. Conectá tu dominio propio (ej. micafe.com).',
+    color: '#0EA5E9',
+    title: 'Sitio público',
+    desc: 'Storefront editable con bloques drag & drop y dominio propio.',
+    bullets: ['Editor visual', 'Mini-páginas tipo Linktree', 'CNAME custom'],
   },
 ];
 
 const STEPS = [
   {
-    n: 1,
-    title: 'Subí tu menú',
-    desc: 'Categorías, productos, fotos. 5 minutos. O importás del Excel que ya tenés.',
+    n: '01',
+    title: 'Sube tu menú',
+    desc: 'Categorías, productos, fotos. 5 minutos. O lo importas del Excel que ya tienes.',
   },
   {
-    n: 2,
-    title: 'Compartí tu link',
-    desc: 'Pegalo en Instagram, WhatsApp, mesas con QR. Tus clientes piden directo, sin intermediarios.',
+    n: '02',
+    title: 'Comparte tu link',
+    desc: 'Pégalo en Instagram, WhatsApp, código QR en mesas. Tus clientes piden directo.',
   },
   {
-    n: 3,
-    title: 'Recibí pedidos',
-    desc: 'Los pedidos llegan al kanban en tiempo real. Confirmás → cliente recibe estado en vivo.',
+    n: '03',
+    title: 'Recibe pedidos',
+    desc: 'Llegan al kanban en tiempo real con sonido. Drag & drop para cambiar estado.',
   },
   {
-    n: 4,
-    title: 'Fidelizá automáticamente',
-    desc: 'Cada pedido suma sello en su tarjeta wallet. Cuando completa, le mandás un mensaje automático.',
+    n: '04',
+    title: 'Fideliza solo',
+    desc: 'Cada pedido suma sello en wallet. Al completarse, mensaje automático con cupón.',
   },
 ];
 
-const PRICING = [
+const TESTIMONIALS = [
   {
-    name: 'Free',
-    price: '$0',
-    note: 'Para empezar',
-    features: [
-      'Hasta 100 pedidos/mes',
-      '1 tarjeta de fidelización',
-      '1 ubicación',
-      'Storefront público + 1 link informativo',
-      'WhatsApp link (no Cloud API)',
-    ],
-    cta: 'Empezá gratis',
-    href: '/onboarding',
-    primary: false,
+    quote:
+      'Antes manejaba pedidos por WhatsApp uno por uno. Hoy entran al kanban, suenan, los confirmo y la gente recibe estado en tiempo real. Vendí 30% más en 2 meses.',
+    name: 'Carolina M.',
+    role: 'Café del Día · Bogotá',
+    avatar: '☕',
   },
   {
-    name: 'Pro',
-    price: '$29',
-    note: 'por mes',
-    features: [
-      'Pedidos ilimitados',
-      'Tarjetas + automatizaciones ilimitadas',
-      'Multi-ubicación + multi-staff',
-      'Pagos online (Stripe / MP / Wompi)',
-      'Dominio propio + analítica avanzada',
-      'WhatsApp Cloud API + email transaccional',
-    ],
-    cta: 'Probar Pro 14 días',
-    href: '/onboarding?plan=pro',
-    primary: true,
+    quote:
+      'La tarjeta wallet cambió todo. Mis clientes vuelven más porque les llega el progreso al iPhone. Sin imprimir, sin tarjetas físicas perdidas.',
+    name: 'Andrés R.',
+    role: 'Burger Lab · CDMX',
+    avatar: '🍔',
   },
   {
-    name: 'Cadena',
-    price: 'Custom',
-    note: 'desde 5 sucursales',
-    features: [
-      'Todo lo de Pro',
-      'Soporte dedicado + SLA',
-      'White-label opcional',
-      'Integración POS (Toast, Square, etc.)',
-      'Onboarding asistido',
-    ],
-    cta: 'Contactanos',
-    href: 'https://wa.me/573000000000?text=Quiero%20Clubify%20para%20mi%20cadena',
-    primary: false,
+    quote:
+      'El soporte por WhatsApp y los 10 días gratis me dieron confianza. Configuré todo en un fin de semana sin saber código.',
+    name: 'Sofía L.',
+    role: 'Bowls Saludables · Lima',
+    avatar: '🥗',
   },
 ];
+
+// Logos placeholder (texto, sin assets externos)
+const LOGOS = [
+  'Café del Día',
+  'Burger Lab',
+  'Bowls & Co',
+  'Helados Tina',
+  'Pizza Roma',
+  'Sushi Kira',
+  'Tacos del Sur',
+  'Panadería 21',
+];
+
+const STATS = [
+  { value: '1.500+', label: 'Negocios activos en LATAM' },
+  { value: '80K+', label: 'Clientes con tarjeta wallet' },
+  { value: '200K', label: 'Pedidos procesados / mes' },
+  { value: '4.9 / 5', label: 'Calificación de dueños' },
+];
+
+function buildPricing(country: string | null) {
+  const elite = getLocalPrice(50, country);
+  const pro = getLocalPrice(99, country);
+  return [
+    {
+      name: 'Elite',
+      price: elite.display,
+      priceUsd: elite.displayUsd,
+      isUsdCountry: elite.isUsdCountry,
+      note: 'al mes',
+      badge: '10 días gratis',
+      features: [
+        'Pedidos ilimitados',
+        'Tarjetas wallet (Apple + Google) ilimitadas',
+        'Multi-ubicación + multi-staff',
+        'Dominio propio + analítica',
+        'Email transaccional + scanner PWA',
+        'Soporte por chat',
+      ],
+      cta: 'Empezar mis 10 días gratis',
+      href: '/signup?plan=elite',
+      primary: false,
+    },
+    {
+      name: 'Pro',
+      price: pro.display,
+      priceUsd: pro.displayUsd,
+      isUsdCountry: pro.isUsdCountry,
+      note: 'al mes',
+      features: [
+        'Todo lo de Elite',
+        'Automatizaciones de WhatsApp',
+        'Mensajes automáticos por evento (sello, cumpleaños, recordatorio, etc.)',
+        'Segmentación avanzada de clientes',
+        'Plantillas de mensaje',
+        'Soporte prioritario',
+      ],
+      cta: 'Activar Pro',
+      href: '/signup?plan=pro',
+      primary: true,
+    },
+  ];
+}
 
 export default function Landing() {
+  const country = detectCountryFromHeaders(headers());
+  const PRICING = buildPricing(country);
   return (
-    <main className="min-h-screen bg-bg">
+    <main className="min-h-screen bg-white text-ink">
+      <RefCapture />
+
       {/* ─────────── Header ─────────── */}
-      <header className="sticky top-0 z-30 backdrop-blur-md bg-bg/80 border-b border-line">
-        <div className="mx-auto max-w-6xl px-6 flex items-center justify-between py-4">
-          <Link href="/" className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-[10px] bg-gradient-to-br from-brand to-fuchsia-600 text-white flex items-center justify-center font-bold text-lg">
-              C
-            </div>
-            <div className="font-bold text-lg tracking-tight">Clubify</div>
+      <header className="sticky top-0 z-30 backdrop-blur-md bg-white/85 border-b border-line/80">
+        <div className="mx-auto max-w-7xl px-6 flex items-center justify-between h-16">
+          <Link href="/" className="flex items-center" aria-label="Clubify">
+            <Logo size={36} priority />
           </Link>
-          <nav className="hidden md:flex items-center gap-6 text-sm text-mute">
-            <a href="#features" className="hover:text-ink">Funciones</a>
-            <a href="#how" className="hover:text-ink">Cómo funciona</a>
-            <a href="#pricing" className="hover:text-ink">Precios</a>
+
+          <nav className="hidden lg:flex items-center gap-8 text-[14px] text-mute">
+            <a href="#producto" className="hover:text-ink">Producto</a>
+            <a href="#como" className="hover:text-ink">Cómo funciona</a>
+            <a href="#clientes" className="hover:text-ink">Clientes</a>
+            <a href="#precios" className="hover:text-ink">Precios</a>
             <Link href="/m/cafe-del-dia" className="hover:text-ink">Demo en vivo →</Link>
           </nav>
-          <div className="flex gap-2">
-            <Link className="btn-ghost text-sm" href="/login">
+
+          <div className="flex gap-2 items-center">
+            <Link className="hidden sm:inline-flex text-sm text-mute hover:text-ink" href="/login">
               Ingresar
             </Link>
-            <Link className="btn-primary text-sm" href="/onboarding">
-              <Icon name="spark" /> Empezar gratis
+            <Link
+              className="inline-flex items-center gap-1.5 bg-ink text-white text-sm font-semibold px-4 py-2 rounded-pill hover:bg-ink/90"
+              href="/signup"
+            >
+              Empezar gratis →
             </Link>
           </div>
         </div>
       </header>
 
       {/* ─────────── Hero ─────────── */}
-      <section className="mx-auto max-w-6xl px-6 pt-16 pb-24">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
-          <div>
-            <div className="inline-flex items-center gap-2 bg-brand-soft text-brand-700 text-xs font-semibold px-3 py-1.5 rounded-full mb-5">
-              <span className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse" />
-              Nueva versión v3 · Pagos online + dominio propio
-            </div>
-            <h1 className="text-5xl md:text-6xl font-bold leading-[1.05] tracking-tight">
-              El{' '}
-              <span className="bg-gradient-to-r from-brand via-fuchsia-500 to-pink-500 bg-clip-text text-transparent">
-                sistema operativo
-              </span>{' '}
-              de tu negocio local.
-            </h1>
-            <p className="mt-6 text-lg text-mute max-w-lg leading-relaxed">
-              Vendé, fidelizá y automatizá desde un solo lugar. Menú digital,
-              pedidos a WhatsApp, tarjetas en Apple Wallet, automatizaciones — sin
-              programar, sin contratar developer.
-            </p>
-            <div className="flex gap-3 mt-8">
-              <Link className="btn-primary text-base px-5 py-3" href="/onboarding">
-                <Icon name="spark" /> Empezar gratis
-              </Link>
-              <Link
-                className="btn-ghost text-base px-5 py-3"
-                href="/m/cafe-del-dia"
-              >
-                Ver demo en vivo →
-              </Link>
-            </div>
-            <div className="flex items-center gap-5 mt-8 text-xs text-mute">
-              <div className="flex items-center gap-1.5">
-                <Icon name="check" size={14} /> Sin tarjeta
+      <section className="relative overflow-hidden">
+        {/* Background ambient */}
+        <div
+          className="absolute inset-0 -z-10 opacity-40"
+          style={{
+            background:
+              'radial-gradient(ellipse 70% 60% at 30% 20%, rgba(91,94,238,0.16), transparent 60%), radial-gradient(ellipse 60% 50% at 80% 30%, rgba(192,38,211,0.10), transparent 60%)',
+          }}
+        />
+        <div className="mx-auto max-w-7xl px-6 pt-20 pb-24 lg:pt-28 lg:pb-32">
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] gap-12 lg:gap-16 items-center">
+            <div>
+              <div className="inline-flex items-center gap-2 bg-white border border-line shadow-sm text-xs font-semibold px-3 py-1.5 rounded-full mb-6">
+                <span className="text-amber-500">★★★★★</span>
+                <span>4.9/5</span>
+                <span className="text-mute font-normal">·</span>
+                <span className="text-mute font-normal">1.500+ negocios en LATAM</span>
               </div>
-              <div className="flex items-center gap-1.5">
-                <Icon name="check" size={14} /> Setup 5 min
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Icon name="check" size={14} /> En español
-              </div>
-            </div>
-          </div>
 
-          {/* Wallet card mockup */}
-          <div className="flex justify-center">
-            <div
-              className="pass max-w-[320px] w-full rotate-2 shadow-2xl"
-              style={{
-                background: 'linear-gradient(135deg,#5B5EEE,#8B5CF6,#C026D3)',
-              }}
-            >
-              <div className="pass-head">
-                <div className="pass-logo">
-                  <span className="pass-logo-mark">C</span> Café del Día
-                </div>
-                <div className="pass-side">
-                  <div className="pass-side-lbl">SELLOS</div>
-                  <div className="pass-side-val">7/10</div>
-                </div>
-              </div>
-              <div
-                className="pass-strip h-20"
-                style={{
-                  background:
-                    'linear-gradient(135deg,rgba(0,0,0,.15),rgba(0,0,0,.05))',
-                }}
-              >
-                <div className="strip-stamps">
-                  {Array.from({ length: 7 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className="strip-stamp full"
-                      style={{ color: '#5B5EEE' }}
+              <h1 className="text-[44px] md:text-[56px] lg:text-[64px] font-bold leading-[1.04] tracking-tight">
+                Una plataforma{' '}
+                <span className="bg-gradient-to-r from-brand-400 via-brand-500 to-brand-700 bg-clip-text text-transparent">
+                  todo en uno
+                </span>{' '}
+                para tu negocio local.
+              </h1>
+
+              <p className="mt-6 text-lg lg:text-xl text-mute max-w-xl leading-relaxed">
+                Pedidos por WhatsApp, fidelización en wallet, automatizaciones,
+                CRM y analítica — sin pagar 5 herramientas, sin programar.
+              </p>
+
+              {/* Pilares inline */}
+              <div className="flex flex-wrap gap-2 mt-6">
+                {['Pedidos', 'Fidelización', 'Automatización', 'CRM', 'Analítica'].map(
+                  (p) => (
+                    <span
+                      key={p}
+                      className="text-xs font-medium bg-bg2 text-ink/80 px-2.5 py-1 rounded-full"
                     >
-                      ✓
-                    </div>
-                  ))}
-                </div>
+                      {p}
+                    </span>
+                  ),
+                )}
               </div>
-              <div className="pass-fields">
-                <div>
-                  <div className="pf-lbl">TITULAR</div>
-                  <div className="pf-val">RICARDO PÉREZ</div>
-                </div>
-                <div className="text-right">
-                  <div className="pf-lbl">RECOMPENSA</div>
-                  <div className="pf-val text-xs">1 café gratis</div>
-                </div>
+
+              <div className="flex gap-3 mt-8 flex-wrap">
+                <Link
+                  className="inline-flex items-center gap-2 bg-ink text-white font-semibold text-base px-6 py-3.5 rounded-pill hover:bg-ink/90 transition shadow-md"
+                  href="/signup"
+                >
+                  <Icon name="spark" /> Empezar mis 10 días gratis
+                </Link>
+                <a
+                  className="inline-flex items-center gap-2 bg-white border border-line text-ink font-semibold text-base px-6 py-3.5 rounded-pill hover:border-ink/30 transition"
+                  href="https://wa.me/573000000000?text=Hola%2C%20quiero%20saber%20m%C3%A1s%20de%20Clubify"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Hablar con ventas
+                </a>
               </div>
-              <div className="pass-bar">
-                <div className="w-32 h-32 bg-ink/10 rounded grid place-items-center text-mute text-xs">
-                  QR
+
+              <div className="flex items-center gap-5 mt-8 text-xs text-mute flex-wrap">
+                <div className="flex items-center gap-1.5">
+                  <Icon name="check" size={14} className="text-ok" /> 10 días sin cargo
                 </div>
-                <div className="pager">
-                  <span className="pager-dot" />
-                  <span className="pager-dot on" />
-                  <span className="pager-dot" />
+                <div className="flex items-center gap-1.5">
+                  <Icon name="check" size={14} className="text-ok" /> Cancela cuando quieras
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Icon name="check" size={14} className="text-ok" /> En español, soporte LATAM
                 </div>
               </div>
             </div>
+
+            {/* Visual: phone + wallet card layered */}
+            <HeroVisual />
           </div>
         </div>
       </section>
 
-      {/* ─────────── Features grid ─────────── */}
-      <section id="features" className="bg-surface border-y border-line py-20">
-        <div className="mx-auto max-w-6xl px-6">
-          <div className="text-center mb-12">
-            <div className="text-xs uppercase tracking-[0.18em] text-brand font-semibold mb-3">
-              Funciones
-            </div>
-            <h2 className="text-3xl md:text-4xl font-bold tracking-tight">
-              Todo lo que tu negocio necesita
-            </h2>
-            <p className="text-mute mt-3 max-w-xl mx-auto">
-              Sin pagar 5 herramientas distintas. Una sola plataforma que reemplaza
-              menu QR + tarjeta de puntos + CRM + pedidos.
-            </p>
+      {/* ─────────── Logos band (marquee) ─────────── */}
+      <section className="border-y border-line/80 bg-bg2/40 py-8 overflow-hidden">
+        <div className="mx-auto max-w-7xl px-6">
+          <div className="text-center text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-5">
+            Negocios LATAM creciendo con Clubify
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {FEATURES.map((f) => (
-              <div key={f.title} className="card card-pad hover:shadow-md transition">
-                <div className="w-10 h-10 rounded-lg bg-brand-soft text-brand-700 flex items-center justify-center mb-3">
-                  <Icon name={f.icon} />
-                </div>
-                <div className="font-semibold text-lg">{f.title}</div>
-                <div className="text-mute text-sm mt-1.5 leading-relaxed">
-                  {f.desc}
-                </div>
-              </div>
+        </div>
+        <div className="relative">
+          <div
+            className="absolute inset-y-0 left-0 w-24 z-10"
+            style={{
+              background: 'linear-gradient(to right, rgba(244,244,247,1), transparent)',
+            }}
+          />
+          <div
+            className="absolute inset-y-0 right-0 w-24 z-10"
+            style={{
+              background: 'linear-gradient(to left, rgba(244,244,247,1), transparent)',
+            }}
+          />
+          <div className="flex gap-12 animate-marquee whitespace-nowrap">
+            {[...LOGOS, ...LOGOS, ...LOGOS].map((l, i) => (
+              <span
+                key={`${l}-${i}`}
+                className="text-mute font-semibold opacity-70 hover:opacity-100 hover:text-ink transition text-sm flex-none"
+              >
+                {l}
+              </span>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ─────────── How it works ─────────── */}
-      <section id="how" className="py-20">
-        <div className="mx-auto max-w-6xl px-6">
-          <div className="text-center mb-12">
+      {/* ─────────── Stats band ─────────── */}
+      <section className="py-14">
+        <div className="mx-auto max-w-7xl px-6 grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
+          {STATS.map((s, i) => (
+            <FadeIn key={s.label} delay={i * 90}>
+              <div className="text-3xl md:text-4xl font-bold tracking-tight">
+                {s.value}
+              </div>
+              <div className="text-xs text-mute mt-1.5 leading-snug">{s.label}</div>
+            </FadeIn>
+          ))}
+        </div>
+      </section>
+
+      {/* ─────────── Producto / Pillars (bento) ─────────── */}
+      <section id="producto" className="bg-bg2/40 border-y border-line/80 py-24">
+        <div className="mx-auto max-w-7xl px-6">
+          <FadeIn className="text-center mb-14 max-w-2xl mx-auto">
+            <div className="text-xs uppercase tracking-[0.18em] text-brand font-semibold mb-3">
+              Producto
+            </div>
+            <h2 className="text-3xl md:text-5xl font-bold tracking-tight leading-[1.1]">
+              6 herramientas en una sola cuenta
+            </h2>
+            <p className="text-mute mt-4 text-lg">
+              Reemplaza tu menú QR, tu tarjeta de puntos, tu CRM, tu Excel de
+              pedidos y tu campaña de WhatsApp con una sola plataforma.
+            </p>
+          </FadeIn>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {PILLARS.map((p, i) => (
+              <FadeIn
+                key={p.title}
+                delay={i * 80}
+                className="group bg-white rounded-2xl p-7 border border-line hover:border-ink/20 hover:shadow-lg transition"
+              >
+                <div
+                  className="w-12 h-12 rounded-xl flex items-center justify-center text-white mb-5"
+                  style={{ background: p.color }}
+                >
+                  <Icon name={p.icon} size={22} />
+                </div>
+                <div className="font-bold text-xl">{p.title}</div>
+                <p className="text-mute text-sm mt-1.5 leading-relaxed">
+                  {p.desc}
+                </p>
+                <ul className="mt-5 space-y-1.5">
+                  {p.bullets.map((b) => (
+                    <li
+                      key={b}
+                      className="flex items-start gap-2 text-sm text-ink/80"
+                    >
+                      <span
+                        className="mt-1 flex-none"
+                        style={{ color: p.color }}
+                      >
+                        <Icon name="check" size={14} />
+                      </span>
+                      <span>{b}</span>
+                    </li>
+                  ))}
+                </ul>
+              </FadeIn>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ─────────── Cómo funciona ─────────── */}
+      <section id="como" className="py-24">
+        <div className="mx-auto max-w-7xl px-6">
+          <div className="text-center mb-12 max-w-2xl mx-auto">
             <div className="text-xs uppercase tracking-[0.18em] text-brand font-semibold mb-3">
               Cómo funciona
             </div>
-            <h2 className="text-3xl md:text-4xl font-bold tracking-tight">
+            <h2 className="text-3xl md:text-5xl font-bold tracking-tight leading-[1.1]">
               De cero a vendiendo en 10 minutos
             </h2>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            {STEPS.map((s) => (
-              <div key={s.n} className="relative">
-                <div className="text-7xl font-bold text-brand-soft leading-none">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+            {STEPS.map((s, i) => (
+              <div
+                key={s.n}
+                className="relative bg-white rounded-2xl p-6 border border-line"
+              >
+                <div className="text-[42px] font-bold text-brand-soft leading-none">
                   {s.n}
                 </div>
-                <div className="font-semibold text-lg mt-2">{s.title}</div>
+                <div className="font-bold text-lg mt-3">{s.title}</div>
                 <div className="text-mute text-sm mt-1.5 leading-relaxed">
                   {s.desc}
                 </div>
+                {i < STEPS.length - 1 && (
+                  <div className="hidden lg:block absolute top-1/2 -right-2 text-mute2 text-xl">
+                    →
+                  </div>
+                )}
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ─────────── Live demo CTA ─────────── */}
-      <section className="bg-gradient-to-br from-brand via-indigo-600 to-fuchsia-600 py-16">
-        <div className="mx-auto max-w-4xl px-6 text-center text-white">
-          <h2 className="text-3xl md:text-4xl font-bold tracking-tight">
-            Probalo sin registrarte
-          </h2>
-          <p className="mt-3 text-white/80 max-w-xl mx-auto">
-            Te dejamos un café-bar listo con productos, pedidos, automatizaciones
-            y tarjetas. Hacé un pedido, escaneá el QR, mirá los reportes — todo
-            real.
-          </p>
-          <div className="flex gap-3 justify-center mt-6 flex-wrap">
-            <Link
-              href="/m/cafe-del-dia"
-              className="bg-white text-brand-700 font-semibold px-5 py-3 rounded-pill"
-            >
-              🛒 Storefront del cliente
-            </Link>
-            <Link
-              href="/login"
-              className="bg-white/10 hover:bg-white/20 text-white font-semibold px-5 py-3 rounded-pill border border-white/30"
-            >
-              📊 Panel del dueño →
-            </Link>
+      {/* ─────────── Live demo ─────────── */}
+      <section className="py-20">
+        <div className="mx-auto max-w-6xl px-6">
+          <div className="bg-gradient-to-br from-brand-400 via-brand-500 to-brand-700 rounded-[28px] p-10 md:p-14 text-white text-center relative overflow-hidden">
+            <div
+              className="absolute -top-20 -right-20 w-80 h-80 rounded-full opacity-30"
+              style={{ background: 'radial-gradient(circle, white, transparent 60%)' }}
+            />
+            <h2 className="text-3xl md:text-5xl font-bold tracking-tight relative">
+              Pruébalo sin registrarte
+            </h2>
+            <p className="mt-3 text-white/85 max-w-xl mx-auto text-base md:text-lg relative">
+              Te dejamos un café-bar funcional con productos, pedidos,
+              automatizaciones y tarjetas. Haz un pedido, escanea, mira los
+              reportes — todo real.
+            </p>
+            <div className="flex gap-3 justify-center mt-7 flex-wrap relative">
+              <Link
+                href="/m/cafe-del-dia"
+                className="bg-white text-brand-700 font-semibold px-5 py-3 rounded-pill"
+              >
+                🛒 Storefront del cliente
+              </Link>
+              <Link
+                href="/login"
+                className="bg-white/10 hover:bg-white/20 text-white font-semibold px-5 py-3 rounded-pill border border-white/30"
+              >
+                📊 Panel del dueño →
+              </Link>
+            </div>
+            <div className="mt-6 text-xs text-white/70 relative">
+              Login demo:{' '}
+              <code className="bg-white/15 px-2 py-0.5 rounded">demo@clubify.local</code>{' '}
+              /{' '}
+              <code className="bg-white/15 px-2 py-0.5 rounded">Demo123!</code>
+            </div>
           </div>
-          <div className="mt-6 text-xs text-white/60">
-            Login demo: <code className="bg-white/10 px-2 py-0.5 rounded">demo@clubify.local</code>{' '}
-            / <code className="bg-white/10 px-2 py-0.5 rounded">Demo123!</code>
+        </div>
+      </section>
+
+      {/* ─────────── Testimonios ─────────── */}
+      <section id="clientes" className="bg-bg2/40 border-y border-line/80 py-24">
+        <div className="mx-auto max-w-7xl px-6">
+          <div className="text-center mb-12 max-w-2xl mx-auto">
+            <div className="text-xs uppercase tracking-[0.18em] text-brand font-semibold mb-3">
+              Lo que dicen
+            </div>
+            <h2 className="text-3xl md:text-5xl font-bold tracking-tight leading-[1.1]">
+              Negocios reales, resultados reales
+            </h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {TESTIMONIALS.map((t, i) => (
+              <FadeIn
+                key={t.name}
+                delay={i * 100}
+                className="bg-white rounded-2xl p-7 border border-line"
+              >
+                <div className="text-amber-500 text-sm mb-3">★★★★★</div>
+                <p className="text-ink leading-relaxed text-[15px]">
+                  “{t.quote}”
+                </p>
+                <div className="mt-5 flex items-center gap-3 pt-4 border-t border-line2">
+                  <div className="w-10 h-10 rounded-full bg-brand-soft flex items-center justify-center text-xl">
+                    {t.avatar}
+                  </div>
+                  <div>
+                    <div className="font-semibold text-sm">{t.name}</div>
+                    <div className="text-xs text-mute">{t.role}</div>
+                  </div>
+                </div>
+              </FadeIn>
+            ))}
           </div>
         </div>
       </section>
 
       {/* ─────────── Pricing ─────────── */}
-      <section id="pricing" className="py-20">
-        <div className="mx-auto max-w-6xl px-6">
-          <div className="text-center mb-12">
+      <section id="precios" className="py-24">
+        <div className="mx-auto max-w-7xl px-6">
+          <div className="text-center mb-12 max-w-2xl mx-auto">
             <div className="text-xs uppercase tracking-[0.18em] text-brand font-semibold mb-3">
               Precios
             </div>
-            <h2 className="text-3xl md:text-4xl font-bold tracking-tight">
-              Empezá gratis. Pagá cuando crezcas.
+            <h2 className="text-3xl md:text-5xl font-bold tracking-tight leading-[1.1]">
+              10 días gratis para probarlo todo
             </h2>
-            <p className="text-mute mt-3 max-w-xl mx-auto">
-              Sin contratos. Cancelá cuando quieras. Migración asistida.
+            <p className="text-mute mt-4 text-lg">
+              Configura tu cuenta, sube tu menú, emite tarjetas. Si no te
+              convence, cancela antes del día 11 y no cobramos. Sin contratos.
             </p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-4xl mx-auto">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 max-w-3xl mx-auto items-start">
             {PRICING.map((p) => (
               <div
                 key={p.name}
-                className={`card card-pad relative ${
-                  p.primary ? 'ring-2 ring-brand shadow-lg scale-[1.02]' : ''
+                className={`relative bg-white rounded-2xl p-7 border ${
+                  p.primary
+                    ? 'border-brand shadow-xl md:scale-[1.03]'
+                    : 'border-line'
                 }`}
               >
                 {p.primary && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-brand text-white text-xs font-semibold px-3 py-1 rounded-full">
-                    Recomendado
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-ink text-white text-xs font-semibold px-3 py-1 rounded-full">
+                    Más popular
                   </div>
                 )}
-                <div className="font-bold text-lg">{p.name}</div>
-                <div className="mt-3 flex items-baseline gap-1">
-                  <span className="text-4xl font-bold">{p.price}</span>
-                  <span className="text-mute text-sm">/{p.note}</span>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-bold text-xl">{p.name}</div>
+                  {p.badge && (
+                    <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-ok-soft text-ok">
+                      {p.badge}
+                    </span>
+                  )}
                 </div>
-                <ul className="mt-5 space-y-2 text-sm">
+                <div className="mt-3">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-4xl font-bold">{p.price}</span>
+                    <span className="text-mute text-sm">/{p.note}</span>
+                  </div>
+                  {!p.isUsdCountry && p.priceUsd && (
+                    <div className="text-[11px] text-mute mt-1">
+                      ≈ {p.priceUsd} al cambio del día
+                    </div>
+                  )}
+                </div>
+                <ul className="mt-6 space-y-2.5 text-sm">
                   {p.features.map((f) => (
                     <li key={f} className="flex items-start gap-2">
-                      <Icon name="check" size={14} className="text-ok mt-0.5 flex-none" />
+                      <Icon
+                        name="check"
+                        size={14}
+                        className="text-ok mt-0.5 flex-none"
+                      />
                       <span>{f}</span>
                     </li>
                   ))}
                 </ul>
                 <Link
                   href={p.href}
-                  className={`block text-center mt-6 px-5 py-2.5 rounded-pill font-semibold text-sm ${
+                  className={`block text-center mt-7 px-5 py-3 rounded-pill font-semibold text-sm ${
                     p.primary
-                      ? 'bg-brand text-white'
+                      ? 'bg-ink text-white hover:bg-ink/90'
                       : 'bg-bg2 text-ink hover:bg-line'
                   }`}
                 >
@@ -386,73 +572,196 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* ─────────── FAQ ─────────── */}
+      <section className="border-t border-line bg-bg2/40 py-24">
+        <div className="mx-auto max-w-3xl px-6">
+          <div className="text-center mb-10">
+            <div className="text-xs uppercase tracking-[0.18em] text-brand font-semibold mb-3">
+              Preguntas frecuentes
+            </div>
+            <h2 className="text-3xl md:text-5xl font-bold tracking-tight">
+              Lo que casi todos preguntan
+            </h2>
+          </div>
+          <div className="space-y-3">
+            {[
+              {
+                q: '¿Cómo funcionan los 10 días gratis?',
+                a: 'Creas tu cuenta y configuras tu método de pago (tarjeta de crédito o débito). El cargo es de USD 0 durante los 10 días. Si cancelas antes del día 11, no se cobra nada. Si no cancelas, se activa la suscripción de USD 50/mes automáticamente.',
+              },
+              {
+                q: '¿Por qué piden tarjeta para el trial gratis?',
+                a: 'Para evitar abuso de cuentas y simplificar el flujo: cuando termina la prueba se activa la suscripción sin que tengas que volver a hacer checkout. Puedes cancelar en cualquier momento desde tu panel.',
+              },
+              {
+                q: '¿Necesito Apple Developer Program para emitir tarjetas wallet?',
+                a: 'No. Las tarjetas funcionan en Google Wallet (Android e iPhone) sin pagar nada. Si quieres .pkpass nativo en Apple Wallet, sí necesitas Apple Developer (USD 99/año), pero no es obligatorio.',
+              },
+              {
+                q: '¿Qué pasa con mis datos si decido cancelar?',
+                a: 'Te exportamos todo: clientes, menú, pedidos, tarjetas. Mantenemos tu información disponible para descarga durante 30 días después de cancelar.',
+              },
+              {
+                q: '¿Cobran en mi moneda local o en USD?',
+                a: 'El precio base es USD 50/mes pero te mostramos el equivalente en tu moneda local (MXN, COP, ARS, CLP, PEN, BRL, etc.) al cambio del día.',
+              },
+              {
+                q: '¿Tengo que pagar por cada pedido o sello adicional?',
+                a: 'No. Pedidos, tarjetas, automatizaciones y clientes son ilimitados con tu suscripción. Sin comisiones por transacción.',
+              },
+              {
+                q: '¿Funciona si no soy técnico?',
+                a: 'Sí. El setup inicial son 5 pasos visuales. No tienes que escribir código ni configurar servidores. Si te trabas, escríbenos por WhatsApp.',
+              },
+            ].map((item) => (
+              <details
+                key={item.q}
+                className="group bg-white rounded-xl border border-line transition hover:border-ink/20"
+              >
+                <summary className="cursor-pointer px-5 py-4 list-none flex justify-between items-center font-semibold text-sm">
+                  <span>{item.q}</span>
+                  <span className="text-mute group-open:rotate-180 transition text-xs">
+                    ▼
+                  </span>
+                </summary>
+                <div className="px-5 pb-5 text-sm text-mute leading-relaxed -mt-1">
+                  {item.a}
+                </div>
+              </details>
+            ))}
+          </div>
+          <div className="text-center text-xs text-mute mt-6">
+            ¿Otra pregunta?{' '}
+            <a
+              href="https://wa.me/573000000000"
+              className="text-brand hover:underline"
+            >
+              Escríbenos por WhatsApp
+            </a>
+          </div>
+        </div>
+      </section>
+
       {/* ─────────── Final CTA ─────────── */}
-      <section className="border-t border-line py-16">
-        <div className="mx-auto max-w-3xl px-6 text-center">
-          <h2 className="text-3xl md:text-4xl font-bold tracking-tight">
-            Tu negocio merece tecnología que vende
-          </h2>
-          <p className="text-mute mt-3 leading-relaxed">
-            5 minutos para tu primer pedido. Sin tarjeta, sin compromiso. Y si
-            no te sirve, te ayudamos a exportar todo y migrar.
-          </p>
-          <Link
-            href="/onboarding"
-            className="btn-primary text-base px-6 py-3 mt-6 inline-flex"
-          >
-            <Icon name="spark" /> Crear mi negocio gratis
-          </Link>
+      <section className="py-24">
+        <div className="mx-auto max-w-5xl px-6">
+          <div className="bg-ink text-white rounded-[28px] p-10 md:p-16 text-center relative overflow-hidden">
+            <div
+              className="absolute inset-0 opacity-25"
+              style={{
+                background:
+                  'radial-gradient(ellipse 60% 60% at 50% 100%, rgba(91,94,238,0.6), transparent 70%)',
+              }}
+            />
+            <h2 className="text-3xl md:text-5xl font-bold tracking-tight relative leading-[1.1]">
+              Tu negocio merece tecnología{' '}
+              <span className="bg-gradient-to-r from-brand-400 to-brand-700 bg-clip-text text-transparent">
+                que vende
+              </span>
+            </h2>
+            <p className="text-white/75 mt-4 leading-relaxed text-base md:text-lg relative">
+              5 minutos para tu primer pedido. 10 días para probarlo todo. Si
+              no te sirve, te ayudamos a exportar todo y migrar.
+            </p>
+            <div className="flex gap-3 justify-center mt-8 flex-wrap relative">
+              <Link
+                href="/signup"
+                className="bg-white text-ink font-semibold text-base px-6 py-3.5 rounded-pill hover:bg-white/95"
+              >
+                <Icon name="spark" /> Empezar mis 10 días gratis
+              </Link>
+              <a
+                href="https://wa.me/573000000000?text=Hola%2C%20quiero%20saber%20m%C3%A1s%20de%20Clubify"
+                target="_blank"
+                rel="noreferrer"
+                className="bg-white/10 hover:bg-white/15 text-white font-semibold text-base px-6 py-3.5 rounded-pill border border-white/25"
+              >
+                Hablar con ventas
+              </a>
+            </div>
+            <div className="text-xs text-white/55 mt-4 relative">
+              10 días sin cobro · sin permanencia · cancela cuando quieras
+            </div>
+          </div>
         </div>
       </section>
 
       {/* ─────────── Footer ─────────── */}
-      <footer className="border-t border-line bg-surface">
-        <div className="mx-auto max-w-6xl px-6 py-10">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-sm">
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-7 h-7 rounded-lg bg-brand text-white flex items-center justify-center font-bold text-sm">
-                  C
-                </div>
-                <span className="font-bold">Clubify</span>
+      <footer className="border-t border-line bg-white">
+        <div className="mx-auto max-w-7xl px-6 py-14">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-8 text-sm">
+            <div className="col-span-2">
+              <div className="flex items-center mb-3">
+                <Logo size={28} />
               </div>
-              <p className="text-mute text-xs leading-relaxed">
-                El sistema operativo de tu negocio local.
+              <p className="text-mute text-sm leading-relaxed max-w-xs">
+                La plataforma todo-en-uno para negocios locales en LATAM.
+                Pedidos, fidelización, CRM y automatización en una sola cuenta.
               </p>
+              <div className="flex gap-2 mt-4">
+                <a
+                  href="https://wa.me/573000000000"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs bg-bg2 text-ink px-3 py-1.5 rounded-pill hover:bg-line"
+                >
+                  💬 WhatsApp
+                </a>
+                <a
+                  href="mailto:hola@soyclubify.com"
+                  className="text-xs bg-bg2 text-ink px-3 py-1.5 rounded-pill hover:bg-line"
+                >
+                  ✉ Email
+                </a>
+              </div>
             </div>
             <div>
-              <div className="font-semibold mb-2">Producto</div>
-              <ul className="space-y-1.5 text-mute">
-                <li><a href="#features" className="hover:text-ink">Funciones</a></li>
-                <li><a href="#pricing" className="hover:text-ink">Precios</a></li>
+              <div className="font-semibold mb-3 text-[13px]">Producto</div>
+              <ul className="space-y-2 text-mute">
+                <li><a href="#producto" className="hover:text-ink">Funciones</a></li>
+                <li><a href="#como" className="hover:text-ink">Cómo funciona</a></li>
+                <li><a href="#precios" className="hover:text-ink">Precios</a></li>
                 <li><Link href="/m/cafe-del-dia" className="hover:text-ink">Demo</Link></li>
               </ul>
             </div>
             <div>
-              <div className="font-semibold mb-2">Crecé con nosotros</div>
-              <ul className="space-y-1.5 text-mute">
-                <li><Link href="/refer" className="hover:text-ink">Programa de referidos</Link></li>
-                <li><Link href="/onboarding" className="hover:text-ink">Empezar gratis</Link></li>
+              <div className="font-semibold mb-3 text-[13px]">Crece</div>
+              <ul className="space-y-2 text-mute">
+                <li><Link href="/refer" className="hover:text-ink">Referidos</Link></li>
+                <li><Link href="/signup" className="hover:text-ink">Empezar gratis</Link></li>
                 <li><Link href="/login" className="hover:text-ink">Ingresar</Link></li>
               </ul>
             </div>
             <div>
-              <div className="font-semibold mb-2">Soporte</div>
-              <ul className="space-y-1.5 text-mute">
-                <li><a href="https://wa.me/573000000000" className="hover:text-ink">WhatsApp</a></li>
-                <li><a href="mailto:hola@soyclubify.com" className="hover:text-ink">hola@soyclubify.com</a></li>
+              <div className="font-semibold mb-3 text-[13px]">Legal</div>
+              <ul className="space-y-2 text-mute">
+                <li><Link href="/legal/terms" className="hover:text-ink">Términos</Link></li>
+                <li><Link href="/legal/privacy" className="hover:text-ink">Privacidad</Link></li>
               </ul>
             </div>
           </div>
-          <div className="border-t border-line mt-8 pt-6 flex flex-col md:flex-row items-center justify-between gap-3 text-xs text-mute">
+          <div className="border-t border-line mt-10 pt-6 flex flex-col md:flex-row items-center justify-between gap-3 text-xs text-mute">
             <div>© {new Date().getFullYear()} Clubify · Hecho en LATAM</div>
-            <div className="flex gap-4">
-              <a href="#" className="hover:text-ink">Términos</a>
-              <a href="#" className="hover:text-ink">Privacidad</a>
+            <div className="flex items-center gap-3">
+              <span className="text-[10px] uppercase tracking-wider bg-bg2 px-2 py-1 rounded font-semibold">
+                SOC 2 · LGPD
+              </span>
+              <span>Pagos seguros con tarjeta</span>
             </div>
           </div>
         </div>
       </footer>
     </main>
+  );
+}
+
+// =====================================================
+// Hero visual: phone frame + wallet card overlap
+// =====================================================
+function HeroVisual() {
+  return (
+    <div className="relative flex justify-center lg:justify-end">
+      <HeroTrio />
+    </div>
   );
 }

@@ -244,3 +244,265 @@
 .avatar-5 { background: #A855F7; }
 .avatar-6 { background: #3B82F6; }
 .avatar-7 { background: #EC4899; }
+
+/* ===== Print: ticket de cocina + recibo cliente ===== */
+.print-only,
+.receipt-only { display: none; }
+
+@media print {
+  body { background: #fff !important; color: #000 !important; }
+  .print-hide { display: none !important; }
+  header, aside, nav, .no-print { display: none !important; }
+
+  /* Ticket cocina (modo default si no hay data-print-mode) */
+  body:not([data-print-mode="receipt"]) .print-only { display: block !important; }
+  body:not([data-print-mode="receipt"]) .receipt-only { display: none !important; }
+
+  /* Recibo cliente A5 */
+  body[data-print-mode="receipt"] .receipt-only { display: block !important; }
+  body[data-print-mode="receipt"] .print-only { display: none !important; }
+
+  @page { margin: 8mm; size: 80mm auto; }
+  @page :first { margin: 8mm; }
+}
+
+/* ===== Recibo cliente A5 ===== */
+.receipt {
+  font-family: 'Inter', system-ui, sans-serif;
+  color: #0a0a0a;
+  width: 100%;
+  max-width: 148mm;
+  margin: 0 auto;
+  padding: 0;
+}
+.receipt-head {
+  text-align: center;
+  border-bottom: 2px solid #000;
+  padding-bottom: 8pt;
+  margin-bottom: 12pt;
+}
+.receipt-brand {
+  font-size: 18pt;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+}
+.receipt-code {
+  font-size: 14pt;
+  margin-top: 4pt;
+  font-weight: 700;
+}
+.receipt-date {
+  font-size: 9pt;
+  color: #444;
+  margin-top: 2pt;
+}
+.receipt-section {
+  margin-bottom: 10pt;
+  padding-bottom: 8pt;
+  border-bottom: 1px dashed #999;
+}
+.receipt-label {
+  font-size: 8pt;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: #666;
+  margin-bottom: 3pt;
+  font-weight: 700;
+}
+.receipt-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10pt;
+  padding: 1pt 0;
+}
+.receipt-meta { color: #666; font-size: 9pt; }
+.receipt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10pt;
+}
+.receipt-table th {
+  background: #f3f3f3;
+  padding: 4pt 6pt;
+  font-size: 8pt;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 700;
+}
+.receipt-table td {
+  padding: 4pt 6pt;
+  border-bottom: 1px solid #eee;
+  vertical-align: top;
+}
+.receipt-table .right { text-align: right; }
+.receipt-table .left { text-align: left; }
+.receipt-extras {
+  font-size: 8.5pt;
+  color: #666;
+  margin-top: 1pt;
+}
+.receipt-totals {
+  margin-top: 8pt;
+  padding-top: 6pt;
+  border-top: 1px solid #000;
+}
+.receipt-total {
+  font-size: 14pt;
+  font-weight: 800;
+  margin-top: 4pt;
+  padding-top: 4pt;
+  border-top: 2px solid #000;
+}
+.receipt-foot {
+  text-align: center;
+  font-size: 10pt;
+  margin-top: 16pt;
+  padding-top: 10pt;
+  border-top: 1px dashed #999;
+  color: #444;
+  font-style: italic;
+}
+
+.ticket {
+  font-family: 'Menlo', 'Courier New', monospace;
+  color: #000;
+  padding: 0;
+  width: 72mm;
+  margin: 0 auto;
+  font-size: 11pt;
+  line-height: 1.35;
+}
+.ticket-head {
+  text-align: center;
+  font-weight: 800;
+}
+.ticket-code { font-size: 22pt; }
+.ticket-fulfillment {
+  font-size: 11pt;
+  letter-spacing: 0.18em;
+  margin-top: 2pt;
+}
+.ticket-meta {
+  text-align: center;
+  font-size: 8.5pt;
+  margin-top: 4pt;
+}
+.ticket-divider {
+  border-top: 1px dashed #000;
+  margin: 6pt 0;
+}
+.ticket-items { margin: 0; }
+.ticket-item { margin-bottom: 5pt; }
+.ticket-item-line { display: flex; gap: 6pt; font-weight: 700; }
+.ticket-qty { min-width: 18pt; }
+.ticket-name { flex: 1; text-transform: uppercase; }
+.ticket-extras { font-size: 9pt; padding-left: 24pt; }
+.ticket-note { font-size: 9pt; padding-left: 24pt; font-style: italic; }
+.ticket-customer-note { font-size: 9pt; }
+.ticket-total {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14pt;
+  font-weight: 800;
+  margin: 4pt 0;
+}
+.ticket-foot {
+  text-align: center;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  font-size: 10pt;
+  margin-top: 4pt;
+}
+
+/* ===== Poster QR imprimible ===== */
+.poster-print-only { display: none; }
+@media print {
+  .poster-print-only { display: block !important; }
+  /* Cuando imprimimos el poster, ocultar todo lo demás */
+  body:has(.poster-print-only) header,
+  body:has(.poster-print-only) aside,
+  body:has(.poster-print-only) nav,
+  body:has(.poster-print-only) .print-hide { display: none !important; }
+  @page { size: A4 portrait; margin: 12mm; }
+}
+
+.poster {
+  width: 100%;
+  aspect-ratio: 1 / 1.41;
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  border-radius: 16px;
+  overflow: hidden;
+  position: relative;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+.poster-preview {
+  max-width: 360px;
+}
+.poster-brand {
+  font-size: 18pt;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  margin-bottom: 12pt;
+}
+.poster-table {
+  font-size: 11pt;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  padding: 5pt 14pt;
+  border-radius: 999px;
+  margin-bottom: 14pt;
+}
+.poster-headline {
+  margin-bottom: 24pt;
+  margin-top: 4pt;
+}
+.poster-line1 {
+  font-size: 22pt;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+}
+.poster-line2 {
+  font-size: 26pt;
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  margin-top: 4pt;
+}
+.poster-qr-wrap {
+  border-radius: 14px;
+  padding: 14pt;
+  display: inline-block;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+}
+.poster-qr {
+  display: block;
+  width: 220px;
+  height: 220px;
+}
+.poster-arrow {
+  font-size: 30pt;
+  margin: 12pt 0 -4pt;
+  font-weight: 800;
+  line-height: 1;
+}
+.poster-url {
+  font-family: 'Menlo', monospace;
+  font-size: 10pt;
+  margin-top: 8pt;
+  opacity: 0.85;
+}
+.poster-foot {
+  margin-top: auto;
+  padding-top: 16pt;
+  font-size: 8pt;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 700;
+}

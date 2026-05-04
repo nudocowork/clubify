@@ -44,7 +44,8 @@ function shell(opts: {
         }
       </td></tr>
       <tr><td style="padding:18px 28px;background:#F9FAFB;border-top:1px solid #E5E7EB;font-size:12px;color:#6B7280;text-align:center">
-        ${opts.footer ?? `Enviado por ${opts.tenant.brandName} · vía Clubify`}
+        ${opts.footer ? `${opts.footer}<br/>` : `Enviado por ${opts.tenant.brandName}<br/>`}
+        <span style="font-size:11px;color:#9CA3AF">Hecho con <a href="https://soyclubify.com" style="color:#6366F1;text-decoration:none;font-weight:600">Clubify</a></span>
       </td></tr>
     </table>
   </td></tr>
@@ -136,7 +137,7 @@ export function welcomeStaffTemplate(args: {
 }) {
   return {
     subject: `Bienvenido al equipo de ${args.tenant.brandName}`,
-    text: `Tu cuenta de ${args.tenant.brandName} en Clubify\nEmail: ${args.email}\nContraseña temporal: ${args.tempPassword}\nIngresá en: ${args.loginUrl}`,
+    text: `Tu cuenta de ${args.tenant.brandName} en Clubify\nEmail: ${args.email}\nContraseña temporal: ${args.tempPassword}\nIngresa en: ${args.loginUrl}`,
     html: shell({
       tenant: args.tenant,
       preheader: 'Tu acceso al panel de Clubify',
@@ -147,9 +148,83 @@ export function welcomeStaffTemplate(args: {
           <b>Email:</b> ${args.email}<br/>
           <b>Contraseña temporal:</b> ${args.tempPassword}
         </div>
-        <p style="margin:16px 0 0;color:#6B7280;font-size:13px">Cambiá tu contraseña apenas ingreses. Si recibiste este email por error, ignoralo.</p>
+        <p style="margin:16px 0 0;color:#6B7280;font-size:13px">Cambia tu contraseña apenas ingreses. Si recibiste este email por error, ignóralo.</p>
       `,
       cta: { label: 'Ingresar al panel →', href: args.loginUrl },
+    }),
+  };
+}
+
+export function passwordResetTemplate(args: {
+  fullName: string;
+  resetUrl: string;
+  expiresInMinutes: number;
+}) {
+  const tenant: Tenant = {
+    brandName: 'Clubify',
+    primaryColor: '#6366F1',
+    logoUrl: null,
+    whatsappPhone: null,
+    slug: 'clubify',
+  };
+  return {
+    subject: 'Restablece tu contraseña en Clubify',
+    text: `Hola ${args.fullName},\nPara restablecer tu contraseña usa este link (vence en ${args.expiresInMinutes} min):\n${args.resetUrl}\nSi no solicitaste esto, ignora este email.`,
+    html: shell({
+      tenant,
+      preheader: `Link válido por ${args.expiresInMinutes} minutos`,
+      body: `
+        <h2 style="margin:0 0 12px;font-size:22px;font-weight:700">Restablece tu contraseña</h2>
+        <p style="margin:0 0 14px;color:#374151;line-height:1.55">
+          Hola ${args.fullName}, recibimos una solicitud para cambiar la contraseña de tu cuenta en Clubify.
+        </p>
+        <p style="margin:0 0 14px;color:#374151;line-height:1.55">
+          Haz click en el botón de abajo para crear una nueva. El link vence en <b>${args.expiresInMinutes} minutos</b>.
+        </p>
+        <p style="margin:16px 0 0;color:#6B7280;font-size:13px">Si no solicitaste este cambio, simplemente ignora este email — tu contraseña actual sigue siendo válida.</p>
+      `,
+      cta: { label: 'Restablecer mi contraseña →', href: args.resetUrl },
+    }),
+  };
+}
+
+export function welcomeOwnerTemplate(args: {
+  tenant: Tenant;
+  fullName: string;
+  trialEndsAt: Date;
+  appUrl: string;
+}) {
+  const trialEndStr = args.trialEndsAt.toLocaleDateString('es-CO', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+  return {
+    subject: `Bienvenido a Clubify, ${args.fullName.split(' ')[0]}`,
+    text: `Tu cuenta de ${args.tenant.brandName} ya está lista. Tienes 10 días gratis (hasta ${trialEndStr}). Ingresa en ${args.appUrl}/onboarding`,
+    html: shell({
+      tenant: args.tenant,
+      preheader: `10 días gratis hasta ${trialEndStr}`,
+      body: `
+        <h2 style="margin:0 0 12px;font-size:24px;font-weight:700">¡Bienvenido, ${args.fullName.split(' ')[0]}!</h2>
+        <p style="margin:0 0 14px;color:#374151;line-height:1.55">
+          Tu cuenta de <b>${args.tenant.brandName}</b> en Clubify ya está lista.
+        </p>
+        <div style="background:linear-gradient(135deg,#6366F1,#A855F7);border-radius:14px;padding:18px 20px;color:#fff">
+          <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.85">Tu prueba gratis</div>
+          <div style="font-size:22px;font-weight:700;margin-top:4px">10 días para probarlo todo</div>
+          <div style="font-size:13px;opacity:.85;margin-top:6px">Termina el ${trialEndStr} · cancela antes y no cobramos</div>
+        </div>
+        <p style="margin:18px 0 8px;color:#374151;line-height:1.55">Lo siguiente que te recomendamos:</p>
+        <ol style="margin:0;padding-left:20px;color:#374151;line-height:1.8">
+          <li>Sube tu menú (categorías + productos)</li>
+          <li>Personaliza tu tarjeta de fidelización</li>
+          <li>Comparte tu link público en Instagram y WhatsApp</li>
+          <li>Activa la primera automatización (mensaje al cliente)</li>
+        </ol>
+        <p style="margin:16px 0 0;color:#6B7280;font-size:13px">Si te trabas en algo, escríbenos por WhatsApp y te ayudamos en vivo.</p>
+      `,
+      cta: { label: 'Continuar configurando →', href: `${args.appUrl}/onboarding` },
     }),
   };
 }

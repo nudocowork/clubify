@@ -2,12 +2,18 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { clearSession, getUser } from '@/lib/api';
+import { api, clearSession, getUser, getImpersonationBackup, stopImpersonation } from '@/lib/api';
 import { Icon } from './Icon';
 import { NotificationBell } from './NotificationBell';
+import { TrialBanner } from './TrialBanner';
+import { CommandPalette, CommandHint } from './CommandPalette';
+import { HelpButton } from './HelpPanel';
+import { QuickCreateFAB } from './QuickCreateFAB';
+import { CardVerificationLockscreen } from './CardVerificationLockscreen';
+import { Logo } from './Logo';
 
 type IconName = Parameters<typeof Icon>[0]['name'];
-type NavItem = { href: string; label: string; icon: IconName };
+type NavItem = { href: string; label: string; icon: IconName; lockedPro?: boolean };
 type NavGroup = { section: string; items: NavItem[] };
 
 function initials(name: string) {
@@ -36,6 +42,17 @@ export default function AppShell({
   const pathname = usePathname();
   const [user, setUser] = useState<any>(null);
   const [navOpen, setNavOpen] = useState(false);
+  const [impersonation, setImpersonation] = useState<ReturnType<typeof getImpersonationBackup>>(null);
+  const [planName, setPlanName] = useState<string | null>(null);
+  const [tenantInfo, setTenantInfo] = useState<{
+    brandName?: string;
+    hotmartSubscriberCode?: string | null;
+  } | null>(null);
+  const isPro = planName === 'Pro';
+
+  useEffect(() => {
+    setImpersonation(getImpersonationBackup());
+  }, [pathname]);
 
   useEffect(() => {
     const u = getUser();
@@ -47,6 +64,21 @@ export default function AppShell({
     if (variant === 'app' && u.role === 'SUPER_ADMIN') router.push('/admin');
     setUser(u);
   }, [router, variant]);
+
+  // Cargar plan del tenant para mostrar badges Pro en sidebar y detectar
+  // si todavía falta verificar la tarjeta en Hotmart (lockscreen).
+  useEffect(() => {
+    if (variant !== 'app') return;
+    api<any>('/tenants/me')
+      .then((t) => {
+        setPlanName(t?.plan?.name ?? null);
+        setTenantInfo({
+          brandName: t?.brandName,
+          hotmartSubscriberCode: t?.hotmartSubscriberCode ?? null,
+        });
+      })
+      .catch(() => null);
+  }, [variant, pathname]);
 
   // Cerrar drawer al navegar
   useEffect(() => {
@@ -108,7 +140,7 @@ export default function AppShell({
             section: 'Automatizar',
             items: [
               { href: '/app/messages', label: 'Mensajes', icon: 'send' },
-              { href: '/app/automations', label: 'Automatizaciones', icon: 'spark' },
+              { href: '/app/automations', label: 'Automatizaciones', icon: 'spark', lockedPro: true },
               { href: '/app/notifications', label: 'Push', icon: 'bell' },
             ],
           },
@@ -127,21 +159,44 @@ export default function AppShell({
               { href: '/app/staff', label: 'Empleados', icon: 'users' },
             ],
           },
+          {
+            section: 'Cuenta',
+            items: [
+              { href: '/app/billing', label: 'Suscripción', icon: 'card' },
+              { href: '/app/settings', label: 'Mi cuenta', icon: 'users' },
+              { href: '/app/whats-new', label: 'Novedades', icon: 'spark' },
+            ],
+          },
         ];
 
   if (!user) return null;
 
+  // Lockscreen: tenant aún no completó la verificación de tarjeta en Hotmart.
+  // Aplica solo a TENANT_OWNER (los staff entran con tenant ya activo) y solo
+  // si ya tenemos data del tenant cargada (no parpadear lockscreen mientras
+  // /tenants/me responde).
+  if (
+    variant === 'app' &&
+    user.role === 'TENANT_OWNER' &&
+    tenantInfo &&
+    !tenantInfo.hotmartSubscriberCode &&
+    planName &&
+    (planName === 'Elite' || planName === 'Pro')
+  ) {
+    return (
+      <CardVerificationLockscreen
+        brandName={tenantInfo.brandName}
+        planName={planName}
+      />
+    );
+  }
+
   const brandTitle = variant === 'admin' ? 'Admin Clubify' : 'Mi Negocio';
-  const brandColor = variant === 'admin' ? 'bg-brand' : 'bg-avatar-1';
 
   const sidebar = (
     <aside className="bg-sidebar-bg text-sidebar-ink p-4 flex flex-col gap-1.5 h-full w-[260px] lg:w-[240px] flex-none">
       <div className="flex items-center gap-3 px-1.5 pt-2 pb-4">
-        <div
-          className={`${brandColor} w-[42px] h-[42px] rounded-[10px] flex items-center justify-center text-white font-bold text-lg tracking-tight`}
-        >
-          C
-        </div>
+        <Logo variant="mark" size={42} className="bg-white" />
         <div className="flex-1 min-w-0">
           <div className="font-bold text-white text-[15px] leading-tight truncate">
             {brandTitle}
@@ -166,6 +221,7 @@ export default function AppShell({
             {g.items.map((n) => {
               const active =
                 pathname === n.href || pathname.startsWith(n.href + '/');
+              const showLock = n.lockedPro && planName !== null && !isPro;
               return (
                 <Link
                   key={n.href}
@@ -175,9 +231,15 @@ export default function AppShell({
                       ? 'bg-sidebar-active text-white shadow-active'
                       : 'text-gray-300 hover:bg-sidebar-hover hover:text-white'
                   }`}
+                  title={showLock ? 'Requiere plan Pro' : ''}
                 >
                   <Icon name={n.icon} size={18} className="opacity-90 flex-none" />
-                  {n.label}
+                  <span className={showLock ? 'opacity-70' : ''}>{n.label}</span>
+                  {showLock && (
+                    <span className="ml-auto text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300">
+                      Pro
+                    </span>
+                  )}
                 </Link>
               );
             })}
@@ -236,20 +298,47 @@ export default function AppShell({
           <Icon name="menu" size={20} />
         </button>
         <div className="flex items-center gap-2 flex-1 min-w-0">
-          <div
-            className={`${brandColor} w-7 h-7 rounded-lg flex items-center justify-center text-white font-bold text-sm flex-none`}
-          >
-            C
-          </div>
+          <Logo variant="mark" size={28} className="bg-white flex-none" />
           <div className="font-semibold text-sm truncate">{brandTitle}</div>
         </div>
         {variant === 'app' && <NotificationBell />}
       </header>
 
       {/* Contenido */}
-      <main className="lg:ml-[240px] bg-bg p-4 sm:p-6 lg:p-7 min-w-0">
-        {children}
-      </main>
+      <div className="lg:ml-[240px] min-w-0">
+        {variant === 'app' && impersonation && (
+          <div className="bg-amber-500 text-amber-950 px-4 py-2 text-[13px] flex items-center gap-2 flex-wrap">
+            <span className="font-semibold">🛡 Modo admin</span>
+            <span className="opacity-80">
+              Estás dentro de <b>{impersonation.tenant?.brandName ?? 'este negocio'}</b> como{' '}
+              {impersonation.user?.email ?? 'super admin'}.
+            </span>
+            <button
+              onClick={() => {
+                stopImpersonation();
+                router.push('/admin/tenants');
+              }}
+              className="ml-auto bg-amber-950 text-amber-100 px-3 py-1 rounded-md text-xs font-semibold hover:bg-amber-900 transition"
+            >
+              ← Volver al admin
+            </button>
+          </div>
+        )}
+        {variant === 'app' && <TrialBanner />}
+        {/* Topbar desktop con CommandHint a la derecha */}
+        <div className="hidden lg:flex items-center justify-end gap-3 px-7 pt-4">
+          <CommandHint />
+        </div>
+        <main className="bg-bg p-4 sm:p-6 lg:p-7 lg:pt-4">{children}</main>
+      </div>
+
+      <CommandPalette variant={variant} />
+      {variant === 'app' && (
+        <>
+          <HelpButton />
+          <QuickCreateFAB />
+        </>
+      )}
     </div>
   );
 }

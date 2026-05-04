@@ -19,8 +19,8 @@ export default function Onboarding() {
   const [brand, setBrand] = useState({
     brandName: '',
     logoUrl: null as string | null,
-    primaryColor: '#6366F1',
-    secondaryColor: '#C026D3',
+    primaryColor: '#22C55E',
+    secondaryColor: '#15803D',
   });
   const [whatsapp, setWhatsapp] = useState({
     whatsappPhone: '',
@@ -39,6 +39,10 @@ export default function Onboarding() {
     rewardText: '',
     stampsRequired: 10,
   });
+  const [demoPass, setDemoPass] = useState<{
+    passId: string;
+    walletUrl: string;
+  } | null>(null);
 
   useEffect(() => {
     const u = getUser();
@@ -55,8 +59,8 @@ export default function Onboarding() {
       setBrand({
         brandName: t.brandName || '',
         logoUrl: t.logoUrl,
-        primaryColor: t.primaryColor || '#6366F1',
-        secondaryColor: t.secondaryColor || '#C026D3',
+        primaryColor: t.primaryColor || '#22C55E',
+        secondaryColor: t.secondaryColor || '#15803D',
       });
       setWhatsapp({
         whatsappPhone: t.whatsappPhone || '',
@@ -68,8 +72,25 @@ export default function Onboarding() {
         rewardText: '1 producto gratis',
         stampsRequired: 10,
       });
+
+      // Resume desde el último paso guardado para este tenant
+      try {
+        const savedStep = localStorage.getItem(`clubify_onb_${t.id}`);
+        if (savedStep) {
+          const n = parseInt(savedStep, 10);
+          if (Number.isFinite(n) && n > 0 && n <= 5) setStep(n);
+        }
+      } catch {}
     });
   }, [router]);
+
+  // Persistir paso actual cuando cambia
+  useEffect(() => {
+    if (!tenant) return;
+    try {
+      localStorage.setItem(`clubify_onb_${tenant.id}`, String(step));
+    } catch {}
+  }, [step, tenant]);
 
   async function next() {
     setErr(null);
@@ -106,8 +127,8 @@ export default function Onboarding() {
             }),
           });
           break;
-        case 4: // Tarjeta
-          await api('/cards', {
+        case 4: // Tarjeta + emitir pase demo del dueño
+          const created = await api<any>('/cards', {
             method: 'POST',
             body: JSON.stringify({
               type: 'STAMPS',
@@ -118,6 +139,30 @@ export default function Onboarding() {
               secondaryColor: brand.secondaryColor,
             }),
           });
+
+          try {
+            const me = await api<any>('/customers', {
+              method: 'POST',
+              body: JSON.stringify({
+                fullName: `${tenant.brandName} (tú)`,
+                phone: whatsapp.whatsappPhone || `+57${Date.now().toString().slice(-9)}`,
+                email: tenant.email,
+              }),
+            });
+            const issued = await api<any>('/passes', {
+              method: 'POST',
+              body: JSON.stringify({ cardId: created.id, customerId: me.id }),
+            });
+            setDemoPass({
+              passId: issued.id,
+              walletUrl:
+                typeof window !== 'undefined'
+                  ? `${window.location.origin}/w/${issued.id}`
+                  : `/w/${issued.id}`,
+            });
+          } catch {
+            // si falla la emisión del pase demo, no bloqueo el onboarding
+          }
           break;
       }
       setStep(step + 1);
@@ -129,7 +174,13 @@ export default function Onboarding() {
   }
 
   function skip() {
-    router.push('/app');
+    if (
+      confirm(
+        'Puedes terminar la configuración después desde el dashboard. ¿Saltar por ahora?',
+      )
+    ) {
+      router.push('/app');
+    }
   }
 
   if (!tenant) return <div className="p-8 text-mute">Cargando…</div>;
@@ -153,6 +204,16 @@ export default function Onboarding() {
 
       {/* Stepper */}
       <div className="max-w-2xl mx-auto w-full px-6 pt-8">
+        <div className="flex items-center justify-between text-[11px] text-mute mb-2">
+          <span>
+            Paso <b className="text-ink">{Math.min(step + 1, STEPS.length)}</b>{' '}
+            de {STEPS.length}
+          </span>
+          <span>
+            {Math.round((Math.min(step, STEPS.length - 1) / (STEPS.length - 1)) * 100)}%
+            completo
+          </span>
+        </div>
         <div className="flex items-center gap-2 mb-2">
           {STEPS.map((s, i) => (
             <div
@@ -163,7 +224,7 @@ export default function Onboarding() {
             />
           ))}
         </div>
-        <div className="flex justify-between text-[10px] uppercase tracking-wider text-mute font-semibold">
+        <div className="hidden sm:flex justify-between text-[10px] uppercase tracking-wider text-mute font-semibold">
           {STEPS.map((s, i) => (
             <div
               key={s}
@@ -388,33 +449,91 @@ export default function Onboarding() {
               </div>
             </div>
 
-            {/* Preview */}
+            {/* Preview iPhone-frame */}
             <div className="mt-6">
-              <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
-                Así verán tus clientes su tarjeta
+              <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-3">
+                Así verá tu cliente su tarjeta en el teléfono
               </div>
-              <div
-                className="rounded-2xl p-5 text-white max-w-xs"
-                style={{
-                  background: `linear-gradient(135deg, ${brand.primaryColor}, ${brand.secondaryColor})`,
-                }}
-              >
-                <div className="text-xs uppercase tracking-wider opacity-85">
-                  STAMPS
+              <div className="flex justify-center">
+                <div className="iphone scale-90 origin-top">
+                  <div className="iphone-notch" />
+                  <div className="iphone-screen">
+                    <div className="iphone-bar">
+                      <span>9:41</span>
+                      <span className="text-[10px]">●●● 100%</span>
+                    </div>
+                    <div className="wallet-actions">
+                      <span className="wallet-ok">OK</span>
+                      <span className="text-mute2 text-xs">↑ ···</span>
+                    </div>
+                    <div className="mx-2 mb-2">
+                      <div
+                        className="pass"
+                        style={{
+                          background: `linear-gradient(135deg, ${brand.primaryColor}, ${brand.secondaryColor})`,
+                        }}
+                      >
+                        <div className="pass-head">
+                          <div className="pass-logo">
+                            <span className="pass-logo-mark">
+                              {(brand.brandName[0] || 'C').toUpperCase()}
+                            </span>{' '}
+                            {brand.brandName || 'Tu marca'}
+                          </div>
+                          <div className="pass-side">
+                            <div className="pass-side-lbl">SELLOS</div>
+                            <div className="pass-side-val">3/{card.stampsRequired}</div>
+                          </div>
+                        </div>
+                        <div
+                          className="pass-strip"
+                          style={{
+                            background:
+                              'linear-gradient(135deg,rgba(0,0,0,.15),rgba(0,0,0,.05))',
+                          }}
+                        >
+                          <div className="strip-stamps">
+                            {Array.from({ length: Math.min(card.stampsRequired, 7) }).map(
+                              (_, i) => (
+                                <div
+                                  key={i}
+                                  className={`strip-stamp ${i < 3 ? 'full' : ''}`}
+                                  style={{
+                                    color: i < 3 ? brand.primaryColor : '#fff',
+                                  }}
+                                >
+                                  {i < 3 ? '✓' : ''}
+                                </div>
+                              ),
+                            )}
+                          </div>
+                        </div>
+                        <div className="pass-fields">
+                          <div>
+                            <div className="pf-lbl">TITULAR</div>
+                            <div className="pf-val">MARÍA PÉREZ</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="pf-lbl">RECOMPENSA</div>
+                            <div className="pf-val text-xs">
+                              {card.rewardText || '1 producto gratis'}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="pass-bar">
+                          <div className="w-40 h-12 bg-white/90 rounded grid place-items-center text-ink/80 text-[9px] tracking-widest">
+                            ▮▯▮▮▯▮▯▮▮▯▮▮▯▮▯
+                          </div>
+                          <div className="pager">
+                            <span className="pager-dot" />
+                            <span className="pager-dot on" />
+                            <span className="pager-dot" />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="font-semibold text-lg mt-1">{card.name}</div>
-                <div className="flex flex-wrap gap-1.5 mt-3">
-                  {Array.from({ length: card.stampsRequired }).map((_, i) => (
-                    <span
-                      key={i}
-                      className="w-5 h-5 rounded-full border-2 border-white/50"
-                    />
-                  ))}
-                </div>
-                <div className="text-xs uppercase tracking-wider opacity-70 mt-4">
-                  Recompensa
-                </div>
-                <div className="text-sm">{card.rewardText}</div>
               </div>
             </div>
           </Step>
@@ -422,46 +541,91 @@ export default function Onboarding() {
 
         {step === 5 && (
           <Step
-            title="¡Listo! 🎉"
-            subtitle={`${brand.brandName} ya está en línea. Comparte tu link o QR para que tus clientes empiecen a pedir.`}
+            title={
+              <span className="inline-flex items-center gap-2">
+                <span className="inline-block animate-bounce-once">🎉</span>
+                <span>¡Listo, {brand.brandName}!</span>
+              </span>
+            }
+            subtitle="Ya estás en línea. Tienes 10 días gratis para probarlo todo. Sin compromiso, sin tarjeta requerida hoy."
           >
-            <div className="card card-pad text-center">
-              <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
-                Tu mini-sitio público
-              </div>
-              <div className="font-mono text-sm break-all bg-bg2 px-3 py-2.5 rounded-lg">
-                {typeof window !== 'undefined' ? window.location.origin : ''}/m/{tenant.slug}
-              </div>
-              <div className="mt-4 flex gap-2 justify-center">
+            <div className="grid md:grid-cols-2 gap-4">
+              {/* Mini-sitio público */}
+              <div className="card card-pad">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-8 h-8 rounded-lg bg-brand-soft text-brand-700 flex items-center justify-center">
+                    <Icon name="store" size={16} />
+                  </div>
+                  <div className="font-semibold">Tu mini-sitio</div>
+                </div>
+                <div className="font-mono text-xs break-all bg-bg2 px-3 py-2.5 rounded-lg text-ink/80">
+                  {typeof window !== 'undefined' ? window.location.origin : ''}/m/{tenant.slug}
+                </div>
                 <Link
                   href={`/m/${tenant.slug}`}
                   target="_blank"
-                  className="btn-ghost"
+                  className="btn-ghost w-full justify-center mt-3 text-sm"
                 >
-                  <Icon name="arrow-right" /> Abrir sitio
+                  Abrir sitio →
                 </Link>
               </div>
+
+              {/* Tarjeta wallet emitida */}
+              {demoPass && (
+                <div className="card card-pad">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-8 h-8 rounded-lg bg-brand-soft text-brand-700 flex items-center justify-center">
+                      <Icon name="card" size={16} />
+                    </div>
+                    <div className="font-semibold">Tu tarjeta de prueba</div>
+                  </div>
+                  <p className="text-xs text-mute mb-3">
+                    Te emitimos una tarjeta a tu nombre para que la pruebes en
+                    tu teléfono. Escanea el QR con la cámara y la guardas en
+                    Google Wallet.
+                  </p>
+                  <div className="bg-white p-3 rounded-lg flex justify-center">
+                    <img
+                      alt="QR de tu tarjeta"
+                      width={140}
+                      height={140}
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&margin=0&data=${encodeURIComponent(demoPass.walletUrl)}`}
+                    />
+                  </div>
+                  <a
+                    href={demoPass.walletUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn-primary w-full justify-center mt-3 text-sm"
+                  >
+                    Abrir mi tarjeta →
+                  </a>
+                </div>
+              )}
             </div>
 
-            <div className="grid grid-cols-2 gap-3 mt-5">
-              <Link href="/app" className="card card-pad text-center hover:shadow-md2 transition">
-                <Icon name="grid" className="mx-auto text-brand mb-2" size={24} />
-                <div className="font-semibold">Ir al dashboard</div>
+            <div className="text-xs uppercase tracking-wider text-mute font-semibold mt-6 mb-2">
+              Próximos pasos
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Link href="/app" className="card card-pad text-center hover:shadow-md transition">
+                <Icon name="grid" className="mx-auto text-brand mb-2" size={20} />
+                <div className="font-semibold text-sm">Ir al dashboard</div>
                 <div className="text-xs text-mute mt-1">Métricas y atajos</div>
               </Link>
-              <Link href="/app/menu" className="card card-pad text-center hover:shadow-md2 transition">
-                <Icon name="menu" className="mx-auto text-brand mb-2" size={24} />
-                <div className="font-semibold">Agregar más productos</div>
+              <Link href="/app/menu" className="card card-pad text-center hover:shadow-md transition">
+                <Icon name="menu" className="mx-auto text-brand mb-2" size={20} />
+                <div className="font-semibold text-sm">Agregar más productos</div>
                 <div className="text-xs text-mute mt-1">Crece tu menú</div>
               </Link>
-              <Link href="/app/storefront" className="card card-pad text-center hover:shadow-md2 transition">
-                <Icon name="store" className="mx-auto text-brand mb-2" size={24} />
-                <div className="font-semibold">Personalizar mi sitio</div>
+              <Link href="/app/storefront" className="card card-pad text-center hover:shadow-md transition">
+                <Icon name="store" className="mx-auto text-brand mb-2" size={20} />
+                <div className="font-semibold text-sm">Personalizar mi sitio</div>
                 <div className="text-xs text-mute mt-1">Bloques y diseño</div>
               </Link>
-              <Link href="/app/automations" className="card card-pad text-center hover:shadow-md2 transition">
-                <Icon name="spark" className="mx-auto text-brand mb-2" size={24} />
-                <div className="font-semibold">Activar automatizaciones</div>
+              <Link href="/app/automations" className="card card-pad text-center hover:shadow-md transition">
+                <Icon name="spark" className="mx-auto text-brand mb-2" size={20} />
+                <div className="font-semibold text-sm">Activar automatizaciones</div>
                 <div className="text-xs text-mute mt-1">Mensajes automáticos</div>
               </Link>
             </div>
@@ -507,7 +671,7 @@ function Step({
   subtitle,
   children,
 }: {
-  title: string;
+  title: React.ReactNode;
   subtitle?: string;
   children: React.ReactNode;
 }) {

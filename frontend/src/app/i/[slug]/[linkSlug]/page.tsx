@@ -102,7 +102,7 @@ export default function PublicInfoLink() {
   if (!data) return <div className="p-8 text-mute text-center">Cargando…</div>;
 
   const { tenant, link } = data;
-  const primary = link.theme?.primaryColor ?? tenant.primaryColor ?? '#6366F1';
+  const primary = link.theme?.primaryColor ?? tenant.primaryColor ?? '#22C55E';
 
   function buttonHref(b: Button): string | undefined {
     switch (b.type) {
@@ -147,7 +147,7 @@ export default function PublicInfoLink() {
           <div
             className="w-full h-32"
             style={{
-              background: `linear-gradient(135deg, ${primary}, ${tenant.secondaryColor || '#C026D3'})`,
+              background: `linear-gradient(135deg, ${primary}, ${tenant.secondaryColor || '#15803D'})`,
             }}
           />
         )}

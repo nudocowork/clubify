@@ -14,6 +14,8 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Max,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -47,6 +49,11 @@ class PublicOrderBody {
   @IsOptional() @IsString() locationId?: string;
 }
 
+class PublicRateBody {
+  @IsInt() @Min(1) @Max(5) rating!: number;
+  @IsOptional() @IsString() @MaxLength(500) comment?: string;
+}
+
 @Controller('public/orders')
 export class PublicOrdersController {
   constructor(private svc: OrdersService) {}
@@ -62,5 +69,12 @@ export class PublicOrdersController {
   @Get(':code')
   get(@Param('code') code: string) {
     return this.svc.getPublicByCode(code.toUpperCase());
+  }
+
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @Post(':code/rate')
+  rate(@Param('code') code: string, @Body() body: PublicRateBody) {
+    return this.svc.ratePublic(code.toUpperCase(), body.rating, body.comment);
   }
 }

@@ -34,3 +34,7 @@ backend/migrations/.snapshot
 
 # TS build cache
 *.tsbuildinfo
+
+# Compiled test outputs (generated from .ts source)
+backend/test/*.js
+backend/test/*.js.map

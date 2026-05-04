@@ -24,6 +24,8 @@ class ProductBody {
   @IsOptional() @IsNumber() position?: number;
   @IsOptional() @IsArray() variants?: any[];
   @IsOptional() @IsArray() extras?: any[];
+  @IsOptional() stock?: number | null;
+  @IsOptional() stockAlert?: number | null;
 }
 
 @Controller('catalog/products')

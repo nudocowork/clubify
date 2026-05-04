@@ -38,7 +38,12 @@ export class WalletService {
       webServiceURL: `${process.env.API_URL}/api/wallet/apple`,
       authenticationToken: pass.authToken,
       barcodes: [
-        { format: 'PKBarcodeFormatQR', message: pass.qrToken, messageEncoding: 'iso-8859-1' },
+        {
+          format: 'PKBarcodeFormatPDF417',
+          message: pass.serialNumber,
+          altText: pass.serialNumber,
+          messageEncoding: 'iso-8859-1',
+        },
       ],
       locations: pass.tenant.locations.map((l) => ({
         latitude: Number(l.latitude),
@@ -107,20 +112,47 @@ export class WalletService {
     }
 
     const sa = JSON.parse(fs.readFileSync(saJsonPath, 'utf8'));
-    const objectId = `${issuerId}.pass_${pass.id}`;
-    const classId = `${issuerId}.card_${pass.cardId}`;
+    // Google Wallet IDs only allow [a-zA-Z0-9._] — UUIDs (with dashes) need sanitizing.
+    const safe = (s: string) => s.replace(/[^a-zA-Z0-9._]/g, '_');
+    const objectId = `${issuerId}.pass_${safe(pass.id)}`;
+    const classId = `${issuerId}.card_${safe(pass.cardId)}`;
+    const hex = pass.card.primaryColor || '#5B5EEE';
+    // El logo TIENE que ser HTTPS público accesible (Google scraper lo descarga).
+    // En dev preferimos el tunnel; ignoramos APP_URL si apunta a localhost.
+    const publicBase =
+      process.env.PUBLIC_LOGO_BASE_URL ||
+      (process.env.APP_URL && !process.env.APP_URL.includes('localhost')
+        ? process.env.APP_URL
+        : 'https://attacked-princess-understand-racks.trycloudflare.com');
+    const logoUri = pass.tenant.logoUrl || `${publicBase}/icons/icon-512.png`;
+
+    // LoyaltyClass inline — Google Wallet la crea on-the-fly si no existe.
+    // Sin esto el JWT save link falla porque Google requiere class antes que object.
+    // No incluimos `reviewStatus` ni `countryCode`: son sólo válidos vía REST API,
+    // no en el payload inline del JWT save link.
+    const loyaltyClass = {
+      id: classId,
+      issuerName: pass.tenant.brandName,
+      programName: pass.card.name,
+      programLogo: {
+        sourceUri: { uri: logoUri },
+        contentDescription: { defaultValue: { language: 'es', value: pass.tenant.brandName } },
+      },
+      hexBackgroundColor: hex,
+    };
 
     const loyaltyObject = {
       id: objectId,
       classId,
       state: 'ACTIVE',
       accountName: pass.customer.fullName,
-      accountId: pass.customer.id,
+      accountId: safe(pass.customer.id),
       loyaltyPoints: {
         balance: { string: `${pass.stampsCount}/${pass.card.stampsRequired ?? 10}` },
         label: 'Sellos',
       },
-      barcode: { type: 'QR_CODE', value: pass.qrToken },
+      barcode: { type: 'PDF_417', value: pass.serialNumber, alternateText: pass.serialNumber },
+      hexBackgroundColor: hex,
     };
 
     const claims = {
@@ -128,7 +160,10 @@ export class WalletService {
       aud: 'google',
       typ: 'savetowallet',
       iat: Math.floor(Date.now() / 1000),
-      payload: { loyaltyObjects: [loyaltyObject] },
+      payload: {
+        loyaltyClasses: [loyaltyClass],
+        loyaltyObjects: [loyaltyObject],
+      },
     };
 
     const token = sign(claims, sa.private_key, { algorithm: 'RS256' });

@@ -4,6 +4,7 @@ import { api, getUser } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import { Icon } from '@/components/Icon';
 import { InstallPWAButton } from '@/components/InstallPWAButton';
+import { playScanSuccess, playScanError } from '@/lib/notify';
 
 function avatarClass(seed: string) {
   const sum = seed.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
@@ -59,8 +60,21 @@ export default function ScanPage() {
         body: JSON.stringify({ qrToken }),
       });
       setData(res);
+      playScanSuccess();
+      // Vibración táctil corta si está disponible (Android/PWA)
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        try {
+          navigator.vibrate(60);
+        } catch {}
+      }
     } catch (e: any) {
       setErr(e.message);
+      playScanError();
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        try {
+          navigator.vibrate([80, 60, 80]);
+        } catch {}
+      }
     } finally {
       setBusy(false);
     }
@@ -79,8 +93,10 @@ export default function ScanPage() {
         }),
       });
       setData({ ...data, pass: res.pass });
+      playScanSuccess();
     } catch (e: any) {
       setErr(e.message);
+      playScanError();
     } finally {
       setBusy(false);
     }
@@ -153,9 +169,9 @@ export default function ScanPage() {
                         className="w-7 h-7 rounded-full border-2"
                         style={{
                           background:
-                            i < data.pass.stampsCount ? '#6366F1' : 'transparent',
+                            i < data.pass.stampsCount ? '#22C55E' : 'transparent',
                           borderColor:
-                            i < data.pass.stampsCount ? '#6366F1' : '#E5E7EB',
+                            i < data.pass.stampsCount ? '#22C55E' : '#E5E7EB',
                         }}
                       />
                     ),

@@ -4,6 +4,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
+import { toast } from '@/components/Toast';
 
 type OrderItem = {
   productId: string;
@@ -35,6 +36,9 @@ type Order = {
   total: number;
   appliedPromos: any[];
   customerNote: string | null;
+  rating: number | null;
+  ratingComment: string | null;
+  ratedAt: string | null;
   whatsappLink: string | null;
   paymentStatus: 'NOT_REQUIRED' | 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
   paymentMethod: string;
@@ -93,7 +97,11 @@ export default function OrderDetail() {
   const [busy, setBusy] = useState(false);
 
   async function load() {
-    setO(await api<Order>(`/orders/${id}`));
+    try {
+      setO(await api<Order>(`/orders/${id}`));
+    } catch (e: any) {
+      toast(e.message || 'Error cargando pedido', 'error');
+    }
   }
   useEffect(() => {
     load();
@@ -107,9 +115,22 @@ export default function OrderDetail() {
         body: JSON.stringify({ status: next }),
       });
       await load();
+      toast(`Pedido marcado como ${STATUS_LABEL[next]}`, 'success');
+    } catch (e: any) {
+      toast(e.message || 'No se pudo cambiar el estado', 'error');
     } finally {
       setBusy(false);
     }
+  }
+
+  function printAs(mode: 'ticket' | 'receipt') {
+    document.body.dataset.printMode = mode;
+    setTimeout(() => {
+      window.print();
+      setTimeout(() => {
+        delete document.body.dataset.printMode;
+      }, 500);
+    }, 50);
   }
 
   if (!o) return <div className="text-mute">Cargando…</div>;
@@ -124,6 +145,7 @@ export default function OrderDetail() {
 
   return (
     <div>
+     <div className="print-hide">
       <div className="page-head">
         <h1 className="page-title">
           <Link href="/app/orders" className="text-mute hover:text-ink">
@@ -147,6 +169,7 @@ export default function OrderDetail() {
           >
             {STATUS_LABEL[o.status]}
           </span>
+          <PrintMenu onPrint={printAs} />
           {NEXT[o.status] && (
             <button
               className="btn-primary"
@@ -254,6 +277,37 @@ export default function OrderDetail() {
             <div className="card card-pad">
               <h3 className="font-semibold mb-2">Nota del cliente</h3>
               <p className="text-sm text-mute italic">"{o.customerNote}"</p>
+            </div>
+          )}
+
+          {o.rating && (
+            <div className="card card-pad">
+              <h3 className="font-semibold mb-2">Calificación del cliente</h3>
+              <div className="flex items-center gap-2">
+                <div className="text-2xl">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <span
+                      key={i}
+                      style={{ color: i < o.rating! ? '#F59E0B' : '#E5E7EB' }}
+                    >
+                      ★
+                    </span>
+                  ))}
+                </div>
+                <span className="text-sm text-mute">
+                  {o.rating}/5
+                  {o.ratedAt &&
+                    ` · ${new Date(o.ratedAt).toLocaleDateString('es-CO', {
+                      day: '2-digit',
+                      month: 'short',
+                    })}`}
+                </span>
+              </div>
+              {o.ratingComment && (
+                <p className="text-sm text-mute italic mt-2 border-l-2 border-line2 pl-3">
+                  "{o.ratingComment}"
+                </p>
+              )}
             </div>
           )}
 
@@ -376,6 +430,299 @@ export default function OrderDetail() {
               </div>
             </a>
           )}
+        </div>
+      </div>
+     </div>
+
+     {/* Ticket para imprimir — solo visible en window.print() */}
+     <KitchenTicket order={o} />
+     <CustomerReceipt order={o} />
+    </div>
+  );
+}
+
+function KitchenTicket({ order }: { order: Order }) {
+  const fulfillmentLabel =
+    order.fulfillment === 'PICKUP'
+      ? 'PARA LLEVAR'
+      : order.fulfillment === 'DINE_IN'
+      ? `MESA ${order.tableNumber ?? '?'}`
+      : 'DOMICILIO';
+
+  return (
+    <div className="print-only">
+      <div className="ticket">
+        <div className="ticket-head">
+          <div className="ticket-code">#{order.code}</div>
+          <div className="ticket-fulfillment">{fulfillmentLabel}</div>
+        </div>
+        <div className="ticket-meta">
+          {new Date(order.createdAt).toLocaleString('es-CO', {
+            day: '2-digit',
+            month: '2-digit',
+            year: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
+          {' · '}
+          {order.customer.fullName}
+          {' · '}
+          {order.customer.phone}
+        </div>
+
+        <div className="ticket-divider" />
+
+        <div className="ticket-items">
+          {order.items.map((it, i) => (
+            <div key={i} className="ticket-item">
+              <div className="ticket-item-line">
+                <span className="ticket-qty">{it.qty}×</span>
+                <span className="ticket-name">{it.name}</span>
+              </div>
+              {it.extras && it.extras.length > 0 && (
+                <div className="ticket-extras">
+                  + {it.extras.map((e) => e.name).join(', ')}
+                </div>
+              )}
+              {it.note && <div className="ticket-note">📝 {it.note}</div>}
+            </div>
+          ))}
+        </div>
+
+        {order.customerNote && (
+          <>
+            <div className="ticket-divider" />
+            <div className="ticket-customer-note">
+              <strong>Nota cliente:</strong> {order.customerNote}
+            </div>
+          </>
+        )}
+
+        <div className="ticket-divider" />
+        <div className="ticket-total">
+          <span>TOTAL</span>
+          <span>
+            {new Intl.NumberFormat('es-CO', {
+              style: 'currency',
+              currency: 'COP',
+              maximumFractionDigits: 0,
+            }).format(Number(order.total))}
+          </span>
+        </div>
+        <div className="ticket-foot">
+          {order.paymentStatus === 'PAID' ? '✓ PAGADO' : 'COBRAR EN ENTREGA'}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =====================================================
+// Menú de impresión (ticket cocina / recibo cliente)
+// =====================================================
+function PrintMenu({
+  onPrint,
+}: {
+  onPrint: (mode: 'ticket' | 'receipt') => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    function close() {
+      setOpen(false);
+    }
+    window.addEventListener('click', close);
+    return () => window.removeEventListener('click', close);
+  }, [open]);
+
+  return (
+    <div className="relative">
+      <button
+        className="btn-ghost"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        title="Imprimir"
+      >
+        🖨 Imprimir ▾
+      </button>
+      {open && (
+        <div
+          className="absolute right-0 top-full mt-1 z-20 bg-white rounded-lg shadow-card border border-line2 w-56 overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={() => {
+              setOpen(false);
+              onPrint('ticket');
+            }}
+            className="w-full text-left px-4 py-2.5 text-sm hover:bg-bg2 flex items-start gap-2"
+          >
+            <span>👨‍🍳</span>
+            <div>
+              <div className="font-medium">Ticket cocina</div>
+              <div className="text-[11px] text-mute">80mm térmico</div>
+            </div>
+          </button>
+          <div className="border-t border-line2" />
+          <button
+            onClick={() => {
+              setOpen(false);
+              onPrint('receipt');
+            }}
+            className="w-full text-left px-4 py-2.5 text-sm hover:bg-bg2 flex items-start gap-2"
+          >
+            <span>🧾</span>
+            <div>
+              <div className="font-medium">Recibo cliente</div>
+              <div className="text-[11px] text-mute">A5 con marca</div>
+            </div>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CustomerReceipt({ order }: { order: Order }) {
+  return (
+    <div className="receipt-only">
+      <div className="receipt">
+        <div className="receipt-head">
+          <div className="receipt-brand">CLUBIFY</div>
+          <div className="receipt-code">Pedido #{order.code}</div>
+          <div className="receipt-date">
+            {new Date(order.createdAt).toLocaleString('es-CO', {
+              day: '2-digit',
+              month: 'long',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+          </div>
+        </div>
+
+        <div className="receipt-section">
+          <div className="receipt-label">Cliente</div>
+          <div className="receipt-row">
+            <span>{order.customer.fullName}</span>
+            <span>{order.customer.phone}</span>
+          </div>
+          {order.customer.email && (
+            <div className="receipt-row receipt-meta">
+              <span>{order.customer.email}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="receipt-section">
+          <div className="receipt-label">Detalles</div>
+          <div className="receipt-row">
+            <span>Tipo</span>
+            <span>
+              {order.fulfillment === 'PICKUP'
+                ? 'Para llevar'
+                : order.fulfillment === 'DINE_IN'
+                ? `Mesa ${order.tableNumber ?? ''}`
+                : 'Domicilio'}
+            </span>
+          </div>
+          {order.location && (
+            <div className="receipt-row">
+              <span>Sucursal</span>
+              <span>{order.location.name}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="receipt-items">
+          <table className="receipt-table">
+            <thead>
+              <tr>
+                <th className="left">Producto</th>
+                <th className="right">Cant.</th>
+                <th className="right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {order.items.map((it, i) => (
+                <tr key={i}>
+                  <td className="left">
+                    <div>{it.name}</div>
+                    {it.extras && it.extras.length > 0 && (
+                      <div className="receipt-extras">
+                        + {it.extras.map((e) => e.name).join(', ')}
+                      </div>
+                    )}
+                    {it.note && <div className="receipt-extras">{it.note}</div>}
+                  </td>
+                  <td className="right">{it.qty}</td>
+                  <td className="right">
+                    {new Intl.NumberFormat('es-CO', {
+                      style: 'currency',
+                      currency: 'COP',
+                      maximumFractionDigits: 0,
+                    }).format(Number(it.lineTotal))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="receipt-totals">
+          <div className="receipt-row">
+            <span>Subtotal</span>
+            <span>
+              {new Intl.NumberFormat('es-CO', {
+                style: 'currency',
+                currency: 'COP',
+                maximumFractionDigits: 0,
+              }).format(Number(order.subtotal))}
+            </span>
+          </div>
+          {Number(order.discount) > 0 && (
+            <div className="receipt-row">
+              <span>Descuento</span>
+              <span>
+                −{' '}
+                {new Intl.NumberFormat('es-CO', {
+                  style: 'currency',
+                  currency: 'COP',
+                  maximumFractionDigits: 0,
+                }).format(Number(order.discount))}
+              </span>
+            </div>
+          )}
+          <div className="receipt-row receipt-total">
+            <span>TOTAL</span>
+            <span>
+              {new Intl.NumberFormat('es-CO', {
+                style: 'currency',
+                currency: 'COP',
+                maximumFractionDigits: 0,
+              }).format(Number(order.total))}
+            </span>
+          </div>
+          <div className="receipt-row receipt-meta">
+            <span>Estado pago</span>
+            <span>
+              {order.paymentStatus === 'PAID' ? '✓ Pagado' : 'Pendiente'}
+            </span>
+          </div>
+        </div>
+
+        {order.customerNote && (
+          <div className="receipt-section">
+            <div className="receipt-label">Nota</div>
+            <div>{order.customerNote}</div>
+          </div>
+        )}
+
+        <div className="receipt-foot">
+          ¡Gracias por tu compra! Vuelve pronto.
         </div>
       </div>
     </div>

@@ -50,12 +50,16 @@ export async function middleware(req: NextRequest) {
     url.pathname.startsWith('/app') ||
     url.pathname.startsWith('/admin') ||
     url.pathname.startsWith('/login') ||
+    url.pathname.startsWith('/signup') ||
+    url.pathname.startsWith('/forgot') ||
+    url.pathname.startsWith('/reset') ||
     url.pathname.startsWith('/scan') ||
     url.pathname.startsWith('/onboarding') ||
     url.pathname.startsWith('/m/') ||
     url.pathname.startsWith('/i/') ||
     url.pathname.startsWith('/o/') ||
-    url.pathname.startsWith('/pay/') ||
+    url.pathname.startsWith('/w/') ||
+    url.pathname.startsWith('/preview/') ||
     url.pathname.startsWith('/manifest') ||
     url.pathname.startsWith('/icons/') ||
     url.pathname.startsWith('/favicon') ||

@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { TenantStatus } from '@prisma/client';
+import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { nanoid } from 'nanoid';
@@ -45,12 +46,84 @@ export class TenantsService {
   constructor(
     private prisma: PrismaService,
     private auth: AuthService,
+    private jwt: JwtService,
   ) {}
 
+  /**
+   * SUPER_ADMIN entra al panel de un tenant como si fuera el dueño.
+   * Devuelve un JWT del primer TENANT_OWNER del negocio. El token lleva
+   * `impersonatedBy` para que quede constancia en logs si se hace algo
+   * destructivo desde la sesión impostada.
+   */
+  async impersonate(tenantId: string, superAdminId: string) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true, brandName: true, slug: true, status: true },
+    });
+    if (!tenant) throw new NotFoundException('Negocio no encontrado');
+
+    const owner = await this.prisma.user.findFirst({
+      where: { tenantId, role: 'TENANT_OWNER', isActive: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!owner) {
+      throw new BadRequestException(
+        'Este negocio no tiene un TENANT_OWNER activo para entrar.',
+      );
+    }
+
+    const payload = {
+      sub: owner.id,
+      email: owner.email,
+      role: owner.role,
+      tenantId: owner.tenantId,
+      impersonatedBy: superAdminId,
+    };
+    const accessToken = this.jwt.sign(payload);
+
+    return {
+      accessToken,
+      user: {
+        id: owner.id,
+        email: owner.email,
+        fullName: owner.fullName,
+        role: owner.role,
+        tenantId: owner.tenantId,
+      },
+      tenant,
+    };
+  }
+
   async list() {
-    return this.prisma.tenant.findMany({
+    const tenants = await this.prisma.tenant.findMany({
       include: { plan: true, _count: { select: { users: true, cards: true, customers: true } } },
       orderBy: { createdAt: 'desc' },
+    });
+    if (tenants.length === 0) return [];
+
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const orderStats = await this.prisma.order.groupBy({
+      by: ['tenantId'],
+      where: { createdAt: { gte: since }, status: { not: 'CANCELLED' } },
+      _count: { _all: true },
+      _sum: { total: true },
+    });
+    const byTenant = new Map(
+      orderStats.map((s) => [s.tenantId, { count: s._count._all, total: Number(s._sum.total ?? 0) }]),
+    );
+
+    const now = Date.now();
+    return tenants.map((t) => {
+      const stat = byTenant.get(t.id) ?? { count: 0, total: 0 };
+      const daysLeftInTrial = t.trialEndsAt
+        ? Math.max(0, Math.ceil((t.trialEndsAt.getTime() - now) / (24 * 60 * 60 * 1000)))
+        : null;
+      return {
+        ...t,
+        orders30: stat.count,
+        revenue30: stat.total,
+        daysLeftInTrial,
+      };
     });
   }
 
@@ -123,7 +196,26 @@ export class TenantsService {
   }
 
   async setStatus(id: string, status: TenantStatus) {
-    return this.prisma.tenant.update({ where: { id }, data: { status } });
+    const data: any = { status };
+    if (status === 'ACTIVE') data.suspendedAt = null;
+    if (status === 'SUSPENDED') data.suspendedAt = new Date();
+    return this.prisma.tenant.update({ where: { id }, data });
+  }
+
+  /** Extiende el trial agregando `days` al trialEndsAt actual (o desde hoy si no hay). */
+  async extendTrial(id: string, days: number) {
+    const t = await this.prisma.tenant.findUnique({ where: { id } });
+    if (!t) throw new NotFoundException('Tenant');
+    const base = t.trialEndsAt && t.trialEndsAt.getTime() > Date.now() ? t.trialEndsAt : new Date();
+    const newEnd = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
+    return this.prisma.tenant.update({
+      where: { id },
+      data: {
+        trialEndsAt: newEnd,
+        status: 'TRIAL',
+        suspendedAt: null,
+      },
+    });
   }
 
   async getMaxLocations(tenantId: string) {

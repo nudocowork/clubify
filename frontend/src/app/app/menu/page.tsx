@@ -4,6 +4,7 @@ import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { ImageUploader } from '@/components/ImageUploader';
 import { SortableList, DragHandle } from '@/components/Sortable';
+import { toast } from '@/components/Toast';
 
 type Category = { id: string; name: string; _count?: { products: number } };
 type Variant = { id?: string; name: string; priceDelta: number; isDefault?: boolean };
@@ -17,6 +18,8 @@ type Product = {
   tags: string[];
   isAvailable: boolean;
   categoryId: string;
+  stock: number | null;
+  stockAlert: number | null;
   variants: Variant[];
   extras: Extra[];
 };
@@ -51,20 +54,29 @@ export default function MenuEditor() {
   async function createCategory(e: React.FormEvent) {
     e.preventDefault();
     if (!newCatName.trim()) return;
-    await api('/catalog/categories', {
-      method: 'POST',
-      body: JSON.stringify({ name: newCatName }),
-    });
-    setNewCatName('');
-    setShowCatForm(false);
-    load();
+    try {
+      await api('/catalog/categories', {
+        method: 'POST',
+        body: JSON.stringify({ name: newCatName }),
+      });
+      setNewCatName('');
+      setShowCatForm(false);
+      load();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo crear la categoría', 'error');
+    }
   }
 
   async function deleteCategory(id: string) {
     if (!confirm('¿Eliminar esta categoría y todos sus productos?')) return;
-    await api(`/catalog/categories/${id}`, { method: 'DELETE' });
-    if (activeCat === id) setActiveCat(null);
-    load(false);
+    try {
+      await api(`/catalog/categories/${id}`, { method: 'DELETE' });
+      if (activeCat === id) setActiveCat(null);
+      load(false);
+      toast('Categoría eliminada', 'success');
+    } catch (e: any) {
+      toast(e.message || 'No se pudo eliminar', 'error');
+    }
   }
 
   async function reorderCategories(next: Category[]) {
@@ -86,17 +98,26 @@ export default function MenuEditor() {
   }
 
   async function toggle(p: Product) {
-    await api(`/catalog/products/${p.id}/availability`, {
-      method: 'PATCH',
-      body: JSON.stringify({ isAvailable: !p.isAvailable }),
-    });
-    load();
+    try {
+      await api(`/catalog/products/${p.id}/availability`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isAvailable: !p.isAvailable }),
+      });
+      load();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo cambiar la disponibilidad', 'error');
+    }
   }
 
   async function deleteProduct(id: string) {
     if (!confirm('¿Eliminar producto?')) return;
-    await api(`/catalog/products/${id}`, { method: 'DELETE' });
-    load();
+    try {
+      await api(`/catalog/products/${id}`, { method: 'DELETE' });
+      load();
+      toast('Producto eliminado', 'success');
+    } catch (e: any) {
+      toast(e.message || 'No se pudo eliminar el producto', 'error');
+    }
   }
 
   function newProduct() {
@@ -115,19 +136,24 @@ export default function MenuEditor() {
   }
 
   async function saveProduct(p: Partial<Product>) {
-    if (p.id) {
-      await api(`/catalog/products/${p.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(p),
-      });
-    } else {
-      await api('/catalog/products', {
-        method: 'POST',
-        body: JSON.stringify(p),
-      });
+    try {
+      if (p.id) {
+        await api(`/catalog/products/${p.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(p),
+        });
+      } else {
+        await api('/catalog/products', {
+          method: 'POST',
+          body: JSON.stringify(p),
+        });
+      }
+      setEditing(null);
+      load();
+      toast(p.id ? 'Producto actualizado' : 'Producto creado', 'success');
+    } catch (e: any) {
+      toast(e.message || 'No se pudo guardar', 'error');
     }
-    setEditing(null);
-    load();
   }
 
   const visibleProducts = products.filter((p) => p.categoryId === activeCat);
@@ -210,6 +236,8 @@ export default function MenuEditor() {
 
         {/* Productos */}
         <div className="card overflow-hidden">
+         <div className="overflow-x-auto">
+          <div className="min-w-[680px]">
           <div className="grid grid-cols-[40px_1fr_120px_120px_120px_120px] bg-bg2 px-3 py-2.5 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold">
             <div></div>
             <div>Producto</div>
@@ -219,8 +247,14 @@ export default function MenuEditor() {
             <div className="text-right">Acciones</div>
           </div>
           {visibleProducts.length === 0 ? (
-            <div className="text-center text-mute p-8 text-sm">
-              Sin productos en esta categoría
+            <div className="text-center p-12">
+              <div className="text-3xl mb-1">🍴</div>
+              <div className="font-semibold text-sm">
+                Sin productos en esta categoría
+              </div>
+              <div className="text-mute text-xs mt-1">
+                Usa el botón "Nuevo producto" para empezar.
+              </div>
             </div>
           ) : (
             <SortableList items={visibleProducts} onReorder={reorderProducts}>
@@ -245,7 +279,7 @@ export default function MenuEditor() {
                   <div className="text-mute text-xs">
                     {p.variants.length}v · {p.extras.length}e
                   </div>
-                  <div>
+                  <div className="flex flex-col gap-1 items-start">
                     <button
                       onClick={() => toggle(p)}
                       className={`badge ${
@@ -254,6 +288,20 @@ export default function MenuEditor() {
                     >
                       {p.isAvailable ? 'Visible' : 'Oculto'}
                     </button>
+                    {p.stock !== null && p.stock !== undefined && (
+                      <span
+                        className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                          p.stock === 0
+                            ? 'bg-red-100 text-red-800'
+                            : p.stockAlert !== null && p.stock <= p.stockAlert
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-bg2 text-mute'
+                        }`}
+                        title="Stock disponible"
+                      >
+                        📦 {p.stock}
+                      </span>
+                    )}
                   </div>
                   <div className="text-right">
                     <button
@@ -273,6 +321,8 @@ export default function MenuEditor() {
               )}
             </SortableList>
           )}
+          </div>
+         </div>
         </div>
       </div>
 
@@ -383,6 +433,58 @@ function ProductDrawer({
               placeholder="popular, nuevo, veggie"
             />
           </div>
+
+          <fieldset className="border border-line rounded-lg p-3">
+            <legend className="px-1 text-xs font-semibold text-mute">
+              Inventario (opcional)
+            </legend>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.stock !== null && form.stock !== undefined}
+                onChange={(e) =>
+                  update('stock', e.target.checked ? 0 : null)
+                }
+              />
+              <span>Llevar control de stock</span>
+            </label>
+            {form.stock !== null && form.stock !== undefined && (
+              <div className="grid grid-cols-2 gap-2 mt-3">
+                <div>
+                  <label className="label">Stock disponible</label>
+                  <input
+                    type="number"
+                    min="0"
+                    className="input"
+                    value={form.stock ?? 0}
+                    onChange={(e) =>
+                      update('stock', Math.max(0, Number(e.target.value)))
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="label">Avisar a los…</label>
+                  <input
+                    type="number"
+                    min="0"
+                    className="input"
+                    placeholder="opcional"
+                    value={form.stockAlert ?? ''}
+                    onChange={(e) =>
+                      update(
+                        'stockAlert',
+                        e.target.value === '' ? null : Number(e.target.value),
+                      )
+                    }
+                  />
+                </div>
+                <div className="col-span-2 text-[11px] text-mute">
+                  💡 Cada pedido descuenta automáticamente. Cuando llega a 0,
+                  el producto se oculta del storefront público.
+                </div>
+              </div>
+            )}
+          </fieldset>
 
           <fieldset className="border border-line rounded-lg p-3">
             <legend className="px-1 text-xs font-semibold text-mute">

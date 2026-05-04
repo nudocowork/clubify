@@ -81,6 +81,57 @@ export class PassesService {
     return pass;
   }
 
+  /**
+   * Búsqueda pública desde el storefront: dado un slug de tenant y un teléfono,
+   * devuelve los pases activos del cliente. Usado por el tab "Mi tarjeta".
+   * Normaliza el teléfono a últimos dígitos para tolerar variaciones de formato.
+   */
+  async findByPhonePublic(slug: string, phoneRaw: string) {
+    const tenant = await this.prisma.tenant.findUnique({ where: { slug } });
+    if (!tenant) throw new NotFoundException('Tenant');
+
+    const digits = (phoneRaw || '').replace(/\D/g, '');
+    if (digits.length < 7) {
+      return { passes: [] };
+    }
+
+    const tail = digits.slice(-10);
+
+    const customers = await this.prisma.customer.findMany({
+      where: {
+        tenantId: tenant.id,
+        phone: { contains: tail },
+      },
+      select: { id: true, fullName: true },
+    });
+
+    if (customers.length === 0) return { passes: [] };
+
+    const passes = await this.prisma.pass.findMany({
+      where: {
+        tenantId: tenant.id,
+        customerId: { in: customers.map((c) => c.id) },
+        status: 'ACTIVE',
+      },
+      include: {
+        card: { select: { id: true, name: true, type: true, stampsRequired: true, primaryColor: true } },
+        customer: { select: { id: true, fullName: true } },
+      },
+      orderBy: { issuedAt: 'desc' },
+    });
+
+    return {
+      passes: passes.map((p) => ({
+        id: p.id,
+        serialNumber: p.serialNumber,
+        stampsCount: p.stampsCount,
+        pointsBalance: Number(p.pointsBalance ?? 0),
+        card: p.card,
+        customer: p.customer,
+      })),
+    };
+  }
+
   list(user: AuthUser, tenantId?: string) {
     const tid = user.role === 'SUPER_ADMIN' ? tenantId : user.tenantId ?? undefined;
     return this.prisma.pass.findMany({

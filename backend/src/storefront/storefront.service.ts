@@ -1,4 +1,5 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
+import { MenuLayout } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 
@@ -8,6 +9,7 @@ export type StorefrontDto = {
   theme?: any;
   blocks?: any[];
   isPublished?: boolean;
+  menuLayout?: MenuLayout;
   customDomain?: string | null;
 };
 
@@ -36,7 +38,6 @@ export class StorefrontService {
           { type: 'hero' },
           { type: 'social' },
           { type: 'menu' },
-          { type: 'cards' },
           { type: 'promotions' },
         ],
       },
@@ -65,6 +66,7 @@ export class StorefrontService {
         theme: dto.theme ?? undefined,
         blocks: dto.blocks ?? undefined,
         isPublished: dto.isPublished ?? undefined,
+        menuLayout: dto.menuLayout ?? undefined,
         customDomain: dto.customDomain === undefined ? undefined : customDomain,
       },
     });

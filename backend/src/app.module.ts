@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { TenantsModule } from './tenants/tenants.module';
@@ -24,14 +25,16 @@ import { ChannelsModule } from './channels/channels.module';
 import { AutomationsModule } from './automations/automations.module';
 import { MediaModule } from './media/media.module';
 import { InfoLinksModule } from './info-links/info-links.module';
-import { PaymentsModule } from './payments/payments.module';
 import { EmailModule } from './email/email.module';
 import { JobsModule } from './jobs/jobs.module';
 import { AuditModule } from './audit/audit.module';
+import { BillingModule } from './billing/billing.module';
+import { IntegrationsModule } from './integrations/integrations.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
     PrismaModule,
     AuthModule,
@@ -56,10 +59,11 @@ import { AuditModule } from './audit/audit.module';
     OrdersModule,
     MediaModule,
     InfoLinksModule,
-    PaymentsModule,
     EmailModule,
     JobsModule,
     AuditModule,
+    BillingModule,
+    IntegrationsModule,
   ],
 })
 export class AppModule {}

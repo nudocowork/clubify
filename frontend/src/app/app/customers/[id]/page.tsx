@@ -4,6 +4,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
+import { toast } from '@/components/Toast';
 
 type Pass = {
   id: string;
@@ -40,6 +41,7 @@ type Customer = {
   phone: string | null;
   birthday: string | null;
   tags: string[];
+  notes: string | null;
   marketingOptIn: boolean;
   whatsappVerified: boolean;
   totalOrdersCount: number;
@@ -50,6 +52,27 @@ type Customer = {
   passes: Pass[];
   stamps: Stamp[];
   orders: Order[];
+};
+
+const PAYMENT_LABEL: Record<string, string> = {
+  PAID: 'Pagado',
+  PENDING: 'Pendiente',
+  FAILED: 'Falló',
+  REFUNDED: 'Reembolsado',
+  NOT_REQUIRED: 'No req.',
+};
+const ORDER_STATUS_LABEL: Record<string, string> = {
+  PENDING: 'Pendiente',
+  CONFIRMED: 'Confirmado',
+  READY: 'Listo',
+  DELIVERED: 'Entregado',
+  CANCELLED: 'Cancelado',
+};
+const PASS_STATUS_LABEL: Record<string, string> = {
+  ACTIVE: 'Activa',
+  COMPLETED: 'Completada',
+  EXPIRED: 'Expirada',
+  REVOKED: 'Revocada',
 };
 
 const COP = (n: number) =>
@@ -81,12 +104,161 @@ function fmtDate(s: string | null) {
   });
 }
 
+function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const required = p.card.stampsRequired ?? 10;
+  const stamps = p.card.type === 'STAMPS' ? p.stampsCount : 0;
+  const remaining = Math.max(0, required - stamps);
+  const pct = p.card.type === 'STAMPS' ? Math.min(100, (stamps / required) * 100) : 0;
+  const canRedeem = p.card.type === 'STAMPS' && stamps >= required;
+
+  async function addStamp() {
+    setBusy(true);
+    try {
+      await api('/stamps', {
+        method: 'POST',
+        body: JSON.stringify({ passId: p.id, action: 'STAMP', amount: 1 }),
+      });
+      toast('Sello agregado', 'success');
+      onChange();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo agregar el sello', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function redeem() {
+    if (!confirm(`¿Canjear premio? Esto resetea los sellos a 0.`)) return;
+    setBusy(true);
+    try {
+      await api('/stamps', {
+        method: 'POST',
+        body: JSON.stringify({
+          passId: p.id,
+          action: 'REDEEM',
+          note: 'Canje desde panel',
+        }),
+      });
+      toast('🎁 Premio canjeado', 'success');
+      onChange();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo canjear', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="border border-line2 rounded-xl p-3.5">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold text-sm">{p.card.name}</div>
+          <div className="text-[11px] text-mute font-mono mt-0.5">
+            {p.serialNumber}
+          </div>
+        </div>
+        <span
+          className={`badge text-[10px] ${
+            p.status === 'ACTIVE'
+              ? 'badge-ok'
+              : p.status === 'COMPLETED'
+              ? 'badge-info'
+              : 'badge-mute'
+          }`}
+        >
+          {PASS_STATUS_LABEL[p.status] ?? p.status}
+        </span>
+      </div>
+
+      {p.card.type === 'STAMPS' && (
+        <div className="mt-3">
+          <div className="flex items-center justify-between text-xs mb-1.5">
+            <span className="text-mute">
+              {stamps}/{required} sellos
+            </span>
+            <span
+              className={
+                remaining === 0
+                  ? 'text-ok font-semibold'
+                  : 'text-mute'
+              }
+            >
+              {remaining === 0
+                ? '🎁 Premio listo para canjear'
+                : `Le faltan ${remaining} para premio`}
+            </span>
+          </div>
+          <div className="h-1.5 bg-bg2 rounded-full overflow-hidden mb-2.5">
+            <div
+              className="h-full bg-gradient-to-r from-brand-400 to-brand-700 transition-all"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {Array.from({ length: required }).map((_, i) => (
+              <span
+                key={i}
+                className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold"
+                style={{
+                  background: i < stamps ? '#22C55E' : '#fff',
+                  color: i < stamps ? '#fff' : '#9CA3AF',
+                  border:
+                    '1.5px solid ' + (i < stamps ? '#22C55E' : '#E5E7EB'),
+                }}
+              >
+                {i + 1}
+              </span>
+            ))}
+          </div>
+
+          {p.status === 'ACTIVE' && (
+            <div className="flex gap-2 mt-3">
+              <button
+                onClick={addStamp}
+                disabled={busy || canRedeem}
+                className="flex-1 btn-ghost text-xs justify-center disabled:opacity-50"
+                title={canRedeem ? 'Canjea primero el premio' : 'Sumar 1 sello'}
+              >
+                + Sumar sello
+              </button>
+              <button
+                onClick={redeem}
+                disabled={busy || !canRedeem}
+                className={`flex-1 text-xs justify-center font-semibold rounded-pill px-3 py-2 inline-flex items-center gap-1.5 ${
+                  canRedeem
+                    ? 'bg-ok text-white hover:bg-ok/90'
+                    : 'bg-bg2 text-mute cursor-not-allowed'
+                }`}
+                title={canRedeem ? 'Canjear premio' : 'Aún no completa los sellos'}
+              >
+                🎁 Canjear
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {p.card.type === 'POINTS' && (
+        <div className="mt-3 flex items-center justify-between">
+          <span className="text-xs text-mute">Saldo</span>
+          <span className="font-bold text-lg">{p.pointsBalance} puntos</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function CustomerDetail() {
   const { id } = useParams<{ id: string }>();
   const [c, setC] = useState<Customer | null>(null);
 
   async function load() {
-    setC(await api<Customer>(`/customers/${id}`));
+    try {
+      setC(await api<Customer>(`/customers/${id}`));
+    } catch (e: any) {
+      toast(e.message || 'Error cargando cliente', 'error');
+    }
   }
   useEffect(() => {
     load();
@@ -139,11 +311,6 @@ export default function CustomerDetail() {
               {c.marketingOptIn && (
                 <span className="badge badge-info text-[10px]">Marketing OK</span>
               )}
-              {c.tags.map((t) => (
-                <span key={t} className="badge badge-mute text-[10px]">
-                  {t}
-                </span>
-              ))}
             </div>
           </div>
 
@@ -175,6 +342,8 @@ export default function CustomerDetail() {
             </div>
           </div>
 
+          <CustomerNotesAndTags customer={c} onChange={load} />
+
           <div className="card card-pad text-sm">
             <div className="text-[10px] uppercase tracking-[0.18em] text-mute font-semibold mb-2">
               Datos
@@ -196,6 +365,8 @@ export default function CustomerDetail() {
               <span>{fmtDate(c.birthday)}</span>
             </div>
           </div>
+
+          <MergeIntoThisCustomer customer={c} onMerged={load} />
         </div>
 
         <div className="space-y-4">
@@ -205,44 +376,9 @@ export default function CustomerDetail() {
               <h3 className="font-semibold mb-3">
                 Tarjetas de fidelización ({c.passes.length})
               </h3>
-              <div className="grid gap-2">
+              <div className="grid gap-3">
                 {c.passes.map((p) => (
-                  <div
-                    key={p.id}
-                    className="border border-line2 rounded-lg p-3 flex items-center gap-3"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium">{p.card.name}</div>
-                      <div className="text-xs text-mute">
-                        {p.serialNumber} · {p.card.type}
-                      </div>
-                    </div>
-                    {p.card.type === 'STAMPS' && (
-                      <div className="text-right">
-                        <div className="font-bold">
-                          {p.stampsCount}/{p.card.stampsRequired ?? 10}
-                        </div>
-                        <div className="text-xs text-mute">sellos</div>
-                      </div>
-                    )}
-                    {p.card.type === 'POINTS' && (
-                      <div className="text-right">
-                        <div className="font-bold">{p.pointsBalance}</div>
-                        <div className="text-xs text-mute">puntos</div>
-                      </div>
-                    )}
-                    <span
-                      className={`badge ${
-                        p.status === 'ACTIVE'
-                          ? 'badge-ok'
-                          : p.status === 'COMPLETED'
-                          ? 'badge-info'
-                          : 'badge-mute'
-                      }`}
-                    >
-                      {p.status}
-                    </span>
-                  </div>
+                  <PassRow key={p.id} pass={p} onChange={load} />
                 ))}
               </div>
             </div>
@@ -304,7 +440,7 @@ export default function CustomerDetail() {
                               : 'badge-mute'
                           }`}
                         >
-                          {o.paymentStatus}
+                          {PAYMENT_LABEL[o.paymentStatus] ?? o.paymentStatus}
                         </span>
                       </td>
                       <td className="px-4 py-2.5">
@@ -317,7 +453,7 @@ export default function CustomerDetail() {
                               : 'badge-info'
                           }`}
                         >
-                          {o.status}
+                          {ORDER_STATUS_LABEL[o.status] ?? o.status}
                         </span>
                       </td>
                       <td className="px-4 py-2.5 font-medium">
@@ -365,5 +501,381 @@ export default function CustomerDetail() {
         </div>
       </div>
     </div>
+  );
+}
+
+const TAG_PRESETS = ['VIP', 'Vegano', 'Sin gluten', 'Cumple este mes', 'Reseña 5⭐', 'Bloqueado'];
+
+function CustomerNotesAndTags({
+  customer,
+  onChange,
+}: {
+  customer: Customer;
+  onChange: () => void;
+}) {
+  const [tags, setTags] = useState<string[]>(customer.tags ?? []);
+  const [tagInput, setTagInput] = useState('');
+  const [notes, setNotes] = useState(customer.notes ?? '');
+  const [savingTags, setSavingTags] = useState(false);
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [notesDirty, setNotesDirty] = useState(false);
+
+  async function persistTags(next: string[]) {
+    setSavingTags(true);
+    try {
+      await api(`/customers/${customer.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ tags: next }),
+      });
+      onChange();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo guardar tags', 'error');
+    } finally {
+      setSavingTags(false);
+    }
+  }
+
+  function addTag(val: string) {
+    const t = val.trim();
+    if (!t || tags.includes(t)) return;
+    const next = [...tags, t];
+    setTags(next);
+    setTagInput('');
+    persistTags(next);
+  }
+
+  function removeTag(t: string) {
+    const next = tags.filter((x) => x !== t);
+    setTags(next);
+    persistTags(next);
+  }
+
+  async function saveNotes() {
+    if (!notesDirty) return;
+    setSavingNotes(true);
+    try {
+      await api(`/customers/${customer.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ notes }),
+      });
+      setNotesDirty(false);
+      toast('Notas guardadas', 'success');
+      onChange();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo guardar', 'error');
+    } finally {
+      setSavingNotes(false);
+    }
+  }
+
+  const presetsAvailable = TAG_PRESETS.filter((p) => !tags.includes(p));
+
+  return (
+    <div className="card card-pad">
+      <div className="text-[10px] uppercase tracking-[0.18em] text-mute font-semibold mb-2">
+        Tags
+      </div>
+      <div className="flex flex-wrap gap-1.5 mb-2">
+        {tags.length === 0 && (
+          <span className="text-xs text-mute italic">Sin tags todavía</span>
+        )}
+        {tags.map((t) => (
+          <span
+            key={t}
+            className="inline-flex items-center gap-1 bg-brand-soft text-brand-700 text-[11px] font-medium px-2 py-1 rounded-full"
+          >
+            {t}
+            <button
+              type="button"
+              onClick={() => removeTag(t)}
+              className="hover:text-bad"
+              aria-label={`Quitar tag ${t}`}
+            >
+              ✕
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="flex gap-1.5">
+        <input
+          type="text"
+          value={tagInput}
+          onChange={(e) => setTagInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              addTag(tagInput);
+            }
+          }}
+          placeholder="Nuevo tag…"
+          maxLength={30}
+          className="input text-xs flex-1"
+          disabled={savingTags}
+        />
+        <button
+          type="button"
+          onClick={() => addTag(tagInput)}
+          disabled={!tagInput.trim() || savingTags}
+          className="btn-ghost text-xs disabled:opacity-50"
+        >
+          + Agregar
+        </button>
+      </div>
+      {presetsAvailable.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-2">
+          {presetsAvailable.map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => addTag(p)}
+              disabled={savingTags}
+              className="text-[10px] text-mute hover:text-brand border border-line2 hover:border-brand/40 rounded-full px-2 py-0.5"
+            >
+              + {p}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="text-[10px] uppercase tracking-[0.18em] text-mute font-semibold mt-5 mb-2 flex items-center justify-between">
+        <span>Notas internas</span>
+        {notesDirty && (
+          <span className="text-amber-600 text-[10px] normal-case font-normal tracking-normal">
+            sin guardar
+          </span>
+        )}
+      </div>
+      <textarea
+        value={notes}
+        onChange={(e) => {
+          setNotes(e.target.value);
+          setNotesDirty(true);
+        }}
+        onBlur={saveNotes}
+        placeholder="Ej: alérgico a maní, prefiere bebidas sin azúcar…"
+        className="input text-sm min-h-[70px] resize-y"
+        maxLength={500}
+      />
+      <div className="text-[10px] text-mute mt-1 flex items-center justify-between">
+        <span>Solo tu equipo ve estas notas. Se guardan al salir del campo.</span>
+        <span>{notes.length}/500</span>
+      </div>
+      {notesDirty && (
+        <button
+          type="button"
+          onClick={saveNotes}
+          disabled={savingNotes}
+          className="btn-primary text-xs mt-2"
+        >
+          {savingNotes ? 'Guardando…' : 'Guardar nota'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ===== Fusión manual =====
+
+type MergeCandidate = {
+  id: string;
+  fullName: string;
+  email: string | null;
+  phone: string | null;
+  totalOrdersCount: number;
+  _count?: { passes: number; orders: number };
+};
+
+function MergeIntoThisCustomer({
+  customer,
+  onMerged,
+}: {
+  customer: Customer;
+  onMerged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [results, setResults] = useState<MergeCandidate[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [picked, setPicked] = useState<MergeCandidate | null>(null);
+  const [merging, setMerging] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    if (search.trim().length < 2) {
+      setResults([]);
+      return;
+    }
+    setSearching(true);
+    const t = setTimeout(async () => {
+      try {
+        const list: MergeCandidate[] = await api(
+          `/customers?search=${encodeURIComponent(search)}`,
+        );
+        setResults(list.filter((c) => c.id !== customer.id).slice(0, 10));
+      } catch {
+        setResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [search, open, customer.id]);
+
+  async function confirmMerge() {
+    if (!picked) return;
+    const ok = window.confirm(
+      `Vas a fusionar a "${picked.fullName}" dentro de "${customer.fullName}".\n\n` +
+        `Todos los pedidos, tarjetas, sellos y mensajes de "${picked.fullName}" se moverán a este cliente, y "${picked.fullName}" se eliminará.\n\n` +
+        `Esta acción no se puede deshacer. ¿Continuar?`,
+    );
+    if (!ok) return;
+    setMerging(true);
+    try {
+      const res = await api('/customers/merge', {
+        method: 'POST',
+        body: JSON.stringify({
+          keepId: customer.id,
+          mergeIds: [picked.id],
+        }),
+      });
+      toast(
+        `Cliente fusionado · ${res.movedOrders} pedidos consolidados`,
+        'success',
+      );
+      setOpen(false);
+      setSearch('');
+      setPicked(null);
+      onMerged();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo fusionar', 'error');
+    } finally {
+      setMerging(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="card card-pad">
+        <div className="text-[10px] uppercase tracking-[0.18em] text-mute font-semibold mb-2">
+          ¿Es un duplicado?
+        </div>
+        <p className="text-xs text-mute mb-3">
+          Si encontraste otro registro de la misma persona, fusiónalo aquí.
+          Su historial se moverá a este cliente y el duplicado se eliminará.
+        </p>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="btn-ghost text-xs w-full justify-center"
+        >
+          🔗 Fusionar otro cliente aquí
+        </button>
+      </div>
+
+      {open && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !merging) setOpen(false);
+          }}
+        >
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[80vh] flex flex-col overflow-hidden">
+            <div className="px-4 py-3 border-b border-line flex items-center justify-between">
+              <div>
+                <div className="font-semibold">Fusionar otro cliente</div>
+                <div className="text-xs text-mute">
+                  Conservar a <strong>{customer.fullName}</strong> y eliminar el
+                  otro
+                </div>
+              </div>
+              <button
+                onClick={() => !merging && setOpen(false)}
+                className="text-mute hover:text-ink text-lg leading-none"
+                disabled={merging}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-4 border-b border-line">
+              <input
+                autoFocus
+                type="text"
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPicked(null);
+                }}
+                placeholder="Buscar por nombre, email o teléfono…"
+                className="input text-sm w-full"
+              />
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {search.trim().length < 2 && (
+                <div className="p-6 text-center text-mute text-sm">
+                  Escribe al menos 2 caracteres para buscar.
+                </div>
+              )}
+              {searching && (
+                <div className="p-6 text-center text-mute text-sm">
+                  Buscando…
+                </div>
+              )}
+              {!searching &&
+                search.trim().length >= 2 &&
+                results.length === 0 && (
+                  <div className="p-6 text-center text-mute text-sm">
+                    Sin resultados. Prueba otro término.
+                  </div>
+                )}
+              {results.map((r) => {
+                const isPicked = picked?.id === r.id;
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => setPicked(r)}
+                    className={`w-full text-left px-4 py-3 border-b border-line2 transition flex items-center justify-between gap-2 ${
+                      isPicked ? 'bg-brand/10' : 'hover:bg-bg2/40'
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium truncate">{r.fullName}</div>
+                      <div className="text-xs text-mute truncate">
+                        {r.phone || r.email || 'Sin contacto'}
+                      </div>
+                    </div>
+                    <div className="text-xs text-mute text-right shrink-0">
+                      <div>{r.totalOrdersCount} pedidos</div>
+                      <div>{r._count?.passes ?? 0} pases</div>
+                    </div>
+                    {isPicked && (
+                      <span className="text-brand text-lg leading-none">✓</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="px-4 py-3 border-t border-line bg-bg2/30 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => !merging && setOpen(false)}
+                className="btn-ghost text-xs"
+                disabled={merging}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmMerge}
+                disabled={!picked || merging}
+                className="btn-primary text-xs disabled:opacity-50"
+              >
+                {merging ? 'Fusionando…' : 'Fusionar →'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

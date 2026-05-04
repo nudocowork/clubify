@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { Icon } from '@/components/Icon';
+import { ClubifyBadge } from '@/components/ClubifyBadge';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -16,6 +17,9 @@ type Order = {
   items: any[];
   createdAt: string;
   customerNote: string | null;
+  rating: number | null;
+  ratingComment: string | null;
+  ratedAt: string | null;
   tenant: {
     brandName: string;
     logoUrl: string | null;
@@ -145,13 +149,147 @@ export default function OrderStatus() {
           )}
         </div>
 
+        {(order.status === 'DELIVERED' || order.status === 'READY') && (
+          <RatingWidget order={order} onRated={load} primary={primary} />
+        )}
+
         <Link
           href={`/m/${order.tenant.slug}`}
           className="btn-ghost w-full justify-center mt-4"
         >
           ← Volver al menú
         </Link>
+        <ClubifyBadge />
       </div>
+    </div>
+  );
+}
+
+function RatingWidget({
+  order,
+  onRated,
+  primary,
+}: {
+  order: Order;
+  onRated: () => void;
+  primary: string;
+}) {
+  const [hover, setHover] = useState(0);
+  const [picked, setPicked] = useState(order.rating ?? 0);
+  const [comment, setComment] = useState(order.ratingComment ?? '');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Si ya calificó, mostrar estado leído
+  if (order.ratedAt) {
+    return (
+      <div className="card card-pad mt-4 text-center">
+        <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
+          Tu calificación
+        </div>
+        <div className="text-3xl">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <span
+              key={i}
+              style={{
+                color: i < (order.rating ?? 0) ? '#F59E0B' : '#E5E7EB',
+              }}
+            >
+              ★
+            </span>
+          ))}
+        </div>
+        {order.ratingComment && (
+          <p className="text-xs text-mute mt-2 italic">
+            "{order.ratingComment}"
+          </p>
+        )}
+        <p className="text-[11px] text-mute mt-3">
+          ¡Gracias por tu opinión! 🙏
+        </p>
+      </div>
+    );
+  }
+
+  async function submit() {
+    if (picked < 1) return;
+    setSaving(true);
+    setErr(null);
+    try {
+      const res = await fetch(`${API}/api/public/orders/${order.code}/rate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rating: picked, comment }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.message || 'No se pudo enviar');
+      }
+      onRated();
+    } catch (e: any) {
+      setErr(e.message || 'Error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="card card-pad mt-4">
+      <div className="text-center">
+        <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
+          ¿Cómo estuvo tu pedido?
+        </div>
+        <div className="text-4xl select-none mb-2">
+          {[1, 2, 3, 4, 5].map((n) => (
+            <button
+              type="button"
+              key={n}
+              onMouseEnter={() => setHover(n)}
+              onMouseLeave={() => setHover(0)}
+              onClick={() => setPicked(n)}
+              className="px-1 transition-transform hover:scale-110"
+              style={{
+                color: n <= (hover || picked) ? '#F59E0B' : '#E5E7EB',
+              }}
+              aria-label={`${n} estrella${n > 1 ? 's' : ''}`}
+            >
+              ★
+            </button>
+          ))}
+        </div>
+        {picked > 0 && (
+          <div className="text-sm font-medium" style={{ color: primary }}>
+            {['😞 Mal', '😐 Regular', '🙂 Bien', '😄 Muy bien', '🤩 Excelente'][picked - 1]}
+          </div>
+        )}
+      </div>
+
+      {picked > 0 && (
+        <>
+          <textarea
+            className="input mt-4 text-sm resize-y min-h-[64px]"
+            maxLength={500}
+            placeholder="Cuéntanos qué te pareció (opcional)…"
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+          />
+          <div className="text-[10px] text-mute text-right mt-1">
+            {comment.length}/500
+          </div>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={submit}
+            className="btn-primary w-full justify-center mt-2"
+            style={{ background: primary }}
+          >
+            {saving ? 'Enviando…' : 'Enviar calificación'}
+          </button>
+          {err && (
+            <div className="text-xs text-red-600 mt-2 text-center">{err}</div>
+          )}
+        </>
+      )}
     </div>
   );
 }

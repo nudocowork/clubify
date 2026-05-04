@@ -56,6 +56,77 @@ export class ReferralsService {
     });
   }
 
+  /**
+   * Devuelve los códigos del usuario autenticado (matcheando por email),
+   * sus usos y comisiones, listos para el panel /app/referrals.
+   */
+  async listMine(user: AuthUser) {
+    if (!user.email) return { codes: [], totals: { signedUp: 0, converted: 0, paidUsd: 0, pendingUsd: 0 } };
+
+    const codes = await this.prisma.referralCode.findMany({
+      where: { ownerEmail: user.email },
+      include: {
+        uses: {
+          include: {
+            tenant: { select: { brandName: true, status: true } },
+            commissions: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
+
+    let signedUp = 0;
+    let converted = 0;
+    let paidUsd = 0;
+    let pendingUsd = 0;
+
+    const enriched = codes.map((c) => {
+      const uses = c.uses ?? [];
+      signedUp += uses.length;
+      converted += uses.filter((u) => u.status === 'PAYING' || u.status === 'ACTIVE').length;
+      for (const u of uses) {
+        for (const com of u.commissions ?? []) {
+          const amount = Number(com.amount);
+          if (com.status === 'PAID') paidUsd += amount;
+          else if (com.status === 'PENDING' || com.status === 'APPROVED') pendingUsd += amount;
+        }
+      }
+      return {
+        id: c.id,
+        code: c.code,
+        commissionPercent: Number(c.commissionPercent),
+        isActive: c.isActive,
+        createdAt: c.createdAt,
+        shareLink: `${appUrl}/?ref=${c.code}`,
+        usesCount: uses.length,
+        convertedCount: uses.filter((u) => u.status === 'PAYING' || u.status === 'ACTIVE').length,
+        uses: uses.map((u) => ({
+          id: u.id,
+          status: u.status,
+          createdAt: u.createdAt,
+          convertedAt: u.convertedAt,
+          tenantBrand: u.tenant?.brandName ?? null,
+          tenantStatus: u.tenant?.status ?? null,
+          commissionsTotal: (u.commissions ?? []).reduce((s, x) => s + Number(x.amount), 0),
+        })),
+      };
+    });
+
+    return {
+      codes: enriched,
+      totals: {
+        signedUp,
+        converted,
+        paidUsd: Math.round(paidUsd * 100) / 100,
+        pendingUsd: Math.round(pendingUsd * 100) / 100,
+      },
+    };
+  }
+
   async getByCode(code: string) {
     const r = await this.prisma.referralCode.findUnique({
       where: { code },

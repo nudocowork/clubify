@@ -14,8 +14,8 @@ export default function NewTenant() {
     ownerFullName: '',
     ownerPassword: '',
     planId: '',
-    primaryColor: '#6366F1',
-    secondaryColor: '#C026D3',
+    primaryColor: '#22C55E',
+    secondaryColor: '#15803D',
   });
   const [result, setResult] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);

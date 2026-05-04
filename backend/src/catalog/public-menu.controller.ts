@@ -44,6 +44,7 @@ export class PublicMenuController {
       heroImageUrl: t.storefront?.heroImageUrl ?? null,
       blocks: t.storefront?.blocks ?? [],
       theme: t.storefront?.theme ?? {},
+      menuLayout: t.storefront?.menuLayout ?? 'CLASSIC',
       locations: t.locations.map((l) => ({
         id: l.id,
         name: l.name,
@@ -55,6 +56,7 @@ export class PublicMenuController {
         id: p.id,
         name: p.name,
         description: p.description,
+        imageUrl: p.imageUrl,
         type: p.type,
         value: Number(p.value),
         validUntil: p.validUntil,

@@ -241,3 +241,57 @@ export class ChangePasswordController {
     return { ok: true };
   }
 }
+
+class UpdateProfileBody {
+  @IsOptional() @IsString() @MinLength(2) fullName?: string;
+  @IsOptional() @IsEmail() email?: string;
+  @IsOptional() @IsString() phone?: string;
+}
+
+@Controller('users/me')
+@Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
+export class UserMeController {
+  constructor(private prisma: PrismaService) {}
+
+  @Get()
+  async me(@CurrentUser() user: AuthUser) {
+    const u = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        phone: true,
+        role: true,
+        tenantId: true,
+        createdAt: true,
+        lastLoginAt: true,
+      },
+    });
+    if (!u) throw new NotFoundException();
+    return u;
+  }
+
+  @Patch()
+  async update(@CurrentUser() user: AuthUser, @Body() body: UpdateProfileBody) {
+    if (body.email) {
+      const email = body.email.toLowerCase().trim();
+      const exists = await this.prisma.user.findFirst({
+        where: { email, id: { not: user.id } },
+      });
+      if (exists) throw new BadRequestException('Ese email ya está en uso');
+      body.email = email;
+    }
+    return this.prisma.user.update({
+      where: { id: user.id },
+      data: body,
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        phone: true,
+        role: true,
+      },
+    });
+  }
+}

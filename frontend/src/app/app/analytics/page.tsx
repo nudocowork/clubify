@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { api } from '@/lib/api';
+import { toast } from '@/components/Toast';
 
 type Funnel = {
   stages: { key: string; label: string; count: number; pct: number }[];
@@ -37,22 +39,36 @@ export default function AnalyticsPage() {
   const [heatmap, setHeatmap] = useState<Heatmap | null>(null);
 
   async function load() {
-    const [a, b, c, d, e] = await Promise.all([
-      api<Funnel>(`/metrics/funnel/orders?days=${days}`),
-      api<Funnel>('/metrics/funnel/loyalty'),
-      api<Funnel>('/metrics/funnel/customers'),
-      api<Series>(`/metrics/timeseries/orders?days=${days}`),
-      api<Heatmap>('/metrics/heatmap/orders'),
-    ]);
-    setOrderFunnel(a);
-    setLoyaltyFunnel(b);
-    setCustomerFunnel(c);
-    setSeries(d);
-    setHeatmap(e);
+    try {
+      const [a, b, c, d, e] = await Promise.all([
+        api<Funnel>(`/metrics/funnel/orders?days=${days}`),
+        api<Funnel>('/metrics/funnel/loyalty'),
+        api<Funnel>('/metrics/funnel/customers'),
+        api<Series>(`/metrics/timeseries/orders?days=${days}`),
+        api<Heatmap>('/metrics/heatmap/orders'),
+      ]);
+      setOrderFunnel(a);
+      setLoyaltyFunnel(b);
+      setCustomerFunnel(c);
+      setSeries(d);
+      setHeatmap(e);
+    } catch (e: any) {
+      toast(e.message || 'Error cargando analítica', 'error');
+    }
   }
   useEffect(() => {
     load();
   }, [days]);
+
+  // ¿La cuenta tiene actividad? Si todos los funnels están en 0, mostramos
+  // empty state explicativo en vez de gráficas vacías.
+  const noActivity =
+    orderFunnel &&
+    loyaltyFunnel &&
+    customerFunnel &&
+    orderFunnel.stages[0]?.count === 0 &&
+    loyaltyFunnel.stages[0]?.count === 0 &&
+    customerFunnel.stages[0]?.count === 0;
 
   return (
     <div>
@@ -76,6 +92,31 @@ export default function AnalyticsPage() {
         </div>
       </div>
 
+      {noActivity && (
+        <div className="card card-pad text-center py-12 mb-4">
+          <div className="text-5xl mb-2">📊</div>
+          <div className="font-bold text-lg">
+            Sin datos para mostrar todavía
+          </div>
+          <p className="text-sm text-mute mt-1.5 max-w-md mx-auto">
+            Cuando tu negocio empiece a recibir pedidos, sumar clientes y
+            otorgar sellos, verás funnels, series temporales y un heatmap de
+            picos de venta. Por ahora, lleva tu primer cliente.
+          </p>
+          <div className="mt-5 flex flex-wrap justify-center gap-2">
+            <Link href="/app/storefront" className="btn-primary text-sm">
+              Compartir mi sitio
+            </Link>
+            <Link href="/app/customers" className="btn-ghost text-sm">
+              Crear primer cliente
+            </Link>
+            <Link href="/app/cards" className="btn-ghost text-sm">
+              Configurar tarjeta
+            </Link>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {orderFunnel && (
           <FunnelCard
@@ -86,7 +127,7 @@ export default function AnalyticsPage() {
                 : ''
             }`}
             funnel={orderFunnel}
-            color="#6366F1"
+            color="#22C55E"
           />
         )}
         {loyaltyFunnel && (
@@ -228,15 +269,15 @@ function Sparkline({
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[160px] min-w-[600px]">
         <defs>
           <linearGradient id="rev" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="#6366F1" stopOpacity="0.3" />
-            <stop offset="100%" stopColor="#6366F1" stopOpacity="0" />
+            <stop offset="0%" stopColor="#22C55E" stopOpacity="0.3" />
+            <stop offset="100%" stopColor="#22C55E" stopOpacity="0" />
           </linearGradient>
         </defs>
         <path d={areaPath} fill="url(#rev)" />
         <polyline
           points={pointsCount}
           fill="none"
-          stroke="#6366F1"
+          stroke="#22C55E"
           strokeWidth="2"
           strokeLinejoin="round"
           strokeLinecap="round"
@@ -246,7 +287,7 @@ function Sparkline({
           const y = H - PAD - (s.count / max) * (H - PAD * 2);
           return (
             <g key={s.date}>
-              <circle cx={x} cy={y} r={2.5} fill="#6366F1" />
+              <circle cx={x} cy={y} r={2.5} fill="#22C55E" />
               {(i === 0 || i === series.length - 1 || s.count === max) && (
                 <text
                   x={x}

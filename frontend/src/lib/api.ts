@@ -9,19 +9,63 @@ function getToken() {
 }
 
 export function setSession(token: string, user: any) {
-  document.cookie = `clubify_token=${encodeURIComponent(token)}; path=/; max-age=${60 * 60 * 24 * 7}; samesite=lax`;
+  // Sesión fija de 1 hora — luego expira y debe volver a loguear
+  document.cookie = `clubify_token=${encodeURIComponent(token)}; path=/; max-age=${60 * 60}; samesite=lax`;
   localStorage.setItem('clubify_user', JSON.stringify(user));
 }
 
 export function clearSession() {
   document.cookie = 'clubify_token=; path=/; max-age=0';
   localStorage.removeItem('clubify_user');
+  localStorage.removeItem('clubify_admin_backup');
 }
 
 export function getUser() {
   if (typeof window === 'undefined') return null;
   const raw = localStorage.getItem('clubify_user');
   return raw ? JSON.parse(raw) : null;
+}
+
+/**
+ * Inicia una sesión "como tenant" desde la cuenta admin actual.
+ * Guarda la sesión admin en backup, switchea al token nuevo, redirige a /app.
+ */
+export function startImpersonation(opts: {
+  accessToken: string;
+  user: any;
+  tenant: { id: string; brandName: string };
+}) {
+  const currentToken = getToken();
+  const currentUser = getUser();
+  if (currentToken && currentUser) {
+    localStorage.setItem(
+      'clubify_admin_backup',
+      JSON.stringify({
+        token: currentToken,
+        user: currentUser,
+        tenant: opts.tenant,
+        startedAt: new Date().toISOString(),
+      }),
+    );
+  }
+  setSession(opts.accessToken, opts.user);
+}
+
+export function getImpersonationBackup():
+  | { token: string; user: any; tenant: { id: string; brandName: string }; startedAt: string }
+  | null {
+  if (typeof window === 'undefined') return null;
+  const raw = localStorage.getItem('clubify_admin_backup');
+  return raw ? JSON.parse(raw) : null;
+}
+
+/** Restaura la sesión admin guardada en startImpersonation. */
+export function stopImpersonation() {
+  const backup = getImpersonationBackup();
+  if (!backup) return false;
+  setSession(backup.token, backup.user);
+  localStorage.removeItem('clubify_admin_backup');
+  return true;
 }
 
 export async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
@@ -36,10 +80,28 @@ export async function api<T = any>(path: string, init: RequestInit = {}): Promis
   });
   if (!res.ok) {
     const text = await res.text();
+    let body: any = text;
     let msg = text;
     try {
-      msg = JSON.parse(text)?.message ?? text;
+      body = JSON.parse(text);
+      msg = body?.message ?? text;
     } catch {}
+
+    // Cuenta suspendida: redirige a billing para que reactive
+    if (res.status === 402 || body?.code === 'TENANT_SUSPENDED') {
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/app/billing')) {
+        window.location.href = '/app/billing?suspended=1';
+      }
+    }
+    // 401 con token: sesión vencida → forzar login
+    if (res.status === 401 && token && typeof window !== 'undefined') {
+      const onLogin = window.location.pathname.startsWith('/login');
+      if (!onLogin) {
+        clearSession();
+        window.location.href = '/login?expired=1';
+      }
+    }
+
     throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
   }
   if (res.status === 204) return undefined as unknown as T;

@@ -1,17 +1,46 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { PWARegister } from '@/components/PWARegister';
+import { ToastProvider } from '@/components/Toast';
 
 export const metadata: Metadata = {
-  title: 'Clubify · Panel de Control',
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? 'https://soyclubify.com'),
+  title: {
+    default: 'Clubify · El sistema operativo de tu negocio local',
+    template: '%s · Clubify',
+  },
   description:
-    'El sistema operativo de tu negocio local: vender, fidelizar y automatizar.',
+    'Vende por WhatsApp, fideliza con tarjetas wallet y automatiza con un solo lugar. 10 días gratis para probar.',
   manifest: '/manifest.webmanifest',
   applicationName: 'Clubify',
   appleWebApp: {
     capable: true,
     title: 'Clubify',
     statusBarStyle: 'black-translucent',
+  },
+  openGraph: {
+    title: 'Clubify · El sistema operativo de tu negocio local',
+    description:
+      'Vende por WhatsApp, fideliza con tarjetas wallet y automatiza. 10 días gratis para probar.',
+    url: '/',
+    siteName: 'Clubify',
+    locale: 'es_LA',
+    type: 'website',
+    images: [
+      { url: '/icons/icon-512.png', width: 512, height: 512, alt: 'Clubify' },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Clubify · El sistema operativo de tu negocio local',
+    description:
+      'Vende por WhatsApp, fideliza con wallet y automatiza. 10 días gratis.',
+    images: ['/icons/icon-512.png'],
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: { index: true, follow: true, 'max-image-preview': 'large' },
   },
   icons: {
     icon: [
@@ -24,7 +53,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: '#6366F1',
+  themeColor: '#22C55E',
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
@@ -42,7 +71,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
-        {children}
+        <ToastProvider>{children}</ToastProvider>
         <PWARegister />
       </body>
     </html>

@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
+import { toast } from '@/components/Toast';
 
 export default function NotificationsPage() {
   const [history, setHistory] = useState<any[]>([]);
@@ -10,8 +11,13 @@ export default function NotificationsPage() {
   const [sending, setSending] = useState(false);
 
   async function load() {
-    setHistory(await api('/notifications'));
-    setCards(await api('/cards'));
+    try {
+      const [h, c] = await Promise.all([api('/notifications'), api('/cards')]);
+      setHistory(h as any[]);
+      setCards(c as any[]);
+    } catch (e: any) {
+      toast(e.message || 'Error cargando notificaciones', 'error');
+    }
   }
   useEffect(() => {
     load();
@@ -30,6 +36,9 @@ export default function NotificationsPage() {
       });
       setForm({ cardId: '', title: '', body: '' });
       load();
+      toast('Notificación enviada', 'success');
+    } catch (e: any) {
+      toast(e.message || 'No se pudo enviar', 'error');
     } finally {
       setSending(false);
     }
@@ -91,8 +100,15 @@ export default function NotificationsPage() {
           <h2 className="text-base font-semibold m-0 mb-3">Historial</h2>
           <div className="space-y-2.5">
             {history.length === 0 && (
-              <div className="card card-pad text-mute text-sm">
-                Sin notificaciones aún.
+              <div className="card card-pad text-center py-8">
+                <div className="text-3xl mb-1">🔔</div>
+                <div className="font-semibold text-sm">
+                  Sin notificaciones aún
+                </div>
+                <p className="text-xs text-mute mt-1 max-w-xs mx-auto">
+                  Cuando envíes la primera, verás aquí cuántos pases la
+                  recibieron.
+                </p>
               </div>
             )}
             {history.map((n) => (

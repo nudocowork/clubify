@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { TenantsService } from './tenants.service';
 import { TenantsController } from './tenants.controller';
 import { TenantMeController } from './me.controller';
-import { StaffController, ChangePasswordController } from './staff.controller';
+import { StaffController, ChangePasswordController, UserMeController } from './staff.controller';
 import { AuthModule } from '../auth/auth.module';
 
 @Module({
@@ -12,6 +12,7 @@ import { AuthModule } from '../auth/auth.module';
     TenantMeController,
     StaffController,
     ChangePasswordController,
+    UserMeController,
     TenantsController,
   ],
   exports: [TenantsService],

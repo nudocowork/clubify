@@ -2,34 +2,115 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 
+export type Insight = {
+  id: string;
+  severity: 'urgent' | 'attention' | 'success' | 'info' | 'tip';
+  emoji: string;
+  title: string;
+  body: string;
+  href?: string;
+  ctaLabel?: string;
+};
+
 @Injectable()
 export class MetricsService {
   constructor(private prisma: PrismaService) {}
 
   async global(user: AuthUser) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
-    const [tenants, activeTenants, passes, customers, orders30, pendingComm] =
-      await Promise.all([
-        this.prisma.tenant.count(),
-        this.prisma.tenant.count({ where: { status: 'ACTIVE' } }),
-        this.prisma.pass.count(),
-        this.prisma.customer.count(),
-        this.prisma.order.count({
-          where: {
-            createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
-          },
-        }),
-        this.prisma.commission.aggregate({
-          _sum: { amount: true },
-          where: { status: 'PENDING' },
-        }),
-      ]);
+    const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const since7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const in3Days = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+
+    const [
+      tenants,
+      activeTenantsByPlan,
+      trialTenants,
+      suspendedTenants,
+      expiringSoon,
+      passes,
+      customers,
+      orders30Agg,
+      newSignups7,
+      pendingComm,
+      churnedLast30,
+      activatedLast30,
+    ] = await Promise.all([
+      this.prisma.tenant.count(),
+      this.prisma.tenant.groupBy({
+        by: ['planId'],
+        where: { status: 'ACTIVE' },
+        _count: { _all: true },
+      }),
+      this.prisma.tenant.count({ where: { status: 'TRIAL' } }),
+      this.prisma.tenant.count({ where: { status: 'SUSPENDED' } }),
+      this.prisma.tenant.count({
+        where: {
+          status: 'TRIAL',
+          trialEndsAt: { gte: new Date(), lte: in3Days },
+        },
+      }),
+      this.prisma.pass.count(),
+      this.prisma.customer.count(),
+      this.prisma.order.aggregate({
+        _count: { _all: true },
+        _sum: { total: true },
+        where: { createdAt: { gte: since30 }, status: { not: 'CANCELLED' } },
+      }),
+      this.prisma.tenant.count({ where: { createdAt: { gte: since7 } } }),
+      this.prisma.commission.aggregate({
+        _sum: { amount: true },
+        where: { status: 'PENDING' },
+      }),
+      this.prisma.tenant.count({
+        where: { status: 'SUSPENDED', suspendedAt: { gte: since30 } },
+      }),
+      this.prisma.tenant.count({
+        where: { status: 'ACTIVE', lastPaymentAttemptAt: { gte: since30 } },
+      }),
+    ]);
+
+    const plans = await this.prisma.plan.findMany({
+      where: { id: { in: activeTenantsByPlan.map((g) => g.planId) } },
+      select: { id: true, name: true, priceMonthly: true },
+    });
+    const priceById = new Map(plans.map((p) => [p.id, Number(p.priceMonthly)]));
+
+    let mrrUsd = 0;
+    let activeTenants = 0;
+    const breakdown: Record<string, { count: number; mrr: number }> = {};
+    for (const g of activeTenantsByPlan) {
+      const price = priceById.get(g.planId) ?? 0;
+      const plan = plans.find((p) => p.id === g.planId);
+      mrrUsd += price * g._count._all;
+      activeTenants += g._count._all;
+      if (plan) {
+        breakdown[plan.name] = { count: g._count._all, mrr: price * g._count._all };
+      }
+    }
+
+    // Conversion: % de trials terminados en últimos 30d que pasaron a ACTIVE
+    const conversionRate30 =
+      activatedLast30 + churnedLast30 > 0
+        ? Math.round((activatedLast30 / (activatedLast30 + churnedLast30)) * 100)
+        : null;
+
     return {
       tenants,
       activeTenants,
+      trialTenants,
+      suspendedTenants,
+      expiringSoon,
       passes,
       customers,
-      orders30,
+      orders30: orders30Agg._count._all,
+      revenue30: Number(orders30Agg._sum.total ?? 0),
+      mrrUsd,
+      arrUsd: mrrUsd * 12,
+      planBreakdown: breakdown,
+      churnedLast30,
+      conversionRate30,
+      newSignups7,
       pendingCommissions: pendingComm._sum.amount ?? 0,
     };
   }
@@ -58,6 +139,8 @@ export class MetricsService {
       pendingOrders,
       newCustomers30,
       recurringCustomers30,
+      ratingsAgg,
+      ratings30Agg,
     ] = await Promise.all([
       this.prisma.card.count({ where: { tenantId: tid } }),
       this.prisma.customer.count({ where: { tenantId: tid } }),
@@ -118,6 +201,20 @@ export class MetricsService {
       }),
       this.prisma.customer.count({
         where: { tenantId: tid, totalOrdersCount: { gte: 2 } },
+      }),
+      this.prisma.order.aggregate({
+        where: { tenantId: tid, rating: { not: null } },
+        _avg: { rating: true },
+        _count: { rating: true },
+      }),
+      this.prisma.order.aggregate({
+        where: {
+          tenantId: tid,
+          rating: { not: null },
+          ratedAt: { gte: since30 },
+        },
+        _avg: { rating: true },
+        _count: { rating: true },
       }),
     ]);
 
@@ -180,6 +277,14 @@ export class MetricsService {
       pendingOrders,
       newCustomers30,
       recurringCustomers30,
+      avgRating: ratingsAgg._avg.rating
+        ? Number(ratingsAgg._avg.rating.toFixed(2))
+        : null,
+      ratingsCount: ratingsAgg._count.rating ?? 0,
+      avgRating30: ratings30Agg._avg.rating
+        ? Number(ratings30Agg._avg.rating.toFixed(2))
+        : null,
+      ratingsCount30: ratings30Agg._count.rating ?? 0,
       topProducts: allTopAreZero
         ? topByItems
         : topProducts.map((p) => ({
@@ -189,6 +294,493 @@ export class MetricsService {
             category: p.category.name,
           })),
     };
+  }
+
+  // ============================================================
+  //                       INSIGHTS ACCIONABLES
+  // ============================================================
+
+  /**
+   * Genera "tarjetas" de insights basadas en el estado real del tenant.
+   * Cada insight tiene severity, copy y opcionalmente un CTA.
+   * Pensado para mostrar en la home del panel — el dueño debe ver al instante
+   * qué necesita atención hoy.
+   */
+  async insights(user: AuthUser, tenantIdParam?: string) {
+    const tid = this.getTid(user, tenantIdParam);
+    const now = new Date();
+    const since7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const since14 = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+    const today0 = new Date();
+    today0.setHours(0, 0, 0, 0);
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+
+    const [
+      tenant,
+      pendingOldOrders,
+      ordersToday,
+      newCustomers7,
+      newCustomers14,
+      cardsCount,
+      storefront,
+      heavyCustomersWithoutPass,
+      ordersThisWeekAgg,
+      ordersLastWeekAgg,
+      installedRate,
+    ] = await Promise.all([
+      this.prisma.tenant.findUnique({
+        where: { id: tid },
+        select: {
+          status: true,
+          trialEndsAt: true,
+          brandName: true,
+          logoUrl: true,
+          whatsappPhone: true,
+        },
+      }),
+      this.prisma.order.findMany({
+        where: {
+          tenantId: tid,
+          status: 'PENDING',
+          createdAt: { lt: oneHourAgo },
+        },
+        select: { id: true, code: true, createdAt: true },
+        take: 5,
+      }),
+      this.prisma.order.count({
+        where: {
+          tenantId: tid,
+          createdAt: { gte: today0 },
+          status: { not: 'CANCELLED' },
+        },
+      }),
+      this.prisma.customer.count({
+        where: { tenantId: tid, createdAt: { gte: since7 } },
+      }),
+      this.prisma.customer.count({
+        where: {
+          tenantId: tid,
+          createdAt: { gte: since14, lt: since7 },
+        },
+      }),
+      this.prisma.card.count({ where: { tenantId: tid, isActive: true } }),
+      this.prisma.storefront.findFirst({
+        where: { tenantId: tid },
+        select: { isPublished: true },
+      }),
+      this.prisma.customer.findMany({
+        where: {
+          tenantId: tid,
+          totalOrdersCount: { gte: 3 },
+          passes: { none: {} },
+        },
+        select: { id: true, fullName: true, totalOrdersCount: true },
+        take: 3,
+      }),
+      this.prisma.order.aggregate({
+        _sum: { total: true },
+        _count: { _all: true },
+        where: {
+          tenantId: tid,
+          createdAt: { gte: since7 },
+          status: { not: 'CANCELLED' },
+        },
+      }),
+      this.prisma.order.aggregate({
+        _sum: { total: true },
+        _count: { _all: true },
+        where: {
+          tenantId: tid,
+          createdAt: { gte: since14, lt: since7 },
+          status: { not: 'CANCELLED' },
+        },
+      }),
+      this.computeInstalledRate(tid),
+    ]);
+
+    const insights: Insight[] = [];
+
+    // 1) Pedidos pendientes >1h — URGENT
+    if (pendingOldOrders.length > 0) {
+      insights.push({
+        id: 'pending-old',
+        severity: 'urgent',
+        emoji: '🚨',
+        title: `${pendingOldOrders.length} pedido${pendingOldOrders.length === 1 ? '' : 's'} sin confirmar hace más de 1 hora`,
+        body: 'Tus clientes están esperando. Confírmalos o márcalos como cancelados.',
+        href: '/app/orders',
+        ctaLabel: 'Ver pedidos',
+      });
+    }
+
+    // 2) Trial expira en < 3 días
+    if (tenant?.status === 'TRIAL' && tenant.trialEndsAt) {
+      const daysLeft = Math.ceil(
+        (tenant.trialEndsAt.getTime() - now.getTime()) /
+          (24 * 60 * 60 * 1000),
+      );
+      if (daysLeft >= 0 && daysLeft <= 3) {
+        insights.push({
+          id: 'trial-expiring',
+          severity: 'attention',
+          emoji: '⏰',
+          title: `Tu prueba gratis termina en ${daysLeft} día${daysLeft === 1 ? '' : 's'}`,
+          body: 'Activa tu suscripción para no perder acceso. Puedes cancelar cuando quieras.',
+          href: '/app/billing',
+          ctaLabel: 'Activar suscripción',
+        });
+      }
+    }
+
+    // 3) Setup incompleto: sin tarjeta de fidelización
+    if (cardsCount === 0) {
+      insights.push({
+        id: 'no-card',
+        severity: 'tip',
+        emoji: '💡',
+        title: 'Aún no tienes tarjeta de fidelización',
+        body: 'La tarjeta de sellos hace que clientes vuelvan 3× más. Crea una en 2 minutos.',
+        href: '/app/cards/new',
+        ctaLabel: 'Crear mi primera tarjeta',
+      });
+    }
+
+    // 4) Storefront no publicado
+    if (storefront && !storefront.isPublished) {
+      insights.push({
+        id: 'sf-unpublished',
+        severity: 'tip',
+        emoji: '🔒',
+        title: 'Tu mini-sitio está en borrador',
+        body: 'Mientras esté oculto, nadie puede pedir desde tu link público.',
+        href: '/app/storefront',
+        ctaLabel: 'Publicar sitio',
+      });
+    }
+
+    // 5) Sin WhatsApp configurado
+    if (tenant && !tenant.whatsappPhone) {
+      insights.push({
+        id: 'no-whatsapp',
+        severity: 'attention',
+        emoji: '📱',
+        title: 'Configura tu WhatsApp del negocio',
+        body: 'Es donde te llegan los pedidos. Sin esto, los clientes no pueden enviarte sus carritos.',
+        href: '/app/storefront',
+        ctaLabel: 'Configurar',
+      });
+    }
+
+    // 6) Clientes nuevos esta semana (positivo)
+    if (newCustomers7 >= 3) {
+      const delta = newCustomers7 - newCustomers14;
+      insights.push({
+        id: 'new-customers',
+        severity: 'success',
+        emoji: '🎉',
+        title: `${newCustomers7} clientes nuevos esta semana`,
+        body:
+          delta > 0
+            ? `Vas ${delta} arriba que la semana pasada. Buen trabajo.`
+            : 'Mantén el ritmo invitando con tu link público.',
+        href: '/app/customers',
+        ctaLabel: 'Ver clientes',
+      });
+    }
+
+    // 7) Revenue 7d vs 14-7d (caída significativa)
+    const r7 = Number(ordersThisWeekAgg._sum.total ?? 0);
+    const rPrev7 = Number(ordersLastWeekAgg._sum.total ?? 0);
+    if (rPrev7 > 0 && r7 < rPrev7 * 0.7) {
+      const dropPct = Math.round((1 - r7 / rPrev7) * 100);
+      insights.push({
+        id: 'revenue-drop',
+        severity: 'attention',
+        emoji: '📉',
+        title: `Tus ventas bajaron ${dropPct}% vs la semana pasada`,
+        body: 'Considera lanzar una promo de recuperación o reactivar clientes que no piden hace tiempo.',
+        href: '/app/promos',
+        ctaLabel: 'Crear promo',
+      });
+    }
+
+    // 8) Sin pedidos hoy y son después del mediodía
+    if (ordersToday === 0 && now.getHours() >= 14) {
+      insights.push({
+        id: 'no-orders-today',
+        severity: 'info',
+        emoji: '📭',
+        title: 'Aún no tienes pedidos hoy',
+        body: 'Comparte tu link en Instagram Stories o por estado de WhatsApp para mover ventas.',
+        href: '/app/storefront',
+        ctaLabel: 'Compartir link',
+      });
+    }
+
+    // 9) Clientes recurrentes sin tarjeta — oportunidad
+    if (heavyCustomersWithoutPass.length > 0 && cardsCount > 0) {
+      const names = heavyCustomersWithoutPass.map((c) => c.fullName).join(', ');
+      insights.push({
+        id: 'heavy-no-pass',
+        severity: 'tip',
+        emoji: '✨',
+        title: `${heavyCustomersWithoutPass.length} cliente${heavyCustomersWithoutPass.length === 1 ? '' : 's'} recurrente${heavyCustomersWithoutPass.length === 1 ? '' : 's'} sin tarjeta`,
+        body: `${names} ya hizo varios pedidos. Emítele tarjeta para retenerlo con sellos.`,
+        href: '/app/customers',
+        ctaLabel: 'Emitir tarjetas',
+      });
+    }
+
+    // 10) Cumpleaños en los próximos 7 días
+    const upcomingBirthdays = await this.findUpcomingBirthdays(tid, 7);
+    if (upcomingBirthdays.length > 0) {
+      const names = upcomingBirthdays
+        .slice(0, 3)
+        .map((c) => c.fullName)
+        .join(', ');
+      const more =
+        upcomingBirthdays.length > 3
+          ? ` y ${upcomingBirthdays.length - 3} más`
+          : '';
+      insights.push({
+        id: 'birthdays-week',
+        severity: 'tip',
+        emoji: '🎂',
+        title: `${upcomingBirthdays.length} cumpleaños esta semana`,
+        body: `Cumplen pronto: ${names}${more}. Mándales un saludo o un cupón especial — fideliza a la próxima vez.`,
+        href: '/app/customers',
+        ctaLabel: 'Ver clientes',
+      });
+    }
+
+    // 11) Stock agotado en productos visibles
+    const outOfStock = await this.prisma.product.findMany({
+      where: { tenantId: tid, stock: 0 },
+      select: { id: true, name: true },
+      take: 5,
+    });
+    if (outOfStock.length > 0) {
+      const names = outOfStock.slice(0, 3).map((p) => p.name).join(', ');
+      const more = outOfStock.length > 3 ? ` y ${outOfStock.length - 3} más` : '';
+      insights.push({
+        id: 'stock-out',
+        severity: 'attention',
+        emoji: '📦',
+        title: `${outOfStock.length} producto${outOfStock.length === 1 ? ' agotado' : 's agotados'}`,
+        body: `${names}${more} están en 0 y se ocultaron del menú. Repón inventario y vuelve a marcarlos visibles.`,
+        href: '/app/menu',
+        ctaLabel: 'Reponer stock',
+      });
+    }
+
+    // 12) Stock bajo (≤ stockAlert) — pedido inminente
+    const lowStock = await this.prisma.product.findMany({
+      where: {
+        tenantId: tid,
+        stock: { gt: 0 },
+        stockAlert: { not: null },
+      },
+      select: { id: true, name: true, stock: true, stockAlert: true },
+      take: 10,
+    });
+    const reallyLow = lowStock.filter(
+      (p) => p.stock !== null && p.stockAlert !== null && p.stock <= p.stockAlert,
+    );
+    if (reallyLow.length > 0) {
+      const top = reallyLow
+        .slice(0, 3)
+        .map((p) => `${p.name} (${p.stock})`)
+        .join(', ');
+      insights.push({
+        id: 'stock-low',
+        severity: 'tip',
+        emoji: '⚠️',
+        title: `${reallyLow.length} producto${reallyLow.length === 1 ? '' : 's'} con stock bajo`,
+        body: `Quedan pocos: ${top}. Pide al proveedor antes de que se agoten.`,
+        href: '/app/menu',
+        ctaLabel: 'Ver inventario',
+      });
+    }
+
+    // 13) Tasa de instalación de wallet baja
+    if (installedRate.totalPasses >= 5 && installedRate.rate < 0.4) {
+      insights.push({
+        id: 'wallet-install-low',
+        severity: 'tip',
+        emoji: '📲',
+        title: `Solo ${Math.round(installedRate.rate * 100)}% de tus tarjetas están en Wallet`,
+        body: 'Recuerda mostrarle el QR a tus clientes para que la guarden — vuelven 2× más.',
+        href: '/app/cards',
+        ctaLabel: 'Ver tarjetas',
+      });
+    }
+
+    // Ordenar por severidad
+    const order: Record<Insight['severity'], number> = {
+      urgent: 0,
+      attention: 1,
+      success: 2,
+      tip: 3,
+      info: 4,
+    };
+    insights.sort((a, b) => order[a.severity] - order[b.severity]);
+
+    return { insights };
+  }
+
+  /**
+   * Feed de actividad reciente unificado: pedidos creados, sellos otorgados,
+   * pases emitidos, clientes nuevos. Pensado para mostrar las últimas 15
+   * cosas que pasaron en el negocio.
+   */
+  async activity(user: AuthUser, tenantIdParam?: string) {
+    const tid = this.getTid(user, tenantIdParam);
+    const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+
+    const [orders, stamps, passes, customers] = await Promise.all([
+      this.prisma.order.findMany({
+        where: { tenantId: tid, createdAt: { gte: since } },
+        select: {
+          id: true,
+          code: true,
+          total: true,
+          createdAt: true,
+          status: true,
+          customer: { select: { fullName: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 15,
+      }),
+      this.prisma.stamp.findMany({
+        where: { tenantId: tid, createdAt: { gte: since } },
+        select: {
+          id: true,
+          action: true,
+          amount: true,
+          createdAt: true,
+          customer: { select: { id: true, fullName: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 15,
+      }),
+      this.prisma.pass.findMany({
+        where: { tenantId: tid, issuedAt: { gte: since } },
+        select: {
+          id: true,
+          issuedAt: true,
+          customer: { select: { id: true, fullName: true } },
+          card: { select: { name: true } },
+        },
+        orderBy: { issuedAt: 'desc' },
+        take: 15,
+      }),
+      this.prisma.customer.findMany({
+        where: { tenantId: tid, createdAt: { gte: since } },
+        select: { id: true, fullName: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take: 15,
+      }),
+    ]);
+
+    type Event = {
+      id: string;
+      kind: 'order' | 'stamp' | 'redeem' | 'pass' | 'customer';
+      at: string;
+      title: string;
+      detail?: string;
+      href?: string;
+      emoji: string;
+    };
+    const events: Event[] = [];
+
+    for (const o of orders) {
+      events.push({
+        id: `o-${o.id}`,
+        kind: 'order',
+        at: o.createdAt.toISOString(),
+        emoji: '🛒',
+        title: `Pedido #${o.code}`,
+        detail: `${o.customer?.fullName ?? 'Walk-in'} · COP ${Number(o.total).toLocaleString('es-CO')}`,
+        href: `/app/orders/${o.id}`,
+      });
+    }
+    for (const s of stamps) {
+      events.push({
+        id: `s-${s.id}`,
+        kind: s.action === 'REDEEM' ? 'redeem' : 'stamp',
+        at: s.createdAt.toISOString(),
+        emoji: s.action === 'REDEEM' ? '🎁' : '⭐',
+        title:
+          s.action === 'REDEEM'
+            ? `Premio canjeado`
+            : `+${Number(s.amount)} sello${Number(s.amount) === 1 ? '' : 's'}`,
+        detail: s.customer?.fullName,
+        href: s.customer?.id
+          ? `/app/customers/${s.customer.id}`
+          : undefined,
+      });
+    }
+    for (const p of passes) {
+      events.push({
+        id: `p-${p.id}`,
+        kind: 'pass',
+        at: p.issuedAt.toISOString(),
+        emoji: '💳',
+        title: `Tarjeta emitida`,
+        detail: `${p.customer.fullName} · ${p.card.name}`,
+        href: `/app/customers/${p.customer.id}`,
+      });
+    }
+    for (const c of customers) {
+      events.push({
+        id: `c-${c.id}`,
+        kind: 'customer',
+        at: c.createdAt.toISOString(),
+        emoji: '🙋',
+        title: `Nuevo cliente`,
+        detail: c.fullName,
+        href: `/app/customers/${c.id}`,
+      });
+    }
+
+    events.sort((a, b) => (a.at < b.at ? 1 : -1));
+    return { events: events.slice(0, 20) };
+  }
+
+  /**
+   * Devuelve clientes cuyo cumpleaños cae en los próximos N días.
+   * Comparación por (mes, día) ignorando el año.
+   */
+  private async findUpcomingBirthdays(tid: string, days: number) {
+    const customers = await this.prisma.customer.findMany({
+      where: { tenantId: tid, birthday: { not: null } },
+      select: { id: true, fullName: true, birthday: true },
+    });
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const out: { id: string; fullName: string; birthday: Date }[] = [];
+    for (const c of customers) {
+      if (!c.birthday) continue;
+      const b = new Date(c.birthday);
+      const next = new Date(today.getFullYear(), b.getMonth(), b.getDate());
+      if (next < today) next.setFullYear(today.getFullYear() + 1);
+      const diff = (next.getTime() - today.getTime()) / (24 * 60 * 60 * 1000);
+      if (diff >= 0 && diff <= days) {
+        out.push({ id: c.id, fullName: c.fullName, birthday: c.birthday });
+      }
+    }
+    return out;
+  }
+
+  private async computeInstalledRate(tid: string) {
+    const [totalPasses, installed] = await Promise.all([
+      this.prisma.pass.count({ where: { tenantId: tid } }),
+      this.prisma.pass.count({
+        where: { tenantId: tid, walletDevices: { some: {} } },
+      }),
+    ]);
+    const rate = totalPasses === 0 ? 0 : installed / totalPasses;
+    return { totalPasses, installed, rate };
   }
 
   // ============================================================
@@ -454,6 +1046,101 @@ export class MetricsService {
       cells,
       max,
       total: orders.length,
+    };
+  }
+
+  /**
+   * Devuelve qué pasos del onboarding inicial completó el tenant. Se usa para
+   * mostrar el "Quick Start" en /app y guiar a tenants nuevos.
+   */
+  async onboardingStatus(user: AuthUser, tenantIdParam?: string) {
+    const tid = user.role === 'SUPER_ADMIN' ? tenantIdParam : user.tenantId ?? undefined;
+    if (!tid) throw new ForbiddenException();
+
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tid },
+      select: {
+        brandName: true,
+        logoUrl: true,
+        whatsappPhone: true,
+        primaryColor: true,
+        storefront: { select: { description: true, isPublished: true } },
+      },
+    });
+    if (!t) throw new ForbiddenException();
+
+    const [products, cards, customers, locations, orders, automations] =
+      await Promise.all([
+        this.prisma.product.count({ where: { tenantId: tid } }),
+        this.prisma.card.count({ where: { tenantId: tid } }),
+        this.prisma.customer.count({ where: { tenantId: tid } }),
+        this.prisma.location.count({ where: { tenantId: tid, isActive: true } }),
+        this.prisma.order.count({ where: { tenantId: tid } }),
+        this.prisma.automationRule.count({ where: { tenantId: tid } }),
+      ]);
+
+    const items = [
+      {
+        key: 'brand',
+        label: 'Configura tu marca',
+        sub: 'Logo, colores y descripción',
+        done: !!t.logoUrl && !!t.storefront?.description,
+        href: '/app/storefront',
+      },
+      {
+        key: 'whatsapp',
+        label: 'Conecta tu WhatsApp',
+        sub: 'Por donde te llegan los pedidos',
+        done: !!t.whatsappPhone,
+        href: '/app/settings',
+      },
+      {
+        key: 'product',
+        label: 'Crea tu primer producto',
+        sub: 'Foto, precio, descripción',
+        done: products > 0,
+        href: '/app/menu',
+      },
+      {
+        key: 'card',
+        label: 'Crea tu tarjeta de fidelización',
+        sub: 'Sellos, puntos o descuentos',
+        done: cards > 0,
+        href: '/app/cards/new',
+      },
+      {
+        key: 'location',
+        label: 'Agrega tu ubicación',
+        sub: 'Para que clientes te encuentren',
+        done: locations > 0,
+        href: '/app/locations',
+      },
+      {
+        key: 'share',
+        label: 'Comparte tu link público',
+        sub: 'Imprime el cartel QR para tus mesas',
+        done: orders > 0, // proxy: si hay un pedido, ya compartió
+        href: '/app/storefront/poster',
+      },
+      {
+        key: 'customer',
+        label: 'Recibe tu primer cliente',
+        sub: 'Vía pedido o registro manual',
+        done: customers > 0,
+        href: '/app/customers',
+      },
+    ];
+
+    const completedCount = items.filter((i) => i.done).length;
+    const totalCount = items.length;
+    const percent = Math.round((completedCount / totalCount) * 100);
+
+    return {
+      items,
+      completedCount,
+      totalCount,
+      percent,
+      complete: completedCount === totalCount,
     };
   }
 }

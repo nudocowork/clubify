@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Res } from '@nestjs/common';
-import { IsEmail, IsOptional, IsString } from 'class-validator';
+import { ArrayMinSize, ArrayUnique, IsArray, IsEmail, IsOptional, IsString } from 'class-validator';
 import { Response } from 'express';
 import { CustomersService } from './customers.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
@@ -12,6 +12,14 @@ class CustomerBody {
   @IsOptional() @IsString() phone?: string;
   @IsOptional() @IsString() birthday?: string;
   @IsOptional() @IsString() externalId?: string;
+  @IsOptional() @IsArray() tags?: string[];
+  @IsOptional() @IsString() notes?: string;
+}
+
+class MergeBody {
+  @IsString() keepId!: string;
+  @IsArray() @ArrayMinSize(1) @ArrayUnique() @IsString({ each: true })
+  mergeIds!: string[];
 }
 
 @Controller('customers')
@@ -26,6 +34,19 @@ export class CustomersController {
     @Query('tenantId') tenantId?: string,
   ) {
     return this.svc.list(user, search, tenantId);
+  }
+
+  @Get('duplicates')
+  duplicates(
+    @CurrentUser() user: AuthUser,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.svc.findDuplicates(user, tenantId);
+  }
+
+  @Post('merge')
+  merge(@CurrentUser() user: AuthUser, @Body() body: MergeBody) {
+    return this.svc.merge(user, body.keepId, body.mergeIds);
   }
 
   @Get('export.csv')
@@ -95,6 +116,15 @@ export class CustomersController {
     @Query('tenantId') tenantId?: string,
   ) {
     return this.svc.create(user, body, tenantId);
+  }
+
+  @Post('import')
+  bulkImport(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { rows: any[] },
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.svc.bulkImport(user, body.rows ?? [], tenantId);
   }
 
   @Patch(':id')

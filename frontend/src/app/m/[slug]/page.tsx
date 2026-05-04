@@ -10,8 +10,12 @@ import {
   clearCart,
 } from '@/lib/cart';
 import { Icon } from '@/components/Icon';
+import { Barcode } from '@/components/Barcode';
+import { ClubifyBadge } from '@/components/ClubifyBadge';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+
+type MenuLayout = 'CLASSIC' | 'GRID' | 'CAROUSELS' | 'CLEAN' | 'COMPACT';
 
 type Storefront = {
   id: string;
@@ -25,6 +29,7 @@ type Storefront = {
   currency: string;
   description: string;
   heroImageUrl: string | null;
+  menuLayout?: MenuLayout;
   promotions: any[];
 };
 
@@ -88,58 +93,77 @@ export default function StorefrontPublic() {
       style={{ background: '#FAFBFC' }}
     >
       {/* Hero */}
-      <header className="px-5 pt-8 pb-5 max-w-2xl mx-auto">
-        <div className="flex items-center gap-3 mb-2">
-          {s.logoUrl ? (
-            <img src={s.logoUrl} alt="" className="w-12 h-12 rounded-xl" />
-          ) : (
-            <div
-              className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-lg"
-              style={{ background: primary }}
-            >
-              {s.brandName[0]}
+      <header className="relative">
+        {/* Backdrop: heroImage o gradient brand */}
+        <div
+          className="absolute inset-0 -z-10"
+          style={{
+            background: s.heroImageUrl
+              ? `linear-gradient(180deg, rgba(0,0,0,.05) 0%, rgba(255,255,255,.95) 70%, #FAFBFC 100%), url(${s.heroImageUrl}) center/cover`
+              : `linear-gradient(135deg, ${primary}15, ${s.secondaryColor}15, transparent)`,
+          }}
+        />
+        <div className="px-5 pt-10 pb-6 max-w-2xl mx-auto">
+          <div className="flex items-center gap-3.5">
+            {s.logoUrl ? (
+              <img
+                src={s.logoUrl}
+                alt=""
+                className="w-14 h-14 rounded-2xl ring-4 ring-white shadow-sm object-cover"
+              />
+            ) : (
+              <div
+                className="w-14 h-14 rounded-2xl flex items-center justify-center text-white font-bold text-xl ring-4 ring-white shadow-sm"
+                style={{ background: `linear-gradient(135deg, ${primary}, ${s.secondaryColor})` }}
+              >
+                {s.brandName[0]}
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <div className="font-bold text-2xl tracking-tight truncate">{s.brandName}</div>
+              {s.description && (
+                <div className="text-sm text-mute truncate">{s.description}</div>
+              )}
             </div>
-          )}
-          <div>
-            <div className="font-bold text-xl">{s.brandName}</div>
-            <div className="text-xs text-mute">{s.description}</div>
           </div>
-        </div>
-        <div className="flex gap-1.5 flex-wrap mt-3">
-          {s.whatsappPhone && (
-            <a
-              href={`https://wa.me/${s.whatsappPhone.replace(/\D/g, '')}`}
-              target="_blank"
-              className="px-3 py-1.5 rounded-full text-white text-sm font-medium"
-              style={{ background: '#25D366' }}
-            >
-              💬 WhatsApp
-            </a>
-          )}
-          {s.instagramUrl && (
-            <a
-              href={s.instagramUrl}
-              target="_blank"
-              className="px-3 py-1.5 rounded-full bg-bg2 text-sm font-medium"
-            >
-              📷 Instagram
-            </a>
-          )}
-          {s.mapsUrl && (
-            <a
-              href={s.mapsUrl}
-              target="_blank"
-              className="px-3 py-1.5 rounded-full bg-bg2 text-sm font-medium"
-            >
-              📍 Cómo llegar
-            </a>
-          )}
+          <div className="flex gap-2 flex-wrap mt-4">
+            {s.whatsappPhone && (
+              <a
+                href={`https://wa.me/${s.whatsappPhone.replace(/\D/g, '')}`}
+                target="_blank"
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-white text-sm font-semibold shadow-sm hover:opacity-90 transition"
+                style={{ background: '#25D366' }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448L.057 24zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.711.306 1.265.489 1.697.626.713.226 1.362.194 1.875.118.572-.085 1.758-.719 2.006-1.413.247-.694.247-1.289.173-1.413z"/></svg>
+                WhatsApp
+              </a>
+            )}
+            {s.instagramUrl && (
+              <a
+                href={s.instagramUrl}
+                target="_blank"
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white/90 backdrop-blur border border-line text-sm font-medium hover:bg-white transition"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
+                Instagram
+              </a>
+            )}
+            {s.mapsUrl && (
+              <a
+                href={s.mapsUrl}
+                target="_blank"
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white/90 backdrop-blur border border-line text-sm font-medium hover:bg-white transition"
+              >
+                <Icon name="pin" size={14} /> Cómo llegar
+              </a>
+            )}
+          </div>
         </div>
       </header>
 
       {/* Tabs */}
-      <div className="px-5 max-w-2xl mx-auto">
-        <div className="flex gap-1 p-1 rounded-pill bg-white border border-line">
+      <div className="px-5 max-w-2xl mx-auto sticky top-2 z-20">
+        <div className="flex gap-1 p-1 rounded-pill bg-white border border-line shadow-sm">
           {(['menu', 'card', 'promos'] as const).map((t) => (
             <button
               key={t}
@@ -160,61 +184,31 @@ export default function StorefrontPublic() {
       {tab === 'menu' && (
         <div className="max-w-2xl mx-auto mt-4 px-5">
           {menu.length === 0 && (
-            <div className="text-center text-mute py-12">Aún no hay menú publicado.</div>
-          )}
-          {menu.map((cat) => (
-            <section key={cat.id} className="mb-6">
-              <h2 className="text-xs uppercase tracking-[0.18em] text-mute font-semibold mb-3">
-                {cat.name}
-              </h2>
-              <div className="space-y-2.5">
-                {cat.products.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => setOpenProduct(p)}
-                    className="w-full bg-white border border-line rounded-card overflow-hidden text-left transition hover:shadow-md2 flex"
-                  >
-                    {p.imageUrl ? (
-                      <img
-                        src={p.imageUrl}
-                        alt=""
-                        className="w-24 h-24 object-cover flex-none"
-                      />
-                    ) : (
-                      <div className="w-24 h-24 bg-bg2 flex-none flex items-center justify-center text-2xl text-mute">
-                        🍽
-                      </div>
-                    )}
-                    <div className="flex-1 p-3 min-w-0">
-                      <div className="font-semibold text-sm">{p.name}</div>
-                      <div className="text-xs text-mute mt-0.5 line-clamp-2">
-                        {p.description}
-                      </div>
-                      <div className="flex items-center justify-between mt-2">
-                        <div className="font-bold text-sm">{fmt(Number(p.basePrice), s.currency)}</div>
-                        <div className="flex gap-1">
-                          {p.tags.map((t) => (
-                            <span
-                              key={t}
-                              className="text-[10px] px-1.5 py-0.5 rounded-full bg-brand-soft text-brand-700"
-                            >
-                              {t}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                    <div
-                      className="w-12 flex items-center justify-center text-white text-xl flex-none"
-                      style={{ background: primary }}
-                    >
-                      +
-                    </div>
-                  </button>
-                ))}
+            <div className="text-center py-16">
+              <div className="text-5xl mb-3">📋</div>
+              <div className="font-semibold text-lg">Pronto publicamos el menú</div>
+              <div className="text-sm text-mute mt-1 max-w-xs mx-auto">
+                Mientras tanto, escríbenos por WhatsApp para hacer tu pedido.
               </div>
-            </section>
-          ))}
+              {s.whatsappPhone && (
+                <a
+                  href={`https://wa.me/${s.whatsappPhone.replace(/\D/g, '')}`}
+                  target="_blank"
+                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-pill text-white font-semibold text-sm"
+                  style={{ background: '#25D366' }}
+                >
+                  Hablar por WhatsApp →
+                </a>
+              )}
+            </div>
+          )}
+          <MenuRenderer
+            layout={s.menuLayout ?? 'CLASSIC'}
+            menu={menu}
+            primary={primary}
+            currency={s.currency}
+            onPick={setOpenProduct}
+          />
         </div>
       )}
 
@@ -222,48 +216,85 @@ export default function StorefrontPublic() {
       {tab === 'promos' && (
         <div className="max-w-2xl mx-auto mt-4 px-5 space-y-3">
           {s.promotions.length === 0 && (
-            <div className="text-center text-mute py-12">No hay promos activas.</div>
-          )}
-          {s.promotions.map((p) => (
-            <div
-              key={p.id}
-              className="rounded-card p-5 text-white"
-              style={{ background: `linear-gradient(135deg, ${primary}, ${s.secondaryColor})` }}
-            >
-              <div className="text-xs uppercase tracking-wider opacity-85">{p.type}</div>
-              <div className="font-bold text-lg mt-1">{p.name}</div>
-              <div className="text-sm opacity-90 mt-1">{p.description}</div>
-              {p.validUntil && (
-                <div className="text-xs opacity-75 mt-3">
-                  Hasta {new Date(p.validUntil).toLocaleDateString('es-CO')}
-                </div>
-              )}
+            <div className="text-center py-16">
+              <div className="text-5xl mb-3">🎁</div>
+              <div className="font-semibold text-lg">No hay promos activas</div>
+              <div className="text-sm text-mute mt-1">
+                Vuelve pronto, siempre estamos lanzando algo nuevo.
+              </div>
             </div>
-          ))}
+          )}
+          {s.promotions.map((p) => {
+            const wa = s.whatsappPhone?.replace(/\D/g, '');
+            const orderHref = wa
+              ? `https://wa.me/${wa}?text=${encodeURIComponent(
+                  `Hola! Quiero ordenar esta promoción: ${p.name}`,
+                )}`
+              : null;
+            return (
+              <div
+                key={p.id}
+                className="rounded-card overflow-hidden bg-white border border-line shadow-sm"
+              >
+                {p.imageUrl && (
+                  <div className="relative aspect-[16/9] bg-bg2">
+                    <img src={p.imageUrl} alt="" className="w-full h-full object-cover" />
+                    <span
+                      className="absolute top-3 left-3 text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded text-white shadow"
+                      style={{ background: primary }}
+                    >
+                      🎁 Promo
+                    </span>
+                  </div>
+                )}
+                <div className="p-4">
+                  {!p.imageUrl && (
+                    <div
+                      className="text-[10px] uppercase tracking-wider font-bold mb-2 inline-block px-2 py-1 rounded text-white"
+                      style={{ background: primary }}
+                    >
+                      🎁 Promo
+                    </div>
+                  )}
+                  <div className="font-bold text-lg leading-tight">{p.name}</div>
+                  {p.description && (
+                    <div className="text-sm text-mute mt-1.5 leading-relaxed whitespace-pre-line">
+                      {p.description}
+                    </div>
+                  )}
+                  {p.validUntil && (
+                    <div className="text-xs text-mute mt-2 flex items-center gap-1">
+                      ⏰ Hasta {new Date(p.validUntil).toLocaleDateString('es-CO', { day: 'numeric', month: 'long' })}
+                    </div>
+                  )}
+                  {orderHref ? (
+                    <a
+                      href={orderHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-4 block w-full text-center text-white font-semibold py-2.5 rounded-pill"
+                      style={{ background: '#25D366' }}
+                    >
+                      💬 Ordenar esta promo por WhatsApp
+                    </a>
+                  ) : (
+                    <button
+                      onClick={() => setTab('menu')}
+                      className="mt-4 block w-full text-center text-white font-semibold py-2.5 rounded-pill"
+                      style={{ background: primary }}
+                    >
+                      Ver el menú →
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
       {/* Tarjeta */}
-      {tab === 'card' && (
-        <div className="max-w-md mx-auto mt-6 px-5 text-center">
-          <p className="text-sm text-mute mb-4">
-            Ingresa tu teléfono para ver tu tarjeta de fidelización.
-          </p>
-          <input
-            className="input mb-3 text-center"
-            placeholder="+57 300 ..."
-          />
-          <button
-            className="btn-primary w-full justify-center"
-            style={{ background: primary, borderColor: primary }}
-          >
-            <Icon name="card" /> Ver mi tarjeta
-          </button>
-          <p className="text-xs text-mute mt-3">
-            Si todavía no tienes tarjeta, te llegará al hacer tu primer pedido.
-          </p>
-        </div>
-      )}
+      {tab === 'card' && <CardLookup slug={slug} primary={primary} />}
 
       {/* Bottom dock con carrito */}
       {totals.count > 0 && !showCart && !showCheckout && (
@@ -316,6 +347,9 @@ export default function StorefrontPublic() {
           onClose={() => setShowCheckout(false)}
         />
       )}
+
+      {/* Marca Clubify — siempre visible, no removible */}
+      <ClubifyBadge />
     </div>
   );
 }
@@ -601,33 +635,28 @@ function CheckoutSheet({
   currency: string;
   onClose: () => void;
 }) {
+  // Si la URL trae ?mesa=N (escaneo de QR de mesa), pre-rellenamos y
+  // forzamos fulfillment a DINE_IN. El cliente NO ve el campo "Número de mesa"
+  // — viene del QR.
+  const tableFromQr =
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('mesa') ?? ''
+      : '';
+  const lockedTable = tableFromQr.trim().length > 0;
+
   const [form, setForm] = useState({
     fullName: '',
     phone: '',
     email: '',
-    fulfillment: 'PICKUP' as 'PICKUP' | 'DINE_IN' | 'DELIVERY',
-    tableNumber: '',
+    fulfillment: (lockedTable ? 'DINE_IN' : 'PICKUP') as
+      | 'PICKUP'
+      | 'DINE_IN'
+      | 'DELIVERY',
+    tableNumber: tableFromQr,
     customerNote: '',
-    paymentMethod: 'CASH_ON_DELIVERY' as
-      | 'CASH_ON_DELIVERY'
-      | 'STUB'
-      | 'STRIPE'
-      | 'MERCADO_PAGO'
-      | 'WOMPI'
-      | 'PSE',
   });
-  const [methods, setMethods] = useState<
-    { method: string; label: string; ready: boolean }[]
-  >([]);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch(`${API}/api/public/payments/methods`)
-      .then((r) => r.json())
-      .then(setMethods)
-      .catch(() => null);
-  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -663,31 +692,6 @@ function CheckoutSheet({
       const order = await res.json();
       clearCart(slug);
 
-      // Si el cliente eligió pago en línea, iniciar la sesión y redirigir al gateway
-      if (form.paymentMethod !== 'CASH_ON_DELIVERY') {
-        try {
-          const payRes = await fetch(
-            `${API}/api/public/payments/start/${order.code}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ method: form.paymentMethod }),
-            },
-          );
-          if (!payRes.ok) {
-            const j = await payRes.json().catch(() => ({}));
-            throw new Error(j.message ?? 'No se pudo iniciar el pago');
-          }
-          const pay = await payRes.json();
-          window.location.href = pay.paymentUrl;
-          return;
-        } catch (e: any) {
-          // Si el gateway falla, igual abrimos WA como fallback
-          alert(`Pago no disponible: ${e.message}\nContinuamos por WhatsApp.`);
-        }
-      }
-
-      // Pago contra entrega o fallback: abrir WhatsApp
       if (order.whatsappLink) {
         window.location.href = order.whatsappLink;
         setTimeout(() => {
@@ -734,6 +738,7 @@ function CheckoutSheet({
                 required
               />
             </div>
+            {!lockedTable && (
             <div>
               <label className="label">¿Es para...?</label>
               <div className="grid grid-cols-3 gap-2">
@@ -764,7 +769,8 @@ function CheckoutSheet({
                 ))}
               </div>
             </div>
-            {form.fulfillment === 'DINE_IN' && (
+            )}
+            {form.fulfillment === 'DINE_IN' && !lockedTable && (
               <div>
                 <label className="label">Número de mesa</label>
                 <input
@@ -776,6 +782,14 @@ function CheckoutSheet({
                 />
               </div>
             )}
+            {lockedTable && (
+              <div className="rounded-lg bg-brand-soft text-brand-700 px-3 py-2.5 text-sm flex items-center gap-2">
+                <span>📍</span>
+                <span>
+                  Pidiendo desde la <b>mesa {form.tableNumber}</b> · entregamos a tu mesa
+                </span>
+              </div>
+            )}
             <div>
               <label className="label">Notas (opcional)</label>
               <textarea
@@ -785,44 +799,6 @@ function CheckoutSheet({
                   setForm({ ...form, customerNote: e.target.value })
                 }
               />
-            </div>
-
-            <div>
-              <label className="label">¿Cómo quieres pagar?</label>
-              <div className="space-y-2">
-                {methods
-                  .filter((m) => m.ready)
-                  .map((m) => (
-                    <label
-                      key={m.method}
-                      className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer ${
-                        form.paymentMethod === m.method
-                          ? 'border-brand bg-brand-soft'
-                          : 'border-line'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="payment"
-                        checked={form.paymentMethod === m.method}
-                        onChange={() =>
-                          setForm({ ...form, paymentMethod: m.method as any })
-                        }
-                        className="accent-brand"
-                      />
-                      <span className="text-sm flex-1">{m.label}</span>
-                      {m.method === 'STUB' && (
-                        <span className="badge badge-warn text-[10px]">demo</span>
-                      )}
-                    </label>
-                  ))}
-              </div>
-              {methods.some((m) => !m.ready) && (
-                <div className="text-[10px] text-mute mt-1">
-                  Más opciones de pago disponibles cuando configures Stripe / MP /
-                  Wompi.
-                </div>
-              )}
             </div>
 
             {err && (
@@ -837,15 +813,505 @@ function CheckoutSheet({
               className="w-full rounded-pill text-white font-semibold py-3.5 disabled:opacity-50"
               style={{ background: primary }}
             >
-              {submitting
-                ? 'Enviando…'
-                : form.paymentMethod === 'CASH_ON_DELIVERY'
-                ? 'Enviar pedido por WhatsApp'
-                : 'Continuar al pago'}
+              {submitting ? 'Enviando…' : 'Enviar pedido por WhatsApp'}
             </button>
           </form>
         </div>
       </div>
     </div>
+  );
+}
+
+// =====================================================
+// "Mi tarjeta" lookup
+// =====================================================
+type LookedUpPass = {
+  id: string;
+  serialNumber: string;
+  stampsCount: number;
+  pointsBalance: number;
+  card: {
+    id: string;
+    name: string;
+    type: 'STAMPS' | 'POINTS' | 'TIER' | 'COUPON';
+    stampsRequired: number | null;
+    primaryColor: string | null;
+  };
+  customer: { id: string; fullName: string };
+};
+
+function CardLookup({ slug, primary }: { slug: string; primary: string }) {
+  const STORAGE_KEY = `clubify:lastPhone:${slug}`;
+  const [phone, setPhone] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const [passes, setPasses] = useState<LookedUpPass[]>([]);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    const saved =
+      typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
+    if (saved) {
+      setPhone(saved);
+      runLookup(saved);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug]);
+
+  async function runLookup(p: string) {
+    setLoading(true);
+    setErr('');
+    try {
+      const r = await fetch(
+        `${API}/api/passes/lookup/by-phone?slug=${encodeURIComponent(slug)}&phone=${encodeURIComponent(p)}`,
+      );
+      if (!r.ok) throw new Error('No pudimos consultar ahora');
+      const data = await r.json();
+      setPasses(data.passes ?? []);
+      setSearched(true);
+      if ((data.passes ?? []).length > 0) {
+        try {
+          localStorage.setItem(STORAGE_KEY, p);
+        } catch {}
+      }
+    } catch (e: any) {
+      setErr(e.message || 'Error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    runLookup(phone);
+  }
+
+  function changePhone() {
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {}
+    setPasses([]);
+    setSearched(false);
+    setPhone('');
+  }
+
+  return (
+    <div className="max-w-md mx-auto mt-6 px-5">
+      {!searched || passes.length === 0 ? (
+        <form onSubmit={onSubmit} className="text-center">
+          <div
+            className="w-16 h-16 mx-auto rounded-2xl flex items-center justify-center mb-3"
+            style={{ background: primary + '15', color: primary }}
+          >
+            <Icon name="card" size={28} />
+          </div>
+          <h2 className="text-lg font-bold mb-1">Mi tarjeta de fidelización</h2>
+          <p className="text-sm text-mute mb-4">
+            Ingresa tu WhatsApp para ver tu progreso y sellos acumulados.
+          </p>
+          <input
+            className="input mb-3 text-center"
+            placeholder="+57 300 1234567"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            inputMode="tel"
+            required
+          />
+          <button
+            type="submit"
+            disabled={loading || phone.replace(/\D/g, '').length < 7}
+            className="btn-primary w-full justify-center disabled:opacity-50"
+            style={{ background: primary, borderColor: primary }}
+          >
+            <Icon name="search" /> {loading ? 'Buscando…' : 'Ver mi tarjeta'}
+          </button>
+          {err && (
+            <div className="text-sm text-bad mt-3">{err}</div>
+          )}
+          {searched && passes.length === 0 && !loading && !err && (
+            <div className="rounded-xl bg-bg2 mt-4 p-4 text-sm text-mute">
+              No encontramos tarjetas asociadas a ese número. Si todavía no
+              tienes una, te llegará automáticamente con tu primer pedido.
+            </div>
+          )}
+          <p className="text-xs text-mute mt-3">
+            Tu información solo se usa para localizar tu tarjeta. No la
+            compartimos.
+          </p>
+        </form>
+      ) : (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-xs text-mute">
+              Hola{' '}
+              <span className="font-semibold text-ink">
+                {passes[0].customer.fullName}
+              </span>
+            </div>
+            <button
+              onClick={changePhone}
+              className="text-xs text-brand hover:underline"
+            >
+              Cambiar número
+            </button>
+          </div>
+          <div className="space-y-3">
+            {passes.map((p) => (
+              <PassCard key={p.id} pass={p} fallbackPrimary={primary} />
+            ))}
+          </div>
+          <p className="text-xs text-mute mt-4 text-center">
+            Muestra el código en caja para acumular sellos.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PassCard({
+  pass,
+  fallbackPrimary,
+}: {
+  pass: LookedUpPass;
+  fallbackPrimary: string;
+}) {
+  const color = pass.card.primaryColor || fallbackPrimary;
+  const required = pass.card.stampsRequired ?? 10;
+  const dots = Array.from({ length: required });
+  return (
+    <div className="rounded-2xl shadow-card overflow-hidden bg-white">
+      <div
+        className="px-4 py-3 text-white flex items-center justify-between"
+        style={{ background: color }}
+      >
+        <div>
+          <div className="text-[11px] uppercase tracking-wider opacity-80">
+            Tarjeta
+          </div>
+          <div className="font-semibold text-sm">{pass.card.name}</div>
+        </div>
+        {pass.card.type === 'STAMPS' && (
+          <div className="text-right">
+            <div className="text-[11px] uppercase tracking-wider opacity-80">
+              Sellos
+            </div>
+            <div className="font-bold text-lg">
+              {pass.stampsCount}/{required}
+            </div>
+          </div>
+        )}
+        {pass.card.type === 'POINTS' && (
+          <div className="text-right">
+            <div className="text-[11px] uppercase tracking-wider opacity-80">
+              Puntos
+            </div>
+            <div className="font-bold text-lg">{pass.pointsBalance}</div>
+          </div>
+        )}
+      </div>
+      {pass.card.type === 'STAMPS' && (
+        <div className="px-4 py-3 flex flex-wrap gap-1.5 bg-bg2">
+          {dots.map((_, i) => (
+            <span
+              key={i}
+              className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold"
+              style={{
+                background: i < pass.stampsCount ? color : '#fff',
+                color: i < pass.stampsCount ? '#fff' : '#9CA3AF',
+                border: '1.5px solid ' + (i < pass.stampsCount ? color : '#E5E7EB'),
+              }}
+            >
+              {i + 1}
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="px-4 py-3 bg-white flex flex-col items-center">
+        <Barcode value={pass.serialNumber} height={60} />
+        <div className="text-[10px] tracking-widest text-mute mt-1">
+          {pass.serialNumber}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// MenuRenderer — switch entre los 5 layouts de menú
+// ============================================================
+type RenderProps = {
+  layout: MenuLayout;
+  menu: Category[];
+  primary: string;
+  currency: string;
+  onPick: (p: Product) => void;
+};
+
+function MenuRenderer({ layout, menu, primary, currency, onPick }: RenderProps) {
+  if (layout === 'GRID')
+    return <LayoutGrid menu={menu} primary={primary} currency={currency} onPick={onPick} />;
+  if (layout === 'CAROUSELS')
+    return <LayoutCarousels menu={menu} primary={primary} currency={currency} onPick={onPick} />;
+  if (layout === 'CLEAN')
+    return <LayoutClean menu={menu} primary={primary} currency={currency} onPick={onPick} />;
+  if (layout === 'COMPACT')
+    return <LayoutCompact menu={menu} primary={primary} currency={currency} onPick={onPick} />;
+  return <LayoutClassic menu={menu} primary={primary} currency={currency} onPick={onPick} />;
+}
+
+type LP = Omit<RenderProps, 'layout'>;
+
+// 1️⃣ CLASSIC — foto izq + info der (estilo Rappi/UberEats)
+function LayoutClassic({ menu, primary, currency, onPick }: LP) {
+  return (
+    <>
+      {menu.map((cat) => (
+        <section key={cat.id} className="mb-6">
+          <h2 className="text-xs uppercase tracking-[0.18em] text-mute font-semibold mb-3">
+            {cat.name}
+          </h2>
+          <div className="space-y-2.5">
+            {cat.products.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => onPick(p)}
+                className="w-full bg-white border border-line rounded-card overflow-hidden text-left transition hover:shadow-md2 flex"
+              >
+                {p.imageUrl ? (
+                  <img src={p.imageUrl} alt="" className="w-24 h-24 object-cover flex-none" />
+                ) : (
+                  <div className="w-24 h-24 bg-bg2 flex-none flex items-center justify-center text-2xl text-mute">
+                    🍽
+                  </div>
+                )}
+                <div className="flex-1 p-3 min-w-0">
+                  <div className="font-semibold text-sm">{p.name}</div>
+                  <div className="text-xs text-mute mt-0.5 line-clamp-2">{p.description}</div>
+                  <div className="flex items-center justify-between mt-2">
+                    <div className="font-bold text-sm">{fmt(Number(p.basePrice), currency)}</div>
+                    <div className="flex gap-1">
+                      {p.tags.map((t) => (
+                        <span
+                          key={t}
+                          className="text-[10px] px-1.5 py-0.5 rounded-full bg-brand-soft text-brand-700"
+                        >
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div
+                  className="w-12 flex items-center justify-center text-white text-xl flex-none"
+                  style={{ background: primary }}
+                >
+                  +
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+      ))}
+    </>
+  );
+}
+
+// 2️⃣ GRID — 2 columnas con foto cuadrada grande (Instagram)
+function LayoutGrid({ menu, primary, currency, onPick }: LP) {
+  return (
+    <>
+      {menu.map((cat) => (
+        <section key={cat.id} className="mb-6">
+          <h2 className="text-xs uppercase tracking-[0.18em] text-mute font-semibold mb-3">
+            {cat.name}
+          </h2>
+          <div className="grid grid-cols-2 gap-3">
+            {cat.products.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => onPick(p)}
+                className="text-left group"
+              >
+                <div className="aspect-square rounded-2xl overflow-hidden relative bg-bg2">
+                  {p.imageUrl ? (
+                    <img src={p.imageUrl} alt="" className="w-full h-full object-cover group-hover:scale-105 transition" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-4xl text-mute">
+                      🍽
+                    </div>
+                  )}
+                  {p.tags[0] && (
+                    <span className="absolute top-2 left-2 text-[9px] uppercase tracking-wider bg-white/95 text-ink font-bold px-1.5 py-0.5 rounded shadow-sm">
+                      {p.tags[0]}
+                    </span>
+                  )}
+                  <div
+                    className="absolute bottom-2 right-2 w-9 h-9 rounded-full text-white shadow-lg text-xl flex items-center justify-center"
+                    style={{ background: primary }}
+                  >
+                    +
+                  </div>
+                </div>
+                <div className="mt-1.5 px-1">
+                  <div className="text-sm font-semibold leading-tight line-clamp-1">{p.name}</div>
+                  <div className="text-sm font-bold mt-0.5" style={{ color: primary }}>
+                    {fmt(Number(p.basePrice), currency)}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+      ))}
+    </>
+  );
+}
+
+// 3️⃣ CAROUSELS — scroll horizontal por categoría (Netflix)
+function LayoutCarousels({ menu, primary, currency, onPick }: LP) {
+  return (
+    <>
+      {menu.map((cat) => (
+        <section key={cat.id} className="mb-7">
+          <div className="flex items-baseline justify-between mb-2.5 px-1">
+            <h2 className="font-bold text-base">{cat.name}</h2>
+            <span className="text-xs text-mute">{cat.products.length} productos</span>
+          </div>
+          <div className="flex gap-3 overflow-x-auto pb-2 -mx-5 px-5 snap-x snap-mandatory">
+            {cat.products.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => onPick(p)}
+                className="w-[140px] flex-none text-left snap-start"
+              >
+                <div className="aspect-square rounded-xl overflow-hidden relative bg-bg2">
+                  {p.imageUrl ? (
+                    <img src={p.imageUrl} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-3xl text-mute">
+                      🍽
+                    </div>
+                  )}
+                  {p.tags[0] && (
+                    <span className="absolute top-1.5 left-1.5 text-[8px] uppercase tracking-wider bg-white/95 text-ink font-bold px-1 py-0.5 rounded">
+                      {p.tags[0]}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-1 px-0.5">
+                  <div className="text-xs font-semibold leading-tight line-clamp-2 min-h-[2.4em]">
+                    {p.name}
+                  </div>
+                  <div className="text-sm font-bold mt-0.5" style={{ color: primary }}>
+                    {fmt(Number(p.basePrice), currency)}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+      ))}
+    </>
+  );
+}
+
+// 4️⃣ CLEAN — sin fotos, serif elegante (boutique)
+function LayoutClean({ menu, currency, onPick }: LP) {
+  return (
+    <div className="font-serif">
+      {menu.map((cat) => (
+        <section key={cat.id} className="mb-7">
+          <div className="text-center mb-4">
+            <div className="text-[10px] tracking-[0.3em] uppercase font-semibold text-mute mb-1.5">
+              {cat.name}
+            </div>
+            <div className="w-12 h-px bg-ink mx-auto" />
+          </div>
+          <div className="space-y-4">
+            {cat.products.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => onPick(p)}
+                className="block w-full text-left px-1 hover:bg-bg2/50 rounded-md py-2 transition"
+              >
+                <div className="flex items-baseline justify-between gap-3">
+                  <div className="text-[15px] font-semibold">{p.name}</div>
+                  <div className="text-sm tracking-tight">
+                    {fmt(Number(p.basePrice), currency)}
+                  </div>
+                </div>
+                {p.description && (
+                  <div className="text-[12px] text-mute mt-1 italic">{p.description}</div>
+                )}
+                {p.tags[0] && (
+                  <div className="text-[10px] uppercase tracking-wider text-brand font-bold mt-1">
+                    ▸ {p.tags[0]}
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+// 5️⃣ COMPACT — lista compacta + tabs sticky por categoría (DoorDash)
+function LayoutCompact({ menu, primary, currency, onPick }: LP) {
+  return (
+    <>
+      {menu.length > 1 && (
+        <div className="sticky top-0 bg-white z-10 -mx-5 px-5 py-2 border-b border-line flex gap-4 overflow-x-auto text-xs font-semibold mb-3">
+          {menu.map((c, i) => (
+            <a
+              key={c.id}
+              href={`#cat-${c.id}`}
+              className={`whitespace-nowrap pb-1 ${i === 0 ? 'border-b-2 text-ink' : 'text-mute'}`}
+              style={i === 0 ? { borderColor: primary } : {}}
+            >
+              {c.name}
+            </a>
+          ))}
+        </div>
+      )}
+      {menu.map((cat) => (
+        <section key={cat.id} id={`cat-${cat.id}`} className="mb-5">
+          <h2 className="font-bold text-sm mt-1 mb-2">{cat.name}</h2>
+          <div className="bg-white rounded-card border border-line overflow-hidden">
+            {cat.products.map((p, i) => (
+              <button
+                key={p.id}
+                onClick={() => onPick(p)}
+                className={`w-full text-left px-3.5 py-3 hover:bg-bg2/50 transition ${
+                  i < cat.products.length - 1 ? 'border-b border-line' : ''
+                }`}
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <div className="font-semibold text-sm flex items-center gap-1.5">
+                    {p.name}
+                    {p.tags[0] && (
+                      <span
+                        className="text-[8px] uppercase font-bold px-1 py-0.5 rounded text-white"
+                        style={{ background: primary }}
+                      >
+                        {p.tags[0]}
+                      </span>
+                    )}
+                  </div>
+                  <div className="font-bold text-sm whitespace-nowrap">
+                    {fmt(Number(p.basePrice), currency)}
+                  </div>
+                </div>
+                {p.description && (
+                  <div className="text-[11px] text-mute mt-0.5 line-clamp-1">{p.description}</div>
+                )}
+              </button>
+            ))}
+          </div>
+        </section>
+      ))}
+    </>
   );
 }

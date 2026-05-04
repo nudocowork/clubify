@@ -28,6 +28,8 @@ export type ProductDto = {
   tags?: string[];
   isAvailable?: boolean;
   position?: number;
+  stock?: number | null;
+  stockAlert?: number | null;
   variants?: VariantDto[];
   extras?: ExtraDto[];
 };
@@ -79,6 +81,8 @@ export class ProductsService {
         tags: dto.tags ?? [],
         isAvailable: dto.isAvailable ?? true,
         position: dto.position ?? 0,
+        stock: dto.stock ?? null,
+        stockAlert: dto.stockAlert ?? null,
         variants: dto.variants
           ? {
               create: dto.variants.map((v) => ({
@@ -120,6 +124,8 @@ export class ProductsService {
           tags: dto.tags ?? undefined,
           isAvailable: dto.isAvailable ?? undefined,
           position: dto.position ?? undefined,
+          stock: dto.stock === undefined ? undefined : dto.stock,
+          stockAlert: dto.stockAlert === undefined ? undefined : dto.stockAlert,
         },
       });
       // Replace variants if provided

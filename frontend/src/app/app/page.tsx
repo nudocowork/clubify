@@ -3,6 +3,10 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
+import { KpiSkeleton, Skeleton } from '@/components/Skeleton';
+import { InsightsCard } from '@/components/InsightsCard';
+import { ActivityFeed } from '@/components/ActivityFeed';
+import { OnboardingChecklist } from '@/components/OnboardingChecklist';
 
 type Metrics = {
   cards: number;
@@ -20,6 +24,10 @@ type Metrics = {
   pendingOrders: number;
   newCustomers30: number;
   recurringCustomers30: number;
+  avgRating: number | null;
+  ratingsCount: number;
+  avgRating30: number | null;
+  ratingsCount30: number;
   topProducts: { id: string; name: string; count: number; category?: string }[];
 };
 
@@ -73,10 +81,181 @@ const KPI = ({
   );
 };
 
+function Sparkline7d({ data }: { data: { date: string; orders: number; revenue: number }[] }) {
+  if (!data || data.length === 0) {
+    return (
+      <div className="text-xs text-mute py-8 text-center">Sin datos en los últimos 7 días</div>
+    );
+  }
+  const last7 = data.slice(-7);
+  const max = Math.max(...last7.map((d) => d.orders), 1);
+  const W = 320;
+  const H = 64;
+  const step = W / Math.max(last7.length - 1, 1);
+  const points = last7
+    .map((d, i) => {
+      const x = i * step;
+      const y = H - (d.orders / max) * (H - 8) - 4;
+      return `${x},${y}`;
+    })
+    .join(' ');
+  const totalOrders = last7.reduce((acc, d) => acc + d.orders, 0);
+  const peak = last7.reduce((m, d) => (d.orders > m.orders ? d : m), last7[0]);
+  return (
+    <div>
+      <div className="flex items-end justify-between gap-2 mb-2">
+        <div>
+          <div className="text-xs uppercase tracking-wider text-mute font-semibold">
+            Pedidos últimos 7 días
+          </div>
+          <div className="text-2xl font-bold mt-0.5">{totalOrders}</div>
+        </div>
+        <div className="text-right text-xs text-mute">
+          Pico:{' '}
+          <span className="font-medium text-ink">
+            {new Date(peak.date).toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric' })}
+            {' · '}
+            {peak.orders}
+          </span>
+        </div>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-16" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="sparkfill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#22C55E" stopOpacity="0.32" />
+            <stop offset="100%" stopColor="#22C55E" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <polygon
+          points={`0,${H} ${points} ${W},${H}`}
+          fill="url(#sparkfill)"
+          stroke="none"
+        />
+        <polyline
+          points={points}
+          fill="none"
+          stroke="#22C55E"
+          strokeWidth="2"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+        {last7.map((d, i) => {
+          const x = i * step;
+          const y = H - (d.orders / max) * (H - 8) - 4;
+          return <circle key={i} cx={x} cy={y} r="2.5" fill="#22C55E" />;
+        })}
+      </svg>
+      <div className="flex justify-between mt-1 text-[10px] text-mute2">
+        {last7.map((d) => (
+          <div key={d.date}>
+            {new Date(d.date).toLocaleDateString('es-CO', { weekday: 'narrow' })}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function WelcomeTour({ tenant }: { tenant: any }) {
+  const [step, setStep] = useState(0);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!tenant?.id) return;
+    const key = `clubify:tour-seen:${tenant.id}`;
+    if (typeof window === 'undefined') return;
+    const seen = localStorage.getItem(key);
+    if (!seen) setOpen(true);
+  }, [tenant?.id]);
+
+  function close() {
+    if (tenant?.id && typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(`clubify:tour-seen:${tenant.id}`, '1');
+      } catch {}
+    }
+    setOpen(false);
+  }
+
+  if (!open) return null;
+
+  const steps = [
+    {
+      emoji: '👋',
+      title: `¡Bienvenido${tenant?.brandName ? ', ' + tenant.brandName : ''}!`,
+      body: 'En 3 pantallas te muestro lo principal. Esto solo te lo enseño una vez.',
+    },
+    {
+      emoji: '💳',
+      title: 'Mi tarjeta y mis clientes',
+      body: 'En “Tarjetas” creas el programa de sellos o puntos. En “Clientes” ves quién las usa y puedes emitirles tarjetas digitales.',
+    },
+    {
+      emoji: '🍴',
+      title: 'Tu menú y los pedidos',
+      body: 'En “Mi sitio” personalizas el storefront público. En “Menú” cargas productos. Los pedidos llegan al kanban de “Pedidos” y se notifican por WhatsApp.',
+    },
+    {
+      emoji: '📈',
+      title: 'Crece y mide',
+      body: 'En “Métricas” ves crecimiento. En “Automatizaciones” puedes mandar mensajes automáticos (plan Pro). Aquí en el dashboard tienes un checklist de tareas pendientes.',
+    },
+  ];
+  const cur = steps[step];
+  const last = step === steps.length - 1;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-ink/70" onClick={close} />
+      <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-7 text-center">
+        <div className="text-5xl mb-2" aria-hidden>
+          {cur.emoji}
+        </div>
+        <h2 className="text-xl font-bold">{cur.title}</h2>
+        <p className="text-sm text-mute mt-2 leading-relaxed">{cur.body}</p>
+
+        <div className="flex justify-center gap-1.5 mt-5">
+          {steps.map((_, i) => (
+            <span
+              key={i}
+              className={`w-1.5 h-1.5 rounded-full ${
+                i === step ? 'bg-brand' : 'bg-bg2'
+              }`}
+            />
+          ))}
+        </div>
+
+        <div className="mt-5 flex gap-2 justify-center">
+          <button onClick={close} className="btn-ghost text-sm">
+            Saltar
+          </button>
+          <button
+            onClick={() => (last ? close() : setStep(step + 1))}
+            className="btn-primary"
+          >
+            {last ? 'Empezar' : 'Siguiente →'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// (Antiguo OnboardingChecklist local removido — ahora se usa el componente
+// compartido de @/components/OnboardingChecklist que es server-driven.)
+
 export default function TenantDashboard() {
   const [m, setM] = useState<Metrics | null>(null);
+  const [tenant, setTenant] = useState<any>(null);
+  const [series, setSeries] = useState<{ date: string; orders: number; revenue: number }[]>([]);
   useEffect(() => {
     api<Metrics>('/metrics/tenant').then(setM).catch(() => null);
+    api<any>('/tenants/me').then(setTenant).catch(() => null);
+    api<{ date: string; orders: number; revenue: number }[]>(
+      '/metrics/timeseries/orders?days=7',
+    )
+      .then(setSeries)
+      .catch(() => null);
   }, []);
 
   const today = new Date().toLocaleDateString('es-CO', {
@@ -87,6 +266,9 @@ export default function TenantDashboard() {
 
   return (
     <div>
+      <WelcomeTour tenant={tenant} />
+      <OnboardingChecklist />
+      <InsightsCard />
       <div className="page-head">
         <h1 className="page-title">
           Dashboard <span className="page-crumb">/ {today}</span>
@@ -126,10 +308,22 @@ export default function TenantDashboard() {
         </Link>
       )}
 
+      {/* Sparkline 7d */}
+      {series.length > 0 && (
+        <div className="card card-pad mb-5">
+          <Sparkline7d data={series} />
+        </div>
+      )}
+
       {/* Bloque comercial */}
       <h2 className="text-xs uppercase tracking-[0.18em] text-mute font-semibold mb-2.5">
         Hoy
       </h2>
+      {!m ? (
+        <div className="grid gap-3.5 grid-cols-2 md:grid-cols-4 mb-6">
+          {Array.from({ length: 4 }).map((_, i) => <KpiSkeleton key={i} />)}
+        </div>
+      ) : (
       <div className="grid gap-3.5 grid-cols-2 md:grid-cols-4 mb-6">
         <KPI
           label="Pedidos hoy"
@@ -160,6 +354,7 @@ export default function TenantDashboard() {
           tone="ok"
         />
       </div>
+      )}
 
       {/* Bloque clientes y fidelización */}
       <h2 className="text-xs uppercase tracking-[0.18em] text-mute font-semibold mb-2.5">
@@ -206,50 +401,83 @@ export default function TenantDashboard() {
           icon="gift"
           tone="brand"
         />
+        <KPI
+          label="★ Calificación"
+          value={
+            m?.avgRating != null ? (
+              <span className="flex items-center gap-1">
+                {m.avgRating.toFixed(1)}
+                <span className="text-amber-500 text-xl leading-none">★</span>
+              </span>
+            ) : (
+              '–'
+            )
+          }
+          sub={
+            m?.ratingsCount
+              ? `${m.ratingsCount} pedidos calificados`
+              : 'Aún sin calificaciones'
+          }
+          icon="spark"
+          tone="info"
+        />
       </div>
 
-      {/* Top productos */}
-      {m && m.topProducts.length > 0 && (
-        <div className="card mb-5">
-          <div className="card-h">
-            <h3>Top productos · 30 días</h3>
-            <Link className="btn-link" href="/app/menu">
-              Ver menú
-            </Link>
+      {/* Bottom row: Top productos + Actividad */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
+        {m && m.topProducts.length > 0 ? (
+          <div className="card">
+            <div className="card-h">
+              <h3>Top productos · 30 días</h3>
+              <Link className="btn-link" href="/app/menu">
+                Ver menú
+              </Link>
+            </div>
+            <div className="p-2">
+              {m.topProducts.map((p, i) => {
+                const max = m.topProducts[0]?.count || 1;
+                const pct = (p.count / max) * 100;
+                return (
+                  <div
+                    key={p.id}
+                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-bg2 rounded-lg"
+                  >
+                    <div className="w-6 h-6 rounded-full bg-brand-soft text-brand-700 flex items-center justify-center font-semibold text-xs flex-none">
+                      {i + 1}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-sm">{p.name}</div>
+                      {p.category && (
+                        <div className="text-xs text-mute">{p.category}</div>
+                      )}
+                    </div>
+                    <div className="w-32 h-1.5 bg-line rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-brand"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <div className="w-16 text-right text-sm font-semibold">
+                      {p.count}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-          <div className="p-2">
-            {m.topProducts.map((p, i) => {
-              const max = m.topProducts[0]?.count || 1;
-              const pct = (p.count / max) * 100;
-              return (
-                <div
-                  key={p.id}
-                  className="flex items-center gap-3 px-3 py-2.5 hover:bg-bg2 rounded-lg"
-                >
-                  <div className="w-6 h-6 rounded-full bg-brand-soft text-brand-700 flex items-center justify-center font-semibold text-xs flex-none">
-                    {i + 1}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm">{p.name}</div>
-                    {p.category && (
-                      <div className="text-xs text-mute">{p.category}</div>
-                    )}
-                  </div>
-                  <div className="w-32 h-1.5 bg-line rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-brand"
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-                  <div className="w-16 text-right text-sm font-semibold">
-                    {p.count}
-                  </div>
-                </div>
-              );
-            })}
+        ) : (
+          <div className="card card-pad text-center py-10">
+            <div className="text-3xl mb-1">🏆</div>
+            <div className="font-semibold text-sm">Top productos</div>
+            <div className="text-xs text-mute mt-1 max-w-xs mx-auto">
+              Cuando llegue el primer pedido, aquí verás tus productos más
+              vendidos.
+            </div>
           </div>
-        </div>
-      )}
+        )}
+
+        <ActivityFeed />
+      </div>
     </div>
   );
 }

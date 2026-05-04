@@ -2,11 +2,14 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
+import { toast } from '@/components/Toast';
+import { ImageUploader } from '@/components/ImageUploader';
 
 type Promo = {
   id: string;
   name: string;
   description: string;
+  imageUrl: string | null;
   type: string;
   value: number;
   conditions: any;
@@ -28,7 +31,11 @@ export default function PromosPage() {
   const [editing, setEditing] = useState<Partial<Promo> | null>(null);
 
   async function load() {
-    setList(await api('/promotions'));
+    try {
+      setList(await api('/promotions'));
+    } catch (e: any) {
+      toast(e.message || 'Error cargando promociones', 'error');
+    }
   }
   useEffect(() => {
     load();
@@ -38,6 +45,7 @@ export default function PromosPage() {
     const body = {
       name: p.name,
       description: p.description,
+      imageUrl: p.imageUrl ?? undefined,
       type: p.type,
       value: Number(p.value ?? 0),
       conditions: p.conditions ?? {},
@@ -45,33 +53,47 @@ export default function PromosPage() {
       validUntil: p.validUntil || undefined,
       isActive: p.isActive ?? true,
     };
-    if (p.id) {
-      await api(`/promotions/${p.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(body),
-      });
-    } else {
-      await api('/promotions', {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
+    try {
+      if (p.id) {
+        await api(`/promotions/${p.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(body),
+        });
+      } else {
+        await api('/promotions', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+      }
+      setEditing(null);
+      load();
+      toast(p.id ? 'Promoción actualizada' : 'Promoción creada', 'success');
+    } catch (e: any) {
+      toast(e.message || 'No se pudo guardar', 'error');
     }
-    setEditing(null);
-    load();
   }
 
   async function toggle(p: Promo) {
-    await api(`/promotions/${p.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ isActive: !p.isActive }),
-    });
-    load();
+    try {
+      await api(`/promotions/${p.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive: !p.isActive }),
+      });
+      load();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo actualizar', 'error');
+    }
   }
 
   async function remove(id: string) {
     if (!confirm('¿Eliminar promoción?')) return;
-    await api(`/promotions/${id}`, { method: 'DELETE' });
-    load();
+    try {
+      await api(`/promotions/${id}`, { method: 'DELETE' });
+      load();
+      toast('Promoción eliminada', 'success');
+    } catch (e: any) {
+      toast(e.message || 'No se pudo eliminar', 'error');
+    }
   }
 
   return (
@@ -86,6 +108,7 @@ export default function PromosPage() {
             setEditing({
               name: '',
               description: '',
+              imageUrl: null,
               type: 'DISCOUNT_PCT',
               value: 10,
               conditions: {},
@@ -99,8 +122,29 @@ export default function PromosPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
         {list.length === 0 && (
-          <div className="card card-pad text-mute md:col-span-2 lg:col-span-3">
-            Sin promociones. Crea una para incentivar pedidos.
+          <div className="card card-pad text-center py-12 md:col-span-2 lg:col-span-3">
+            <div className="text-4xl mb-2">🎁</div>
+            <div className="font-semibold">Aún no tienes promociones</div>
+            <p className="text-sm text-mute mt-1.5 max-w-md mx-auto">
+              Crea una promoción para incentivar pedidos: descuentos %,
+              cupones, 2x1, o subtotal mínimo. Se aplican automáticamente al
+              carrito en el storefront.
+            </p>
+            <button
+              className="btn-primary mt-4 inline-flex"
+              onClick={() =>
+                setEditing({
+                  name: '',
+                  description: '',
+                  type: 'DISCOUNT_PCT',
+                  value: 10,
+                  conditions: {},
+                  isActive: true,
+                })
+              }
+            >
+              <Icon name="plus" /> Crear mi primera promoción
+            </button>
           </div>
         )}
         {list.map((p) => (
@@ -203,11 +247,24 @@ function PromoDrawer({
           </div>
           <div>
             <label className="label">Descripción</label>
-            <input
+            <textarea
               className="input"
+              rows={2}
+              placeholder="Ej: 2 latte por el precio de 1, todos los miércoles."
               value={form.description ?? ''}
               onChange={(e) => update('description', e.target.value)}
             />
+          </div>
+          <div>
+            <label className="label">Foto de la promoción</label>
+            <ImageUploader
+              value={form.imageUrl ?? null}
+              onChange={(url) => update('imageUrl', url)}
+              folder="promotions"
+            />
+            <p className="text-[11px] text-mute mt-1">
+              Aparece en el menú del cliente. Recomendado 1:1 (cuadrada).
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>

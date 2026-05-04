@@ -158,7 +158,7 @@ export default function InfoLinkEditor() {
   if (!link || !tenant) return <div className="text-mute">Cargando…</div>;
 
   const publicUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/i/${tenant.slug}/${link.slug}`;
-  const primary = link.theme?.primaryColor ?? tenant.primaryColor ?? '#6366F1';
+  const primary = link.theme?.primaryColor ?? tenant.primaryColor ?? '#22C55E';
 
   return (
     <div>
@@ -590,7 +590,7 @@ function PublicLinkPreview({
       ) : (
         <div
           className="w-full h-20"
-          style={{ background: `linear-gradient(135deg, ${primary}, #C026D3)` }}
+          style={{ background: `linear-gradient(135deg, ${primary}, #15803D)` }}
         />
       )}
       <div className="px-4 py-3">

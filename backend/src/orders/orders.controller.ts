@@ -35,8 +35,12 @@ export class OrdersController {
   }
 
   @Get('board')
-  board(@CurrentUser() user: AuthUser, @Query('tenantId') tenantId?: string) {
-    return this.svc.board(user, tenantId);
+  board(
+    @CurrentUser() user: AuthUser,
+    @Query('tenantId') tenantId?: string,
+    @Query('days') days?: string,
+  ) {
+    return this.svc.board(user, tenantId, days ? Number(days) : 1);
   }
 
   @Get('export.csv')

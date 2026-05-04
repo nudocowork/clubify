@@ -17,6 +17,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 class PromoBody {
   @IsString() name!: string;
   @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsString() imageUrl?: string;
   @IsEnum(PromotionType) type!: PromotionType;
   @IsNumber() value!: number;
   @IsOptional() @IsObject() conditions?: any;

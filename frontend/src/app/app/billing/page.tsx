@@ -1,0 +1,362 @@
+'use client';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { api, clearSession } from '@/lib/api';
+import { Icon } from '@/components/Icon';
+import { toast } from '@/components/Toast';
+import { ConstructionBadge } from '@/components/UnderConstruction';
+
+type Status = {
+  status: 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'SUSPENDED' | 'EXPIRED' | 'CANCELED';
+  daysLeftInTrial: number | null;
+  trialEndsAt: string | null;
+  currentPeriodEnd: string | null;
+  isActiveAccess: boolean;
+};
+
+const STATUS_LABELS: Record<Status['status'], { text: string; bg: string; ring: string }> = {
+  TRIAL: { text: 'Prueba activa', bg: 'bg-brand-soft text-brand-700', ring: 'ring-brand/30' },
+  ACTIVE: { text: 'Suscripción activa', bg: 'bg-ok-soft text-ok', ring: 'ring-ok/30' },
+  PAST_DUE: { text: 'Pago pendiente', bg: 'bg-amber-100 text-amber-800', ring: 'ring-amber-300' },
+  EXPIRED: { text: 'Prueba expirada', bg: 'bg-red-100 text-red-800', ring: 'ring-red-300' },
+  SUSPENDED: { text: 'Suspendida', bg: 'bg-red-100 text-red-800', ring: 'ring-red-300' },
+  CANCELED: { text: 'Cancelada', bg: 'bg-bg2 text-mute', ring: 'ring-line' },
+};
+
+export default function BillingPage() {
+  const router = useRouter();
+  const [s, setS] = useState<Status | null>(null);
+  const [tenant, setTenant] = useState<any>(null);
+  const [hotmartConfigured, setHotmartConfigured] = useState(false);
+  const [activating, setActivating] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [canceling, setCanceling] = useState(false);
+  const justSuspended =
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('suspended') === '1';
+
+  useEffect(() => {
+    api<Status>('/billing/status').then(setS).catch(() => null);
+    api<any>('/tenants/me').then(setTenant).catch(() => null);
+    api<{ configured: boolean }>('/billing/hotmart/config')
+      .then((r) => setHotmartConfigured(!!r?.configured))
+      .catch(() => setHotmartConfigured(false));
+  }, []);
+
+  async function activateSubscription() {
+    setActivating(true);
+    try {
+      const r = await api<{ url: string | null; reason?: string }>(
+        '/billing/hotmart/checkout-url',
+      );
+      if (r.url) {
+        window.location.href = r.url;
+      } else {
+        toast(
+          'El pago aún no está configurado. Te avisamos en cuanto esté listo.',
+          'info',
+        );
+        setActivating(false);
+      }
+    } catch (e: any) {
+      toast(e.message || 'No se pudo abrir el checkout', 'error');
+      setActivating(false);
+    }
+  }
+
+  async function confirmCancel() {
+    setCanceling(true);
+    try {
+      await api('/billing/cancel', {
+        method: 'POST',
+        body: JSON.stringify({ reason: cancelReason || undefined }),
+      });
+      clearSession();
+      router.push('/login?canceled=1');
+    } catch (e: any) {
+      toast(e.message || 'No se pudo cancelar', 'error');
+      setCanceling(false);
+    }
+  }
+
+  async function reactivate() {
+    if (!confirm('Te reactivamos con 3 días extra de trial para que termines de configurar tu pago. ¿Confirmas?')) {
+      return;
+    }
+    try {
+      await api('/billing/reactivate', { method: 'POST' });
+      toast('Cuenta reactivada con 3 días de bonus', 'success');
+      setTimeout(() => window.location.reload(), 800);
+    } catch (e: any) {
+      toast(e.message || 'No se pudo reactivar', 'error');
+    }
+  }
+
+  if (!s) return <div className="text-mute">Cargando…</div>;
+
+  const meta = STATUS_LABELS[s.status];
+  const trialPct =
+    s.daysLeftInTrial !== null ? Math.max(0, Math.min(100, (s.daysLeftInTrial / 10) * 100)) : 0;
+
+  return (
+    <div className="max-w-3xl mx-auto">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold tracking-tight">Suscripción y facturación</h1>
+        <p className="text-mute mt-1">
+          Estado de tu cuenta y opciones para activar tu suscripción.
+        </p>
+      </div>
+
+      {justSuspended && (
+        <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900 mb-4">
+          Quisiste hacer una acción que requiere cuenta activa. Reactiva tu
+          suscripción para continuar.
+        </div>
+      )}
+
+      {/* Estado actual */}
+      <div className={`card card-pad ring-1 ${meta.ring}`}>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className={`text-xs font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full ${meta.bg}`}>
+                {meta.text}
+              </span>
+            </div>
+            <div className="mt-3 text-3xl font-bold">
+              {s.status === 'TRIAL' && s.daysLeftInTrial !== null
+                ? `${s.daysLeftInTrial} día${s.daysLeftInTrial === 1 ? '' : 's'} restante${s.daysLeftInTrial === 1 ? '' : 's'}`
+                : s.status === 'ACTIVE'
+                ? 'Suscripción activa'
+                : s.status === 'EXPIRED'
+                ? 'Prueba expirada'
+                : s.status === 'SUSPENDED'
+                ? 'Cuenta suspendida'
+                : s.status === 'PAST_DUE'
+                ? 'Pago pendiente'
+                : 'Sin suscripción'}
+            </div>
+            {s.status === 'TRIAL' && s.trialEndsAt && (
+              <div className="text-sm text-mute mt-1">
+                Tu prueba termina el{' '}
+                <span className="font-medium text-ink">
+                  {new Date(s.trialEndsAt).toLocaleDateString('es-CO', {
+                    weekday: 'long',
+                    day: 'numeric',
+                    month: 'long',
+                  })}
+                </span>
+              </div>
+            )}
+            {s.status === 'ACTIVE' && s.currentPeriodEnd && (
+              <div className="text-sm text-mute mt-1">
+                Próximo cobro:{' '}
+                <span className="font-medium text-ink">
+                  {new Date(s.currentPeriodEnd).toLocaleDateString('es-CO', {
+                    day: 'numeric',
+                    month: 'long',
+                    year: 'numeric',
+                  })}
+                </span>
+              </div>
+            )}
+          </div>
+          <div className="text-right">
+            <div className="text-xs uppercase tracking-wider text-mute font-semibold">
+              Plan actual
+            </div>
+            <div className="text-lg font-semibold mt-1">
+              {tenant?.plan?.name ?? '—'} · USD {Number(tenant?.plan?.priceMonthly ?? 0)}/mes
+            </div>
+            <div className="text-xs text-mute">
+              ≈ equivalente al cambio del día en tu país
+            </div>
+          </div>
+        </div>
+
+        {s.status === 'TRIAL' && (
+          <div className="mt-5">
+            <div className="h-2 bg-bg2 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-brand-400 to-brand-700 transition-all"
+                style={{ width: `${100 - trialPct}%` }}
+              />
+            </div>
+            <div className="text-xs text-mute mt-1.5 flex justify-between">
+              <span>Inicio</span>
+              <span>10 días</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* CTA principal */}
+      {(s.status === 'TRIAL' || s.status === 'EXPIRED' || s.status === 'PAST_DUE') && (
+        <div className="card card-pad mt-4 bg-gradient-to-br from-brand-400 to-brand-700 text-white">
+          <div className="flex items-start gap-4 flex-wrap">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="font-bold text-xl">
+                  {s.status === 'TRIAL' ? 'Activa tu suscripción' : 'Activa tu cuenta'}
+                </div>
+                {!hotmartConfigured && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-300/95 text-amber-900">
+                    🚧 En construcción
+                  </span>
+                )}
+              </div>
+              <p className="text-white/85 text-sm mt-1.5 leading-relaxed">
+                {hotmartConfigured
+                  ? 'Te llevamos al checkout seguro para activar tu suscripción mensual. Cancela cuando quieras desde aquí.'
+                  : 'El cobro recurrente se hará en USD 50/mes facturado en tu moneda local al cambio del día. Estamos terminando la integración: en cuanto esté lista te avisamos por email.'}
+              </p>
+              {!hotmartConfigured && (
+                <p className="text-white/70 text-xs mt-2">
+                  Mientras tanto, tu trial sigue activo. Si necesitas activación
+                  manual, escríbenos por{' '}
+                  <a
+                    href="https://wa.me/573000000000"
+                    target="_blank"
+                    className="underline hover:text-white"
+                  >
+                    WhatsApp
+                  </a>
+                  .
+                </p>
+              )}
+            </div>
+            <button
+              onClick={activateSubscription}
+              disabled={!hotmartConfigured || activating}
+              className={`bg-white/95 text-brand-700 font-semibold px-5 py-2.5 rounded-pill text-sm whitespace-nowrap ${
+                hotmartConfigured
+                  ? 'hover:bg-white'
+                  : 'opacity-70 cursor-not-allowed'
+              }`}
+              title={hotmartConfigured ? 'Activar' : 'Disponible muy pronto'}
+            >
+              {activating
+                ? 'Abriendo checkout…'
+                : hotmartConfigured
+                ? 'Activar suscripción →'
+                : 'Activar suscripción →'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Reactivar (cuando cuenta está suspendida) */}
+      {s.status === 'SUSPENDED' && (
+        <div className="card card-pad mt-4 bg-gradient-to-br from-ok to-emerald-600 text-white">
+          <div className="flex items-start gap-4 flex-wrap">
+            <div className="flex-1 min-w-0">
+              <div className="font-bold text-xl">¿Volver a Clubify?</div>
+              <p className="text-white/85 text-sm mt-1.5 leading-relaxed">
+                Te damos 3 días extra de trial para que retomes tu negocio y
+                configures tu pago. Tu data está intacta.
+              </p>
+            </div>
+            <button
+              onClick={reactivate}
+              className="bg-white text-ok font-semibold px-5 py-2.5 rounded-pill text-sm whitespace-nowrap hover:bg-white/90"
+            >
+              Reactivar mi cuenta →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Lo que incluye */}
+      <div className="card card-pad mt-4">
+        <div className="font-semibold mb-3">Tu plan incluye</div>
+        <ul className="grid sm:grid-cols-2 gap-2 text-sm">
+          {[
+            'Pedidos ilimitados',
+            'Tarjetas + automatizaciones ilimitadas',
+            'Multi-ubicación + multi-staff',
+            'Dominio propio + analítica avanzada',
+            'WhatsApp Cloud API + email transaccional',
+            'Soporte por chat',
+            'Apple Wallet + Google Wallet',
+            'Sin permanencia',
+          ].map((f) => (
+            <li key={f} className="flex items-start gap-2 text-mute">
+              <Icon name="check" size={14} className="text-ok mt-0.5 flex-none" />
+              <span>{f}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {/* Cancelar */}
+      {(s.status === 'TRIAL' || s.status === 'ACTIVE') && (
+        <div className="mt-6 text-center">
+          <button
+            onClick={() => setCancelOpen(true)}
+            className="text-xs text-mute hover:text-bad underline"
+          >
+            Cancelar mi cuenta
+          </button>
+        </div>
+      )}
+
+      <div className="text-xs text-mute mt-6 text-center">
+        ¿Dudas? Escríbenos por{' '}
+        <a href="https://wa.me/573000000000" className="text-brand hover:underline">
+          WhatsApp
+        </a>{' '}
+        o{' '}
+        <a href="mailto:hola@soyclubify.com" className="text-brand hover:underline">
+          email
+        </a>
+        .
+      </div>
+
+      {/* Modal de cancelación */}
+      {cancelOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-ink/60"
+            onClick={() => !canceling && setCancelOpen(false)}
+          />
+          <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+            <h2 className="text-lg font-bold">¿Seguro que quieres cancelar?</h2>
+            <p className="text-sm text-mute mt-2 leading-relaxed">
+              Tu cuenta queda suspendida inmediatamente. Tu storefront público
+              dejará de recibir pedidos. Tu data se conserva 30 días por si
+              decides volver. Después se elimina.
+            </p>
+            <div className="mt-4">
+              <label className="label">¿Por qué cancelas? (opcional)</label>
+              <textarea
+                className="input"
+                rows={3}
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="Nos ayuda mucho a mejorar"
+              />
+            </div>
+            <div className="mt-5 flex gap-2 justify-end">
+              <button
+                onClick={() => setCancelOpen(false)}
+                disabled={canceling}
+                className="btn-ghost text-sm"
+              >
+                No, mantener mi cuenta
+              </button>
+              <button
+                onClick={confirmCancel}
+                disabled={canceling}
+                className="px-4 py-2 rounded-pill bg-bad text-white text-sm font-semibold disabled:opacity-50"
+              >
+                {canceling ? 'Cancelando…' : 'Sí, cancelar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

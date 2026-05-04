@@ -1,14 +1,28 @@
 'use client';
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState } from 'react';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { api, setSession } from '@/lib/api';
+import { Logo } from '@/components/Logo';
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-mute">Cargando…</div>}>
+      <LoginInner />
+    </Suspense>
+  );
+}
+
+function LoginInner() {
   const router = useRouter();
-  const [email, setEmail] = useState('admin@clubify.local');
-  const [password, setPassword] = useState('Clubify123!');
+  const params = useSearchParams();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const justReset = params.get('reset') === '1';
+  const justCanceled = params.get('canceled') === '1';
+  const sessionExpired = params.get('expired') === '1';
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -31,14 +45,28 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center px-6 bg-bg">
       <form onSubmit={submit} className="card card-pad w-full max-w-md">
-        <div className="flex items-center gap-2.5 mb-3">
-          <div className="w-9 h-9 rounded-lg bg-brand text-white flex items-center justify-center font-bold">
-            C
-          </div>
-          <div className="font-bold text-lg">Clubify</div>
+        <div className="flex items-center mb-3">
+          <Logo size={32} />
         </div>
         <h2 className="text-[22px] font-bold m-0">Inicia sesión</h2>
         <p className="text-sm text-mute mt-1">Accede a tu panel de control.</p>
+
+        {justReset && (
+          <div className="mt-4 rounded-lg bg-ok-soft px-3 py-2.5 text-sm text-ok">
+            ✓ Tu contraseña fue restablecida. Inicia sesión con la nueva.
+          </div>
+        )}
+        {justCanceled && (
+          <div className="mt-4 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5 text-sm text-amber-900">
+            Tu cuenta fue cancelada. Puedes reactivarla iniciando sesión —
+            tendrás 3 días bonus para retomar.
+          </div>
+        )}
+        {sessionExpired && (
+          <div className="mt-4 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5 text-sm text-amber-900">
+            Tu sesión expiró. Inicia sesión nuevamente.
+          </div>
+        )}
 
         <div className="mt-6">
           <label className="label">Email</label>
@@ -51,7 +79,12 @@ export default function LoginPage() {
           />
         </div>
         <div className="mt-3">
-          <label className="label">Contraseña</label>
+          <div className="flex justify-between items-baseline">
+            <label className="label">Contraseña</label>
+            <Link href="/forgot" className="text-xs text-brand hover:underline">
+              ¿Olvidaste tu contraseña?
+            </Link>
+          </div>
           <input
             className="input"
             type="password"
@@ -74,11 +107,20 @@ export default function LoginPage() {
           {loading ? 'Entrando…' : 'Entrar'}
         </button>
 
-        <div className="mt-4 text-center text-xs text-mute leading-relaxed">
-          Demo: <code>admin@clubify.local</code> / <code>Clubify123!</code>
-          <br />
-          Tenant: <code>demo@clubify.local</code> / <code>Demo123!</code>
+        <div className="mt-4 text-center text-xs text-mute">
+          ¿No tienes cuenta?{' '}
+          <Link href="/signup" className="text-brand hover:underline font-medium">
+            Crea una gratis
+          </Link>
         </div>
+        <details className="mt-3 text-center text-[10px] text-mute2">
+          <summary className="cursor-pointer">Credenciales demo</summary>
+          <div className="mt-2 leading-relaxed">
+            Admin: <code>admin@clubify.local</code> / <code>Clubify123!</code>
+            <br />
+            Tenant: <code>demo@clubify.local</code> / <code>Demo123!</code>
+          </div>
+        </details>
       </form>
     </div>
   );

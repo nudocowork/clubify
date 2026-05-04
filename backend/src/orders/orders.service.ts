@@ -181,6 +181,9 @@ export class OrdersService {
       },
     });
 
+    // Decrementar stock + auto-deshabilitar productos agotados (best-effort)
+    await this.decrementStock(items as any[]).catch(() => null);
+
     // Generar wa.me link al dueño
     const link = this.channels.generateWaMeOwner(tenant, order, customer);
     await this.prisma.order.update({
@@ -258,6 +261,59 @@ export class OrdersService {
     return o;
   }
 
+  /**
+   * Endpoint público: el cliente final califica su pedido (1-5 estrellas).
+   * Solo se puede calificar UNA vez y solo si el pedido ya está DELIVERED o
+   * READY (algunos negocios entregan sin marcar DELIVERED). El comentario es
+   * opcional. No requiere auth — basta con saber el código del pedido.
+   */
+  async ratePublic(code: string, rating: number, comment?: string) {
+    const o = await this.prisma.order.findUnique({
+      where: { code },
+      select: { id: true, tenantId: true, customerId: true, status: true, ratedAt: true },
+    });
+    if (!o) throw new NotFoundException();
+    if (o.ratedAt) {
+      throw new BadRequestException('Este pedido ya fue calificado');
+    }
+    if (o.status !== 'DELIVERED' && o.status !== 'READY') {
+      throw new BadRequestException(
+        'Solo puedes calificar pedidos entregados o listos',
+      );
+    }
+    const trimmed = (comment ?? '').trim().slice(0, 500) || null;
+
+    const updated = await this.prisma.order.update({
+      where: { id: o.id },
+      data: {
+        rating,
+        ratingComment: trimmed,
+        ratedAt: new Date(),
+      },
+    });
+
+    await this.prisma.event.create({
+      data: {
+        tenantId: o.tenantId,
+        customerId: o.customerId,
+        type: 'order.rated',
+        payload: { orderId: o.id, code, rating, hasComment: !!trimmed },
+      },
+    });
+
+    this.automations
+      .emit('ORDER_RATED', {
+        tenantId: o.tenantId,
+        orderId: o.id,
+        customerId: o.customerId,
+        rating,
+        hasComment: !!trimmed,
+      })
+      .catch(() => null);
+
+    return { ok: true, rating: updated.rating, ratedAt: updated.ratedAt };
+  }
+
   // ============= privado (panel tenant) =============
 
   private tid(user: AuthUser, override?: string) {
@@ -281,9 +337,10 @@ export class OrdersService {
     });
   }
 
-  async board(user: AuthUser, override?: string) {
+  async board(user: AuthUser, override?: string, days = 1) {
     const tid = this.tid(user, override);
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const window = Math.max(1, Math.min(90, days));
+    const since = new Date(Date.now() - window * 24 * 60 * 60 * 1000);
     const all = await this.prisma.order.findMany({
       where: {
         tenantId: tid,
@@ -296,7 +353,7 @@ export class OrdersService {
         customer: { select: { fullName: true, phone: true } },
       },
       orderBy: { createdAt: 'desc' },
-      take: 100,
+      take: window > 1 ? 400 : 100,
     });
     const byStatus: Record<OrderStatus, typeof all> = {
       PENDING: [],
@@ -424,18 +481,58 @@ export class OrdersService {
     });
   }
 
-  /** Suma sello al cliente automáticamente si tiene una tarjeta del tenant. */
+  /**
+   * Suma sello/puntos al cliente automáticamente cuando se confirma un pedido.
+   * Itera todas las tarjetas activas del tenant con `autoStampOnOrder = true`
+   * para que un negocio pueda tener simultáneamente, por ej., una tarjeta de
+   * sellos (cumple compras) y una de puntos (acumula por monto).
+   */
   private async autoStampOnConfirm(tenantId: string, customerId: string, orderId: string) {
-    const card = await this.prisma.card.findFirst({
-      where: { tenantId, isActive: true, autoStampOnOrder: true, type: 'STAMPS' },
+    const cards = await this.prisma.card.findMany({
+      where: {
+        tenantId,
+        isActive: true,
+        autoStampOnOrder: true,
+        type: { in: ['STAMPS', 'POINTS'] },
+      },
     });
-    if (!card) return;
+    if (cards.length === 0) return;
 
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { total: true },
+    });
+    const orderTotal = Number(order?.total ?? 0);
+
+    for (const card of cards) {
+      try {
+        await this.applyLoyaltyForCard(card, tenantId, customerId, orderId, orderTotal);
+      } catch (e) {
+        // Una tarjeta que falle no debe bloquear las demás
+        this.logger?.warn?.(`autoStamp falló para card ${card.id}: ${(e as Error).message}`);
+      }
+    }
+  }
+
+  private async applyLoyaltyForCard(
+    card: {
+      id: string;
+      type: 'STAMPS' | 'POINTS' | string;
+      stampsRequired: number | null;
+      autoStampAmount: number;
+      pointsPerCurrency: Prisma.Decimal | null;
+      status?: string;
+    },
+    tenantId: string,
+    customerId: string,
+    orderId: string,
+    orderTotal: number,
+  ) {
     let pass = await this.prisma.pass.findUnique({
       where: { cardId_customerId: { cardId: card.id, customerId } },
     });
     if (!pass) {
-      // Auto-emitir
+      // Auto-emitir un pass para que el cliente vea la acumulación al instante
       const { sign } = await import('jsonwebtoken');
       const { nanoid } = await import('nanoid');
       const serial = `CLB-${nanoid(10).toUpperCase()}`;
@@ -461,40 +558,106 @@ export class OrdersService {
       });
     }
 
-    const amount = card.autoStampAmount ?? 1;
-    const required = card.stampsRequired ?? 10;
-    const newCount = pass.stampsCount + amount;
-    const completed = newCount >= required;
+    if (card.type === 'STAMPS') {
+      const amount = card.autoStampAmount ?? 1;
+      const required = card.stampsRequired ?? 10;
+      const newCount = pass.stampsCount + amount;
+      const completed = newCount >= required;
 
-    await this.prisma.$transaction([
-      this.prisma.stamp.create({
-        data: {
+      await this.prisma.$transaction([
+        this.prisma.stamp.create({
+          data: {
+            tenantId,
+            passId: pass.id,
+            customerId,
+            orderId,
+            action: 'STAMP',
+            amount: new Prisma.Decimal(amount),
+            note: 'Auto por pedido confirmado',
+          },
+        }),
+        this.prisma.pass.update({
+          where: { id: pass.id },
+          data: {
+            stampsCount: newCount,
+            lastActivityAt: new Date(),
+            status: completed ? 'COMPLETED' : pass.status,
+          },
+        }),
+      ]);
+
+      if (completed) {
+        this.automations.emit('PASS_COMPLETED', {
           tenantId,
           passId: pass.id,
           customerId,
-          orderId,
-          action: 'STAMP',
-          amount: new Prisma.Decimal(amount),
-          note: 'Auto por pedido confirmado',
-        },
-      }),
-      this.prisma.pass.update({
-        where: { id: pass.id },
-        data: {
-          stampsCount: newCount,
-          lastActivityAt: new Date(),
-          status: completed ? 'COMPLETED' : pass.status,
-        },
-      }),
-    ]);
+          cardId: card.id,
+        }).catch(() => null);
+      }
+      return;
+    }
 
-    if (completed) {
-      this.automations.emit('PASS_COMPLETED', {
-        tenantId,
-        passId: pass.id,
-        customerId,
-        cardId: card.id,
-      }).catch(() => null);
+    if (card.type === 'POINTS') {
+      // Default: 1 punto por cada $1.000 (= 0.001) si no se configuró nada.
+      const ratio = Number(card.pointsPerCurrency ?? 0.001);
+      if (ratio <= 0 || orderTotal <= 0) return;
+      const earned = Math.floor(orderTotal * ratio);
+      if (earned <= 0) return;
+      const newBalance = Number(pass.pointsBalance) + earned;
+
+      await this.prisma.$transaction([
+        this.prisma.stamp.create({
+          data: {
+            tenantId,
+            passId: pass.id,
+            customerId,
+            orderId,
+            action: 'POINTS_ADD',
+            amount: new Prisma.Decimal(earned),
+            note: `Auto +${earned} pts por pedido (×${ratio} pts/$)`,
+          },
+        }),
+        this.prisma.pass.update({
+          where: { id: pass.id },
+          data: {
+            pointsBalance: new Prisma.Decimal(newBalance),
+            lastActivityAt: new Date(),
+          },
+        }),
+      ]);
+    }
+  }
+
+  /**
+   * Decrementa stock de cada producto pedido. Solo afecta a productos con
+   * `stock` no-null (con tracking de inventario activo). Si llega a 0,
+   * marca el producto como `isAvailable: false`.
+   */
+  private async decrementStock(items: Array<{ productId: string; qty: number }>) {
+    if (!items || items.length === 0) return;
+    // Agrupar cantidades por productId
+    const totals = new Map<string, number>();
+    for (const it of items) {
+      totals.set(it.productId, (totals.get(it.productId) ?? 0) + (it.qty ?? 0));
+    }
+    for (const [productId, qty] of totals) {
+      try {
+        const p = await this.prisma.product.findUnique({
+          where: { id: productId },
+          select: { id: true, stock: true },
+        });
+        if (!p || p.stock === null || p.stock === undefined) continue;
+        const next = Math.max(0, p.stock - qty);
+        await this.prisma.product.update({
+          where: { id: productId },
+          data: {
+            stock: next,
+            isAvailable: next > 0 ? undefined : false,
+          },
+        });
+      } catch {
+        /* noop */
+      }
     }
   }
 }
