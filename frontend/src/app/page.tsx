@@ -92,7 +92,7 @@ const TESTIMONIALS = [
   },
   {
     quote:
-      'El soporte por WhatsApp y los 10 días gratis me dieron confianza. Configuré todo en un fin de semana sin saber código.',
+      'El soporte por WhatsApp y la activación inmediata me dieron confianza. Configuré todo en un fin de semana sin saber código.',
     name: 'Sofía L.',
     role: 'Bowls Saludables · Lima',
     avatar: '🥗',
@@ -128,7 +128,7 @@ function buildPricing(country: string | null) {
       priceUsd: elite.displayUsd,
       isUsdCountry: elite.isUsdCountry,
       note: 'al mes',
-      badge: '10 días gratis',
+      badge: 'Activación inmediata',
       features: [
         'Pedidos ilimitados',
         'Tarjetas wallet (Apple + Google) ilimitadas',
@@ -137,7 +137,7 @@ function buildPricing(country: string | null) {
         'Email transaccional + scanner PWA',
         'Soporte por chat',
       ],
-      cta: 'Empezar mis 10 días gratis',
+      cta: 'Empezar ahora →',
       href: '/signup?plan=elite',
       primary: false,
     },
@@ -192,7 +192,7 @@ export default function Landing() {
               className="inline-flex items-center gap-1.5 bg-ink text-white text-sm font-semibold px-4 py-2 rounded-pill hover:bg-ink/90"
               href="/signup"
             >
-              Empezar gratis →
+              Empezar ahora →
             </Link>
           </div>
         </div>
@@ -250,7 +250,7 @@ export default function Landing() {
                   className="inline-flex items-center gap-2 bg-ink text-white font-semibold text-base px-6 py-3.5 rounded-pill hover:bg-ink/90 transition shadow-md"
                   href="/signup"
                 >
-                  <Icon name="spark" /> Empezar mis 10 días gratis
+                  <Icon name="spark" /> Empezar ahora
                 </Link>
                 <a
                   className="inline-flex items-center gap-2 bg-white border border-line text-ink font-semibold text-base px-6 py-3.5 rounded-pill hover:border-ink/30 transition"
@@ -264,7 +264,7 @@ export default function Landing() {
 
               <div className="flex items-center gap-5 mt-8 text-xs text-mute flex-wrap">
                 <div className="flex items-center gap-1.5">
-                  <Icon name="check" size={14} className="text-ok" /> 10 días sin cargo
+                  <Icon name="check" size={14} className="text-ok" /> Activación inmediata
                 </div>
                 <div className="flex items-center gap-1.5">
                   <Icon name="check" size={14} className="text-ok" /> Cancela cuando quieras
@@ -503,11 +503,12 @@ export default function Landing() {
               Precios
             </div>
             <h2 className="text-3xl md:text-5xl font-bold tracking-tight leading-[1.1]">
-              10 días gratis para probarlo todo
+              Precios claros · sin sorpresas
             </h2>
             <p className="text-mute mt-4 text-lg">
-              Configura tu cuenta, sube tu menú, emite tarjetas. Si no te
-              convence, cancela antes del día 11 y no cobramos. Sin contratos.
+              Activa tu cuenta con un cobro mensual, configura todo en
+              minutos y empieza a vender. Sin contratos, cancela cuando
+              quieras desde tu panel.
             </p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5 max-w-3xl mx-auto items-start">
@@ -586,12 +587,12 @@ export default function Landing() {
           <div className="space-y-3">
             {[
               {
-                q: '¿Cómo funcionan los 10 días gratis?',
-                a: 'Creas tu cuenta y configuras tu método de pago (tarjeta de crédito o débito). El cargo es de USD 0 durante los 10 días. Si cancelas antes del día 11, no se cobra nada. Si no cancelas, se activa la suscripción de USD 50/mes automáticamente.',
+                q: '¿Cuánto cuesta empezar?',
+                a: 'El plan Elite es USD 50/mes y se cobra inmediatamente al crear la cuenta. Apenas se aprueba el pago entras al panel. Puedes cancelar la suscripción en cualquier momento desde tu panel — sin contratos, sin permanencia.',
               },
               {
-                q: '¿Por qué piden tarjeta para el trial gratis?',
-                a: 'Para evitar abuso de cuentas y simplificar el flujo: cuando termina la prueba se activa la suscripción sin que tengas que volver a hacer checkout. Puedes cancelar en cualquier momento desde tu panel.',
+                q: '¿Cómo se procesa el pago?',
+                a: 'Procesamos los pagos a través de Hotmart, una pasarela segura ampliamente usada en LATAM. Acepta tarjeta de crédito, débito y métodos locales (PSE, Mercado Pago, etc.) según tu país.',
               },
               {
                 q: '¿Necesito Apple Developer Program para emitir tarjetas wallet?',
@@ -660,15 +661,15 @@ export default function Landing() {
               </span>
             </h2>
             <p className="text-white/75 mt-4 leading-relaxed text-base md:text-lg relative">
-              5 minutos para tu primer pedido. 10 días para probarlo todo. Si
-              no te sirve, te ayudamos a exportar todo y migrar.
+              5 minutos para tu primer pedido. Si no te sirve, te ayudamos a
+              exportar todo y migrar.
             </p>
             <div className="flex gap-3 justify-center mt-8 flex-wrap relative">
               <Link
                 href="/signup"
                 className="bg-white text-ink font-semibold text-base px-6 py-3.5 rounded-pill hover:bg-white/95"
               >
-                <Icon name="spark" /> Empezar mis 10 días gratis
+                <Icon name="spark" /> Empezar ahora
               </Link>
               <a
                 href="https://wa.me/573000000000?text=Hola%2C%20quiero%20saber%20m%C3%A1s%20de%20Clubify"
@@ -680,7 +681,7 @@ export default function Landing() {
               </a>
             </div>
             <div className="text-xs text-white/55 mt-4 relative">
-              10 días sin cobro · sin permanencia · cancela cuando quieras
+              Sin permanencia · cancela cuando quieras desde tu panel
             </div>
           </div>
         </div>
@@ -728,7 +729,7 @@ export default function Landing() {
               <div className="font-semibold mb-3 text-[13px]">Crece</div>
               <ul className="space-y-2 text-mute">
                 <li><Link href="/refer" className="hover:text-ink">Referidos</Link></li>
-                <li><Link href="/signup" className="hover:text-ink">Empezar gratis</Link></li>
+                <li><Link href="/signup" className="hover:text-ink">Empezar ahora</Link></li>
                 <li><Link href="/login" className="hover:text-ink">Ingresar</Link></li>
               </ul>
             </div>

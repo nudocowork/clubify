@@ -195,9 +195,9 @@ export class AuthService {
       slug = `${slugify(brandName)}-${suffix}`;
     }
 
-    // Selección de plan: Pro va sin trial (paga directo); Elite es default con
-    // trial de 10 días. El frontend manda `plan: 'pro'` cuando el usuario
-    // viene del CTA del plan Pro en el landing.
+    // Selección de plan. AMBOS PLANES requieren pago antes de usar la app
+    // (decisión 2026-05-04 — eliminamos el trial de Elite). El lockscreen de
+    // /app espera `hotmartSubscriberCode` antes de dejar entrar al panel.
     const requestedPlan = (dto.plan ?? '').toLowerCase().trim();
     const isProSignup = requestedPlan === 'pro';
     const targetPlanName = isProSignup ? 'Pro' : 'Elite';
@@ -210,11 +210,10 @@ export class AuthService {
 
     const passwordHash = await this.hashPassword(dto.password);
 
-    // Pro = trial expirado al instante (debe pagar para usar la app);
-    // Elite = 10 días de prueba.
-    const TRIAL_DAYS = isProSignup ? 0 : 10;
+    // Trial expirado al instante para ambos planes — la "puerta" real ahora
+    // es la verificación de tarjeta en Hotmart (CardVerificationLockscreen).
     const trialStartedAt = new Date();
-    const trialEndsAt = new Date(trialStartedAt.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
+    const trialEndsAt = trialStartedAt;
 
     const tenant = await this.prisma.tenant.create({
       data: {

@@ -547,7 +547,7 @@ export default function Onboarding() {
                 <span>¡Listo, {brand.brandName}!</span>
               </span>
             }
-            subtitle="Ya estás en línea. Tienes 10 días gratis para probarlo todo. Sin compromiso, sin tarjeta requerida hoy."
+            subtitle="Ya estás en línea. Tu cuenta está activa y todo el panel desbloqueado. Cancela cuando quieras desde tu panel."
           >
             <div className="grid md:grid-cols-2 gap-4">
               {/* Mini-sitio público */}

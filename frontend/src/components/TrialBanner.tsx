@@ -31,15 +31,13 @@ export function TrialBanner() {
 
   if (s.status === 'TRIAL') {
     const d = s.daysLeftInTrial ?? 0;
-    if (d > 5) {
+    if (d > 0) {
       bg = 'bg-brand-soft';
       border = 'border-brand/20';
       text = 'text-brand-700';
-      label = `Estás en prueba gratis · te quedan ${d} día${d === 1 ? '' : 's'}`;
-    } else if (d > 0) {
-      label = `Tu prueba termina en ${d} día${d === 1 ? '' : 's'}. Activa tu suscripción para no perder acceso.`;
+      label = `Tu cuenta de cortesía vence en ${d} día${d === 1 ? '' : 's'}. Activa tu suscripción para no perder acceso.`;
     } else {
-      label = 'Tu prueba termina hoy. Activa tu suscripción para no perder acceso.';
+      label = 'Activa tu suscripción para mantener tu cuenta activa.';
     }
   } else if (s.status === 'PAST_DUE') {
     bg = 'bg-orange-50';
@@ -51,7 +49,7 @@ export function TrialBanner() {
     bg = 'bg-red-50';
     border = 'border-red-200';
     text = 'text-red-900';
-    label = 'Tu prueba expiró. Activa la suscripción para reactivar tu negocio.';
+    label = 'Tu cuenta no está activa. Completa el pago para reactivar tu negocio.';
   } else if (s.status === 'SUSPENDED') {
     bg = 'bg-red-50';
     border = 'border-red-200';
@@ -69,7 +67,7 @@ export function TrialBanner() {
       >
         {cta} →
       </Link>
-      {s.status === 'TRIAL' && (s.daysLeftInTrial ?? 0) > 5 && (
+      {s.status === 'TRIAL' && (s.daysLeftInTrial ?? 0) > 0 && (
         <button
           onClick={() => setHidden(true)}
           className="text-xs opacity-60 hover:opacity-100"

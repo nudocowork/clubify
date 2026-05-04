@@ -10,7 +10,7 @@ export const metadata: Metadata = {
     template: '%s · Clubify',
   },
   description:
-    'Vende por WhatsApp, fideliza con tarjetas wallet y automatiza con un solo lugar. 10 días gratis para probar.',
+    'Vende por WhatsApp, fideliza con tarjetas wallet y automatiza con un solo lugar. Activa tu cuenta y empieza a vender hoy.',
   manifest: '/manifest.webmanifest',
   applicationName: 'Clubify',
   appleWebApp: {
@@ -21,7 +21,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'Clubify · El sistema operativo de tu negocio local',
     description:
-      'Vende por WhatsApp, fideliza con tarjetas wallet y automatiza. 10 días gratis para probar.',
+      'Vende por WhatsApp, fideliza con tarjetas wallet y automatiza. Activa tu cuenta y empieza a vender hoy.',
     url: '/',
     siteName: 'Clubify',
     locale: 'es_LA',
@@ -34,7 +34,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'Clubify · El sistema operativo de tu negocio local',
     description:
-      'Vende por WhatsApp, fideliza con wallet y automatiza. 10 días gratis.',
+      'Vende por WhatsApp, fideliza con wallet y automatiza. Activa tu cuenta y empieza a vender hoy.',
     images: ['/icons/icon-512.png'],
   },
   robots: {

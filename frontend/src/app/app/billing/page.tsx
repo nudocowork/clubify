@@ -16,10 +16,10 @@ type Status = {
 };
 
 const STATUS_LABELS: Record<Status['status'], { text: string; bg: string; ring: string }> = {
-  TRIAL: { text: 'Prueba activa', bg: 'bg-brand-soft text-brand-700', ring: 'ring-brand/30' },
+  TRIAL: { text: 'Esperando pago', bg: 'bg-brand-soft text-brand-700', ring: 'ring-brand/30' },
   ACTIVE: { text: 'Suscripción activa', bg: 'bg-ok-soft text-ok', ring: 'ring-ok/30' },
   PAST_DUE: { text: 'Pago pendiente', bg: 'bg-amber-100 text-amber-800', ring: 'ring-amber-300' },
-  EXPIRED: { text: 'Prueba expirada', bg: 'bg-red-100 text-red-800', ring: 'ring-red-300' },
+  EXPIRED: { text: 'Cuenta inactiva', bg: 'bg-red-100 text-red-800', ring: 'ring-red-300' },
   SUSPENDED: { text: 'Suspendida', bg: 'bg-red-100 text-red-800', ring: 'ring-red-300' },
   CANCELED: { text: 'Cancelada', bg: 'bg-bg2 text-mute', ring: 'ring-line' },
 };
@@ -82,12 +82,12 @@ export default function BillingPage() {
   }
 
   async function reactivate() {
-    if (!confirm('Te reactivamos con 3 días extra de trial para que termines de configurar tu pago. ¿Confirmas?')) {
+    if (!confirm('Te reactivamos por 3 días para que completes el pago en Hotmart. ¿Confirmas?')) {
       return;
     }
     try {
       await api('/billing/reactivate', { method: 'POST' });
-      toast('Cuenta reactivada con 3 días de bonus', 'success');
+      toast('Cuenta reactivada · completa el pago en Hotmart', 'success');
       setTimeout(() => window.location.reload(), 800);
     } catch (e: any) {
       toast(e.message || 'No se pudo reactivar', 'error');
@@ -97,8 +97,6 @@ export default function BillingPage() {
   if (!s) return <div className="text-mute">Cargando…</div>;
 
   const meta = STATUS_LABELS[s.status];
-  const trialPct =
-    s.daysLeftInTrial !== null ? Math.max(0, Math.min(100, (s.daysLeftInTrial / 10) * 100)) : 0;
 
   return (
     <div className="max-w-3xl mx-auto">
@@ -126,28 +124,21 @@ export default function BillingPage() {
               </span>
             </div>
             <div className="mt-3 text-3xl font-bold">
-              {s.status === 'TRIAL' && s.daysLeftInTrial !== null
-                ? `${s.daysLeftInTrial} día${s.daysLeftInTrial === 1 ? '' : 's'} restante${s.daysLeftInTrial === 1 ? '' : 's'}`
+              {s.status === 'TRIAL'
+                ? 'Esperando pago'
                 : s.status === 'ACTIVE'
                 ? 'Suscripción activa'
                 : s.status === 'EXPIRED'
-                ? 'Prueba expirada'
+                ? 'Cuenta inactiva'
                 : s.status === 'SUSPENDED'
                 ? 'Cuenta suspendida'
                 : s.status === 'PAST_DUE'
                 ? 'Pago pendiente'
                 : 'Sin suscripción'}
             </div>
-            {s.status === 'TRIAL' && s.trialEndsAt && (
+            {s.status === 'TRIAL' && (
               <div className="text-sm text-mute mt-1">
-                Tu prueba termina el{' '}
-                <span className="font-medium text-ink">
-                  {new Date(s.trialEndsAt).toLocaleDateString('es-CO', {
-                    weekday: 'long',
-                    day: 'numeric',
-                    month: 'long',
-                  })}
-                </span>
+                Completa el pago en Hotmart para activar tu cuenta.
               </div>
             )}
             {s.status === 'ACTIVE' && s.currentPeriodEnd && (
@@ -176,20 +167,6 @@ export default function BillingPage() {
           </div>
         </div>
 
-        {s.status === 'TRIAL' && (
-          <div className="mt-5">
-            <div className="h-2 bg-bg2 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-brand-400 to-brand-700 transition-all"
-                style={{ width: `${100 - trialPct}%` }}
-              />
-            </div>
-            <div className="text-xs text-mute mt-1.5 flex justify-between">
-              <span>Inicio</span>
-              <span>10 días</span>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* CTA principal */}
@@ -214,8 +191,7 @@ export default function BillingPage() {
               </p>
               {!hotmartConfigured && (
                 <p className="text-white/70 text-xs mt-2">
-                  Mientras tanto, tu trial sigue activo. Si necesitas activación
-                  manual, escríbenos por{' '}
+                  Si necesitas activación manual, escríbenos por{' '}
                   <a
                     href="https://wa.me/573000000000"
                     target="_blank"
@@ -254,8 +230,8 @@ export default function BillingPage() {
             <div className="flex-1 min-w-0">
               <div className="font-bold text-xl">¿Volver a Clubify?</div>
               <p className="text-white/85 text-sm mt-1.5 leading-relaxed">
-                Te damos 3 días extra de trial para que retomes tu negocio y
-                configures tu pago. Tu data está intacta.
+                Te reactivamos por 3 días para que completes el pago en
+                Hotmart y retomes tu negocio. Tu data está intacta.
               </p>
             </div>
             <button

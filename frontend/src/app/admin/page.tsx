@@ -102,8 +102,7 @@ export default function AdminDashboard() {
           </div>
           <div className="flex-1 text-sm">
             <span className="font-semibold">{m.expiringSoon}</span> negocio
-            {m.expiringSoon === 1 ? '' : 's'} en trial vence
-            {m.expiringSoon === 1 ? '' : 'n'} en menos de 3 días.
+            {m.expiringSoon === 1 ? '' : 's'} sin confirmar pago hace más de 3 días.
           </div>
           <Link
             href="/admin/tenants"
@@ -197,9 +196,9 @@ export default function AdminDashboard() {
           href="/admin/tenants"
         />
         <KPI
-          label="En trial"
+          label="Sin pago aún"
           value={m?.trialTenants ?? '–'}
-          sub="probando los 10 días"
+          sub="esperando confirmación Hotmart"
           icon="spark"
           tone="brand"
           href="/admin/tenants"
@@ -207,7 +206,7 @@ export default function AdminDashboard() {
         <KPI
           label="Suspendidos"
           value={m?.suspendedTenants ?? '–'}
-          sub="trial expirado o pago fallido"
+          sub="pago fallido o cancelado"
           icon="bell"
           tone="bad"
           href="/admin/tenants"

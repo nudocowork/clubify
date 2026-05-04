@@ -205,15 +205,18 @@ export class HotmartService {
    *   HOTMART_PRODUCT_ID_ELITE  → producto del plan Elite ($50)
    *   HOTMART_PRODUCT_ID_PRO    → producto del plan Pro ($99) — opcional
    *   HOTMART_PRODUCT_ID        → fallback genérico si no hay match por plan
-   *   HOTMART_OFFER_CODE_<PLAN> → opcional, off= query param para offers específicas
+   *   HOTMART_OFFER_CODE_<PLAN> → opcional, `off=` para offers específicas
+   *   HOTMART_BID_<PLAN>        → opcional, `bid=` para tracking de oferta/bid
    */
   buildCheckoutUrl(opts: { email?: string; planName?: string }) {
     const productId = this.resolveProductId(opts.planName);
     if (!productId) return null;
     const offerCode = this.resolveOfferCode(opts.planName);
+    const bid = this.resolveBid(opts.planName);
     const base = `https://pay.hotmart.com/${productId}`;
     const params = new URLSearchParams();
     if (offerCode) params.set('off', offerCode);
+    if (bid) params.set('bid', bid);
     if (opts.email) params.set('email', opts.email);
     const qs = params.toString();
     return qs ? `${base}?${qs}` : base;
@@ -235,6 +238,15 @@ export class HotmartService {
       if (specific) return specific;
     }
     return process.env.HOTMART_OFFER_CODE;
+  }
+
+  private resolveBid(planName?: string): string | undefined {
+    const key = this.planKey(planName);
+    if (key) {
+      const specific = process.env[`HOTMART_BID_${key}`];
+      if (specific) return specific;
+    }
+    return process.env.HOTMART_BID;
   }
 
   /** "Elite" → "ELITE", "Pro" → "PRO". Acepta también el nombre antiguo. */

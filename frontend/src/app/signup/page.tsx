@@ -113,24 +113,17 @@ function SignupInner() {
         {/* Form */}
         <div className="px-6 lg:px-12 py-10 lg:py-16">
           <div className="max-w-md mx-auto lg:mx-0">
-            {isPro ? (
-              <div className="inline-flex items-center gap-2 bg-brand-soft text-brand-700 text-xs font-semibold px-3 py-1 rounded-full mb-5">
-                <span className="w-1.5 h-1.5 rounded-full bg-brand" />
-                Plan Pro · USD {planPriceUsd}/mes · activación inmediata
-              </div>
-            ) : (
-              <div className="inline-flex items-center gap-2 bg-ok-soft text-ok text-xs font-semibold px-3 py-1 rounded-full mb-5">
-                <span className="w-1.5 h-1.5 rounded-full bg-ok animate-pulse" />
-                10 días gratis · cancela antes y no cobramos
-              </div>
-            )}
+            <div className="inline-flex items-center gap-2 bg-brand-soft text-brand-700 text-xs font-semibold px-3 py-1 rounded-full mb-5">
+              <span className="w-1.5 h-1.5 rounded-full bg-brand" />
+              Plan {planLabel} · USD {planPriceUsd}/mes · activación inmediata
+            </div>
             <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
               {isPro ? 'Activa Pro y empieza ahora' : 'Crea tu negocio en Clubify'}
             </h1>
             <p className="text-mute mt-2 leading-relaxed">
               {isPro
                 ? 'Creas tu cuenta y te llevamos al pago seguro. Apenas el cobro se aprueba quedas activo con todas las automatizaciones de WhatsApp.'
-                : 'Creas tu cuenta y te enviamos a verificar tu tarjeta en Hotmart. Sin cobros durante los primeros 10 días — apenas valides la tarjeta entras al panel.'}
+                : 'Creas tu cuenta y te llevamos al pago seguro de Hotmart. Apenas se confirme el pago entras al panel y empiezas a vender.'}
             </p>
 
             <form onSubmit={submit} className="mt-8 space-y-4">
@@ -226,9 +219,9 @@ function SignupInner() {
                     Política de privacidad
                   </Link>
                   .{' '}
-                  {isPro
-                    ? `Al continuar te llevamos al checkout para cobrarte USD ${planPriceUsd}/mes (equivalente en tu moneda local). Puedo cancelar en cualquier momento desde mi panel.`
-                    : 'Al continuar te enviamos a Hotmart para verificar tu tarjeta. No se cobra nada durante los 10 días gratis. Si no cancelas antes del día 11 se cobran USD 50/mes (equivalente en tu moneda local). Puedes cancelar en cualquier momento desde tu panel.'}
+                  Al continuar te llevamos al checkout para cobrarte USD {planPriceUsd}/mes
+                  (equivalente en tu moneda local). Apenas se apruebe el pago entras
+                  al panel. Puedes cancelar en cualquier momento desde tu panel.
                 </span>
               </label>
 
@@ -244,22 +237,16 @@ function SignupInner() {
                 className="btn-primary w-full justify-center text-base py-3 disabled:opacity-50"
               >
                 {submitting ? (
-                  isPro ? 'Llevándote al pago…' : 'Llevándote a verificar tarjeta…'
-                ) : isPro ? (
-                  <>
-                    <Icon name="spark" /> Continuar al pago →
-                  </>
+                  'Llevándote al pago…'
                 ) : (
                   <>
-                    <Icon name="spark" /> Continuar a verificar tarjeta →
+                    <Icon name="spark" /> Continuar al pago →
                   </>
                 )}
               </button>
 
               <p className="text-center text-xs text-mute pt-1">
-                {isPro
-                  ? 'Pago seguro con tarjeta · cancelas cuando quieras'
-                  : 'Tarjeta requerida · $0 durante 10 días · cancelas cuando quieras'}
+                Pago seguro con tarjeta · cancelas cuando quieras
               </p>
             </form>
           </div>

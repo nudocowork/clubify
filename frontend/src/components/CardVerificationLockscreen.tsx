@@ -61,8 +61,6 @@ export function CardVerificationLockscreen({
     }
   }
 
-  const isElite = planName === 'Elite';
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-brand-soft via-bg to-brand-100 flex items-center justify-center px-5 py-10">
       <div className="max-w-lg w-full">
@@ -71,25 +69,14 @@ export function CardVerificationLockscreen({
             💳
           </div>
           <h1 className="text-2xl font-bold tracking-tight">
-            {isElite
-              ? 'Falta verificar tu tarjeta'
-              : 'Falta confirmar tu pago'}
+            Falta confirmar tu pago
           </h1>
           <p className="text-mute mt-2 leading-relaxed">
-            {isElite ? (
-              <>
-                Para activar tus <strong>10 días gratis</strong> de{' '}
-                {brandName ?? 'tu cuenta'}, necesitamos validar una tarjeta en
-                Hotmart. <strong>No se cobra nada</strong> durante el periodo
-                de prueba — puedes cancelar antes del día 11 sin costo.
-              </>
-            ) : (
-              <>
-                Para activar tu plan {planName}, completa el pago en Hotmart.
-                Apenas se apruebe quedas dentro del panel con todas las
-                funciones desbloqueadas.
-              </>
-            )}
+            Para activar tu plan {planName} de{' '}
+            {brandName ?? 'tu cuenta'}, completa el pago seguro en Hotmart.
+            Apenas se apruebe el cobro entras al panel con todas las
+            funciones desbloqueadas. Puedes cancelar la suscripción en
+            cualquier momento desde tu panel.
           </p>
 
           {checkoutUrl ? (
@@ -97,9 +84,7 @@ export function CardVerificationLockscreen({
               href={checkoutUrl}
               className="btn-primary w-full justify-center text-base py-3 mt-7"
             >
-              {isElite
-                ? 'Ir a verificar tarjeta en Hotmart →'
-                : 'Ir al pago seguro en Hotmart →'}
+              Ir al pago seguro en Hotmart →
             </a>
           ) : (
             <div className="mt-7 rounded-lg bg-bg2 px-4 py-3 text-sm text-mute">

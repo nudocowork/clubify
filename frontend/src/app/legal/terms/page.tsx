@@ -17,17 +17,17 @@ export default function TermsPage() {
           Google Wallet) y automatizar mensajes a sus clientes.
         </p>
 
-        <h2 className="text-lg font-semibold mt-6">2. Cuenta y prueba gratuita</h2>
+        <h2 className="text-lg font-semibold mt-6">2. Cuenta y suscripción</h2>
         <p>
-          Al crear una cuenta recibes 10 días de acceso gratuito a todas las
-          funciones del plan Pro. Para activar la cuenta se requiere un método
-          de pago válido (tarjeta de crédito o débito) procesado por Hotmart.
-          Durante la prueba el cargo es de USD 0.
+          Al crear una cuenta debes completar el pago inicial vía Hotmart
+          para activarla. El plan Elite tiene un costo de USD 50/mes y el
+          plan Pro de USD 99/mes (o el equivalente en tu moneda local al
+          cambio del día, según la tasa que aplique Hotmart).
         </p>
         <p>
-          Si no cancelas antes del día 11, se cobra automáticamente USD 50/mes
-          (o el equivalente en tu moneda local al cambio del día) y la
-          suscripción queda activa hasta que decidas cancelar.
+          Apenas se aprueba el primer pago la cuenta queda activa. La
+          suscripción se renueva automáticamente cada mes hasta que decidas
+          cancelarla desde tu panel.
         </p>
 
         <h2 className="text-lg font-semibold mt-6">3. Cancelación</h2>

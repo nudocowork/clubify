@@ -92,7 +92,7 @@ const FAQS: FAQ[] = [
   {
     category: 'Pago',
     q: '¿Cuándo me cobran?',
-    a: 'A los 10 días gratis. Si cancelas antes del día 11, no te cobramos nada. El cobro es vía Hotmart al equivalente local de USD 50/mes.',
+    a: 'Se cobra al crear la cuenta vía Hotmart (USD 50/mes para Elite, USD 99/mes para Pro, equivalente al cambio del día en tu moneda local). Apenas se aprueba el pago entras al panel. La suscripción se renueva mensualmente hasta que canceles desde tu panel.',
     href: '/app/billing',
   },
   {
