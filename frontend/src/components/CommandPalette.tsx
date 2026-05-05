@@ -49,7 +49,7 @@ export function CommandPalette({ variant }: { variant: 'admin' | 'app' }) {
       { id: 'n10', group: 'Ir a', label: 'Automatizaciones', href: '/app/automations', icon: 'spark' },
       { id: 'n11', group: 'Ir a', label: 'Notificaciones push', href: '/app/notifications', icon: 'bell' },
       { id: 'n12', group: 'Ir a', label: 'Mi sitio público', href: '/app/storefront', icon: 'store', keywords: 'storefront landing' },
-      { id: 'n13', group: 'Ir a', label: 'Links informativos', href: '/app/info-links', icon: 'arrow-right' },
+      { id: 'n13', group: 'Ir a', label: 'InfoLinks', href: '/app/info-links', icon: 'arrow-right' },
       { id: 'n14', group: 'Ir a', label: 'Ubicaciones', href: '/app/locations', icon: 'pin', keywords: 'sucursales' },
       { id: 'n15', group: 'Ir a', label: 'Programa de referidos', href: '/app/referrals', icon: 'gift' },
       { id: 'n16', group: 'Ir a', label: 'Empleados', href: '/app/staff', icon: 'users', keywords: 'team equipo' },

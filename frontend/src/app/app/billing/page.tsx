@@ -45,11 +45,12 @@ export default function BillingPage() {
       .catch(() => setHotmartConfigured(false));
   }, []);
 
-  async function activateSubscription() {
+  async function activateSubscription(planOverride?: string) {
     setActivating(true);
     try {
+      const qs = planOverride ? `?plan=${encodeURIComponent(planOverride)}` : '';
       const r = await api<{ url: string | null; reason?: string }>(
-        '/billing/hotmart/checkout-url',
+        `/billing/hotmart/checkout-url${qs}`,
       );
       if (r.url) {
         window.location.href = r.url;
@@ -204,7 +205,7 @@ export default function BillingPage() {
               )}
             </div>
             <button
-              onClick={activateSubscription}
+              onClick={() => activateSubscription()}
               disabled={!hotmartConfigured || activating}
               className={`bg-white/95 text-brand-700 font-semibold px-5 py-2.5 rounded-pill text-sm whitespace-nowrap ${
                 hotmartConfigured
@@ -244,27 +245,93 @@ export default function BillingPage() {
         </div>
       )}
 
-      {/* Lo que incluye */}
-      <div className="card card-pad mt-4">
-        <div className="font-semibold mb-3">Tu plan incluye</div>
-        <ul className="grid sm:grid-cols-2 gap-2 text-sm">
-          {[
-            'Pedidos ilimitados',
-            'Tarjetas + automatizaciones ilimitadas',
-            'Multi-ubicación + multi-staff',
-            'Dominio propio + analítica avanzada',
-            'WhatsApp Cloud API + email transaccional',
-            'Soporte por chat',
-            'Apple Wallet + Google Wallet',
-            'Sin permanencia',
-          ].map((f) => (
-            <li key={f} className="flex items-start gap-2 text-mute">
-              <Icon name="check" size={14} className="text-ok mt-0.5 flex-none" />
-              <span>{f}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
+      {/* Lo que incluye — features según plan actual */}
+      {(() => {
+        const planName = tenant?.plan?.name ?? '';
+        const isElite = planName.toLowerCase() === 'elite';
+        const eliteFeatures = [
+          'Pedidos ilimitados',
+          'Tarjetas wallet ilimitadas',
+          'Multi-ubicación + multi-staff',
+          'Dominio propio + analítica',
+          'Email transaccional',
+          'Apple Wallet + Google Wallet',
+          'Scanner PWA',
+          'Soporte por chat',
+        ];
+        const proFeatures = [
+          ...eliteFeatures,
+          'Automatizaciones de WhatsApp',
+          'Mensajes automáticos por evento (sello, cumpleaños, recordatorio)',
+          'Segmentación avanzada de clientes',
+          'Plantillas de mensaje',
+          'Soporte prioritario',
+        ];
+        const features = isElite ? eliteFeatures : proFeatures;
+        return (
+          <div className="card card-pad mt-4">
+            <div className="font-semibold mb-3">
+              Tu plan {planName} incluye
+            </div>
+            <ul className="grid sm:grid-cols-2 gap-2 text-sm">
+              {features.map((f) => (
+                <li key={f} className="flex items-start gap-2 text-mute">
+                  <Icon name="check" size={14} className="text-ok mt-0.5 flex-none" />
+                  <span>{f}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })()}
+
+      {/* Upsell a Pro — solo se muestra a Elite (los Pro ya tienen todo) */}
+      {tenant?.plan?.name?.toLowerCase() === 'elite' && (
+        <div className="card card-pad mt-4 bg-gradient-to-br from-brand-400 via-brand-500 to-brand-700 text-white relative overflow-hidden">
+          <div className="flex items-start gap-3 flex-wrap">
+            <div className="flex-1 min-w-0">
+              <div className="text-[11px] uppercase tracking-[0.18em] font-semibold opacity-85">
+                Sube a Pro
+              </div>
+              <h3 className="text-xl font-bold mt-1 leading-tight">
+                Automatizaciones de WhatsApp por USD 49 más al mes
+              </h3>
+              <p className="text-sm text-white/85 mt-1.5 leading-relaxed">
+                Manda mensajes solos cuando un cliente cumple años, hace su
+                primer pedido, lleva 30 días sin volver, completa su tarjeta
+                de fidelización o llega cerca de tu local. Sin programar nada.
+              </p>
+              <ul className="grid sm:grid-cols-2 gap-1.5 mt-3 text-sm">
+                {[
+                  'Mensajes automáticos por evento',
+                  'Plantillas con variables ({{nombre}}, etc.)',
+                  'Segmentación avanzada (VIP, inactivos, etc.)',
+                  'Recordatorios y cumpleaños automáticos',
+                  'Soporte prioritario',
+                ].map((f) => (
+                  <li key={f} className="flex items-start gap-2">
+                    <Icon name="check" size={14} className="mt-0.5 flex-none" />
+                    <span>{f}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+          <div className="mt-4 flex items-center justify-between flex-wrap gap-3">
+            <div className="text-sm text-white/85">
+              Hoy: <strong>USD 50/mes</strong> · Pro:{' '}
+              <strong>USD 99/mes</strong>
+            </div>
+            <button
+              onClick={() => activateSubscription('Pro')}
+              disabled={!hotmartConfigured || activating}
+              className="bg-white text-brand-700 font-semibold px-5 py-2.5 rounded-pill hover:bg-white/95 disabled:opacity-70"
+            >
+              {activating ? 'Abriendo…' : 'Cambiarme a Pro →'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Cancelar */}
       {(s.status === 'TRIAL' || s.status === 'ACTIVE') && (

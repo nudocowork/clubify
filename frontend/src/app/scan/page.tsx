@@ -152,6 +152,11 @@ export default function ScanPage() {
 
         {!data && (
           <>
+            <div className="text-center text-xs text-mute mb-2">
+              📷 Apuntá la cámara al{' '}
+              <strong className="text-ink">código de barras</strong> o QR del
+              cliente. Funciona con tarjetas en Apple/Google Wallet.
+            </div>
             <div
               id="qr-reader"
               ref={containerRef}
@@ -167,7 +172,7 @@ export default function ScanPage() {
             >
               <input
                 className="input flex-1"
-                placeholder="Código QR / barcode / serial manualmente"
+                placeholder="Pegar código manualmente (CLB-…)"
                 value={manual}
                 onChange={(e) => setManual(e.target.value)}
               />

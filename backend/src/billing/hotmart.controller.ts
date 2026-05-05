@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Post, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { HotmartService, HotmartWebhookPayload } from './hotmart.service';
 import { Public } from '../common/decorators/public.decorator';
@@ -51,10 +51,18 @@ export class HotmartCheckoutController {
     return { configured: this.hotmart.isConfigured() };
   }
 
-  /** Devuelve la URL de checkout pre-rellenada con email del owner. */
+  /**
+   * Devuelve la URL de checkout pre-rellenada con email del owner.
+   * Acepta `?plan=Pro` o `?plan=Elite` para forzar un plan específico
+   * (típicamente upgrade desde Elite a Pro). Si no se pasa, usa el plan
+   * actual del tenant.
+   */
   @Roles('TENANT_OWNER', 'SUPER_ADMIN')
   @Get('checkout-url')
-  async checkoutUrl(@CurrentUser() user: AuthUser) {
+  async checkoutUrl(
+    @CurrentUser() user: AuthUser,
+    @Query('plan') planOverride?: string,
+  ) {
     if (!this.hotmart.isConfigured()) {
       return { url: null, reason: 'not_configured' };
     }
@@ -64,7 +72,7 @@ export class HotmartCheckoutController {
     });
     const url = this.hotmart.buildCheckoutUrl({
       email: u?.email,
-      planName: u?.tenant?.plan?.name,
+      planName: planOverride || u?.tenant?.plan?.name,
     });
     return { url };
   }

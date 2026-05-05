@@ -71,7 +71,7 @@ export default function InfoLinksList() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Links informativos{' '}
+          InfoLinks{' '}
           <span className="page-crumb">
             / {list.length} {list.length === 1 ? 'link' : 'links'}
           </span>

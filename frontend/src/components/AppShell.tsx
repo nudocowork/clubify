@@ -48,7 +48,37 @@ export default function AppShell({
     brandName?: string;
     hotmartSubscriberCode?: string | null;
   } | null>(null);
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
+    new Set(),
+  );
   const isPro = planName === 'Pro';
+
+  // Cargar/persistir preferencia de secciones colapsadas
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = localStorage.getItem('clubify:nav:collapsed');
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) setCollapsedSections(new Set(arr));
+      }
+    } catch {}
+  }, []);
+
+  function toggleSection(name: string) {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      try {
+        localStorage.setItem(
+          'clubify:nav:collapsed',
+          JSON.stringify(Array.from(next)),
+        );
+      } catch {}
+      return next;
+    });
+  }
 
   useEffect(() => {
     setImpersonation(getImpersonationBackup());
@@ -148,7 +178,7 @@ export default function AppShell({
             section: 'Tu sitio',
             items: [
               { href: '/app/storefront', label: 'Mi sitio', icon: 'store' },
-              { href: '/app/info-links', label: 'Links informativos', icon: 'arrow-right' },
+              { href: '/app/info-links', label: 'InfoLinks', icon: 'arrow-right' },
               { href: '/app/locations', label: 'Ubicaciones', icon: 'pin' },
               { href: '/app/referrals', label: 'Referidos', icon: 'gift' },
             ],
@@ -213,38 +243,61 @@ export default function AppShell({
       </div>
 
       <div className="flex-1 overflow-y-auto -mx-1 px-1">
-        {groups.map((g) => (
-          <div key={g.section}>
-            <div className="text-[10px] tracking-[0.18em] uppercase text-sidebar-section font-semibold opacity-85 pt-3.5 px-3 pb-1.5">
-              {g.section}
+        {groups.map((g) => {
+          // Si el path activo está dentro de esta sección, fuerza expand para
+          // que el usuario vea dónde está parado (aunque la haya cerrado antes).
+          const hasActive = g.items.some(
+            (n) => pathname === n.href || pathname.startsWith(n.href + '/'),
+          );
+          const collapsed = !hasActive && collapsedSections.has(g.section);
+
+          return (
+            <div key={g.section}>
+              <button
+                type="button"
+                onClick={() => toggleSection(g.section)}
+                className="w-full text-left text-[10px] tracking-[0.18em] uppercase text-sidebar-section font-semibold opacity-85 pt-3.5 px-3 pb-1.5 flex items-center justify-between hover:opacity-100 transition"
+              >
+                <span>{g.section}</span>
+                <span className="text-[9px] opacity-60">
+                  {collapsed ? '▸' : '▾'}
+                </span>
+              </button>
+              {!collapsed &&
+                g.items.map((n) => {
+                  const active =
+                    pathname === n.href || pathname.startsWith(n.href + '/');
+                  const showLock = n.lockedPro && planName !== null && !isPro;
+                  return (
+                    <Link
+                      key={n.href}
+                      href={n.href}
+                      className={`flex items-center gap-2.5 px-3 py-2.5 rounded-[10px] text-[13.5px] transition cursor-pointer ${
+                        active
+                          ? 'bg-sidebar-active text-white shadow-active'
+                          : 'text-gray-300 hover:bg-sidebar-hover hover:text-white'
+                      }`}
+                      title={showLock ? 'Requiere plan Pro' : ''}
+                    >
+                      <Icon
+                        name={n.icon}
+                        size={18}
+                        className="opacity-90 flex-none"
+                      />
+                      <span className={showLock ? 'opacity-70' : ''}>
+                        {n.label}
+                      </span>
+                      {showLock && (
+                        <span className="ml-auto text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300">
+                          Pro
+                        </span>
+                      )}
+                    </Link>
+                  );
+                })}
             </div>
-            {g.items.map((n) => {
-              const active =
-                pathname === n.href || pathname.startsWith(n.href + '/');
-              const showLock = n.lockedPro && planName !== null && !isPro;
-              return (
-                <Link
-                  key={n.href}
-                  href={n.href}
-                  className={`flex items-center gap-2.5 px-3 py-2.5 rounded-[10px] text-[13.5px] transition cursor-pointer ${
-                    active
-                      ? 'bg-sidebar-active text-white shadow-active'
-                      : 'text-gray-300 hover:bg-sidebar-hover hover:text-white'
-                  }`}
-                  title={showLock ? 'Requiere plan Pro' : ''}
-                >
-                  <Icon name={n.icon} size={18} className="opacity-90 flex-none" />
-                  <span className={showLock ? 'opacity-70' : ''}>{n.label}</span>
-                  {showLock && (
-                    <span className="ml-auto text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300">
-                      Pro
-                    </span>
-                  )}
-                </Link>
-              );
-            })}
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="flex items-center gap-1.5 px-2 pt-4 pb-1 border-t border-[#172534]">
