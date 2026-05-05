@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { PWARegister } from '@/components/PWARegister';
 import { ToastProvider } from '@/components/Toast';
+import { DynamicFavicon } from '@/components/DynamicFavicon';
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? 'https://soyclubify.com'),
@@ -71,6 +72,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
+        <DynamicFavicon />
         <ToastProvider>{children}</ToastProvider>
         <PWARegister />
       </body>

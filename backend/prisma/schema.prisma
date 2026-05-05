@@ -194,6 +194,15 @@ model Plan {
   tenants       Tenant[]
 }
 
+/// Configuración global de Clubify (singleton key/value).
+/// Uso: branding del panel y favicon — actualizable desde super admin sin
+/// redeploy. Cualquier setting global futuro entra acá también.
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
 model PasswordResetToken {
   id         String    @id @default(uuid())
   userId     String

@@ -11,6 +11,7 @@ import { HelpButton } from './HelpPanel';
 import { QuickCreateFAB } from './QuickCreateFAB';
 import { CardVerificationLockscreen } from './CardVerificationLockscreen';
 import { Logo } from './Logo';
+import { useBranding } from '@/lib/useBranding';
 
 type IconName = Parameters<typeof Icon>[0]['name'];
 type NavItem = { href: string; label: string; icon: IconName; lockedPro?: boolean };
@@ -143,6 +144,7 @@ export default function AppShell({
           {
             section: 'Sistema',
             items: [
+              { href: '/admin/branding', label: 'Branding', icon: 'spark' },
               { href: '/admin/audit', label: 'Audit log', icon: 'history' },
             ],
           },
@@ -222,11 +224,26 @@ export default function AppShell({
   }
 
   const brandTitle = variant === 'admin' ? 'Admin Clubify' : 'Mi Negocio';
+  const branding = useBranding();
+
+  const renderBrandMark = (size: number) =>
+    branding.appLogoUrl ? (
+      <img
+        src={branding.appLogoUrl}
+        alt="Logo"
+        width={size}
+        height={size}
+        className="bg-white rounded-input object-contain flex-none"
+        style={{ width: size, height: size }}
+      />
+    ) : (
+      <Logo variant="mark" size={size} className="bg-white" />
+    );
 
   const sidebar = (
     <aside className="bg-sidebar-bg text-sidebar-ink p-4 flex flex-col gap-1.5 h-full w-[260px] lg:w-[240px] flex-none">
       <div className="flex items-center gap-3 px-1.5 pt-2 pb-4">
-        <Logo variant="mark" size={42} className="bg-white" />
+        {renderBrandMark(42)}
         <div className="flex-1 min-w-0">
           <div className="font-bold text-white text-[15px] leading-tight truncate">
             {brandTitle}
@@ -351,7 +368,7 @@ export default function AppShell({
           <Icon name="menu" size={20} />
         </button>
         <div className="flex items-center gap-2 flex-1 min-w-0">
-          <Logo variant="mark" size={28} className="bg-white flex-none" />
+          {renderBrandMark(28)}
           <div className="font-semibold text-sm truncate">{brandTitle}</div>
         </div>
         {variant === 'app' && <NotificationBell />}
