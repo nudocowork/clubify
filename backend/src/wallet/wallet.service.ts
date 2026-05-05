@@ -87,6 +87,22 @@ export class WalletService {
     const cardName = (pass.card.name || 'Tarjeta de fidelización').trim() || 'Tarjeta';
     const description = cardName;
 
+    // Para que Apple Wallet muestre banner "Tu pase de X cambió", el .pkpass
+    // tiene que cambiar de bytes Y tener un field con changeMessage que cambió.
+    // Embebimos el último mensaje de notificación enviado al tenant/card —
+    // si cambió desde la última fetch del iPhone, Apple muestra el banner.
+    const latestNotif = await this.prisma.notification.findFirst({
+      where: {
+        tenantId: pass.tenantId,
+        OR: [{ cardId: pass.cardId }, { cardId: null }],
+        sentAt: { not: null },
+      },
+      orderBy: { sentAt: 'desc' },
+    });
+    const lastMsgValue = latestNotif
+      ? `${latestNotif.title}\n${latestNotif.body}`.trim().slice(0, 200)
+      : 'Aún no hay mensajes';
+
     const passJson = {
       formatVersion: 1,
       passTypeIdentifier: process.env.APPLE_PASS_TYPE_ID ?? 'pass.com.clubify.loyalty',
@@ -119,6 +135,9 @@ export class WalletService {
             key: 'stamps',
             label: 'SELLOS',
             value: `${pass.stampsCount} / ${pass.card.stampsRequired ?? 10}`,
+            // Apple Wallet muestra banner "Tu pase de X cambió: Y sellos…"
+            // cuando este field cambia. %@ se reemplaza con el value nuevo.
+            changeMessage: 'Sellos: %@',
           },
         ],
         secondaryFields: [
@@ -128,6 +147,14 @@ export class WalletService {
           { key: 'member', label: 'CLIENTE', value: pass.customer.fullName },
         ],
         backFields: [
+          {
+            // Mensaje del último push de marketing — al cambiar muestra
+            // banner en lockscreen automático.
+            key: 'lastMessage',
+            label: 'Último mensaje',
+            value: lastMsgValue,
+            changeMessage: '%@',
+          },
           { key: 'serial', label: 'Número de tarjeta', value: pass.serialNumber },
           { key: 'terms', label: 'Condiciones', value: pass.card.terms || '—' },
           { key: 'contact', label: 'Contacto', value: pass.tenant.brandName },
