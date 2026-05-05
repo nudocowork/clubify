@@ -143,12 +143,17 @@ export class WalletService {
       ...this.loadDefaultImages(),
     };
 
-    const pkpass = new PKPass(buffers, {
+    // passkit-generator rechaza signerKeyPassphrase = '' explícito.
+    // Si la key es plain (generada con openssl -nodes), debe ser undefined.
+    const passphrase = process.env.APPLE_PASS_CERT_PASSWORD || undefined;
+    const certOpts: any = {
       wwdr: wwdrPem,
       signerCert: certPem,
       signerKey: certPem,
-      signerKeyPassphrase: process.env.APPLE_PASS_CERT_PASSWORD ?? '',
-    });
+    };
+    if (passphrase) certOpts.signerKeyPassphrase = passphrase;
+
+    const pkpass = new PKPass(buffers, certOpts);
     return pkpass.getAsBuffer();
   }
 
