@@ -128,11 +128,10 @@ export class WalletService {
       },
     };
 
-    const certPath = process.env.APPLE_PASS_CERT_PATH;
-    const wwdrPath = process.env.APPLE_WWDR_PATH;
-    const haveCerts = certPath && wwdrPath && fs.existsSync(certPath) && fs.existsSync(wwdrPath);
+    const certPem = this.loadAppleCert();
+    const wwdrPem = this.loadAppleWwdr();
 
-    if (!haveCerts) {
+    if (!certPem || !wwdrPem) {
       this.logger.warn('Apple Wallet certs not configured; returning mock pass.json');
       return Buffer.from(JSON.stringify(passJson, null, 2));
     }
@@ -145,12 +144,61 @@ export class WalletService {
     };
 
     const pkpass = new PKPass(buffers, {
-      wwdr: fs.readFileSync(wwdrPath),
-      signerCert: fs.readFileSync(certPath),
-      signerKey: fs.readFileSync(certPath),
+      wwdr: wwdrPem,
+      signerCert: certPem,
+      signerKey: certPem,
       signerKeyPassphrase: process.env.APPLE_PASS_CERT_PASSWORD ?? '',
     });
     return pkpass.getAsBuffer();
+  }
+
+  /**
+   * Carga el cert combinado (cert + private key) Apple Wallet desde:
+   *   1) APPLE_PASS_CERT_BASE64 (preferido para Railway)
+   *   2) APPLE_PASS_CERT_PATH (path al .pem en disco — modo dev)
+   */
+  private loadAppleCert(): Buffer | null {
+    const b64 = process.env.APPLE_PASS_CERT_BASE64;
+    if (b64) {
+      try {
+        return Buffer.from(b64, 'base64');
+      } catch (e) {
+        this.logger.warn(`APPLE_PASS_CERT_BASE64 inválido: ${(e as Error).message}`);
+      }
+    }
+    const p = process.env.APPLE_PASS_CERT_PATH;
+    if (p && fs.existsSync(p)) return fs.readFileSync(p);
+    return null;
+  }
+
+  /** WWDR Intermediate cert: APPLE_WWDR_BASE64 o APPLE_WWDR_PATH. */
+  private loadAppleWwdr(): Buffer | null {
+    const b64 = process.env.APPLE_WWDR_BASE64;
+    if (b64) {
+      try {
+        return Buffer.from(b64, 'base64');
+      } catch (e) {
+        this.logger.warn(`APPLE_WWDR_BASE64 inválido: ${(e as Error).message}`);
+      }
+    }
+    const p = process.env.APPLE_WWDR_PATH;
+    if (p && fs.existsSync(p)) return fs.readFileSync(p);
+    return null;
+  }
+
+  /** APNs Auth Key (.p8): APNS_KEY_BASE64 o APNS_KEY_PATH. */
+  private loadApnsKey(): Buffer | null {
+    const b64 = process.env.APNS_KEY_BASE64;
+    if (b64) {
+      try {
+        return Buffer.from(b64, 'base64');
+      } catch (e) {
+        this.logger.warn(`APNS_KEY_BASE64 inválido: ${(e as Error).message}`);
+      }
+    }
+    const p = process.env.APNS_KEY_PATH;
+    if (p && fs.existsSync(p)) return fs.readFileSync(p);
+    return null;
   }
 
   /** Apple consulta esto cuando push le avisa que el pase cambió. */
@@ -258,12 +306,12 @@ export class WalletService {
       return { sent: 0, skipped: 0 };
     }
 
-    const keyPath = process.env.APNS_KEY_PATH;
+    const keyBuf = this.loadApnsKey();
     const keyId = process.env.APNS_KEY_ID;
     const teamId = process.env.APNS_TEAM_ID;
     const topic = process.env.APPLE_PASS_TYPE_ID ?? 'pass.com.clubify.loyalty';
 
-    if (!keyPath || !keyId || !teamId || !fs.existsSync(keyPath)) {
+    if (!keyBuf || !keyId || !teamId) {
       this.logger.warn(
         `pushPassUpdate(${passId}): APNs no configurado (${devices.length} dispositivos esperando) — skipeando`,
       );
@@ -272,7 +320,8 @@ export class WalletService {
 
     const apn = await import('apn');
     const provider = new apn.Provider({
-      token: { key: keyPath, keyId, teamId },
+      // node-apn acepta string (path o contenido PEM). Convertimos buffer a string.
+      token: { key: keyBuf.toString('utf8'), keyId, teamId },
       production: process.env.NODE_ENV === 'production',
     });
     // Apple Wallet espera notificación SILENCIOSA: payload vacío, topic =
