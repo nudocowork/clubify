@@ -67,7 +67,7 @@ export default function StorefrontPublic() {
   const { slug } = useParams<{ slug: string }>();
   const [s, setS] = useState<Storefront | null>(null);
   const [menu, setMenu] = useState<Category[]>([]);
-  const [tab, setTab] = useState<'menu' | 'card' | 'promos'>('menu');
+  const [tab, setTab] = useState<'menu' | 'promos'>('menu');
   const [openProduct, setOpenProduct] = useState<Product | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showCart, setShowCart] = useState(false);
@@ -164,7 +164,7 @@ export default function StorefrontPublic() {
       {/* Tabs */}
       <div className="px-5 max-w-2xl mx-auto sticky top-2 z-20">
         <div className="flex gap-1 p-1 rounded-pill bg-white border border-line shadow-sm">
-          {(['menu', 'card', 'promos'] as const).map((t) => (
+          {(['menu', 'promos'] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -174,7 +174,7 @@ export default function StorefrontPublic() {
                 color: tab === t ? '#fff' : '#6B7280',
               }}
             >
-              {t === 'menu' ? 'Menú' : t === 'card' ? 'Mi Tarjeta' : 'Promos'}
+              {t === 'menu' ? 'Menú' : 'Promos'}
             </button>
           ))}
         </div>
@@ -262,6 +262,25 @@ export default function StorefrontPublic() {
                       {p.description}
                     </div>
                   )}
+                  {(p.originalPrice || p.value) && (
+                    <div className="mt-2.5 flex items-baseline gap-2">
+                      {p.originalPrice && (
+                        <span className="text-mute line-through text-sm">
+                          {fmt(Number(p.originalPrice), s.currency)}
+                        </span>
+                      )}
+                      {p.value > 0 && p.type === 'DISCOUNT_AMOUNT' && (
+                        <span className="text-xl font-bold text-bad">
+                          {fmt(Number(p.value), s.currency)}
+                        </span>
+                      )}
+                      {p.value > 0 && p.type === 'DISCOUNT_PCT' && (
+                        <span className="text-xl font-bold text-bad">
+                          -{Number(p.value)}%
+                        </span>
+                      )}
+                    </div>
+                  )}
                   {p.validUntil && (
                     <div className="text-xs text-mute mt-2 flex items-center gap-1">
                       ⏰ Hasta {new Date(p.validUntil).toLocaleDateString('es-CO', { day: 'numeric', month: 'long' })}
@@ -292,9 +311,6 @@ export default function StorefrontPublic() {
           })}
         </div>
       )}
-
-      {/* Tarjeta */}
-      {tab === 'card' && <CardLookup slug={slug} primary={primary} />}
 
       {/* Bottom dock con carrito */}
       {totals.count > 0 && !showCart && !showCheckout && (

@@ -59,6 +59,7 @@ export class PublicMenuController {
         imageUrl: p.imageUrl,
         type: p.type,
         value: Number(p.value),
+        originalPrice: p.originalPrice ? Number(p.originalPrice) : null,
         validUntil: p.validUntil,
       })),
     };

@@ -12,6 +12,7 @@ type Promo = {
   imageUrl: string | null;
   type: string;
   value: number;
+  originalPrice: number | null;
   conditions: any;
   validFrom: string | null;
   validUntil: string | null;
@@ -48,6 +49,10 @@ export default function PromosPage() {
       imageUrl: p.imageUrl ?? undefined,
       type: p.type,
       value: Number(p.value ?? 0),
+      originalPrice:
+        p.originalPrice !== null && p.originalPrice !== undefined
+          ? Number(p.originalPrice)
+          : undefined,
       conditions: p.conditions ?? {},
       validFrom: p.validFrom || undefined,
       validUntil: p.validUntil || undefined,
@@ -109,8 +114,9 @@ export default function PromosPage() {
               name: '',
               description: '',
               imageUrl: null,
-              type: 'DISCOUNT_PCT',
-              value: 10,
+              type: 'DISCOUNT_AMOUNT',
+              value: 0,
+              originalPrice: null,
               conditions: {},
               isActive: true,
             })
@@ -160,14 +166,23 @@ export default function PromosPage() {
                 {p.isActive ? 'Activa' : 'Pausa'}
               </span>
             </div>
-            <div className="mt-4 text-sm">
-              <span className="text-mute">{TYPE_LABEL[p.type]}: </span>
-              <strong>
+            {p.imageUrl && (
+              <img
+                src={p.imageUrl}
+                alt=""
+                className="w-full h-32 object-cover rounded-lg mt-3"
+              />
+            )}
+            <div className="mt-3 text-sm flex items-baseline gap-2">
+              {p.originalPrice && (
+                <span className="text-mute line-through text-xs">
+                  ${Number(p.originalPrice).toLocaleString('es-CO')}
+                </span>
+              )}
+              <strong className="text-base text-bad">
                 {p.type === 'DISCOUNT_PCT'
                   ? `${Number(p.value)}%`
-                  : p.type === 'DISCOUNT_AMOUNT'
-                  ? `$${Number(p.value).toLocaleString('es-CO')}`
-                  : Number(p.value)}
+                  : `$${Number(p.value).toLocaleString('es-CO')}`}
               </strong>
             </div>
             {p.validUntil && (
@@ -268,29 +283,63 @@ function PromoDrawer({
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="label">Tipo</label>
-              <select
-                className="input"
-                value={form.type ?? 'DISCOUNT_PCT'}
-                onChange={(e) => update('type', e.target.value)}
-              >
-                {Object.entries(TYPE_LABEL).map(([k, v]) => (
-                  <option key={k} value={k}>
-                    {v}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="label">Valor</label>
+              <label className="label">Precio regular</label>
               <input
                 type="number"
                 className="input"
+                placeholder="$ antes"
+                value={form.originalPrice ?? ''}
+                onChange={(e) =>
+                  update(
+                    'originalPrice',
+                    e.target.value ? Number(e.target.value) : null,
+                  )
+                }
+              />
+              <p className="text-[11px] text-mute mt-1">
+                Aparece tachado al lado del precio promo.
+              </p>
+            </div>
+            <div>
+              <label className="label">Precio promo</label>
+              <input
+                type="number"
+                className="input"
+                placeholder="$ con descuento"
                 value={form.value ?? 0}
                 onChange={(e) => update('value', Number(e.target.value))}
               />
+              <p className="text-[11px] text-mute mt-1">
+                El precio final que paga el cliente.
+              </p>
             </div>
           </div>
+
+          <details className="text-xs">
+            <summary className="cursor-pointer text-mute hover:text-ink">
+              Opciones avanzadas (tipo, condiciones)
+            </summary>
+            <div className="mt-3 space-y-3">
+              <div>
+                <label className="label">Tipo de promoción</label>
+                <select
+                  className="input"
+                  value={form.type ?? 'DISCOUNT_AMOUNT'}
+                  onChange={(e) => update('type', e.target.value)}
+                >
+                  {Object.entries(TYPE_LABEL).map(([k, v]) => (
+                    <option key={k} value={k}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-mute mt-1">
+                  Default "$ Descuento" para producto con precio promo. Otros
+                  tipos aplican al carrito completo.
+                </p>
+              </div>
+            </div>
+          </details>
 
           <fieldset className="border border-line rounded-lg p-3">
             <legend className="px-1 text-xs font-semibold text-mute">

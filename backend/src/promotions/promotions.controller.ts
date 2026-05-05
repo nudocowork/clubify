@@ -20,6 +20,7 @@ class PromoBody {
   @IsOptional() @IsString() imageUrl?: string;
   @IsEnum(PromotionType) type!: PromotionType;
   @IsNumber() value!: number;
+  @IsOptional() @IsNumber() originalPrice?: number;
   @IsOptional() @IsObject() conditions?: any;
   @IsOptional() @IsString() validFrom?: string;
   @IsOptional() @IsString() validUntil?: string;

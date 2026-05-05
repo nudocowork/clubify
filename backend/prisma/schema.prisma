@@ -659,6 +659,9 @@ model Promotion {
   imageUrl                    String?
   type                        PromotionType
   value                       Decimal       @db.Decimal(10, 2)
+  /// Precio regular del producto antes del descuento. NULL = no se muestra
+  /// como producto en oferta. Se renderiza tachado al lado del precio promo.
+  originalPrice               Decimal?      @db.Decimal(10, 2)
   conditions                  Json          @default("{}")
   validFrom                   DateTime?
   validUntil                  DateTime?

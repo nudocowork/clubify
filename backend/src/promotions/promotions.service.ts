@@ -6,8 +6,10 @@ import { AuthUser } from '../common/decorators/current-user.decorator';
 export type PromoDto = {
   name: string;
   description?: string;
+  imageUrl?: string;
   type: PromotionType;
   value: number;
+  originalPrice?: number;
   conditions?: any;
   validFrom?: string;
   validUntil?: string;
@@ -44,8 +46,10 @@ export class PromotionsService {
         tenantId: tid,
         name: dto.name,
         description: dto.description ?? '',
+        imageUrl: dto.imageUrl ?? null,
         type: dto.type,
         value: dto.value,
+        originalPrice: dto.originalPrice ?? null,
         conditions: dto.conditions ?? {},
         validFrom: dto.validFrom ? new Date(dto.validFrom) : null,
         validUntil: dto.validUntil ? new Date(dto.validUntil) : null,
