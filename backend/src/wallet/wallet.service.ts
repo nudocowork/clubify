@@ -478,22 +478,53 @@ export class WalletService {
     }
 
     const apn = await import('apn');
-    const provider = new apn.Provider({
-      // node-apn acepta string (path o contenido PEM). Convertimos buffer a string.
-      token: { key: keyBuf.toString('utf8'), keyId, teamId },
-      production: process.env.NODE_ENV === 'production',
-    });
+
+    // Decide environment inicial via env var explícita o NODE_ENV.
+    // APNS_ENV puede ser 'production' | 'sandbox' para forzar.
+    const envOverride = process.env.APNS_ENV?.toLowerCase();
+    const startProd =
+      envOverride === 'production'
+        ? true
+        : envOverride === 'sandbox'
+          ? false
+          : process.env.NODE_ENV === 'production';
+
+    const buildProvider = (production: boolean) =>
+      new apn.Provider({
+        token: { key: keyBuf.toString('utf8'), keyId, teamId },
+        production,
+      });
+
     // Apple Wallet espera notificación SILENCIOSA: payload vacío, topic =
     // passTypeId. No alert, no sound, no badge — solo trigger de fetch.
     const note = new apn.Notification();
     note.topic = topic;
     note.payload = {};
 
+    let provider = buildProvider(startProd);
     let sent = 0;
     let skipped = 0;
+    let envMismatchDetected = false;
+
     for (const d of devices) {
       try {
-        const r = await provider.send(note, d.pushToken);
+        let r = await provider.send(note, d.pushToken);
+        // Si Apple rechaza por env mismatch, regenerar provider en el OTRO
+        // environment y retry una vez. Solo lo hacemos una vez por loop.
+        const failedReason = r.failed[0]?.response?.reason as string | undefined;
+        if (
+          r.failed.length > 0 &&
+          failedReason === 'BadEnvironmentKeyInToken' &&
+          !envMismatchDetected
+        ) {
+          envMismatchDetected = true;
+          this.logger.warn(
+            `APNs env mismatch (envío fue ${startProd ? 'production' : 'sandbox'}) → retry con el otro env`,
+          );
+          provider.shutdown();
+          provider = buildProvider(!startProd);
+          r = await provider.send(note, d.pushToken);
+        }
         sent += r.sent.length;
         skipped += r.failed.length;
         if (r.failed.length > 0) {
