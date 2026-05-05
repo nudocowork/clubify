@@ -7,7 +7,7 @@ import { SortableList, DragHandle } from '@/components/Sortable';
 import { toast } from '@/components/Toast';
 
 type Category = { id: string; name: string; _count?: { products: number } };
-type Variant = { id?: string; name: string; priceDelta: number; isDefault?: boolean };
+type Variant = { id?: string; name: string; priceDelta: number; isDefault?: boolean; groupName?: string };
 type Extra = { id?: string; name: string; price: number };
 type Product = {
   id: string;
@@ -487,8 +487,23 @@ function ProductDrawer({
           </fieldset>
 
           <fieldset className="border border-line rounded-lg p-3">
-            <legend className="px-1 text-xs font-semibold text-mute">
-              Variantes (Tamaños)
+            <legend className="px-1 text-xs font-semibold text-mute flex items-center gap-1.5">
+              Variantes (
+              <input
+                className="bg-transparent border-b border-dashed border-line focus:border-brand outline-none text-xs font-semibold w-24 px-0.5"
+                placeholder="Tamaños"
+                value={form.variants?.[0]?.groupName ?? ''}
+                onChange={(e) => {
+                  const label = e.target.value;
+                  const arr = (form.variants ?? []).map((v) => ({
+                    ...v,
+                    groupName: label,
+                  }));
+                  update('variants', arr);
+                }}
+                title="Editá la palabra (ej: Sabores, Colores, Opciones)"
+              />
+              )
             </legend>
             {(form.variants ?? []).map((v, i) => (
               <div key={i} className="flex gap-2 mb-2">
@@ -527,12 +542,13 @@ function ProductDrawer({
             ))}
             <button
               className="btn-link text-xs"
-              onClick={() =>
+              onClick={() => {
+                const groupName = form.variants?.[0]?.groupName ?? 'Tamaño';
                 update('variants', [
                   ...(form.variants ?? []),
-                  { name: '', priceDelta: 0 },
-                ])
-              }
+                  { name: '', priceDelta: 0, groupName },
+                ]);
+              }}
             >
               + Variante
             </button>
