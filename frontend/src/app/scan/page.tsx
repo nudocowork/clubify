@@ -120,7 +120,19 @@ export default function ScanPage() {
           amount,
         }),
       });
-      setData({ ...data, pass: res.pass });
+      // El backend devuelve `pass` sin includes (solo campos del Pass).
+      // Conservamos card/customer/tenant del state previo, solo
+      // sobreescribimos los campos numéricos que cambiaron.
+      setData({
+        ...data,
+        pass: {
+          ...data.pass,
+          stampsCount: res.pass.stampsCount,
+          pointsBalance: res.pass.pointsBalance,
+          status: res.pass.status,
+          lastActivityAt: res.pass.lastActivityAt,
+        },
+      });
       playScanSuccess();
     } catch (e: any) {
       setErr(e.message);

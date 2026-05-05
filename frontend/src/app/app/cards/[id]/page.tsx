@@ -457,46 +457,52 @@ function EnrollLinkCard({ cardId, cardName }: { cardId: string; cardName: string
 
   return (
     <div className="card card-pad mb-5">
-      <div className="grid grid-cols-1 md:grid-cols-[160px_1fr] gap-5 items-center">
-        <div className="bg-white border border-line p-3 rounded-xl flex items-center justify-center">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-5">
+        <div className="bg-white border border-line p-3 rounded-xl flex items-center justify-center self-center sm:self-auto sm:flex-none">
           {enrollUrl ? (
             <QRCodeSVG
               id="enroll-qr-svg"
               value={enrollUrl}
-              size={140}
+              size={132}
               level="M"
               includeMargin={false}
             />
           ) : (
-            <div className="w-[140px] h-[140px] bg-bg2 rounded animate-pulse" />
+            <div className="w-[132px] h-[132px] bg-bg2 rounded animate-pulse" />
           )}
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1 text-center sm:text-left">
           <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-1">
             QR de inscripción
           </div>
-          <h3 className="font-semibold text-base text-ink">
+          <h3 className="font-semibold text-sm sm:text-base text-ink leading-snug">
             Link para que los clientes obtengan esta tarjeta
           </h3>
-          <div className="mt-3 flex items-center gap-2 bg-bg2 border border-line rounded-input px-3 py-2 text-xs font-mono text-mute overflow-hidden">
-            <span className="truncate flex-1" title={enrollUrl}>
+          <div className="mt-3 flex items-center gap-2 bg-bg2 border border-line rounded-input px-3 py-2 text-[11px] sm:text-xs font-mono text-mute overflow-hidden">
+            <span className="truncate flex-1 text-left" title={enrollUrl}>
               {enrollUrl}
             </span>
           </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button onClick={copy} className="btn-ghost text-xs">
-              Copiar link
+          <div className="mt-3 grid grid-cols-3 sm:flex sm:flex-wrap gap-2">
+            <button
+              onClick={copy}
+              className="btn-ghost text-xs justify-center px-2"
+            >
+              Copiar
             </button>
-            <button onClick={downloadQR} className="btn-ghost text-xs">
-              Descargar QR
+            <button
+              onClick={downloadQR}
+              className="btn-ghost text-xs justify-center px-2"
+            >
+              QR PNG
             </button>
             <a
               href={enrollUrl}
               target="_blank"
               rel="noreferrer"
-              className="btn-ghost text-xs"
+              className="btn-ghost text-xs justify-center px-2"
             >
-              Vista previa
+              Previa
             </a>
           </div>
         </div>
