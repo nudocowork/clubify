@@ -130,7 +130,9 @@ export class WalletService {
         relevantText: `Estás cerca de ${brandName}`,
       })),
       storeCard: {
-        primaryFields: [
+        // Stamps cuenta arriba a la derecha (no encima del strip) →
+        // headerFields se renderiza en el header opuesto al logo del tenant.
+        headerFields: [
           {
             key: 'stamps',
             label: 'SELLOS',
@@ -140,6 +142,9 @@ export class WalletService {
             changeMessage: 'Sellos: %@',
           },
         ],
+        // primaryFields vacío → el strip image actúa de hero principal sin
+        // texto encima.
+        primaryFields: [],
         secondaryFields: [
           { key: 'reward', label: 'RECOMPENSA', value: pass.card.rewardText || '—' },
         ],
@@ -197,15 +202,20 @@ export class WalletService {
       });
     }
 
-    // Icono del tenant — aparece en el banner de push notification del iPhone
-    // y en el header del pase abierto. Si el tenant tiene logoUrl la usamos,
-    // sino caen los defaults de Clubify.
+    // Imágenes del tenant:
+    // - icon.png (cuadrado): banner de push notification del iPhone + ícono
+    //   en notification center.
+    // - logo.png (rectangular, max 160×50): header arriba-izquierda del
+    //   pase. Si el tenant NO tiene logoUrl, devolvemos un PNG transparente
+    //   para que el logo de Clubify default no aparezca (pedido del cliente).
     const tenantIcons = await this.generateTenantIcons(pass.tenant.logoUrl);
+    const tenantLogos = await this.generateTenantLogos(pass.tenant.logoUrl);
 
     const buffers: Record<string, Buffer> = {
       'pass.json': Buffer.from(JSON.stringify(passJson)),
       ...this.loadDefaultImages(),
       ...tenantIcons, // override icon*.png con el logo del tenant si existe
+      ...tenantLogos, // override logo*.png (transparente o tenant)
       ...dynamicStrips, // override strip*.png si los generamos
     };
 
@@ -361,6 +371,70 @@ export class WalletService {
       };
     } catch (e) {
       this.logger.warn(`generateTenantIcons error: ${(e as Error).message}`);
+      return {};
+    }
+  }
+
+  /**
+   * Genera logo.png / @2x / @3x para el header arriba-izquierda del pase.
+   * Apple Wallet acepta hasta 160×50 (320×100 @2x, 480×150 @3x).
+   * Si el tenant tiene logoUrl la usamos. Si no, devolvemos PNG totalmente
+   * transparente — así el logo de Clubify default queda invisible y solo
+   * el `logoText` (brandName del tenant) aparece en el header.
+   */
+  private async generateTenantLogos(
+    logoUrl: string | null,
+  ): Promise<Record<string, Buffer>> {
+    const sharp = (await import('sharp')).default;
+    const transparent = (w: number, h: number) =>
+      sharp({
+        create: {
+          width: w,
+          height: h,
+          channels: 4,
+          background: { r: 0, g: 0, b: 0, alpha: 0 },
+        },
+      })
+        .png()
+        .toBuffer();
+
+    if (!logoUrl) {
+      const [l1, l2, l3] = await Promise.all([
+        transparent(160, 50),
+        transparent(320, 100),
+        transparent(480, 150),
+      ]);
+      return { 'logo.png': l1, 'logo@2x.png': l2, 'logo@3x.png': l3 };
+    }
+
+    try {
+      const res = await fetch(logoUrl);
+      if (!res.ok) {
+        this.logger.warn(`logoUrl fetch falló (${res.status}): ${logoUrl}`);
+        const [l1, l2, l3] = await Promise.all([
+          transparent(160, 50),
+          transparent(320, 100),
+          transparent(480, 150),
+        ]);
+        return { 'logo.png': l1, 'logo@2x.png': l2, 'logo@3x.png': l3 };
+      }
+      const src = Buffer.from(await res.arrayBuffer());
+      const make = (w: number, h: number) =>
+        sharp(src)
+          .resize(w, h, {
+            fit: 'contain',
+            background: { r: 0, g: 0, b: 0, alpha: 0 },
+          })
+          .png()
+          .toBuffer();
+      const [l1, l2, l3] = await Promise.all([
+        make(160, 50),
+        make(320, 100),
+        make(480, 150),
+      ]);
+      return { 'logo.png': l1, 'logo@2x.png': l2, 'logo@3x.png': l3 };
+    } catch (e) {
+      this.logger.warn(`generateTenantLogos error: ${(e as Error).message}`);
       return {};
     }
   }

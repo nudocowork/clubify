@@ -21,7 +21,12 @@ RUN npm run build
 FROM node:20-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
-RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates \
+# fontconfig + Noto Color Emoji son necesarios para que sharp renderice
+# emojis dentro de la strip dinámica del .pkpass (sino sale solo círculo
+# blanco sin el icono del sello).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssl ca-certificates fontconfig fonts-noto-color-emoji \
+    && fc-cache -f \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
