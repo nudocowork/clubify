@@ -3,24 +3,16 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
-
-// Emojis sugeridos para usar en notificaciones push (clickeables)
-const PUSH_EMOJIS = [
-  '🎉', '🎁', '☕', '🍕', '⭐', '🔥', '💚', '💙',
-  '✨', '💯', '🙌', '👋', '🚨', '⏰', '📣', '🎊',
-  '🎂', '❤️', '👀', '💸', '🎯', '🛍️',
-];
+import { EmojiPicker } from '@/components/EmojiPicker';
 
 export default function NotificationsPage() {
   const [history, setHistory] = useState<any[]>([]);
   const [cards, setCards] = useState<any[]>([]);
   const [form, setForm] = useState({ cardId: '', title: '', body: '' });
   const [sending, setSending] = useState(false);
-  const [emojiTarget, setEmojiTarget] = useState<'title' | 'body' | null>(null);
 
-  function insertEmoji(emoji: string) {
-    if (!emojiTarget) return;
-    setForm((f) => ({ ...f, [emojiTarget]: (f[emojiTarget] || '') + emoji }));
+  function appendEmoji(field: 'title' | 'body', emoji: string) {
+    setForm((f) => ({ ...f, [field]: (f[field] || '') + emoji }));
   }
 
   async function load() {
@@ -86,66 +78,42 @@ export default function NotificationsPage() {
             </select>
           </div>
           <div className="mt-3">
-            <div className="flex items-center justify-between">
-              <label className="label mb-0">Título</label>
-              <button
-                type="button"
-                className="text-[11px] text-brand hover:underline"
-                onClick={() => setEmojiTarget(emojiTarget === 'title' ? null : 'title')}
-              >
-                {emojiTarget === 'title' ? 'Cerrar emojis' : '+ emoji'}
-              </button>
+            <label className="label">Título</label>
+            <div className="flex items-stretch gap-2">
+              <input
+                className="input flex-1"
+                value={form.title}
+                onChange={(e) => setForm({ ...form, title: e.target.value })}
+                required
+                maxLength={64}
+                placeholder="Ej: Promo de fin de semana"
+              />
+              <EmojiPicker
+                onSelect={(emoji) => appendEmoji('title', emoji)}
+                size="sm"
+                placeholder="Agregar emoji al título"
+              />
             </div>
-            <input
-              className="input"
-              value={form.title}
-              onChange={(e) => setForm({ ...form, title: e.target.value })}
-              onFocus={() => setEmojiTarget('title')}
-              required
-              maxLength={64}
-            />
           </div>
           <div className="mt-3">
-            <div className="flex items-center justify-between">
-              <label className="label mb-0">Mensaje</label>
-              <button
-                type="button"
-                className="text-[11px] text-brand hover:underline"
-                onClick={() => setEmojiTarget(emojiTarget === 'body' ? null : 'body')}
-              >
-                {emojiTarget === 'body' ? 'Cerrar emojis' : '+ emoji'}
-              </button>
+            <label className="label">Mensaje</label>
+            <div className="flex items-start gap-2">
+              <textarea
+                className="input flex-1"
+                value={form.body}
+                onChange={(e) => setForm({ ...form, body: e.target.value })}
+                required
+                maxLength={200}
+                rows={3}
+                placeholder="Ej: 2x1 en cafés todo el sábado ☕"
+              />
+              <EmojiPicker
+                onSelect={(emoji) => appendEmoji('body', emoji)}
+                size="sm"
+                placeholder="Agregar emoji al mensaje"
+              />
             </div>
-            <textarea
-              className="input"
-              value={form.body}
-              onChange={(e) => setForm({ ...form, body: e.target.value })}
-              onFocus={() => setEmojiTarget('body')}
-              required
-              maxLength={200}
-            />
           </div>
-
-          {emojiTarget && (
-            <div className="mt-2 p-2 bg-bg2 rounded-input">
-              <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1.5">
-                Click para agregar al {emojiTarget === 'title' ? 'título' : 'mensaje'}
-              </div>
-              <div className="grid grid-cols-8 sm:grid-cols-11 gap-1">
-                {PUSH_EMOJIS.map((e) => (
-                  <button
-                    key={e}
-                    type="button"
-                    onClick={() => insertEmoji(e)}
-                    className="aspect-square text-xl hover:bg-white rounded transition"
-                    aria-label={`Agregar ${e}`}
-                  >
-                    {e}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
 
           <button
             className="btn-primary mt-4 w-full justify-center"

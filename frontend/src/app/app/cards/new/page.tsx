@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
+import { EmojiPicker } from '@/components/EmojiPicker';
 
 const TYPES = ['STAMPS', 'POINTS', 'DISCOUNT', 'MEMBERSHIP', 'COUPON', 'GIFT', 'MULTI'] as const;
 type CardType = (typeof TYPES)[number];
@@ -33,15 +34,6 @@ export default function NewCard() {
     stampIcon: '☕',
   });
 
-  // Iconos disponibles para representar cada sello en la tarjeta
-  const STAMP_ICONS = [
-    '☕', '🍵', '🥐', '🍰', '🍩', '🧁', '🍪',
-    '🍕', '🍔', '🌮', '🍣', '🥗', '🍜', '🍱',
-    '🍦', '🍷', '🍻', '🍹', '🥤',
-    '✂️', '💆', '💇', '💅', '🛍️',
-    '🎁', '⭐', '✨', '❤️', '🌟', '🏆',
-    '🐶', '🐱', '🐾', '🌸',
-  ];
   const [err, setErr] = useState<string | null>(null);
 
   function set<K extends keyof typeof form>(k: K, v: any) {
@@ -145,28 +137,18 @@ export default function NewCard() {
               </div>
               <div className="mt-3">
                 <label className="label">Icono del sello</label>
-                <div className="grid grid-cols-7 sm:grid-cols-9 gap-1.5 max-h-44 overflow-y-auto p-2 bg-bg2 rounded-input">
-                  {STAMP_ICONS.map((icon) => {
-                    const active = form.stampIcon === icon;
-                    return (
-                      <button
-                        key={icon}
-                        type="button"
-                        onClick={() => set('stampIcon', icon)}
-                        className={`aspect-square rounded-lg text-xl sm:text-2xl flex items-center justify-center transition border-2 ${
-                          active
-                            ? 'bg-white border-brand shadow-md'
-                            : 'bg-white/40 border-transparent hover:bg-white/80'
-                        }`}
-                        aria-label={`Sello ${icon}`}
-                      >
-                        {icon}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="text-[11px] text-mute mt-1.5">
-                  Los clientes verán este símbolo en cada sello acumulado.
+                <div className="flex items-center gap-3">
+                  <EmojiPicker
+                    value={form.stampIcon}
+                    onSelect={(emoji) => set('stampIcon', emoji)}
+                    size="lg"
+                    placeholder="Elegí el icono del sello"
+                  />
+                  <div className="text-[12px] text-mute leading-snug">
+                    Tocá para abrir el selector con buscador y todas las
+                    categorías. Los clientes verán este símbolo en cada sello
+                    acumulado de la tarjeta.
+                  </div>
                 </div>
               </div>
             </>
