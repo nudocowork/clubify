@@ -31,11 +31,39 @@ export default function ScanPage() {
     let scanner: any;
     (async () => {
       try {
-        const { Html5Qrcode } = await import('html5-qrcode');
-        scanner = new Html5Qrcode('qr-reader');
+        const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import(
+          'html5-qrcode'
+        );
+        scanner = new Html5Qrcode('qr-reader', {
+          // Formatos soportados: QR + códigos de barra de wallets reales.
+          // PDF417 = Apple Wallet storeCard / passkit barcode default.
+          // CODE_128 + EAN_13 = códigos de barra "tradicionales" de tarjetas
+          // físicas si el negocio escanea esas también.
+          formatsToSupport: [
+            Html5QrcodeSupportedFormats.QR_CODE,
+            Html5QrcodeSupportedFormats.PDF_417,
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.CODE_39,
+            Html5QrcodeSupportedFormats.AZTEC,
+            Html5QrcodeSupportedFormats.DATA_MATRIX,
+          ],
+          verbose: false,
+        });
         await scanner.start(
           { facingMode: 'environment' },
-          { fps: 10, qrbox: 250 },
+          {
+            fps: 10,
+            // Recuadro horizontal — los códigos de barra son anchos+bajos
+            // (PDF417 ~3:1, Code128 ~4:1). Sigue funcionando para QR.
+            qrbox: (vw: number, vh: number) => {
+              const minSide = Math.min(vw, vh);
+              const width = Math.min(vw - 30, Math.round(minSide * 1.1));
+              const height = Math.round(width * 0.4);
+              return { width, height };
+            },
+            aspectRatio: 1.5,
+          },
           async (text: string) => {
             await verify(text);
             await scanner.stop();
@@ -43,7 +71,7 @@ export default function ScanPage() {
           () => {},
         );
       } catch {
-        setErr('No se pudo acceder a la cámara. Pega el QR manualmente abajo.');
+        setErr('No se pudo acceder a la cámara. Pega el código manualmente abajo.');
       }
     })();
     return () => {
@@ -127,7 +155,7 @@ export default function ScanPage() {
             >
               <input
                 className="input flex-1"
-                placeholder="Pegar QR token manualmente"
+                placeholder="Código QR / barcode / serial manualmente"
                 value={manual}
                 onChange={(e) => setManual(e.target.value)}
               />

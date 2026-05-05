@@ -456,9 +456,9 @@ function EnrollLinkCard({ cardId, cardName }: { cardId: string; cardName: string
   }
 
   return (
-    <div className="card card-pad mb-5 bg-gradient-to-br from-brand-soft via-bg2 to-brand-100">
+    <div className="card card-pad mb-5">
       <div className="grid grid-cols-1 md:grid-cols-[160px_1fr] gap-5 items-center">
-        <div className="bg-white p-3 rounded-xl shadow flex items-center justify-center">
+        <div className="bg-white border border-line p-3 rounded-xl flex items-center justify-center">
           {enrollUrl ? (
             <QRCodeSVG
               id="enroll-qr-svg"
@@ -472,28 +472,23 @@ function EnrollLinkCard({ cardId, cardName }: { cardId: string; cardName: string
           )}
         </div>
         <div className="min-w-0">
-          <div className="text-[11px] uppercase tracking-[0.18em] text-brand font-semibold mb-1">
-            🎯 QR público de inscripción
+          <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-1">
+            QR de inscripción
           </div>
-          <h3 className="font-bold text-base">
-            Comparte este QR — los clientes se inscriben solos
+          <h3 className="font-semibold text-base text-ink">
+            Link para que los clientes obtengan esta tarjeta
           </h3>
-          <p className="text-sm text-mute mt-1.5 leading-relaxed">
-            Al escanearlo, se les pide nombre, WhatsApp y email, y queda
-            instalada en su Apple Wallet / Google Wallet en menos de 30
-            segundos. Imprímelo y pégalo en el local, o pásalo por WhatsApp.
-          </p>
-          <div className="mt-3 flex items-center gap-2 bg-white border border-line rounded-input px-3 py-2 text-xs font-mono text-mute overflow-hidden">
+          <div className="mt-3 flex items-center gap-2 bg-bg2 border border-line rounded-input px-3 py-2 text-xs font-mono text-mute overflow-hidden">
             <span className="truncate flex-1" title={enrollUrl}>
               {enrollUrl}
             </span>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             <button onClick={copy} className="btn-ghost text-xs">
-              📋 Copiar link
+              Copiar link
             </button>
             <button onClick={downloadQR} className="btn-ghost text-xs">
-              ⤓ Descargar QR (PNG)
+              Descargar QR
             </button>
             <a
               href={enrollUrl}
@@ -501,7 +496,7 @@ function EnrollLinkCard({ cardId, cardName }: { cardId: string; cardName: string
               rel="noreferrer"
               className="btn-ghost text-xs"
             >
-              👁 Ver como cliente →
+              Vista previa
             </a>
           </div>
         </div>
