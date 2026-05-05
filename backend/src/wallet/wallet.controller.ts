@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Logger, Param, Post, Req, Res } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { Public } from '../common/decorators/public.decorator';
@@ -10,6 +10,8 @@ import { WalletService } from './wallet.service';
  */
 @Controller('wallet/apple')
 export class WalletController {
+  private logger = new Logger(WalletController.name);
+
   constructor(
     private prisma: PrismaService,
     private wallet: WalletService,
@@ -27,8 +29,20 @@ export class WalletController {
   ) {
     const auth = req.headers['authorization'] ?? '';
     const token = String(auth).replace(/^ApplePass /, '');
+    this.logger.log(
+      `Apple Wallet REGISTER request: serial=${serial} device=${deviceLibId.slice(0, 12)} pushToken=${(body?.pushToken || '').slice(0, 12)}…`,
+    );
     const pass = await this.prisma.pass.findUnique({ where: { serialNumber: serial } });
-    if (!pass || pass.authToken !== token) return { error: 'unauthorized' };
+    if (!pass) {
+      this.logger.warn(`REGISTER rejected: pass serial ${serial} not found`);
+      return { error: 'unauthorized' };
+    }
+    if (pass.authToken !== token) {
+      this.logger.warn(
+        `REGISTER rejected: authToken mismatch for ${serial} (got ${token.slice(0, 8)}…, expected ${pass.authToken.slice(0, 8)}…)`,
+      );
+      return { error: 'unauthorized' };
+    }
 
     await this.prisma.walletDevice.upsert({
       where: { passId_deviceLibraryId: { passId: pass.id, deviceLibraryId: deviceLibId } },
@@ -40,6 +54,7 @@ export class WalletController {
         platform: 'APPLE',
       },
     });
+    this.logger.log(`REGISTER OK: pass=${pass.id} device=${deviceLibId.slice(0, 12)}`);
     return { ok: true };
   }
 
@@ -73,7 +88,16 @@ export class WalletController {
   @Public()
   @Post('v1/log')
   log(@Body() body: any) {
-    // Apple manda errores de pase aquí; en prod loguear a Sentry/Pino
+    // Apple Wallet manda errores aquí cuando algo falla en el iPhone
+    // (cert inválido, webServiceURL mal, pass.json mal armado, etc.)
+    const logs = body?.logs;
+    if (Array.isArray(logs) && logs.length > 0) {
+      for (const entry of logs) {
+        this.logger.warn(`Apple Wallet log: ${entry}`);
+      }
+    } else if (body) {
+      this.logger.warn(`Apple Wallet log payload: ${JSON.stringify(body).slice(0, 800)}`);
+    }
     return { ok: true };
   }
 
