@@ -512,9 +512,22 @@ export class WalletService {
       'DeviceTokenNotForTopic',
     ]);
 
+    this.logger.log(
+      `APNs config: keyId=${keyId} teamId=${teamId} topic=${topic} startEnv=${startProd ? 'production' : 'sandbox'} devices=${devices.length} tokenLen=${devices[0]?.pushToken.length ?? 0}`,
+    );
+
     for (const d of devices) {
       try {
         let r = await provider.send(note, d.pushToken);
+        const dumpFailed = (label: string) => {
+          if (r.failed.length === 0) return;
+          const f = r.failed[0];
+          this.logger.warn(
+            `[${label}] APNs FAIL device=${d.pushToken.slice(0, 12)}… status=${(f as any)?.status ?? 'n/a'} reason=${(f as any)?.response?.reason ?? 'n/a'} full=${JSON.stringify(f).slice(0, 400)}`,
+          );
+        };
+        dumpFailed(startProd ? 'prod' : 'sandbox');
+
         // Si Apple rechaza por env mismatch, regenerar provider en el OTRO
         // environment y retry una vez. Solo lo hacemos una vez por loop.
         const failedReason = r.failed[0]?.response?.reason as string | undefined;
@@ -530,14 +543,12 @@ export class WalletService {
           provider.shutdown();
           provider = buildProvider(!startProd);
           r = await provider.send(note, d.pushToken);
+          dumpFailed(!startProd ? 'prod' : 'sandbox');
         }
         sent += r.sent.length;
         skipped += r.failed.length;
         if (r.failed.length > 0) {
           const finalReason = r.failed[0]?.response?.reason as string | undefined;
-          this.logger.warn(
-            `APNs failed for ${d.pushToken.slice(0, 8)}…: ${JSON.stringify(r.failed[0]?.response ?? r.failed[0])}`,
-          );
           // Si Apple dice que el token está muerto, lo borramos para que el
           // re-install del .pkpass cree uno limpio sin colisionar.
           if (finalReason && STALE_REASONS.has(finalReason)) {
