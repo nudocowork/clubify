@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, Logger, Param, Post, Query, Res } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Response } from 'express';
 import { IsEmail, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
@@ -22,6 +22,8 @@ class EnrollBody {
 
 @Controller('passes')
 export class PassesController {
+  private logger = new Logger(PassesController.name);
+
   constructor(
     private svc: PassesService,
     private wallet: WalletService,
@@ -108,7 +110,9 @@ export class PassesController {
   @Public()
   @Get(':id/apple.pkpass')
   async apple(@Param('id') id: string, @Res() res: Response) {
+    this.logger.log(`Apple .pkpass download requested: passId=${id}`);
     const buf = await this.wallet.generateApplePass(id);
+    this.logger.log(`Apple .pkpass served: passId=${id} size=${buf.length}b`);
     res.set({
       'Content-Type': 'application/vnd.apple.pkpass',
       'Content-Disposition': `attachment; filename="${id}.pkpass"`,
