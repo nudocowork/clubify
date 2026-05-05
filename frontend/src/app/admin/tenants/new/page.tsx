@@ -16,6 +16,9 @@ export default function NewTenant() {
     planId: '',
     primaryColor: '#22C55E',
     secondaryColor: '#15803D',
+    freeAccount: false,
+    nextChargeDate: '',
+    hotmartSubscriberCode: '',
   });
   const [result, setResult] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -28,7 +31,7 @@ export default function NewTenant() {
     });
   }, []);
 
-  function set<K extends keyof typeof form>(k: K, v: string) {
+  function set<K extends keyof typeof form>(k: K, v: typeof form[K]) {
     setForm({ ...form, [k]: v });
   }
 
@@ -36,9 +39,29 @@ export default function NewTenant() {
     e.preventDefault();
     setErr(null);
     try {
+      // Construir body limpiando campos vacíos para que el backend respete defaults
+      const body: any = {
+        brandName: form.brandName,
+        email: form.email,
+        phone: form.phone || undefined,
+        ownerFullName: form.ownerFullName,
+        ownerPassword: form.ownerPassword || undefined,
+        planId: form.planId,
+        primaryColor: form.primaryColor,
+        secondaryColor: form.secondaryColor,
+      };
+      if (form.freeAccount) {
+        body.freeAccount = true;
+      } else {
+        // ISO datestring si admin escogió fecha
+        if (form.nextChargeDate)
+          body.nextChargeDate = new Date(form.nextChargeDate).toISOString();
+        if (form.hotmartSubscriberCode.trim())
+          body.hotmartSubscriberCode = form.hotmartSubscriberCode.trim();
+      }
       const res = await api('/tenants', {
         method: 'POST',
-        body: JSON.stringify(form),
+        body: JSON.stringify(body),
       });
       setResult(res);
     } catch (e: any) {
@@ -177,6 +200,64 @@ export default function NewTenant() {
             value={form.secondaryColor}
             onChange={(e) => set('secondaryColor', e.target.value)}
           />
+        </div>
+
+        {/* Facturación / Hotmart */}
+        <div className="col-span-2 mt-2 border-t border-line2 pt-4">
+          <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-3">
+            Facturación
+          </div>
+
+          <label className="flex items-start gap-2.5 text-sm cursor-pointer mb-3">
+            <input
+              type="checkbox"
+              checked={form.freeAccount}
+              onChange={(e) => set('freeAccount', e.target.checked)}
+              className="mt-1 accent-brand"
+            />
+            <span>
+              <span className="font-medium">Cuenta sin costo (cortesía)</span>
+              <div className="text-xs text-mute mt-0.5">
+                El negocio queda activo sin pasar por Hotmart. Se omite el
+                lockscreen y nunca se cobra. Útil para internos, partners,
+                beta testers o regalos.
+              </div>
+            </span>
+          </label>
+
+          {!form.freeAccount && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">Próxima fecha de pago Hotmart</label>
+                <input
+                  className="input"
+                  type="date"
+                  value={form.nextChargeDate}
+                  onChange={(e) => set('nextChargeDate', e.target.value)}
+                />
+                <div className="text-[11px] text-mute mt-1">
+                  Si la dejas, el tenant arranca <strong>activo</strong> con
+                  esa fecha de renovación. Si la dejas vacía, queda como
+                  prueba y debe pagar en Hotmart para entrar.
+                </div>
+              </div>
+              <div>
+                <label className="label">Código suscriptor Hotmart</label>
+                <input
+                  className="input"
+                  placeholder="opcional · si lo conoces del panel Hotmart"
+                  value={form.hotmartSubscriberCode}
+                  onChange={(e) =>
+                    set('hotmartSubscriberCode', e.target.value)
+                  }
+                />
+                <div className="text-[11px] text-mute mt-1">
+                  Permite que el webhook futuro de renovaciones encuentre
+                  este tenant. Si no lo tienes, generamos uno manual.
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {err && (

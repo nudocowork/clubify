@@ -15,6 +15,24 @@ export type CreateTenantDto = {
   ownerFullName: string;
   ownerPassword?: string;
   referredByCode?: string;
+  /**
+   * Si true, crea cuenta gratuita (cortesía) — saltea Hotmart, queda ACTIVE
+   * indefinidamente y el lockscreen no se dispara. Útil para internos,
+   * partners, beta testers o regalos.
+   */
+  freeAccount?: boolean;
+  /**
+   * ISO date de la próxima fecha de cobro en Hotmart. Si se provee, el
+   * tenant arranca ACTIVE con currentPeriodEnd seteado y el lockscreen
+   * no bloquea (porque hotmartSubscriberCode también queda no-null).
+   */
+  nextChargeDate?: string;
+  /**
+   * Código de suscriptor Hotmart (de su panel). Si admin lo conoce, lo
+   * enlaza acá; si no, generamos uno manual `manual-<id>` para que el
+   * lockscreen no dispare.
+   */
+  hotmartSubscriberCode?: string;
 };
 
 export type UpdateTenantDto = Partial<{
@@ -149,6 +167,35 @@ export class TenantsService {
     const tempPassword = dto.ownerPassword ?? nanoid(12);
     const passwordHash = await this.auth.hashPassword(tempPassword);
 
+    // Determinar billing setup según opciones:
+    // 1) freeAccount → ACTIVE indefinido, sin currentPeriodEnd, code 'comp-...'
+    // 2) nextChargeDate → ACTIVE con currentPeriodEnd y code (provisto o 'manual-...')
+    // 3) ninguno → TRIAL expirado (igual que signup público), lockscreen lo bloquea
+    let status: TenantStatus = 'TRIAL';
+    let hotmartCode: string | null = null;
+    let currentPeriodEnd: Date | null = null;
+    let trialEndsAt: Date | null = new Date();
+    const trialStartedAt = new Date();
+
+    if (dto.freeAccount) {
+      status = 'ACTIVE';
+      hotmartCode = `comp-${nanoid(10)}`;
+      currentPeriodEnd = null;
+      trialEndsAt = null;
+    } else if (dto.nextChargeDate) {
+      status = 'ACTIVE';
+      hotmartCode = dto.hotmartSubscriberCode?.trim() || `manual-${nanoid(10)}`;
+      const parsed = new Date(dto.nextChargeDate);
+      if (Number.isNaN(parsed.getTime())) {
+        throw new BadRequestException('nextChargeDate inválido');
+      }
+      currentPeriodEnd = parsed;
+    } else if (dto.hotmartSubscriberCode) {
+      // Solo el código sin fecha: marcar como activo (admin ya verificó pago)
+      status = 'ACTIVE';
+      hotmartCode = dto.hotmartSubscriberCode.trim();
+    }
+
     const tenant = await this.prisma.tenant.create({
       data: {
         name: dto.brandName,
@@ -160,6 +207,11 @@ export class TenantsService {
         secondaryColor: dto.secondaryColor ?? '#2E7D5B',
         planId: dto.planId,
         referredByCode: dto.referredByCode,
+        status,
+        trialStartedAt,
+        trialEndsAt,
+        currentPeriodEnd,
+        hotmartSubscriberCode: hotmartCode,
         users: {
           create: {
             email: dto.email,

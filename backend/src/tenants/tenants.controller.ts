@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
-import { IsEmail, IsHexColor, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
+import { IsBoolean, IsDateString, IsEmail, IsHexColor, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 import { TenantsService } from './tenants.service';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
@@ -15,6 +15,9 @@ class CreateTenantBody {
   @IsString() ownerFullName!: string;
   @IsOptional() @IsString() ownerPassword?: string;
   @IsOptional() @IsString() referredByCode?: string;
+  @IsOptional() @IsBoolean() freeAccount?: boolean;
+  @IsOptional() @IsDateString() nextChargeDate?: string;
+  @IsOptional() @IsString() hotmartSubscriberCode?: string;
 }
 
 class UpdateTenantBody {
