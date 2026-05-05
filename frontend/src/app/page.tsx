@@ -207,7 +207,7 @@ export default function Landing() {
               'radial-gradient(ellipse 70% 60% at 30% 20%, rgba(91,94,238,0.16), transparent 60%), radial-gradient(ellipse 60% 50% at 80% 30%, rgba(192,38,211,0.10), transparent 60%)',
           }}
         />
-        <div className="mx-auto max-w-7xl px-6 pt-20 pb-24 lg:pt-28 lg:pb-32">
+        <div className="mx-auto max-w-7xl px-6 pt-8 pb-20 lg:pt-12 lg:pb-28">
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] gap-12 lg:gap-16 items-center">
             <div>
               <div className="inline-flex items-center gap-2 bg-white border border-line shadow-sm text-xs font-semibold px-3 py-1.5 rounded-full mb-6">
