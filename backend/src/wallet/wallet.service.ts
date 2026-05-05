@@ -149,18 +149,45 @@ export class WalletService {
       ...this.loadDefaultImages(),
     };
 
-    // passkit-generator rechaza signerKeyPassphrase = '' explícito.
-    // Si la key es plain (generada con openssl -nodes), debe ser undefined.
+    // El pass.pem tiene cert + key concatenados. passkit-generator parsea el
+    // PRIMER BEGIN block del buffer que recibe en cada campo, así que
+    // necesitamos extraerlos por separado en lugar de pasar el blob completo
+    // a signerCert y signerKey (sino lee "CERTIFICATE" para ambos y falla).
+    const blob = certPem.toString('utf8');
+    const certOnly = this.extractPemBlock(blob, 'CERTIFICATE');
+    const keyOnly =
+      this.extractPemBlock(blob, 'RSA PRIVATE KEY') ||
+      this.extractPemBlock(blob, 'PRIVATE KEY') ||
+      this.extractPemBlock(blob, 'ENCRYPTED PRIVATE KEY');
+
+    if (!certOnly || !keyOnly) {
+      this.logger.warn(
+        `Apple cert/key no separables (cert=${!!certOnly}, key=${!!keyOnly}); returning mock`,
+      );
+      return Buffer.from(JSON.stringify(passJson, null, 2));
+    }
+
     const passphrase = process.env.APPLE_PASS_CERT_PASSWORD || undefined;
     const certOpts: any = {
       wwdr: wwdrPem,
-      signerCert: certPem,
-      signerKey: certPem,
+      signerCert: Buffer.from(certOnly),
+      signerKey: Buffer.from(keyOnly),
     };
     if (passphrase) certOpts.signerKeyPassphrase = passphrase;
 
     const pkpass = new PKPass(buffers, certOpts);
     return pkpass.getAsBuffer();
+  }
+
+  /** Extrae el primer bloque PEM con el header dado del buffer combinado. */
+  private extractPemBlock(blob: string, kind: string): string | null {
+    const begin = `-----BEGIN ${kind}-----`;
+    const end = `-----END ${kind}-----`;
+    const startIdx = blob.indexOf(begin);
+    if (startIdx === -1) return null;
+    const endIdx = blob.indexOf(end, startIdx);
+    if (endIdx === -1) return null;
+    return blob.substring(startIdx, endIdx + end.length) + '\n';
   }
 
   /**
