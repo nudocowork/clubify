@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
-import { IsBoolean, IsDateString, IsEmail, IsHexColor, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
+import { IsBoolean, IsDateString, IsEmail, IsHexColor, IsIn, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 import { TenantsService } from './tenants.service';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
@@ -16,6 +16,14 @@ class CreateTenantBody {
   @IsOptional() @IsString() ownerPassword?: string;
   @IsOptional() @IsString() referredByCode?: string;
   @IsOptional() @IsBoolean() freeAccount?: boolean;
+  @IsOptional() @IsInt() @Min(1) trialDays?: number;
+  @IsOptional() @IsDateString() nextChargeDate?: string;
+  @IsOptional() @IsString() hotmartSubscriberCode?: string;
+}
+
+class BillingBody {
+  @IsIn(['free', 'trial', 'paid', 'pending'])
+  mode!: 'free' | 'trial' | 'paid' | 'pending';
   @IsOptional() @IsInt() @Min(1) trialDays?: number;
   @IsOptional() @IsDateString() nextChargeDate?: string;
   @IsOptional() @IsString() hotmartSubscriberCode?: string;
@@ -66,6 +74,11 @@ export class TenantsController {
   @Post(':id/extend-trial')
   extendTrial(@Param('id') id: string, @Body() body: { days?: number }) {
     return this.svc.extendTrial(id, body?.days ?? 7);
+  }
+
+  @Patch(':id/billing')
+  billing(@Param('id') id: string, @Body() body: BillingBody) {
+    return this.svc.updateBilling(id, body);
   }
 
   @Post(':id/impersonate')

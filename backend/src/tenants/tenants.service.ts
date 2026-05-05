@@ -254,6 +254,79 @@ export class TenantsService {
     return this.prisma.tenant.update({ where: { id }, data: dto });
   }
 
+  /**
+   * Cambia el modo de facturación de un tenant existente. Mismos modos que
+   * en creación (free / trial / paid / pending) pero aplicado sobre tenant
+   * existente. Útil para convertir cuentas en cortesía, extender trials de
+   * forma arbitraria, marcar pagos manuales o reactivar cuentas suspendidas.
+   */
+  async updateBilling(
+    id: string,
+    dto: {
+      mode: 'free' | 'trial' | 'paid' | 'pending';
+      trialDays?: number;
+      nextChargeDate?: string;
+      hotmartSubscriberCode?: string;
+    },
+  ) {
+    await this.getById(id);
+    const now = new Date();
+    let data: any = {};
+    switch (dto.mode) {
+      case 'free':
+        data = {
+          status: 'ACTIVE',
+          hotmartSubscriberCode: `comp-${nanoid(10)}`,
+          trialEndsAt: null,
+          currentPeriodEnd: null,
+          suspendedAt: null,
+        };
+        break;
+      case 'trial': {
+        const days = Math.max(1, Math.min(365, Math.floor(dto.trialDays ?? 7)));
+        data = {
+          status: 'TRIAL',
+          hotmartSubscriberCode: `trial-${nanoid(10)}`,
+          trialStartedAt: now,
+          trialEndsAt: new Date(now.getTime() + days * 24 * 60 * 60 * 1000),
+          currentPeriodEnd: null,
+          suspendedAt: null,
+        };
+        break;
+      }
+      case 'paid': {
+        if (!dto.nextChargeDate && !dto.hotmartSubscriberCode) {
+          throw new BadRequestException(
+            'Modo "paid" requiere nextChargeDate o hotmartSubscriberCode',
+          );
+        }
+        data = {
+          status: 'ACTIVE',
+          hotmartSubscriberCode:
+            dto.hotmartSubscriberCode?.trim() || `manual-${nanoid(10)}`,
+          suspendedAt: null,
+        };
+        if (dto.nextChargeDate) {
+          const parsed = new Date(dto.nextChargeDate);
+          if (Number.isNaN(parsed.getTime())) {
+            throw new BadRequestException('nextChargeDate inválido');
+          }
+          data.currentPeriodEnd = parsed;
+        }
+        break;
+      }
+      case 'pending':
+        data = {
+          status: 'TRIAL',
+          hotmartSubscriberCode: null,
+          trialEndsAt: null,
+          currentPeriodEnd: null,
+        };
+        break;
+    }
+    return this.prisma.tenant.update({ where: { id }, data });
+  }
+
   async remove(id: string) {
     await this.getById(id);
     await this.prisma.tenant.delete({ where: { id } });

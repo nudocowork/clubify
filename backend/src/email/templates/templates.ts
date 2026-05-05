@@ -191,31 +191,28 @@ export function passwordResetTemplate(args: {
 export function welcomeOwnerTemplate(args: {
   tenant: Tenant;
   fullName: string;
-  trialEndsAt: Date;
+  trialEndsAt: Date | null;
   appUrl: string;
 }) {
-  const trialEndStr = args.trialEndsAt.toLocaleDateString('es-CO', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  });
+  const firstName = args.fullName.split(' ')[0];
   return {
-    subject: `Bienvenido a Clubify, ${args.fullName.split(' ')[0]}`,
-    text: `Tu cuenta de ${args.tenant.brandName} ya está lista. Tienes 10 días gratis (hasta ${trialEndStr}). Ingresa en ${args.appUrl}/onboarding`,
+    subject: `Bienvenido a Clubify, ${firstName}`,
+    text: `Tu cuenta de ${args.tenant.brandName} ya está creada. Completa el pago en Hotmart y entras al panel a vender. ${args.appUrl}/app`,
     html: shell({
       tenant: args.tenant,
-      preheader: `10 días gratis hasta ${trialEndStr}`,
+      preheader: `Completa el pago para activar ${args.tenant.brandName}`,
       body: `
-        <h2 style="margin:0 0 12px;font-size:24px;font-weight:700">¡Bienvenido, ${args.fullName.split(' ')[0]}!</h2>
+        <h2 style="margin:0 0 12px;font-size:24px;font-weight:700">¡Bienvenido, ${firstName}!</h2>
         <p style="margin:0 0 14px;color:#374151;line-height:1.55">
-          Tu cuenta de <b>${args.tenant.brandName}</b> en Clubify ya está lista.
+          Tu cuenta de <b>${args.tenant.brandName}</b> en Clubify ya está creada.
+          Solo falta completar el pago seguro en Hotmart para activarla.
         </p>
-        <div style="background:linear-gradient(135deg,#6366F1,#A855F7);border-radius:14px;padding:18px 20px;color:#fff">
-          <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.85">Tu prueba gratis</div>
-          <div style="font-size:22px;font-weight:700;margin-top:4px">10 días para probarlo todo</div>
-          <div style="font-size:13px;opacity:.85;margin-top:6px">Termina el ${trialEndStr} · cancela antes y no cobramos</div>
+        <div style="background:linear-gradient(135deg,#22C55E,#15803D);border-radius:14px;padding:18px 20px;color:#fff">
+          <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.85">Activa tu cuenta</div>
+          <div style="font-size:22px;font-weight:700;margin-top:4px">Pago en Hotmart · activación inmediata</div>
+          <div style="font-size:13px;opacity:.85;margin-top:6px">Apenas se aprueba entras al panel y empiezas a vender</div>
         </div>
-        <p style="margin:18px 0 8px;color:#374151;line-height:1.55">Lo siguiente que te recomendamos:</p>
+        <p style="margin:18px 0 8px;color:#374151;line-height:1.55">Una vez dentro, lo siguiente:</p>
         <ol style="margin:0;padding-left:20px;color:#374151;line-height:1.8">
           <li>Sube tu menú (categorías + productos)</li>
           <li>Personaliza tu tarjeta de fidelización</li>
@@ -224,7 +221,7 @@ export function welcomeOwnerTemplate(args: {
         </ol>
         <p style="margin:16px 0 0;color:#6B7280;font-size:13px">Si te trabas en algo, escríbenos por WhatsApp y te ayudamos en vivo.</p>
       `,
-      cta: { label: 'Continuar configurando →', href: `${args.appUrl}/onboarding` },
+      cta: { label: 'Ir al panel →', href: `${args.appUrl}/app` },
     }),
   };
 }

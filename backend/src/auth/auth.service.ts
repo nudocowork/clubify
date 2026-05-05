@@ -210,10 +210,12 @@ export class AuthService {
 
     const passwordHash = await this.hashPassword(dto.password);
 
-    // Trial expirado al instante para ambos planes — la "puerta" real ahora
-    // es la verificación de tarjeta en Hotmart (CardVerificationLockscreen).
+    // Trial sin fecha — la "puerta" real es la verificación de tarjeta en
+    // Hotmart (CardVerificationLockscreen). Dejamos `trialEndsAt = null`
+    // para que el cron diario (que suspende TRIAL vencidos) NO suspenda
+    // signups que están legítimamente en el lockscreen esperando pagar.
     const trialStartedAt = new Date();
-    const trialEndsAt = trialStartedAt;
+    const trialEndsAt: Date | null = null;
 
     const tenant = await this.prisma.tenant.create({
       data: {
