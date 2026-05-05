@@ -81,18 +81,24 @@ export class WalletService {
     });
     if (!pass) throw new NotFoundException('Pass');
 
+    // Apple Wallet rechaza pass.json si description, organizationName,
+    // serialNumber están vacíos. Defensivo siempre con fallbacks.
+    const brandName = (pass.tenant.brandName || 'Clubify').trim() || 'Clubify';
+    const cardName = (pass.card.name || 'Tarjeta de fidelización').trim() || 'Tarjeta';
+    const description = cardName;
+
     const passJson = {
       formatVersion: 1,
       passTypeIdentifier: process.env.APPLE_PASS_TYPE_ID ?? 'pass.com.clubify.loyalty',
       teamIdentifier: process.env.APPLE_TEAM_ID ?? 'XXXXXXXXXX',
-      organizationName: pass.tenant.brandName,
+      organizationName: brandName,
       serialNumber: pass.serialNumber,
-      description: pass.card.name,
-      logoText: pass.tenant.brandName,
+      description,
+      logoText: brandName,
       foregroundColor: 'rgb(255,255,255)',
       backgroundColor: this.hexToRgb(pass.card.primaryColor),
       labelColor: 'rgb(245,241,232)',
-      webServiceURL: `${process.env.API_URL}/api/wallet/apple`,
+      webServiceURL: `${process.env.API_URL ?? 'https://api.soyclubify.com'}/api/wallet/apple`,
       authenticationToken: pass.authToken,
       barcodes: [
         {
@@ -105,7 +111,7 @@ export class WalletService {
       locations: pass.tenant.locations.map((l) => ({
         latitude: Number(l.latitude),
         longitude: Number(l.longitude),
-        relevantText: `Estás cerca de ${pass.tenant.brandName}`,
+        relevantText: `Estás cerca de ${brandName}`,
       })),
       storeCard: {
         primaryFields: [
