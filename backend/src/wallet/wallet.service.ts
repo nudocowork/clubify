@@ -479,15 +479,12 @@ export class WalletService {
 
     const apn = await import('apn');
 
-    // Decide environment inicial via env var explícita o NODE_ENV.
-    // APNS_ENV puede ser 'production' | 'sandbox' para forzar.
+    // Apple Wallet usa SIEMPRE production APNs. La .p8 Auth Key trabaja para
+    // ambos environments simultáneamente, así que no tiene sentido caer a
+    // sandbox cuando production falla — el error es de Auth Key, no de env.
+    // APNS_ENV='sandbox' permite override manual solo para tests.
     const envOverride = process.env.APNS_ENV?.toLowerCase();
-    const startProd =
-      envOverride === 'production'
-        ? true
-        : envOverride === 'sandbox'
-          ? false
-          : process.env.NODE_ENV === 'production';
+    const startProd = envOverride !== 'sandbox';
 
     const buildProvider = (production: boolean) =>
       new apn.Provider({
