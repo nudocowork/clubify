@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { verify } from 'jsonwebtoken';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
@@ -9,7 +9,10 @@ export class ScannerService {
 
   async verifyQr(user: AuthUser, qrToken: string) {
     const value = qrToken?.trim();
-    if (!value) throw new UnauthorizedException('Empty token');
+    // 400 (no 401): el token vacío es bug del cliente, no sesión expirada.
+    // Devolver 401 hacía que el frontend api.ts redirigiera a /login?expired
+    // como si el usuario hubiera perdido la sesión.
+    if (!value) throw new BadRequestException('Código vacío');
 
     let pass = await this.findByJwt(value);
     if (!pass) pass = await this.findBySerial(value);
