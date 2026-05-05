@@ -132,6 +132,95 @@ export class PassesService {
     };
   }
 
+  /**
+   * Auto-enrollment público: el cliente final escanea el QR genérico de la
+   * tarjeta, llena form (nombre + email + teléfono con código país) y queda
+   * con un pase emitido. Si ya tiene pase para esta tarjeta, lo retorna sin
+   * crear duplicado (match por teléfono normalizado).
+   */
+  async enrollPublic(
+    cardId: string,
+    dto: { fullName: string; email?: string; phone: string },
+  ) {
+    const card = await this.prisma.card.findUnique({
+      where: { id: cardId },
+      include: { tenant: { select: { id: true, status: true } } },
+    });
+    if (!card || !card.isActive)
+      throw new NotFoundException('Tarjeta no disponible');
+    if (card.tenant.status === 'SUSPENDED')
+      throw new NotFoundException('Negocio no disponible');
+
+    const phoneNorm = (dto.phone || '').replace(/\s/g, '').trim();
+    if (phoneNorm.length < 8) {
+      throw new ForbiddenException('Teléfono inválido');
+    }
+
+    const email = dto.email?.trim().toLowerCase() || null;
+
+    // Match-or-create customer por teléfono exacto en este tenant
+    let customer = await this.prisma.customer
+      .findUnique({
+        where: { tenantId_phone: { tenantId: card.tenantId, phone: phoneNorm } },
+      })
+      .catch(() => null);
+    if (!customer) {
+      customer = await this.prisma.customer.create({
+        data: {
+          tenantId: card.tenantId,
+          fullName: dto.fullName.trim(),
+          phone: phoneNorm,
+          email: email ?? undefined,
+        },
+      });
+    } else if (
+      customer.fullName !== dto.fullName.trim() ||
+      (email && !customer.email)
+    ) {
+      // Actualizar nombre si cambió, y email si lo deja por primera vez
+      customer = await this.prisma.customer.update({
+        where: { id: customer.id },
+        data: {
+          fullName: dto.fullName.trim(),
+          email: email ?? customer.email,
+        },
+      });
+    }
+
+    // Si ya tiene pase para esta tarjeta, devolverlo (no duplicar)
+    const existing = await this.prisma.pass.findUnique({
+      where: { cardId_customerId: { cardId, customerId: customer.id } },
+    });
+    if (existing) {
+      return { passId: existing.id, customerId: customer.id, isNew: false };
+    }
+
+    // Crear pass nuevo (mismo flujo que issue() pero sin auth check)
+    const serial = `CLB-${nanoid(10).toUpperCase()}`;
+    const authToken = nanoid(32);
+    const tmp = await this.prisma.pass.create({
+      data: {
+        tenantId: card.tenantId,
+        cardId,
+        customerId: customer.id,
+        serialNumber: serial,
+        qrToken: 'placeholder',
+        authToken,
+      },
+    });
+    const finalQr = sign(
+      { pid: tmp.id, tid: card.tenantId },
+      process.env.QR_HMAC_SECRET ?? 'dev-qr',
+      { algorithm: 'HS256' },
+    );
+    await this.prisma.pass.update({
+      where: { id: tmp.id },
+      data: { qrToken: finalQr },
+    });
+
+    return { passId: tmp.id, customerId: customer.id, isNew: true };
+  }
+
   list(user: AuthUser, tenantId?: string) {
     const tid = user.role === 'SUPER_ADMIN' ? tenantId : user.tenantId ?? undefined;
     return this.prisma.pass.findMany({

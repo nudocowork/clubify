@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { QRCodeSVG } from 'qrcode.react';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
@@ -155,6 +156,8 @@ export default function CardDetail() {
         <Kpi label="Completados" value={stats.completed} accent="ok" />
         <Kpi label="Sellos totales" value={stats.stampsTotal} accent="amber" />
       </div>
+
+      <EnrollLinkCard cardId={String(id)} cardName={card.name} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* Preview grande */}
@@ -400,6 +403,108 @@ function Kpi({
       </div>
       <div className={`text-xl font-bold mt-1 ${accent ? cls[accent] : ''}`}>
         {value}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+//                 ENROLL LINK + QR (público)
+// ============================================================
+
+function EnrollLinkCard({ cardId, cardName }: { cardId: string; cardName: string }) {
+  const [appUrl, setAppUrl] = useState('');
+  useEffect(() => {
+    if (typeof window !== 'undefined') setAppUrl(window.location.origin);
+  }, []);
+  const enrollUrl = `${appUrl}/c/${cardId}`;
+
+  function copy() {
+    if (!enrollUrl || typeof navigator === 'undefined') return;
+    navigator.clipboard.writeText(enrollUrl).then(
+      () => toast('Link copiado', 'success'),
+      () => toast('No se pudo copiar', 'error'),
+    );
+  }
+
+  function downloadQR() {
+    const svg = document.querySelector<SVGElement>('#enroll-qr-svg');
+    if (!svg) return;
+    const xml = new XMLSerializer().serializeToString(svg);
+    const svgBlob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' });
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 800;
+      canvas.height = 800;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, 800, 800);
+      ctx.drawImage(img, 100, 100, 600, 600);
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `tarjeta-${cardName.replace(/\s+/g, '-').toLowerCase()}-qr.png`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }, 'image/png');
+    };
+    img.src = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(xml)))}`;
+  }
+
+  return (
+    <div className="card card-pad mb-5 bg-gradient-to-br from-brand-soft via-bg2 to-brand-100">
+      <div className="grid grid-cols-1 md:grid-cols-[160px_1fr] gap-5 items-center">
+        <div className="bg-white p-3 rounded-xl shadow flex items-center justify-center">
+          {enrollUrl ? (
+            <QRCodeSVG
+              id="enroll-qr-svg"
+              value={enrollUrl}
+              size={140}
+              level="M"
+              includeMargin={false}
+            />
+          ) : (
+            <div className="w-[140px] h-[140px] bg-bg2 rounded animate-pulse" />
+          )}
+        </div>
+        <div className="min-w-0">
+          <div className="text-[11px] uppercase tracking-[0.18em] text-brand font-semibold mb-1">
+            🎯 QR público de inscripción
+          </div>
+          <h3 className="font-bold text-base">
+            Comparte este QR — los clientes se inscriben solos
+          </h3>
+          <p className="text-sm text-mute mt-1.5 leading-relaxed">
+            Al escanearlo, se les pide nombre, WhatsApp y email, y queda
+            instalada en su Apple Wallet / Google Wallet en menos de 30
+            segundos. Imprímelo y pégalo en el local, o pásalo por WhatsApp.
+          </p>
+          <div className="mt-3 flex items-center gap-2 bg-white border border-line rounded-input px-3 py-2 text-xs font-mono text-mute overflow-hidden">
+            <span className="truncate flex-1" title={enrollUrl}>
+              {enrollUrl}
+            </span>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button onClick={copy} className="btn-ghost text-xs">
+              📋 Copiar link
+            </button>
+            <button onClick={downloadQR} className="btn-ghost text-xs">
+              ⤓ Descargar QR (PNG)
+            </button>
+            <a
+              href={enrollUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="btn-ghost text-xs"
+            >
+              👁 Ver como cliente →
+            </a>
+          </div>
+        </div>
       </div>
     </div>
   );
