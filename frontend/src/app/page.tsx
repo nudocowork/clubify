@@ -190,7 +190,7 @@ export default function Landing() {
             </Link>
             <Link
               className="inline-flex items-center gap-1.5 bg-ink text-white text-sm font-semibold px-4 py-2 rounded-pill hover:bg-ink/90"
-              href="/signup"
+              href="#precios"
             >
               Empezar ahora →
             </Link>
@@ -248,9 +248,9 @@ export default function Landing() {
               <div className="flex gap-3 mt-8 flex-wrap">
                 <Link
                   className="inline-flex items-center gap-2 bg-ink text-white font-semibold text-base px-6 py-3.5 rounded-pill hover:bg-ink/90 transition shadow-md"
-                  href="/signup"
+                  href="#precios"
                 >
-                  <Icon name="spark" /> Empezar ahora
+                  <Icon name="spark" /> Ver planes y empezar
                 </Link>
                 <a
                   className="inline-flex items-center gap-2 bg-white border border-line text-ink font-semibold text-base px-6 py-3.5 rounded-pill hover:border-ink/30 transition"
@@ -666,10 +666,10 @@ export default function Landing() {
             </p>
             <div className="flex gap-3 justify-center mt-8 flex-wrap relative">
               <Link
-                href="/signup"
+                href="#precios"
                 className="bg-white text-ink font-semibold text-base px-6 py-3.5 rounded-pill hover:bg-white/95"
               >
-                <Icon name="spark" /> Empezar ahora
+                <Icon name="spark" /> Ver planes y empezar
               </Link>
               <a
                 href="https://wa.me/573000000000?text=Hola%2C%20quiero%20saber%20m%C3%A1s%20de%20Clubify"
@@ -729,7 +729,7 @@ export default function Landing() {
               <div className="font-semibold mb-3 text-[13px]">Crece</div>
               <ul className="space-y-2 text-mute">
                 <li><Link href="/refer" className="hover:text-ink">Referidos</Link></li>
-                <li><Link href="/signup" className="hover:text-ink">Empezar ahora</Link></li>
+                <li><Link href="/#precios" className="hover:text-ink">Empezar ahora</Link></li>
                 <li><Link href="/login" className="hover:text-ink">Ingresar</Link></li>
               </ul>
             </div>
