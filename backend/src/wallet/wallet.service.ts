@@ -104,7 +104,7 @@ export class WalletService {
         {
           format: 'PKBarcodeFormatPDF417',
           message: pass.serialNumber,
-          altText: pass.serialNumber,
+          altText: 'Creado por Clubify',
           messageEncoding: 'iso-8859-1',
         },
       ],
@@ -128,8 +128,19 @@ export class WalletService {
           { key: 'member', label: 'CLIENTE', value: pass.customer.fullName },
         ],
         backFields: [
+          { key: 'serial', label: 'Número de tarjeta', value: pass.serialNumber },
           { key: 'terms', label: 'Condiciones', value: pass.card.terms || '—' },
           { key: 'contact', label: 'Contacto', value: pass.tenant.brandName },
+          {
+            // Apple Wallet detecta URLs en value y las hace clickeables.
+            // El usuario tap el ⓘ del pase, ve "Creado por Clubify" con el
+            // link y al tap abre Safari en https://soyclubify.com.
+            key: 'powered',
+            label: 'Creado por Clubify',
+            value: 'https://soyclubify.com',
+            attributedValue:
+              '<a href="https://soyclubify.com">soyclubify.com</a>',
+          },
         ],
       },
     };
