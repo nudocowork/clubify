@@ -41,6 +41,7 @@ export default function AppShell({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  const branding = useBranding();
   const [user, setUser] = useState<any>(null);
   const [navOpen, setNavOpen] = useState(false);
   const [impersonation, setImpersonation] = useState<ReturnType<typeof getImpersonationBackup>>(null);
@@ -224,7 +225,6 @@ export default function AppShell({
   }
 
   const brandTitle = variant === 'admin' ? 'Admin Clubify' : 'Mi Negocio';
-  const branding = useBranding();
 
   const renderBrandMark = (size: number) =>
     branding.appLogoUrl ? (
