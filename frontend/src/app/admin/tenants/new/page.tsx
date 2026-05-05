@@ -7,6 +7,8 @@ import { Icon } from '@/components/Icon';
 export default function NewTenant() {
   const router = useRouter();
   const [plans, setPlans] = useState<any[]>([]);
+  type BillingMode = 'pending' | 'free' | 'trial' | 'paid';
+  const [billingMode, setBillingMode] = useState<BillingMode>('pending');
   const [form, setForm] = useState({
     brandName: '',
     email: '',
@@ -16,7 +18,7 @@ export default function NewTenant() {
     planId: '',
     primaryColor: '#22C55E',
     secondaryColor: '#15803D',
-    freeAccount: false,
+    trialDays: 7,
     nextChargeDate: '',
     hotmartSubscriberCode: '',
   });
@@ -39,7 +41,6 @@ export default function NewTenant() {
     e.preventDefault();
     setErr(null);
     try {
-      // Construir body limpiando campos vacíos para que el backend respete defaults
       const body: any = {
         brandName: form.brandName,
         email: form.email,
@@ -50,10 +51,11 @@ export default function NewTenant() {
         primaryColor: form.primaryColor,
         secondaryColor: form.secondaryColor,
       };
-      if (form.freeAccount) {
+      if (billingMode === 'free') {
         body.freeAccount = true;
-      } else {
-        // ISO datestring si admin escogió fecha
+      } else if (billingMode === 'trial') {
+        body.trialDays = Math.max(1, Math.min(365, Number(form.trialDays) || 7));
+      } else if (billingMode === 'paid') {
         if (form.nextChargeDate)
           body.nextChargeDate = new Date(form.nextChargeDate).toISOString();
         if (form.hotmartSubscriberCode.trim())
@@ -205,27 +207,82 @@ export default function NewTenant() {
         {/* Facturación / Hotmart */}
         <div className="col-span-2 mt-2 border-t border-line2 pt-4">
           <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-3">
-            Facturación
+            Facturación · Tipo de cuenta
           </div>
 
-          <label className="flex items-start gap-2.5 text-sm cursor-pointer mb-3">
-            <input
-              type="checkbox"
-              checked={form.freeAccount}
-              onChange={(e) => set('freeAccount', e.target.checked)}
-              className="mt-1 accent-brand"
-            />
-            <span>
-              <span className="font-medium">Cuenta sin costo (cortesía)</span>
-              <div className="text-xs text-mute mt-0.5">
-                El negocio queda activo sin pasar por Hotmart. Se omite el
-                lockscreen y nunca se cobra. Útil para internos, partners,
-                beta testers o regalos.
-              </div>
-            </span>
-          </label>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+            {(
+              [
+                {
+                  v: 'pending',
+                  emoji: '🔒',
+                  label: 'Sin pago aún',
+                  hint: 'Debe pagar en Hotmart antes de entrar',
+                },
+                {
+                  v: 'free',
+                  emoji: '🎁',
+                  label: 'Cuenta sin costo',
+                  hint: 'Cortesía indefinida, sin Hotmart',
+                },
+                {
+                  v: 'trial',
+                  emoji: '⏱',
+                  label: 'Trial gratuito',
+                  hint: 'Acceso por X días, luego pago',
+                },
+                {
+                  v: 'paid',
+                  emoji: '💳',
+                  label: 'Hotmart activo',
+                  hint: 'Ya pagó · enlazar fecha/código',
+                },
+              ] as const
+            ).map((opt) => {
+              const active = billingMode === opt.v;
+              return (
+                <button
+                  type="button"
+                  key={opt.v}
+                  onClick={() => setBillingMode(opt.v)}
+                  className={`text-left rounded-input border-2 p-3 transition ${
+                    active
+                      ? 'border-brand bg-brand-soft'
+                      : 'border-line bg-white hover:border-brand/40'
+                  }`}
+                >
+                  <div className="text-xl mb-0.5">{opt.emoji}</div>
+                  <div className="text-sm font-semibold">{opt.label}</div>
+                  <div className="text-[11px] text-mute mt-0.5">{opt.hint}</div>
+                </button>
+              );
+            })}
+          </div>
 
-          {!form.freeAccount && (
+          {billingMode === 'trial' && (
+            <div>
+              <label className="label">Días de trial</label>
+              <input
+                className="input"
+                type="number"
+                min={1}
+                max={365}
+                value={form.trialDays}
+                onChange={(e) =>
+                  set('trialDays', Number(e.target.value) as any)
+                }
+              />
+              <div className="text-[11px] text-mute mt-1">
+                El negocio podrá usar el panel sin restricciones por{' '}
+                <strong>{form.trialDays || 0}</strong> día
+                {form.trialDays === 1 ? '' : 's'}. Cuando termine el trial,
+                pasa a SUSPENDIDO automáticamente y debe pagar en Hotmart
+                para reactivar.
+              </div>
+            </div>
+          )}
+
+          {billingMode === 'paid' && (
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="label">Próxima fecha de pago Hotmart</label>
@@ -236,9 +293,8 @@ export default function NewTenant() {
                   onChange={(e) => set('nextChargeDate', e.target.value)}
                 />
                 <div className="text-[11px] text-mute mt-1">
-                  Si la dejas, el tenant arranca <strong>activo</strong> con
-                  esa fecha de renovación. Si la dejas vacía, queda como
-                  prueba y debe pagar en Hotmart para entrar.
+                  Cuando vence se renueva por webhook (si el código está
+                  enlazado) o pasa a PAST_DUE.
                 </div>
               </div>
               <div>
@@ -252,10 +308,24 @@ export default function NewTenant() {
                   }
                 />
                 <div className="text-[11px] text-mute mt-1">
-                  Permite que el webhook futuro de renovaciones encuentre
-                  este tenant. Si no lo tienes, generamos uno manual.
+                  Permite que el webhook de renovaciones encuentre este
+                  tenant. Si no lo tienes, generamos uno manual.
                 </div>
               </div>
+            </div>
+          )}
+
+          {billingMode === 'pending' && (
+            <div className="rounded-lg bg-bg2/60 px-3 py-2.5 text-xs text-mute">
+              El dueño verá la pantalla de bloqueo apenas haga login. Tendrá
+              que completar el pago en Hotmart para entrar al panel.
+            </div>
+          )}
+
+          {billingMode === 'free' && (
+            <div className="rounded-lg bg-ok-soft/50 border border-ok/20 px-3 py-2.5 text-xs text-ok-ink">
+              Cuenta de cortesía: queda activa indefinidamente sin pasar por
+              Hotmart. Para revocar acceso, suspende manualmente el tenant.
             </div>
           )}
         </div>

@@ -16,6 +16,7 @@ class CreateTenantBody {
   @IsOptional() @IsString() ownerPassword?: string;
   @IsOptional() @IsString() referredByCode?: string;
   @IsOptional() @IsBoolean() freeAccount?: boolean;
+  @IsOptional() @IsInt() @Min(1) trialDays?: number;
   @IsOptional() @IsDateString() nextChargeDate?: string;
   @IsOptional() @IsString() hotmartSubscriberCode?: string;
 }

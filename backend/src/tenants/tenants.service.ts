@@ -22,6 +22,12 @@ export type CreateTenantDto = {
    */
   freeAccount?: boolean;
   /**
+   * Días de trial (1-365). Tenant queda en status TRIAL con trialEndsAt en
+   * el futuro y se omite el lockscreen (genera código `trial-<id>`).
+   * Cuando el trial vence, el cron diario lo suspende.
+   */
+  trialDays?: number;
+  /**
    * ISO date de la próxima fecha de cobro en Hotmart. Si se provee, el
    * tenant arranca ACTIVE con currentPeriodEnd seteado y el lockscreen
    * no bloquea (porque hotmartSubscriberCode también queda no-null).
@@ -169,8 +175,10 @@ export class TenantsService {
 
     // Determinar billing setup según opciones:
     // 1) freeAccount → ACTIVE indefinido, sin currentPeriodEnd, code 'comp-...'
-    // 2) nextChargeDate → ACTIVE con currentPeriodEnd y code (provisto o 'manual-...')
-    // 3) ninguno → TRIAL expirado (igual que signup público), lockscreen lo bloquea
+    // 2) trialDays > 0 → TRIAL con trialEndsAt = now + days, code 'trial-...'
+    // 3) nextChargeDate → ACTIVE con currentPeriodEnd y code (provisto o 'manual-...')
+    // 4) hotmartSubscriberCode solo → ACTIVE (admin ya verificó pago)
+    // 5) ninguno → TRIAL expirado (igual que signup público), lockscreen lo bloquea
     let status: TenantStatus = 'TRIAL';
     let hotmartCode: string | null = null;
     let currentPeriodEnd: Date | null = null;
@@ -182,6 +190,12 @@ export class TenantsService {
       hotmartCode = `comp-${nanoid(10)}`;
       currentPeriodEnd = null;
       trialEndsAt = null;
+    } else if (dto.trialDays && dto.trialDays > 0) {
+      const days = Math.min(365, Math.floor(dto.trialDays));
+      status = 'TRIAL';
+      hotmartCode = `trial-${nanoid(10)}`;
+      trialEndsAt = new Date(trialStartedAt.getTime() + days * 24 * 60 * 60 * 1000);
+      currentPeriodEnd = null;
     } else if (dto.nextChargeDate) {
       status = 'ACTIVE';
       hotmartCode = dto.hotmartSubscriberCode?.trim() || `manual-${nanoid(10)}`;
@@ -191,7 +205,6 @@ export class TenantsService {
       }
       currentPeriodEnd = parsed;
     } else if (dto.hotmartSubscriberCode) {
-      // Solo el código sin fecha: marcar como activo (admin ya verificó pago)
       status = 'ACTIVE';
       hotmartCode = dto.hotmartSubscriberCode.trim();
     }
