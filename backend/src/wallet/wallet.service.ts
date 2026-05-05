@@ -16,6 +16,35 @@ export class WalletService {
   private defaultImages: Record<string, Buffer> | null = null;
   constructor(private prisma: PrismaService) {}
 
+  /**
+   * Carga el JSON del Service Account de Google Wallet desde:
+   *   1) GOOGLE_WALLET_SA_BASE64 (preferido, portable a Railway)
+   *   2) GOOGLE_WALLET_SA_JSON (path al .json en disco — modo dev)
+   * Devuelve null si ninguna de las dos está configurada o el contenido es inválido.
+   */
+  private loadGoogleServiceAccount(): { client_email: string; private_key: string } | null {
+    const b64 = process.env.GOOGLE_WALLET_SA_BASE64;
+    if (b64) {
+      try {
+        const json = Buffer.from(b64, 'base64').toString('utf8');
+        const parsed = JSON.parse(json);
+        if (parsed.client_email && parsed.private_key) return parsed;
+        this.logger.warn('GOOGLE_WALLET_SA_BASE64 sin client_email/private_key');
+      } catch (e) {
+        this.logger.warn(`GOOGLE_WALLET_SA_BASE64 inválido: ${(e as Error).message}`);
+      }
+    }
+    const p = process.env.GOOGLE_WALLET_SA_JSON;
+    if (p && fs.existsSync(p)) {
+      try {
+        return JSON.parse(fs.readFileSync(p, 'utf8'));
+      } catch (e) {
+        this.logger.warn(`GOOGLE_WALLET_SA_JSON inválido: ${(e as Error).message}`);
+      }
+    }
+    return null;
+  }
+
   private loadDefaultImages(): Record<string, Buffer> {
     if (this.defaultImages) return this.defaultImages;
     const baseDir = path.join(process.cwd(), 'certs', 'wallet-defaults');
@@ -144,14 +173,12 @@ export class WalletService {
     if (!pass) throw new NotFoundException('Pass');
 
     const issuerId = process.env.GOOGLE_WALLET_ISSUER_ID;
-    const saJsonPath = process.env.GOOGLE_WALLET_SA_JSON;
+    const sa = this.loadGoogleServiceAccount();
 
-    if (!issuerId || !saJsonPath || !fs.existsSync(saJsonPath)) {
+    if (!issuerId || !sa) {
       this.logger.warn('Google Wallet not configured; returning mock URL');
       return `https://pay.google.com/gp/v/save/MOCK_${passId}`;
     }
-
-    const sa = JSON.parse(fs.readFileSync(saJsonPath, 'utf8'));
     // Google Wallet IDs only allow [a-zA-Z0-9._] — UUIDs (with dashes) need sanitizing.
     const safe = (s: string) => s.replace(/[^a-zA-Z0-9._]/g, '_');
     const objectId = `${issuerId}.pass_${safe(pass.id)}`;
