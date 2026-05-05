@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { sign } from 'jsonwebtoken';
 import * as fs from 'fs';
+import * as path from 'path';
 import { PrismaService } from '../common/prisma/prisma.service';
 
 /**
@@ -11,7 +12,34 @@ import { PrismaService } from '../common/prisma/prisma.service';
 @Injectable()
 export class WalletService {
   private logger = new Logger(WalletService.name);
+  /** Caché de imágenes default cargadas desde disco una sola vez */
+  private defaultImages: Record<string, Buffer> | null = null;
   constructor(private prisma: PrismaService) {}
+
+  private loadDefaultImages(): Record<string, Buffer> {
+    if (this.defaultImages) return this.defaultImages;
+    const baseDir = path.join(process.cwd(), 'certs', 'wallet-defaults');
+    const files = [
+      'icon.png',
+      'icon@2x.png',
+      'icon@3x.png',
+      'logo.png',
+      'logo@2x.png',
+      'logo@3x.png',
+      'strip.png',
+      'strip@2x.png',
+      'strip@3x.png',
+    ];
+    const out: Record<string, Buffer> = {};
+    for (const f of files) {
+      const p = path.join(baseDir, f);
+      if (fs.existsSync(p)) {
+        out[f] = fs.readFileSync(p);
+      }
+    }
+    this.defaultImages = out;
+    return out;
+  }
 
   async generateApplePass(passId: string): Promise<Buffer> {
     const pass = await this.prisma.pass.findUnique({
@@ -82,18 +110,30 @@ export class WalletService {
 
     // Producción: usar passkit-generator. Importación dinámica para que dev sin certs no falle.
     const { PKPass } = await import('passkit-generator');
-    const pkpass = new PKPass(
-      {
-        'pass.json': Buffer.from(JSON.stringify(passJson)),
-      },
-      {
-        wwdr: fs.readFileSync(wwdrPath),
-        signerCert: fs.readFileSync(certPath),
-        signerKey: fs.readFileSync(certPath),
-        signerKeyPassphrase: process.env.APPLE_PASS_CERT_PASSWORD ?? '',
-      },
-    );
+    const buffers: Record<string, Buffer> = {
+      'pass.json': Buffer.from(JSON.stringify(passJson)),
+      ...this.loadDefaultImages(),
+    };
+
+    const pkpass = new PKPass(buffers, {
+      wwdr: fs.readFileSync(wwdrPath),
+      signerCert: fs.readFileSync(certPath),
+      signerKey: fs.readFileSync(certPath),
+      signerKeyPassphrase: process.env.APPLE_PASS_CERT_PASSWORD ?? '',
+    });
     return pkpass.getAsBuffer();
+  }
+
+  /** Apple consulta esto cuando push le avisa que el pase cambió. */
+  async getPassMeta(serial: string, authToken: string) {
+    const pass = await this.prisma.pass.findUnique({
+      where: { serialNumber: serial },
+    });
+    if (!pass || pass.authToken !== authToken) return null;
+    return {
+      id: pass.id,
+      lastUpdated: pass.lastActivityAt ?? pass.issuedAt,
+    };
   }
 
   async generateGoogleSaveUrl(passId: string): Promise<string> {
@@ -173,9 +213,69 @@ export class WalletService {
     return url;
   }
 
-  /** Llamado por workers cuando cambia el estado de un pase. Stub. */
+  /**
+   * Notifica a todos los iPhones que tienen este pase instalado para que
+   * re-fetchen la versión actualizada del .pkpass. Apple usa silent push
+   * via APNs (token-based, sin alert/badge — solo trigger).
+   *
+   * Requiere env vars:
+   *   APNS_KEY_PATH, APNS_KEY_ID, APNS_TEAM_ID, APPLE_PASS_TYPE_ID
+   * Si faltan, loggea y skipea (modo dev).
+   */
   async pushPassUpdate(passId: string) {
-    this.logger.log(`pushPassUpdate(${passId}) — TODO: APNs + Google patch`);
+    const devices = await this.prisma.walletDevice.findMany({
+      where: { passId, platform: 'APPLE' },
+    });
+    if (devices.length === 0) {
+      this.logger.debug(`pushPassUpdate(${passId}): no Apple devices registered`);
+      return { sent: 0, skipped: 0 };
+    }
+
+    const keyPath = process.env.APNS_KEY_PATH;
+    const keyId = process.env.APNS_KEY_ID;
+    const teamId = process.env.APNS_TEAM_ID;
+    const topic = process.env.APPLE_PASS_TYPE_ID ?? 'pass.com.clubify.loyalty';
+
+    if (!keyPath || !keyId || !teamId || !fs.existsSync(keyPath)) {
+      this.logger.warn(
+        `pushPassUpdate(${passId}): APNs no configurado (${devices.length} dispositivos esperando) — skipeando`,
+      );
+      return { sent: 0, skipped: devices.length };
+    }
+
+    const apn = await import('apn');
+    const provider = new apn.Provider({
+      token: { key: keyPath, keyId, teamId },
+      production: process.env.NODE_ENV === 'production',
+    });
+    // Apple Wallet espera notificación SILENCIOSA: payload vacío, topic =
+    // passTypeId. No alert, no sound, no badge — solo trigger de fetch.
+    const note = new apn.Notification();
+    note.topic = topic;
+    note.payload = {};
+
+    let sent = 0;
+    let skipped = 0;
+    for (const d of devices) {
+      try {
+        const r = await provider.send(note, d.pushToken);
+        sent += r.sent.length;
+        skipped += r.failed.length;
+        if (r.failed.length > 0) {
+          this.logger.warn(
+            `APNs failed for ${d.pushToken.slice(0, 8)}…: ${JSON.stringify(r.failed[0]?.response ?? r.failed[0])}`,
+          );
+        }
+      } catch (e) {
+        skipped += 1;
+        this.logger.warn(`APNs error: ${(e as Error).message}`);
+      }
+    }
+    provider.shutdown();
+    this.logger.log(
+      `pushPassUpdate(${passId}): ${sent} enviados / ${skipped} fallidos (${devices.length} devices)`,
+    );
+    return { sent, skipped };
   }
 
   private hexToRgb(hex: string): string {

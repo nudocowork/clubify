@@ -9,6 +9,8 @@ dist
 
 backend/certs/*
 !backend/certs/.gitkeep
+!backend/certs/wallet-defaults/
+!backend/certs/wallet-defaults/*.png
 
 # build outputs
 backend/dist

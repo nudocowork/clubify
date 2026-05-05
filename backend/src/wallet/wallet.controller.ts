@@ -1,7 +1,8 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Post, Req } from '@nestjs/common';
-import { Request } from 'express';
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Req, Res } from '@nestjs/common';
+import { Request, Response } from 'express';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { Public } from '../common/decorators/public.decorator';
+import { WalletService } from './wallet.service';
 
 /**
  * Endpoints que Apple Wallet llama desde el dispositivo del usuario.
@@ -9,7 +10,10 @@ import { Public } from '../common/decorators/public.decorator';
  */
 @Controller('wallet/apple')
 export class WalletController {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private wallet: WalletService,
+  ) {}
 
   // Registro de dispositivo
   @Public()
@@ -71,5 +75,45 @@ export class WalletController {
   log(@Body() body: any) {
     // Apple manda errores de pase aquí; en prod loguear a Sentry/Pino
     return { ok: true };
+  }
+
+  /**
+   * Apple Wallet llama esto para descargar el .pkpass actualizado cuando
+   * recibe un push silencioso. Spec exige:
+   * - Authorization: ApplePass <authToken>
+   * - 200 con bytes del .pkpass + If-Modified-Since soportado
+   * - 401 si auth falla, 304 si nada cambió
+   */
+  @Public()
+  @Get('v1/passes/:passTypeId/:serial')
+  async fetchUpdatedPass(
+    @Param('serial') serial: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    const auth = req.headers['authorization'] ?? '';
+    const token = String(auth).replace(/^ApplePass /, '');
+    const meta = await this.wallet.getPassMeta(serial, token);
+    if (!meta) {
+      res.status(401).end();
+      return;
+    }
+
+    // If-Modified-Since: si el cliente ya tiene esta versión, devolvemos 304
+    const ims = req.headers['if-modified-since'];
+    if (ims) {
+      const since = new Date(String(ims)).getTime();
+      if (since >= meta.lastUpdated.getTime()) {
+        res.status(304).end();
+        return;
+      }
+    }
+
+    const buf = await this.wallet.generateApplePass(meta.id);
+    res.set({
+      'Content-Type': 'application/vnd.apple.pkpass',
+      'Last-Modified': meta.lastUpdated.toUTCString(),
+    });
+    res.send(buf);
   }
 }

@@ -18,6 +18,7 @@ import { PromotionsService } from '../promotions/promotions.service';
 import { AutomationsService } from '../automations/automations.service';
 import { OrdersGateway } from './orders.gateway';
 import { EmailService } from '../email/email.service';
+import { WalletService } from '../wallet/wallet.service';
 import {
   orderConfirmedTemplate,
   orderCreatedTemplate,
@@ -59,6 +60,7 @@ export class OrdersService {
     private automations: AutomationsService,
     private gateway: OrdersGateway,
     private email: EmailService,
+    private wallet: WalletService,
   ) {}
 
   private async broadcast(orderId: string) {
@@ -750,6 +752,8 @@ export class OrdersService {
         }),
       ]);
 
+      this.wallet.pushPassUpdate(pass.id).catch(() => null);
+
       if (completed) {
         this.automations.emit('PASS_COMPLETED', {
           tenantId,
@@ -789,6 +793,8 @@ export class OrdersService {
           },
         }),
       ]);
+
+      this.wallet.pushPassUpdate(pass.id).catch(() => null);
     }
   }
 
