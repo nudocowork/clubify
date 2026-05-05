@@ -27,6 +27,9 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/package*.json ./
+# Imágenes default Apple Wallet (icon/logo/strip) — los certs reales se
+# inyectan via env vars base64, pero estas PNGs vienen del repo.
+COPY --from=build /app/certs ./certs
 
 # Railway / Render asignan PORT por env; default a 3001 si no
 ENV PORT=3001
