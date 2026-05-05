@@ -61,6 +61,8 @@ export default function CardsList() {
   const [list, setList] = useState<Card[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
   async function load() {
     setLoading(true);
     try {
@@ -74,6 +76,27 @@ export default function CardsList() {
   useEffect(() => {
     load();
   }, []);
+
+  async function handleDelete(e: React.MouseEvent, card: Card) {
+    e.preventDefault();
+    e.stopPropagation();
+    const passes = card._count?.passes ?? 0;
+    const msg =
+      passes > 0
+        ? `¿Eliminar "${card.name}"? Esto borrará también ${passes} pase${passes === 1 ? '' : 's'} de clientes y los desinstalará de sus wallets. Esta acción NO se puede deshacer.`
+        : `¿Eliminar la tarjeta "${card.name}"? Esta acción no se puede deshacer.`;
+    if (!confirm(msg)) return;
+    setDeletingId(card.id);
+    try {
+      await api(`/cards/${card.id}`, { method: 'DELETE' });
+      toast('Tarjeta eliminada', 'success');
+      setList((prev) => prev.filter((c) => c.id !== card.id));
+    } catch (err: any) {
+      toast(err.message || 'No se pudo eliminar', 'error');
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   const totalPasses = list.reduce((s, c) => s + (c._count?.passes ?? 0), 0);
   const activeCount = list.filter((c) => c.isActive).length;
@@ -151,10 +174,25 @@ export default function CardsList() {
                   </div>
 
                   {!c.isActive && (
-                    <span className="absolute top-3 right-3 bg-white/95 text-ink text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                    <span className="absolute top-3 left-3 bg-white/95 text-ink text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
                       Pausada
                     </span>
                   )}
+
+                  <button
+                    type="button"
+                    onClick={(e) => handleDelete(e, c)}
+                    disabled={deletingId === c.id}
+                    title="Eliminar tarjeta"
+                    aria-label={`Eliminar ${c.name}`}
+                    className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full bg-black/30 hover:bg-red-500 backdrop-blur text-white flex items-center justify-center transition disabled:opacity-50"
+                  >
+                    {deletingId === c.id ? (
+                      <span className="block w-3 h-3 border-2 border-white/80 border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Icon name="trash" />
+                    )}
+                  </button>
 
                   <div className="relative">
                     <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider font-bold opacity-90">

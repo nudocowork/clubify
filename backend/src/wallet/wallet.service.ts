@@ -504,7 +504,13 @@ export class WalletService {
     let provider = buildProvider(startProd);
     let sent = 0;
     let skipped = 0;
+    let purged = 0;
     let envMismatchDetected = false;
+    const STALE_REASONS = new Set([
+      'BadDeviceToken',
+      'Unregistered',
+      'DeviceTokenNotForTopic',
+    ]);
 
     for (const d of devices) {
       try {
@@ -528,9 +534,18 @@ export class WalletService {
         sent += r.sent.length;
         skipped += r.failed.length;
         if (r.failed.length > 0) {
+          const finalReason = r.failed[0]?.response?.reason as string | undefined;
           this.logger.warn(
             `APNs failed for ${d.pushToken.slice(0, 8)}…: ${JSON.stringify(r.failed[0]?.response ?? r.failed[0])}`,
           );
+          // Si Apple dice que el token está muerto, lo borramos para que el
+          // re-install del .pkpass cree uno limpio sin colisionar.
+          if (finalReason && STALE_REASONS.has(finalReason)) {
+            await this.prisma.walletDevice
+              .delete({ where: { id: d.id } })
+              .catch(() => null);
+            purged += 1;
+          }
         }
       } catch (e) {
         skipped += 1;
@@ -538,6 +553,11 @@ export class WalletService {
       }
     }
     provider.shutdown();
+    if (purged > 0) {
+      this.logger.log(
+        `pushPassUpdate(${passId}): ${purged} devices stale eliminados (re-instalar el pase para re-registrar)`,
+      );
+    }
     this.logger.log(
       `pushPassUpdate(${passId}): ${sent} enviados / ${skipped} fallidos (${devices.length} devices)`,
     );
