@@ -197,9 +197,15 @@ export class WalletService {
       });
     }
 
+    // Icono del tenant — aparece en el banner de push notification del iPhone
+    // y en el header del pase abierto. Si el tenant tiene logoUrl la usamos,
+    // sino caen los defaults de Clubify.
+    const tenantIcons = await this.generateTenantIcons(pass.tenant.logoUrl);
+
     const buffers: Record<string, Buffer> = {
       'pass.json': Buffer.from(JSON.stringify(passJson)),
       ...this.loadDefaultImages(),
+      ...tenantIcons, // override icon*.png con el logo del tenant si existe
       ...dynamicStrips, // override strip*.png si los generamos
     };
 
@@ -317,6 +323,46 @@ export class WalletService {
       'strip@2x.png': s2,
       'strip@3x.png': s3,
     };
+  }
+
+  /**
+   * Genera icon.png / icon@2x.png / icon@3x.png a partir del logoUrl del
+   * tenant. Apple Wallet usa icon.png como icono del banner de push
+   * notification (lockscreen del iPhone) y en el header del pase abierto.
+   *
+   * Apple exige cuadrado: 29×29 / 58×58 / 87×87 píxeles.
+   * Si la URL no responde o sharp no puede procesar, devuelve {} y los
+   * defaults de Clubify se usan como fallback.
+   */
+  private async generateTenantIcons(
+    logoUrl: string | null,
+  ): Promise<Record<string, Buffer>> {
+    if (!logoUrl) return {};
+    try {
+      const sharp = (await import('sharp')).default;
+      const res = await fetch(logoUrl);
+      if (!res.ok) {
+        this.logger.warn(`logoUrl fetch falló (${res.status}): ${logoUrl}`);
+        return {};
+      }
+      const src = Buffer.from(await res.arrayBuffer());
+      // Centramos sobre fondo blanco para que no quede borde transparente
+      // raro en el banner del lockscreen iPhone.
+      const make = (px: number) =>
+        sharp(src)
+          .resize(px, px, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
+          .png()
+          .toBuffer();
+      const [i1, i2, i3] = await Promise.all([make(29), make(58), make(87)]);
+      return {
+        'icon.png': i1,
+        'icon@2x.png': i2,
+        'icon@3x.png': i3,
+      };
+    } catch (e) {
+      this.logger.warn(`generateTenantIcons error: ${(e as Error).message}`);
+      return {};
+    }
   }
 
   private escapeXml(s: string): string {
