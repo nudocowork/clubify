@@ -247,6 +247,170 @@ export class OrdersService {
     };
   }
 
+  /**
+   * Crear pedido manualmente desde el panel del tenant. Pensado para POS:
+   * walk-ins, pedidos por teléfono o registros de ventas pasadas. A diferencia
+   * de `createPublic` el cliente DEBE existir (`customerId`) y el tenant
+   * elige el status inicial (CONFIRMED es típico — ya está en cocina).
+   *
+   * Si status es CONFIRMED/READY/DELIVERED, dispara `autoStampOnConfirm` y la
+   * automation `ORDER_CONFIRMED` para que el flujo de loyalty funcione igual
+   * que en pedidos públicos.
+   */
+  async createInternal(
+    user: AuthUser,
+    override: string | undefined,
+    dto: {
+      customerId: string;
+      items: Array<{
+        productId: string;
+        variantId?: string | null;
+        extraIds?: string[];
+        qty: number;
+        note?: string;
+      }>;
+      fulfillment?: Fulfillment;
+      tableNumber?: string;
+      customerNote?: string;
+      locationId?: string;
+      status?: OrderStatus;
+      paymentStatus?: 'PAID' | 'PENDING' | 'NOT_REQUIRED';
+      paymentMethod?: string;
+    },
+  ) {
+    const tid = this.tid(user, override);
+    if (!dto.items?.length) throw new BadRequestException('Carrito vacío');
+
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: dto.customerId },
+    });
+    if (!customer || customer.tenantId !== tid) {
+      throw new NotFoundException('Cliente no existe en este negocio');
+    }
+
+    // Resolver productos y construir items con precios actuales
+    const productIds = dto.items.map((i) => i.productId);
+    const products = await this.prisma.product.findMany({
+      where: { tenantId: tid, id: { in: productIds } },
+      include: { variants: true, extras: true },
+    });
+    const map = new Map(products.map((p) => [p.id, p]));
+
+    const items: OrderItem[] = [];
+    let subtotal = 0;
+    for (const i of dto.items) {
+      const p = map.get(i.productId);
+      if (!p) throw new BadRequestException(`Producto ${i.productId} no existe`);
+      let unit = Number(p.basePrice);
+      let variantName = '';
+      if (i.variantId) {
+        const v = p.variants.find((x) => x.id === i.variantId);
+        if (!v) throw new BadRequestException('Variante inválida');
+        unit += Number(v.priceDelta);
+        variantName = ` (${v.name})`;
+      }
+      const extras = (i.extraIds ?? []).map((eid) => {
+        const e = p.extras.find((x) => x.id === eid);
+        if (!e) throw new BadRequestException('Extra inválido');
+        unit += Number(e.price);
+        return { id: e.id, name: e.name, price: Number(e.price) };
+      });
+      const qty = Math.max(1, Math.min(50, i.qty));
+      const lineTotal = unit * qty;
+      subtotal += lineTotal;
+      items.push({
+        productId: p.id,
+        variantId: i.variantId ?? null,
+        extras,
+        qty,
+        name: p.name + variantName,
+        unitPrice: unit,
+        lineTotal,
+        note: i.note,
+      });
+    }
+
+    const { discount, applied } = await this.promotions.computeForCart(
+      tid,
+      subtotal,
+      items,
+    );
+    const total = Math.max(0, subtotal - discount);
+
+    let code = codeGen();
+    while (await this.prisma.order.findUnique({ where: { code } })) {
+      code = codeGen();
+    }
+
+    const status = dto.status ?? 'PENDING';
+    const paymentStatus = dto.paymentStatus ?? 'NOT_REQUIRED';
+    const now = new Date();
+
+    const order = await this.prisma.order.create({
+      data: {
+        tenantId: tid,
+        customerId: customer.id,
+        code,
+        items: items as any,
+        subtotal,
+        discount,
+        total,
+        appliedPromos: applied as any,
+        fulfillment: dto.fulfillment ?? 'PICKUP',
+        tableNumber: dto.tableNumber,
+        customerNote: dto.customerNote,
+        locationId: dto.locationId,
+        status,
+        paymentStatus: paymentStatus as any,
+        paymentMethod: (dto.paymentMethod as any) ?? 'CASH_ON_DELIVERY',
+        paidAt: paymentStatus === 'PAID' ? now : null,
+        confirmedAt: ['CONFIRMED', 'READY', 'DELIVERED'].includes(status) ? now : null,
+        readyAt: ['READY', 'DELIVERED'].includes(status) ? now : null,
+        deliveredAt: status === 'DELIVERED' ? now : null,
+        events: {
+          create: { type: 'CREATED', metadata: { source: 'manual', actorId: user.id } },
+        },
+      },
+    });
+
+    await this.decrementStock(items as any[]).catch(() => null);
+
+    // Si arranca confirmed o más, dispara loyalty + automation igual que público
+    if (['CONFIRMED', 'READY', 'DELIVERED'].includes(status)) {
+      await this.autoStampOnConfirm(tid, customer.id, order.id).catch(() => null);
+      this.automations
+        .emit('ORDER_CONFIRMED', {
+          tenantId: tid,
+          orderId: order.id,
+          customerId: customer.id,
+          total,
+        })
+        .catch(() => null);
+    }
+    if (status === 'DELIVERED') {
+      this.automations
+        .emit('ORDER_DELIVERED', {
+          tenantId: tid,
+          orderId: order.id,
+          customerId: customer.id,
+        })
+        .catch(() => null);
+    }
+
+    await this.prisma.event.create({
+      data: {
+        tenantId: tid,
+        customerId: customer.id,
+        type: 'order.created',
+        payload: { orderId: order.id, total, channel: 'MANUAL', actorId: user.id },
+      },
+    });
+
+    this.broadcast(order.id).catch(() => null);
+
+    return order;
+  }
+
   async getPublicByCode(code: string) {
     const o = await this.prisma.order.findUnique({
       where: { code },

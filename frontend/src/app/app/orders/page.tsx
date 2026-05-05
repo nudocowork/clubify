@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { api, downloadFile } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { getOrdersSocket } from '@/lib/socket';
@@ -82,6 +83,8 @@ export default function OrdersBoard() {
   const [flashId, setFlashId] = useState<string | null>(null);
   const [searchQ, setSearchQ] = useState('');
   const [scopeDays, setScopeDays] = useState<1 | 7 | 30>(1);
+  const [newOrderOpen, setNewOrderOpen] = useState(false);
+  const router = useRouter();
   const soundRef = useRef(soundOn);
   soundRef.current = soundOn;
   const seenRef = useRef<Set<string>>(new Set());
@@ -432,8 +435,26 @@ export default function OrdersBoard() {
           >
             ⤓ CSV
           </button>
+          <button
+            className="btn-primary text-sm"
+            onClick={() => setNewOrderOpen(true)}
+            title="Crear pedido manual (walk-in, teléfono, etc.)"
+          >
+            <Icon name="plus" /> Nuevo pedido
+          </button>
         </div>
       </div>
+
+      {newOrderOpen && (
+        <NewOrderModal
+          onClose={() => setNewOrderOpen(false)}
+          onCreated={(orderId) => {
+            setNewOrderOpen(false);
+            load();
+            router.push(`/app/orders/${orderId}`);
+          }}
+        />
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         {COLS.map((col) => (
@@ -563,6 +584,454 @@ export default function OrdersBoard() {
             </div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+//                 NEW MANUAL ORDER MODAL
+// ============================================================
+
+type CustomerLite = {
+  id: string;
+  fullName: string;
+  phone: string | null;
+  email: string | null;
+};
+
+type ProductLite = {
+  id: string;
+  name: string;
+  basePrice: number;
+  isAvailable: boolean;
+  category?: { name: string } | null;
+};
+
+type CartLine = {
+  productId: string;
+  name: string;
+  unitPrice: number;
+  qty: number;
+};
+
+const STATUS_OPTIONS: Array<{
+  value: 'PENDING' | 'CONFIRMED' | 'READY' | 'DELIVERED';
+  label: string;
+  hint: string;
+}> = [
+  { value: 'PENDING', label: 'Pendiente', hint: 'Aún por confirmar' },
+  { value: 'CONFIRMED', label: 'Confirmado', hint: 'En cocina' },
+  { value: 'READY', label: 'Listo', hint: 'Esperando entregar' },
+  { value: 'DELIVERED', label: 'Entregado', hint: 'Walk-in / cobro en caja' },
+];
+
+function NewOrderModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: (orderId: string) => void;
+}) {
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [customers, setCustomers] = useState<CustomerLite[]>([]);
+  const [pickedCustomer, setPickedCustomer] = useState<CustomerLite | null>(
+    null,
+  );
+  const [products, setProducts] = useState<ProductLite[]>([]);
+  const [productSearch, setProductSearch] = useState('');
+  const [cart, setCart] = useState<CartLine[]>([]);
+  const [status, setStatus] = useState<
+    'PENDING' | 'CONFIRMED' | 'READY' | 'DELIVERED'
+  >('CONFIRMED');
+  const [paymentStatus, setPaymentStatus] = useState<
+    'NOT_REQUIRED' | 'PAID' | 'PENDING'
+  >('PAID');
+  const [tableNumber, setTableNumber] = useState('');
+  const [customerNote, setCustomerNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Cargar productos disponibles una sola vez
+  useEffect(() => {
+    api<ProductLite[]>('/products')
+      .then((all) => setProducts(all.filter((p) => p.isAvailable)))
+      .catch(() => setProducts([]));
+  }, []);
+
+  // Búsqueda live de clientes (debounced)
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      if (customerSearch.trim().length < 2) {
+        setCustomers([]);
+        return;
+      }
+      try {
+        const list: CustomerLite[] = await api(
+          `/customers?search=${encodeURIComponent(customerSearch)}`,
+        );
+        setCustomers(list.slice(0, 8));
+      } catch {
+        setCustomers([]);
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [customerSearch]);
+
+  const filteredProducts = useMemo(() => {
+    const q = productSearch.trim().toLowerCase();
+    if (!q) return products.slice(0, 30);
+    return products
+      .filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          p.category?.name?.toLowerCase().includes(q),
+      )
+      .slice(0, 30);
+  }, [productSearch, products]);
+
+  function addToCart(p: ProductLite) {
+    setCart((prev) => {
+      const idx = prev.findIndex((c) => c.productId === p.id);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = { ...copy[idx], qty: copy[idx].qty + 1 };
+        return copy;
+      }
+      return [
+        ...prev,
+        {
+          productId: p.id,
+          name: p.name,
+          unitPrice: Number(p.basePrice),
+          qty: 1,
+        },
+      ];
+    });
+  }
+
+  function setQty(productId: string, qty: number) {
+    if (qty <= 0) {
+      setCart((prev) => prev.filter((c) => c.productId !== productId));
+      return;
+    }
+    setCart((prev) =>
+      prev.map((c) =>
+        c.productId === productId ? { ...c, qty: Math.min(50, qty) } : c,
+      ),
+    );
+  }
+
+  const total = useMemo(
+    () => cart.reduce((acc, c) => acc + c.unitPrice * c.qty, 0),
+    [cart],
+  );
+
+  async function submit() {
+    if (!pickedCustomer) {
+      setErr('Selecciona un cliente');
+      return;
+    }
+    if (cart.length === 0) {
+      setErr('Agrega al menos un producto');
+      return;
+    }
+    setSubmitting(true);
+    setErr(null);
+    try {
+      const order = await api<{ id: string }>('/orders', {
+        method: 'POST',
+        body: JSON.stringify({
+          customerId: pickedCustomer.id,
+          items: cart.map((c) => ({ productId: c.productId, qty: c.qty })),
+          status,
+          paymentStatus,
+          paymentMethod: paymentStatus === 'PAID' ? 'CASH' : 'CASH_ON_DELIVERY',
+          fulfillment: tableNumber.trim() ? 'DINE_IN' : 'PICKUP',
+          tableNumber: tableNumber.trim() || undefined,
+          customerNote: customerNote.trim() || undefined,
+        }),
+      });
+      toast('Pedido creado', 'success');
+      onCreated(order.id);
+    } catch (e: any) {
+      setErr(e.message || 'No se pudo crear el pedido');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !submitting) onClose();
+      }}
+    >
+      <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[92vh] flex flex-col overflow-hidden">
+        <div className="px-5 py-4 border-b border-line flex items-center justify-between">
+          <div>
+            <div className="font-semibold text-lg">Nuevo pedido</div>
+            <div className="text-xs text-mute">
+              Walk-in, teléfono o cualquier pedido fuera del menú público
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            disabled={submitting}
+            className="text-mute hover:text-ink text-xl leading-none"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          {/* Cliente */}
+          <div>
+            <label className="label">Cliente</label>
+            {pickedCustomer ? (
+              <div className="flex items-center gap-3 bg-brand-soft border border-brand/20 rounded-input px-3 py-2.5">
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-sm">
+                    {pickedCustomer.fullName}
+                  </div>
+                  <div className="text-xs text-mute truncate">
+                    {pickedCustomer.phone || pickedCustomer.email || 'Sin contacto'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPickedCustomer(null);
+                    setCustomerSearch('');
+                  }}
+                  className="text-xs text-mute hover:text-ink"
+                >
+                  Cambiar
+                </button>
+              </div>
+            ) : (
+              <>
+                <input
+                  className="input"
+                  placeholder="Buscar por nombre, teléfono o email…"
+                  value={customerSearch}
+                  onChange={(e) => setCustomerSearch(e.target.value)}
+                  autoFocus
+                />
+                {customerSearch.trim().length >= 2 && (
+                  <div className="border border-line rounded-input mt-1 max-h-48 overflow-y-auto bg-white">
+                    {customers.length === 0 ? (
+                      <div className="px-3 py-3 text-sm text-mute text-center">
+                        Sin resultados.{' '}
+                        <Link
+                          href="/app/customers"
+                          target="_blank"
+                          className="text-brand hover:underline"
+                        >
+                          Crear cliente nuevo →
+                        </Link>
+                      </div>
+                    ) : (
+                      customers.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => setPickedCustomer(c)}
+                          className="w-full text-left px-3 py-2 hover:bg-bg2/40 border-b border-line2 last:border-b-0"
+                        >
+                          <div className="text-sm font-medium">{c.fullName}</div>
+                          <div className="text-xs text-mute">
+                            {c.phone || c.email || 'Sin contacto'}
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Productos */}
+          <div>
+            <label className="label">Productos</label>
+            <input
+              className="input mb-2"
+              placeholder="Buscar producto o categoría…"
+              value={productSearch}
+              onChange={(e) => setProductSearch(e.target.value)}
+            />
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-56 overflow-y-auto">
+              {filteredProducts.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => addToCart(p)}
+                  className="text-left border border-line2 rounded-input px-2.5 py-2 hover:border-brand/50 hover:bg-brand-soft transition"
+                >
+                  <div className="text-xs font-semibold truncate">{p.name}</div>
+                  <div className="text-[11px] text-mute mt-0.5">
+                    {fmt(Number(p.basePrice))}
+                  </div>
+                </button>
+              ))}
+              {filteredProducts.length === 0 && (
+                <div className="col-span-full text-sm text-mute text-center py-4">
+                  Sin productos para mostrar.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Carrito */}
+          {cart.length > 0 && (
+            <div className="border border-line rounded-input p-3 bg-bg2/30">
+              <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
+                Carrito ({cart.length} líneas)
+              </div>
+              <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                {cart.map((c) => (
+                  <div
+                    key={c.productId}
+                    className="flex items-center gap-2 text-sm"
+                  >
+                    <div className="flex-1 truncate">{c.name}</div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setQty(c.productId, c.qty - 1)}
+                        className="w-6 h-6 rounded-full bg-bg2 hover:bg-line text-ink"
+                      >
+                        −
+                      </button>
+                      <span className="w-8 text-center font-medium">{c.qty}</span>
+                      <button
+                        type="button"
+                        onClick={() => setQty(c.productId, c.qty + 1)}
+                        className="w-6 h-6 rounded-full bg-bg2 hover:bg-line text-ink"
+                      >
+                        +
+                      </button>
+                    </div>
+                    <div className="w-20 text-right text-mute text-xs">
+                      {fmt(c.unitPrice * c.qty)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="border-t border-line2 mt-2 pt-2 flex justify-between font-semibold">
+                <span>Total</span>
+                <span>{fmt(total)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Opciones */}
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div>
+              <label className="label">Estado inicial</label>
+              <div className="grid grid-cols-2 gap-1">
+                {STATUS_OPTIONS.map((s) => (
+                  <button
+                    type="button"
+                    key={s.value}
+                    onClick={() => setStatus(s.value)}
+                    className={`px-2 py-2 rounded-input text-xs font-semibold transition text-left ${
+                      status === s.value
+                        ? 'bg-brand text-white'
+                        : 'bg-bg2 text-ink hover:bg-line'
+                    }`}
+                    title={s.hint}
+                  >
+                    {s.label}
+                    <div
+                      className={`text-[10px] font-normal mt-0.5 ${
+                        status === s.value ? 'text-white/80' : 'text-mute'
+                      }`}
+                    >
+                      {s.hint}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="label">Pago</label>
+              <div className="grid grid-cols-3 gap-1">
+                {(
+                  [
+                    { v: 'PAID', l: '✓ Cobrado' },
+                    { v: 'PENDING', l: 'Por cobrar' },
+                    { v: 'NOT_REQUIRED', l: 'No aplica' },
+                  ] as const
+                ).map((p) => (
+                  <button
+                    type="button"
+                    key={p.v}
+                    onClick={() => setPaymentStatus(p.v)}
+                    className={`px-2 py-2 rounded-input text-xs font-semibold transition ${
+                      paymentStatus === p.v
+                        ? 'bg-ok text-white'
+                        : 'bg-bg2 text-ink hover:bg-line'
+                    }`}
+                  >
+                    {p.l}
+                  </button>
+                ))}
+              </div>
+              <label className="label mt-3">Mesa (opcional)</label>
+              <input
+                className="input"
+                placeholder="Ej: 5"
+                value={tableNumber}
+                onChange={(e) => setTableNumber(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="label">Nota interna (opcional)</label>
+            <input
+              className="input"
+              placeholder="Ej: sin azúcar, para llevar…"
+              value={customerNote}
+              onChange={(e) => setCustomerNote(e.target.value)}
+            />
+          </div>
+
+          {err && (
+            <div className="rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink">
+              {err}
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-t border-line bg-bg2/30 flex items-center justify-between gap-3">
+          <div className="text-sm text-mute">
+            {cart.length > 0 ? `Total: ${fmt(total)}` : 'Carrito vacío'}
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={submitting}
+              className="btn-ghost text-sm"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={
+                submitting || !pickedCustomer || cart.length === 0
+              }
+              className="btn-primary disabled:opacity-50"
+            >
+              {submitting ? 'Creando…' : 'Crear pedido →'}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

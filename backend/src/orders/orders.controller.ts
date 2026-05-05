@@ -5,11 +5,22 @@ import {
   Header,
   Param,
   Patch,
+  Post,
   Query,
   Res,
 } from '@nestjs/common';
-import { IsEnum } from 'class-validator';
-import { OrderStatus } from '@prisma/client';
+import {
+  ArrayMinSize,
+  IsArray,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  Min,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+import { Fulfillment, OrderStatus } from '@prisma/client';
 import { Response } from 'express';
 import { OrdersService } from './orders.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
@@ -18,6 +29,27 @@ import { toCSV } from '../common/csv';
 
 class StatusBody {
   @IsEnum(OrderStatus) status!: OrderStatus;
+}
+
+class ManualOrderItem {
+  @IsString() productId!: string;
+  @IsOptional() @IsString() variantId?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) extraIds?: string[];
+  @IsInt() @Min(1) qty!: number;
+  @IsOptional() @IsString() note?: string;
+}
+
+class ManualOrderBody {
+  @IsString() customerId!: string;
+  @IsArray() @ArrayMinSize(1) @ValidateNested({ each: true }) @Type(() => ManualOrderItem)
+  items!: ManualOrderItem[];
+  @IsOptional() @IsEnum(Fulfillment) fulfillment?: Fulfillment;
+  @IsOptional() @IsString() tableNumber?: string;
+  @IsOptional() @IsString() customerNote?: string;
+  @IsOptional() @IsString() locationId?: string;
+  @IsOptional() @IsEnum(OrderStatus) status?: OrderStatus;
+  @IsOptional() @IsString() paymentStatus?: 'PAID' | 'PENDING' | 'NOT_REQUIRED';
+  @IsOptional() @IsString() paymentMethod?: string;
 }
 
 @Controller('orders')
@@ -78,6 +110,15 @@ export class OrdersController {
       `attachment; filename="pedidos-${stamp}.csv"`,
     );
     res.send(csv);
+  }
+
+  @Post()
+  create(
+    @CurrentUser() user: AuthUser,
+    @Body() body: ManualOrderBody,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.svc.createInternal(user, tenantId, body);
   }
 
   @Get(':id')
