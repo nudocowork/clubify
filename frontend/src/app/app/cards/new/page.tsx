@@ -30,7 +30,18 @@ export default function NewCard() {
     rewardText: '1 producto gratis',
     discountPercent: 10,
     pointsPerCurrency: 0.001, // 1 punto cada $1.000
+    stampIcon: '☕',
   });
+
+  // Iconos disponibles para representar cada sello en la tarjeta
+  const STAMP_ICONS = [
+    '☕', '🍵', '🥐', '🍰', '🍩', '🧁', '🍪',
+    '🍕', '🍔', '🌮', '🍣', '🥗', '🍜', '🍱',
+    '🍦', '🍷', '🍻', '🍹', '🥤',
+    '✂️', '💆', '💇', '💅', '🛍️',
+    '🎁', '⭐', '✨', '❤️', '🌟', '🏆',
+    '🐶', '🐱', '🐾', '🌸',
+  ];
   const [err, setErr] = useState<string | null>(null);
 
   function set<K extends keyof typeof form>(k: K, v: any) {
@@ -120,17 +131,45 @@ export default function NewCard() {
           </div>
 
           {form.type === 'STAMPS' && (
-            <div className="mt-3">
-              <label className="label">Sellos requeridos</label>
-              <input
-                type="number"
-                className="input"
-                min={1}
-                max={30}
-                value={form.stampsRequired}
-                onChange={(e) => set('stampsRequired', Number(e.target.value))}
-              />
-            </div>
+            <>
+              <div className="mt-3">
+                <label className="label">Sellos requeridos</label>
+                <input
+                  type="number"
+                  className="input"
+                  min={1}
+                  max={30}
+                  value={form.stampsRequired}
+                  onChange={(e) => set('stampsRequired', Number(e.target.value))}
+                />
+              </div>
+              <div className="mt-3">
+                <label className="label">Icono del sello</label>
+                <div className="grid grid-cols-7 sm:grid-cols-9 gap-1.5 max-h-44 overflow-y-auto p-2 bg-bg2 rounded-input">
+                  {STAMP_ICONS.map((icon) => {
+                    const active = form.stampIcon === icon;
+                    return (
+                      <button
+                        key={icon}
+                        type="button"
+                        onClick={() => set('stampIcon', icon)}
+                        className={`aspect-square rounded-lg text-xl sm:text-2xl flex items-center justify-center transition border-2 ${
+                          active
+                            ? 'bg-white border-brand shadow-md'
+                            : 'bg-white/40 border-transparent hover:bg-white/80'
+                        }`}
+                        aria-label={`Sello ${icon}`}
+                      >
+                        {icon}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="text-[11px] text-mute mt-1.5">
+                  Los clientes verán este símbolo en cada sello acumulado.
+                </div>
+              </div>
+            </>
           )}
           {form.type === 'DISCOUNT' && (
             <div className="mt-3">

@@ -350,6 +350,9 @@ model Card {
   // v2: si está activa la integración orders→sello
   autoStampOnOrder   Boolean  @default(true)
   autoStampAmount    Int      @default(1)
+  // Emoji que se usa para representar cada sello visualmente (☕, 🍕, 🍔, etc).
+  // El cliente lo elige al crear la tarjeta.
+  stampIcon          String   @default("☕")
   createdAt          DateTime @default(now())
 
   passes        Pass[]

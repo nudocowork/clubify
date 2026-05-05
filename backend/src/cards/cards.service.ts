@@ -20,6 +20,7 @@ export type CardDto = {
   validFrom?: string;
   validUntil?: string;
   socialLinks?: Record<string, string>;
+  stampIcon?: string;
 };
 
 @Injectable()
@@ -77,6 +78,7 @@ export class CardsService {
         validFrom: dto.validFrom ? new Date(dto.validFrom) : undefined,
         validUntil: dto.validUntil ? new Date(dto.validUntil) : undefined,
         socialLinks: dto.socialLinks ?? {},
+        stampIcon: dto.stampIcon ?? '☕',
       },
     });
   }

@@ -155,9 +155,25 @@ export class WalletService {
 
     // Producción: usar passkit-generator. Importación dinámica para que dev sin certs no falle.
     const { PKPass } = await import('passkit-generator');
+
+    // Strip dinámico por pass — gradient de colores de la card + grid de
+    // sellos con el icono elegido por el tenant. Reemplaza la strip default
+    // que solo era gradient verde sólido.
+    let dynamicStrips: Record<string, Buffer> = {};
+    if (pass.card.type === 'STAMPS') {
+      dynamicStrips = await this.generateStampsStrip({
+        primary: pass.card.primaryColor,
+        secondary: pass.card.secondaryColor,
+        required: pass.card.stampsRequired ?? 10,
+        stamped: pass.stampsCount,
+        icon: (pass.card as any).stampIcon || '☕',
+      });
+    }
+
     const buffers: Record<string, Buffer> = {
       'pass.json': Buffer.from(JSON.stringify(passJson)),
       ...this.loadDefaultImages(),
+      ...dynamicStrips, // override strip*.png si los generamos
     };
 
     // El pass.pem tiene cert + key concatenados. passkit-generator parsea el
@@ -188,6 +204,100 @@ export class WalletService {
 
     const pkpass = new PKPass(buffers, certOpts);
     return pkpass.getAsBuffer();
+  }
+
+  /**
+   * Genera strip*.png dinámica con el grid de sellos del pase.
+   * Apple Wallet exige strip 320×123 / 640×246 / 960×369. Renderizamos un SVG
+   * con el gradient de la card + grid de círculos con el icono elegido,
+   * y lo convertimos a PNG por cada resolución vía sharp.
+   *
+   * Layout: si required ≤ 6 → 1 fila; si > 6 → 2 filas balanceadas (10 = 5+5).
+   * Sellos llenos = círculo blanco con el emoji; vacíos = círculo translúcido.
+   */
+  private async generateStampsStrip(opts: {
+    primary: string;
+    secondary: string;
+    required: number;
+    stamped: number;
+    icon: string;
+  }): Promise<Record<string, Buffer>> {
+    const sharp = (await import('sharp')).default;
+    const { primary, secondary, required, stamped, icon } = opts;
+
+    const rows = required > 6 ? 2 : 1;
+    const perRow = Math.ceil(required / rows);
+
+    // Genera el SVG en escala 2x (640×246) y luego dejamos a sharp resamplear
+    // a las 3 resoluciones con quality alta.
+    const W = 640;
+    const H = 246;
+    const padX = 24;
+    const padY = 28;
+    const gap = 10;
+    const availW = W - padX * 2;
+    const availH = H - padY * 2;
+    const cellW = (availW - gap * (perRow - 1)) / perRow;
+    const cellH = (availH - gap * (rows - 1)) / rows;
+    const radius = Math.min(cellW, cellH) / 2;
+
+    const circles: string[] = [];
+    for (let i = 0; i < required; i++) {
+      const row = Math.floor(i / perRow);
+      const col = i % perRow;
+      const cx = padX + col * (cellW + gap) + cellW / 2;
+      const cy = padY + row * (cellH + gap) + cellH / 2;
+      const filled = i < stamped;
+      // Círculo: lleno blanco + emoji oscuro / vacío translúcido
+      circles.push(
+        `<circle cx="${cx}" cy="${cy}" r="${radius - 2}" fill="${
+          filled ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.16)'
+        }" stroke="rgba(255,255,255,${filled ? 0.95 : 0.4})" stroke-width="2"/>`,
+      );
+      if (filled) {
+        // Emoji centrado dentro del círculo. font-size proporcional al radio
+        const fontSize = radius * 1.15;
+        // dy=fontSize/3 ajusta el baseline para emojis (alineación visual)
+        circles.push(
+          `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central" font-size="${fontSize}" font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji">${this.escapeXml(
+            icon,
+          )}</text>`,
+        );
+      }
+    }
+
+    const svg = `
+<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="${primary}"/>
+      <stop offset="100%" stop-color="${secondary}"/>
+    </linearGradient>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#bg)"/>
+  <rect width="100%" height="100%" fill="rgba(0,0,0,0.06)"/>
+  ${circles.join('\n  ')}
+</svg>`.trim();
+
+    const baseSvg = Buffer.from(svg, 'utf8');
+    const [s1, s2, s3] = await Promise.all([
+      sharp(baseSvg).resize(320, 123).png().toBuffer(),
+      sharp(baseSvg).resize(640, 246).png().toBuffer(),
+      sharp(baseSvg).resize(960, 369).png().toBuffer(),
+    ]);
+    return {
+      'strip.png': s1,
+      'strip@2x.png': s2,
+      'strip@3x.png': s3,
+    };
+  }
+
+  private escapeXml(s: string): string {
+    return s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 
   /** Extrae el primer bloque PEM con el header dado del buffer combinado. */

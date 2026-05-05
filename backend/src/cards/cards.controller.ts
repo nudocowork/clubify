@@ -22,6 +22,7 @@ class CardBody {
   @IsOptional() @IsString() validFrom?: string;
   @IsOptional() @IsString() validUntil?: string;
   @IsOptional() socialLinks?: Record<string, string>;
+  @IsOptional() @IsString() stampIcon?: string;
 }
 
 @Controller('cards')

@@ -12,7 +12,11 @@ type Props = {
 export function WalletPassView({ passId, data, googleSaveUrl }: Props) {
   const required = data.card.stampsRequired ?? 10;
   const stamped = data.stampsCount ?? 0;
-  const visibleStamps = Math.min(required, 7);
+  const stampIcon: string = data.card.stampIcon || '☕';
+  // Distribuir en grid auto: si son ≤6 → una sola fila; si son más → 2 filas
+  // partidas a la mitad (ej. 10 = 5+5, 8 = 4+4, 12 = 6+6).
+  const rows = required > 6 ? 2 : 1;
+  const perRow = Math.ceil(required / rows);
 
   return (
     <div className="min-h-screen bg-bg">
@@ -73,20 +77,37 @@ export function WalletPassView({ passId, data, googleSaveUrl }: Props) {
                     style={{
                       background:
                         'linear-gradient(135deg,rgba(0,0,0,.15),rgba(0,0,0,.05))',
+                      padding: '14px 12px',
                     }}
                   >
-                    <div className="strip-stamps">
-                      {Array.from({ length: visibleStamps }).map((_, i) => (
-                        <div
-                          key={i}
-                          className={`strip-stamp ${i < stamped ? 'full' : ''}`}
-                          style={{
-                            color: i < stamped ? data.card.primaryColor : '#fff',
-                          }}
-                        >
-                          {i < stamped ? '✓' : ''}
-                        </div>
-                      ))}
+                    <div
+                      className="grid gap-1.5 mx-auto"
+                      style={{
+                        gridTemplateColumns: `repeat(${perRow}, minmax(0, 1fr))`,
+                        maxWidth: `${perRow * 38}px`,
+                      }}
+                    >
+                      {Array.from({ length: required }).map((_, i) => {
+                        const filled = i < stamped;
+                        return (
+                          <div
+                            key={i}
+                            className="aspect-square rounded-full flex items-center justify-center text-base font-bold transition"
+                            style={{
+                              background: filled
+                                ? 'rgba(255,255,255,.92)'
+                                : 'rgba(255,255,255,.18)',
+                              border: `1.5px solid rgba(255,255,255,${
+                                filled ? '.95' : '.45'
+                              })`,
+                              color: filled ? data.card.primaryColor : 'rgba(255,255,255,.5)',
+                              fontSize: required > 8 ? '14px' : '16px',
+                            }}
+                          >
+                            {filled ? stampIcon : ''}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                   <div className="pass-fields">
@@ -101,14 +122,14 @@ export function WalletPassView({ passId, data, googleSaveUrl }: Props) {
                       <div className="pf-val text-xs">{data.card.rewardText}</div>
                     </div>
                   </div>
-                  <div className="pass-bar">
-                    <div className="rounded-md bg-white p-2 shadow-sm">
+                  <div className="pass-bar" style={{ flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                    <div className="rounded-md bg-white px-3 py-2 shadow-sm w-full max-w-[220px] flex justify-center">
                       <Barcode
                         value={data.serialNumber ?? data.qrToken}
                         format="CODE128"
-                        height={64}
-                        width={1.4}
-                        displayValue
+                        height={56}
+                        width={1.3}
+                        displayValue={false}
                       />
                     </div>
                     <div className="pager">
