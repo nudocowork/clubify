@@ -181,7 +181,6 @@ export default function Landing() {
             <a href="#como" className="hover:text-ink">Cómo funciona</a>
             <a href="#clientes" className="hover:text-ink">Clientes</a>
             <a href="#precios" className="hover:text-ink">Precios</a>
-            <Link href="/m/cafe-del-dia" className="hover:text-ink">Demo en vivo →</Link>
           </nav>
 
           <div className="flex gap-2 items-center">
@@ -414,46 +413,6 @@ export default function Landing() {
                 )}
               </div>
             ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ─────────── Live demo ─────────── */}
-      <section className="py-20">
-        <div className="mx-auto max-w-6xl px-6">
-          <div className="bg-gradient-to-br from-brand-400 via-brand-500 to-brand-700 rounded-[28px] p-10 md:p-14 text-white text-center relative overflow-hidden">
-            <div
-              className="absolute -top-20 -right-20 w-80 h-80 rounded-full opacity-30"
-              style={{ background: 'radial-gradient(circle, white, transparent 60%)' }}
-            />
-            <h2 className="text-3xl md:text-5xl font-bold tracking-tight relative">
-              Pruébalo sin registrarte
-            </h2>
-            <p className="mt-3 text-white/85 max-w-xl mx-auto text-base md:text-lg relative">
-              Te dejamos un café-bar funcional con productos, pedidos,
-              automatizaciones y tarjetas. Haz un pedido, escanea, mira los
-              reportes — todo real.
-            </p>
-            <div className="flex gap-3 justify-center mt-7 flex-wrap relative">
-              <Link
-                href="/m/cafe-del-dia"
-                className="bg-white text-brand-700 font-semibold px-5 py-3 rounded-pill"
-              >
-                🛒 Storefront del cliente
-              </Link>
-              <Link
-                href="/login"
-                className="bg-white/10 hover:bg-white/20 text-white font-semibold px-5 py-3 rounded-pill border border-white/30"
-              >
-                📊 Panel del dueño →
-              </Link>
-            </div>
-            <div className="mt-6 text-xs text-white/70 relative">
-              Login demo:{' '}
-              <code className="bg-white/15 px-2 py-0.5 rounded">demo@clubify.local</code>{' '}
-              /{' '}
-              <code className="bg-white/15 px-2 py-0.5 rounded">Demo123!</code>
-            </div>
           </div>
         </div>
       </section>
@@ -722,7 +681,6 @@ export default function Landing() {
                 <li><a href="#producto" className="hover:text-ink">Funciones</a></li>
                 <li><a href="#como" className="hover:text-ink">Cómo funciona</a></li>
                 <li><a href="#precios" className="hover:text-ink">Precios</a></li>
-                <li><Link href="/m/cafe-del-dia" className="hover:text-ink">Demo</Link></li>
               </ul>
             </div>
             <div>
