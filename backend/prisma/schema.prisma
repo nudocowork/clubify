@@ -262,6 +262,7 @@ model Tenant {
   referralUses  ReferralUse[]
   categories    Category[]
   products      Product[]
+  adicionales   Adicional[]
   carts         Cart[]
   orders        Order[]
   promotions    Promotion[]
@@ -539,6 +540,21 @@ model ProductExtra {
   price       Decimal  @db.Decimal(10, 2)
   maxQty      Int      @default(1)
   isAvailable Boolean  @default(true)
+}
+
+/// Biblioteca de adicionales (extras compartidos) por tenant. Permite
+/// importarlos rápido a productos en lugar de recrearlos cada vez.
+model Adicional {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  price     Decimal  @db.Decimal(10, 2)
+  isActive  Boolean  @default(true)
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, position])
 }
 
 // ============================================================

@@ -9,6 +9,7 @@ import { toast } from '@/components/Toast';
 type Category = { id: string; name: string; _count?: { products: number } };
 type Variant = { id?: string; name: string; priceDelta: number; isDefault?: boolean; groupName?: string };
 type Extra = { id?: string; name: string; price: number };
+type Adicional = { id: string; name: string; price: number; isActive: boolean };
 type Product = {
   id: string;
   name: string;
@@ -39,6 +40,8 @@ export default function MenuEditor() {
   const [editing, setEditing] = useState<Partial<Product> | null>(null);
   const [showCatForm, setShowCatForm] = useState(false);
   const [newCatName, setNewCatName] = useState('');
+  const [adicionales, setAdicionales] = useState<Adicional[]>([]);
+  const [showAdicionales, setShowAdicionales] = useState(false);
 
   async function load(preserveActive = true) {
     const c = await api<Category[]>('/catalog/categories');
@@ -47,8 +50,17 @@ export default function MenuEditor() {
     const p = await api<Product[]>('/catalog/products');
     setProducts(p);
   }
+  async function loadAdicionales() {
+    try {
+      const a = await api<Adicional[]>('/catalog/adicionales');
+      setAdicionales(a);
+    } catch {
+      // tabla puede no existir todavía en deploys viejos — silencioso
+    }
+  }
   useEffect(() => {
     load(false);
+    loadAdicionales();
   }, []);
 
   async function createCategory(e: React.FormEvent) {
@@ -170,6 +182,9 @@ export default function MenuEditor() {
         <div className="flex gap-2">
           <button className="btn-ghost" onClick={() => setShowCatForm(!showCatForm)}>
             <Icon name="plus" /> Categoría
+          </button>
+          <button className="btn-ghost" onClick={() => setShowAdicionales(true)}>
+            <Icon name="plus" /> Adicionales
           </button>
           <button
             className="btn-primary"
@@ -330,10 +345,131 @@ export default function MenuEditor() {
         <ProductDrawer
           value={editing}
           categories={cats}
+          adicionales={adicionales}
           onCancel={() => setEditing(null)}
           onSave={saveProduct}
         />
       )}
+
+      {showAdicionales && (
+        <AdicionalesModal
+          items={adicionales}
+          onClose={() => setShowAdicionales(false)}
+          onChange={loadAdicionales}
+        />
+      )}
+    </div>
+  );
+}
+
+function AdicionalesModal({
+  items,
+  onClose,
+  onChange,
+}: {
+  items: Adicional[];
+  onClose: () => void;
+  onChange: () => void;
+}) {
+  const [form, setForm] = useState({ name: '', price: 0 });
+  const [busy, setBusy] = useState(false);
+
+  async function add(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.name.trim()) return;
+    setBusy(true);
+    try {
+      await api('/catalog/adicionales', {
+        method: 'POST',
+        body: JSON.stringify(form),
+      });
+      setForm({ name: '', price: 0 });
+      onChange();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo crear', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(id: string) {
+    if (!confirm('¿Eliminar este adicional? Los productos que lo usan no se ven afectados.')) return;
+    try {
+      await api(`/catalog/adicionales/${id}`, { method: 'DELETE' });
+      onChange();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo eliminar', 'error');
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 bg-ink/50 z-50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-bg rounded-2xl shadow-xl max-w-md w-full max-h-[80vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-5 py-4 border-b border-line flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-base m-0">Adicionales</h3>
+            <p className="text-xs text-mute mt-0.5">
+              Biblioteca compartida de extras. Agregalos a productos desde el
+              formulario de cada producto.
+            </p>
+          </div>
+          <button onClick={onClose} className="text-mute hover:text-ink p-1" title="Cerrar">
+            ✕
+          </button>
+        </div>
+
+        <form onSubmit={add} className="px-5 py-3 border-b border-line flex gap-2">
+          <input
+            className="input flex-1"
+            placeholder="Nombre (ej: Queso extra)"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+          />
+          <input
+            type="number"
+            className="input w-28"
+            placeholder="Precio"
+            value={form.price}
+            onChange={(e) => setForm({ ...form, price: Number(e.target.value) })}
+          />
+          <button className="btn-primary" disabled={busy}>
+            <Icon name="plus" />
+          </button>
+        </form>
+
+        <div className="flex-1 overflow-y-auto px-5 py-2">
+          {items.length === 0 ? (
+            <div className="text-center text-mute text-sm py-8">
+              Aún no creaste adicionales.
+            </div>
+          ) : (
+            items.map((a) => (
+              <div
+                key={a.id}
+                className="flex items-center gap-2 py-2 border-b border-line2 last:border-0"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate">{a.name}</div>
+                  <div className="text-xs text-mute">{fmt(Number(a.price))}</div>
+                </div>
+                <button
+                  className="text-mute hover:text-bad p-1"
+                  onClick={() => remove(a.id)}
+                  title="Eliminar"
+                >
+                  <Icon name="trash" size={14} />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -341,11 +477,13 @@ export default function MenuEditor() {
 function ProductDrawer({
   value,
   categories,
+  adicionales,
   onCancel,
   onSave,
 }: {
   value: Partial<Product>;
   categories: Category[];
+  adicionales: Adicional[];
   onCancel: () => void;
   onSave: (p: Partial<Product>) => void;
 }) {
@@ -556,6 +694,51 @@ function ProductDrawer({
 
           <fieldset className="border border-line rounded-lg p-3">
             <legend className="px-1 text-xs font-semibold text-mute">Extras</legend>
+
+            {adicionales.length > 0 && (
+              <div className="mb-3 p-2 rounded-lg bg-bg2">
+                <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1.5">
+                  De la biblioteca
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {adicionales.map((a) => {
+                    const checked = (form.extras ?? []).some(
+                      (e) => e.name === a.name && Number(e.price) === Number(a.price),
+                    );
+                    return (
+                      <button
+                        key={a.id}
+                        type="button"
+                        onClick={() => {
+                          const arr = [...(form.extras ?? [])];
+                          if (checked) {
+                            const idx = arr.findIndex(
+                              (e) => e.name === a.name && Number(e.price) === Number(a.price),
+                            );
+                            if (idx >= 0) arr.splice(idx, 1);
+                          } else {
+                            arr.push({ name: a.name, price: Number(a.price) });
+                          }
+                          update('extras', arr);
+                        }}
+                        className={`px-2.5 py-1 rounded-full text-xs border transition ${
+                          checked
+                            ? 'bg-brand text-white border-brand'
+                            : 'bg-white border-line hover:border-brand'
+                        }`}
+                      >
+                        {checked ? '✓ ' : '+ '}
+                        {a.name}{' '}
+                        <span className={checked ? 'opacity-80' : 'text-mute'}>
+                          {fmt(Number(a.price))}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {(form.extras ?? []).map((e, i) => (
               <div key={i} className="flex gap-2 mb-2">
                 <input
