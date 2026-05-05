@@ -506,6 +506,9 @@ model Product {
   imageUrl      String?
   tags          String[]
   isAvailable   Boolean  @default(true)
+  /// Marca el producto como "Recomendado". Aparece en una sección virtual
+  /// arriba de las categorías en el menú público para empujar las ventas.
+  isRecommended Boolean  @default(false)
   position      Int      @default(0)
   timesOrdered  Int      @default(0)
   /// Stock disponible. NULL = sin tracking de inventario (siempre disponible).

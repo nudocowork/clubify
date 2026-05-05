@@ -21,6 +21,7 @@ class ProductBody {
   @IsOptional() @IsString() imageUrl?: string;
   @IsOptional() @IsArray() tags?: string[];
   @IsOptional() @IsBoolean() isAvailable?: boolean;
+  @IsOptional() @IsBoolean() isRecommended?: boolean;
   @IsOptional() @IsNumber() position?: number;
   @IsOptional() @IsArray() variants?: any[];
   @IsOptional() @IsArray() extras?: any[];

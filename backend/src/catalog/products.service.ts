@@ -27,6 +27,7 @@ export type ProductDto = {
   imageUrl?: string;
   tags?: string[];
   isAvailable?: boolean;
+  isRecommended?: boolean;
   position?: number;
   stock?: number | null;
   stockAlert?: number | null;
@@ -80,6 +81,7 @@ export class ProductsService {
         imageUrl: dto.imageUrl,
         tags: dto.tags ?? [],
         isAvailable: dto.isAvailable ?? true,
+        isRecommended: dto.isRecommended ?? false,
         position: dto.position ?? 0,
         stock: dto.stock ?? null,
         stockAlert: dto.stockAlert ?? null,
@@ -123,6 +125,7 @@ export class ProductsService {
           imageUrl: dto.imageUrl ?? undefined,
           tags: dto.tags ?? undefined,
           isAvailable: dto.isAvailable ?? undefined,
+          isRecommended: dto.isRecommended ?? undefined,
           position: dto.position ?? undefined,
           stock: dto.stock === undefined ? undefined : dto.stock,
           stockAlert: dto.stockAlert === undefined ? undefined : dto.stockAlert,

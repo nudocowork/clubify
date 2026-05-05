@@ -18,6 +18,7 @@ type Product = {
   imageUrl: string | null;
   tags: string[];
   isAvailable: boolean;
+  isRecommended?: boolean;
   categoryId: string;
   stock: number | null;
   stockAlert: number | null;
@@ -142,6 +143,7 @@ export default function MenuEditor() {
       imageUrl: '',
       tags: [],
       isAvailable: true,
+      isRecommended: false,
       variants: [],
       extras: [],
     });
@@ -279,7 +281,14 @@ export default function MenuEditor() {
                     <DragHandle {...dragHandleProps} />
                   </div>
                   <div>
-                    <div className="font-medium">{p.name}</div>
+                    <div className="font-medium flex items-center gap-1.5">
+                      {p.isRecommended && (
+                        <span title="Recomendado" className="text-amber-500">
+                          ⭐
+                        </span>
+                      )}
+                      {p.name}
+                    </div>
                     {p.tags.length > 0 && (
                       <div className="flex gap-1 mt-1 flex-wrap">
                         {p.tags.map((t) => (
@@ -571,6 +580,24 @@ function ProductDrawer({
               placeholder="popular, nuevo, veggie"
             />
           </div>
+
+          <label className="flex items-start gap-2.5 p-3 rounded-lg bg-amber-50 border border-amber-200 cursor-pointer hover:bg-amber-100 transition">
+            <input
+              type="checkbox"
+              checked={!!form.isRecommended}
+              onChange={(e) => update('isRecommended', e.target.checked)}
+              className="mt-0.5"
+            />
+            <div className="flex-1">
+              <div className="text-sm font-semibold flex items-center gap-1.5">
+                ⭐ Destacar como Recomendado
+              </div>
+              <div className="text-xs text-mute mt-0.5">
+                Aparece en una sección "Recomendados" al inicio del menú
+                público para empujar las ventas de este producto.
+              </div>
+            </div>
+          </label>
 
           <fieldset className="border border-line rounded-lg p-3">
             <legend className="px-1 text-xs font-semibold text-mute">

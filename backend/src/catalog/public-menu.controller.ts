@@ -93,32 +93,58 @@ export class PublicMenuController {
       },
     });
 
-    return categories.map((c) => ({
+    const mapProduct = (p: any) => ({
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      basePrice: Number(p.basePrice),
+      imageUrl: p.imageUrl,
+      tags: p.tags,
+      isRecommended: p.isRecommended,
+      variants: p.variants.map((v: any) => ({
+        id: v.id,
+        groupName: v.groupName,
+        name: v.name,
+        priceDelta: Number(v.priceDelta),
+        isDefault: v.isDefault,
+      })),
+      extras: p.extras.map((e: any) => ({
+        id: e.id,
+        name: e.name,
+        price: Number(e.price),
+        maxQty: e.maxQty,
+      })),
+    });
+
+    const mapped = categories.map((c) => ({
       id: c.id,
       name: c.name,
       slug: c.slug,
       description: c.description,
-      products: c.products.map((p) => ({
-        id: p.id,
-        name: p.name,
-        description: p.description,
-        basePrice: Number(p.basePrice),
-        imageUrl: p.imageUrl,
-        tags: p.tags,
-        variants: p.variants.map((v) => ({
-          id: v.id,
-          groupName: v.groupName,
-          name: v.name,
-          priceDelta: Number(v.priceDelta),
-          isDefault: v.isDefault,
-        })),
-        extras: p.extras.map((e) => ({
-          id: e.id,
-          name: e.name,
-          price: Number(e.price),
-          maxQty: e.maxQty,
-        })),
-      })),
+      products: c.products.map(mapProduct),
     }));
+
+    // Sección virtual "Recomendados" arriba de todo. Recoge productos
+    // marcados como isRecommended de TODAS las categorías (manteniendo el
+    // orden por posición). Si no hay ninguno, no se incluye la sección.
+    const recommended = categories
+      .flatMap((c) => c.products)
+      .filter((p: any) => p.isRecommended)
+      .map(mapProduct);
+
+    if (recommended.length > 0) {
+      return [
+        {
+          id: '__recommended__',
+          name: 'Recomendados',
+          slug: 'recomendados',
+          description: 'Lo más pedido por nuestros clientes.',
+          products: recommended,
+        },
+        ...mapped,
+      ];
+    }
+
+    return mapped;
   }
 }
