@@ -10,6 +10,7 @@ class LocationBody {
   @IsNumber() latitude!: number;
   @IsNumber() longitude!: number;
   @IsOptional() @IsInt() @Min(50) radiusMeters?: number;
+  @IsOptional() @IsString() walletRelevantText?: string;
 }
 
 @Controller('locations')

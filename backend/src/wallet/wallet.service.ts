@@ -124,11 +124,20 @@ export class WalletService {
           messageEncoding: 'iso-8859-1',
         },
       ],
+      // Apple Wallet muestra el pase en lock screen cuando el iPhone está
+      // a menos de `maxDistance` metros (300 por default) de cualquiera de
+      // estas locations. El `relevantText` es el texto que aparece — el
+      // dueño lo edita en /app/locations. maxDistance va a nivel pass, no
+      // por location, así que tomamos el mayor radius configurado.
       locations: pass.tenant.locations.map((l) => ({
         latitude: Number(l.latitude),
         longitude: Number(l.longitude),
-        relevantText: `Estás cerca de ${brandName}`,
+        relevantText: l.walletRelevantText?.trim() || `Estás cerca de ${brandName}`,
       })),
+      maxDistance: pass.tenant.locations.reduce(
+        (max, l) => Math.max(max, l.radiusMeters || 300),
+        300,
+      ),
       storeCard: {
         // Stamps cuenta arriba a la derecha (no encima del strip) →
         // headerFields se renderiza en el header opuesto al logo del tenant.

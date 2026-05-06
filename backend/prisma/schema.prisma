@@ -452,6 +452,10 @@ model Location {
   latitude      Decimal  @db.Decimal(10, 7)
   longitude     Decimal  @db.Decimal(10, 7)
   radiusMeters  Int      @default(300)
+  // Texto que aparece en el lock screen del iPhone cuando el cliente está
+  // dentro del radio (Apple Wallet `locations[].relevantText`). Si null,
+  // cae al default "Estás cerca de {brandName}".
+  walletRelevantText String?
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
 

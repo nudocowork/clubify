@@ -9,6 +9,7 @@ export type LocationDto = {
   latitude: number;
   longitude: number;
   radiusMeters?: number;
+  walletRelevantText?: string;
 };
 
 @Injectable()
@@ -49,6 +50,7 @@ export class LocationsService {
         latitude: dto.latitude,
         longitude: dto.longitude,
         radiusMeters: dto.radiusMeters ?? 300,
+        walletRelevantText: dto.walletRelevantText?.trim() || null,
       },
     });
   }

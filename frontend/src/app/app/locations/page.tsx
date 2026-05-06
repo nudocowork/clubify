@@ -12,6 +12,7 @@ export default function LocationsPage() {
     latitude: 4.6097,
     longitude: -74.0817,
     radiusMeters: 300,
+    walletRelevantText: '',
   });
   const [err, setErr] = useState<string | null>(null);
 
@@ -37,6 +38,7 @@ export default function LocationsPage() {
         latitude: 4.6097,
         longitude: -74.0817,
         radiusMeters: 300,
+        walletRelevantText: '',
       });
       load();
       toast('Ubicación agregada', 'success');
@@ -111,7 +113,7 @@ export default function LocationsPage() {
             </div>
           </div>
           <div className="mt-3">
-            <label className="label">Radio para notificación geo</label>
+            <label className="label">Radio de geolocalización</label>
             <select
               className="input"
               value={form.radiusMeters}
@@ -120,9 +122,31 @@ export default function LocationsPage() {
               }
             >
               <option value={100}>100 m</option>
-              <option value={300}>300 m</option>
+              <option value={300}>300 m (recomendado)</option>
               <option value={500}>500 m</option>
+              <option value={1000}>1 km</option>
             </select>
+            <p className="text-[11px] text-mute mt-1 leading-relaxed">
+              Apple Wallet muestra la tarjeta del cliente en el lock screen
+              cuando esté a esta distancia o menos del local.
+            </p>
+          </div>
+          <div className="mt-3">
+            <label className="label">📱 Texto del push wallet</label>
+            <input
+              className="input"
+              placeholder="Estás cerca de nuestro local · ¡pasá a sellar!"
+              value={form.walletRelevantText}
+              onChange={(e) =>
+                setForm({ ...form, walletRelevantText: e.target.value })
+              }
+              maxLength={120}
+            />
+            <p className="text-[11px] text-mute mt-1 leading-relaxed">
+              Mensaje que aparece en el lock screen del iPhone cuando el
+              cliente entra al radio. Si lo dejas vacío, usa "Estás cerca
+              de [tu marca]".
+            </p>
           </div>
           {err && (
             <div className="mt-3 rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink">
