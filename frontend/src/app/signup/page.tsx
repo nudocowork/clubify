@@ -5,6 +5,10 @@ import { Suspense, useState } from 'react';
 import { api, setSession } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { Logo } from '@/components/Logo';
+import {
+  BUSINESS_CATEGORIES,
+  DEFAULT_CATEGORY_SLUG,
+} from '@/lib/business-categories';
 
 export default function SignupPage() {
   return (
@@ -28,6 +32,7 @@ function SignupInner() {
     email: '',
     whatsappPhone: '',
     password: '',
+    businessCategorySlug: DEFAULT_CATEGORY_SLUG,
     accept: false,
   });
   const [submitting, setSubmitting] = useState(false);
@@ -61,6 +66,7 @@ function SignupInner() {
           fullName: form.fullName,
           brandName: form.brandName,
           whatsappPhone: form.whatsappPhone || undefined,
+          businessCategorySlug: form.businessCategorySlug,
           referralCode,
           plan: isPro ? 'pro' : 'elite',
         }),
@@ -173,6 +179,27 @@ function SignupInner() {
                 />
                 <div className="text-xs text-mute mt-1.5">
                   Se puede agregar después.
+                </div>
+              </div>
+              <div>
+                <label className="label">Categoría del negocio</label>
+                <select
+                  className="input"
+                  value={form.businessCategorySlug}
+                  onChange={(e) =>
+                    setForm({ ...form, businessCategorySlug: e.target.value })
+                  }
+                  required
+                >
+                  {BUSINESS_CATEGORIES.map((c) => (
+                    <option key={c.slug} value={c.slug}>
+                      {c.emoji} {c.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="text-xs text-mute mt-1.5">
+                  Personalizamos tu panel según el rubro: un autolavado no ve
+                  pedidos de comida, una cafetería sí.
                 </div>
               </div>
               <div>

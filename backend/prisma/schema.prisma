@@ -236,6 +236,10 @@ model Tenant {
   primaryColor         String       @default("#6366F1")
   secondaryColor       String       @default("#C026D3")
   status               TenantStatus @default(TRIAL)
+  // Categoría del rubro (restaurante, autolavado, barbería, etc.) — define
+  // qué módulos del panel ve el dueño. Lista en common/business-categories.ts.
+  // Nullable por compat con tenants viejos; en runtime cae a 'restaurant'.
+  businessCategorySlug String?
   planId               String
   plan                 Plan         @relation(fields: [planId], references: [id])
   maxLocationsOverride Int?

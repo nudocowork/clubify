@@ -7,6 +7,10 @@ import { AuditService } from '../audit/audit.service';
 import { createHash, randomBytes } from 'crypto';
 import { EmailService } from '../email/email.service';
 import { welcomeOwnerTemplate, passwordResetTemplate } from '../email/templates/templates';
+import {
+  isValidCategorySlug,
+  DEFAULT_CATEGORY_SLUG,
+} from '../common/business-categories';
 
 function slugify(s: string) {
   return s
@@ -271,6 +275,7 @@ export class AuthService {
     whatsappPhone?: string;
     referralCode?: string;
     plan?: string;
+    businessCategorySlug?: string;
   }, ip?: string) {
     const email = dto.email.toLowerCase().trim();
 
@@ -309,6 +314,11 @@ export class AuthService {
     const trialStartedAt = new Date();
     const trialEndsAt: Date | null = null;
 
+    const businessCategorySlug =
+      dto.businessCategorySlug && isValidCategorySlug(dto.businessCategorySlug)
+        ? dto.businessCategorySlug
+        : DEFAULT_CATEGORY_SLUG;
+
     const tenant = await this.prisma.tenant.create({
       data: {
         name: brandName,
@@ -316,6 +326,7 @@ export class AuthService {
         slug,
         email,
         whatsappPhone: dto.whatsappPhone?.trim() || null,
+        businessCategorySlug,
         status: 'TRIAL',
         planId: defaultPlan.id,
         trialStartedAt,

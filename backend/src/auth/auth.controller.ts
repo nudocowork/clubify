@@ -34,6 +34,7 @@ class SignupDto {
   @IsOptional() @IsString() whatsappPhone?: string;
   @IsOptional() @IsString() referralCode?: string;
   @IsOptional() @IsString() plan?: string;
+  @IsOptional() @IsString() businessCategorySlug?: string;
 }
 
 @Controller('auth')

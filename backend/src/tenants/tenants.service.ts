@@ -4,6 +4,10 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { nanoid } from 'nanoid';
+import {
+  isValidCategorySlug,
+  DEFAULT_CATEGORY_SLUG,
+} from '../common/business-categories';
 
 export type CreateTenantDto = {
   brandName: string;
@@ -15,6 +19,8 @@ export type CreateTenantDto = {
   ownerFullName: string;
   ownerPassword?: string;
   referredByCode?: string;
+  /** Slug de la categoría del rubro (restaurant, barbershop, …). */
+  businessCategorySlug?: string;
   /**
    * Si true, crea cuenta gratuita (cortesía) — saltea Hotmart, queda ACTIVE
    * indefinidamente y el lockscreen no se dispara. Útil para internos,
@@ -211,6 +217,11 @@ export class TenantsService {
       hotmartCode = dto.hotmartSubscriberCode.trim();
     }
 
+    const categorySlug =
+      dto.businessCategorySlug && isValidCategorySlug(dto.businessCategorySlug)
+        ? dto.businessCategorySlug
+        : DEFAULT_CATEGORY_SLUG;
+
     const tenant = await this.prisma.tenant.create({
       data: {
         name: dto.brandName,
@@ -220,6 +231,7 @@ export class TenantsService {
         phone: dto.phone,
         primaryColor: dto.primaryColor ?? '#0F3D2E',
         secondaryColor: dto.secondaryColor ?? '#2E7D5B',
+        businessCategorySlug: categorySlug,
         planId: dto.planId,
         referredByCode: dto.referredByCode,
         status,

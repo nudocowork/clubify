@@ -4,6 +4,10 @@ import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { PhoneInput } from '@/components/PhoneInput';
+import {
+  BUSINESS_CATEGORIES,
+  DEFAULT_CATEGORY_SLUG,
+} from '@/lib/business-categories';
 
 export default function NewTenant() {
   const router = useRouter();
@@ -17,6 +21,7 @@ export default function NewTenant() {
     ownerFullName: '',
     ownerPassword: '',
     planId: '',
+    businessCategorySlug: DEFAULT_CATEGORY_SLUG,
     trialDays: 7,
     nextChargeDate: '',
     hotmartSubscriberCode: '',
@@ -47,6 +52,7 @@ export default function NewTenant() {
         ownerFullName: form.ownerFullName,
         ownerPassword: form.ownerPassword || undefined,
         planId: form.planId,
+        businessCategorySlug: form.businessCategorySlug,
       };
       if (billingMode === 'free') {
         body.freeAccount = true;
@@ -184,6 +190,32 @@ export default function NewTenant() {
               </option>
             ))}
           </select>
+        </div>
+        <div className="col-span-2">
+          <label className="label">Categoría del negocio</label>
+          <select
+            className="input"
+            value={form.businessCategorySlug}
+            onChange={(e) => set('businessCategorySlug', e.target.value)}
+            required
+          >
+            {BUSINESS_CATEGORIES.map((c) => (
+              <option key={c.slug} value={c.slug}>
+                {c.emoji} {c.name}
+              </option>
+            ))}
+          </select>
+          <div className="text-[11px] text-mute mt-1 leading-relaxed">
+            Define qué módulos verá el dueño en su panel (menú, pedidos,
+            servicios, etc). Lista completa en{' '}
+            <a
+              href="/admin/business-categories"
+              target="_blank"
+              className="text-brand hover:underline"
+            >
+              /admin/business-categories
+            </a>.
+          </div>
         </div>
         {/* Facturación / Hotmart */}
         <div className="col-span-2 mt-2 border-t border-line2 pt-4">

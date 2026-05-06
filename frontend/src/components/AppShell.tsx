@@ -12,9 +12,22 @@ import { QuickCreateFAB } from './QuickCreateFAB';
 import { CardVerificationLockscreen } from './CardVerificationLockscreen';
 import { Logo } from './Logo';
 import { useBranding } from '@/lib/useBranding';
+import {
+  getCategoryBySlug,
+  catalogItemLabel,
+  type BusinessModule,
+} from '@/lib/business-categories';
 
 type IconName = Parameters<typeof Icon>[0]['name'];
-type NavItem = { href: string; label: string; icon: IconName; lockedPro?: boolean };
+type NavItem = {
+  href: string;
+  label: string;
+  icon: IconName;
+  lockedPro?: boolean;
+  /** Si está seteado, el item solo se muestra si la categoría del negocio
+   *  habilita ese módulo. Sin module = visible siempre. */
+  module?: BusinessModule;
+};
 type NavGroup = { section: string; items: NavItem[] };
 
 function initials(name: string) {
@@ -56,6 +69,7 @@ export default function AppShell({
   const [tenantInfo, setTenantInfo] = useState<{
     brandName?: string;
     hotmartSubscriberCode?: string | null;
+    businessCategorySlug?: string | null;
   } | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
     new Set(),
@@ -114,6 +128,7 @@ export default function AppShell({
         setTenantInfo({
           brandName: t?.brandName,
           hotmartSubscriberCode: t?.hotmartSubscriberCode ?? null,
+          businessCategorySlug: t?.businessCategorySlug ?? null,
         });
       })
       .catch(() => null);
@@ -152,46 +167,73 @@ export default function AppShell({
           {
             section: 'Sistema',
             items: [
+              { href: '/admin/business-categories', label: 'Categorías', icon: 'grid' },
               { href: '/admin/branding', label: 'Branding', icon: 'spark' },
               { href: '/admin/maintenance', label: 'Mantenimiento', icon: 'grid' },
               { href: '/admin/audit', label: 'Audit log', icon: 'history' },
             ],
           },
         ]
-      : [
-          // Dashboard como item principal sin header de sección
-          {
-            section: '',
-            items: [{ href: '/app', label: 'Dashboard', icon: 'grid' }],
-          },
-          {
-            section: 'Tarjetas de fidelización',
-            items: [
-              { href: '/app/cards', label: 'Tarjetas', icon: 'card' },
-              { href: '/app/customers', label: 'Clientes', icon: 'users' },
-              { href: '/scan', label: 'Escáner', icon: 'qr' },
-              { href: '/app/notifications', label: 'Push', icon: 'bell' },
-            ],
-          },
-          {
-            section: 'Menú digital',
-            items: [
-              { href: '/app/menu', label: 'Menú', icon: 'menu' },
-              { href: '/app/orders', label: 'Pedidos', icon: 'shopping-bag', lockedPro: true },
-              { href: '/app/analytics', label: 'Analítica', icon: 'history' },
-            ],
-          },
-          {
-            section: 'Cuenta',
-            items: [
-              { href: '/app/staff', label: 'Empleados', icon: 'users' },
-              { href: '/app/billing', label: 'Suscripción', icon: 'card' },
-              { href: '/app/settings', label: 'Configuraciones', icon: 'spark' },
-              { href: '/app/referrals', label: 'Referidos', icon: 'gift' },
-              { href: '/app/whats-new', label: 'Novedades', icon: 'bell' },
-            ],
-          },
-        ];
+      : (() => {
+          const catSlug = tenantInfo?.businessCategorySlug;
+          const cat = getCategoryBySlug(catSlug);
+          const has = (m: BusinessModule) => cat.modules.includes(m);
+          const menuLabel = catalogItemLabel(catSlug);
+          // El nombre de la sección "Menú digital" cambia según el rubro:
+          // 'menu' → "Menú digital", 'catalog' → "Catálogo", 'services' → "Servicios"
+          const catalogSectionName =
+            cat.catalogLabel === 'services'
+              ? 'Servicios'
+              : cat.catalogLabel === 'catalog'
+              ? 'Catálogo'
+              : 'Menú digital';
+
+          const all: NavGroup[] = [
+            // Dashboard standalone (sin header)
+            {
+              section: '',
+              items: [{ href: '/app', label: 'Dashboard', icon: 'grid' }],
+            },
+            {
+              section: 'Tarjetas de fidelización',
+              items: [
+                { href: '/app/cards', label: 'Tarjetas', icon: 'card', module: 'cards' },
+                { href: '/app/customers', label: 'Clientes', icon: 'users', module: 'customers' },
+                { href: '/scan', label: 'Escáner', icon: 'qr', module: 'scanner' },
+                { href: '/app/notifications', label: 'Push', icon: 'bell', module: 'push' },
+              ],
+            },
+            {
+              section: catalogSectionName,
+              items: [
+                { href: '/app/menu', label: menuLabel, icon: 'menu', module: 'menu' },
+                { href: '/app/orders', label: 'Pedidos', icon: 'shopping-bag', lockedPro: true, module: 'orders' },
+                { href: '/app/analytics', label: 'Analítica', icon: 'history', module: 'analytics' },
+              ],
+            },
+            {
+              section: 'Cuenta',
+              items: [
+                { href: '/app/staff', label: 'Empleados', icon: 'users', module: 'staff' },
+                { href: '/app/billing', label: 'Suscripción', icon: 'card' },
+                { href: '/app/settings', label: 'Configuraciones', icon: 'spark' },
+                { href: '/app/referrals', label: 'Referidos', icon: 'gift' },
+                { href: '/app/whats-new', label: 'Novedades', icon: 'bell' },
+              ],
+            },
+          ];
+
+          // Mientras tenantInfo no llegó (primer paint), mostramos todos los
+          // items para no flickear. Una vez carga, se filtran.
+          if (!tenantInfo) return all;
+
+          return all
+            .map((g) => ({
+              ...g,
+              items: g.items.filter((it) => !it.module || has(it.module)),
+            }))
+            .filter((g) => g.items.length > 0);
+        })();
 
   if (!user) return null;
 

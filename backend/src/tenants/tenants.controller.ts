@@ -15,6 +15,7 @@ class CreateTenantBody {
   @IsString() ownerFullName!: string;
   @IsOptional() @IsString() ownerPassword?: string;
   @IsOptional() @IsString() referredByCode?: string;
+  @IsOptional() @IsString() businessCategorySlug?: string;
   @IsOptional() @IsBoolean() freeAccount?: boolean;
   @IsOptional() @IsInt() @Min(1) trialDays?: number;
   @IsOptional() @IsDateString() nextChargeDate?: string;
