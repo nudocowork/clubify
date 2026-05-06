@@ -1,4 +1,17 @@
-import { Body, Controller, Delete, Get, HttpCode, Logger, Param, Post, Req, Res } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Logger,
+  Param,
+  Post,
+  Req,
+  Res,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Request, Response } from 'express';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { Public } from '../common/decorators/public.decorator';
@@ -32,16 +45,23 @@ export class WalletController {
     this.logger.log(
       `Apple Wallet REGISTER request: serial=${serial} device=${deviceLibId.slice(0, 12)} pushToken=${(body?.pushToken || '').slice(0, 12)}…`,
     );
+    if (!body?.pushToken || typeof body.pushToken !== 'string') {
+      this.logger.warn(`REGISTER rejected: pushToken inválido para ${serial}`);
+      throw new BadRequestException('pushToken requerido');
+    }
     const pass = await this.prisma.pass.findUnique({ where: { serialNumber: serial } });
     if (!pass) {
       this.logger.warn(`REGISTER rejected: pass serial ${serial} not found`);
-      return { error: 'unauthorized' };
+      // Apple PassKit espera 401 (no 201 con body de error) — si devolvemos
+      // 201, el dispositivo cree que el registro fue exitoso y deja de
+      // reintentar.
+      throw new UnauthorizedException('unauthorized');
     }
     if (pass.authToken !== token) {
       this.logger.warn(
         `REGISTER rejected: authToken mismatch for ${serial} (got ${token.slice(0, 8)}…, expected ${pass.authToken.slice(0, 8)}…)`,
       );
-      return { error: 'unauthorized' };
+      throw new UnauthorizedException('unauthorized');
     }
 
     await this.prisma.walletDevice.upsert({
