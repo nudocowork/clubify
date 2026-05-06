@@ -74,16 +74,46 @@ export default function StorefrontPublic() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showCart, setShowCart] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`${API}/api/public/m/${slug}`).then((r) => r.json()).then(setS);
-    fetch(`${API}/api/public/m/${slug}/menu`).then((r) => r.json()).then(setMenu);
+    setLoadError(null);
+    fetch(`${API}/api/public/m/${slug}`)
+      .then(async (r) => {
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j?.message ?? 'No disponible');
+        }
+        return r.json();
+      })
+      .then(setS)
+      .catch((e: Error) => setLoadError(e.message || 'No disponible'));
+    fetch(`${API}/api/public/m/${slug}/menu`)
+      .then(async (r) => (r.ok ? r.json() : []))
+      .then(setMenu)
+      .catch(() => setMenu([]));
     setCart(readCart(slug));
     const handler = () => setCart(readCart(slug));
     window.addEventListener(`cart:${slug}`, handler);
     return () => window.removeEventListener(`cart:${slug}`, handler);
   }, [slug]);
 
+  if (loadError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-6 bg-bg">
+        <div className="text-center max-w-sm">
+          <div className="text-5xl mb-3">😔</div>
+          <h1 className="text-xl font-bold">Negocio no disponible</h1>
+          <p className="text-mute mt-2 text-sm leading-relaxed">
+            {loadError === 'No disponible' ||
+            loadError === 'Negocio no disponible'
+              ? 'Esta tienda no está activa en este momento. Contacta directamente al negocio o intenta de nuevo más tarde.'
+              : loadError}
+          </p>
+        </div>
+      </div>
+    );
+  }
   if (!s) return <div className="p-8 text-mute">Cargando…</div>;
 
   const totals = cartTotals(cart);
