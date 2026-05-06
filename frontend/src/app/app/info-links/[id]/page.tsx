@@ -5,6 +5,11 @@ import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { ImageUploader } from '@/components/ImageUploader';
+import {
+  INFO_LINK_TEMPLATES,
+  resolveTemplate,
+  type InfoLinkTemplate,
+} from '@/lib/info-link-templates';
 
 type Section =
   | { type: 'heading'; text: string; level?: number }
@@ -32,7 +37,7 @@ type InfoLink = {
   gallery: string[];
   sections: Section[];
   buttons: Button[];
-  theme: { primaryColor?: string };
+  theme: { primaryColor?: string; template?: InfoLinkTemplate };
   isActive: boolean;
   views: number;
 };
@@ -208,6 +213,47 @@ export default function InfoLinkEditor() {
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-5">
         {/* Editor */}
         <div className="space-y-5">
+          {/* Estilo */}
+          <div className="card card-pad">
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <h3 className="font-semibold m-0">Estilo de la página</h3>
+              <a
+                href="/preview/info-links"
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-brand hover:underline"
+              >
+                Ver los 5 estilos →
+              </a>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+              {INFO_LINK_TEMPLATES.map((opt) => {
+                const active = resolveTemplate(link.theme) === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() =>
+                      update('theme', { ...link.theme, template: opt.id })
+                    }
+                    className={`text-left rounded-input border-2 p-2.5 transition ${
+                      active
+                        ? 'border-brand bg-brand-soft'
+                        : 'border-line bg-white hover:border-brand/40'
+                    }`}
+                    title={opt.hint}
+                  >
+                    <div className="text-xl mb-1">{opt.emoji}</div>
+                    <div className="font-semibold text-sm">{opt.name}</div>
+                    <div className="text-[10px] text-mute mt-0.5 leading-snug">
+                      {opt.hint}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Info general */}
           <div className="card card-pad">
             <h3 className="font-semibold m-0 mb-4">Información general</h3>

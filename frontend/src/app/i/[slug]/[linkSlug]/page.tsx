@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { InfoLinkShell, ResolvedButton } from '@/components/info-link-shells';
+import { resolveTemplate } from '@/lib/info-link-templates';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
@@ -133,227 +135,176 @@ export default function PublicInfoLink() {
     }).format(n);
   }
 
-  return (
-    <div className="min-h-screen" style={{ background: '#FAFBFC' }}>
-      <article className="max-w-md mx-auto bg-white shadow-sm min-h-screen">
-        {/* Hero */}
-        {link.heroImageUrl ? (
-          <img
-            src={link.heroImageUrl}
-            alt=""
-            className="w-full h-56 object-cover"
-          />
-        ) : (
-          <div
-            className="w-full h-32"
-            style={{
-              background: `linear-gradient(135deg, ${primary}, ${tenant.secondaryColor || '#15803D'})`,
-            }}
-          />
-        )}
+  // Resuelve los buttons del editor a {href, target, isPrimary, onClick}
+  const resolvedButtons: ResolvedButton[] = link.buttons
+    .map((b) => {
+      const href = buttonHref(b);
+      if (!href) return null;
+      return {
+        label: b.label,
+        href,
+        newTab:
+          b.type === 'EXTERNAL' ||
+          b.type === 'INSTAGRAM' ||
+          b.type === 'MAPS' ||
+          b.type === 'WHATSAPP',
+        isPrimary: b.style !== 'secondary',
+        onClick: () => trackClick(b.label),
+      };
+    })
+    .filter((x): x is ResolvedButton => !!x);
 
-        <div className="px-5 py-6">
-          {/* Header con logo del tenant */}
-          <div className="flex items-center gap-2.5 mb-4">
-            {tenant.logoUrl ? (
-              <img
-                src={tenant.logoUrl}
-                alt=""
-                className="w-10 h-10 rounded-lg"
-              />
-            ) : (
-              <div
-                className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold"
-                style={{ background: primary }}
+  // Bloque de sections — se renderiza igual independiente del template
+  const sectionsNode =
+    link.sections.length > 0 ? (
+      <div className="space-y-5">
+        {link.sections.map((s: any, i: number) => {
+          if (s.type === 'heading')
+            return (
+              <h2 key={i} className="font-bold text-lg">
+                {s.text}
+              </h2>
+            );
+          if (s.type === 'paragraph')
+            return (
+              <p
+                key={i}
+                className="text-sm leading-relaxed whitespace-pre-wrap opacity-85"
               >
-                {tenant.brandName[0]}
+                {s.text}
+              </p>
+            );
+          if (s.type === 'image' && s.url)
+            return (
+              <figure key={i}>
+                <img
+                  src={s.url}
+                  alt={s.caption ?? ''}
+                  className="w-full rounded-card"
+                />
+                {s.caption && (
+                  <figcaption className="text-xs opacity-70 text-center mt-1">
+                    {s.caption}
+                  </figcaption>
+                )}
+              </figure>
+            );
+          if (s.type === 'gallery')
+            return (
+              <div key={i} className="grid grid-cols-3 gap-1.5">
+                {s.images.map((url: string, j: number) => (
+                  <img
+                    key={j}
+                    src={url}
+                    alt=""
+                    className="w-full h-24 object-cover rounded"
+                  />
+                ))}
               </div>
-            )}
-            <div className="text-xs text-mute">{tenant.brandName}</div>
-          </div>
+            );
+          if (s.type === 'divider')
+            return <hr key={i} className="border-current opacity-15" />;
 
-          <h1 className="text-3xl font-bold tracking-tight leading-tight">
-            {link.title}
-          </h1>
-          {link.subtitle && (
-            <p className="text-mute mt-2 leading-relaxed">{link.subtitle}</p>
-          )}
-
-          {/* Botones CTAs principales */}
-          {link.buttons.length > 0 && (
-            <div className="space-y-2.5 mt-6">
-              {link.buttons.map((b, i) => {
-                const href = buttonHref(b);
-                if (!href) return null;
-                return (
-                  <a
-                    key={i}
-                    href={href}
-                    target={b.type === 'EXTERNAL' || b.type === 'INSTAGRAM' || b.type === 'MAPS' || b.type === 'WHATSAPP' ? '_blank' : undefined}
-                    rel="noreferrer"
-                    onClick={() => trackClick(b.label)}
-                    className="block w-full py-3.5 rounded-full text-center font-semibold transition hover:opacity-90"
-                    style={{
-                      background:
-                        b.style === 'secondary' ? '#fff' : primary,
-                      color: b.style === 'secondary' ? primary : '#fff',
-                      border: `1px solid ${primary}`,
-                    }}
-                  >
-                    {b.label}
-                  </a>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Bloques */}
-          <div className="mt-6 space-y-5">
-            {link.sections.map((s: any, i: number) => {
-              if (s.type === 'heading')
-                return (
-                  <h2 key={i} className="font-bold text-lg">
-                    {s.text}
-                  </h2>
-                );
-              if (s.type === 'paragraph')
-                return (
-                  <p key={i} className="text-sm text-ink/80 leading-relaxed whitespace-pre-wrap">
-                    {s.text}
-                  </p>
-                );
-              if (s.type === 'image' && s.url)
-                return (
-                  <figure key={i}>
-                    <img
-                      src={s.url}
-                      alt={s.caption ?? ''}
-                      className="w-full rounded-card"
-                    />
-                    {s.caption && (
-                      <figcaption className="text-xs text-mute text-center mt-1">
-                        {s.caption}
-                      </figcaption>
-                    )}
-                  </figure>
-                );
-              if (s.type === 'gallery')
-                return (
-                  <div key={i} className="grid grid-cols-3 gap-1.5">
-                    {s.images.map((url: string, j: number) => (
-                      <img
-                        key={j}
-                        src={url}
-                        alt=""
-                        className="w-full h-24 object-cover rounded"
-                      />
-                    ))}
-                  </div>
-                );
-              if (s.type === 'divider')
-                return <hr key={i} className="border-line" />;
-
-              if (s.type === 'embed_menu')
-                return (
-                  <div key={i}>
-                    <h3 className="font-bold text-base mb-3">Nuestro menú</h3>
-                    {menu.length === 0 && (
-                      <div className="text-sm text-mute">Cargando…</div>
-                    )}
-                    {menu.slice(0, 2).map((cat: any) => (
-                      <div key={cat.id} className="mb-3">
-                        <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
-                          {cat.name}
-                        </div>
-                        <div className="space-y-1.5">
-                          {cat.products.slice(0, 4).map((p: any) => (
-                            <div
-                              key={p.id}
-                              className="flex justify-between text-sm"
-                            >
-                              <span>{p.name}</span>
-                              <span className="font-medium">
-                                {fmt(p.basePrice)}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                    <a
-                      href={`/m/${tenant.slug}`}
-                      onClick={() => trackClick('Ver menú completo')}
-                      className="text-sm font-medium text-brand"
-                    >
-                      Ver menú completo →
-                    </a>
-                  </div>
-                );
-
-              if (s.type === 'embed_promotions' && storefront?.promotions)
-                return (
-                  <div key={i}>
-                    <h3 className="font-bold text-base mb-3">Promos activas</h3>
-                    <div className="space-y-2">
-                      {storefront.promotions.map((p: any) => (
+          if (s.type === 'embed_menu')
+            return (
+              <div key={i}>
+                <h3 className="font-bold text-base mb-3">Nuestro menú</h3>
+                {menu.length === 0 && (
+                  <div className="text-sm opacity-60">Cargando…</div>
+                )}
+                {menu.slice(0, 2).map((cat: any) => (
+                  <div key={cat.id} className="mb-3">
+                    <div className="text-xs uppercase tracking-wider opacity-60 font-semibold mb-2">
+                      {cat.name}
+                    </div>
+                    <div className="space-y-1.5">
+                      {cat.products.slice(0, 4).map((p: any) => (
                         <div
                           key={p.id}
-                          className="rounded-card p-3 text-white"
-                          style={{
-                            background: `linear-gradient(135deg, ${primary}, ${tenant.secondaryColor})`,
-                          }}
+                          className="flex justify-between text-sm"
                         >
-                          <div className="font-semibold">{p.name}</div>
-                          {p.description && (
-                            <div className="text-xs opacity-90 mt-0.5">
-                              {p.description}
-                            </div>
-                          )}
+                          <span>{p.name}</span>
+                          <span className="font-medium">
+                            {fmt(p.basePrice)}
+                          </span>
                         </div>
                       ))}
                     </div>
                   </div>
-                );
+                ))}
+                <a
+                  href={`/m/${tenant.slug}`}
+                  onClick={() => trackClick('Ver menú completo')}
+                  className="text-sm font-medium underline"
+                  style={{ color: primary }}
+                >
+                  Ver menú completo →
+                </a>
+              </div>
+            );
 
-              if (s.type === 'embed_card')
-                return (
-                  <div key={i}>
-                    <h3 className="font-bold text-base mb-3">Tarjeta de fidelización</h3>
-                    <a
-                      href={`/m/${tenant.slug}`}
-                      onClick={() => trackClick('Mi tarjeta')}
-                      className="block rounded-card p-5 text-white text-center"
+          if (s.type === 'embed_promotions' && storefront?.promotions)
+            return (
+              <div key={i}>
+                <h3 className="font-bold text-base mb-3">Promos activas</h3>
+                <div className="space-y-2">
+                  {storefront.promotions.map((p: any) => (
+                    <div
+                      key={p.id}
+                      className="rounded-card p-3 text-white"
                       style={{
                         background: `linear-gradient(135deg, ${primary}, ${tenant.secondaryColor})`,
                       }}
                     >
-                      <div className="text-xs uppercase tracking-wider opacity-85">
-                        Programa fidelización
-                      </div>
-                      <div className="font-semibold mt-1">
-                        Activar mi tarjeta →
-                      </div>
-                    </a>
+                      <div className="font-semibold">{p.name}</div>
+                      {p.description && (
+                        <div className="text-xs opacity-90 mt-0.5">
+                          {p.description}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+
+          if (s.type === 'embed_card')
+            return (
+              <div key={i}>
+                <h3 className="font-bold text-base mb-3">
+                  Tarjeta de fidelización
+                </h3>
+                <a
+                  href={`/m/${tenant.slug}`}
+                  onClick={() => trackClick('Mi tarjeta')}
+                  className="block rounded-card p-5 text-white text-center"
+                  style={{
+                    background: `linear-gradient(135deg, ${primary}, ${tenant.secondaryColor})`,
+                  }}
+                >
+                  <div className="text-xs uppercase tracking-wider opacity-85">
+                    Programa fidelización
                   </div>
-                );
+                  <div className="font-semibold mt-1">Activar mi tarjeta →</div>
+                </a>
+              </div>
+            );
 
-              return null;
-            })}
-          </div>
+          return null;
+        })}
+      </div>
+    ) : null;
 
-          {/* Footer Clubify */}
-          <div className="mt-12 pt-6 border-t border-line text-center text-xs text-mute">
-            Desarrollado por{' '}
-            <a
-              href="https://clubify.app"
-              target="_blank"
-              className="font-semibold text-brand"
-            >
-              Clubify
-            </a>
-          </div>
-        </div>
-      </article>
-    </div>
+  const template = resolveTemplate(link.theme);
+
+  return (
+    <InfoLinkShell
+      template={template}
+      tenant={tenant}
+      link={link}
+      primary={primary}
+      buttons={resolvedButtons}
+      sectionsNode={sectionsNode}
+    />
   );
 }
