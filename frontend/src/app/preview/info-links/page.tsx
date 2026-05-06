@@ -425,11 +425,6 @@ export default function InfoLinksPreview() {
         <h1 className="text-3xl font-bold text-center">
           Estilos de InfoLink
         </h1>
-        <p className="text-center text-mute mt-2 max-w-2xl mx-auto">
-          Cinco maneras modernas de presentar una mini-página tipo
-          link-in-bio (inspiración Beacons.ai). El cliente elige el estilo al
-          crear su InfoLink y nosotros aplicamos el render.
-        </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-10 mt-10 justify-items-center">
           <Phone
@@ -494,10 +489,6 @@ export default function InfoLinksPreview() {
           </Phone>
         </div>
 
-        <div className="text-center text-sm text-mute mt-12 pb-8">
-          ¿Cuál te gusta? Dime el número (o varios) y conecto el estilo al
-          editor de InfoLinks para que el cliente lo elija.
-        </div>
       </div>
     </div>
   );

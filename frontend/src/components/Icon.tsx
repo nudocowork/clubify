@@ -2,7 +2,7 @@ type IconName =
   | 'grid' | 'store' | 'card' | 'users' | 'pin' | 'bell' | 'gift' | 'qr'
   | 'trend-up' | 'check' | 'clock' | 'cash' | 'plus' | 'edit' | 'out'
   | 'search' | 'send' | 'history' | 'spark' | 'trash' | 'arrow-right'
-  | 'apple' | 'google' | 'menu' | 'shopping-bag';
+  | 'apple' | 'google' | 'menu' | 'shopping-bag' | 'gear';
 
 const PATHS: Record<IconName, JSX.Element> = {
   'grid': (<g><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></g>),
@@ -30,6 +30,7 @@ const PATHS: Record<IconName, JSX.Element> = {
   'google': (<g fill="currentColor" stroke="none"><path d="M21.35 11.1H12v3.8h5.36c-.5 2.4-2.6 4.1-5.36 4.1-3.31 0-6-2.69-6-6s2.69-6 6-6c1.5 0 2.85.55 3.9 1.45L18.5 5.6C16.74 4 14.46 3 12 3 7.03 3 3 7.03 3 12s4.03 9 9 9c5.18 0 8.6-3.64 8.6-8.78 0-.59-.06-1.16-.25-1.72z"/></g>),
   'menu': (<g><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></g>),
   'shopping-bag': (<g><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></g>),
+  'gear': (<g><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></g>),
 };
 
 export function Icon({
