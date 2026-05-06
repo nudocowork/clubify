@@ -382,7 +382,7 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
           body.nextChargeDate = new Date(nextChargeDate).toISOString();
         if (code.trim()) body.hotmartSubscriberCode = code.trim();
         if (!body.nextChargeDate && !body.hotmartSubscriberCode) {
-          alert('Para "Pagada" necesitas fecha o código de suscriptor');
+          toast('Para "Pagada" necesitas fecha o código de suscriptor', 'error');
           setSaving(false);
           return;
         }
