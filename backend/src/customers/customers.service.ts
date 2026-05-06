@@ -1,4 +1,9 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 
@@ -76,30 +81,64 @@ export class CustomersService {
     return { ...c, orders };
   }
 
-  create(user: AuthUser, dto: CustomerDto, override?: string) {
+  async create(user: AuthUser, dto: CustomerDto, override?: string) {
     const tid = this.tenantId(user, override);
-    return this.prisma.customer.create({
-      data: {
-        tenantId: tid,
-        fullName: dto.fullName,
-        email: dto.email,
-        phone: dto.phone,
-        birthday: dto.birthday ? new Date(dto.birthday) : undefined,
-        externalId: dto.externalId,
-      },
-    });
+    try {
+      return await this.prisma.customer.create({
+        data: {
+          tenantId: tid,
+          fullName: dto.fullName,
+          email: dto.email,
+          phone: dto.phone,
+          birthday: dto.birthday ? new Date(dto.birthday) : undefined,
+          externalId: dto.externalId,
+        },
+      });
+    } catch (e: any) {
+      if (e?.code === 'P2002') {
+        // Unique tenantId_phone o tenantId_email — el dueño quiso crear
+        // un customer que ya existe. Devolvemos 409 con mensaje claro
+        // en vez de 500 con stack.
+        const target = (e.meta?.target as string[] | string | undefined) ?? '';
+        const field =
+          Array.isArray(target) ? target.join(',') : String(target);
+        const human = field.includes('email')
+          ? 'Ya existe un cliente con este email'
+          : field.includes('phone')
+          ? 'Ya existe un cliente con este teléfono'
+          : 'Ya existe un cliente con estos datos';
+        throw new ConflictException(human);
+      }
+      throw e;
+    }
   }
 
   async update(user: AuthUser, id: string, dto: Partial<CustomerDto>) {
     await this.get(user, id);
-    return this.prisma.customer.update({
-      where: { id },
-      data: {
-        ...dto,
-        birthday: dto.birthday ? new Date(dto.birthday) : undefined,
-        tags: dto.tags ?? undefined,
-      },
-    });
+    try {
+      return await this.prisma.customer.update({
+        where: { id },
+        data: {
+          ...dto,
+          birthday: dto.birthday ? new Date(dto.birthday) : undefined,
+          tags: dto.tags ?? undefined,
+        },
+      });
+    } catch (e: any) {
+      if (e?.code === 'P2002') {
+        const target = (e.meta?.target as string[] | string | undefined) ?? '';
+        const field =
+          Array.isArray(target) ? target.join(',') : String(target);
+        throw new ConflictException(
+          field.includes('email')
+            ? 'Otro cliente ya tiene este email'
+            : field.includes('phone')
+            ? 'Otro cliente ya tiene este teléfono'
+            : 'Conflicto con datos existentes',
+        );
+      }
+      throw e;
+    }
   }
 
   async remove(user: AuthUser, id: string) {
