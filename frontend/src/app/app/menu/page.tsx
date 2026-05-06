@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { ImageUploader } from '@/components/ImageUploader';
@@ -181,13 +182,20 @@ export default function MenuEditor() {
             / {cats.length} categorías · {products.length} productos
           </span>
         </h1>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button className="btn-ghost" onClick={() => setShowCatForm(!showCatForm)}>
             <Icon name="plus" /> Categoría
           </button>
           <button className="btn-ghost" onClick={() => setShowAdicionales(true)}>
             <Icon name="plus" /> Adicionales
           </button>
+          <Link
+            href="/app/promos"
+            className="btn-ghost"
+            title="Productos en oferta del menú"
+          >
+            <Icon name="spark" /> Promociones
+          </Link>
           <button
             className="btn-primary"
             onClick={newProduct}

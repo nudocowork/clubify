@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
@@ -103,6 +104,12 @@ export default function PromosPage() {
 
   return (
     <div>
+      <Link
+        href="/app/menu"
+        className="text-xs text-mute hover:text-brand inline-flex items-center gap-1 mb-2"
+      >
+        ← Menú
+      </Link>
       <div className="page-head">
         <h1 className="page-title">
           Promociones <span className="page-crumb">/ {list.length} configuradas</span>

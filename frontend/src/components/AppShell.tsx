@@ -32,6 +32,13 @@ function avatarColor(seed: string) {
   return `avatar-${(sum % 7) + 1}`;
 }
 
+// Las raíces "/app" y "/admin" deben matchear solo exact path, sino
+// "Dashboard" quedaría activo en cualquier subruta (/app/menu, /app/orders, etc).
+function isHrefActive(href: string, pathname: string) {
+  if (href === '/app' || href === '/admin') return pathname === href;
+  return pathname === href || pathname.startsWith(href + '/');
+}
+
 export default function AppShell({
   variant,
   children,
@@ -155,9 +162,8 @@ export default function AppShell({
             section: 'Vender',
             items: [
               { href: '/app', label: 'Dashboard', icon: 'grid' },
-              { href: '/app/orders', label: 'Pedidos', icon: 'shopping-bag' },
+              { href: '/app/orders', label: 'Pedidos', icon: 'shopping-bag', lockedPro: true },
               { href: '/app/menu', label: 'Menú', icon: 'menu' },
-              { href: '/app/promos', label: 'Promociones', icon: 'spark' },
               { href: '/app/analytics', label: 'Analítica', icon: 'history' },
             ],
           },
@@ -263,9 +269,7 @@ export default function AppShell({
         {groups.map((g) => {
           // Si el path activo está dentro de esta sección, fuerza expand para
           // que el usuario vea dónde está parado (aunque la haya cerrado antes).
-          const hasActive = g.items.some(
-            (n) => pathname === n.href || pathname.startsWith(n.href + '/'),
-          );
+          const hasActive = g.items.some((n) => isHrefActive(n.href, pathname));
           const collapsed = !hasActive && collapsedSections.has(g.section);
 
           return (
@@ -282,8 +286,7 @@ export default function AppShell({
               </button>
               {!collapsed &&
                 g.items.map((n) => {
-                  const active =
-                    pathname === n.href || pathname.startsWith(n.href + '/');
+                  const active = isHrefActive(n.href, pathname);
                   const showLock = n.lockedPro && planName !== null && !isPro;
                   return (
                     <Link
