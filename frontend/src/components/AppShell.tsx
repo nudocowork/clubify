@@ -7,11 +7,11 @@ import { Icon } from './Icon';
 import { NotificationBell } from './NotificationBell';
 import { TrialBanner } from './TrialBanner';
 import { CommandPalette, CommandHint } from './CommandPalette';
-import { HelpButton } from './HelpPanel';
 import { QuickCreateFAB } from './QuickCreateFAB';
 import { CardVerificationLockscreen } from './CardVerificationLockscreen';
 import { Logo } from './Logo';
 import { TenantSwitcher } from './TenantSwitcher';
+import { SupportWidget } from './SupportWidget';
 import { useBranding } from '@/lib/useBranding';
 import {
   getCategoryBySlug,
@@ -169,6 +169,7 @@ export default function AppShell({
             section: 'Sistema',
             items: [
               { href: '/admin/business-categories', label: 'Categorías', icon: 'grid' },
+              { href: '/admin/ai-knowledge', label: 'IA · Knowledge', icon: 'spark' },
               { href: '/admin/branding', label: 'Branding', icon: 'spark' },
               { href: '/admin/maintenance', label: 'Mantenimiento', icon: 'grid' },
               { href: '/admin/audit', label: 'Audit log', icon: 'history' },
@@ -448,7 +449,7 @@ export default function AppShell({
       <CommandPalette variant={variant} />
       {variant === 'app' && (
         <>
-          <HelpButton />
+          <SupportWidget />
           <QuickCreateFAB />
         </>
       )}

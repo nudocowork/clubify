@@ -32,6 +32,7 @@ import { BillingModule } from './billing/billing.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { SettingsModule } from './settings/settings.module';
 import { SystemHealthModule } from './system-health/system-health.module';
+import { SupportModule } from './support/support.module';
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { SystemHealthModule } from './system-health/system-health.module';
     IntegrationsModule,
     SettingsModule,
     SystemHealthModule,
+    SupportModule,
   ],
 })
 export class AppModule {}

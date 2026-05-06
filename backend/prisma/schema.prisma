@@ -922,6 +922,25 @@ model Commission {
   @@index([status])
 }
 
+// ============================================================
+//                    AI SUPPORT KNOWLEDGE
+// ============================================================
+//
+// Entradas de conocimiento que entrenan al asistente IA del widget de
+// soporte. El super admin las crea/edita desde /admin/ai-knowledge y se
+// inyectan en el system prompt cuando un tenant abre el chat.
+model KnowledgeEntry {
+  id        String   @id @default(uuid())
+  title     String
+  content   String   @db.Text
+  category  String   @default("General")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+}
+
 model AuditLog {
   id        String   @id @default(uuid())
   actorId   String?
