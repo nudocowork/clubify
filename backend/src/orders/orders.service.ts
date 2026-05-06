@@ -141,14 +141,41 @@ export class OrdersService {
       where: { tenantId_phone: { tenantId: tenant.id, phone } },
     }).catch(() => null);
     if (!customer) {
-      customer = await this.prisma.customer.create({
-        data: {
-          tenantId: tenant.id,
-          fullName: dto.customer.fullName,
-          phone,
-          email: dto.customer.email,
-        },
-      });
+      // Si el email ya está usado por otro customer del mismo tenant, lo
+      // omitimos para no violar la unique key tenantId_email. Bug observado
+      // en MVP: dos clientes que comparten el mismo email familiar pero
+      // tienen phones distintos hacían explotar el insert con P2002.
+      let safeEmail = dto.customer.email;
+      if (safeEmail) {
+        const dupe = await this.prisma.customer
+          .findUnique({
+            where: {
+              tenantId_email: { tenantId: tenant.id, email: safeEmail },
+            },
+          })
+          .catch(() => null);
+        if (dupe) safeEmail = undefined;
+      }
+      customer = await this.prisma.customer
+        .create({
+          data: {
+            tenantId: tenant.id,
+            fullName: dto.customer.fullName,
+            phone,
+            email: safeEmail,
+          },
+        })
+        .catch(async (e: any) => {
+          // Race condition: otro POST creó el customer con este phone entre
+          // findUnique y create. Re-leer y reutilizar.
+          if (e?.code === 'P2002') {
+            const found = await this.prisma.customer.findUnique({
+              where: { tenantId_phone: { tenantId: tenant.id, phone } },
+            });
+            if (found) return found;
+          }
+          throw e;
+        });
     } else if (customer.fullName !== dto.customer.fullName) {
       customer = await this.prisma.customer.update({
         where: { id: customer.id },
@@ -626,6 +653,25 @@ export class OrdersService {
       throw new BadRequestException(
         'Esta acción solo aplica a pedidos de domicilio.',
       );
+    }
+    if (o.status === 'CANCELLED') {
+      throw new BadRequestException(
+        'No se puede aceptar pago de un pedido cancelado.',
+      );
+    }
+    if (o.paymentStatus === 'PAID') {
+      // Idempotencia: si ya está pagado, devolvemos el courier link sin
+      // re-marcar ni crear evento duplicado.
+      const courierLink = this.channels.generateWaMeCourier(
+        (o as any).tenant ?? (await this.prisma.tenant.findUnique({ where: { id: o.tenantId } }))!,
+        o as any,
+        (o as any).customer,
+      );
+      return {
+        order: o,
+        courierLink,
+        courierConfigured: !!((o as any).tenant?.whatsappDeliveryPhone),
+      };
     }
 
     const updated = await this.prisma.order.update({
