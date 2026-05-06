@@ -319,30 +319,50 @@ export class AuthService {
         ? dto.businessCategorySlug
         : DEFAULT_CATEGORY_SLUG;
 
-    const tenant = await this.prisma.tenant.create({
-      data: {
-        name: brandName,
-        brandName,
-        slug,
-        email,
-        whatsappPhone: dto.whatsappPhone?.trim() || null,
-        businessCategorySlug,
-        status: 'TRIAL',
-        planId: defaultPlan.id,
-        trialStartedAt,
-        trialEndsAt,
-      },
-    });
-
-    const user = await this.prisma.user.create({
-      data: {
-        email,
-        passwordHash,
-        fullName: dto.fullName.trim(),
-        role: 'TENANT_OWNER',
-        tenantId: tenant.id,
-      },
-    });
+    // Creamos tenant + user en una transacción para que si dos signups
+    // simultáneos con el mismo email pasan el findUnique check, el
+    // segundo no deje un tenant huérfano cuando user.create falle con
+    // P2002 (unique email). La transacción rollback el tenant también.
+    let tenant: Awaited<ReturnType<typeof this.prisma.tenant.create>>;
+    let user: Awaited<ReturnType<typeof this.prisma.user.create>>;
+    try {
+      const result = await this.prisma.$transaction(async (tx) => {
+        const t = await tx.tenant.create({
+          data: {
+            name: brandName,
+            brandName,
+            slug,
+            email,
+            whatsappPhone: dto.whatsappPhone?.trim() || null,
+            businessCategorySlug,
+            status: 'TRIAL',
+            planId: defaultPlan.id,
+            trialStartedAt,
+            trialEndsAt,
+          },
+        });
+        const u = await tx.user.create({
+          data: {
+            email,
+            passwordHash,
+            fullName: dto.fullName.trim(),
+            role: 'TENANT_OWNER',
+            tenantId: t.id,
+          },
+        });
+        return { t, u };
+      });
+      tenant = result.t;
+      user = result.u;
+    } catch (e: any) {
+      if (e?.code === 'P2002') {
+        // Race condition: el user.create falló por email duplicado. La
+        // transacción ya hizo rollback del tenant. Devolvemos el mismo
+        // mensaje que el findUnique check de arriba.
+        throw new ConflictException('Email ya registrado');
+      }
+      throw e;
+    }
 
     this.audit.log({
       actorId: user.id,
