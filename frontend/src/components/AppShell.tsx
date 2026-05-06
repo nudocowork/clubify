@@ -432,7 +432,7 @@ export default function AppShell({
                 router.push('/admin');
               }}
               className="ml-auto bg-amber-950 text-amber-100 px-3 py-1 rounded-md text-xs font-semibold hover:bg-amber-900 transition"
-              title="Volver al admin (desde ahí podés cambiar de subcuenta con el switcher del sidebar)"
+              title="Volver al admin (desde ahí puedes cambiar de subcuenta con el switcher del sidebar)"
             >
               ← Volver al admin
             </button>

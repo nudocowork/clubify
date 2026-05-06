@@ -142,10 +142,10 @@ export default function NewCard() {
                     value={form.stampIcon}
                     onSelect={(emoji) => set('stampIcon', emoji)}
                     size="lg"
-                    placeholder="Elegí el icono del sello"
+                    placeholder="Elige el icono del sello"
                   />
                   <div className="text-[12px] text-mute leading-snug">
-                    Tocá para abrir el selector con buscador y todas las
+                    Toca para abrir el selector con buscador y todas las
                     categorías. Los clientes verán este símbolo en cada sello
                     acumulado de la tarjeta.
                   </div>

@@ -71,7 +71,7 @@ export function orderCreatedTemplate(args: {
     .join('');
   return {
     subject: `Pedido #${args.code} recibido — ${args.tenant.brandName}`,
-    text: `Hola ${args.customerName}, recibimos tu pedido #${args.code} por ${COP(args.total)}. Te avisaremos en cuanto esté listo. Seguilo aquí: ${args.trackingUrl}`,
+    text: `Hola ${args.customerName}, recibimos tu pedido #${args.code} por ${COP(args.total)}. Te avisaremos en cuanto esté listo. Síguelo aquí: ${args.trackingUrl}`,
     html: shell({
       tenant: args.tenant,
       preheader: `Tu pedido #${args.code} ya está en cola`,

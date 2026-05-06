@@ -10,8 +10,8 @@ const Picker = dynamic(
 const ES_I18N = {
   search: 'Buscar',
   search_no_results_1: 'Sin resultados',
-  search_no_results_2: 'Probá con otra palabra',
-  pick: 'Elegí un emoji',
+  search_no_results_2: 'Prueba con otra palabra',
+  pick: 'Elige un emoji',
   add_custom: 'Agregar personalizado',
   categories: {
     activity: 'Actividades',

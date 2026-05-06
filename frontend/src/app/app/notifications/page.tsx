@@ -29,7 +29,7 @@ const TEMPLATE_GROUPS: TemplateGroup[] = [
       {
         id: 'birthday',
         title: '🎂 ¡Feliz cumpleaños!',
-        body: 'Hoy te invitamos algo especial de la casa. Pasate cuando quieras.',
+        body: 'Hoy te invitamos algo especial de la casa. Pasa cuando quieras.',
       },
       {
         id: 'anniversary',
@@ -44,17 +44,17 @@ const TEMPLATE_GROUPS: TemplateGroup[] = [
       {
         id: 'mothers_day',
         title: '💐 Día de la madre',
-        body: 'Postre gratis para mamá hoy. ¡Pasate con ella!',
+        body: 'Postre gratis para mamá hoy. ¡Pasa con ella!',
       },
       {
         id: 'black_friday',
         title: '🛍 Black Friday',
-        body: '30% off en todo el menú solo hoy. Escaneá tu tarjeta para activar.',
+        body: '30% off en todo el menú solo hoy. Escanea tu tarjeta para activar.',
       },
       {
         id: 'christmas',
         title: '🎄 ¡Feliz Navidad!',
-        body: 'Hoy sumás 2 sellos extra en tu tarjeta. Felices fiestas.',
+        body: 'Hoy sumas 2 sellos extra en tu tarjeta. Felices fiestas.',
       },
       {
         id: 'new_year',
@@ -72,32 +72,32 @@ const TEMPLATE_GROUPS: TemplateGroup[] = [
       {
         id: 'inactive_30d',
         title: 'Te extrañamos',
-        body: 'Hace tiempo no te vemos por acá. Volvé esta semana y te regalamos 2 sellos extra.',
+        body: 'Hace tiempo no te vemos por acá. Vuelve esta semana y te regalamos 2 sellos extra.',
       },
       {
         id: 'flash_promo',
         title: '🔥 Solo hoy',
-        body: '2x1 en bebidas calientes hasta las 6pm. Pasate y mostrá esta tarjeta.',
+        body: '2x1 en bebidas calientes hasta las 6pm. Pasa y muestra esta tarjeta.',
       },
       {
         id: 'reward_ready',
         title: '⭐ Tu recompensa te espera',
-        body: 'Llegaste al tope de sellos. Pasate a reclamar tu producto gratis.',
+        body: 'Llegaste al tope de sellos. Pasa a reclamar tu producto gratis.',
       },
       {
         id: 'first_purchase',
         title: '🤝 Gracias por tu primera visita',
-        body: 'Te llevás 1 sello extra de cortesía en tu próxima compra. ¡Te esperamos!',
+        body: 'Te llevas 1 sello extra de cortesía en tu próxima compra. ¡Te esperamos!',
       },
       {
         id: 'monthly_reminder',
         title: '📅 ¿Cuándo es la próxima?',
-        body: 'Te están esperando sellos nuevos. ¡Pasate cuando quieras!',
+        body: 'Te están esperando sellos nuevos. ¡Pasa cuando quieras!',
       },
       {
         id: 'menu_update',
         title: '🆕 Nuevo en el menú',
-        body: 'Sumamos productos nuevos esta semana. Vení a probarlos.',
+        body: 'Sumamos productos nuevos esta semana. Ven a probarlos.',
       },
     ],
   },
@@ -350,7 +350,7 @@ export default function NotificationsPage() {
           {history.length === 0 ? (
             <div className="text-center py-6 text-sm text-mute">
               <div className="text-2xl mb-1">🔔</div>
-              Sin envíos aún. Mandá tu primera notificación arriba.
+              Sin envíos aún. Manda tu primera notificación arriba.
             </div>
           ) : (
             history.map((n) => (

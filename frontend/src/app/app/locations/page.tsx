@@ -135,7 +135,7 @@ export default function LocationsPage() {
             <label className="label">📱 Texto del push wallet</label>
             <input
               className="input"
-              placeholder="Estás cerca de nuestro local · ¡pasá a sellar!"
+              placeholder="Estás cerca de nuestro local · ¡pasa a sellar!"
               value={form.walletRelevantText}
               onChange={(e) =>
                 setForm({ ...form, walletRelevantText: e.target.value })
