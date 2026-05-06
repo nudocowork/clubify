@@ -138,7 +138,7 @@ export function CSVImporter({
 
   function downloadTemplate() {
     const csv =
-      'Nombre,Email,Telefono,Cumpleaños,Tags\n' +
+      'Nombre,Email,Teléfono,Cumpleaños,Tags\n' +
       'Juan Pérez,juan@ejemplo.com,+57 300 1234567,1990-05-21,VIP\n';
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
