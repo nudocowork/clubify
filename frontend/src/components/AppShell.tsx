@@ -11,6 +11,7 @@ import { HelpButton } from './HelpPanel';
 import { QuickCreateFAB } from './QuickCreateFAB';
 import { CardVerificationLockscreen } from './CardVerificationLockscreen';
 import { Logo } from './Logo';
+import { TenantSwitcher } from './TenantSwitcher';
 import { useBranding } from '@/lib/useBranding';
 import {
   getCategoryBySlug,
@@ -292,6 +293,13 @@ export default function AppShell({
         </button>
       </div>
 
+      {/* Switcher de subcuentas — solo super admin */}
+      {variant === 'admin' && (
+        <div className="px-1.5 pb-3">
+          <TenantSwitcher />
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto -mx-1 px-1">
         {groups.map((g, gi) => {
           // Si el path activo está dentro de esta sección, fuerza expand para
@@ -420,9 +428,10 @@ export default function AppShell({
             <button
               onClick={() => {
                 stopImpersonation();
-                router.push('/admin/tenants');
+                router.push('/admin');
               }}
               className="ml-auto bg-amber-950 text-amber-100 px-3 py-1 rounded-md text-xs font-semibold hover:bg-amber-900 transition"
+              title="Volver al admin (desde ahí podés cambiar de subcuenta con el switcher del sidebar)"
             >
               ← Volver al admin
             </button>
