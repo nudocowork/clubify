@@ -30,6 +30,7 @@ type Storefront = {
   description: string;
   heroImageUrl: string | null;
   menuLayout?: MenuLayout;
+  planName?: string | null;
   promotions: any[];
 };
 
@@ -360,6 +361,7 @@ export default function StorefrontPublic() {
           slug={slug}
           primary={primary}
           currency={s.currency}
+          planName={s.planName ?? null}
           onClose={() => setShowCheckout(false)}
         />
       )}
@@ -643,31 +645,40 @@ function CheckoutSheet({
   slug,
   primary,
   currency,
+  planName,
   onClose,
 }: {
   items: CartItem[];
   slug: string;
   primary: string;
   currency: string;
+  planName: string | null;
   onClose: () => void;
 }) {
   // Si la URL trae ?mesa=N (escaneo de QR de mesa), pre-rellenamos y
-  // forzamos fulfillment a DINE_IN. El cliente NO ve el campo "Número de mesa"
-  // — viene del QR.
+  // forzamos fulfillment a DINE_IN. El número de mesa SIEMPRE viene del
+  // QR — el cliente nunca lo escribe a mano.
   const tableFromQr =
     typeof window !== 'undefined'
       ? new URLSearchParams(window.location.search).get('mesa') ?? ''
       : '';
   const lockedTable = tableFromQr.trim().length > 0;
+  const isPro = planName === 'Pro';
+
+  // Sin QR: no podemos servir a mesa. Sin plan Pro: no se permite domicilio.
+  // PICKUP fue removido. Si no hay opciones disponibles, mostramos guidance
+  // al cliente para que pida por WhatsApp en vez de hacer checkout.
+  const defaultFulfillment: 'DINE_IN' | 'DELIVERY' | null = lockedTable
+    ? 'DINE_IN'
+    : isPro
+    ? 'DELIVERY'
+    : null;
 
   const [form, setForm] = useState({
     fullName: '',
     phone: '',
     email: '',
-    fulfillment: (lockedTable ? 'DINE_IN' : 'PICKUP') as
-      | 'PICKUP'
-      | 'DINE_IN'
-      | 'DELIVERY',
+    fulfillment: (defaultFulfillment ?? 'DINE_IN') as 'DINE_IN' | 'DELIVERY',
     tableNumber: tableFromQr,
     customerNote: '',
   });
@@ -755,54 +766,79 @@ function CheckoutSheet({
               />
             </div>
             {!lockedTable && (
-            <div>
-              <label className="label">¿Es para...?</label>
-              <div className="grid grid-cols-3 gap-2">
-                {(
-                  [
-                    { v: 'PICKUP', l: '🥡 Llevar' },
-                    { v: 'DINE_IN', l: '🍽 Mesa' },
-                    { v: 'DELIVERY', l: '🛵 Domicilio' },
-                  ] as const
-                ).map((o) => (
-                  <button
-                    type="button"
-                    key={o.v}
-                    onClick={() => setForm({ ...form, fulfillment: o.v })}
-                    className={`py-2.5 rounded-lg text-sm border ${
-                      form.fulfillment === o.v
-                        ? 'text-white border-transparent'
-                        : 'border-line text-ink'
-                    }`}
-                    style={
-                      form.fulfillment === o.v
-                        ? { background: primary }
-                        : undefined
-                    }
-                  >
-                    {o.l}
-                  </button>
-                ))}
-              </div>
-            </div>
-            )}
-            {form.fulfillment === 'DINE_IN' && !lockedTable && (
               <div>
-                <label className="label">Número de mesa</label>
-                <input
-                  className="input"
-                  value={form.tableNumber}
-                  onChange={(e) =>
-                    setForm({ ...form, tableNumber: e.target.value })
-                  }
-                />
+                <label className="label">¿Es para...?</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      {
+                        v: 'DINE_IN' as const,
+                        l: '🍽 Mesa',
+                        disabled: !lockedTable,
+                        hint: 'Escanea el QR de tu mesa',
+                      },
+                      {
+                        v: 'DELIVERY' as const,
+                        l: '🛵 Domicilio',
+                        disabled: !isPro,
+                        hint: 'Disponible en plan Pro',
+                      },
+                    ]
+                  ).map((o) => {
+                    const active = form.fulfillment === o.v;
+                    return (
+                      <button
+                        type="button"
+                        key={o.v}
+                        disabled={o.disabled}
+                        onClick={() =>
+                          !o.disabled && setForm({ ...form, fulfillment: o.v })
+                        }
+                        title={o.disabled ? o.hint : undefined}
+                        className={`py-2.5 rounded-lg text-sm border relative ${
+                          active && !o.disabled
+                            ? 'text-white border-transparent'
+                            : o.disabled
+                            ? 'border-line text-mute opacity-50 cursor-not-allowed bg-bg2/40'
+                            : 'border-line text-ink'
+                        }`}
+                        style={
+                          active && !o.disabled
+                            ? { background: primary }
+                            : undefined
+                        }
+                      >
+                        {o.l}
+                        {o.disabled && (
+                          <span className="block text-[10px] text-mute font-normal mt-0.5">
+                            {o.hint}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {/* Si no hay opción válida (sin QR + sin Pro), guiamos al
+                cliente al WhatsApp del negocio para que pida por ahí */}
+            {!lockedTable && !isPro && (
+              <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5 text-sm text-amber-900">
+                <div className="font-semibold mb-0.5">
+                  📍 Para pedir desde aquí
+                </div>
+                <div className="text-xs">
+                  Escanea el QR de tu mesa, o contáctanos por WhatsApp para
+                  hacer tu pedido.
+                </div>
               </div>
             )}
             {lockedTable && (
               <div className="rounded-lg bg-brand-soft text-brand-700 px-3 py-2.5 text-sm flex items-center gap-2">
                 <span>📍</span>
                 <span>
-                  Pidiendo desde la <b>mesa {form.tableNumber}</b> · entregamos a tu mesa
+                  Pidiendo desde la <b>mesa {form.tableNumber}</b> · entregamos
+                  a tu mesa
                 </span>
               </div>
             )}
@@ -825,9 +861,14 @@ function CheckoutSheet({
 
             <button
               type="submit"
-              disabled={submitting}
-              className="w-full rounded-pill text-white font-semibold py-3.5 disabled:opacity-50"
+              disabled={submitting || defaultFulfillment === null}
+              className="w-full rounded-pill text-white font-semibold py-3.5 disabled:opacity-50 disabled:cursor-not-allowed"
               style={{ background: primary }}
+              title={
+                defaultFulfillment === null
+                  ? 'Escanea el QR de tu mesa para pedir desde aquí'
+                  : undefined
+              }
             >
               {submitting ? 'Enviando…' : 'Enviar pedido por WhatsApp'}
             </button>
