@@ -63,7 +63,12 @@ export function SupportWidget() {
   async function send() {
     const q = input.trim();
     if (!q || sending) return;
-    const next: Msg[] = [...messages, { role: 'user', content: q }];
+    // Truncamos también en memoria (no solo en localStorage) para que un chat
+    // largo no degrade el render. Mantenemos siempre el WELCOME en posición 0.
+    const truncated = messages.length > HISTORY_LIMIT * 2
+      ? [WELCOME, ...messages.slice(-HISTORY_LIMIT)]
+      : messages;
+    const next: Msg[] = [...truncated, { role: 'user', content: q }];
     setMessages(next);
     setInput('');
     setSending(true);
