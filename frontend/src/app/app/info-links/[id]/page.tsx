@@ -177,6 +177,15 @@ export default function InfoLinkEditor() {
             ← Volver
           </Link>
           <a
+            href="/preview/info-links"
+            target="_blank"
+            rel="noreferrer"
+            className="btn-ghost text-xs"
+            title="Ver los 5 estilos disponibles para tu InfoLink"
+          >
+            🎨 Ver 5 estilos
+          </a>
+          <a
             href={publicUrl}
             target="_blank"
             rel="noreferrer"
