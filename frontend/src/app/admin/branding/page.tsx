@@ -8,10 +8,15 @@ import { toast } from '@/components/Toast';
 type Branding = {
   appLogoUrl: string | null;
   faviconUrl: string | null;
+  supportWhatsapp: string | null;
 };
 
 export default function AdminBrandingPage() {
-  const [b, setB] = useState<Branding>({ appLogoUrl: null, faviconUrl: null });
+  const [b, setB] = useState<Branding>({
+    appLogoUrl: null,
+    faviconUrl: null,
+    supportWhatsapp: null,
+  });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -96,6 +101,29 @@ export default function AdminBrandingPage() {
           </div>
         </div>
       )}
+
+      <div className="card card-pad mt-5">
+        <h2 className="text-base font-semibold m-0">
+          📞 Dudas por WhatsApp (soporte)
+        </h2>
+        <p className="text-xs text-mute mt-1 leading-relaxed">
+          Número al que llegan los clicks en el botón "Tengo dudas" de los
+          lockscreens Pro, billing, y CTAs de soporte en el panel y la
+          landing. Si está vacío, esos botones se ocultan automáticamente.
+        </p>
+        <div className="mt-3.5 max-w-sm">
+          <label className="label">Número (con prefijo país)</label>
+          <input
+            type="text"
+            className="input"
+            placeholder="+57 300 000 0000"
+            value={b.supportWhatsapp ?? ''}
+            onChange={(e) =>
+              setB({ ...b, supportWhatsapp: e.target.value })
+            }
+          />
+        </div>
+      </div>
 
       <div className="card card-pad mt-5 bg-brand-soft border-brand/30">
         <h3 className="text-sm font-semibold m-0">¿Cómo se aplica?</h3>

@@ -11,6 +11,7 @@ import {
   browserNotify,
   ensureNotificationPermission,
 } from '@/lib/notify';
+import { useBranding, supportWaLink } from '@/lib/useBranding';
 
 type Order = {
   id: string;
@@ -86,6 +87,11 @@ export default function OrdersBoard() {
   const [newOrderOpen, setNewOrderOpen] = useState(false);
   const [planName, setPlanName] = useState<string | null>(null);
   const isPro = planName === 'Pro';
+  const branding = useBranding();
+  const helpLink = supportWaLink(
+    branding,
+    'Hola, quiero saber más sobre los pedidos online de Clubify',
+  );
   const router = useRouter();
   const soundRef = useRef(soundOn);
   soundRef.current = soundOn;
@@ -358,14 +364,16 @@ export default function OrdersBoard() {
             >
               Activar plan Pro →
             </Link>
+            {helpLink && (
             <a
-              href="https://wa.me/573044426160?text=Hola%2C+quiero+saber+m%C3%A1s+sobre+los+pedidos+online+de+Clubify"
+              href={helpLink}
               target="_blank"
               rel="noreferrer"
               className="bg-white/15 hover:bg-white/25 transition border border-white/30 text-white font-semibold px-5 py-2.5 rounded-pill text-sm"
             >
               💬 Tengo dudas
             </a>
+            )}
           </div>
         </div>
 

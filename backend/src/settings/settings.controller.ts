@@ -7,6 +7,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 class BrandingDto {
   @IsOptional() @IsString() appLogoUrl?: string | null;
   @IsOptional() @IsString() faviconUrl?: string | null;
+  @IsOptional() @IsString() supportWhatsapp?: string | null;
 }
 
 @Controller()

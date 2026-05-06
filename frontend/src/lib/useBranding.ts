@@ -6,9 +6,29 @@ const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 export type Branding = {
   appLogoUrl: string | null;
   faviconUrl: string | null;
+  supportWhatsapp: string | null;
 };
 
-const DEFAULT: Branding = { appLogoUrl: null, faviconUrl: null };
+const DEFAULT: Branding = {
+  appLogoUrl: null,
+  faviconUrl: null,
+  supportWhatsapp: null,
+};
+
+/**
+ * Devuelve un wa.me link al número de soporte de Clubify (configurado por
+ * super admin en /admin/branding) con el texto pre-rellenado. Si no hay
+ * número configurado, devuelve null y el componente que llama debería
+ * ocultar el botón.
+ */
+export function supportWaLink(
+  branding: Branding,
+  text: string,
+): string | null {
+  const phone = (branding.supportWhatsapp ?? '').replace(/\D/g, '');
+  if (!phone) return null;
+  return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
+}
 
 // Cache en memoria para que múltiples componentes no fetcheen N veces.
 let cached: Branding | null = null;

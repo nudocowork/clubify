@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
+import { useBranding, supportWaLink } from '@/lib/useBranding';
 
 type Rule = {
   id: string;
@@ -73,6 +74,11 @@ export default function AutomationsPage() {
   const [editing, setEditing] = useState<Partial<Rule> | null>(null);
   const [planName, setPlanName] = useState<string | null>(null);
   const isPro = planName === 'Pro';
+  const branding = useBranding();
+  const helpLink = supportWaLink(
+    branding,
+    'Hola, quiero saber más sobre las automatizaciones de Clubify',
+  );
 
   async function load() {
     try {
@@ -121,14 +127,16 @@ export default function AutomationsPage() {
             >
               Activar plan Pro →
             </Link>
-            <a
-              href="https://wa.me/573044426160?text=Hola%2C+quiero+saber+m%C3%A1s+sobre+las+automatizaciones+de+Clubify"
-              target="_blank"
-              rel="noreferrer"
-              className="bg-white/15 hover:bg-white/25 transition border border-white/30 text-white font-semibold px-5 py-2.5 rounded-pill text-sm"
-            >
-              💬 Tengo dudas
-            </a>
+            {helpLink && (
+              <a
+                href={helpLink}
+                target="_blank"
+                rel="noreferrer"
+                className="bg-white/15 hover:bg-white/25 transition border border-white/30 text-white font-semibold px-5 py-2.5 rounded-pill text-sm"
+              >
+                💬 Tengo dudas
+              </a>
+            )}
           </div>
         </div>
 

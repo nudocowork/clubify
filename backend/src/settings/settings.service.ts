@@ -4,11 +4,13 @@ import { PrismaService } from '../common/prisma/prisma.service';
 export type BrandingSettings = {
   appLogoUrl: string | null;
   faviconUrl: string | null;
+  supportWhatsapp: string | null;
 };
 
 const KEYS = {
   appLogoUrl: 'branding.appLogoUrl',
   faviconUrl: 'branding.faviconUrl',
+  supportWhatsapp: 'support.whatsappPhone',
 } as const;
 
 @Injectable()
@@ -17,12 +19,20 @@ export class SettingsService {
 
   async getBranding(): Promise<BrandingSettings> {
     const rows = await this.prisma.setting.findMany({
-      where: { key: { in: [KEYS.appLogoUrl, KEYS.faviconUrl] } },
+      where: {
+        key: { in: [KEYS.appLogoUrl, KEYS.faviconUrl, KEYS.supportWhatsapp] },
+      },
     });
     const map = new Map(rows.map((r) => [r.key, r.value]));
+    const norm = (v: string | undefined) => {
+      if (!v) return null;
+      const t = v.trim();
+      return t.length > 0 ? t : null;
+    };
     return {
-      appLogoUrl: map.get(KEYS.appLogoUrl) ?? null,
-      faviconUrl: map.get(KEYS.faviconUrl) ?? null,
+      appLogoUrl: norm(map.get(KEYS.appLogoUrl)),
+      faviconUrl: norm(map.get(KEYS.faviconUrl)),
+      supportWhatsapp: norm(map.get(KEYS.supportWhatsapp)),
     };
   }
 
@@ -33,6 +43,9 @@ export class SettingsService {
     }
     if (data.faviconUrl !== undefined) {
       ops.push(this.upsert(KEYS.faviconUrl, data.faviconUrl ?? ''));
+    }
+    if (data.supportWhatsapp !== undefined) {
+      ops.push(this.upsert(KEYS.supportWhatsapp, data.supportWhatsapp ?? ''));
     }
     await Promise.all(ops);
     return this.getBranding();
