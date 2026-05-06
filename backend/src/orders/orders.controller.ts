@@ -134,4 +134,12 @@ export class OrdersController {
   ) {
     return this.svc.setStatus(user, id, body.status);
   }
+
+  @Post(':id/accept-delivery-payment')
+  acceptDeliveryPayment(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    return this.svc.acceptDeliveryPayment(user, id);
+  }
 }

@@ -10,6 +10,8 @@ class UpdateMyBody {
   @IsOptional() @IsString() brandName?: string;
   @IsOptional() @IsString() phone?: string;
   @IsOptional() @IsString() whatsappPhone?: string;
+  @IsOptional() @IsString() whatsappOrdersPhone?: string;
+  @IsOptional() @IsString() whatsappDeliveryPhone?: string;
   @IsOptional() @IsString() logoUrl?: string;
   @IsOptional() @IsHexColor() primaryColor?: string;
   @IsOptional() @IsHexColor() secondaryColor?: string;

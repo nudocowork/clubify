@@ -223,6 +223,15 @@ model Tenant {
   email                String
   phone                String?
   whatsappPhone        String?
+  // Mensajería del flujo de pedidos (Pro-only):
+  // - whatsappOrdersPhone: número del NEGOCIO/CAJA donde el cliente envía
+  //   sus pedidos desde el menú (mesa o delivery). Si está vacío usa
+  //   whatsappPhone como fallback.
+  // - whatsappDeliveryPhone: número del COURIER/empresa de domicilio.
+  //   Cuando el negocio acepta el pago de un pedido DELIVERY se abre un
+  //   wa.me a este número con el resumen + dirección.
+  whatsappOrdersPhone   String?
+  whatsappDeliveryPhone String?
   logoUrl              String?
   primaryColor         String       @default("#6366F1")
   secondaryColor       String       @default("#C026D3")

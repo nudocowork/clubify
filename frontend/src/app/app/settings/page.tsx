@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { api, downloadFile, getUser, setSession, clearSession } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import { Icon } from '@/components/Icon';
@@ -10,6 +11,15 @@ type Profile = {
   fullName: string;
   phone: string | null;
   role: string;
+};
+
+type TenantMe = {
+  id: string;
+  brandName: string;
+  whatsappPhone: string | null;
+  whatsappOrdersPhone: string | null;
+  whatsappDeliveryPhone: string | null;
+  plan?: { name: string } | null;
 };
 
 export default function SettingsPage() {
@@ -23,6 +33,11 @@ export default function SettingsPage() {
   const [savingPwd, setSavingPwd] = useState(false);
   const [pwdMsg, setPwdMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
+  const [tenant, setTenant] = useState<TenantMe | null>(null);
+  const [waForm, setWaForm] = useState({ ordersPhone: '', deliveryPhone: '' });
+  const [savingWa, setSavingWa] = useState(false);
+  const [waMsg, setWaMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
   useEffect(() => {
     api<Profile>('/users/me').then((u) => {
       setMe(u);
@@ -32,7 +47,39 @@ export default function SettingsPage() {
         phone: u.phone || '',
       });
     });
+    api<TenantMe>('/tenants/me')
+      .then((t) => {
+        setTenant(t);
+        setWaForm({
+          ordersPhone: t.whatsappOrdersPhone ?? '',
+          deliveryPhone: t.whatsappDeliveryPhone ?? '',
+        });
+      })
+      .catch(() => null);
   }, []);
+
+  async function saveWhatsapp(e: React.FormEvent) {
+    e.preventDefault();
+    setWaMsg(null);
+    setSavingWa(true);
+    try {
+      const updated = await api<TenantMe>('/tenants/me', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          whatsappOrdersPhone: waForm.ordersPhone.trim() || null,
+          whatsappDeliveryPhone: waForm.deliveryPhone.trim() || null,
+        }),
+      });
+      setTenant(updated);
+      setWaMsg({ ok: true, text: 'Números actualizados' });
+    } catch (e: any) {
+      setWaMsg({ ok: false, text: e.message || 'No se pudo actualizar' });
+    } finally {
+      setSavingWa(false);
+    }
+  }
+
+  const isPro = tenant?.plan?.name === 'Pro';
 
   async function saveProfile(e: React.FormEvent) {
     e.preventDefault();
@@ -217,6 +264,110 @@ export default function SettingsPage() {
           </button>
         </div>
       </form>
+
+      {/* Mensajería de WhatsApp · solo Pro */}
+      <div
+        className={`card card-pad mb-4 ${
+          !isPro ? 'opacity-90 border border-amber-200 bg-amber-50/30' : ''
+        }`}
+      >
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h2 className="text-base font-semibold m-0 flex items-center gap-2">
+              💬 Mensajería de WhatsApp
+              {tenant?.plan?.name && (
+                <span
+                  className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                    isPro ? 'bg-ok-soft text-ok' : 'bg-amber-100 text-amber-800'
+                  }`}
+                >
+                  {isPro ? 'Pro · activo' : 'Requiere Pro'}
+                </span>
+              )}
+            </h2>
+            <p className="text-xs text-mute mt-1 leading-relaxed">
+              Configura los dos números que enrutan tus pedidos: dónde reciben
+              tus clientes el pedido inicial y dónde despachas a domicilio.
+            </p>
+          </div>
+        </div>
+
+        {!isPro ? (
+          <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5 text-sm text-amber-900">
+            <div className="font-semibold mb-0.5">🔒 Función exclusiva del plan Pro</div>
+            <div className="text-xs">
+              Activa Pro para configurar el flujo automático cliente → caja →
+              courier de domicilio.{' '}
+              <Link href="/app/billing" className="underline">
+                Activar plan Pro →
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={saveWhatsapp} className="mt-4 grid gap-3">
+            <div>
+              <label className="label flex items-center gap-1.5">
+                <span>🍽 Pedido a Negocio (caja)</span>
+              </label>
+              <input
+                className="input"
+                placeholder="+57 300 000 0000"
+                value={waForm.ordersPhone}
+                onChange={(e) =>
+                  setWaForm({ ...waForm, ordersPhone: e.target.value })
+                }
+              />
+              <p className="text-[11px] text-mute mt-1 leading-relaxed">
+                Cuando un cliente envía su pedido desde el menú (mesa o
+                delivery), el wa.me se abre a este número. Si lo dejas vacío,
+                usa el WhatsApp principal del negocio.
+              </p>
+            </div>
+
+            <div>
+              <label className="label flex items-center gap-1.5">
+                <span>🛵 Negocio a Domicilio (courier)</span>
+              </label>
+              <input
+                className="input"
+                placeholder="+57 300 000 0000"
+                value={waForm.deliveryPhone}
+                onChange={(e) =>
+                  setWaForm({ ...waForm, deliveryPhone: e.target.value })
+                }
+              />
+              <p className="text-[11px] text-mute mt-1 leading-relaxed">
+                Cuando aceptes el pago de un pedido de domicilio en{' '}
+                <Link href="/app/orders" className="underline">
+                  /app/orders
+                </Link>
+                , se abre un wa.me a este número con el resumen + dirección
+                listo para despachar al motorizado.
+              </p>
+            </div>
+
+            {waMsg && (
+              <div
+                className={`text-sm rounded-lg px-3 py-2 ${
+                  waMsg.ok ? 'bg-ok-soft text-ok' : 'bg-bad-soft text-bad-ink'
+                }`}
+              >
+                {waMsg.text}
+              </div>
+            )}
+
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                disabled={savingWa}
+                className="btn-primary text-sm"
+              >
+                {savingWa ? 'Guardando…' : 'Guardar números'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
 
       {/* Export */}
       <div className="card card-pad mb-4">

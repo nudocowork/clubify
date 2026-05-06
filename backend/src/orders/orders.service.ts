@@ -611,6 +611,60 @@ export class OrdersService {
     return updated;
   }
 
+  /**
+   * Marca el pago de un pedido DELIVERY como PAID y devuelve un wa.me al
+   * courier (whatsappDeliveryPhone) con los datos del pedido + dirección
+   * para despachar. El frontend abre ese link en una pestaña nueva.
+   *
+   * No envía nada por sí solo: solo deja el link listo. El dueño hace
+   * click en "Enviar al courier" en su WhatsApp y confirma manualmente.
+   * Esto evita falsos positivos por números mal configurados.
+   */
+  async acceptDeliveryPayment(user: AuthUser, id: string) {
+    const o = await this.get(user, id);
+    if (o.fulfillment !== 'DELIVERY') {
+      throw new BadRequestException(
+        'Esta acción solo aplica a pedidos de domicilio.',
+      );
+    }
+
+    const updated = await this.prisma.order.update({
+      where: { id },
+      data: {
+        paymentStatus: 'PAID',
+        paidAt: o.paidAt ?? new Date(),
+      },
+      include: { customer: true, tenant: true },
+    });
+
+    await this.prisma.orderEvent.create({
+      data: {
+        orderId: id,
+        type: 'PAYMENT',
+        metadata: {
+          method: 'manual',
+          source: 'accept-delivery-payment',
+          status: 'PAID',
+        },
+        actorId: user.id,
+      },
+    });
+
+    const courierLink = this.channels.generateWaMeCourier(
+      updated.tenant,
+      updated as any,
+      updated.customer,
+    );
+
+    this.broadcast(id).catch(() => null);
+
+    return {
+      order: updated,
+      courierLink,
+      courierConfigured: !!updated.tenant.whatsappDeliveryPhone,
+    };
+  }
+
   private async sendStatusEmail(
     tenantId: string,
     customerId: string,

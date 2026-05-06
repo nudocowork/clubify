@@ -15,9 +15,16 @@ export class ChannelsService {
 
   constructor(private prisma: PrismaService) {}
 
-  /** Genera un link wa.me para que el cliente abra WhatsApp con un mensaje pre-llenado al dueño. */
+  /** Genera un link wa.me para que el cliente abra WhatsApp con un mensaje pre-llenado al dueño/caja. */
   generateWaMeOwner(tenant: Tenant, order: Order, customer: Customer): string {
-    const phone = (tenant.whatsappPhone ?? tenant.phone ?? '').replace(/\D/g, '');
+    // Prioriza el número específico de pedidos (Pro feature). Fallback al
+    // whatsappPhone genérico, luego al phone del tenant.
+    const phone = (
+      tenant.whatsappOrdersPhone ??
+      tenant.whatsappPhone ??
+      tenant.phone ??
+      ''
+    ).replace(/\D/g, '');
     if (!phone) return '';
 
     const items = (order.items as any[])
@@ -77,6 +84,58 @@ export class ChannelsService {
       order.customerNote ? `📝 ${order.customerNote}` : '',
       '',
       `Ver pedido: ${process.env.APP_URL ?? 'http://localhost:3000'}/o/${order.code}`,
+    ].filter(Boolean);
+
+    const text = encodeURIComponent(lines.join('\n'));
+    return `https://wa.me/${phone}?text=${text}`;
+  }
+
+  /**
+   * Genera un wa.me al courier (whatsappDeliveryPhone) con el resumen del
+   * pedido + dirección. Se usa cuando el negocio acepta el pago de un
+   * pedido DELIVERY y necesita despachar al motociclista.
+   * Devuelve string vacío si no hay número de courier configurado.
+   */
+  generateWaMeCourier(tenant: Tenant, order: Order, customer: Customer): string {
+    const phone = (tenant.whatsappDeliveryPhone ?? '').replace(/\D/g, '');
+    if (!phone) return '';
+
+    const items = (order.items as any[])
+      .map(
+        (i) =>
+          `• ${i.qty}x ${i.name}` +
+          (i.note ? `\n   ↳ ${i.note}` : ''),
+      )
+      .join('\n');
+
+    const addr = order.deliveryAddress as
+      | {
+          firstName?: string;
+          lastName?: string;
+          phone?: string;
+          departamento?: string;
+          municipio?: string;
+          direccion?: string;
+        }
+      | null;
+
+    const lines = [
+      `🛵 *Despacho domicilio · Pedido #${order.code}*`,
+      `Cliente: ${customer.fullName} · ${customer.phone}`,
+      '',
+      items,
+      '',
+      `*Total: ${formatMoney(Number(order.total), tenant.currency)}*`,
+      `Pago: ${order.paymentStatus === 'PAID' ? '✅ Cobrado' : '💵 Cobrar al cliente'}`,
+      '',
+      '*📍 Dirección:*',
+      addr
+        ? [addr.municipio, addr.departamento].filter(Boolean).join(', ')
+        : '',
+      addr?.direccion ? addr.direccion : '',
+      addr?.phone ? `📞 ${addr.phone}` : '',
+      '',
+      `Origen: ${tenant.brandName}`,
     ].filter(Boolean);
 
     const text = encodeURIComponent(lines.join('\n'));

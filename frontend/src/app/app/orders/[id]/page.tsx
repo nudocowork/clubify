@@ -123,6 +123,36 @@ export default function OrderDetail() {
     }
   }
 
+  /**
+   * Marca el pago de delivery como PAID y abre wa.me al courier (si está
+   * configurado en /app/settings → Mensajería de WhatsApp). Si no hay
+   * número de courier, solo marca el pago y avisa que falta config.
+   */
+  async function acceptDeliveryPayment() {
+    if (!confirm('¿Aceptar pago de este pedido y despachar al courier?')) return;
+    setBusy(true);
+    try {
+      const res = await api<{ courierLink: string; courierConfigured: boolean }>(
+        `/orders/${id}/accept-delivery-payment`,
+        { method: 'POST' },
+      );
+      await load();
+      if (res.courierConfigured && res.courierLink) {
+        toast('Pago aceptado · abriendo WhatsApp al courier…', 'success');
+        window.open(res.courierLink, '_blank');
+      } else {
+        toast(
+          'Pago aceptado. Configura el WhatsApp del courier en Mi cuenta para despachar automático.',
+          'info',
+        );
+      }
+    } catch (e: any) {
+      toast(e.message || 'No se pudo aceptar el pago', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function printAs(mode: 'ticket' | 'receipt') {
     document.body.dataset.printMode = mode;
     setTimeout(() => {
@@ -179,6 +209,18 @@ export default function OrderDetail() {
               <Icon name="arrow-right" /> {NEXT_LABEL[o.status]}
             </button>
           )}
+          {o.fulfillment === 'DELIVERY' &&
+            o.paymentStatus !== 'PAID' &&
+            o.status !== 'CANCELLED' && (
+              <button
+                className="inline-flex items-center gap-1.5 bg-emerald-600 text-white text-sm font-semibold px-3.5 py-2 rounded-pill hover:bg-emerald-700 transition disabled:opacity-50"
+                disabled={busy}
+                onClick={acceptDeliveryPayment}
+                title="Marca pago como cobrado y abre WhatsApp al courier de domicilio"
+              >
+                ✓ Aceptar pago + despachar 🛵
+              </button>
+            )}
           {o.status !== 'CANCELLED' && o.status !== 'DELIVERED' && (
             <button
               className="btn-danger"
