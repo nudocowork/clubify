@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api, setSession } from '@/lib/api';
 import { Logo } from '@/components/Logo';
+import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 
 export default function LoginPage() {
   return (
@@ -33,6 +34,23 @@ function LoginInner() {
         method: 'POST',
         body: JSON.stringify({ email, password }),
       });
+      setSession(data.accessToken, data.user);
+      router.push(data.user.role === 'SUPER_ADMIN' ? '/admin' : '/app');
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loginWithGoogle(idToken: string) {
+    setErr(null);
+    setLoading(true);
+    try {
+      const data = await api<{ accessToken: string; user: any }>(
+        '/auth/google',
+        { method: 'POST', body: JSON.stringify({ idToken }) },
+      );
       setSession(data.accessToken, data.user);
       router.push(data.user.role === 'SUPER_ADMIN' ? '/admin' : '/app');
     } catch (e: any) {
@@ -106,6 +124,8 @@ function LoginInner() {
         >
           {loading ? 'Entrando…' : 'Entrar'}
         </button>
+
+        <GoogleSignInButton onCredential={loginWithGoogle} disabled={loading} />
 
         <div className="mt-4 text-center text-xs text-mute">
           ¿No tienes cuenta?{' '}

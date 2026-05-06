@@ -9,6 +9,10 @@ class LoginDto {
   @IsString() @MinLength(6) password!: string;
 }
 
+class GoogleLoginDto {
+  @IsString() idToken!: string;
+}
+
 class RefreshDto {
   @IsString() refreshToken!: string;
 }
@@ -40,6 +44,12 @@ export class AuthController {
   @Post('login')
   login(@Body() dto: LoginDto, @Ip() ip: string) {
     return this.auth.login(dto.email, dto.password, ip);
+  }
+
+  @Public()
+  @Post('google')
+  google(@Body() dto: GoogleLoginDto, @Ip() ip: string) {
+    return this.auth.loginWithGoogle(dto.idToken, ip);
   }
 
   @Public()

@@ -1,6 +1,7 @@
-import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
+import { OAuth2Client } from 'google-auth-library';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { createHash, randomBytes } from 'crypto';
@@ -19,12 +20,21 @@ function slugify(s: string) {
 
 @Injectable()
 export class AuthService {
+  private logger = new Logger(AuthService.name);
+  private googleClient: OAuth2Client | null;
+
   constructor(
     private prisma: PrismaService,
     private jwt: JwtService,
     private audit: AuditService,
     private email: EmailService,
-  ) {}
+  ) {
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    this.googleClient = clientId ? new OAuth2Client(clientId) : null;
+    if (!clientId) {
+      this.logger.warn('GOOGLE_CLIENT_ID no configurado — login con Google deshabilitado');
+    }
+  }
 
   async login(email: string, password: string, ip?: string) {
     const user = await this.prisma.user.findUnique({ where: { email } });
@@ -70,6 +80,88 @@ export class AuthService {
 
     const accessToken = this.jwt.sign(payload);
     const refreshToken = this.jwt.sign(payload, {
+      secret: process.env.JWT_REFRESH_SECRET ?? 'dev-refresh',
+      expiresIn: process.env.JWT_REFRESH_EXPIRES ?? '30d',
+    });
+
+    return {
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        role: user.role,
+        tenantId: user.tenantId,
+      },
+    };
+  }
+
+  /**
+   * Login con Google: el frontend obtiene un ID token vía Google Identity
+   * Services y nos lo pasa. Verificamos firma + audience contra GOOGLE_CLIENT_ID
+   * y mapeamos por email a un User existente. NO creamos cuentas nuevas vía
+   * Google — si el email no tiene cuenta, devolvemos 401 con mensaje claro.
+   */
+  async loginWithGoogle(idToken: string, ip?: string) {
+    if (!this.googleClient || !process.env.GOOGLE_CLIENT_ID) {
+      throw new BadRequestException(
+        'Google login no está configurado en este entorno.',
+      );
+    }
+    if (!idToken) throw new BadRequestException('idToken requerido');
+
+    let payload: any = null;
+    try {
+      const ticket = await this.googleClient.verifyIdToken({
+        idToken,
+        audience: process.env.GOOGLE_CLIENT_ID,
+      });
+      payload = ticket.getPayload();
+    } catch (e: any) {
+      this.logger.warn(`Google verifyIdToken failed: ${e?.message ?? e}`);
+      throw new UnauthorizedException('Token de Google inválido');
+    }
+
+    const email = payload?.email?.toLowerCase();
+    if (!email || payload?.email_verified === false) {
+      throw new UnauthorizedException('Cuenta de Google sin email verificado');
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user || !user.isActive) {
+      this.audit.log({
+        action: 'auth.login.google.failed',
+        resource: `user:${email}`,
+        ip,
+        metadata: { reason: user ? 'inactive' : 'no_account' },
+      });
+      throw new UnauthorizedException(
+        'No existe una cuenta de Clubify con este email. Pídele al dueño que te invite.',
+      );
+    }
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date() },
+    });
+
+    this.audit.log({
+      actorId: user.id,
+      tenantId: user.tenantId,
+      action: 'auth.login.google',
+      resource: `user:${user.id}`,
+      ip,
+    });
+
+    const tokenPayload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      tenantId: user.tenantId,
+    };
+    const accessToken = this.jwt.sign(tokenPayload);
+    const refreshToken = this.jwt.sign(tokenPayload, {
       secret: process.env.JWT_REFRESH_SECRET ?? 'dev-refresh',
       expiresIn: process.env.JWT_REFRESH_EXPIRES ?? '30d',
     });
