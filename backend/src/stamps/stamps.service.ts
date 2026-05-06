@@ -90,13 +90,17 @@ export class StampsService {
       }),
     ]);
 
-    // Encolar push al wallet (BullMQ si Redis está, sino stub log)
+    // Encolar push al wallet. Si BullMQ tiene Redis, el worker lo consume
+    // y llama wallet.pushPassUpdate(). Si Redis está offline, enqueue
+    // rechaza y caemos al call directo in-process como fallback. Antes
+    // se llamaban AMBOS siempre → push doble al iPhone (2 fetches del
+    // .pkpass innecesarios).
     this.jobs
       .enqueue('wallet.push', { passId: pass.id, reason: dto.action })
-      .catch(() => null);
-
-    // Backwards-compat: actualización in-process si el wallet adapter lo necesita
-    this.wallet.pushPassUpdate(pass.id).catch(() => null);
+      .catch(() => {
+        // Fallback: queue no disponible, push directo in-process
+        this.wallet.pushPassUpdate(pass.id).catch(() => null);
+      });
 
     return { stamp, pass: updatedPass };
   }
