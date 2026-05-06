@@ -1,11 +1,21 @@
 'use client';
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 
+// useSearchParams requiere Suspense boundary en Next 14 para que el build
+// estático no falle (CSR bailout). Wrap del export default.
 export default function ReferPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-bg" />}>
+      <ReferInner />
+    </Suspense>
+  );
+}
+
+function ReferInner() {
   const searchParams = useSearchParams();
   const source = searchParams?.get('source')?.trim().slice(0, 60) || undefined;
   const [form, setForm] = useState({ fullName: '', email: '', whatsapp: '' });
