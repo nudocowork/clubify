@@ -66,7 +66,7 @@ export default function QRPoster() {
       <div className="page-head print-hide">
         <h1 className="page-title">
           <Link href="/app/storefront" className="text-mute hover:text-ink">
-            Mi sitio
+            Configura tu menú
           </Link>{' '}
           <span className="page-crumb">/ Cartel QR</span>
         </h1>
