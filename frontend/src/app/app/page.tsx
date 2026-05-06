@@ -193,12 +193,12 @@ function WelcomeTour({ tenant }: { tenant: any }) {
     {
       emoji: '🍴',
       title: 'Tu menú y los pedidos',
-      body: 'En “Mi sitio” personalizas el storefront público. En “Menú” cargas productos. Los pedidos llegan al kanban de “Pedidos” y se notifican por WhatsApp.',
+      body: 'En “Menú” cargas productos y desde su header tienes acceso a “Configura tu menú” para personalizar el storefront. Los pedidos llegan al kanban de “Pedidos” y se notifican por WhatsApp.',
     },
     {
       emoji: '📈',
       title: 'Crece y mide',
-      body: 'En “Métricas” ves crecimiento. En “Automatizaciones” puedes mandar mensajes automáticos (plan Pro). Aquí en el dashboard tienes un checklist de tareas pendientes.',
+      body: 'En “Analítica” ves crecimiento. En “Push” mandas notificaciones a las tarjetas wallet. Aquí en el dashboard tienes un checklist de tareas pendientes.',
     },
   ];
   const cur = steps[step];

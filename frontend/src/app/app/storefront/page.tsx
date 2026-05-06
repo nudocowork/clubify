@@ -109,7 +109,7 @@ export default function StorefrontEditor() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Mi sitio <span className="page-crumb">/ {sf.isPublished ? 'Publicado' : 'Borrador'}</span>
+          Configura tu menú <span className="page-crumb">/ {sf.isPublished ? 'Publicado' : 'Borrador'}</span>
         </h1>
         <div className="flex gap-3 flex-wrap items-start">
           {/* Grupo: Mesa */}
