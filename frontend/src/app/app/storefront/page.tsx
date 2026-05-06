@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { api, getUser } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { ImageUploader } from '@/components/ImageUploader';
+import { toast } from '@/components/Toast';
 import {
   DndContext,
   closestCenter,
@@ -110,14 +111,41 @@ export default function StorefrontEditor() {
         <h1 className="page-title">
           Mi sitio <span className="page-crumb">/ {sf.isPublished ? 'Publicado' : 'Borrador'}</span>
         </h1>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <Link
+            href={tenantSlug ? `/m/${tenantSlug}?mesa=1` : '#'}
+            target="_blank"
+            className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
+            title="Vista del menú como la verá un cliente sentado en una mesa (forzando flujo DINE_IN)"
+          >
+            🍽 Ver menú mesa
+          </Link>
           <Link
             href={publicHref}
             target="_blank"
             className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
+            title="Vista del menú para domicilio — el link público que enviás a tus clientes"
           >
-            <Icon name="arrow-right" /> Ver sitio público
+            🛵 Ver menú delivery
           </Link>
+          <button
+            type="button"
+            disabled={!tenantSlug}
+            onClick={async () => {
+              if (!tenantSlug) return;
+              const url = `${window.location.origin}/m/${tenantSlug}`;
+              try {
+                await navigator.clipboard.writeText(url);
+                toast('Link delivery copiado — pégalo en WhatsApp', 'success');
+              } catch {
+                toast('No se pudo copiar — selecciona el link manualmente', 'error');
+              }
+            }}
+            className="btn-ghost text-xs disabled:opacity-50"
+            title="Copia el link de delivery al portapapeles"
+          >
+            📋 Copiar link
+          </button>
           <Link
             href="/app/storefront/poster"
             className={`btn-ghost text-xs ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}

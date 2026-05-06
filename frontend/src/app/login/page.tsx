@@ -113,14 +113,6 @@ function LoginInner() {
             Crea una gratis
           </Link>
         </div>
-        <details className="mt-3 text-center text-[10px] text-mute2">
-          <summary className="cursor-pointer">Credenciales demo</summary>
-          <div className="mt-2 leading-relaxed">
-            Admin: <code>admin@clubify.local</code> / <code>Clubify123!</code>
-            <br />
-            Tenant: <code>demo@clubify.local</code> / <code>Demo123!</code>
-          </div>
-        </details>
       </form>
     </div>
   );
