@@ -31,6 +31,7 @@ import { AuditModule } from './audit/audit.module';
 import { BillingModule } from './billing/billing.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { SettingsModule } from './settings/settings.module';
+import { SystemHealthModule } from './system-health/system-health.module';
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { SettingsModule } from './settings/settings.module';
     BillingModule,
     IntegrationsModule,
     SettingsModule,
+    SystemHealthModule,
   ],
 })
 export class AppModule {}

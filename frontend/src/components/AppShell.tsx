@@ -153,6 +153,7 @@ export default function AppShell({
             section: 'Sistema',
             items: [
               { href: '/admin/branding', label: 'Branding', icon: 'spark' },
+              { href: '/admin/maintenance', label: 'Mantenimiento', icon: 'grid' },
               { href: '/admin/audit', label: 'Audit log', icon: 'history' },
             ],
           },
