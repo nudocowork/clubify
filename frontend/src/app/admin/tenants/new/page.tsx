@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
+import { PhoneInput } from '@/components/PhoneInput';
 
 export default function NewTenant() {
   const router = useRouter();
@@ -16,8 +17,6 @@ export default function NewTenant() {
     ownerFullName: '',
     ownerPassword: '',
     planId: '',
-    primaryColor: '#22C55E',
-    secondaryColor: '#15803D',
     trialDays: 7,
     nextChargeDate: '',
     hotmartSubscriberCode: '',
@@ -48,8 +47,6 @@ export default function NewTenant() {
         ownerFullName: form.ownerFullName,
         ownerPassword: form.ownerPassword || undefined,
         planId: form.planId,
-        primaryColor: form.primaryColor,
-        secondaryColor: form.secondaryColor,
       };
       if (billingMode === 'free') {
         body.freeAccount = true;
@@ -145,11 +142,14 @@ export default function NewTenant() {
         </div>
         <div>
           <label className="label">Teléfono</label>
-          <input
-            className="input"
+          <PhoneInput
             value={form.phone}
-            onChange={(e) => set('phone', e.target.value)}
+            onChange={(v) => set('phone', v)}
+            placeholder="3001234567"
           />
+          <div className="text-[11px] text-mute mt-1">
+            Solo informativo · no enviamos notificaciones a este número.
+          </div>
         </div>
         <div>
           <label className="label">Nombre del dueño</label>
@@ -185,25 +185,6 @@ export default function NewTenant() {
             ))}
           </select>
         </div>
-        <div>
-          <label className="label">Color principal</label>
-          <input
-            className="input h-11"
-            type="color"
-            value={form.primaryColor}
-            onChange={(e) => set('primaryColor', e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="label">Color secundario</label>
-          <input
-            className="input h-11"
-            type="color"
-            value={form.secondaryColor}
-            onChange={(e) => set('secondaryColor', e.target.value)}
-          />
-        </div>
-
         {/* Facturación / Hotmart */}
         <div className="col-span-2 mt-2 border-t border-line2 pt-4">
           <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-3">

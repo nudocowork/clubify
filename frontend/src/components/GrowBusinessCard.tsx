@@ -15,7 +15,15 @@ type Status = {
  * (proveedor externo de SMS) con un tenant. Solo se renderiza dentro del
  * panel SUPER_ADMIN. Nunca expone que el provider real es GoHighLevel.
  */
-export function GrowBusinessCard({ tenantId }: { tenantId: string }) {
+export function GrowBusinessCard({
+  tenantId,
+  planName,
+}: {
+  tenantId: string;
+  planName?: string | null;
+}) {
+  const isElite = planName === 'Elite';
+  const isPro = planName === 'Pro';
   const [status, setStatus] = useState<Status | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -109,20 +117,37 @@ export function GrowBusinessCard({ tenantId }: { tenantId: string }) {
   const connected = status?.connected;
 
   return (
-    <div className="card card-pad">
+    <div
+      className={`card card-pad md:col-span-2 ${
+        isElite && !connected ? 'border-2 border-amber-300 bg-amber-50/30' : ''
+      }`}
+    >
+      {isElite && (
+        <div className="text-[10px] uppercase tracking-[0.18em] text-amber-700 font-bold mb-2 flex items-center gap-1.5">
+          <span>⚡</span> Recomendado para plan Elite
+        </div>
+      )}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-base font-semibold m-0">Grow Business · SMS</h2>
             {connected ? (
               <span className="badge badge-ok">Conectado</span>
             ) : (
               <span className="badge bg-bg2 text-mute">Sin conectar</span>
             )}
+            {planName && (
+              <span className="badge badge-info text-[10px]">
+                Plan: {planName}
+              </span>
+            )}
           </div>
           <p className="mt-1 text-sm text-mute">
-            Habilita el envío de SMS desde este negocio usando el sub-account
-            de Grow Business asignado por el equipo.
+            {isPro
+              ? 'Plan Pro ya incluye automatizaciones de WhatsApp. SMS es opcional como canal complementario.'
+              : isElite
+              ? 'Plan Elite no incluye automatizaciones — conecta el sub-account de Grow Business para habilitar SMS desde este negocio.'
+              : 'Habilita el envío de SMS desde este negocio usando el sub-account de Grow Business asignado por el equipo.'}
           </p>
           {connected && status?.connectedAt && (
             <div className="text-xs text-mute mt-1">

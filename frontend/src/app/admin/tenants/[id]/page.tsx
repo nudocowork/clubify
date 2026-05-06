@@ -322,7 +322,7 @@ export default function TenantDetail() {
           </div>
         </div>
 
-        <GrowBusinessCard tenantId={t.id} />
+        <GrowBusinessCard tenantId={t.id} planName={t.plan?.name ?? null} />
 
         <BillingCard tenant={t} onChange={load} />
       </div>
