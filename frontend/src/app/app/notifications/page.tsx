@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
@@ -55,6 +56,13 @@ export default function NotificationsPage() {
         <h1 className="page-title">
           Notificaciones push <span className="page-crumb">/ {history.length} enviadas</span>
         </h1>
+        <Link
+          href="/app/locations"
+          className="btn-ghost"
+          title="Configura ubicaciones para que las tarjetas wallet se activen automáticamente cuando el cliente esté cerca del local"
+        >
+          📍 Ubicación
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">

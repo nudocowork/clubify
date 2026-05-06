@@ -159,52 +159,36 @@ export default function AppShell({
           },
         ]
       : [
+          // Dashboard como item principal sin header de sección
           {
-            section: 'Vender',
-            items: [
-              { href: '/app', label: 'Dashboard', icon: 'grid' },
-              { href: '/app/orders', label: 'Pedidos', icon: 'shopping-bag', lockedPro: true },
-              { href: '/app/menu', label: 'Menú', icon: 'menu' },
-              { href: '/app/analytics', label: 'Analítica', icon: 'history' },
-            ],
+            section: '',
+            items: [{ href: '/app', label: 'Dashboard', icon: 'grid' }],
           },
           {
-            section: 'Fidelizar',
+            section: 'Tarjetas de fidelización',
             items: [
               { href: '/app/cards', label: 'Tarjetas', icon: 'card' },
               { href: '/app/customers', label: 'Clientes', icon: 'users' },
               { href: '/scan', label: 'Escáner', icon: 'qr' },
-            ],
-          },
-          {
-            section: 'Automatizar',
-            items: [
-              { href: '/app/messages', label: 'Mensajes', icon: 'send' },
-              { href: '/app/automations', label: 'Automatizaciones', icon: 'spark', lockedPro: true },
               { href: '/app/notifications', label: 'Push', icon: 'bell' },
             ],
           },
           {
-            section: 'Tu sitio',
+            section: 'Menú digital',
             items: [
-              { href: '/app/storefront', label: 'Mi sitio', icon: 'store' },
-              { href: '/app/info-links', label: 'InfoLinks', icon: 'arrow-right' },
-              { href: '/app/locations', label: 'Ubicaciones', icon: 'pin' },
-              { href: '/app/referrals', label: 'Referidos', icon: 'gift' },
-            ],
-          },
-          {
-            section: 'Equipo',
-            items: [
-              { href: '/app/staff', label: 'Empleados', icon: 'users' },
+              { href: '/app/menu', label: 'Menú', icon: 'menu' },
+              { href: '/app/orders', label: 'Pedidos', icon: 'shopping-bag', lockedPro: true },
+              { href: '/app/analytics', label: 'Analítica', icon: 'history' },
             ],
           },
           {
             section: 'Cuenta',
             items: [
+              { href: '/app/staff', label: 'Empleados', icon: 'users' },
               { href: '/app/billing', label: 'Suscripción', icon: 'card' },
-              { href: '/app/settings', label: 'Mi cuenta', icon: 'users' },
-              { href: '/app/whats-new', label: 'Novedades', icon: 'spark' },
+              { href: '/app/settings', label: 'Configuraciones', icon: 'spark' },
+              { href: '/app/referrals', label: 'Referidos', icon: 'gift' },
+              { href: '/app/whats-new', label: 'Novedades', icon: 'bell' },
             ],
           },
         ];
@@ -267,25 +251,29 @@ export default function AppShell({
       </div>
 
       <div className="flex-1 overflow-y-auto -mx-1 px-1">
-        {groups.map((g) => {
+        {groups.map((g, gi) => {
           // Si el path activo está dentro de esta sección, fuerza expand para
           // que el usuario vea dónde está parado (aunque la haya cerrado antes).
           const hasActive = g.items.some((n) => isHrefActive(n.href, pathname));
           const collapsed = !hasActive && collapsedSections.has(g.section);
+          // Sección sin nombre = items principales sin header colapsable.
+          const noHeader = !g.section;
 
           return (
-            <div key={g.section}>
-              <button
-                type="button"
-                onClick={() => toggleSection(g.section)}
-                className="w-full text-left text-[10px] tracking-[0.18em] uppercase text-sidebar-section font-semibold opacity-85 pt-3.5 px-3 pb-1.5 flex items-center justify-between hover:opacity-100 transition"
-              >
-                <span>{g.section}</span>
-                <span className="text-[9px] opacity-60">
-                  {collapsed ? '▸' : '▾'}
-                </span>
-              </button>
-              {!collapsed &&
+            <div key={g.section || `_${gi}`}>
+              {!noHeader && (
+                <button
+                  type="button"
+                  onClick={() => toggleSection(g.section)}
+                  className="w-full text-left text-[10px] tracking-[0.18em] uppercase text-sidebar-section font-semibold opacity-85 pt-3.5 px-3 pb-1.5 flex items-center justify-between hover:opacity-100 transition"
+                >
+                  <span>{g.section}</span>
+                  <span className="text-[9px] opacity-60">
+                    {collapsed ? '▸' : '▾'}
+                  </span>
+                </button>
+              )}
+              {(noHeader || !collapsed) &&
                 g.items.map((n) => {
                   const active = isHrefActive(n.href, pathname);
                   const showLock = n.lockedPro && planName !== null && !isPro;

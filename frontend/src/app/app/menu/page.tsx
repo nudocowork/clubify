@@ -186,6 +186,20 @@ export default function MenuEditor() {
           <button className="btn-ghost" onClick={() => setShowCatForm(!showCatForm)}>
             <Icon name="plus" /> Categoría
           </button>
+          <Link
+            href="/app/storefront"
+            className="btn-ghost"
+            title="Personaliza el aspecto público de tu menú (logo, estilo, layout)"
+          >
+            🎨 Configura tu menú
+          </Link>
+          <Link
+            href="/app/info-links"
+            className="btn-ghost"
+            title="Mini-páginas tipo Linktree para campañas y eventos"
+          >
+            🔗 InfoLinks
+          </Link>
           <button className="btn-ghost" onClick={() => setShowAdicionales(true)}>
             <Icon name="plus" /> Adicionales
           </button>
