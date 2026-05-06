@@ -176,7 +176,7 @@ export default function StorefrontPublic() {
                 color: tab === t ? '#fff' : '#6B7280',
               }}
             >
-              {t === 'menu' ? 'Menú' : 'Promos'}
+              {t === 'menu' ? 'Menú' : 'Promociones'}
             </button>
           ))}
         </div>
@@ -509,7 +509,6 @@ function ProductModal({
             </label>
             <input
               className="input mt-2"
-              placeholder="ej: sin cebolla"
               value={note}
               onChange={(e) => setNote(e.target.value)}
             />

@@ -111,49 +111,57 @@ export default function StorefrontEditor() {
         <h1 className="page-title">
           Mi sitio <span className="page-crumb">/ {sf.isPublished ? 'Publicado' : 'Borrador'}</span>
         </h1>
-        <div className="flex gap-2 flex-wrap">
-          <Link
-            href={tenantSlug ? `/m/${tenantSlug}?mesa=1` : '#'}
-            target="_blank"
-            className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
-            title="Vista del menú como la verá un cliente sentado en una mesa (forzando flujo DINE_IN)"
-          >
-            🍽 Ver menú mesa
-          </Link>
-          <Link
-            href={publicHref}
-            target="_blank"
-            className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
-            title="Vista del menú para domicilio — el link público que enviás a tus clientes"
-          >
-            🛵 Ver menú delivery
-          </Link>
-          <button
-            type="button"
-            disabled={!tenantSlug}
-            onClick={async () => {
-              if (!tenantSlug) return;
-              const url = `${window.location.origin}/m/${tenantSlug}`;
-              try {
-                await navigator.clipboard.writeText(url);
-                toast('Link delivery copiado — pégalo en WhatsApp', 'success');
-              } catch {
-                toast('No se pudo copiar — selecciona el link manualmente', 'error');
-              }
-            }}
-            className="btn-ghost text-xs disabled:opacity-50"
-            title="Copia el link de delivery al portapapeles"
-          >
-            📋 Copiar link
-          </button>
-          <Link
-            href="/app/storefront/poster"
-            className={`btn-ghost text-xs ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
-            title="Genera un cartel imprimible con tu QR"
-          >
-            🖨 Cartel QR
-          </Link>
-          <button className="btn-primary" onClick={save} disabled={saving}>
+        <div className="flex gap-3 flex-wrap items-start">
+          {/* Grupo: Mesa */}
+          <div className="flex flex-col gap-1">
+            <Link
+              href={tenantSlug ? `/m/${tenantSlug}?mesa=1` : '#'}
+              target="_blank"
+              className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
+              title="Vista del menú como la verá un cliente sentado en una mesa"
+            >
+              🍽 Ver menú mesa
+            </Link>
+            <Link
+              href="/app/storefront/poster"
+              className={`text-[11px] text-mute hover:text-brand text-center ${
+                !tenantSlug ? 'pointer-events-none opacity-50' : ''
+              }`}
+              title="Genera un cartel imprimible con el QR de la mesa"
+            >
+              🖨 Cartel QR
+            </Link>
+          </div>
+          {/* Grupo: Delivery */}
+          <div className="flex flex-col gap-1">
+            <Link
+              href={publicHref}
+              target="_blank"
+              className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
+              title="Vista del menú para domicilio — el link público que enviás a tus clientes"
+            >
+              🛵 Ver menú delivery
+            </Link>
+            <button
+              type="button"
+              disabled={!tenantSlug}
+              onClick={async () => {
+                if (!tenantSlug) return;
+                const url = `${window.location.origin}/m/${tenantSlug}`;
+                try {
+                  await navigator.clipboard.writeText(url);
+                  toast('Link delivery copiado — pégalo en WhatsApp', 'success');
+                } catch {
+                  toast('No se pudo copiar — selecciona el link manualmente', 'error');
+                }
+              }}
+              className="text-[11px] text-mute hover:text-brand text-center disabled:opacity-50"
+              title="Copia el link de delivery al portapapeles"
+            >
+              📋 Copiar link
+            </button>
+          </div>
+          <button className="btn-primary self-start" onClick={save} disabled={saving}>
             <Icon name="check" /> {saving ? 'Guardando…' : 'Publicar cambios'}
           </button>
         </div>
@@ -178,32 +186,19 @@ export default function StorefrontEditor() {
             />
           </div>
 
-          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="label">Logo</label>
-              <ImageUploader
-                value={logoUrl}
-                onChange={(url) => {
-                  setLogoUrl(url);
-                  setLogoDirty(true);
-                }}
-                folder="logos"
-              />
-              <p className="text-[11px] text-mute mt-1.5">
-                Cuadrado, mínimo 400×400px. PNG con fondo transparente o JPG.
-              </p>
-            </div>
-            <div>
-              <label className="label">Banner</label>
-              <ImageUploader
-                value={sf.heroImageUrl}
-                onChange={(url) => setSf({ ...sf, heroImageUrl: url })}
-                folder="banners"
-              />
-              <p className="text-[11px] text-mute mt-1.5">
-                Imagen panorámica que se ve arriba del menú. Ideal 1600×900px.
-              </p>
-            </div>
+          <div className="mt-4">
+            <label className="label">Logo</label>
+            <ImageUploader
+              value={logoUrl}
+              onChange={(url) => {
+                setLogoUrl(url);
+                setLogoDirty(true);
+              }}
+              folder="logos"
+            />
+            <p className="text-[11px] text-mute mt-1.5">
+              Cuadrado, mínimo 400×400px. PNG con fondo transparente o JPG.
+            </p>
           </div>
           <div className="mt-3">
             <label className="label">Estado</label>
@@ -217,22 +212,6 @@ export default function StorefrontEditor() {
               <option value="1">Publicado</option>
               <option value="0">Borrador (oculto)</option>
             </select>
-          </div>
-          <div className="mt-3">
-            <label className="label">Dominio propio (opcional)</label>
-            <input
-              className="input"
-              placeholder="mi-negocio.com"
-              value={sf.customDomain ?? ''}
-              onChange={(e) =>
-                setSf({ ...sf, customDomain: e.target.value })
-              }
-            />
-            <div className="text-[11px] text-mute mt-1.5 leading-relaxed">
-              Configura un dominio (ej. <code>cafedeldia.com</code>) que apunte
-              a Clubify. Necesitas crear un registro <b>A</b> o <b>CNAME</b> en
-              tu DNS. Ver instrucciones de Caddy en <code>PENDIENTES.md</code>.
-            </div>
           </div>
 
           <h3 className="text-base font-semibold mt-6 mb-3">Estilo del menú</h3>
