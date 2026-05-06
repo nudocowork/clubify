@@ -23,7 +23,15 @@ export function clearSession() {
 export function getUser() {
   if (typeof window === 'undefined') return null;
   const raw = localStorage.getItem('clubify_user');
-  return raw ? JSON.parse(raw) : null;
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // localStorage corrupto (rare pero pasa post-crash) — limpiar y forzar
+    // re-login en lugar de crashear toda la app.
+    localStorage.removeItem('clubify_user');
+    return null;
+  }
 }
 
 /**
@@ -56,7 +64,13 @@ export function getImpersonationBackup():
   | null {
   if (typeof window === 'undefined') return null;
   const raw = localStorage.getItem('clubify_admin_backup');
-  return raw ? JSON.parse(raw) : null;
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    localStorage.removeItem('clubify_admin_backup');
+    return null;
+  }
 }
 
 /** Restaura la sesión admin guardada en startImpersonation. */
