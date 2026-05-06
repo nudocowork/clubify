@@ -73,10 +73,12 @@ export default function TenantReferrals() {
     <div className="max-w-4xl">
       <div className="page-head">
         <h1 className="page-title">Programa de referidos</h1>
-        <p className="text-mute text-sm mt-1">
+        <p className="text-mute text-sm mt-1 leading-relaxed">
           Comparte Clubify con otros negocios. Ganas{' '}
-          <b className="text-brand">30% el primer mes</b> y{' '}
-          <b className="text-brand">10% recurrente</b> mientras sigan activos.
+          <b className="text-brand">25% el primer mes</b> y{' '}
+          <b className="text-brand">25% recurrente</b> mientras sigan activos.
+          <br />
+          Pago vía transferencia bancaria o USDT.
         </p>
       </div>
 
@@ -247,11 +249,11 @@ function EmptyState() {
       <div className="text-2xl font-bold">Aún no tienes código</div>
       <p className="text-white/85 leading-relaxed mt-2">
         Genera tu código en menos de 30 segundos. Te paga{' '}
-        <b>30% el primer mes</b> y <b>10% recurrente</b> por cada negocio que
+        <b>25% el primer mes</b> y <b>25% recurrente</b> por cada negocio que
         invites y se quede.
       </p>
       <ul className="mt-4 space-y-1.5 text-sm text-white/90">
-        <li>💸 Pago vía Wise o transferencia local cada 30 días</li>
+        <li>💸 Pago vía transferencia bancaria o USDT cada 30 días</li>
         <li>📊 Aquí mismo verás stats en vivo de inscritos y conversiones</li>
         <li>🔗 Compartes un link como <code>soyclubify.com/?ref=AB12CD34</code></li>
       </ul>

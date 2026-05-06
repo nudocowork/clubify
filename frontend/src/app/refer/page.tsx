@@ -89,7 +89,7 @@ function ReferInner() {
               <h1 className="page-title">Programa de referidos</h1>
             </div>
             <p className="text-mute mb-5 leading-relaxed">
-              Recomienda Clubify y gana <strong className="text-brand">20% de comisión</strong> por
+              Recomienda Clubify y gana <strong className="text-brand">25% de comisión</strong> por
               cada negocio que se vuelva cliente pago.
             </p>
             <form onSubmit={submit} className="card card-pad space-y-3">

@@ -33,7 +33,7 @@ export class ReferralsService {
         ownerName: dto.fullName,
         ownerEmail: dto.email,
         ownerWhatsapp: dto.whatsapp,
-        commissionPercent: dto.commissionPercent ?? 20,
+        commissionPercent: dto.commissionPercent ?? 25,
         source: cleanSource,
       },
     });
