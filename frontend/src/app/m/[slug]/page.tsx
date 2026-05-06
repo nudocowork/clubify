@@ -12,6 +12,7 @@ import {
 import { Icon } from '@/components/Icon';
 import { Barcode } from '@/components/Barcode';
 import { ClubifyBadge } from '@/components/ClubifyBadge';
+import { CO_LOCATIONS, OTRO_MUNICIPIO } from '@/lib/co-locations';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -675,28 +676,65 @@ function CheckoutSheet({
     : null;
 
   const [form, setForm] = useState({
-    fullName: '',
+    firstName: '',
+    lastName: '',
     phone: '',
     email: '',
     fulfillment: (defaultFulfillment ?? 'DINE_IN') as 'DINE_IN' | 'DELIVERY',
     tableNumber: tableFromQr,
     customerNote: '',
+    // Dirección de envío (solo se completa cuando fulfillment === 'DELIVERY')
+    departamento: '',
+    municipio: '',
+    municipioOtro: '',
+    direccion: '',
   });
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  const munList =
+    CO_LOCATIONS.find((d) => d.departamento === form.departamento)?.municipios ??
+    [];
+  const municipioFinal =
+    form.municipio === OTRO_MUNICIPIO
+      ? form.municipioOtro.trim()
+      : form.municipio;
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
+
+    // Validación adicional para delivery: dirección obligatoria
+    if (form.fulfillment === 'DELIVERY') {
+      if (!form.departamento || !municipioFinal || !form.direccion.trim()) {
+        setErr(
+          'Completa departamento, municipio y dirección para entregar a domicilio.',
+        );
+        return;
+      }
+    }
+
     setSubmitting(true);
     try {
+      const fullName = `${form.firstName.trim()} ${form.lastName.trim()}`.trim();
+      const deliveryAddress =
+        form.fulfillment === 'DELIVERY'
+          ? {
+              firstName: form.firstName.trim(),
+              lastName: form.lastName.trim(),
+              phone: form.phone.trim(),
+              departamento: form.departamento,
+              municipio: municipioFinal,
+              direccion: form.direccion.trim(),
+            }
+          : undefined;
       const res = await fetch(`${API}/api/public/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tenantSlug: slug,
           customer: {
-            fullName: form.fullName,
+            fullName,
             phone: form.phone,
             email: form.email || undefined,
           },
@@ -709,6 +747,7 @@ function CheckoutSheet({
           })),
           fulfillment: form.fulfillment,
           tableNumber: form.tableNumber || undefined,
+          deliveryAddress,
           customerNote: form.customerNote || undefined,
         }),
       });
@@ -746,14 +785,31 @@ function CheckoutSheet({
           </div>
 
           <form onSubmit={submit} className="space-y-3">
-            <div>
-              <label className="label">¿Cómo te llamas?</label>
-              <input
-                className="input"
-                value={form.fullName}
-                onChange={(e) => setForm({ ...form, fullName: e.target.value })}
-                required
-              />
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="label">Nombre</label>
+                <input
+                  className="input"
+                  placeholder="Nombre"
+                  value={form.firstName}
+                  onChange={(e) =>
+                    setForm({ ...form, firstName: e.target.value })
+                  }
+                  required
+                />
+              </div>
+              <div>
+                <label className="label">Apellido</label>
+                <input
+                  className="input"
+                  placeholder="Apellido"
+                  value={form.lastName}
+                  onChange={(e) =>
+                    setForm({ ...form, lastName: e.target.value })
+                  }
+                  required
+                />
+              </div>
             </div>
             <div>
               <label className="label">WhatsApp</label>
@@ -842,6 +898,88 @@ function CheckoutSheet({
                 </span>
               </div>
             )}
+
+            {form.fulfillment === 'DELIVERY' && (
+              <div className="rounded-lg border border-line bg-bg2/30 p-3 space-y-2.5">
+                <div className="text-xs uppercase tracking-wider text-mute font-semibold">
+                  📦 Dirección de envío
+                </div>
+                <div>
+                  <label className="label">Departamento *</label>
+                  <select
+                    className="input"
+                    value={form.departamento}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        departamento: e.target.value,
+                        municipio: '',
+                        municipioOtro: '',
+                      })
+                    }
+                    required
+                  >
+                    <option value="">Departamento</option>
+                    {CO_LOCATIONS.map((d) => (
+                      <option key={d.departamento} value={d.departamento}>
+                        {d.departamento}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Municipio *</label>
+                  <select
+                    className="input"
+                    value={form.municipio}
+                    onChange={(e) =>
+                      setForm({ ...form, municipio: e.target.value })
+                    }
+                    disabled={!form.departamento}
+                    required
+                  >
+                    <option value="">
+                      {form.departamento ? 'Municipio' : 'Elige un departamento primero'}
+                    </option>
+                    {munList.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                    {form.departamento && (
+                      <option value={OTRO_MUNICIPIO}>{OTRO_MUNICIPIO}…</option>
+                    )}
+                  </select>
+                </div>
+                {form.municipio === OTRO_MUNICIPIO && (
+                  <div>
+                    <label className="label">Nombre del municipio *</label>
+                    <input
+                      className="input"
+                      placeholder="Escribe el nombre del municipio"
+                      value={form.municipioOtro}
+                      onChange={(e) =>
+                        setForm({ ...form, municipioOtro: e.target.value })
+                      }
+                      required
+                    />
+                  </div>
+                )}
+                <div>
+                  <label className="label">Dirección *</label>
+                  <input
+                    className="input"
+                    placeholder="Ej: Calle 123 #45-67, Apto 301, Barrio…"
+                    value={form.direccion}
+                    onChange={(e) =>
+                      setForm({ ...form, direccion: e.target.value })
+                    }
+                    required
+                  />
+                </div>
+              </div>
+            )}
+
             <div>
               <label className="label">Notas (opcional)</label>
               <textarea

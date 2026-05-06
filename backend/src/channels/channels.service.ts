@@ -34,6 +34,32 @@ export class ChannelsService {
       DELIVERY: '🛵 Domicilio',
     }[order.fulfillment];
 
+    // Bloque de dirección para delivery — el cliente lo completó en el
+    // checkout y queda guardado en order.deliveryAddress (Json).
+    const addr = order.deliveryAddress as
+      | {
+          firstName?: string;
+          lastName?: string;
+          phone?: string;
+          departamento?: string;
+          municipio?: string;
+          direccion?: string;
+        }
+      | null;
+    const addressBlock =
+      order.fulfillment === 'DELIVERY' && addr
+        ? [
+            '',
+            '*📦 Dirección de envío:*',
+            addr.firstName || addr.lastName
+              ? `${[addr.firstName, addr.lastName].filter(Boolean).join(' ')}`
+              : '',
+            addr.phone ? `📞 ${addr.phone}` : '',
+            [addr.municipio, addr.departamento].filter(Boolean).join(', '),
+            addr.direccion ? `📍 ${addr.direccion}` : '',
+          ].filter(Boolean)
+        : [];
+
     const lines = [
       `🆕 *Pedido #${order.code}*`,
       `${customer.fullName} · ${customer.phone}`,
@@ -47,6 +73,7 @@ export class ChannelsService {
       `*Total: ${formatMoney(Number(order.total), tenant.currency)}*`,
       '',
       fulfillment,
+      ...addressBlock,
       order.customerNote ? `📝 ${order.customerNote}` : '',
       '',
       `Ver pedido: ${process.env.APP_URL ?? 'http://localhost:3000'}/o/${order.code}`,
