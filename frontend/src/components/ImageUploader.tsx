@@ -53,10 +53,19 @@ export function ImageUploader({
         xhr.open('POST', `${API}/api/media/upload?folder=${folder}`);
         const token = getToken();
         if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-        xhr.onload = () =>
-          xhr.status >= 200 && xhr.status < 300
-            ? resolve(JSON.parse(xhr.responseText))
-            : reject(new Error(xhr.responseText || 'Upload failed'));
+        xhr.onload = () => {
+          if (xhr.status < 200 || xhr.status >= 300) {
+            reject(new Error(xhr.responseText || 'Upload failed'));
+            return;
+          }
+          // El backend devuelve { url, key, ... }; defensivo si llega HTML
+          // (502 nginx, gateway interceptado) — no dejar la promise colgada.
+          try {
+            resolve(JSON.parse(xhr.responseText));
+          } catch {
+            reject(new Error('Respuesta del servidor inválida'));
+          }
+        };
         xhr.onerror = () => reject(new Error('Network error'));
         xhr.send(fd);
       });
