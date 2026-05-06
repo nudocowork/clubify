@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { IsEmail, IsNumber, IsOptional, IsString } from 'class-validator';
 import { CommissionStatus } from '@prisma/client';
 import { ReferralsService } from './referrals.service';
@@ -38,6 +38,29 @@ export class ReferralsController {
   @Get()
   list(@CurrentUser() user: AuthUser) {
     return this.svc.list(user);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Get('leaderboard')
+  leaderboard(@CurrentUser() user: AuthUser) {
+    return this.svc.leaderboard(user);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Get('payouts')
+  payouts(
+    @CurrentUser() user: AuthUser,
+    @Query('status') status?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('q') q?: string,
+  ) {
+    return this.svc.payouts(user, {
+      status: status as any,
+      dateFrom,
+      dateTo,
+      q,
+    });
   }
 
   @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
