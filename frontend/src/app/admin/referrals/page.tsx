@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 
 const STATUS_LABEL: Record<string, { text: string; cls: string }> = {
@@ -19,6 +20,23 @@ export default function AdminReferrals() {
   } | null>(null);
   const [amount, setAmount] = useState('');
   const [saving, setSaving] = useState(false);
+  const [showLinkGen, setShowLinkGen] = useState(false);
+  const [linkSource, setLinkSource] = useState('');
+
+  const baseOrigin =
+    typeof window !== 'undefined' ? window.location.origin : 'https://soyclubify.com';
+  const captureLink = linkSource.trim()
+    ? `${baseOrigin}/refer?source=${encodeURIComponent(linkSource.trim())}`
+    : `${baseOrigin}/refer`;
+
+  async function copyCaptureLink() {
+    try {
+      await navigator.clipboard.writeText(captureLink);
+      toast('Link copiado al portapapeles', 'success');
+    } catch {
+      toast('No se pudo copiar — selecciona y copia manualmente', 'error');
+    }
+  }
 
   async function load() {
     try {
@@ -77,6 +95,13 @@ export default function AdminReferrals() {
         <h1 className="page-title">
           Referidos <span className="page-crumb">/ {list.length} códigos</span>
         </h1>
+        <button
+          type="button"
+          className="btn-primary"
+          onClick={() => setShowLinkGen(true)}
+        >
+          <Icon name="plus" /> Generar link de captación
+        </button>
       </div>
 
       <div className="space-y-3.5">
@@ -116,10 +141,18 @@ export default function AdminReferrals() {
                     {r.ownerEmail} · {r.ownerWhatsapp}
                   </div>
                 </div>
-                <div className="text-sm flex items-center gap-2">
+                <div className="text-sm flex items-center gap-2 flex-wrap">
                   <span className="badge badge-info">
                     {Number(r.commissionPercent)}% comisión
                   </span>
+                  {r.source && (
+                    <span
+                      className="badge badge-mute text-[11px]"
+                      title="Origen del afiliado (?source en el link de captación)"
+                    >
+                      📣 {r.source}
+                    </span>
+                  )}
                   <span className="text-xs text-mute">
                     {r.uses.length} inscritos
                   </span>
@@ -241,6 +274,90 @@ export default function AdminReferrals() {
                 className="btn-primary text-sm disabled:opacity-50"
               >
                 {saving ? 'Guardando…' : 'Agregar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: generar link de captación de afiliados */}
+      {showLinkGen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-ink/60"
+            onClick={() => setShowLinkGen(false)}
+          />
+          <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+            <h2 className="font-bold text-lg">Link de captación de afiliados</h2>
+            <p className="text-sm text-mute mt-1.5 leading-relaxed">
+              Comparte este link con quien quieras invitar al programa. Cuando
+              se registre obtiene <b className="text-ink">su propio código y
+              link personalizado</b> para promocionar Clubify.
+            </p>
+
+            <div className="mt-4">
+              <label className="label">Etiqueta de origen (opcional)</label>
+              <input
+                type="text"
+                value={linkSource}
+                onChange={(e) => setLinkSource(e.target.value)}
+                className="input"
+                placeholder="instagram, podcast-mayo, evento-X…"
+              />
+              <p className="text-xs text-mute mt-1.5">
+                Útil para saber por qué canal llegó cada afiliado. Solo letras,
+                números y guiones.
+              </p>
+            </div>
+
+            <div className="mt-4">
+              <label className="label">Tu link</label>
+              <div className="flex items-stretch gap-2">
+                <input
+                  readOnly
+                  value={captureLink}
+                  className="input flex-1 font-mono text-xs"
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+                <button
+                  type="button"
+                  onClick={copyCaptureLink}
+                  className="btn-primary text-sm whitespace-nowrap"
+                >
+                  Copiar
+                </button>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <a
+                  href={`https://wa.me/?text=${encodeURIComponent(
+                    `Te invito a unirte al programa de afiliados de Clubify y ganar comisiones por cada negocio que registres. Regístrate aquí: ${captureLink}`,
+                  )}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs btn-ghost"
+                >
+                  💬 Compartir por WhatsApp
+                </a>
+                <a
+                  href={captureLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs btn-ghost"
+                >
+                  ↗ Abrir página
+                </a>
+              </div>
+            </div>
+
+            <div className="mt-5 flex gap-2 justify-end">
+              <button
+                onClick={() => {
+                  setShowLinkGen(false);
+                  setLinkSource('');
+                }}
+                className="btn-ghost text-sm"
+              >
+                Cerrar
               </button>
             </div>
           </div>

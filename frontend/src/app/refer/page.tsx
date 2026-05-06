@@ -1,10 +1,13 @@
 'use client';
 import { useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 
 export default function ReferPage() {
+  const searchParams = useSearchParams();
+  const source = searchParams?.get('source')?.trim().slice(0, 60) || undefined;
   const [form, setForm] = useState({ fullName: '', email: '', whatsapp: '' });
   const [result, setResult] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -15,7 +18,7 @@ export default function ReferPage() {
     try {
       const r = await api('/referrals/codes', {
         method: 'POST',
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, source }),
       });
       setResult(r);
     } catch (e: any) {

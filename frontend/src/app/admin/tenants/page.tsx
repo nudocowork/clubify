@@ -147,8 +147,24 @@ export default function TenantsPage() {
                 </td>
               </tr>
             )}
-            {visible.map((t) => (
-              <tr key={t.id} className="border-t border-line2 hover:bg-[#FAFAFB]">
+            {visible.map((t) => {
+              const canEnter = t.status !== 'SUSPENDED' && enteringId !== t.id;
+              const stop = (e: React.MouseEvent) => e.stopPropagation();
+              return (
+              <tr
+                key={t.id}
+                onClick={() => canEnter && enterTenant(t)}
+                className={`border-t border-line2 transition group ${
+                  canEnter
+                    ? 'hover:bg-brand-soft/40 cursor-pointer'
+                    : 'opacity-70'
+                }`}
+                title={
+                  t.status === 'SUSPENDED'
+                    ? 'Reactiva el negocio para entrar'
+                    : `Entrar como ${t.brandName}`
+                }
+              >
                 <td className="px-4 py-3.5">
                   <div className="flex items-center gap-2.5">
                     <span
@@ -157,7 +173,9 @@ export default function TenantsPage() {
                       {initials(t.brandName)}
                     </span>
                     <div>
-                      <div className="font-medium">{t.brandName}</div>
+                      <div className="font-medium group-hover:text-brand transition">
+                        {t.brandName}
+                      </div>
                       <div className="text-mute text-xs">{t.email}</div>
                     </div>
                   </div>
@@ -206,40 +224,60 @@ export default function TenantsPage() {
                   })}
                 </td>
                 <td className="px-4 py-3.5">{t._count?.customers ?? 0}</td>
-                <td className="px-4 py-3.5 text-right whitespace-nowrap">
+                <td className="px-4 py-3.5 text-right whitespace-nowrap" onClick={stop}>
                   <button
-                    onClick={() => enterTenant(t)}
-                    disabled={enteringId === t.id || t.status === 'SUSPENDED'}
-                    className="btn-link disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={(e) => {
+                      stop(e);
+                      enterTenant(t);
+                    }}
+                    disabled={!canEnter}
+                    className="inline-flex items-center gap-1.5 bg-brand text-white text-xs font-semibold px-3 py-1.5 rounded-pill hover:bg-brand-700 transition disabled:opacity-40 disabled:cursor-not-allowed"
                     title={
                       t.status === 'SUSPENDED'
                         ? 'Reactiva el negocio para entrar'
-                        : 'Entrar como dueño'
+                        : 'Entrar al panel del negocio'
                     }
                   >
-                    {enteringId === t.id ? '…' : 'Entrar →'}
+                    {enteringId === t.id ? (
+                      <>… Entrando</>
+                    ) : (
+                      <>
+                        <Icon name="arrow-right" size={13} /> Entrar
+                      </>
+                    )}
                   </button>
-                  <Link className="ml-3 btn-link" href={`/admin/tenants/${t.id}`}>
+                  <Link
+                    className="ml-2.5 btn-link text-xs"
+                    href={`/admin/tenants/${t.id}`}
+                    onClick={stop}
+                  >
                     Ver
                   </Link>
                   {t.status === 'ACTIVE' ? (
                     <button
-                      onClick={() => setStatus(t.id, 'SUSPENDED')}
-                      className="ml-3 text-bad underline text-xs"
+                      onClick={(e) => {
+                        stop(e);
+                        setStatus(t.id, 'SUSPENDED');
+                      }}
+                      className="ml-2.5 text-bad underline text-xs"
                     >
                       Suspender
                     </button>
                   ) : (
                     <button
-                      onClick={() => setStatus(t.id, 'ACTIVE')}
-                      className="ml-3 text-ok underline text-xs"
+                      onClick={(e) => {
+                        stop(e);
+                        setStatus(t.id, 'ACTIVE');
+                      }}
+                      className="ml-2.5 text-ok underline text-xs"
                     >
                       Activar
                     </button>
                   )}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
        </div>

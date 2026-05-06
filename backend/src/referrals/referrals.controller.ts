@@ -11,6 +11,7 @@ class CreateReferralBody {
   @IsEmail() email!: string;
   @IsString() whatsapp!: string;
   @IsOptional() @IsNumber() commissionPercent?: number;
+  @IsOptional() @IsString() source?: string;
 }
 
 class CommissionBody {

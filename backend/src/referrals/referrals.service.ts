@@ -11,6 +11,7 @@ export type CreateReferralDto = {
   email: string;
   whatsapp: string;
   commissionPercent?: number;
+  source?: string;
 };
 
 @Injectable()
@@ -25,6 +26,7 @@ export class ReferralsService {
     while (await this.prisma.referralCode.findUnique({ where: { code } })) {
       code = codeGen();
     }
+    const cleanSource = dto.source?.trim().slice(0, 60) || null;
     const referral = await this.prisma.referralCode.create({
       data: {
         code,
@@ -32,6 +34,7 @@ export class ReferralsService {
         ownerEmail: dto.email,
         ownerWhatsapp: dto.whatsapp,
         commissionPercent: dto.commissionPercent ?? 20,
+        source: cleanSource,
       },
     });
 

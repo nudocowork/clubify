@@ -870,6 +870,8 @@ model ReferralCode {
   ownerUser          User?    @relation(fields: [ownerUserId], references: [id])
   commissionPercent  Decimal  @default(20) @db.Decimal(5, 2)
   isActive           Boolean  @default(true)
+  // Etiqueta de origen del afiliado (?source=X en /refer). Solo informativa.
+  source             String?
   createdAt          DateTime @default(now())
 
   uses ReferralUse[]
