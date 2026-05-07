@@ -6,8 +6,10 @@ import {
   HotmartWebhookController,
   HotmartCheckoutController,
 } from './hotmart.controller';
+import { IntegrationsModule } from '../integrations/integrations.module';
 
 @Module({
+  imports: [IntegrationsModule],
   controllers: [
     BillingController,
     HotmartWebhookController,

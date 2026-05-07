@@ -1,5 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { GrowBusinessService } from '../integrations/grow-business.service';
+import {
+  smsPaymentConfirmed,
+  smsPaymentFailed,
+} from './billing-sms-templates';
 
 /**
  * Tipos de evento que Hotmart envía vía webhook.
@@ -42,7 +47,41 @@ export type HotmartWebhookPayload = {
 export class HotmartService {
   private logger = new Logger(HotmartService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private growBusiness: GrowBusinessService,
+  ) {}
+
+  /** Helper: celular del dueño para SMS (user.phone → tenant.whatsappPhone → tenant.phone). */
+  private async ownerPhone(tenantId: string): Promise<string | null> {
+    const owner = await this.prisma.user.findFirst({
+      where: { tenantId, role: 'TENANT_OWNER', isActive: true },
+      select: { phone: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (owner?.phone) return owner.phone;
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { whatsappPhone: true, phone: true },
+    });
+    return t?.whatsappPhone ?? t?.phone ?? null;
+  }
+
+  /** Best-effort: manda SMS al dueño, no falla el webhook si no se puede. */
+  private async notifyOwner(tenantId: string, brandName: string, message: string) {
+    const phone = await this.ownerPhone(tenantId);
+    if (!phone) return;
+    const r = await this.growBusiness
+      .sendSms(tenantId, phone, message)
+      .catch((e) => ({ ok: false as const, message: e?.message }));
+    if (r.ok) {
+      this.logger.log(`SMS Hotmart enviado a ${brandName} (${phone})`);
+    } else {
+      this.logger.warn(
+        `SMS Hotmart falló para ${brandName}: ${r.message ?? 'unknown'}`,
+      );
+    }
+  }
 
   /** Verifica el HOTTOK contra el env, requerido en cada webhook real. */
   verifyHottok(hottok?: string): boolean {
@@ -96,8 +135,21 @@ export class HotmartService {
             failedPaymentCount: 0,
             lastPaymentAttemptAt: new Date(),
             suspendedAt: null,
+            // Reset de tracking de notificaciones para el nuevo ciclo
+            paymentReminderSentFor: null,
+            paymentFailureNoticeSentAt: null,
+            pausePendingNoticeSentAt: null,
           },
         });
+        // SMS de confirmación al dueño (best-effort)
+        this.notifyOwner(
+          tenant.id,
+          tenant.brandName,
+          smsPaymentConfirmed({
+            brandName: tenant.brandName,
+            nextChargeDate: nextCharge,
+          }),
+        ).catch(() => null);
         return { ok: true, action: 'activated' };
       }
 
@@ -107,13 +159,21 @@ export class HotmartService {
         // No tocamos `status` (el enum solo tiene ACTIVE/TRIAL/SUSPENDED).
         // El derivado PAST_DUE lo calcula billing.service.getStatus()
         // basándose en failedPaymentCount > 0.
+        const now = new Date();
         await this.prisma.tenant.update({
           where: { id: tenant.id },
           data: {
             failedPaymentCount: { increment: 1 },
-            lastPaymentAttemptAt: new Date(),
+            lastPaymentAttemptAt: now,
+            paymentFailureNoticeSentAt: now,
           },
         });
+        // SMS aviso de falla (best-effort)
+        this.notifyOwner(
+          tenant.id,
+          tenant.brandName,
+          smsPaymentFailed({ brandName: tenant.brandName }),
+        ).catch(() => null);
         return { ok: true, action: 'past_due' };
       }
 
@@ -174,6 +234,7 @@ export class HotmartService {
         where: { hotmartSubscriberCode: subscriberCode },
         select: {
           id: true,
+          brandName: true,
           hotmartSubscriberCode: true,
           hotmartTransactionId: true,
         },
@@ -190,6 +251,7 @@ export class HotmartService {
           where: { id: user.tenantId },
           select: {
             id: true,
+            brandName: true,
             hotmartSubscriberCode: true,
             hotmartTransactionId: true,
           },

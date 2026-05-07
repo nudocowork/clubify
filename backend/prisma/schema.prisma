@@ -258,6 +258,17 @@ model Tenant {
   failedPaymentCount   Int          @default(0)
   lastPaymentAttemptAt DateTime?
   suspendedAt          DateTime?
+  // Tracking de notificaciones de cobro automáticas (idempotencia del cron):
+  // - paymentReminderSentFor: igualamos a currentPeriodEnd cuando ya
+  //   enviamos el "tu cobro es mañana". Evita re-enviar si el cron corre
+  //   2 veces el mismo día.
+  // - paymentFailureNoticeSentAt: cuándo se envió el último "tu pago
+  //   falló". Re-envía si lastPaymentAttemptAt avanza.
+  // - pausePendingNoticeSentAt: cuándo se envió el "tu cuenta se pausará
+  //   en 2 días". Solo una vez por ciclo de fallos.
+  paymentReminderSentFor      DateTime?
+  paymentFailureNoticeSentAt  DateTime?
+  pausePendingNoticeSentAt    DateTime?
   // Integración Grow Business (proveedor externo de SMS, conectado por super admin)
   growBusinessLocationId   String?
   growBusinessApiKey       String?

@@ -1,6 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { GrowBusinessService } from '../integrations/grow-business.service';
+import {
+  smsPaymentReminderTomorrow,
+  smsAccountWillPause,
+  smsAccountPaused,
+} from './billing-sms-templates';
+
+const PAUSE_NOTICE_DAYS = 2;     // D+2 desde último intento fallido → aviso
+const PAUSE_DAYS = 4;            // D+4 → suspender
 
 export type TrialStatus = {
   status: 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'SUSPENDED' | 'EXPIRED' | 'CANCELED';
@@ -16,13 +25,32 @@ const TRIAL_DAYS = 10;
 export class BillingService {
   private logger = new Logger(BillingService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private growBusiness: GrowBusinessService,
+  ) {}
 
   /**
-   * Cancela la suscripción del tenant. Si está en TRIAL: marca como CANCELED y
-   * mantiene el acceso hasta el fin del trial. Si está ACTIVE: marca para no
-   * renovar al final del periodo actual. Si está SUSPENDED: confirma cancelación.
+   * Helper: encontrar el celular del dueño para SMS. Prioridad:
+   *   1. user.phone (TENANT_OWNER)
+   *   2. tenant.whatsappPhone
+   *   3. tenant.phone
+   * Devuelve null si no hay ninguno → silently skip el SMS.
    */
+  private async ownerPhone(tenantId: string): Promise<string | null> {
+    const owner = await this.prisma.user.findFirst({
+      where: { tenantId, role: 'TENANT_OWNER', isActive: true },
+      select: { phone: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (owner?.phone) return owner.phone;
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { whatsappPhone: true, phone: true },
+    });
+    return t?.whatsappPhone ?? t?.phone ?? null;
+  }
+
   async cancelSubscription(tenantId: string, reason?: string) {
     const t = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
@@ -30,8 +58,6 @@ export class BillingService {
     });
     if (!t) throw new Error('Tenant not found');
 
-    // Por ahora, marcamos como CANCELED inmediatamente. Cuando integremos
-    // Hotmart, hay que llamar a su API y dejar acceso hasta currentPeriodEnd.
     await this.prisma.tenant.update({
       where: { id: tenantId },
       data: {
@@ -43,11 +69,6 @@ export class BillingService {
     return { ok: true, accessUntil: t.currentPeriodEnd ?? t.trialEndsAt };
   }
 
-  /**
-   * Reactiva una cuenta cancelada. Política: una sola reactivación gratis,
-   * con +3 días de trial bonus para que pueda configurar su pago. Si ya
-   * reactivó antes, debe contactar soporte.
-   */
   async reactivate(tenantId: string) {
     const t = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
@@ -139,12 +160,14 @@ export class BillingService {
   @Cron(CronExpression.EVERY_DAY_AT_3AM)
   async dailyCron() {
     const r = await this.runDailyCheck();
-    if (r.suspendedCount > 0) {
-      this.logger.log(`Daily cron: ${r.suspendedCount} tenant(s) suspended`);
+    if (r.suspendedCount > 0 || r.autoPausedCount > 0) {
+      this.logger.log(
+        `Daily cron: trial-suspended=${r.suspendedCount} auto-paused=${r.autoPausedCount} reminders=${r.reminderCount} pause-notices=${r.pauseNoticeCount}`,
+      );
     }
   }
 
-  /** Bloquea tenants con trial expirado o pago fallido prolongado. */
+  /** Bloquea tenants con trial expirado + secuencia de notificaciones SMS. */
   async runDailyCheck() {
     const now = new Date();
     const expiredTrials = await this.prisma.tenant.findMany({
@@ -164,6 +187,159 @@ export class BillingService {
       this.logger.warn(`Tenant ${t.brandName} (${t.id}) suspended: trial expired`);
     }
 
-    return { suspendedCount: expiredTrials.length };
+    // ────────── Secuencia SMS de notificaciones de cobro Hotmart ──────────
+    const reminderCount = await this.sendPaymentReminders(now);
+    const pauseNoticeCount = await this.sendPausePendingNotices(now);
+    const autoPausedCount = await this.suspendOverdueAccounts(now);
+
+    return {
+      suspendedCount: expiredTrials.length,
+      reminderCount,
+      pauseNoticeCount,
+      autoPausedCount,
+    };
+  }
+
+  /**
+   * D-1: tenants ACTIVE con currentPeriodEnd entre [now+24h, now+48h] que
+   * no hayan recibido SMS de recordatorio para este ciclo.
+   */
+  private async sendPaymentReminders(now: Date) {
+    const inOneDay = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const inTwoDays = new Date(now.getTime() + 48 * 60 * 60 * 1000);
+    const candidates = await this.prisma.tenant.findMany({
+      where: {
+        status: 'ACTIVE',
+        currentPeriodEnd: { gte: inOneDay, lt: inTwoDays },
+      },
+      select: {
+        id: true,
+        brandName: true,
+        currentPeriodEnd: true,
+        paymentReminderSentFor: true,
+      },
+    });
+
+    let sent = 0;
+    for (const t of candidates) {
+      if (
+        t.paymentReminderSentFor &&
+        t.currentPeriodEnd &&
+        t.paymentReminderSentFor.getTime() === t.currentPeriodEnd.getTime()
+      ) {
+        continue; // ya enviado para este ciclo
+      }
+      const phone = await this.ownerPhone(t.id);
+      if (!phone || !t.currentPeriodEnd) continue;
+      const message = smsPaymentReminderTomorrow({
+        brandName: t.brandName,
+        chargeDate: t.currentPeriodEnd,
+      });
+      const r = await this.growBusiness.sendSms(t.id, phone, message);
+      if (r.ok) {
+        await this.prisma.tenant.update({
+          where: { id: t.id },
+          data: { paymentReminderSentFor: t.currentPeriodEnd },
+        });
+        sent++;
+        this.logger.log(`SMS D-1 enviado a ${t.brandName} (${phone})`);
+      } else {
+        this.logger.warn(
+          `SMS D-1 falló para ${t.brandName}: ${r.message ?? 'unknown'}`,
+        );
+      }
+    }
+    return sent;
+  }
+
+  /**
+   * D+2 desde último intento fallido: SMS "tu cuenta se pausará en 2 días".
+   */
+  private async sendPausePendingNotices(now: Date) {
+    const cutoff = new Date(
+      now.getTime() - PAUSE_NOTICE_DAYS * 24 * 60 * 60 * 1000,
+    );
+    const candidates = await this.prisma.tenant.findMany({
+      where: {
+        status: 'ACTIVE',
+        failedPaymentCount: { gt: 0 },
+        lastPaymentAttemptAt: { lt: cutoff },
+        OR: [
+          { pausePendingNoticeSentAt: null },
+          // Re-aviso si el último intento falló otra vez después del último aviso
+          { pausePendingNoticeSentAt: { lt: cutoff } },
+        ],
+      },
+      select: {
+        id: true,
+        brandName: true,
+        lastPaymentAttemptAt: true,
+        pausePendingNoticeSentAt: true,
+      },
+    });
+
+    let sent = 0;
+    for (const t of candidates) {
+      const phone = await this.ownerPhone(t.id);
+      if (!phone || !t.lastPaymentAttemptAt) continue;
+      const pauseDate = new Date(
+        t.lastPaymentAttemptAt.getTime() + PAUSE_DAYS * 24 * 60 * 60 * 1000,
+      );
+      const message = smsAccountWillPause({
+        brandName: t.brandName,
+        pauseDate,
+      });
+      const r = await this.growBusiness.sendSms(t.id, phone, message);
+      if (r.ok) {
+        await this.prisma.tenant.update({
+          where: { id: t.id },
+          data: { pausePendingNoticeSentAt: now },
+        });
+        sent++;
+        this.logger.log(`SMS "pausa pendiente" enviado a ${t.brandName} (${phone})`);
+      } else {
+        this.logger.warn(
+          `SMS "pausa pendiente" falló para ${t.brandName}: ${r.message ?? 'unknown'}`,
+        );
+      }
+    }
+    return sent;
+  }
+
+  /**
+   * D+4 desde último intento fallido sin pago: pausar cuenta + SMS "pausada".
+   */
+  private async suspendOverdueAccounts(now: Date) {
+    const cutoff = new Date(now.getTime() - PAUSE_DAYS * 24 * 60 * 60 * 1000);
+    const candidates = await this.prisma.tenant.findMany({
+      where: {
+        status: 'ACTIVE',
+        failedPaymentCount: { gt: 0 },
+        lastPaymentAttemptAt: { lt: cutoff },
+      },
+      select: { id: true, brandName: true },
+    });
+
+    let suspended = 0;
+    for (const t of candidates) {
+      await this.prisma.tenant.update({
+        where: { id: t.id },
+        data: { status: 'SUSPENDED', suspendedAt: now },
+      });
+      suspended++;
+      const phone = await this.ownerPhone(t.id);
+      if (phone) {
+        const message = smsAccountPaused({ brandName: t.brandName });
+        this.growBusiness
+          .sendSms(t.id, phone, message)
+          .catch((e) =>
+            this.logger.warn(`SMS "pausada" falló para ${t.brandName}: ${e?.message ?? e}`),
+          );
+      }
+      this.logger.warn(
+        `Tenant ${t.brandName} (${t.id}) auto-pausado por pago no resuelto en ${PAUSE_DAYS} días`,
+      );
+    }
+    return suspended;
   }
 }

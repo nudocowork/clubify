@@ -324,9 +324,182 @@ export default function TenantDetail() {
 
         <GrowBusinessCard tenantId={t.id} planName={t.plan?.name ?? null} />
 
+        <BillingNotificationsCard tenant={t} />
+
         <BillingCard tenant={t} onChange={load} />
       </div>
     </div>
+  );
+}
+
+// ============================================================
+//             SECUENCIA SMS DE COBRO (estado read-only)
+// ============================================================
+
+function BillingNotificationsCard({ tenant }: { tenant: any }) {
+  const fmt = (d: string | null | undefined) =>
+    d
+      ? new Date(d).toLocaleString('es-CO', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      : '—';
+  const fmtDate = (d: string | null | undefined) =>
+    d
+      ? new Date(d).toLocaleDateString('es-CO', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        })
+      : null;
+  const gbConnected = !!tenant.growBusinessLocationId;
+  const reminderDate = fmtDate(tenant.currentPeriodEnd);
+  const reminderSent = !!(
+    tenant.paymentReminderSentFor &&
+    tenant.currentPeriodEnd &&
+    new Date(tenant.paymentReminderSentFor).getTime() ===
+      new Date(tenant.currentPeriodEnd).getTime()
+  );
+  const failed = (tenant.failedPaymentCount ?? 0) > 0;
+
+  return (
+    <div className="card card-pad md:col-span-2">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-base font-semibold m-0 flex items-center gap-2">
+            📱 Secuencia SMS de cobro
+          </h2>
+          <p className="text-xs text-mute mt-1 leading-relaxed">
+            Mensajes SMS automáticos al dueño desde el sub-account de Grow
+            Business. El cron diario (3 AM) los dispara según el ciclo de
+            Hotmart.
+          </p>
+        </div>
+        {gbConnected ? (
+          <span className="badge badge-ok">SMS conectado</span>
+        ) : (
+          <span className="badge badge-warn">Sin Grow Business</span>
+        )}
+      </div>
+
+      {!gbConnected && (
+        <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5 text-xs text-amber-900">
+          ⚠ Este negocio no está conectado a Grow Business. Los SMS de cobro
+          no se envían — los emails que aparezcan en el cron quedan en log
+          pero no llegan al dueño. Conecta arriba en la card "Grow Business ·
+          SMS".
+        </div>
+      )}
+
+      <ol className="mt-4 space-y-2.5">
+        <NotifStep
+          n={1}
+          title="🗓 Recordatorio D-1 (un día antes del cobro)"
+          help={
+            reminderDate
+              ? `Próximo cobro: ${reminderDate}`
+              : 'Sin currentPeriodEnd configurado'
+          }
+          status={reminderSent ? 'sent' : 'pending'}
+          when={reminderSent ? `Enviado para ${reminderDate}` : null}
+        />
+        <NotifStep
+          n={2}
+          title="✅ Confirmación de pago"
+          help="Se envía al recibir PURCHASE_APPROVED del webhook Hotmart"
+          status={
+            tenant.failedPaymentCount === 0 && tenant.lastPaymentAttemptAt
+              ? 'sent'
+              : 'idle'
+          }
+          when={
+            tenant.failedPaymentCount === 0 && tenant.lastPaymentAttemptAt
+              ? `Último: ${fmt(tenant.lastPaymentAttemptAt)}`
+              : null
+          }
+        />
+        <NotifStep
+          n={3}
+          title="⚠ Aviso de pago fallido"
+          help="Se envía al recibir PURCHASE_DELAYED/PROTEST"
+          status={failed ? 'warn' : 'idle'}
+          when={
+            tenant.paymentFailureNoticeSentAt
+              ? `Enviado: ${fmt(tenant.paymentFailureNoticeSentAt)}`
+              : null
+          }
+        />
+        <NotifStep
+          n={4}
+          title="⏰ Tu cuenta se pausará en 2 días"
+          help={`Cron envía 2 días después del último intento fallido (failedPaymentCount=${tenant.failedPaymentCount ?? 0})`}
+          status={tenant.pausePendingNoticeSentAt ? 'sent' : failed ? 'pending' : 'idle'}
+          when={
+            tenant.pausePendingNoticeSentAt
+              ? `Enviado: ${fmt(tenant.pausePendingNoticeSentAt)}`
+              : null
+          }
+        />
+        <NotifStep
+          n={5}
+          title="🔴 Cuenta pausada"
+          help="4 días después del último intento fallido sin pago, cron suspende la cuenta"
+          status={
+            tenant.suspendedAt && failed ? 'sent' : 'idle'
+          }
+          when={tenant.suspendedAt ? `Suspendido: ${fmt(tenant.suspendedAt)}` : null}
+        />
+      </ol>
+    </div>
+  );
+}
+
+function NotifStep({
+  n,
+  title,
+  help,
+  status,
+  when,
+}: {
+  n: number;
+  title: string;
+  help: string;
+  status: 'idle' | 'pending' | 'sent' | 'warn';
+  when: string | null;
+}) {
+  const cls =
+    status === 'sent'
+      ? 'border-ok/30 bg-ok-soft/40'
+      : status === 'warn'
+      ? 'border-amber-300 bg-amber-50'
+      : status === 'pending'
+      ? 'border-line bg-bg2/40'
+      : 'border-line2 bg-white opacity-70';
+  const dot =
+    status === 'sent'
+      ? '✓'
+      : status === 'warn'
+      ? '⚠'
+      : status === 'pending'
+      ? '○'
+      : '○';
+  return (
+    <li className={`border rounded-input px-3 py-2.5 ${cls}`}>
+      <div className="flex items-start gap-3">
+        <div className="text-xs font-mono opacity-70 mt-0.5">{n}.</div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold">{title}</div>
+          <div className="text-[11px] text-mute mt-0.5">{help}</div>
+          {when && (
+            <div className="text-[11px] text-ok mt-1 font-medium">{when}</div>
+          )}
+        </div>
+        <div className="text-base flex-none mt-0.5">{dot}</div>
+      </div>
+    </li>
   );
 }
 
