@@ -148,12 +148,24 @@ function WelcomeStep({
 // ═══════════════════════════════════════════════════════════
 
 type Suggestion = {
-  display_name: string;
-  lat: string;
-  lon: string;
-  type: string;
-  name?: string;
+  name: string;
+  street?: string;
+  housenumber?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  lat: number;
+  lon: number;
 };
+
+function formatAddr(s: Suggestion): string {
+  const parts: string[] = [];
+  if (s.street) parts.push(s.housenumber ? `${s.street} ${s.housenumber}` : s.street);
+  if (s.city) parts.push(s.city);
+  if (s.state && s.state !== s.city) parts.push(s.state);
+  if (s.country) parts.push(s.country);
+  return parts.join(', ');
+}
 
 function AddressStep({ onDone }: { onDone: () => void }) {
   const [query, setQuery] = useState('');
@@ -163,9 +175,9 @@ function AddressStep({ onDone }: { onDone: () => void }) {
   const [searching, setSearching] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  // Debounced search vía Nominatim (OSM, gratis, 1 req/seg)
+  // Debounced autocomplete vía Photon (Komoot · OSM, free, 200ms, 2 chars min)
   useEffect(() => {
-    if (query.length < 3) {
+    if (query.length < 2) {
       setSuggestions([]);
       return;
     }
@@ -173,28 +185,34 @@ function AddressStep({ onDone }: { onDone: () => void }) {
       setSearching(true);
       try {
         const r = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&q=${encodeURIComponent(
-            query,
-          )}`,
+          `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&lang=es&limit=8`,
         );
-        const d: Suggestion[] = await r.json();
-        setSuggestions(d);
+        const data = await r.json();
+        setSuggestions(
+          (data.features || []).map((f: any) => ({
+            name: f.properties?.name ?? '',
+            street: f.properties?.street,
+            housenumber: f.properties?.housenumber,
+            city: f.properties?.city ?? f.properties?.locality,
+            state: f.properties?.state,
+            country: f.properties?.country,
+            lon: f.geometry?.coordinates?.[0],
+            lat: f.geometry?.coordinates?.[1],
+          })),
+        );
       } catch {
         setSuggestions([]);
       } finally {
         setSearching(false);
       }
-    }, 600);
+    }, 200);
     return () => clearTimeout(id);
   }, [query]);
 
   function pickSuggestion(s: Suggestion) {
     setPicked(s);
     setSuggestions([]);
-    if (!name) {
-      // Auto-fill nombre con la primera línea del display
-      setName(s.display_name.split(',')[0].trim());
-    }
+    if (!name) setName(s.name || formatAddr(s).split(',')[0].trim());
   }
 
   async function skip() {
@@ -213,9 +231,9 @@ function AddressStep({ onDone }: { onDone: () => void }) {
         method: 'POST',
         body: JSON.stringify({
           name: name.trim(),
-          address: picked.display_name,
-          latitude: Number(picked.lat),
-          longitude: Number(picked.lon),
+          address: formatAddr(picked) || picked.name,
+          latitude: picked.lat,
+          longitude: picked.lon,
         }),
       });
       onDone();
@@ -224,8 +242,8 @@ function AddressStep({ onDone }: { onDone: () => void }) {
     }
   }
 
-  const lat = picked ? Number(picked.lat) : 0;
-  const lng = picked ? Number(picked.lon) : 0;
+  const lat = picked ? picked.lat : 0;
+  const lng = picked ? picked.lon : 0;
   const mapSrc = picked
     ? `https://www.openstreetmap.org/export/embed.html?bbox=${lng - 0.005},${lat - 0.003},${lng + 0.005},${lat + 0.003}&layer=mapnik&marker=${lat},${lng}`
     : '';
@@ -248,7 +266,7 @@ function AddressStep({ onDone }: { onDone: () => void }) {
           <div className="relative">
             <input
               className="input w-full"
-              placeholder="Buscar tu negocio o dirección…"
+              placeholder="Tipea nombre, calle, barrio o ciudad…"
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value);
@@ -262,17 +280,28 @@ function AddressStep({ onDone }: { onDone: () => void }) {
               </div>
             )}
             {suggestions.length > 0 && (
-              <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-line rounded-lg shadow-lg max-h-64 overflow-y-auto">
-                {suggestions.map((s, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => pickSuggestion(s)}
-                    className="block w-full text-left px-3 py-2.5 hover:bg-bg2 border-b border-line2 last:border-0 text-sm"
-                  >
-                    📍 {s.display_name}
-                  </button>
-                ))}
+              <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-line rounded-lg shadow-lg max-h-72 overflow-y-auto">
+                {suggestions.map((s, i) => {
+                  const addr = formatAddr(s);
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => pickSuggestion(s)}
+                      className="block w-full text-left px-3 py-2.5 hover:bg-bg2 border-b border-line2 last:border-0"
+                    >
+                      <div className="text-sm font-semibold flex items-start gap-2">
+                        <span className="text-base shrink-0">📍</span>
+                        <span className="flex-1">{s.name || addr || 'Sin nombre'}</span>
+                      </div>
+                      {addr && s.name !== addr && (
+                        <div className="text-xs text-mute mt-0.5 ml-6 line-clamp-1">
+                          {addr}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -297,12 +326,12 @@ function AddressStep({ onDone }: { onDone: () => void }) {
               </div>
               <div className="text-xs text-mute leading-relaxed">
                 <span className="font-semibold text-ink">Dirección:</span>{' '}
-                {picked.display_name}
+                {formatAddr(picked) || picked.name}
               </div>
             </div>
           )}
 
-          {!picked && query.length >= 3 && !searching && suggestions.length === 0 && (
+          {!picked && query.length >= 2 && !searching && suggestions.length === 0 && (
             <div className="text-sm text-mute text-center py-6">
               No encontramos resultados. Probá con el nombre del negocio o calle.
             </div>

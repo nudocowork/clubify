@@ -4,11 +4,27 @@ import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 
+/**
+ * Resultado de Photon (Komoot). Photon está construido sobre OSM pero
+ * con autocomplete optimizado para escritura en vivo — funciona mejor que
+ * Nominatim para nombres de negocios y direcciones parciales.
+ *
+ * https://photon.komoot.io/api/?q=…
+ */
 type Suggestion = {
-  display_name: string;
-  lat: string;
-  lon: string;
-  type: string;
+  /** Nombre principal — restaurante, plaza, marca, calle */
+  name: string;
+  /** Address line: ej. "Cra 7 #45-12" */
+  street?: string;
+  housenumber?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  /** [lon, lat] */
+  lat: number;
+  lon: number;
+  /** Tipo OSM: house, street, locality, etc. */
+  osm_value?: string;
 };
 
 export default function LocationsPage() {
@@ -28,9 +44,9 @@ export default function LocationsPage() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Debounced Nominatim search
+  // Debounced Photon autocomplete — 200ms, 2 chars min
   useEffect(() => {
-    if (query.length < 3) {
+    if (query.length < 2) {
       setSuggestions([]);
       return;
     }
@@ -38,32 +54,69 @@ export default function LocationsPage() {
       setSearching(true);
       try {
         const r = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&q=${encodeURIComponent(query)}`,
+          `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&lang=es&limit=8`,
         );
-        setSuggestions((await r.json()) as Suggestion[]);
+        const data = await r.json();
+        setSuggestions(
+          (data.features || []).map((f: any) => ({
+            name: f.properties?.name ?? '',
+            street: f.properties?.street,
+            housenumber: f.properties?.housenumber,
+            city: f.properties?.city ?? f.properties?.locality,
+            state: f.properties?.state,
+            country: f.properties?.country,
+            osm_value: f.properties?.osm_value,
+            lon: f.geometry?.coordinates?.[0],
+            lat: f.geometry?.coordinates?.[1],
+          })),
+        );
       } catch {
         setSuggestions([]);
       } finally {
         setSearching(false);
       }
-    }, 600);
+    }, 200);
     return () => clearTimeout(id);
   }, [query]);
 
+  function formatAddress(s: Suggestion): string {
+    const parts: string[] = [];
+    if (s.street) {
+      parts.push(s.housenumber ? `${s.street} ${s.housenumber}` : s.street);
+    }
+    if (s.city) parts.push(s.city);
+    if (s.state && s.state !== s.city) parts.push(s.state);
+    if (s.country) parts.push(s.country);
+    return parts.join(', ');
+  }
+
   function pickSuggestion(s: Suggestion) {
-    const lat = Number(s.lat);
-    const lng = Number(s.lon);
+    const fullAddress = [s.name, formatAddress(s)].filter(Boolean).join(' · ');
     setForm((f) => ({
       ...f,
-      latitude: lat,
-      longitude: lng,
-      address: s.display_name,
+      latitude: s.lat,
+      longitude: s.lon,
+      address: formatAddress(s) || s.name || '',
       // Auto-fill name si está vacío
-      name: f.name || s.display_name.split(',')[0].trim(),
+      name: f.name || s.name || formatAddress(s).split(',')[0],
     }));
     setPicked(true);
     setSuggestions([]);
-    setQuery('');
+    setQuery(fullAddress.slice(0, 80));
+  }
+
+  /** Permite al usuario pegar coordenadas crudas (lat, lng) de Google Maps. */
+  function pasteCoords(raw: string) {
+    const m = raw.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
+    if (!m) {
+      toast('Formato esperado: lat, lng (ej: 4.6097, -74.0817)', 'error');
+      return;
+    }
+    const lat = Number(m[1]);
+    const lng = Number(m[2]);
+    setForm((f) => ({ ...f, latitude: lat, longitude: lng }));
+    setPicked(true);
+    toast('Coordenadas pegadas — completá el nombre arriba', 'success');
   }
 
   async function load() {
@@ -141,23 +194,50 @@ export default function LocationsPage() {
                 </div>
               )}
               {suggestions.length > 0 && (
-                <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-line rounded-lg shadow-lg max-h-64 overflow-y-auto">
-                  {suggestions.map((s, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => pickSuggestion(s)}
-                      className="block w-full text-left px-3 py-2.5 hover:bg-bg2 border-b border-line2 last:border-0 text-sm"
-                    >
-                      📍 {s.display_name}
-                    </button>
-                  ))}
+                <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-line rounded-lg shadow-lg max-h-72 overflow-y-auto">
+                  {suggestions.map((s, i) => {
+                    const addr = formatAddress(s);
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => pickSuggestion(s)}
+                        className="block w-full text-left px-3 py-2.5 hover:bg-bg2 border-b border-line2 last:border-0"
+                      >
+                        <div className="text-sm font-semibold flex items-start gap-2">
+                          <span className="text-base shrink-0">📍</span>
+                          <span className="flex-1">{s.name || addr || 'Sin nombre'}</span>
+                        </div>
+                        {addr && s.name !== addr && (
+                          <div className="text-xs text-mute mt-0.5 ml-6 line-clamp-1">
+                            {addr}
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
-            <p className="text-[11px] text-mute mt-1.5">
-              Powered by OpenStreetMap. Empieza a tipear el nombre o dirección.
-            </p>
+            <div className="flex items-center justify-between gap-2 mt-1.5 flex-wrap">
+              <p className="text-[11px] text-mute">
+                Tipea cualquier cosa — nombre, calle, barrio, ciudad. Resultados en vivo.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  const raw = prompt(
+                    'Pegá las coordenadas de Google Maps (lat, lng):\n\n' +
+                      'Cómo obtenerlas: en Google Maps, click derecho en tu local → ' +
+                      'aparecen las coordenadas en la parte superior, click para copiarlas.',
+                  );
+                  if (raw) pasteCoords(raw);
+                }}
+                className="text-[11px] text-brand hover:underline"
+              >
+                ¿No lo encuentras? Pegar coordenadas
+              </button>
+            </div>
           </div>
 
           {picked && (
