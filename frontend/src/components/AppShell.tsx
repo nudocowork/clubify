@@ -203,6 +203,7 @@ export default function AppShell({
                 { href: '/app/customers', label: 'Clientes', icon: 'users', module: 'customers' },
                 { href: '/scan', label: 'Escáner', icon: 'qr', module: 'scanner' },
                 { href: '/app/notifications', label: 'Push', icon: 'bell', module: 'push' },
+                { href: '/app/reviews', label: 'Reseña de Google', icon: 'spark' },
               ],
             },
             {

@@ -18,6 +18,7 @@ class UpdateMyBody {
   @IsOptional() @IsString() instagramUrl?: string;
   @IsOptional() @IsString() facebookUrl?: string;
   @IsOptional() @IsString() mapsUrl?: string;
+  @IsOptional() @IsString() googleReviewUrl?: string;
 }
 
 @Controller('tenants/me')

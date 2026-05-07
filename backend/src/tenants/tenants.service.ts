@@ -71,6 +71,7 @@ export type UpdateMyTenantDto = Partial<{
   instagramUrl: string;
   facebookUrl: string;
   mapsUrl: string;
+  googleReviewUrl: string;
 }>;
 
 @Injectable()
