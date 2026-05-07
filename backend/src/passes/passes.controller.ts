@@ -86,12 +86,9 @@ export class PassesController {
     return this.svc.issue(user, body.cardId, body.customerId);
   }
 
-  @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
-  @Get(':id')
-  get(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.svc.get(user, id);
-  }
-
+  // IMPORTANTE: las rutas con paths fijos (lookup/by-phone) deben ir
+  // ANTES de las que usan path params (:id), sino NestJS captura el
+  // segmento "lookup" como id y la específica nunca se alcanza.
   @Public()
   @Get('lookup/by-phone')
   lookupByPhone(
@@ -99,6 +96,12 @@ export class PassesController {
     @Query('phone') phone: string,
   ) {
     return this.svc.findByPhonePublic(slug, phone);
+  }
+
+  @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
+  @Get(':id')
+  get(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.get(user, id);
   }
 
   @Public()

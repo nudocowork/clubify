@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { api, startImpersonation } from '@/lib/api';
 import { toast } from './Toast';
@@ -60,7 +61,42 @@ export function TenantSwitcher() {
   const [enteringId, setEnteringId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Recalcular posición al abrir y al cambiar tamaño de viewport
+  useEffect(() => {
+    if (!open) {
+      setPos(null);
+      return;
+    }
+    function place() {
+      const r = triggerRef.current?.getBoundingClientRect();
+      if (!r) return;
+      // Lo posicionamos a la derecha del sidebar (ancho 240px lg) con
+      // un gap pequeño. En mobile ocupa el viewport.
+      const isMobile = window.innerWidth < 640;
+      setPos(
+        isMobile
+          ? { top: 8, left: 8 }
+          : { top: Math.max(8, r.top), left: r.right + 12 },
+      );
+    }
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [open]);
 
   // Carga inicial al abrir
   useEffect(() => {
@@ -79,11 +115,15 @@ export function TenantSwitcher() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // Click fuera + Esc para cerrar
+  // Click fuera + Esc para cerrar. Como el popup ahora vive via Portal
+  // fuera del ref principal, chequeamos también popupRef.
   useEffect(() => {
     if (!open) return;
     function onDoc(e: MouseEvent) {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (ref.current?.contains(t)) return;
+      if (popupRef.current?.contains(t)) return;
+      setOpen(false);
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') setOpen(false);
@@ -154,9 +194,88 @@ export function TenantSwitcher() {
     [recents, pins, tenantById],
   );
 
+  const popup =
+    open && pos ? (
+      <div
+        ref={popupRef}
+        className="fixed bg-white text-ink rounded-2xl shadow-2xl border border-line max-h-[80vh] overflow-hidden flex flex-col"
+        style={{
+          top: pos.top,
+          left: pos.left,
+          width:
+            typeof window !== 'undefined' && window.innerWidth < 640
+              ? 'calc(100vw - 16px)'
+              : 420,
+          zIndex: 9999,
+        }}
+      >
+        <div className="p-3 border-b border-line2">
+          <input
+            ref={inputRef}
+            type="text"
+            placeholder="🔍 Buscar por nombre o email…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="input"
+          />
+        </div>
+        <div className="overflow-y-auto flex-1 px-2 py-2">
+          {loading && tenants.length === 0 && (
+            <div className="text-center py-8 text-mute text-sm">Cargando…</div>
+          )}
+
+          {!term && pinnedTenants.length > 0 && (
+            <Section
+              label="ANCLADOS"
+              tenants={pinnedTenants}
+              onEnter={enter}
+              onTogglePin={togglePin}
+              pins={pins}
+              enteringId={enteringId}
+            />
+          )}
+
+          {!term && recentTenants.length > 0 && (
+            <Section
+              label="RECIENTES"
+              tenants={recentTenants}
+              onEnter={enter}
+              onTogglePin={togglePin}
+              pins={pins}
+              enteringId={enteringId}
+            />
+          )}
+
+          <Section
+            label={term ? 'RESULTADOS' : 'TODAS LAS CUENTAS'}
+            tenants={filtered}
+            onEnter={enter}
+            onTogglePin={togglePin}
+            pins={pins}
+            enteringId={enteringId}
+          />
+
+          {!loading && filtered.length === 0 && (
+            <div className="text-center py-8 text-mute text-sm">
+              <div className="text-3xl mb-1">🔎</div>
+              Sin resultados para “{search}”
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-line2 px-3 py-2 text-[11px] text-mute flex items-center justify-between">
+          <span>{tenants.length} subcuentas en total</span>
+          <kbd className="bg-bg2 px-1.5 py-0.5 rounded text-[10px] font-mono">
+            Esc
+          </kbd>
+        </div>
+      </div>
+    ) : null;
+
   return (
     <div ref={ref} className="relative">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
         className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-[10px] text-sm transition ${
@@ -177,72 +296,8 @@ export function TenantSwitcher() {
         <span className="text-sidebar-mute text-xs">▾</span>
       </button>
 
-      {open && (
-        <div className="fixed sm:absolute inset-x-2 sm:inset-x-auto sm:left-full sm:top-0 sm:ml-3 sm:w-[420px] mt-12 sm:mt-0 bg-white text-ink rounded-2xl shadow-2xl border border-line z-50 max-h-[80vh] overflow-hidden flex flex-col">
-          <div className="p-3 border-b border-line2">
-            <input
-              ref={inputRef}
-              type="text"
-              placeholder="🔍 Buscar por nombre o email…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="input"
-            />
-          </div>
-          <div className="overflow-y-auto flex-1 px-2 py-2">
-            {loading && tenants.length === 0 && (
-              <div className="text-center py-8 text-mute text-sm">
-                Cargando…
-              </div>
-            )}
-
-            {!term && pinnedTenants.length > 0 && (
-              <Section
-                label="ANCLADOS"
-                tenants={pinnedTenants}
-                onEnter={enter}
-                onTogglePin={togglePin}
-                pins={pins}
-                enteringId={enteringId}
-              />
-            )}
-
-            {!term && recentTenants.length > 0 && (
-              <Section
-                label="RECIENTES"
-                tenants={recentTenants}
-                onEnter={enter}
-                onTogglePin={togglePin}
-                pins={pins}
-                enteringId={enteringId}
-              />
-            )}
-
-            <Section
-              label={term ? 'RESULTADOS' : 'TODAS LAS CUENTAS'}
-              tenants={filtered}
-              onEnter={enter}
-              onTogglePin={togglePin}
-              pins={pins}
-              enteringId={enteringId}
-            />
-
-            {!loading && filtered.length === 0 && (
-              <div className="text-center py-8 text-mute text-sm">
-                <div className="text-3xl mb-1">🔎</div>
-                Sin resultados para “{search}”
-              </div>
-            )}
-          </div>
-
-          <div className="border-t border-line2 px-3 py-2 text-[11px] text-mute flex items-center justify-between">
-            <span>{tenants.length} subcuentas en total</span>
-            <kbd className="bg-bg2 px-1.5 py-0.5 rounded text-[10px] font-mono">
-              Esc
-            </kbd>
-          </div>
-        </div>
-      )}
+      {/* Portal a body para escapar el stacking context del sidebar fixed */}
+      {mounted && popup ? createPortal(popup, document.body) : null}
     </div>
   );
 }

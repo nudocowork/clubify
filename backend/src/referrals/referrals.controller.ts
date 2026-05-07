@@ -28,18 +28,8 @@ export class ReferralsController {
     return this.svc.createCode(body);
   }
 
-  @Public()
-  @Get('codes/:code')
-  getByCode(@Param('code') code: string) {
-    return this.svc.getByCode(code);
-  }
-
-  @Roles('SUPER_ADMIN')
-  @Get()
-  list(@CurrentUser() user: AuthUser) {
-    return this.svc.list(user);
-  }
-
+  // Rutas con paths fijos primero (defense-in-depth: NestJS matchea por
+  // orden de declaración cuando hay path params).
   @Roles('SUPER_ADMIN')
   @Get('leaderboard')
   leaderboard(@CurrentUser() user: AuthUser) {
@@ -67,6 +57,18 @@ export class ReferralsController {
   @Get('me')
   listMine(@CurrentUser() user: AuthUser) {
     return this.svc.listMine(user);
+  }
+
+  @Public()
+  @Get('codes/:code')
+  getByCode(@Param('code') code: string) {
+    return this.svc.getByCode(code);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Get()
+  list(@CurrentUser() user: AuthUser) {
+    return this.svc.list(user);
   }
 
   @Roles('SUPER_ADMIN')
