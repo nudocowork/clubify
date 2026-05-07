@@ -142,11 +142,14 @@ export default function CardDetail() {
           </Link>{' '}
           <span className="page-crumb">/ {card.name}</span>
         </h1>
-        <span
-          className={`badge ${card.isActive ? 'badge-ok' : 'badge-mute'}`}
-        >
-          {card.isActive ? 'Activa' : 'Pausada'}
-        </span>
+        <div className="flex items-center gap-2">
+          <span
+            className={`badge ${card.isActive ? 'badge-ok' : 'badge-mute'}`}
+          >
+            {card.isActive ? 'Activa' : 'Pausada'}
+          </span>
+          <ToggleActiveButton card={card} onChange={load} />
+        </div>
       </div>
 
       {/* KPIs */}
@@ -508,5 +511,49 @@ function EnrollLinkCard({ cardId, cardName }: { cardId: string; cardName: string
         </div>
       </div>
     </div>
+  );
+}
+
+function ToggleActiveButton({
+  card,
+  onChange,
+}: {
+  card: { id: string; isActive: boolean; name: string };
+  onChange: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  async function toggle() {
+    const next = !card.isActive;
+    if (
+      !next &&
+      !confirm(
+        `Pausar "${card.name}": deja de aparecer en el storefront público y los clientes no podrán inscribirse a nuevas tarjetas. Los pases existentes siguen activos. ¿Continuar?`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await api(`/cards/${card.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive: next }),
+      });
+      toast(next ? 'Tarjeta activada' : 'Tarjeta pausada', 'success');
+      onChange();
+    } catch (e: any) {
+      toast(e.message || 'Error', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      disabled={busy}
+      className={card.isActive ? 'btn' : 'btn-primary'}
+    >
+      {busy ? '…' : card.isActive ? '⏸ Pausar' : '▶ Activar'}
+    </button>
   );
 }

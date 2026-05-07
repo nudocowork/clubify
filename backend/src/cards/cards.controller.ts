@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { IsEnum, IsHexColor, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsEnum, IsHexColor, IsInt, IsOptional, IsString, Min } from 'class-validator';
 import { CardType } from '@prisma/client';
 import { CardsService } from './cards.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
@@ -23,6 +23,7 @@ class CardBody {
   @IsOptional() @IsString() validUntil?: string;
   @IsOptional() socialLinks?: Record<string, string>;
   @IsOptional() @IsString() stampIcon?: string;
+  @IsOptional() @IsBoolean() isActive?: boolean;
 }
 
 @Controller('cards')

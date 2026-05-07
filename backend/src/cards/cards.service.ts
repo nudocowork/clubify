@@ -21,6 +21,7 @@ export type CardDto = {
   validUntil?: string;
   socialLinks?: Record<string, string>;
   stampIcon?: string;
+  isActive?: boolean;
 };
 
 @Injectable()
