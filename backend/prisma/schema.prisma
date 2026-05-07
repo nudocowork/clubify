@@ -238,6 +238,9 @@ model Tenant {
   whatsappOrdersPhone   String?
   whatsappDeliveryPhone String?
   logoUrl              String?
+  // Logo específico para las tarjetas wallet (header de Apple/Google
+  // Wallet). Si null, fallback a logoUrl. PNG con alpha recomendado.
+  walletLogoUrl        String?
   primaryColor         String       @default("#6366F1")
   secondaryColor       String       @default("#C026D3")
   status               TenantStatus @default(TRIAL)

@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
+import { ImageUploader } from '@/components/ImageUploader';
 import { toast } from '@/components/Toast';
 
 type CardType =
@@ -60,13 +61,22 @@ const TYPE_COLORS: Record<CardType, { primary: string; accent: string }> = {
 export default function CardsList() {
   const [list, setList] = useState<Card[]>([]);
   const [loading, setLoading] = useState(true);
-
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Logo wallet — se inyecta en el header del .pkpass de todas las tarjetas
+  // (Apple/Google). Independiente del logoUrl general del negocio.
+  const [walletLogoUrl, setWalletLogoUrl] = useState<string | null>(null);
+  const [savingWalletLogo, setSavingWalletLogo] = useState(false);
 
   async function load() {
     setLoading(true);
     try {
-      setList(await api<Card[]>('/cards'));
+      const [cards, me] = await Promise.all([
+        api<Card[]>('/cards'),
+        api<any>('/tenants/me').catch(() => null),
+      ]);
+      setList(cards);
+      if (me) setWalletLogoUrl(me.walletLogoUrl ?? null);
     } catch (e: any) {
       toast(e.message || 'Error cargando tarjetas', 'error');
     } finally {
@@ -76,6 +86,22 @@ export default function CardsList() {
   useEffect(() => {
     load();
   }, []);
+
+  async function saveWalletLogo(url: string | null) {
+    setSavingWalletLogo(true);
+    try {
+      await api('/tenants/me', {
+        method: 'PATCH',
+        body: JSON.stringify({ walletLogoUrl: url }),
+      });
+      setWalletLogoUrl(url);
+      toast('Logo de wallet actualizado · regenera el pase para verlo', 'success');
+    } catch (e: any) {
+      toast(e.message || 'No se pudo guardar', 'error');
+    } finally {
+      setSavingWalletLogo(false);
+    }
+  }
 
   async function handleDelete(e: React.MouseEvent, card: Card) {
     e.preventDefault();
@@ -113,6 +139,46 @@ export default function CardsList() {
         <Link className="btn-primary" href="/app/cards/new">
           <Icon name="plus" /> Crear tarjeta
         </Link>
+      </div>
+
+      {/* Configuración del logo wallet — afecta TODAS las tarjetas */}
+      <div className="card card-pad mb-5">
+        <div className="flex items-start gap-4 flex-wrap">
+          <div className="flex-1 min-w-[240px]">
+            <h3 className="text-base font-semibold m-0 flex items-center gap-2">
+              📱 Logo de tarjetas wallet
+            </h3>
+            <p className="text-xs text-mute mt-1.5 leading-relaxed">
+              Aparece en el header de Apple Wallet y Google Wallet de TODAS
+              las tarjetas que emitas. Es independiente del logo general del
+              negocio.
+            </p>
+            <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-900 leading-relaxed">
+              💡 <b>Recomendado: PNG con fondo transparente</b>. Si el archivo
+              tiene fondo blanco, va a aparecer un cuadrado blanco detrás del
+              logo en la wallet del cliente. Si no tienes una versión con
+              alpha, pídele al diseñador que te la exporte así.
+            </div>
+            {walletLogoUrl && (
+              <div className="text-[11px] text-mute mt-2">
+                Si no configuras un logo aquí, se usa el logo general del
+                negocio como fallback.
+              </div>
+            )}
+          </div>
+          <div className="w-full sm:w-[260px]">
+            <ImageUploader
+              value={walletLogoUrl}
+              onChange={(url) => saveWalletLogo(url)}
+              folder="wallet-logos"
+            />
+            {savingWalletLogo && (
+              <div className="text-[11px] text-mute mt-1.5 text-center">
+                Guardando…
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Resumen rápido */}

@@ -217,8 +217,13 @@ export class WalletService {
     // - logo.png (rectangular, max 160×50): header arriba-izquierda del
     //   pase. Si el tenant NO tiene logoUrl, devolvemos un PNG transparente
     //   para que el logo de Clubify default no aparezca (pedido del cliente).
-    const tenantIcons = await this.generateTenantIcons(pass.tenant.logoUrl);
-    const tenantLogos = await this.generateTenantLogos(pass.tenant.logoUrl);
+    // Logo del wallet: walletLogoUrl tiene prioridad (logo dedicado con
+    // alpha que el dueño sube específicamente para wallet en /app/cards),
+    // sino fallback al logoUrl general del negocio.
+    const walletLogo =
+      (pass.tenant as any).walletLogoUrl ?? pass.tenant.logoUrl;
+    const tenantIcons = await this.generateTenantIcons(walletLogo);
+    const tenantLogos = await this.generateTenantLogos(walletLogo);
 
     const buffers: Record<string, Buffer> = {
       'pass.json': Buffer.from(JSON.stringify(passJson)),
@@ -307,11 +312,15 @@ export class WalletService {
         }" stroke="rgba(255,255,255,${filled ? 0.95 : 0.4})" stroke-width="2"/>`,
       );
       if (filled) {
-        // Emoji centrado dentro del círculo. font-size proporcional al radio
-        const fontSize = radius * 1.15;
-        // dy=fontSize/3 ajusta el baseline para emojis (alineación visual)
+        // Emoji centrado dentro del círculo. font-size un poco mayor que el
+        // radio para que el emoji "llene" visualmente. Usamos `dy=".35em"`
+        // (truco SVG estándar) en vez de dominant-baseline que algunos
+        // renderers (librsvg) ignoran con emojis. Eso garantiza centrado
+        // vertical confiable. font-family ordena por preferencia: Apple
+        // (macOS local), Segoe (Windows), Noto Color Emoji (Linux/Docker).
+        const fontSize = radius * 1.4;
         circles.push(
-          `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central" font-size="${fontSize}" font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji">${this.escapeXml(
+          `<text x="${cx}" y="${cy}" text-anchor="middle" dy=".35em" font-size="${fontSize}" font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif">${this.escapeXml(
             icon,
           )}</text>`,
         );

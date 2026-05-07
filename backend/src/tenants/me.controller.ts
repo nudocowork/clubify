@@ -19,6 +19,7 @@ class UpdateMyBody {
   @IsOptional() @IsString() facebookUrl?: string;
   @IsOptional() @IsString() mapsUrl?: string;
   @IsOptional() @IsString() googleReviewUrl?: string;
+  @IsOptional() @IsString() walletLogoUrl?: string;
 }
 
 @Controller('tenants/me')
