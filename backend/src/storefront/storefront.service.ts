@@ -9,6 +9,7 @@ export type StorefrontDto = {
   theme?: any;
   blocks?: any[];
   isPublished?: boolean;
+  ordersEnabled?: boolean;
   menuLayout?: MenuLayout;
   customDomain?: string | null;
 };
@@ -58,6 +59,7 @@ export class StorefrontService {
         theme: dto.theme ?? {},
         blocks: dto.blocks ?? [],
         isPublished: dto.isPublished ?? true,
+        ordersEnabled: dto.ordersEnabled ?? true,
         customDomain,
       },
       update: {
@@ -66,6 +68,7 @@ export class StorefrontService {
         theme: dto.theme ?? undefined,
         blocks: dto.blocks ?? undefined,
         isPublished: dto.isPublished ?? undefined,
+        ordersEnabled: dto.ordersEnabled ?? undefined,
         menuLayout: dto.menuLayout ?? undefined,
         customDomain: dto.customDomain === undefined ? undefined : customDomain,
       },

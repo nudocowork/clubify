@@ -20,6 +20,7 @@ class StorefrontBody {
   @IsOptional() @IsObject() theme?: any;
   @IsOptional() @IsArray() blocks?: any[];
   @IsOptional() @IsBoolean() isPublished?: boolean;
+  @IsOptional() @IsBoolean() ordersEnabled?: boolean;
   @IsOptional() @IsEnum(MenuLayout) menuLayout?: MenuLayout;
   @ValidateIf((_, v) => v !== null) @IsOptional() @IsString()
   customDomain?: string | null;

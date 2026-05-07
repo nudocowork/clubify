@@ -31,6 +31,7 @@ type Storefront = {
   description: string;
   heroImageUrl: string | null;
   menuLayout?: MenuLayout;
+  ordersEnabled?: boolean;
   planName?: string | null;
   promotions: any[];
 };
@@ -344,8 +345,8 @@ export default function StorefrontPublic() {
         </div>
       )}
 
-      {/* Bottom dock con carrito */}
-      {totals.count > 0 && !showCart && !showCheckout && (
+      {/* Bottom dock con carrito (solo si pedidos están habilitados) */}
+      {s.ordersEnabled !== false && totals.count > 0 && !showCart && !showCheckout && (
         <div className="fixed bottom-0 inset-x-0 px-5 pb-5 pt-3 bg-gradient-to-t from-white to-white/80 max-w-2xl mx-auto">
           <button
             onClick={() => setShowCart(true)}
@@ -366,6 +367,7 @@ export default function StorefrontPublic() {
           slug={slug}
           primary={primary}
           currency={s.currency}
+          ordersEnabled={s.ordersEnabled !== false}
           onClose={() => setOpenProduct(null)}
         />
       )}
@@ -411,12 +413,14 @@ function ProductModal({
   slug,
   primary,
   currency,
+  ordersEnabled,
   onClose,
 }: {
   product: Product;
   slug: string;
   primary: string;
   currency: string;
+  ordersEnabled: boolean;
   onClose: () => void;
 }) {
   const defaultVar = product.variants.find((v) => v.isDefault) ?? product.variants[0];
@@ -533,41 +537,49 @@ function ProductModal({
             </div>
           )}
 
-          <div className="mt-5">
-            <label className="text-xs uppercase tracking-wider text-mute font-semibold">
-              Notas (opcional)
-            </label>
-            <input
-              className="input mt-2"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-            />
-          </div>
+          {ordersEnabled && (
+            <div className="mt-5">
+              <label className="text-xs uppercase tracking-wider text-mute font-semibold">
+                Notas (opcional)
+              </label>
+              <input
+                className="input mt-2"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+              />
+            </div>
+          )}
 
-          <div className="flex items-center justify-between mt-5">
-            <div className="flex items-center gap-3">
+          {ordersEnabled ? (
+            <div className="flex items-center justify-between mt-5">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setQty(Math.max(1, qty - 1))}
+                  className="w-9 h-9 rounded-full border border-line flex items-center justify-center"
+                >
+                  −
+                </button>
+                <span className="text-lg font-semibold">{qty}</span>
+                <button
+                  onClick={() => setQty(qty + 1)}
+                  className="w-9 h-9 rounded-full border border-line flex items-center justify-center"
+                >
+                  +
+                </button>
+              </div>
               <button
-                onClick={() => setQty(Math.max(1, qty - 1))}
-                className="w-9 h-9 rounded-full border border-line flex items-center justify-center"
+                onClick={add}
+                className="rounded-pill text-white font-semibold py-3 px-6"
+                style={{ background: primary }}
               >
-                −
-              </button>
-              <span className="text-lg font-semibold">{qty}</span>
-              <button
-                onClick={() => setQty(qty + 1)}
-                className="w-9 h-9 rounded-full border border-line flex items-center justify-center"
-              >
-                +
+                Agregar · {fmt(total, currency)}
               </button>
             </div>
-            <button
-              onClick={add}
-              className="rounded-pill text-white font-semibold py-3 px-6"
-              style={{ background: primary }}
-            >
-              Agregar · {fmt(total, currency)}
-            </button>
-          </div>
+          ) : (
+            <div className="mt-5 text-center text-2xl font-bold" style={{ color: primary }}>
+              {fmt(unit, currency)}
+            </div>
+          )}
         </div>
       </div>
     </div>

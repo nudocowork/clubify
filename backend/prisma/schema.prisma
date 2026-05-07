@@ -832,6 +832,10 @@ model Storefront {
   description   String     @default("")
   heroImageUrl  String?
   menuLayout    MenuLayout @default(CLASSIC)
+  // Si false, el storefront público se renderiza como menú informativo:
+  // sin botones "Agregar al carrito" ni dock de carrito ni "Notificar
+  // pedido". Útil para negocios que solo quieren mostrar precios.
+  ordersEnabled Boolean    @default(true)
   isPublished   Boolean    @default(true)
   createdAt     DateTime   @default(now())
 }

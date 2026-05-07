@@ -44,6 +44,10 @@ export default function MenuEditor() {
   const [newCatName, setNewCatName] = useState('');
   const [adicionales, setAdicionales] = useState<Adicional[]>([]);
   const [showAdicionales, setShowAdicionales] = useState(false);
+  const [editingCatId, setEditingCatId] = useState<string | null>(null);
+  const [editingCatName, setEditingCatName] = useState('');
+  const [ordersEnabled, setOrdersEnabled] = useState<boolean | null>(null);
+  const [togglingOrders, setTogglingOrders] = useState(false);
 
   async function load(preserveActive = true) {
     const c = await api<Category[]>('/catalog/categories');
@@ -63,7 +67,49 @@ export default function MenuEditor() {
   useEffect(() => {
     load(false);
     loadAdicionales();
+    loadOrdersEnabled();
   }, []);
+
+  async function loadOrdersEnabled() {
+    try {
+      const sf = await api<{ ordersEnabled: boolean }>('/storefront');
+      setOrdersEnabled(sf.ordersEnabled ?? true);
+    } catch {
+      setOrdersEnabled(true);
+    }
+  }
+
+  async function toggleOrdersEnabled() {
+    if (ordersEnabled === null) return;
+    const next = !ordersEnabled;
+    if (
+      !next &&
+      !confirm(
+        'Pasar a modo informativo: los clientes verán precios pero NO podrán agregar al carrito ni notificar pedidos. ¿Continuar?',
+      )
+    ) {
+      return;
+    }
+    setTogglingOrders(true);
+    setOrdersEnabled(next); // optimistic
+    try {
+      await api('/storefront', {
+        method: 'PATCH',
+        body: JSON.stringify({ ordersEnabled: next }),
+      });
+      toast(
+        next
+          ? 'Pedidos habilitados — los clientes pueden agregar al carrito'
+          : 'Modo informativo — sin botones de pedido',
+        'success',
+      );
+    } catch (e: any) {
+      toast(e.message || 'Error', 'error');
+      setOrdersEnabled(!next); // rollback
+    } finally {
+      setTogglingOrders(false);
+    }
+  }
 
   async function createCategory(e: React.FormEvent) {
     e.preventDefault();
@@ -90,6 +136,24 @@ export default function MenuEditor() {
       toast('Categoría eliminada', 'success');
     } catch (e: any) {
       toast(e.message || 'No se pudo eliminar', 'error');
+    }
+  }
+
+  async function renameCategory(id: string, newName: string) {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    const original = cats.find((c) => c.id === id);
+    if (original?.name === trimmed) return;
+    setCats((prev) => prev.map((c) => (c.id === id ? { ...c, name: trimmed } : c))); // optimistic
+    try {
+      await api(`/catalog/categories/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name: trimmed }),
+      });
+      toast('Categoría renombrada', 'success');
+    } catch (e: any) {
+      toast(e.message || 'No se pudo renombrar', 'error');
+      load(false); // rollback desde server
     }
   }
 
@@ -183,6 +247,21 @@ export default function MenuEditor() {
           </span>
         </h1>
         <div className="flex gap-2 flex-wrap">
+          {ordersEnabled !== null && (
+            <button
+              type="button"
+              onClick={toggleOrdersEnabled}
+              disabled={togglingOrders}
+              className={`btn-ghost ${ordersEnabled ? 'text-ok' : 'text-amber-600'}`}
+              title={
+                ordersEnabled
+                  ? 'Pedidos activados — los clientes pueden agregar al carrito'
+                  : 'Modo informativo — solo precios, sin carrito'
+              }
+            >
+              {ordersEnabled ? '🛒 Pedidos: ON' : '📋 Solo informativo'}
+            </button>
+          )}
           <button className="btn-ghost" onClick={() => setShowCatForm(!showCatForm)}>
             <Icon name="plus" /> Categoría
           </button>
@@ -253,11 +332,45 @@ export default function MenuEditor() {
               >
                 <DragHandle {...dragHandleProps} />
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium text-sm truncate">{c.name}</div>
-                  <div className="text-xs text-mute">
-                    {c._count?.products ?? 0} productos
-                  </div>
+                  {editingCatId === c.id ? (
+                    <input
+                      autoFocus
+                      className="input py-1 text-sm"
+                      value={editingCatName}
+                      onChange={(e) => setEditingCatName(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      onBlur={() => {
+                        renameCategory(c.id, editingCatName);
+                        setEditingCatId(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          (e.target as HTMLInputElement).blur();
+                        } else if (e.key === 'Escape') {
+                          setEditingCatId(null);
+                        }
+                      }}
+                    />
+                  ) : (
+                    <>
+                      <div className="font-medium text-sm truncate">{c.name}</div>
+                      <div className="text-xs text-mute">
+                        {c._count?.products ?? 0} productos
+                      </div>
+                    </>
+                  )}
                 </div>
+                <button
+                  className="text-mute hover:text-brand p-1"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditingCatId(c.id);
+                    setEditingCatName(c.name);
+                  }}
+                  title="Renombrar"
+                >
+                  <Icon name="edit" size={14} />
+                </button>
                 <button
                   className="text-mute hover:text-bad p-1"
                   onClick={(e) => {
@@ -402,31 +515,54 @@ function AdicionalesModal({
   onClose: () => void;
   onChange: () => void;
 }) {
+  // editingId === null → form de creación; con id → form de edición
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', price: 0 });
   const [busy, setBusy] = useState(false);
 
-  async function add(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.name.trim()) return;
     setBusy(true);
     try {
-      await api('/catalog/adicionales', {
-        method: 'POST',
-        body: JSON.stringify(form),
-      });
+      if (editingId) {
+        await api(`/catalog/adicionales/${editingId}`, {
+          method: 'PATCH',
+          body: JSON.stringify(form),
+        });
+        toast('Adicional actualizado', 'success');
+      } else {
+        await api('/catalog/adicionales', {
+          method: 'POST',
+          body: JSON.stringify(form),
+        });
+        toast('Adicional creado', 'success');
+      }
       setForm({ name: '', price: 0 });
+      setEditingId(null);
       onChange();
     } catch (e: any) {
-      toast(e.message || 'No se pudo crear', 'error');
+      toast(e.message || 'No se pudo guardar', 'error');
     } finally {
       setBusy(false);
     }
+  }
+
+  function startEdit(a: Adicional) {
+    setEditingId(a.id);
+    setForm({ name: a.name, price: Number(a.price) });
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setForm({ name: '', price: 0 });
   }
 
   async function remove(id: string) {
     if (!confirm('¿Eliminar este adicional? Los productos que lo usan no se ven afectados.')) return;
     try {
       await api(`/catalog/adicionales/${id}`, { method: 'DELETE' });
+      if (editingId === id) cancelEdit();
       onChange();
     } catch (e: any) {
       toast(e.message || 'No se pudo eliminar', 'error');
@@ -455,7 +591,7 @@ function AdicionalesModal({
           </button>
         </div>
 
-        <form onSubmit={add} className="px-5 py-3 border-b border-line flex gap-2">
+        <form onSubmit={submit} className="px-5 py-3 border-b border-line flex gap-2">
           <input
             className="input flex-1"
             placeholder="Nombre (ej: Queso extra)"
@@ -469,9 +605,14 @@ function AdicionalesModal({
             value={form.price}
             onChange={(e) => setForm({ ...form, price: Number(e.target.value) })}
           />
-          <button className="btn-primary" disabled={busy}>
-            <Icon name="plus" />
+          <button className="btn-primary" disabled={busy} title={editingId ? 'Guardar cambios' : 'Agregar'}>
+            <Icon name={editingId ? 'check' : 'plus'} />
           </button>
+          {editingId && (
+            <button type="button" className="btn-ghost" onClick={cancelEdit} title="Cancelar edición">
+              ✕
+            </button>
+          )}
         </form>
 
         <div className="flex-1 overflow-y-auto px-5 py-2">
@@ -483,12 +624,21 @@ function AdicionalesModal({
             items.map((a) => (
               <div
                 key={a.id}
-                className="flex items-center gap-2 py-2 border-b border-line2 last:border-0"
+                className={`flex items-center gap-2 py-2 border-b border-line2 last:border-0 ${
+                  editingId === a.id ? 'bg-brand-soft/40 -mx-5 px-5' : ''
+                }`}
               >
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium truncate">{a.name}</div>
                   <div className="text-xs text-mute">{fmt(Number(a.price))}</div>
                 </div>
+                <button
+                  className="text-mute hover:text-brand p-1"
+                  onClick={() => startEdit(a)}
+                  title="Editar"
+                >
+                  <Icon name="edit" size={14} />
+                </button>
                 <button
                   className="text-mute hover:text-bad p-1"
                   onClick={() => remove(a.id)}

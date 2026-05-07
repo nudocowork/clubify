@@ -46,6 +46,7 @@ export class PublicMenuController {
       blocks: t.storefront?.blocks ?? [],
       theme: t.storefront?.theme ?? {},
       menuLayout: t.storefront?.menuLayout ?? 'CLASSIC',
+      ordersEnabled: t.storefront?.ordersEnabled ?? true,
       planName: t.plan?.name ?? null,
       locations: t.locations.map((l) => ({
         id: l.id,
