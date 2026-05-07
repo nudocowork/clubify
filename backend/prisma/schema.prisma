@@ -277,6 +277,11 @@ model Tenant {
   paymentReminderSentFor      DateTime?
   paymentFailureNoticeSentAt  DateTime?
   pausePendingNoticeSentAt    DateTime?
+  // Cuándo el dueño cerró el popup de bienvenida ("agendar sesión
+  // personalizada"). Si null, todavía no lo vio → se le muestra al
+  // entrar al panel. Para tenants que ya existían se backfilllea con
+  // createdAt en la migración.
+  welcomePopupSeenAt          DateTime?
   // Integración Grow Business (proveedor externo de SMS, conectado por super admin)
   growBusinessLocationId   String?
   growBusinessApiKey       String?

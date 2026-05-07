@@ -9,6 +9,8 @@ type Branding = {
   appLogoUrl: string | null;
   faviconUrl: string | null;
   supportWhatsapp: string | null;
+  welcomePopupImageUrl: string | null;
+  welcomePopupEnabled: boolean;
 };
 
 export default function AdminBrandingPage() {
@@ -16,6 +18,8 @@ export default function AdminBrandingPage() {
     appLogoUrl: null,
     faviconUrl: null,
     supportWhatsapp: null,
+    welcomePopupImageUrl: null,
+    welcomePopupEnabled: true,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -122,6 +126,45 @@ export default function AdminBrandingPage() {
               setB({ ...b, supportWhatsapp: e.target.value })
             }
           />
+        </div>
+      </div>
+
+      <div className="card card-pad mt-5">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="flex-1 min-w-[240px]">
+            <h2 className="text-base font-semibold m-0">
+              🎉 Popup de bienvenida (post-compra)
+            </h2>
+            <p className="text-xs text-mute mt-1 leading-relaxed">
+              Se muestra una sola vez al dueño del negocio la primera vez
+              que entra al panel después de comprar Clubify (status ACTIVE).
+              Tiene una imagen y un botón que abre WhatsApp al número de
+              soporte de arriba con un mensaje pre-armado para agendar una
+              sesión personalizada.
+            </p>
+            <label className="flex items-center gap-2 text-sm mt-3">
+              <input
+                type="checkbox"
+                checked={b.welcomePopupEnabled}
+                onChange={(e) =>
+                  setB({ ...b, welcomePopupEnabled: e.target.checked })
+                }
+              />
+              Mostrar popup a tenants nuevos
+            </label>
+            <p className="text-[11px] text-mute mt-2">
+              Tip: PNG/JPG horizontal ~800×500 px funciona bien. Sin imagen
+              configurada, el popup no aparece aunque esté activado.
+            </p>
+          </div>
+          <div className="w-full sm:w-[300px]">
+            <ImageUploader
+              value={b.welcomePopupImageUrl}
+              onChange={(url) => setB({ ...b, welcomePopupImageUrl: url })}
+              folder="branding"
+              crop={false}
+            />
+          </div>
         </div>
       </div>
 
