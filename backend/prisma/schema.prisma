@@ -305,6 +305,10 @@ model Tenant {
   infoLinks     InfoLink[]
   events        Event[]
   reviewFeedbacks ReviewFeedback[]
+  reminders        Reminder[]
+  suppliers        Supplier[]
+  frequentProducts FrequentProduct[]
+  purchaseOrders   PurchaseOrder[]
 
   @@index([status])
 }
@@ -326,6 +330,7 @@ model User {
   referralCodes  ReferralCode[]
   auditLogs      AuditLog[]
   passwordResetTokens PasswordResetToken[]
+  reminders      Reminder[] @relation("ReminderEmployee")
 
   @@index([tenantId])
   @@index([role])
@@ -986,6 +991,119 @@ model ReviewFeedback {
 
   @@index([tenantId, createdAt])
   @@index([tenantId, rating])
+}
+
+// ============================================================
+//                    ADMINISTRATIVO
+// ============================================================
+// Recordatorios recurrentes que el dueño le manda a sus empleados por
+// SMS/WhatsApp (vía Grow Business). Cron diario a las 3am scanea los
+// activos y dispara los que aplican según recurrencia + hora local.
+enum ReminderRecurrence {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+model Reminder {
+  id           String              @id @default(uuid())
+  tenantId     String
+  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  // Empleado destinatario. Si el User se elimina, el recordatorio queda
+  // huérfano (employeeId = null) — se ignora en el cron y aparece como
+  // "Empleado eliminado" en la UI para que el dueño lo borre/reasigne.
+  employeeId   String?
+  employee     User?               @relation("ReminderEmployee", fields: [employeeId], references: [id], onDelete: SetNull)
+  // Snapshot del nombre+phone al crear, por si el User cambia/se elimina
+  employeeName String
+  employeePhone String
+  recurrence   ReminderRecurrence
+  // Para WEEKLY: 0=Domingo … 6=Sábado. Para MONTHLY: 1-28.
+  // Para DAILY: ignorado.
+  dayOfWeek    Int?
+  dayOfMonth   Int?
+  // Hora local (timezone del tenant) en formato "HH:MM" 24h.
+  timeOfDay    String              @default("09:00")
+  message      String              @db.Text
+  isActive     Boolean             @default(true)
+  lastSentAt   DateTime?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@index([tenantId, isActive])
+}
+
+// Proveedor para el módulo de Pedidos. El dueño los gestiona desde
+// /app/admin/orders/suppliers. Phone es obligatorio (necesario para WA).
+model Supplier {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  phone     String
+  email     String?
+  notes     String?  @db.Text
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  frequentProducts FrequentProduct[]
+
+  @@index([tenantId, isActive])
+}
+
+// "Productos frecuentes" — catálogo del dueño para armar pedidos
+// rápido sin re-tipear cantidad/proveedor cada vez. NO confundir con
+// Product (catálogo del MENÚ público); estos son insumos internos.
+model FrequentProduct {
+  id           String   @id @default(uuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name         String
+  defaultQty   Decimal  @default(1) @db.Decimal(10, 2)
+  defaultUnit  String   @default("kg")
+  // Lunes-Domingo del despacho recurrente. Si null, se elige al armar pedido.
+  dispatchDay  String?
+  supplierId   String?
+  supplier     Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  notes        String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([tenantId, supplierId])
+}
+
+// Snapshot de cada "Generar pedido" que el dueño dispara. Lo guardamos
+// para historial + métricas (top proveedores por gasto). Los precios
+// no se manejan acá — solo cantidades; gasto se traerá del módulo
+// Compras cuando exista (por ahora KPI = count).
+model PurchaseOrder {
+  id          String              @id @default(uuid())
+  tenantId    String
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  // Quién lo generó
+  createdById String?
+  createdAt   DateTime            @default(now())
+
+  items       PurchaseOrderItem[]
+
+  @@index([tenantId, createdAt])
+}
+
+model PurchaseOrderItem {
+  id          String        @id @default(uuid())
+  orderId     String
+  order       PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productName String
+  qty         Decimal       @db.Decimal(10, 2)
+  unit        String
+  supplierId  String?
+  supplierName String?      // snapshot si el Supplier se borra
+  supplierPhone String?
+  dispatchDay String?
+  notes       String?       @db.Text
+
+  @@index([orderId])
+  @@index([supplierId])
 }
 
 model AuditLog {

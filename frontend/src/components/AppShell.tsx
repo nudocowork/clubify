@@ -245,6 +245,13 @@ export default function AppShell({
               ],
             },
             {
+              section: 'Administrativo',
+              items: [
+                { href: '/app/admin/reminders', label: 'Recordatorios', icon: 'clipboard' },
+                { href: '/app/admin/orders', label: 'Pedidos a proveedores', icon: 'truck' },
+              ],
+            },
+            {
               section: 'Cuenta',
               items: [
                 { href: '/app/staff', label: 'Empleados', icon: 'users', module: 'staff' },
