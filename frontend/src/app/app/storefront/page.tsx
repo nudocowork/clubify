@@ -32,6 +32,9 @@ type Storefront = {
   isPublished: boolean;
   menuLayout: MenuLayout;
   customDomain: string | null;
+  popupEnabled?: boolean;
+  popupImageUrl?: string | null;
+  popupCardId?: string | null;
 };
 
 const MENU_LAYOUTS: { id: MenuLayout; emoji: string; label: string; sub: string }[] = [
@@ -88,6 +91,9 @@ export default function StorefrontEditor() {
           isPublished: sf.isPublished,
           menuLayout: sf.menuLayout,
           customDomain: sf.customDomain || null,
+          popupEnabled: sf.popupEnabled ?? false,
+          popupImageUrl: sf.popupImageUrl ?? null,
+          popupCardId: sf.popupCardId ?? null,
         }),
       });
       if (logoDirty) {
@@ -253,6 +259,19 @@ export default function StorefrontEditor() {
               );
             })}
           </div>
+
+          <h3 className="text-base font-semibold mt-6 mb-3">📣 Configura tu popup</h3>
+          <p className="text-mute text-xs mb-3 leading-relaxed">
+            Aparece a los 10 segundos de que un cliente abre tu menú público.
+            Si hace click en la imagen, lo llevamos a inscribirse en la
+            tarjeta seleccionada. Tiene una × en la esquina para cerrarlo.
+          </p>
+          <PopupConfig
+            enabled={sf.popupEnabled ?? false}
+            imageUrl={sf.popupImageUrl ?? null}
+            cardId={sf.popupCardId ?? null}
+            onChange={(patch) => setSf({ ...sf, ...patch })}
+          />
 
           <h3 className="text-base font-semibold mt-6 mb-4">Bloques del sitio</h3>
           <p className="text-mute text-xs mb-3">
@@ -620,6 +639,90 @@ function SimPreview({
 
       <div className="mt-4 text-center text-mute text-[10px] uppercase tracking-wider">
         Simulación · {blocksCount} bloques · cambia a "En vivo"
+      </div>
+    </div>
+  );
+}
+
+// =============================================================
+//                Popup config (imagen + tarjeta)
+// =============================================================
+
+function PopupConfig({
+  enabled,
+  imageUrl,
+  cardId,
+  onChange,
+}: {
+  enabled: boolean;
+  imageUrl: string | null;
+  cardId: string | null;
+  onChange: (patch: {
+    popupEnabled?: boolean;
+    popupImageUrl?: string | null;
+    popupCardId?: string | null;
+  }) => void;
+}) {
+  const [cards, setCards] = useState<{ id: string; name: string; isActive: boolean }[]>([]);
+
+  useEffect(() => {
+    api<any[]>('/cards')
+      .then((arr) =>
+        setCards(
+          arr
+            .filter((c) => c.name && c.name.trim().length > 0)
+            .map((c) => ({ id: c.id, name: c.name, isActive: !!c.isActive })),
+        ),
+      )
+      .catch(() => setCards([]));
+  }, []);
+
+  return (
+    <div className="space-y-3">
+      <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+        <input
+          type="checkbox"
+          className="w-4 h-4"
+          checked={enabled}
+          onChange={(e) => onChange({ popupEnabled: e.target.checked })}
+        />
+        Activar popup en el menú público
+      </label>
+
+      <div className="grid grid-cols-1 md:grid-cols-[1fr_220px] gap-4">
+        <div>
+          <label className="label">Tarjeta de fidelización</label>
+          <select
+            className="input"
+            value={cardId ?? ''}
+            onChange={(e) => onChange({ popupCardId: e.target.value || null })}
+            disabled={!enabled}
+          >
+            <option value="">— Sin tarjeta (solo informativo) —</option>
+            {cards.map((c) => (
+              <option key={c.id} value={c.id} disabled={!c.isActive}>
+                {c.name} {!c.isActive && '· pausada'}
+              </option>
+            ))}
+          </select>
+          <p className="text-[11px] text-mute mt-1.5 leading-relaxed">
+            Click en la imagen del popup → lleva al cliente a inscribirse
+            en esta tarjeta. Si dejas vacío, la imagen no es clickeable.
+          </p>
+        </div>
+
+        <div>
+          <label className="label">Imagen del popup</label>
+          <ImageUploader
+            value={imageUrl}
+            onChange={(url) => onChange({ popupImageUrl: url })}
+            folder="storefront-popup"
+            crop={false}
+          />
+          <p className="text-[11px] text-mute mt-1.5">
+            Vertical funciona mejor (~600×800).
+          </p>
+        </div>
       </div>
     </div>
   );

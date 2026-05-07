@@ -10,6 +10,9 @@ export type StorefrontDto = {
   blocks?: any[];
   isPublished?: boolean;
   ordersEnabled?: boolean;
+  popupEnabled?: boolean;
+  popupImageUrl?: string | null;
+  popupCardId?: string | null;
   menuLayout?: MenuLayout;
   customDomain?: string | null;
 };
@@ -69,6 +72,9 @@ export class StorefrontService {
         blocks: dto.blocks ?? undefined,
         isPublished: dto.isPublished ?? undefined,
         ordersEnabled: dto.ordersEnabled ?? undefined,
+        popupEnabled: dto.popupEnabled ?? undefined,
+        popupImageUrl: dto.popupImageUrl !== undefined ? dto.popupImageUrl : undefined,
+        popupCardId: dto.popupCardId !== undefined ? dto.popupCardId : undefined,
         menuLayout: dto.menuLayout ?? undefined,
         customDomain: dto.customDomain === undefined ? undefined : customDomain,
       },

@@ -418,6 +418,7 @@ model Card {
 
   passes        Pass[]
   notifications Notification[]
+  popupForStorefronts Storefront[] @relation("StorefrontPopupCard")
 
   @@index([tenantId])
 }
@@ -853,6 +854,13 @@ model Storefront {
   // sin botones "Agregar al carrito" ni dock de carrito ni "Notificar
   // pedido". Útil para negocios que solo quieren mostrar precios.
   ordersEnabled Boolean    @default(true)
+  // Popup que aparece a los 10s de abrir el menú público. Si tiene imagen
+  // + está enabled + popupCardId, hace click en la imagen y lleva al
+  // cliente a /c/{popupCardId} para inscribirse a la tarjeta.
+  popupEnabled    Boolean   @default(false)
+  popupImageUrl   String?
+  popupCardId     String?
+  popupCard       Card?     @relation("StorefrontPopupCard", fields: [popupCardId], references: [id], onDelete: SetNull)
   isPublished   Boolean    @default(true)
   createdAt     DateTime   @default(now())
 }

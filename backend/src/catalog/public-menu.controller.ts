@@ -47,6 +47,13 @@ export class PublicMenuController {
       theme: t.storefront?.theme ?? {},
       menuLayout: t.storefront?.menuLayout ?? 'CLASSIC',
       ordersEnabled: t.storefront?.ordersEnabled ?? true,
+      popup:
+        t.storefront?.popupEnabled && t.storefront?.popupImageUrl
+          ? {
+              imageUrl: t.storefront.popupImageUrl,
+              cardId: t.storefront.popupCardId ?? null,
+            }
+          : null,
       planName: t.plan?.name ?? null,
       locations: t.locations.map((l) => ({
         id: l.id,

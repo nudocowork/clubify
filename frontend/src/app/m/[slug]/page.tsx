@@ -32,6 +32,7 @@ type Storefront = {
   heroImageUrl: string | null;
   menuLayout?: MenuLayout;
   ordersEnabled?: boolean;
+  popup?: { imageUrl: string; cardId: string | null } | null;
   planName?: string | null;
   promotions: any[];
 };
@@ -398,6 +399,9 @@ export default function StorefrontPublic() {
           onClose={() => setShowCheckout(false)}
         />
       )}
+
+      {/* Popup de inscripción a tarjeta (10s después de cargar) */}
+      {s.popup && <StorefrontPopup popup={s.popup} slug={slug} />}
 
       {/* Marca Clubify — siempre visible, no removible */}
       <ClubifyBadge />
@@ -1549,5 +1553,70 @@ function LayoutCompact({ menu, primary, currency, onPick }: LP) {
         </section>
       ))}
     </>
+  );
+}
+
+// =====================================================
+// Popup de inscripción a tarjeta de fidelización
+// =====================================================
+//
+// Aparece a los 10s de cargar el menú. Se muestra una sola vez por
+// sesión (localStorage por slug) — no molesta al cliente que lo cierra.
+// Click en la imagen → /c/{cardId} (página de inscripción).
+// X para cerrar y seguir viendo el menú.
+function StorefrontPopup({
+  popup,
+  slug,
+}: {
+  popup: { imageUrl: string; cardId: string | null };
+  slug: string;
+}) {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const key = `clubify:popup-shown:${slug}`;
+    if (sessionStorage.getItem(key)) return;
+    const t = window.setTimeout(() => {
+      setOpen(true);
+      sessionStorage.setItem(key, '1');
+    }, 10_000);
+    return () => window.clearTimeout(t);
+  }, [slug]);
+
+  if (!open) return null;
+
+  const Body = popup.cardId ? 'a' : 'div';
+  const props: any = popup.cardId ? { href: `/c/${popup.cardId}` } : {};
+
+  return (
+    <div
+      className="fixed inset-0 z-[55] bg-ink/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200"
+      onClick={() => setOpen(false)}
+    >
+      <div
+        className="relative max-w-sm w-full"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={() => setOpen(false)}
+          aria-label="Cerrar"
+          className="absolute -top-3 -right-3 z-10 w-9 h-9 rounded-full bg-white text-ink flex items-center justify-center text-xl shadow-md hover:bg-bg2"
+        >
+          ×
+        </button>
+        <Body
+          {...props}
+          className="block rounded-2xl overflow-hidden shadow-2xl bg-white"
+        >
+          <img
+            src={popup.imageUrl}
+            alt=""
+            className="w-full h-auto block"
+            draggable={false}
+          />
+        </Body>
+      </div>
+    </div>
   );
 }
