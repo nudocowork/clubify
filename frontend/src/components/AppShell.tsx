@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, clearSession, getUser, getImpersonationBackup, stopImpersonation } from '@/lib/api';
 import { Icon } from './Icon';
 import { NotificationBell } from './NotificationBell';
@@ -75,6 +75,10 @@ export default function AppShell({
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
     new Set(),
   );
+  // Si el usuario ya tocó algún toggle, respetamos su preferencia. Si no,
+  // por default todas las secciones quedan colapsadas (la activa se
+  // auto-expande igual gracias al hasActive en el render).
+  const [hasUserPref, setHasUserPref] = useState(false);
   const isPro = planName === 'Pro';
 
   // Cargar/persistir preferencia de secciones colapsadas
@@ -84,12 +88,38 @@ export default function AppShell({
       const raw = localStorage.getItem('clubify:nav:collapsed');
       if (raw) {
         const arr = JSON.parse(raw);
-        if (Array.isArray(arr)) setCollapsedSections(new Set(arr));
+        if (Array.isArray(arr)) {
+          setCollapsedSections(new Set(arr));
+          setHasUserPref(true);
+        }
       }
     } catch {}
   }, []);
 
+  // Lista de los nombres de sección visibles actualmente — la usa
+  // toggleSection cuando es la primera vez que el user toca un toggle
+  // (estado default: todas colapsadas) para invertir la semántica del
+  // set sin tener que recalcular `groups` desde el closure.
+  const sectionNamesRef = useRef<string[]>([]);
+
   function toggleSection(name: string) {
+    if (!hasUserPref) {
+      // Primer toggle — el user quiere expandir esta sección. Como todas
+      // estaban colapsadas por default, llenamos el set con TODAS las
+      // secciones EXCEPTO la clickeada (que queda expandida).
+      const next = new Set(
+        sectionNamesRef.current.filter((n) => n && n !== name),
+      );
+      setCollapsedSections(next);
+      setHasUserPref(true);
+      try {
+        localStorage.setItem(
+          'clubify:nav:collapsed',
+          JSON.stringify(Array.from(next)),
+        );
+      } catch {}
+      return;
+    }
     setCollapsedSections((prev) => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name);
@@ -303,11 +333,21 @@ export default function AppShell({
       )}
 
       <div className="flex-1 overflow-y-auto -mx-1 px-1">
+        {(() => {
+          // Mantenemos una lista actualizada de nombres de sección para
+          // que toggleSection sepa cuáles colapsar al primer click.
+          sectionNamesRef.current = groups.map((g) => g.section).filter(Boolean);
+          return null;
+        })()}
         {groups.map((g, gi) => {
           // Si el path activo está dentro de esta sección, fuerza expand para
-          // que el usuario vea dónde está parado (aunque la haya cerrado antes).
+          // que el usuario vea dónde está parado.
           const hasActive = g.items.some((n) => isHrefActive(n.href, pathname));
-          const collapsed = !hasActive && collapsedSections.has(g.section);
+          // Default cerrado si el user nunca tocó nada (hasUserPref=false).
+          // Si ya tiene preferencia, respetamos el set guardado.
+          const collapsed =
+            !hasActive &&
+            (hasUserPref ? collapsedSections.has(g.section) : true);
           // Sección sin nombre = items principales sin header colapsable.
           const noHeader = !g.section;
 
