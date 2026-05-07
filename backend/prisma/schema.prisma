@@ -282,6 +282,13 @@ model Tenant {
   // entrar al panel. Para tenants que ya existían se backfilllea con
   // createdAt en la migración.
   welcomePopupSeenAt          DateTime?
+  // Onboarding chain (después del welcome popup):
+  // - businessAddressOnboardedAt: marcó el paso de "dirección del negocio"
+  //   (creó una Location o le dio Saltar)
+  // - businessCategoryOnboardedAt: marcó el paso de "categoría del rubro"
+  //   (eligió una de BUSINESS_CATEGORIES o le dio Saltar)
+  businessAddressOnboardedAt  DateTime?
+  businessCategoryOnboardedAt DateTime?
   // Integración Grow Business (proveedor externo de SMS, conectado por super admin)
   growBusinessLocationId   String?
   growBusinessApiKey       String?
