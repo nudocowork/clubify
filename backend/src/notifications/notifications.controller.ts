@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Post, Query } from '@nestjs/common';
-import { IsObject, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsISO8601, IsObject, IsOptional, IsString, IsUUID } from 'class-validator';
 import { NotificationsService } from './notifications.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -9,6 +9,7 @@ class NotificationBody {
   @IsString() title!: string;
   @IsString() body!: string;
   @IsOptional() @IsObject() segment?: Record<string, any>;
+  @IsOptional() @IsISO8601() scheduledAt?: string;
 }
 
 @Controller('notifications')

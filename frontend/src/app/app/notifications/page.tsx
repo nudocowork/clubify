@@ -115,6 +115,14 @@ export default function NotificationsPage() {
   const [activeGroup, setActiveGroup] = useState<TemplateGroup['id']>(
     'special_days',
   );
+  const [brandName, setBrandName] = useState<string>('Tu negocio');
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  // Default: 1h en el futuro, redondeado al próximo cuarto de hora
+  const [scheduledAt, setScheduledAt] = useState<string>(() => {
+    const d = new Date(Date.now() + 60 * 60 * 1000);
+    d.setMinutes(Math.ceil(d.getMinutes() / 15) * 15, 0, 0);
+    return localISO(d);
+  });
 
   function appendEmoji(field: 'title' | 'body', emoji: string) {
     setForm((f) => ({ ...f, [field]: (f[field] || '') + emoji }));
@@ -122,9 +130,14 @@ export default function NotificationsPage() {
 
   async function load() {
     try {
-      const [h, c] = await Promise.all([api('/notifications'), api('/cards')]);
+      const [h, c, me] = await Promise.all([
+        api('/notifications'),
+        api('/cards'),
+        api('/tenants/me').catch(() => null),
+      ]);
       setHistory(h as any[]);
       setCards(c as any[]);
+      if ((me as any)?.brandName) setBrandName((me as any).brandName);
     } catch (e: any) {
       toast(e.message || 'Error cargando notificaciones', 'error');
     }
@@ -137,16 +150,36 @@ export default function NotificationsPage() {
     e.preventDefault();
     setSending(true);
     try {
+      const payload: any = {
+        ...form,
+        cardId: form.cardId || undefined,
+      };
+      if (scheduleEnabled) {
+        const when = new Date(scheduledAt);
+        if (!Number.isFinite(when.getTime())) {
+          toast('Fecha inválida', 'error');
+          setSending(false);
+          return;
+        }
+        if (when.getTime() <= Date.now()) {
+          toast('La fecha debe estar en el futuro', 'error');
+          setSending(false);
+          return;
+        }
+        payload.scheduledAt = when.toISOString();
+      }
       await api('/notifications', {
         method: 'POST',
-        body: JSON.stringify({
-          ...form,
-          cardId: form.cardId || undefined,
-        }),
+        body: JSON.stringify(payload),
       });
       setForm({ cardId: '', title: '', body: '' });
       load();
-      toast('Notificación enviada', 'success');
+      toast(
+        scheduleEnabled
+          ? `Notificación programada para ${new Date(scheduledAt).toLocaleString('es-CO')}`
+          : 'Notificación enviada',
+        'success',
+      );
     } catch (e: any) {
       toast(e.message || 'No se pudo enviar', 'error');
     } finally {
@@ -177,7 +210,7 @@ export default function NotificationsPage() {
         </Link>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px_1.2fr] gap-5">
         {/* Composer */}
         <form onSubmit={send} className="card card-pad self-start">
           <h2 className="text-base font-semibold m-0">Nueva notificación</h2>
@@ -236,13 +269,60 @@ export default function NotificationsPage() {
             </div>
           </div>
 
+          {/* Calendario / programación */}
+          <div className="mt-4 border-t border-line pt-3">
+            <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+              <input
+                type="checkbox"
+                className="w-4 h-4"
+                checked={scheduleEnabled}
+                onChange={(e) => setScheduleEnabled(e.target.checked)}
+              />
+              📅 Programar para una fecha específica
+            </label>
+            {scheduleEnabled && (
+              <div className="mt-2.5">
+                <input
+                  type="datetime-local"
+                  className="input"
+                  value={scheduledAt}
+                  min={localISO(new Date())}
+                  onChange={(e) => setScheduledAt(e.target.value)}
+                />
+                <p className="text-[11px] text-mute mt-1.5 leading-relaxed">
+                  Se enviará automáticamente en la fecha y hora elegidas
+                  (zona horaria del navegador). Mientras tanto se puede
+                  editar desde el historial — TODO.
+                </p>
+              </div>
+            )}
+          </div>
+
           <button
             className="btn-primary mt-4 w-full justify-center"
             disabled={sending}
           >
-            <Icon name="send" /> {sending ? 'Enviando…' : 'Enviar'}
+            <Icon name="send" />{' '}
+            {sending
+              ? 'Enviando…'
+              : scheduleEnabled
+              ? 'Programar'
+              : 'Enviar'}
           </button>
         </form>
+
+        {/* Live preview iPhone */}
+        <div className="self-start">
+          <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-2.5 text-center">
+            Vista previa en iPhone
+          </div>
+          <PushPreview
+            brandName={brandName}
+            title={form.title}
+            body={form.body}
+            scheduledAt={scheduleEnabled ? scheduledAt : null}
+          />
+        </div>
 
         {/* Plantillas */}
         <div className="card card-pad">
@@ -385,4 +465,77 @@ export default function NotificationsPage() {
       </details>
     </div>
   );
+}
+
+// =============================================================
+//                    Live preview iPhone
+// =============================================================
+
+function PushPreview({
+  brandName,
+  title,
+  body,
+  scheduledAt,
+}: {
+  brandName: string;
+  title: string;
+  body: string;
+  scheduledAt: string | null;
+}) {
+  const when = scheduledAt
+    ? formatRelative(new Date(scheduledAt))
+    : 'ahora';
+  const showTitle = title.trim() || 'Tu título aparece aquí';
+  const showBody = body.trim() || 'Tu mensaje aparece aquí — escribe algo en el composer y mira la vista previa actualizarse en vivo.';
+
+  return (
+    <div
+      className="mx-auto rounded-[40px] border-[10px] border-ink shadow-2xl bg-bg2 relative overflow-hidden"
+      style={{ width: 240, height: 480 }}
+    >
+      {/* Notch */}
+      <div className="absolute left-1/2 -translate-x-1/2 top-2 w-20 h-5 bg-ink rounded-full z-10" />
+      {/* Screen */}
+      <div className="absolute inset-0 p-3 pt-9 flex flex-col">
+        {/* Notification card */}
+        <div className="bg-ink/85 backdrop-blur rounded-2xl p-3 text-white shadow-lg">
+          <div className="flex items-center gap-2">
+            <div className="w-5 h-5 rounded bg-white/30 shrink-0" />
+            <div className="text-[10px] uppercase tracking-wider font-semibold flex-1 truncate opacity-90">
+              {brandName}
+            </div>
+            <div className="text-[10px] opacity-70">{when}</div>
+          </div>
+          <div className="text-[12px] font-semibold mt-1.5 leading-snug line-clamp-2">
+            {showTitle}
+          </div>
+          <div className="text-[11px] mt-0.5 leading-snug opacity-90 line-clamp-3">
+            {showBody}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =============================================================
+//                          Helpers
+// =============================================================
+
+/** Formato YYYY-MM-DDTHH:MM en zona local — para input[type=datetime-local]. */
+function localISO(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function formatRelative(d: Date): string {
+  const ms = d.getTime() - Date.now();
+  const m = Math.round(ms / 60_000);
+  if (m < 1) return 'ahora';
+  if (m < 60) return `en ${m} min`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `en ${h} h`;
+  const days = Math.round(h / 24);
+  if (days < 7) return `en ${days} d`;
+  return d.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' });
 }

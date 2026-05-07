@@ -55,6 +55,7 @@ enum StampAction {
 
 enum NotificationTrigger {
   MANUAL
+  SCHEDULED
   AUTOMATION
   GEO
 }
@@ -516,11 +517,15 @@ model Notification {
   title        String
   body         String
   triggerType  NotificationTrigger @default(MANUAL)
+  // Si scheduledAt es null → envío inmediato. Si tiene fecha futura → el
+  // cron lo despacha cuando llega. sentAt queda null hasta el envío real.
+  scheduledAt  DateTime?
   sentAt       DateTime?
   stats        Json                @default("{}")
   createdAt    DateTime            @default(now())
 
   @@index([tenantId, sentAt])
+  @@index([scheduledAt])
 }
 
 // ============================================================
