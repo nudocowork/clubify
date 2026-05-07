@@ -4,6 +4,13 @@ import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 
+type Suggestion = {
+  display_name: string;
+  lat: string;
+  lon: string;
+  type: string;
+};
+
 export default function LocationsPage() {
   const [list, setList] = useState<any[]>([]);
   const [form, setForm] = useState({
@@ -14,7 +21,50 @@ export default function LocationsPage() {
     radiusMeters: 300,
     walletRelevantText: '',
   });
+  const [picked, setPicked] = useState(false); // true cuando hay un punto válido elegido
+  const [query, setQuery] = useState('');
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Debounced Nominatim search
+  useEffect(() => {
+    if (query.length < 3) {
+      setSuggestions([]);
+      return;
+    }
+    const id = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const r = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&q=${encodeURIComponent(query)}`,
+        );
+        setSuggestions((await r.json()) as Suggestion[]);
+      } catch {
+        setSuggestions([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 600);
+    return () => clearTimeout(id);
+  }, [query]);
+
+  function pickSuggestion(s: Suggestion) {
+    const lat = Number(s.lat);
+    const lng = Number(s.lon);
+    setForm((f) => ({
+      ...f,
+      latitude: lat,
+      longitude: lng,
+      address: s.display_name,
+      // Auto-fill name si está vacío
+      name: f.name || s.display_name.split(',')[0].trim(),
+    }));
+    setPicked(true);
+    setSuggestions([]);
+    setQuery('');
+  }
 
   async function load() {
     try {
@@ -30,6 +80,10 @@ export default function LocationsPage() {
   async function create(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
+    if (!picked) {
+      setErr('Buscá tu negocio en el mapa primero');
+      return;
+    }
     try {
       await api('/locations', { method: 'POST', body: JSON.stringify(form) });
       setForm({
@@ -40,6 +94,7 @@ export default function LocationsPage() {
         radiusMeters: 300,
         walletRelevantText: '',
       });
+      setPicked(false);
       load();
       toast('Ubicación agregada', 'success');
     } catch (e: any) {
@@ -69,49 +124,111 @@ export default function LocationsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <form onSubmit={create} className="card card-pad">
           <h2 className="text-base font-semibold m-0">Nueva ubicación</h2>
+
+          {/* 🔍 Buscador estilo Google Maps */}
           <div className="mt-4">
-            <label className="label">Nombre</label>
-            <input
-              className="input"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              required
-            />
-          </div>
-          <div className="mt-3">
-            <label className="label">Dirección</label>
-            <input
-              className="input"
-              value={form.address}
-              onChange={(e) => setForm({ ...form, address: e.target.value })}
-            />
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-3">
-            <div>
-              <label className="label">Latitud</label>
+            <label className="label">🔍 Buscar tu negocio en el mapa</label>
+            <div className="relative">
               <input
-                type="number"
-                step="0.000001"
-                className="input"
-                value={form.latitude}
-                onChange={(e) =>
-                  setForm({ ...form, latitude: Number(e.target.value) })
-                }
+                className="input w-full"
+                placeholder="Ej: Café del Día, Cra 7 #45-12 Bogotá"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
               />
+              {searching && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-mute text-xs">
+                  buscando…
+                </div>
+              )}
+              {suggestions.length > 0 && (
+                <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-line rounded-lg shadow-lg max-h-64 overflow-y-auto">
+                  {suggestions.map((s, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => pickSuggestion(s)}
+                      className="block w-full text-left px-3 py-2.5 hover:bg-bg2 border-b border-line2 last:border-0 text-sm"
+                    >
+                      📍 {s.display_name}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-            <div>
-              <label className="label">Longitud</label>
-              <input
-                type="number"
-                step="0.000001"
-                className="input"
-                value={form.longitude}
-                onChange={(e) =>
-                  setForm({ ...form, longitude: Number(e.target.value) })
-                }
-              />
-            </div>
+            <p className="text-[11px] text-mute mt-1.5">
+              Powered by OpenStreetMap. Empieza a tipear el nombre o dirección.
+            </p>
           </div>
+
+          {picked && (
+            <>
+              {/* Mapa preview */}
+              <div className="mt-3">
+                <iframe
+                  title="Mapa"
+                  src={`https://www.openstreetmap.org/export/embed.html?bbox=${form.longitude - 0.005},${form.latitude - 0.003},${form.longitude + 0.005},${form.latitude + 0.003}&layer=mapnik&marker=${form.latitude},${form.longitude}`}
+                  className="w-full h-56 rounded-input border border-line"
+                  loading="lazy"
+                />
+              </div>
+
+              <div className="mt-3">
+                <label className="label">Nombre del local</label>
+                <input
+                  className="input"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="mt-3">
+                <label className="label">Dirección</label>
+                <input
+                  className="input"
+                  value={form.address}
+                  onChange={(e) => setForm({ ...form, address: e.target.value })}
+                />
+              </div>
+
+              {/* Lat/lng manual (avanzado, colapsado) */}
+              <button
+                type="button"
+                onClick={() => setShowAdvanced((v) => !v)}
+                className="text-[11px] text-mute hover:text-ink mt-3"
+              >
+                {showAdvanced ? '▲' : '▼'} Coordenadas exactas (avanzado)
+              </button>
+              {showAdvanced && (
+                <div className="mt-2 grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="label">Latitud</label>
+                    <input
+                      type="number"
+                      step="0.000001"
+                      className="input"
+                      value={form.latitude}
+                      onChange={(e) =>
+                        setForm({ ...form, latitude: Number(e.target.value) })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Longitud</label>
+                    <input
+                      type="number"
+                      step="0.000001"
+                      className="input"
+                      value={form.longitude}
+                      onChange={(e) =>
+                        setForm({ ...form, longitude: Number(e.target.value) })
+                      }
+                    />
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
           <div className="mt-3">
             <label className="label">Radio de geolocalización</label>
             <select
@@ -153,7 +270,11 @@ export default function LocationsPage() {
               {err}
             </div>
           )}
-          <button className="btn-primary mt-4 w-full justify-center">
+          <button
+            className="btn-primary mt-4 w-full justify-center"
+            disabled={!picked}
+            title={!picked ? 'Buscá tu negocio primero' : ''}
+          >
             <Icon name="plus" /> Agregar ubicación
           </button>
         </form>
