@@ -49,6 +49,7 @@ export default function NewCardWizard() {
   const [form, setForm] = useState(FROM_SCRATCH_DEFAULTS);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [confirmActivate, setConfirmActivate] = useState(false);
 
   // Cargar categoría del tenant para filtrar plantillas relevantes
   useEffect(() => {
@@ -87,9 +88,19 @@ export default function NewCardWizard() {
       router.push(`/app/cards/${created.id}`);
     } catch (e: any) {
       setErr(e.message);
+      setConfirmActivate(false); // si falla, cerrar modal para mostrar el error
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function attemptSubmit() {
+    if (!form.name.trim()) {
+      setErr('Falta el nombre de la tarjeta');
+      return;
+    }
+    setErr(null);
+    setConfirmActivate(true);
   }
 
   const cardName = form.name.trim() || 'Sin nombre';
@@ -106,8 +117,16 @@ export default function NewCardWizard() {
         onBack={() => setStep((s) => (s === 3 ? 2 : 1) as Step)}
         onNext={() => setStep((s) => (s === 1 ? 2 : 3) as Step)}
         onCancel={() => router.push('/app/cards')}
-        onSubmit={submit}
+        onSubmit={attemptSubmit}
       />
+
+      {confirmActivate && (
+        <ActivateConfirmModal
+          submitting={submitting}
+          onCancel={() => setConfirmActivate(false)}
+          onConfirm={submit}
+        />
+      )}
 
       {step === 1 && (
         <Step1Templates
@@ -677,6 +696,81 @@ function Step3Configure({
             <strong>Tip:</strong> usa los colores de tu marca para que tus clientes
             te reconozcan al primer vistazo en su Wallet.
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// Modal de confirmación al activar la tarjeta
+// ═══════════════════════════════════════════════════════════
+
+function ActivateConfirmModal({
+  submitting,
+  onCancel,
+  onConfirm,
+}: {
+  submitting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const lockedItems = [
+    { icon: '📱', label: 'Tipo de tarjeta' },
+    { icon: 'ℹ️', label: 'Términos del programa de fidelización' },
+    { icon: '🕓', label: 'Fecha de vencimiento de la tarjeta' },
+    { icon: '🧾', label: 'Detalles del formulario de emisión' },
+  ];
+  return (
+    <div
+      className="fixed inset-0 z-[60] bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onCancel}
+    >
+      <div
+        className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-6 relative"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={onCancel}
+          aria-label="Cerrar"
+          className="absolute top-4 right-4 text-mute hover:text-ink text-xl"
+        >
+          ×
+        </button>
+        <h2 className="text-xl font-bold m-0">Activar tarjeta</h2>
+        <p className="text-sm text-mute mt-1.5">
+          Después de la activación, no puedes editar algunas configuraciones de la tarjeta.
+        </p>
+
+        <div className="mt-5 space-y-2">
+          {lockedItems.map((item) => (
+            <div
+              key={item.label}
+              className="flex items-center gap-3 px-4 py-3 rounded-xl border border-line"
+            >
+              <span className="text-lg shrink-0" aria-hidden>{item.icon}</span>
+              <span className="text-sm">{item.label}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-3 mt-6">
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={submitting}
+            className="px-5 py-2.5 rounded-xl bg-ink text-white font-semibold hover:bg-ink/90 transition disabled:opacity-50"
+          >
+            {submitting ? 'Activando…' : 'Activar'}
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={submitting}
+            className="px-5 py-2.5 rounded-xl border border-line text-ink font-semibold hover:bg-bg2 transition"
+          >
+            Cancelar
+          </button>
         </div>
       </div>
     </div>
