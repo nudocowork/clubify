@@ -103,6 +103,32 @@ export default function CardDetail() {
     [allPasses, id],
   );
 
+  const [passSearch, setPassSearch] = useState('');
+  const [stampingPassId, setStampingPassId] = useState<string | null>(null);
+  const filteredPasses = useMemo(() => {
+    const q = passSearch.trim().toLowerCase();
+    if (!q) return passesOfCard;
+    return passesOfCard.filter((p) =>
+      p.customer.fullName.toLowerCase().includes(q),
+    );
+  }, [passesOfCard, passSearch]);
+
+  async function changeStamps(passId: string, action: 'STAMP' | 'REFUND', amount = 1) {
+    setStampingPassId(passId);
+    try {
+      await api('/stamps', {
+        method: 'POST',
+        body: JSON.stringify({ passId, action, amount }),
+      });
+      toast(action === 'STAMP' ? '+1 sello' : '−1 sello', 'success');
+      load();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo actualizar', 'error');
+    } finally {
+      setStampingPassId(null);
+    }
+  }
+
   const stats = useMemo(() => {
     const total = passesOfCard.length;
     const active = passesOfCard.filter((p) => p.status === 'ACTIVE').length;
@@ -237,49 +263,90 @@ export default function CardDetail() {
             </div>
           )}
 
-          {/* Pases recientes */}
+          {/* Pases recientes — con buscador y +/- sellos */}
           <div className="card card-pad">
             <div className="font-semibold mb-2 text-sm">
-              Pases recientes ({passesOfCard.length})
+              Pases ({passesOfCard.length})
             </div>
+            {passesOfCard.length > 0 && (
+              <div className="flex items-center gap-2 bg-white border border-line rounded-pill px-3 py-1.5 mb-2.5">
+                <Icon name="search" size={14} className="text-mute" />
+                <input
+                  className="border-0 outline-none text-sm flex-1 bg-transparent"
+                  placeholder="Buscar cliente…"
+                  value={passSearch}
+                  onChange={(e) => setPassSearch(e.target.value)}
+                />
+              </div>
+            )}
             {passesOfCard.length === 0 ? (
               <div className="text-xs text-mute italic py-3 text-center">
                 Aún no se ha emitido ninguno.
               </div>
             ) : (
-              <div className="space-y-1.5 max-h-64 overflow-auto">
-                {passesOfCard.slice(0, 12).map((p) => (
-                  <Link
-                    key={p.id}
-                    href={`/app/customers/${p.customer.id}`}
-                    className="flex items-center justify-between text-sm py-1.5 px-2 rounded hover:bg-bg2"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="font-medium truncate">
-                        {p.customer.fullName}
-                      </div>
-                      <div className="text-[10px] text-mute font-mono">
-                        {p.serialNumber}
-                      </div>
-                    </div>
-                    {card.type === 'STAMPS' && (
-                      <div className="text-xs text-mute">
-                        {p.stampsCount}/{required}
-                      </div>
-                    )}
-                    <span
-                      className={`ml-2 badge text-[10px] ${
-                        p.status === 'ACTIVE'
-                          ? 'badge-ok'
-                          : p.status === 'COMPLETED'
-                          ? 'badge-info'
-                          : 'badge-mute'
-                      }`}
+              <div className="space-y-1.5 max-h-80 overflow-auto">
+                {filteredPasses.slice(0, 30).map((p) => {
+                  const busyRow = stampingPassId === p.id;
+                  return (
+                    <div
+                      key={p.id}
+                      className="flex items-center gap-2 text-sm py-1.5 px-2 rounded hover:bg-bg2"
                     >
-                      {STATUS_LABEL[p.status] ?? p.status}
-                    </span>
-                  </Link>
-                ))}
+                      <Link
+                        href={`/app/customers/${p.customer.id}`}
+                        className="min-w-0 flex-1 hover:text-brand"
+                      >
+                        <div className="font-medium truncate">
+                          {p.customer.fullName}
+                        </div>
+                        <div className="text-[10px] text-mute font-mono">
+                          {p.serialNumber}
+                        </div>
+                      </Link>
+                      {card.type === 'STAMPS' && (
+                        <>
+                          <div className="text-xs text-mute font-semibold tabular-nums">
+                            {p.stampsCount}/{required}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => changeStamps(p.id, 'REFUND', 1)}
+                            disabled={busyRow || p.stampsCount <= 0}
+                            className="w-7 h-7 rounded-full border border-line text-mute hover:text-bad hover:border-bad disabled:opacity-30"
+                            title="Quitar 1 sello"
+                          >
+                            −
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => changeStamps(p.id, 'STAMP', 1)}
+                            disabled={busyRow}
+                            className="w-7 h-7 rounded-full bg-ok text-white hover:bg-ok/90 disabled:opacity-50"
+                            title="Sumar 1 sello"
+                          >
+                            +
+                          </button>
+                        </>
+                      )}
+                      <span
+                        className={`badge text-[10px] ${
+                          p.status === 'ACTIVE'
+                            ? 'badge-ok'
+                            : p.status === 'COMPLETED'
+                            ? 'badge-info'
+                            : 'badge-mute'
+                        }`}
+                      >
+                        {STATUS_LABEL[p.status] ?? p.status}
+                      </span>
+                    </div>
+                  );
+                })}
+                {filteredPasses.length === 0 && passSearch && (
+                  <div className="text-xs text-mute italic py-3 text-center">
+                    Sin resultados para "{passSearch}"
+                  </div>
+                )}
               </div>
             )}
           </div>

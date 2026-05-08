@@ -16,29 +16,24 @@ function initials(name: string) {
 
 export default function ScanPage() {
   const router = useRouter();
-  const containerRef = useRef<HTMLDivElement>(null);
+  const scannerRef = useRef<any>(null);
   const [data, setData] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [manual, setManual] = useState('');
+  const [scanning, setScanning] = useState(false);
 
-  useEffect(() => {
-    const u = getUser();
-    if (!u) {
-      router.push('/login');
-      return;
-    }
-    let scanner: any;
-    (async () => {
-      try {
-        const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import(
-          'html5-qrcode'
-        );
-        scanner = new Html5Qrcode('qr-reader', {
-          // Formatos soportados: QR + códigos de barra de wallets reales.
-          // PDF417 = Apple Wallet storeCard / passkit barcode default.
-          // CODE_128 + EAN_13 = códigos de barra "tradicionales" de tarjetas
-          // físicas si el negocio escanea esas también.
+  // Inicia (o re-inicia) el scanner. Idempotente.
+  async function startScanner() {
+    setErr(null);
+    try {
+      const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import(
+        'html5-qrcode',
+      );
+      if (!scannerRef.current) {
+        scannerRef.current = new Html5Qrcode('qr-reader', {
+          // Formatos: QR + códigos de barra de wallets (PDF417 = Apple
+          // Wallet, Code128/EAN13/Code39 = tarjetas físicas, etc.)
           formatsToSupport: [
             Html5QrcodeSupportedFormats.QR_CODE,
             Html5QrcodeSupportedFormats.PDF_417,
@@ -50,33 +45,68 @@ export default function ScanPage() {
           ],
           verbose: false,
         });
-        await scanner.start(
-          { facingMode: 'environment' },
-          {
-            fps: 10,
-            // Recuadro horizontal — los códigos de barra son anchos+bajos
-            // (PDF417 ~3:1, Code128 ~4:1). Sigue funcionando para QR.
-            qrbox: (vw: number, vh: number) => {
-              const minSide = Math.min(vw, vh);
-              const width = Math.min(vw - 30, Math.round(minSide * 1.1));
-              const height = Math.round(width * 0.4);
-              return { width, height };
-            },
-            aspectRatio: 1.5,
-          },
-          async (text: string) => {
-            await verify(text);
-            await scanner.stop();
-          },
-          () => {},
-        );
-      } catch {
-        setErr('No se pudo acceder a la cámara. Pega el código manualmente abajo.');
       }
-    })();
+      await scannerRef.current.start(
+        { facingMode: 'environment' },
+        {
+          fps: 10,
+          qrbox: (vw: number, vh: number) => {
+            const minSide = Math.min(vw, vh);
+            const width = Math.min(vw - 30, Math.round(minSide * 1.1));
+            const height = Math.round(width * 0.4);
+            return { width, height };
+          },
+          aspectRatio: 1.5,
+        },
+        async (text: string) => {
+          // Detener primero para evitar callbacks duplicados
+          try {
+            await scannerRef.current?.stop();
+          } catch {}
+          setScanning(false);
+          await verify(text);
+        },
+        () => {},
+      );
+      setScanning(true);
+    } catch (e: any) {
+      const msg = e?.message ?? '';
+      setErr(
+        msg.includes('permission') || e?.name === 'NotAllowedError'
+          ? 'Permiso de cámara denegado. Habilitalo desde el icono del candado en la URL y volvé a intentar.'
+          : 'No se pudo acceder a la cámara. Pegá el código manualmente abajo.',
+      );
+      setScanning(false);
+    }
+  }
+
+  async function stopScanner() {
+    if (!scannerRef.current) return;
+    try {
+      await scannerRef.current.stop();
+    } catch {}
+    setScanning(false);
+  }
+
+  // "Escanear otro" — re-arranca la cámara sobre el mismo div
+  async function scanAnother() {
+    setData(null);
+    setErr(null);
+    setTimeout(() => startScanner(), 50);
+  }
+
+  useEffect(() => {
+    const u = getUser();
+    if (!u) {
+      router.push('/login');
+      return;
+    }
+    startScanner();
     return () => {
-      scanner?.stop?.().catch(() => null);
+      stopScanner();
+      scannerRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
   async function verify(qrToken: string) {
@@ -151,34 +181,50 @@ export default function ScanPage() {
         </div>
 
         {!data && (
-          <>
-            <div className="text-center text-xs text-mute mb-2">
-              📷 Apuntá la cámara al{' '}
-              <strong className="text-ink">código de barras</strong> o QR del
-              cliente. Funciona con tarjetas en Apple/Google Wallet.
-            </div>
-            <div
-              id="qr-reader"
-              ref={containerRef}
-              className="rounded-card overflow-hidden bg-ink relative"
-              style={{ minHeight: 320 }}
+          <div className="text-center text-xs text-mute mb-2">
+            📷 Apuntá la cámara al{' '}
+            <strong className="text-ink">código de barras</strong> o QR del
+            cliente. Funciona con tarjetas en Apple/Google Wallet.
+          </div>
+        )}
+
+        {/* Mantenemos el div SIEMPRE montado para que el scanner no
+            pierda referencia al DOM cuando se muestra el resultado. */}
+        <div
+          id="qr-reader"
+          className="rounded-card overflow-hidden bg-ink relative"
+          style={{
+            minHeight: data ? 0 : 320,
+            display: data ? 'none' : 'block',
+          }}
+        />
+
+        {!data && err && !scanning && (
+          <button
+            type="button"
+            className="btn-primary w-full mt-3 justify-center"
+            onClick={() => startScanner()}
+          >
+            <Icon name="check" /> Reintentar cámara
+          </button>
+        )}
+
+        {!data && (
+          <form
+            className="mt-4 flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              verify(manual);
+            }}
+          >
+            <input
+              className="input flex-1"
+              placeholder="Pegar código manualmente (CLB-…)"
+              value={manual}
+              onChange={(e) => setManual(e.target.value)}
             />
-            <form
-              className="mt-4 flex gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                verify(manual);
-              }}
-            >
-              <input
-                className="input flex-1"
-                placeholder="Pegar código manualmente (CLB-…)"
-                value={manual}
-                onChange={(e) => setManual(e.target.value)}
-              />
-              <button className="btn-primary">Verificar</button>
-            </form>
-          </>
+            <button className="btn-primary">Verificar</button>
+          </form>
         )}
 
         {err && (
@@ -271,7 +317,7 @@ export default function ScanPage() {
 
             <button
               className="btn-link mt-4 text-center w-full"
-              onClick={() => setData(null)}
+              onClick={scanAnother}
             >
               Escanear otro
             </button>
