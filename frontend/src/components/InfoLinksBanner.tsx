@@ -27,28 +27,34 @@ function Phone({
 
 // ─── Mockups de InfoLinks ───
 
-// 1. AURORA — gradient mesh, eventos
+// 1. AURORA — gradient mesh, Nudo Cowork (coworking + eventos)
 function ScreenAurora() {
   return (
     <div
       className="h-full p-3 pt-7 text-white"
       style={{
         background:
-          'radial-gradient(circle at 20% 0%, #F472B6 0%, transparent 40%), radial-gradient(circle at 90% 30%, #818CF8 0%, transparent 50%), radial-gradient(circle at 50% 100%, #34D399 0%, transparent 50%), #1E1B4B',
+          'radial-gradient(circle at 20% 0%, #A78BFA 0%, transparent 45%), radial-gradient(circle at 90% 25%, #F472B6 0%, transparent 50%), radial-gradient(circle at 50% 100%, #60A5FA 0%, transparent 55%), #1A1145',
       }}
     >
       <div className="text-center mt-2">
-        <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur mx-auto mb-2 flex items-center justify-center text-xl">
-          🍔
+        <div className="w-12 h-12 rounded-2xl bg-white/15 backdrop-blur mx-auto mb-2 flex items-center justify-center text-xl ring-2 ring-white/20">
+          🌐
         </div>
-        <div className="font-bold text-sm">Bananas Grill</div>
-        <div className="text-[9px] opacity-80">Eventos · Promos · Carta</div>
+        <div className="font-bold text-sm tracking-tight">Nudo Cowork</div>
+        <div className="text-[9px] opacity-80">Espacios · Eventos · Comunidad</div>
       </div>
       <div className="space-y-2 mt-4">
-        {['🎉 Eventos fin de semana', '🍽 Ver el menú', '📍 Cómo llegar', '⭐ Sumar puntos'].map((label) => (
+        {[
+          '📅 Reservar sala',
+          '🎉 Eventos del mes',
+          '☕ Carta del café',
+          '💼 Membresías',
+          '📍 Cómo llegar',
+        ].map((label) => (
           <div
             key={label}
-            className="bg-white/15 backdrop-blur border border-white/30 rounded-xl py-2.5 text-center text-[10px] font-semibold"
+            className="bg-white/15 backdrop-blur border border-white/25 rounded-xl py-2 text-center text-[10px] font-semibold"
           >
             {label}
           </div>
@@ -58,39 +64,42 @@ function ScreenAurora() {
   );
 }
 
-// 2. NEON — dark + glow, promos nocturnas
+// 2. NEON — dark + glow, "Mezcal" coctelería de autor
 function ScreenNeon() {
   return (
     <div className="h-full p-3 pt-7 text-white" style={{ background: '#0a0a0f' }}>
       <div className="text-center mt-2">
         <div
-          className="w-12 h-12 rounded-full mx-auto mb-2 flex items-center justify-center text-xl"
+          className="w-12 h-12 rounded-2xl mx-auto mb-2 flex items-center justify-center text-xl"
           style={{
-            background: 'linear-gradient(135deg, #F472B6, #FB923C)',
-            boxShadow: '0 0 20px rgba(244,114,182,0.5)',
+            background: 'linear-gradient(135deg, #FB7185, #FB923C)',
+            boxShadow: '0 0 22px rgba(251,113,133,0.55)',
           }}
         >
-          🌙
+          🥃
         </div>
-        <div className="font-bold text-sm" style={{ textShadow: '0 0 8px #F472B6' }}>
-          Nudo Cowork
+        <div
+          className="font-bold text-sm tracking-tight"
+          style={{ textShadow: '0 0 8px #FB7185' }}
+        >
+          Mezcal
         </div>
-        <div className="text-[9px] text-pink-300">After Hours · Música · Drinks</div>
+        <div className="text-[9px] text-rose-300">Coctelería de autor · Bogotá</div>
       </div>
       <div className="space-y-2 mt-4">
         {[
-          { label: '🎟 Cover gratis Vie/Sáb', color: '#F472B6' },
-          { label: '🍸 2x1 cocktails', color: '#A78BFA' },
-          { label: '🎵 Playlist Spotify', color: '#34D399' },
-          { label: '📸 Tag @nudocowork', color: '#FB923C' },
+          { label: '🎟 Reservar mesa', color: '#FB7185' },
+          { label: '🍸 Carta de cócteles', color: '#A78BFA' },
+          { label: '🎵 Eventos en vivo', color: '#34D399' },
+          { label: '📸 @mezcalbogota', color: '#FB923C' },
         ].map((item) => (
           <div
             key={item.label}
-            className="rounded-xl py-2.5 text-center text-[10px] font-semibold"
+            className="rounded-xl py-2 text-center text-[10px] font-semibold"
             style={{
-              background: 'rgba(0,0,0,0.5)',
+              background: 'rgba(0,0,0,0.55)',
               border: `1px solid ${item.color}`,
-              boxShadow: `0 0 12px ${item.color}40`,
+              boxShadow: `0 0 10px ${item.color}40`,
               color: item.color,
             }}
           >
@@ -101,24 +110,6 @@ function ScreenNeon() {
     </div>
   );
 }
-
-const BENEFITS = [
-  {
-    icon: '🔗',
-    title: 'Un link, todo lo importante',
-    desc: 'Tu menú, redes, eventos y promos en una mini-página tipo Linktree.',
-  },
-  {
-    icon: '🎨',
-    title: '5 estilos pre-armados',
-    desc: 'Aurora, Neon, Minimal, Stories, Shop. Cambialo cuando quieras.',
-  },
-  {
-    icon: '📊',
-    title: 'Métricas en vivo',
-    desc: 'Cuántos vieron tu InfoLink, cuántos clickearon cada bloque.',
-  },
-];
 
 export function InfoLinksBanner() {
   return (
@@ -146,24 +137,7 @@ export function InfoLinksBanner() {
               de fidelización — todo en un solo lugar.
             </p>
 
-            <div className="space-y-3 mt-6 max-w-xl mx-auto lg:mx-0">
-              {BENEFITS.map((b) => (
-                <div
-                  key={b.title}
-                  className="flex items-start gap-3 text-left bg-white border border-line rounded-xl px-4 py-3"
-                >
-                  <span className="text-2xl shrink-0">{b.icon}</span>
-                  <div className="min-w-0">
-                    <div className="font-semibold text-sm">{b.title}</div>
-                    <div className="text-xs text-mute mt-0.5 leading-snug">
-                      {b.desc}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex justify-center lg:justify-start mt-6">
+            <div className="flex justify-center lg:justify-start mt-6 sm:mt-8">
               <Link
                 href="#precios"
                 className="inline-flex items-center justify-center gap-2 px-6 sm:px-7 py-3 sm:py-3.5 rounded-full bg-ink text-white font-semibold shadow-md hover:opacity-90 transition text-sm sm:text-base"
