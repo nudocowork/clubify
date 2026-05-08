@@ -95,8 +95,8 @@ export function HeroBanner() {
           50% { transform: translateY(-8px); }
         }
       `}</style>
-      <section className="relative overflow-hidden bg-white py-12 sm:py-16 lg:py-20">
-        <div className="mx-auto max-w-7xl px-5 sm:px-6 grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-12 items-center">
+      <section className="relative overflow-hidden bg-white py-6 sm:py-8 lg:py-10">
+        <div className="mx-auto max-w-7xl px-5 sm:px-6 grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-10 items-center">
           {/* Columna izquierda: título + CTAs */}
           <div className="text-center lg:text-left">
             <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight leading-[1.05]">
@@ -132,7 +132,7 @@ export function HeroBanner() {
           {/* Columna derecha: iPhones tilted + badges flotantes
               Mobile: 1 iPhone centrado más chico
               Tablet+: 2 iPhones overlapping con badges */}
-          <div className="relative h-[420px] sm:h-[500px] lg:h-[560px] mt-4 lg:mt-0">
+          <div className="relative h-[340px] sm:h-[400px] lg:h-[440px] mt-2 lg:mt-0 overflow-visible">
             {/* iPhone trasero (oculto en mobile, visible sm+) */}
             <div
               className="absolute right-0 top-1/2 hidden sm:block"
@@ -142,10 +142,10 @@ export function HeroBanner() {
               }}
             >
               <div className="hidden lg:block">
-                <MenuPhone width={240} background="#0a0a0a" delayS={0.6} />
+                <MenuPhone width={200} background="#0a0a0a" delayS={0.6} />
               </div>
               <div className="block lg:hidden">
-                <MenuPhone width={200} background="#0a0a0a" delayS={0.6} />
+                <MenuPhone width={170} background="#0a0a0a" delayS={0.6} />
               </div>
             </div>
 
@@ -159,13 +159,13 @@ export function HeroBanner() {
             >
               {/* tres tamaños responsivos sin custom CSS */}
               <div className="hidden lg:block">
-                <MenuPhone width={260} background="#FAFAF5" delayS={0} />
-              </div>
-              <div className="hidden sm:block lg:hidden">
                 <MenuPhone width={220} background="#FAFAF5" delayS={0} />
               </div>
+              <div className="hidden sm:block lg:hidden">
+                <MenuPhone width={190} background="#FAFAF5" delayS={0} />
+              </div>
               <div className="block sm:hidden">
-                <MenuPhone width={200} background="#FAFAF5" delayS={0} />
+                <MenuPhone width={170} background="#FAFAF5" delayS={0} />
               </div>
             </div>
 
