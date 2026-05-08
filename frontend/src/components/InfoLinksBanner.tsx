@@ -102,33 +102,6 @@ function ScreenNeon() {
   );
 }
 
-// 3. MINIMAL — blanco limpio, café
-function ScreenMinimal() {
-  return (
-    <div className="h-full p-3 pt-7 bg-white text-ink">
-      <div className="text-center mt-2">
-        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-amber-700 to-amber-900 mx-auto mb-2 flex items-center justify-center text-xl">
-          ☕
-        </div>
-        <div className="font-bold text-sm">Café del Día</div>
-        <div className="text-[9px] text-gray-500">Tu cafetería en Bogotá</div>
-      </div>
-      <div className="space-y-1.5 mt-4">
-        {['🍽 Ver carta', '🚚 Pedir a domicilio', '⭐ Tarjeta de fidelización', '📍 Ubicación', 'ig @cafedeldia'].map(
-          (label) => (
-            <div
-              key={label}
-              className="bg-white border border-gray-200 rounded-xl py-2.5 text-center text-[10px] font-semibold text-gray-800 shadow-sm"
-            >
-              {label}
-            </div>
-          ),
-        )}
-      </div>
-    </div>
-  );
-}
-
 const BENEFITS = [
   {
     icon: '🔗',
@@ -164,13 +137,13 @@ export function InfoLinksBanner() {
               InfoLinks
             </div>
             <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight leading-[1.05]">
-              Tu mini-página{' '}
-              <span className="text-brand">tipo Linktree</span>, lista en 2 minutos
+              Tu InfoLink se crea en{' '}
+              <span className="text-brand">menos de 2 minutos</span>
             </h2>
             <p className="text-mute text-sm sm:text-base mt-4 max-w-xl mx-auto lg:mx-0 leading-relaxed">
-              Compartí un solo link en tu bio de Instagram, WhatsApp y QR de
-              mesa. Adentro: menú, eventos, promociones, ubicación, redes y
-              tarjeta de fidelización — todo en un solo lugar.
+              Comparte el link en tu bio de Instagram, WhatsApp y QR de mesa.
+              Adentro: menú, eventos, promociones, ubicación, redes y tarjeta
+              de fidelización — todo en un solo lugar.
             </p>
 
             <div className="space-y-3 mt-6 max-w-xl mx-auto lg:mx-0">
@@ -193,44 +166,49 @@ export function InfoLinksBanner() {
             <div className="flex justify-center lg:justify-start mt-6">
               <Link
                 href="#precios"
-                className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full bg-ink text-white font-semibold shadow-md hover:opacity-90 transition text-sm"
+                className="inline-flex items-center justify-center gap-2 px-6 sm:px-7 py-3 sm:py-3.5 rounded-full bg-ink text-white font-semibold shadow-md hover:opacity-90 transition text-sm sm:text-base"
               >
-                <span>✦</span>
-                Crear mi InfoLink
+                <span className="text-sm">✦</span>
+                Ver planes y comenzar
               </Link>
             </div>
           </div>
 
-          {/* Columna derecha: 3 iPhones tilted */}
+          {/* Columna derecha: 2 iPhones tilted juntos (Aurora + Neon) */}
           <div className="relative h-[420px] sm:h-[480px] lg:h-[520px]">
-            {/* Phone izq (rotado -8°, atrás) */}
+            {/* Phone Aurora (rotado -6°, ligeramente a la izq) */}
             <div
-              className="absolute left-0 top-1/2 hidden sm:block"
+              className="absolute left-1/2 top-1/2"
               style={{
-                transform: 'translateY(-50%) rotate(-8deg) translateX(-10px)',
+                transform: 'translate(-95%, -50%) rotate(-6deg)',
                 zIndex: 1,
-                animation: 'clb-info-floaty 5s ease-in-out 0.6s infinite',
+                animation: 'clb-info-floaty 5s ease-in-out 0s infinite',
               }}
             >
               <div className="hidden lg:block">
+                <Phone width={210}>
+                  <ScreenAurora />
+                </Phone>
+              </div>
+              <div className="hidden sm:block lg:hidden">
                 <Phone width={180}>
                   <ScreenAurora />
                 </Phone>
               </div>
-              <div className="block lg:hidden">
+              <div className="block sm:hidden">
                 <Phone width={150}>
                   <ScreenAurora />
                 </Phone>
               </div>
             </div>
 
-            {/* Phone centro (frontal, más grande) */}
+            {/* Phone Neon (rotado +6°, ligeramente a la der, encima) */}
             <div
               className="absolute left-1/2 top-1/2"
               style={{
-                transform: 'translate(-50%, -50%)',
-                zIndex: 3,
-                animation: 'clb-info-floaty 5s ease-in-out 0s infinite',
+                transform: 'translate(-5%, -50%) rotate(6deg)',
+                zIndex: 2,
+                animation: 'clb-info-floaty 5s ease-in-out 1.2s infinite',
               }}
             >
               <div className="hidden lg:block">
@@ -244,29 +222,8 @@ export function InfoLinksBanner() {
                 </Phone>
               </div>
               <div className="block sm:hidden">
-                <Phone width={170}>
-                  <ScreenNeon />
-                </Phone>
-              </div>
-            </div>
-
-            {/* Phone der (rotado +8°, atrás) */}
-            <div
-              className="absolute right-0 top-1/2 hidden sm:block"
-              style={{
-                transform: 'translateY(-50%) rotate(8deg) translateX(10px)',
-                zIndex: 2,
-                animation: 'clb-info-floaty 5s ease-in-out 1.2s infinite',
-              }}
-            >
-              <div className="hidden lg:block">
-                <Phone width={180}>
-                  <ScreenMinimal />
-                </Phone>
-              </div>
-              <div className="block lg:hidden">
                 <Phone width={150}>
-                  <ScreenMinimal />
+                  <ScreenNeon />
                 </Phone>
               </div>
             </div>
