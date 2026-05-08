@@ -31,12 +31,16 @@ function fmtAddress(s: Suggestion): string {
 }
 
 /**
- * Map picker tipo Google Maps: mapa interactivo (Leaflet + OSM tiles) con
- * search en vivo (Photon) que dropea pins en el mapa para todos los
- * resultados. Click en un pin selecciona esa ubicación.
+ * Map picker estilo Google Places Autocomplete:
  *
- * Bonus: click en cualquier punto del mapa también lo selecciona (con
- * reverse geocoding via Nominatim para sacar la dirección).
+ * 1. Input arriba — el usuario escribe la dirección
+ * 2. A medida que tipea, dropdown debajo del input lista resultados
+ *    (texto: nombre + dirección completa formateada)
+ * 3. Click en una sugerencia → mapa abajo se mueve al punto y dropea pin
+ * 4. Click en cualquier punto del mapa también selecciona (reverse geocoding)
+ *
+ * Search vía Photon (Komoot · OSM, free).
+ * Mapa via Leaflet + tiles OpenStreetMap.
  */
 export function MapPicker({
   initialLat = 4.6097,
@@ -55,24 +59,16 @@ export function MapPicker({
 }) {
   const mapRef = useRef<L.Map | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const markersGroup = useRef<L.LayerGroup | null>(null);
   const pickedMarker = useRef<L.Marker | null>(null);
   const [query, setQuery] = useState('');
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [searching, setSearching] = useState(false);
-  // Cuando hay un picked, mostramos su nombre/dirección en el input
-  // (en vez del término de búsqueda). Se vuelve editable solo al focus.
-  const [editingQuery, setEditingQuery] = useState(false);
-  const inputValue = editingQuery
-    ? query
-    : picked
-    ? [picked.name, picked.address].filter(Boolean).join(' · ')
-    : query;
+  const [showDropdown, setShowDropdown] = useState(false);
 
-  // Init map
+  // Init Leaflet map una sola vez
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
-    // Fix default Leaflet icon paths (Webpack/Next break them)
     delete (L.Icon.Default.prototype as any)._getIconUrl;
     L.Icon.Default.mergeOptions({
       iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
@@ -90,10 +86,9 @@ export function MapPicker({
       maxZoom: 19,
     }).addTo(map);
 
-    markersGroup.current = L.layerGroup().addTo(map);
     mapRef.current = map;
 
-    // Click en mapa = reverse geocode + select
+    // Click directo en el mapa → reverse geocode + select
     map.on('click', async (e: L.LeafletMouseEvent) => {
       const { lat, lng } = e.latlng;
       try {
@@ -120,8 +115,7 @@ export function MapPicker({
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Cuando cambia el picked: mover mapa + actualizar marker + resetear
-  // estado del input para que muestre la dirección nueva (no el query viejo).
+  // Cuando cambia el picked: animar al punto + actualizar marker
   useEffect(() => {
     if (!mapRef.current || !picked) return;
     mapRef.current.setView([picked.lat, picked.lng], 16, { animate: true });
@@ -132,170 +126,171 @@ export function MapPicker({
         icon: brandIcon('#22C55E', '✓'),
       }).addTo(mapRef.current);
     }
-    // Forzar input a modo "mostrar dirección elegida"
-    setEditingQuery(false);
-    setQuery('');
-    // Sacar pins de búsqueda (ya elegimos uno, no necesitamos los demás)
-    markersGroup.current?.clearLayers();
+    // Cuando hay pick, cerrar dropdown
+    setShowDropdown(false);
   }, [picked]);
 
-  // Debounced Photon search → drop pins for each result
+  // Debounced Photon autocomplete (200ms, 2 chars min)
   useEffect(() => {
     if (query.length < 2) {
-      markersGroup.current?.clearLayers();
+      setSuggestions([]);
       return;
     }
     const id = setTimeout(async () => {
       setSearching(true);
       try {
         const r = await fetch(
-          `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&lang=es&limit=10`,
+          `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&lang=es&limit=8`,
         );
         const data = await r.json();
-        const features = (data.features || []) as any[];
-
-        markersGroup.current?.clearLayers();
-        if (features.length === 0) return;
-
-        const bounds = L.latLngBounds([]);
-        features.forEach((f) => {
-          const lon = f.geometry?.coordinates?.[0];
-          const lat = f.geometry?.coordinates?.[1];
-          if (typeof lat !== 'number' || typeof lon !== 'number') return;
-          const s: Suggestion = {
-            name: f.properties?.name ?? '',
-            street: f.properties?.street,
-            housenumber: f.properties?.housenumber,
-            city: f.properties?.city ?? f.properties?.locality,
-            state: f.properties?.state,
-            country: f.properties?.country,
-            lat,
-            lon,
-          };
-          const addr = fmtAddress(s);
-          const marker = L.marker([lat, lon], {
-            icon: brandIcon('#7C3AED', '📍'),
-          });
-          const label = (s.name || addr || 'Sin nombre').replace(/'/g, '&apos;');
-          marker.bindTooltip(label, {
-            permanent: false,
-            direction: 'top',
-            offset: [0, -10],
-          });
-          marker.on('click', () => {
-            onPick({
-              name: s.name || addr.split(',')[0] || 'Punto',
-              address: addr || s.name,
+        const results: Suggestion[] = (data.features || [])
+          .map((f: any) => {
+            const lon = f.geometry?.coordinates?.[0];
+            const lat = f.geometry?.coordinates?.[1];
+            if (typeof lat !== 'number' || typeof lon !== 'number') return null;
+            return {
+              name: f.properties?.name ?? '',
+              street: f.properties?.street,
+              housenumber: f.properties?.housenumber,
+              city: f.properties?.city ?? f.properties?.locality,
+              state: f.properties?.state,
+              country: f.properties?.country,
               lat,
-              lng: lon,
-            });
-          });
-          marker.addTo(markersGroup.current!);
-          bounds.extend([lat, lon]);
-        });
-
-        if (mapRef.current && bounds.isValid()) {
-          mapRef.current.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
-        }
+              lon,
+            } as Suggestion;
+          })
+          .filter(Boolean);
+        setSuggestions(results);
       } catch {
-        // silencioso
+        setSuggestions([]);
       } finally {
         setSearching(false);
       }
-    }, 300);
+    }, 200);
     return () => clearTimeout(id);
-  }, [query, onPick]);
+  }, [query]);
+
+  function selectSuggestion(s: Suggestion) {
+    const addr = fmtAddress(s);
+    onPick({
+      name: s.name || addr.split(',')[0] || 'Punto',
+      address: addr || s.name,
+      lat: s.lat,
+      lng: s.lon,
+    });
+    setQuery('');
+    setSuggestions([]);
+  }
 
   return (
-    <div className="relative" style={{ height }}>
-      {/* Search box overlay arriba */}
-      <div className="absolute top-3 left-3 right-3 z-[400]">
-        <div className="relative bg-white rounded-full shadow-lg border border-line">
-          <input
-            className={`w-full pl-5 pr-11 py-3 rounded-full bg-transparent outline-none text-sm ${
-              !editingQuery && picked ? 'font-semibold' : ''
-            }`}
-            placeholder="Buscá tu negocio o dirección…"
-            value={inputValue}
-            onFocus={() => {
-              setEditingQuery(true);
-              if (picked && query === '') {
-                // empezar buscando con el nombre del picked
-                setQuery(picked.name || '');
-              }
-            }}
-            onBlur={() => setEditingQuery(false)}
-            onChange={(e) => {
-              setEditingQuery(true);
-              setQuery(e.target.value);
-            }}
-          />
-          <div className="absolute right-4 top-1/2 -translate-y-1/2 text-mute">
-            {searching ? (
-              <span className="inline-block w-4 h-4 border-2 border-mute border-t-transparent rounded-full animate-spin" />
-            ) : picked && !editingQuery ? (
-              <span className="text-ok text-base">✓</span>
-            ) : (
-              '🔍'
-            )}
-          </div>
+    <div>
+      {/* INPUT con autocomplete dropdown */}
+      <div className="relative">
+        <input
+          className="input w-full pr-10"
+          placeholder="Escribí la dirección de tu negocio…"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setShowDropdown(true);
+          }}
+          onFocus={() => setShowDropdown(true)}
+          onBlur={() => {
+            // dejar 200ms para que el click en una sugerencia se registre
+            setTimeout(() => setShowDropdown(false), 200);
+          }}
+        />
+        <div className="absolute right-3 top-1/2 -translate-y-1/2 text-mute pointer-events-none">
+          {searching ? (
+            <span className="inline-block w-4 h-4 border-2 border-mute border-t-transparent rounded-full animate-spin" />
+          ) : (
+            '🔍'
+          )}
         </div>
-        {!picked && (
-          <p className="text-[11px] text-white/90 mt-1.5 text-center drop-shadow-md">
-            Click en cualquier pin morado · o click en mapa para coordenadas exactas
-          </p>
+
+        {showDropdown && suggestions.length > 0 && (
+          <div className="absolute z-[500] left-0 right-0 mt-1 bg-white border border-line rounded-lg shadow-xl max-h-72 overflow-y-auto">
+            {suggestions.map((s, i) => {
+              const addr = fmtAddress(s);
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()} // evita que el blur cierre antes del click
+                  onClick={() => selectSuggestion(s)}
+                  className="block w-full text-left px-3 py-2.5 hover:bg-bg2 border-b border-line2 last:border-0"
+                >
+                  <div className="text-sm font-semibold flex items-start gap-2">
+                    <span className="text-base shrink-0">📍</span>
+                    <span className="flex-1">{s.name || addr || 'Sin nombre'}</span>
+                  </div>
+                  {addr && s.name !== addr && (
+                    <div className="text-xs text-mute mt-0.5 ml-6 line-clamp-1">
+                      {addr}
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {showDropdown && query.length >= 2 && !searching && suggestions.length === 0 && (
+          <div className="absolute z-[500] left-0 right-0 mt-1 bg-white border border-line rounded-lg shadow-xl px-3 py-3 text-xs text-mute text-center">
+            Sin resultados. Probá con otro término o haz click directo en el mapa.
+          </div>
         )}
       </div>
 
-      {/* Card flotante con dirección del pick (abajo del mapa) */}
+      <p className="text-[11px] text-mute mt-1.5 mb-2">
+        Tipea para autocompletar · o haz click directo en cualquier punto del mapa abajo
+      </p>
+
+      {/* MAPA debajo */}
+      <div
+        ref={containerRef}
+        className="relative rounded-input overflow-hidden border border-line"
+        style={{ height, cursor: 'crosshair' }}
+      />
+
+      {/* Card resumen del pick */}
       {picked && (
-        <div className="absolute bottom-3 left-3 right-3 z-[400] pointer-events-none">
-          <div className="bg-white rounded-2xl shadow-lg border border-line px-4 py-3 flex items-start gap-3 pointer-events-auto">
-            <div className="w-9 h-9 rounded-full bg-ok-soft text-ok-ink flex items-center justify-center text-base shrink-0">
-              ✓
+        <div className="mt-2 bg-ok-soft border border-ok/20 rounded-xl px-3 py-2.5 flex items-start gap-3">
+          <div className="w-8 h-8 rounded-full bg-ok text-white flex items-center justify-center text-base shrink-0">
+            ✓
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold truncate">{picked.name}</div>
+            <div className="text-xs text-ok-ink/80 mt-0.5 line-clamp-2 leading-snug">
+              {picked.address}
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-semibold truncate">
-                {picked.name || 'Punto seleccionado'}
-              </div>
-              <div className="text-xs text-mute mt-0.5 line-clamp-2 leading-snug">
-                {picked.address}
-              </div>
-              <div className="text-[10px] text-mute mt-0.5">
-                {picked.lat.toFixed(5)}, {picked.lng.toFixed(5)}
-              </div>
+            <div className="text-[10px] text-mute mt-0.5">
+              {picked.lat.toFixed(5)}, {picked.lng.toFixed(5)}
             </div>
           </div>
         </div>
       )}
-
-      {/* Mapa */}
-      <div ref={containerRef} className="absolute inset-0 rounded-input overflow-hidden border border-line" />
     </div>
   );
 }
 
-/**
- * DivIcon de Leaflet con un círculo de color y un emoji adentro — estilo
- * "Grow Business" del screenshot.
- */
 function brandIcon(color: string, emoji: string): L.DivIcon {
   return L.divIcon({
     className: '',
     html: `<div style="
-      width: 32px;
-      height: 32px;
+      width: 36px;
+      height: 36px;
       border-radius: 50%;
       background: ${color};
       box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-      border: 2px solid white;
+      border: 3px solid white;
       display: flex;
       align-items: center;
       justify-content: center;
       color: white;
-      font-size: 16px;
+      font-size: 18px;
     ">${emoji}</div>`,
-    iconSize: [32, 32],
-    iconAnchor: [16, 16],
+    iconSize: [36, 36],
+    iconAnchor: [18, 18],
   });
 }
