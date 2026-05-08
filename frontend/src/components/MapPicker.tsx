@@ -59,6 +59,14 @@ export function MapPicker({
   const pickedMarker = useRef<L.Marker | null>(null);
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
+  // Cuando hay un picked, mostramos su nombre/dirección en el input
+  // (en vez del término de búsqueda). Se vuelve editable solo al focus.
+  const [editingQuery, setEditingQuery] = useState(false);
+  const inputValue = editingQuery
+    ? query
+    : picked
+    ? [picked.name, picked.address].filter(Boolean).join(' · ')
+    : query;
 
   // Init map
   useEffect(() => {
@@ -198,23 +206,62 @@ export function MapPicker({
       <div className="absolute top-3 left-3 right-3 z-[400]">
         <div className="relative bg-white rounded-full shadow-lg border border-line">
           <input
-            className="w-full pl-5 pr-11 py-3 rounded-full bg-transparent outline-none text-sm"
+            className={`w-full pl-5 pr-11 py-3 rounded-full bg-transparent outline-none text-sm ${
+              !editingQuery && picked ? 'font-semibold' : ''
+            }`}
             placeholder="Buscá tu negocio o dirección…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            value={inputValue}
+            onFocus={() => {
+              setEditingQuery(true);
+              if (picked && query === '') {
+                // empezar buscando con el nombre del picked
+                setQuery(picked.name || '');
+              }
+            }}
+            onBlur={() => setEditingQuery(false)}
+            onChange={(e) => {
+              setEditingQuery(true);
+              setQuery(e.target.value);
+            }}
           />
           <div className="absolute right-4 top-1/2 -translate-y-1/2 text-mute">
             {searching ? (
               <span className="inline-block w-4 h-4 border-2 border-mute border-t-transparent rounded-full animate-spin" />
+            ) : picked && !editingQuery ? (
+              <span className="text-ok text-base">✓</span>
             ) : (
               '🔍'
             )}
           </div>
         </div>
-        <p className="text-[11px] text-white/90 mt-1.5 text-center drop-shadow-md">
-          Click en cualquier pin morado para elegirlo · click en mapa para usar coordenadas exactas
-        </p>
+        {!picked && (
+          <p className="text-[11px] text-white/90 mt-1.5 text-center drop-shadow-md">
+            Click en cualquier pin morado · o click en mapa para coordenadas exactas
+          </p>
+        )}
       </div>
+
+      {/* Card flotante con dirección del pick (abajo del mapa) */}
+      {picked && (
+        <div className="absolute bottom-3 left-3 right-3 z-[400] pointer-events-none">
+          <div className="bg-white rounded-2xl shadow-lg border border-line px-4 py-3 flex items-start gap-3 pointer-events-auto">
+            <div className="w-9 h-9 rounded-full bg-ok-soft text-ok-ink flex items-center justify-center text-base shrink-0">
+              ✓
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold truncate">
+                {picked.name || 'Punto seleccionado'}
+              </div>
+              <div className="text-xs text-mute mt-0.5 line-clamp-2 leading-snug">
+                {picked.address}
+              </div>
+              <div className="text-[10px] text-mute mt-0.5">
+                {picked.lat.toFixed(5)}, {picked.lng.toFixed(5)}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Mapa */}
       <div ref={containerRef} className="absolute inset-0 rounded-input overflow-hidden border border-line" />
