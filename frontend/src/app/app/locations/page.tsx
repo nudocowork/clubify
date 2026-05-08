@@ -1,26 +1,24 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
+import type { MapPickResult } from '@/components/MapPicker';
 
-/**
- * Resultado de Photon (Komoot). Photon está construido sobre OSM pero
- * con autocomplete optimizado para escritura en vivo — funciona mejor que
- * Nominatim para nombres de negocios y direcciones parciales.
- *
- * https://photon.komoot.io/api/?q=…
- */
+// Leaflet usa `window` al importar — dynamic import sin SSR
+const MapPicker = dynamic(
+  () => import('@/components/MapPicker').then((m) => m.MapPicker),
+  { ssr: false, loading: () => <div className="h-[440px] rounded-input bg-bg2 animate-shimmer" /> },
+);
+
 type Suggestion = {
-  /** Nombre principal — restaurante, plaza, marca, calle */
   name: string;
-  /** Address line: ej. "Cra 7 #45-12" */
   street?: string;
   housenumber?: string;
   city?: string;
   state?: string;
   country?: string;
-  /** [lon, lat] */
   lat: number;
   lon: number;
   /** Tipo OSM: house, street, locality, etc. */
@@ -37,87 +35,20 @@ export default function LocationsPage() {
     radiusMeters: 300,
     walletRelevantText: '',
   });
-  const [picked, setPicked] = useState(false); // true cuando hay un punto válido elegido
-  const [query, setQuery] = useState('');
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [searching, setSearching] = useState(false);
+  const [picked, setPicked] = useState<MapPickResult | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Debounced Photon autocomplete — 200ms, 2 chars min
-  useEffect(() => {
-    if (query.length < 2) {
-      setSuggestions([]);
-      return;
-    }
-    const id = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const r = await fetch(
-          `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&lang=es&limit=8`,
-        );
-        const data = await r.json();
-        setSuggestions(
-          (data.features || []).map((f: any) => ({
-            name: f.properties?.name ?? '',
-            street: f.properties?.street,
-            housenumber: f.properties?.housenumber,
-            city: f.properties?.city ?? f.properties?.locality,
-            state: f.properties?.state,
-            country: f.properties?.country,
-            osm_value: f.properties?.osm_value,
-            lon: f.geometry?.coordinates?.[0],
-            lat: f.geometry?.coordinates?.[1],
-          })),
-        );
-      } catch {
-        setSuggestions([]);
-      } finally {
-        setSearching(false);
-      }
-    }, 200);
-    return () => clearTimeout(id);
-  }, [query]);
-
-  function formatAddress(s: Suggestion): string {
-    const parts: string[] = [];
-    if (s.street) {
-      parts.push(s.housenumber ? `${s.street} ${s.housenumber}` : s.street);
-    }
-    if (s.city) parts.push(s.city);
-    if (s.state && s.state !== s.city) parts.push(s.state);
-    if (s.country) parts.push(s.country);
-    return parts.join(', ');
-  }
-
-  function pickSuggestion(s: Suggestion) {
-    const fullAddress = [s.name, formatAddress(s)].filter(Boolean).join(' · ');
+  const handlePick = useCallback((r: MapPickResult) => {
+    setPicked(r);
     setForm((f) => ({
       ...f,
-      latitude: s.lat,
-      longitude: s.lon,
-      address: formatAddress(s) || s.name || '',
-      // Auto-fill name si está vacío
-      name: f.name || s.name || formatAddress(s).split(',')[0],
+      latitude: r.lat,
+      longitude: r.lng,
+      address: r.address,
+      name: f.name || r.name || r.address.split(',')[0] || 'Local',
     }));
-    setPicked(true);
-    setSuggestions([]);
-    setQuery(fullAddress.slice(0, 80));
-  }
-
-  /** Permite al usuario pegar coordenadas crudas (lat, lng) de Google Maps. */
-  function pasteCoords(raw: string) {
-    const m = raw.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
-    if (!m) {
-      toast('Formato esperado: lat, lng (ej: 4.6097, -74.0817)', 'error');
-      return;
-    }
-    const lat = Number(m[1]);
-    const lng = Number(m[2]);
-    setForm((f) => ({ ...f, latitude: lat, longitude: lng }));
-    setPicked(true);
-    toast('Coordenadas pegadas — completá el nombre arriba', 'success');
-  }
+  }, []);
 
   async function load() {
     try {
@@ -147,7 +78,7 @@ export default function LocationsPage() {
         radiusMeters: 300,
         walletRelevantText: '',
       });
-      setPicked(false);
+      setPicked(null);
       load();
       toast('Ubicación agregada', 'success');
     } catch (e: any) {
@@ -178,80 +109,18 @@ export default function LocationsPage() {
         <form onSubmit={create} className="card card-pad">
           <h2 className="text-base font-semibold m-0">Nueva ubicación</h2>
 
-          {/* 🔍 Buscador estilo Google Maps */}
+          {/* Map picker estilo Google Maps */}
           <div className="mt-4">
-            <label className="label">🔍 Buscar tu negocio en el mapa</label>
-            <div className="relative">
-              <input
-                className="input w-full"
-                placeholder="Ej: Café del Día, Cra 7 #45-12 Bogotá"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-              {searching && (
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-mute text-xs">
-                  buscando…
-                </div>
-              )}
-              {suggestions.length > 0 && (
-                <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-line rounded-lg shadow-lg max-h-72 overflow-y-auto">
-                  {suggestions.map((s, i) => {
-                    const addr = formatAddress(s);
-                    return (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={() => pickSuggestion(s)}
-                        className="block w-full text-left px-3 py-2.5 hover:bg-bg2 border-b border-line2 last:border-0"
-                      >
-                        <div className="text-sm font-semibold flex items-start gap-2">
-                          <span className="text-base shrink-0">📍</span>
-                          <span className="flex-1">{s.name || addr || 'Sin nombre'}</span>
-                        </div>
-                        {addr && s.name !== addr && (
-                          <div className="text-xs text-mute mt-0.5 ml-6 line-clamp-1">
-                            {addr}
-                          </div>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-            <div className="flex items-center justify-between gap-2 mt-1.5 flex-wrap">
-              <p className="text-[11px] text-mute">
-                Tipea cualquier cosa — nombre, calle, barrio, ciudad. Resultados en vivo.
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  const raw = prompt(
-                    'Pegá las coordenadas de Google Maps (lat, lng):\n\n' +
-                      'Cómo obtenerlas: en Google Maps, click derecho en tu local → ' +
-                      'aparecen las coordenadas en la parte superior, click para copiarlas.',
-                  );
-                  if (raw) pasteCoords(raw);
-                }}
-                className="text-[11px] text-brand hover:underline"
-              >
-                ¿No lo encuentras? Pegar coordenadas
-              </button>
-            </div>
+            <label className="label">📍 Encontrá tu negocio en el mapa</label>
+            <MapPicker
+              picked={picked}
+              onPick={handlePick}
+              height={400}
+            />
           </div>
 
           {picked && (
             <>
-              {/* Mapa preview */}
-              <div className="mt-3">
-                <iframe
-                  title="Mapa"
-                  src={`https://www.openstreetmap.org/export/embed.html?bbox=${form.longitude - 0.005},${form.latitude - 0.003},${form.longitude + 0.005},${form.latitude + 0.003}&layer=mapnik&marker=${form.latitude},${form.longitude}`}
-                  className="w-full h-56 rounded-input border border-line"
-                  loading="lazy"
-                />
-              </div>
-
               <div className="mt-3">
                 <label className="label">Nombre del local</label>
                 <input
