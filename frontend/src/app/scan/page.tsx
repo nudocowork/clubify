@@ -274,48 +274,52 @@ export default function ScanPage() {
 
   return (
     <div className="min-h-screen bg-bg">
-      <div className="max-w-md mx-auto p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-bold">Escáner</h1>
-          <div className="flex items-center gap-2">
-            <InstallPWAButton className="btn-ghost text-xs" label="Instalar" />
+      <div className="w-full max-w-lg mx-auto p-3 sm:p-5">
+        {/* Header — compacto en mobile */}
+        <div className="flex items-center justify-between mb-2 sm:mb-3">
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl font-bold leading-tight">Escáner</h1>
+            <div className="text-[10px] text-mute truncate">
+              👤 {user.fullName ?? user.email}
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <InstallPWAButton className="btn-ghost text-xs hidden sm:inline-flex" label="Instalar" />
             <button
               type="button"
               onClick={logout}
               className="btn-ghost text-xs"
-              title={`Sesión activa: ${user.fullName ?? user.email}`}
+              title="Cerrar sesión"
             >
               <Icon name="out" size={12} /> Salir
             </button>
           </div>
         </div>
-        <div className="text-[11px] text-mute mb-3 truncate">
-          👤 {user.fullName ?? user.email}
-        </div>
 
         {!data && (
           <div className="text-center text-xs text-mute mb-2">
             📷 Apuntá la cámara al{' '}
-            <strong className="text-ink">código de barras</strong> o QR del
-            cliente. Funciona con tarjetas en Apple/Google Wallet.
+            <strong className="text-ink">código de barras</strong> o QR
           </div>
         )}
 
-        {/* Mantenemos el div SIEMPRE montado para que el scanner no
-            pierda referencia al DOM cuando se muestra el resultado. */}
+        {/* Camera viewport — ocupa el espacio disponible. En mobile usa
+            casi toda la pantalla; en desktop se mantiene en proporción. */}
         <div
           id="qr-reader"
-          className="rounded-card overflow-hidden bg-ink relative"
+          className="rounded-card overflow-hidden bg-ink relative w-full"
           style={{
-            minHeight: data ? 0 : 320,
             display: data ? 'none' : 'block',
+            // mobile portrait: hasta 65vh; cap a 560px en pantallas grandes
+            height: data ? 0 : 'min(65vh, 560px)',
+            minHeight: data ? 0 : 280,
           }}
         />
 
         {!data && err && !scanning && (
           <button
             type="button"
-            className="btn-primary w-full mt-3 justify-center"
+            className="btn-primary w-full mt-3 justify-center py-3.5"
             onClick={() => startScanner()}
           >
             <Icon name="check" /> Reintentar cámara
@@ -324,7 +328,7 @@ export default function ScanPage() {
 
         {!data && (
           <form
-            className="mt-4 flex gap-2"
+            className="mt-3 flex gap-2"
             onSubmit={(e) => {
               e.preventDefault();
               verify(manual);
@@ -335,54 +339,60 @@ export default function ScanPage() {
               placeholder="Pegar código manualmente (CLB-…)"
               value={manual}
               onChange={(e) => setManual(e.target.value)}
+              inputMode="text"
+              autoComplete="off"
+              autoCapitalize="characters"
             />
-            <button className="btn-primary">Verificar</button>
+            <button className="btn-primary px-4">Verificar</button>
           </form>
         )}
 
         {err && (
-          <div className="mt-4 rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink">
+          <div className="mt-3 rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink">
             {err}
           </div>
         )}
 
         {data && (
-          <div className="card card-pad mt-4">
+          <div className="card card-pad mt-3">
             <div className="flex items-center gap-3">
               <div
-                className={`avatar w-11 h-11 text-sm ${avatarClass(
+                className={`avatar w-12 h-12 text-base ${avatarClass(
                   data.pass.customer.fullName,
                 )}`}
               >
                 {initials(data.pass.customer.fullName)}
               </div>
-              <div className="flex-1">
-                <div className="font-semibold">{data.pass.customer.fullName}</div>
-                <div className="text-xs text-mute">{data.pass.card.name}</div>
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold truncate">{data.pass.customer.fullName}</div>
+                <div className="text-xs text-mute truncate">{data.pass.card.name}</div>
               </div>
-              <span className="badge badge-info">Verificado</span>
+              <span className="badge badge-info shrink-0">✓</span>
             </div>
 
             {data.pass.card.type === 'STAMPS' && (
               <>
-                <div className="flex flex-wrap gap-1.5 mt-4">
+                <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-4 justify-center">
                   {Array.from({ length: data.pass.card.stampsRequired ?? 10 }).map(
                     (_, i) => (
                       <span
                         key={i}
-                        className="w-7 h-7 rounded-full border-2"
+                        className="w-8 h-8 sm:w-9 sm:h-9 rounded-full border-2 flex items-center justify-center text-base shrink-0"
                         style={{
                           background:
                             i < data.pass.stampsCount ? '#22C55E' : 'transparent',
                           borderColor:
                             i < data.pass.stampsCount ? '#22C55E' : '#E5E7EB',
+                          color: i < data.pass.stampsCount ? '#fff' : 'transparent',
                         }}
-                      />
+                      >
+                        ✓
+                      </span>
                     ),
                   )}
                 </div>
                 <div className="flex items-center justify-between mt-3 text-sm">
-                  <strong>
+                  <strong className="text-base">
                     {data.pass.stampsCount} / {data.pass.card.stampsRequired ?? 10}
                   </strong>
                   <span className="text-mute text-xs">
@@ -390,37 +400,37 @@ export default function ScanPage() {
                     {Math.max(
                       0,
                       (data.pass.card.stampsRequired ?? 10) - data.pass.stampsCount,
-                    )}{' '}
-                    sellos
+                    )}
                   </span>
                 </div>
               </>
             )}
 
+            {/* Botones con touch targets grandes (py-4) y emojis bien visibles */}
             <div className="grid grid-cols-2 gap-2 mt-5">
               <button
-                className="btn-primary justify-center"
+                className="btn-primary justify-center py-4 text-base"
                 disabled={busy}
                 onClick={() => act('STAMP', 1)}
               >
                 <Icon name="plus" /> 1 sello
               </button>
               <button
-                className="btn-ghost justify-center"
+                className="btn-ghost justify-center py-4 text-base"
                 disabled={busy}
                 onClick={() => act('STAMP', 5)}
               >
-                + 5 sellos
+                +5 sellos
               </button>
               <button
-                className="btn-ghost justify-center"
+                className="btn-ghost justify-center py-4 text-base"
                 disabled={busy}
                 onClick={() => act('REDEEM')}
               >
                 <Icon name="gift" /> Redimir
               </button>
               <button
-                className="btn-ghost justify-center"
+                className="btn-ghost justify-center py-4 text-base"
                 disabled={busy}
                 onClick={() => act('VISIT')}
               >
@@ -429,10 +439,10 @@ export default function ScanPage() {
             </div>
 
             <button
-              className="btn-link mt-4 text-center w-full"
+              className="btn-primary mt-4 w-full justify-center py-4 text-base"
               onClick={scanAnother}
             >
-              Escanear otro
+              📷 Escanear otro
             </button>
           </div>
         )}
