@@ -95,25 +95,25 @@ export function HeroBanner() {
           50% { transform: translateY(-8px); }
         }
       `}</style>
-      <section className="relative overflow-hidden bg-white py-14 md:py-20">
-        <div className="mx-auto max-w-7xl px-6 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+      <section className="relative overflow-hidden bg-white py-12 sm:py-16 lg:py-20">
+        <div className="mx-auto max-w-7xl px-5 sm:px-6 grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-12 items-center">
           {/* Columna izquierda: título + CTAs */}
-          <div>
-            <h2 className="text-4xl md:text-6xl font-bold tracking-tight leading-[1.05]">
+          <div className="text-center lg:text-left">
+            <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight leading-[1.05]">
               Menús digitales con{' '}
               <span className="text-brand">inteligencia artificial</span>
             </h2>
-            <p className="text-mute text-base md:text-lg mt-5 max-w-xl leading-relaxed">
+            <p className="text-mute text-sm sm:text-base lg:text-lg mt-4 sm:mt-5 max-w-xl mx-auto lg:mx-0 leading-relaxed">
               Tu menú vive en el iPhone de tu cliente. Foto + variantes +
               traducción automática + rotación de los más vendidos. Cero
               imprenta, cero fricción.
             </p>
-            <div className="flex flex-wrap gap-3 mt-8">
+            <div className="flex flex-col sm:flex-row flex-wrap justify-center lg:justify-start gap-3 mt-6 sm:mt-8">
               <a
                 href="https://wa.me/573001234567?text=Hola%2C%20quiero%20mi%20men%C3%BA%20digital"
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-2 px-6 py-3.5 rounded-full bg-[#25D366] text-white font-semibold shadow-md hover:opacity-90 transition"
+                className="inline-flex items-center justify-center gap-2 px-5 sm:px-6 py-3 sm:py-3.5 rounded-full bg-[#25D366] text-white font-semibold shadow-md hover:opacity-90 transition text-sm sm:text-base"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448L.057 24z" />
@@ -122,48 +122,65 @@ export function HeroBanner() {
               </a>
               <Link
                 href="/signup"
-                className="inline-flex items-center gap-2 px-6 py-3.5 rounded-full bg-brand text-white font-semibold shadow-md hover:opacity-90 transition"
+                className="inline-flex items-center justify-center gap-2 px-5 sm:px-6 py-3 sm:py-3.5 rounded-full bg-brand text-white font-semibold shadow-md hover:opacity-90 transition text-sm sm:text-base"
               >
                 Obtén tu menú
               </Link>
             </div>
           </div>
 
-          {/* Columna derecha: 2 iPhones tilted + badges flotantes */}
-          <div className="relative h-[480px] md:h-[560px] hidden md:block">
-            {/* iPhone trasero (tilted derecha, más al fondo) */}
+          {/* Columna derecha: iPhones tilted + badges flotantes
+              Mobile: 1 iPhone centrado más chico
+              Tablet+: 2 iPhones overlapping con badges */}
+          <div className="relative h-[420px] sm:h-[500px] lg:h-[560px] mt-4 lg:mt-0">
+            {/* iPhone trasero (oculto en mobile, visible sm+) */}
             <div
-              className="absolute right-0 top-1/2"
+              className="absolute right-0 top-1/2 hidden sm:block"
               style={{
-                transform: 'translateY(-45%) rotate(12deg) translateX(40px)',
+                transform: 'translateY(-45%) rotate(12deg) translateX(20px)',
                 zIndex: 1,
               }}
             >
-              <MenuPhone width={240} background="#0a0a0a" delayS={0.6} />
+              <div className="hidden lg:block">
+                <MenuPhone width={240} background="#0a0a0a" delayS={0.6} />
+              </div>
+              <div className="block lg:hidden">
+                <MenuPhone width={200} background="#0a0a0a" delayS={0.6} />
+              </div>
             </div>
-            {/* iPhone frontal (tilted izq) */}
+
+            {/* iPhone frontal (siempre visible) */}
             <div
               className="absolute left-1/2 top-1/2"
               style={{
-                transform: 'translate(-60%, -50%) rotate(-8deg)',
+                transform: 'translate(-50%, -50%) rotate(-6deg)',
                 zIndex: 2,
               }}
             >
-              <MenuPhone width={260} background="#FAFAF5" delayS={0} />
+              {/* tres tamaños responsivos sin custom CSS */}
+              <div className="hidden lg:block">
+                <MenuPhone width={260} background="#FAFAF5" delayS={0} />
+              </div>
+              <div className="hidden sm:block lg:hidden">
+                <MenuPhone width={220} background="#FAFAF5" delayS={0} />
+              </div>
+              <div className="block sm:hidden">
+                <MenuPhone width={200} background="#FAFAF5" delayS={0} />
+              </div>
             </div>
 
-            {/* Badge flotante: Multilenguaje (arriba derecha) */}
+            {/* Badge: Multilenguaje (arriba derecha) — un poco más chico en mobile */}
             <div
-              className="absolute top-6 right-6 z-10 flex items-center gap-2 bg-ink text-white px-4 py-2.5 rounded-full shadow-2xl text-sm font-semibold"
+              className="absolute top-2 sm:top-6 right-2 sm:right-6 z-10 flex items-center gap-1.5 sm:gap-2 bg-ink text-white px-3 sm:px-4 py-2 sm:py-2.5 rounded-full shadow-2xl text-xs sm:text-sm font-semibold"
               style={{ animation: 'clb-badge-float 4s ease-in-out infinite' }}
             >
               <span>🌐</span>
               Multilenguaje
             </div>
 
-            {/* Badge flotante: Rotación de productos (centro izq) */}
+            {/* Badge: Rotación de productos (abajo izq) */}
             <div
-              className="absolute bottom-12 left-2 z-10 flex items-center gap-2 bg-ink text-white px-4 py-2.5 rounded-full shadow-2xl text-sm font-semibold"
+              className="absolute bottom-4 sm:bottom-12 left-2 z-10 flex items-center gap-1.5 sm:gap-2 bg-ink text-white px-3 sm:px-4 py-2 sm:py-2.5 rounded-full shadow-2xl text-xs sm:text-sm font-semibold"
               style={{
                 animation: 'clb-badge-float 4s ease-in-out 1s infinite',
               }}
