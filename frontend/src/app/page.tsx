@@ -5,6 +5,7 @@ import { detectCountryFromHeaders, getLocalPrice } from '@/lib/pricing';
 import { RefCapture } from '@/components/RefCapture';
 import { FadeIn } from '@/components/FadeIn';
 import { HeroTrio } from '@/components/HeroTrio';
+import { HeroBanner } from '@/components/HeroBanner';
 import { Logo } from '@/components/Logo';
 
 const PILLARS = [
@@ -381,6 +382,9 @@ export default function Landing() {
           </div>
         </div>
       </section>
+
+      {/* ─────────── Hero secundario "Menús con IA" (estilo Cluvi) ─────────── */}
+      <HeroBanner />
 
       {/* ─────────── Cómo funciona ─────────── */}
       <section id="como" className="py-24">
