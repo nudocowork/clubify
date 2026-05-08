@@ -1,10 +1,13 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { api, getUser } from '@/lib/api';
+import { api, getUser, setSession, clearSession } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import { Icon } from '@/components/Icon';
 import { InstallPWAButton } from '@/components/InstallPWAButton';
 import { playScanSuccess, playScanError } from '@/lib/notify';
+
+const SCANNER_SESSION_HOURS = 6;
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
 function avatarClass(seed: string) {
   const sum = seed.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
@@ -22,6 +25,12 @@ export default function ScanPage() {
   const [busy, setBusy] = useState(false);
   const [manual, setManual] = useState('');
   const [scanning, setScanning] = useState(false);
+  // Sesión: si no hay user, mostrar login inline (no redirect a /login,
+  // así el staff con dispositivo del local no sale del scan)
+  const [user, setUser] = useState<any>(null);
+  const [loginForm, setLoginForm] = useState({ email: '', password: '' });
+  const [loggingIn, setLoggingIn] = useState(false);
+  const [loginErr, setLoginErr] = useState<string | null>(null);
 
   // Inicia (o re-inicia) el scanner. Idempotente.
   async function startScanner() {
@@ -97,17 +106,54 @@ export default function ScanPage() {
 
   useEffect(() => {
     const u = getUser();
-    if (!u) {
-      router.push('/login');
-      return;
-    }
+    setUser(u);
+    if (!u) return; // muestra login inline en vez de redirect
     startScanner();
     return () => {
       stopScanner();
       scannerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router]);
+  }, []);
+
+  async function doLogin(e: React.FormEvent) {
+    e.preventDefault();
+    setLoginErr(null);
+    setLoggingIn(true);
+    try {
+      const res = await fetch(`${API_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: loginForm.email.trim(),
+          password: loginForm.password,
+          scope: 'scanner', // backend firma JWT 6h en vez del default
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.message || 'Credenciales inválidas');
+      setSession(body.accessToken, body.user, {
+        maxAgeSeconds: SCANNER_SESSION_HOURS * 3600,
+      });
+      setUser(body.user);
+      setLoginForm({ email: '', password: '' });
+      // Iniciar scanner después del login
+      setTimeout(() => startScanner(), 50);
+    } catch (e: any) {
+      setLoginErr(e.message || 'Error de login');
+    } finally {
+      setLoggingIn(false);
+    }
+  }
+
+  async function logout() {
+    if (!confirm('¿Cerrar sesión del escáner?')) return;
+    await stopScanner();
+    clearSession();
+    setUser(null);
+    setData(null);
+    setErr(null);
+  }
 
   async function verify(qrToken: string) {
     setErr(null);
@@ -172,12 +218,79 @@ export default function ScanPage() {
     }
   }
 
+  // ─── Login inline cuando no hay sesión ───
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-bg flex items-center justify-center p-5">
+        <div className="card card-pad max-w-sm w-full">
+          <div className="text-center mb-4">
+            <div className="text-4xl mb-2">📷</div>
+            <h1 className="text-xl font-bold m-0">Iniciar sesión</h1>
+            <p className="text-xs text-mute mt-1.5">
+              La sesión del escáner dura {SCANNER_SESSION_HOURS} horas — alcanza
+              para todo un turno.
+            </p>
+          </div>
+          <form onSubmit={doLogin} className="space-y-3">
+            <div>
+              <label className="label">Email</label>
+              <input
+                type="email"
+                className="input"
+                value={loginForm.email}
+                onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })}
+                required
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="label">Contraseña</label>
+              <input
+                type="password"
+                className="input"
+                value={loginForm.password}
+                onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+                required
+              />
+            </div>
+            {loginErr && (
+              <div className="rounded-lg bg-bad-soft px-3 py-2 text-sm text-bad-ink">
+                {loginErr}
+              </div>
+            )}
+            <button className="btn-primary w-full justify-center" disabled={loggingIn}>
+              {loggingIn ? 'Entrando…' : `Iniciar (sesión ${SCANNER_SESSION_HOURS}h)`}
+            </button>
+          </form>
+          <div className="text-center mt-4">
+            <a href="/login" className="text-xs text-mute hover:text-ink">
+              Login normal del panel →
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-bg">
       <div className="max-w-md mx-auto p-5">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold">Escáner</h1>
-          <InstallPWAButton className="btn-ghost text-xs" label="Instalar" />
+          <div className="flex items-center gap-2">
+            <InstallPWAButton className="btn-ghost text-xs" label="Instalar" />
+            <button
+              type="button"
+              onClick={logout}
+              className="btn-ghost text-xs"
+              title={`Sesión activa: ${user.fullName ?? user.email}`}
+            >
+              <Icon name="out" size={12} /> Salir
+            </button>
+          </div>
+        </div>
+        <div className="text-[11px] text-mute mb-3 truncate">
+          👤 {user.fullName ?? user.email}
         </div>
 
         {!data && (

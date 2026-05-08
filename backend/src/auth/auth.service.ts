@@ -40,7 +40,12 @@ export class AuthService {
     }
   }
 
-  async login(email: string, password: string, ip?: string) {
+  async login(
+    email: string,
+    password: string,
+    ip?: string,
+    opts: { scope?: 'scanner' } = {},
+  ) {
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user || !user.isActive) {
       this.audit.log({
@@ -82,7 +87,12 @@ export class AuthService {
       tenantId: user.tenantId,
     };
 
-    const accessToken = this.jwt.sign(payload);
+    // Sesión "scanner" dura 6h (turno largo de cajero/staff que escanea
+    // todo el día). Sesión normal usa el JWT_EXPIRES default.
+    const accessToken =
+      opts.scope === 'scanner'
+        ? this.jwt.sign(payload, { expiresIn: '6h' })
+        : this.jwt.sign(payload);
     const refreshToken = this.jwt.sign(payload, {
       secret: process.env.JWT_REFRESH_SECRET ?? 'dev-refresh',
       expiresIn: process.env.JWT_REFRESH_EXPIRES ?? '30d',
@@ -91,6 +101,7 @@ export class AuthService {
     return {
       accessToken,
       refreshToken,
+      scope: opts.scope ?? 'default',
       user: {
         id: user.id,
         email: user.email,

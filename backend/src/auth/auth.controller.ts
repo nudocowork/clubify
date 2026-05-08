@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Ip, Post } from '@nestjs/common';
-import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
 import { AuthService } from './auth.service';
 import { Public } from '../common/decorators/public.decorator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
@@ -7,6 +7,9 @@ import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorat
 class LoginDto {
   @IsEmail() email!: string;
   @IsString() @MinLength(6) password!: string;
+  // 'scanner' = sesión larga (6h) para staff que usa el escáner todo
+  // el día. Sin scope = login normal.
+  @IsOptional() @IsIn(['scanner']) scope?: 'scanner';
 }
 
 class GoogleLoginDto {
@@ -44,7 +47,9 @@ export class AuthController {
   @Public()
   @Post('login')
   login(@Body() dto: LoginDto, @Ip() ip: string) {
-    return this.auth.login(dto.email, dto.password, ip);
+    return this.auth.login(dto.email, dto.password, ip, {
+      scope: dto.scope,
+    });
   }
 
   @Public()

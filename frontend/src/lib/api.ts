@@ -8,9 +8,10 @@ function getToken() {
   return m ? decodeURIComponent(m[2]) : null;
 }
 
-export function setSession(token: string, user: any) {
-  // Sesión fija de 1 hora — luego expira y debe volver a loguear
-  document.cookie = `clubify_token=${encodeURIComponent(token)}; path=/; max-age=${60 * 60}; samesite=lax`;
+export function setSession(token: string, user: any, opts?: { maxAgeSeconds?: number }) {
+  // Default 1 hora. Para sesión scanner pasamos maxAgeSeconds: 6 * 3600.
+  const maxAge = opts?.maxAgeSeconds ?? 60 * 60;
+  document.cookie = `clubify_token=${encodeURIComponent(token)}; path=/; max-age=${maxAge}; samesite=lax`;
   localStorage.setItem('clubify_user', JSON.stringify(user));
 }
 
