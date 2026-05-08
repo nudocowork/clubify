@@ -11,6 +11,9 @@ class StampBody {
   @IsOptional() amount?: number;
   @IsOptional() @IsString() note?: string;
   @IsOptional() @IsUUID() locationId?: string;
+  // Requerido cuando se hace STAMP con amount>1 desde el escáner
+  // (ver scanner.staffPin en super admin / settings).
+  @IsOptional() @IsString() pin?: string;
 }
 
 @Controller('stamps')

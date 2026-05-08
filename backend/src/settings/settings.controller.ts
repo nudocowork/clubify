@@ -15,6 +15,7 @@ class BrandingDto {
   @IsOptional() @IsString() supportWhatsapp?: string | null;
   @IsOptional() @IsString() welcomePopupImageUrl?: string | null;
   @IsOptional() @IsBoolean() welcomePopupEnabled?: boolean;
+  @IsOptional() @IsString() scannerStaffPin?: string | null;
 }
 
 const WELCOME_POPUP_MESSAGE =
@@ -32,6 +33,13 @@ export class SettingsController {
   @Get('branding')
   getBranding() {
     return this.svc.getBranding();
+  }
+
+  /** Super admin lee TODO incluyendo el PIN del escáner (sensitive). */
+  @Get('admin/branding')
+  @Roles('SUPER_ADMIN')
+  getBrandingAdmin() {
+    return this.svc.getBrandingAdmin();
   }
 
   /** Solo super admin puede cambiar el branding global. */

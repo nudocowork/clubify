@@ -11,6 +11,7 @@ type Branding = {
   supportWhatsapp: string | null;
   welcomePopupImageUrl: string | null;
   welcomePopupEnabled: boolean;
+  scannerStaffPin: string | null;
 };
 
 export default function AdminBrandingPage() {
@@ -20,6 +21,7 @@ export default function AdminBrandingPage() {
     supportWhatsapp: null,
     welcomePopupImageUrl: null,
     welcomePopupEnabled: true,
+    scannerStaffPin: null,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -27,7 +29,8 @@ export default function AdminBrandingPage() {
   async function load() {
     setLoading(true);
     try {
-      const data = await api<Branding>('/branding');
+      // Endpoint admin que SÍ devuelve scannerStaffPin (el público no, por seguridad)
+      const data = await api<Branding>('/admin/branding');
       setB(data);
     } catch (e: any) {
       toast(e.message || 'Error cargando branding', 'error');
@@ -105,6 +108,31 @@ export default function AdminBrandingPage() {
           </div>
         </div>
       )}
+
+      <div className="card card-pad mt-5">
+        <h2 className="text-base font-semibold m-0">
+          🔐 PIN del escáner
+        </h2>
+        <p className="text-xs text-mute mt-1 leading-relaxed">
+          PIN que el cajero/staff debe ingresar en <code>/scan</code> cuando
+          quiere agregar <b>más de 1 sello</b> en una sola escaneada (anti-abuso).
+          Cada escaneada normal agrega 1 sello sin pedir nada. Si dejás vacío,
+          se permite agregar cualquier cantidad sin PIN. Recomendado: 4–6 dígitos.
+        </p>
+        <div className="mt-3.5 max-w-sm">
+          <label className="label">PIN (visible solo para super admin)</label>
+          <input
+            type="text"
+            inputMode="numeric"
+            className="input font-mono tracking-widest"
+            placeholder="ej: 1234"
+            value={b.scannerStaffPin ?? ''}
+            onChange={(e) =>
+              setB({ ...b, scannerStaffPin: e.target.value })
+            }
+          />
+        </div>
+      </div>
 
       <div className="card card-pad mt-5">
         <h2 className="text-base font-semibold m-0">

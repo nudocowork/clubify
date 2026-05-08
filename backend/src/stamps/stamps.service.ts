@@ -11,6 +11,7 @@ export type StampDto = {
   amount?: number;
   note?: string;
   locationId?: string;
+  pin?: string;
 };
 
 @Injectable()
@@ -33,6 +34,19 @@ export class StampsService {
     if (pass.status === 'REVOKED') throw new BadRequestException('Pass is revoked');
 
     const amount = new Prisma.Decimal(dto.amount ?? 1);
+
+    // Anti-abuso: si STAMP con amount > 1, exigir PIN configurado por
+    // super admin (Setting key scanner.staffPin). Si no hay PIN seteado,
+    // se permite (backwards compat hasta que el admin lo configure).
+    if (dto.action === 'STAMP' && Number(amount) > 1) {
+      const pinRow = await this.prisma.setting.findUnique({
+        where: { key: 'scanner.staffPin' },
+      });
+      const expected = pinRow?.value?.trim();
+      if (expected && (dto.pin ?? '').trim() !== expected) {
+        throw new ForbiddenException('PIN del escáner inválido');
+      }
+    }
 
     let newStamps = pass.stampsCount;
     let newPoints = pass.pointsBalance;

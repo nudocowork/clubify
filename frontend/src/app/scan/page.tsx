@@ -31,6 +31,10 @@ export default function ScanPage() {
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
   const [loggingIn, setLoggingIn] = useState(false);
   const [loginErr, setLoginErr] = useState<string | null>(null);
+  // Modal "agregar más sellos" (requiere PIN del super admin)
+  const [showMoreModal, setShowMoreModal] = useState(false);
+  const [moreForm, setMoreForm] = useState({ amount: 2, pin: '' });
+  const [moreErr, setMoreErr] = useState<string | null>(null);
 
   // Inicia (o re-inicia) el scanner. Idempotente.
   async function startScanner() {
@@ -184,7 +188,7 @@ export default function ScanPage() {
     }
   }
 
-  async function act(action: string, amount = 1) {
+  async function act(action: string, amount = 1, pin?: string) {
     if (!data?.pass) return;
     setBusy(true);
     try {
@@ -194,6 +198,7 @@ export default function ScanPage() {
           passId: data.pass.id,
           action,
           amount,
+          ...(pin ? { pin } : {}),
         }),
       });
       // El backend devuelve `pass` sin includes (solo campos del Pass).
@@ -406,44 +411,134 @@ export default function ScanPage() {
               </>
             )}
 
-            {/* Botones con touch targets grandes (py-4) y emojis bien visibles */}
-            <div className="grid grid-cols-2 gap-2 mt-5">
+            {/* Acción principal: 1 sello por escaneada (regla anti-abuso) */}
+            <button
+              className="btn-primary w-full justify-center py-5 text-lg mt-5"
+              disabled={busy}
+              onClick={() => act('STAMP', 1)}
+            >
+              <Icon name="plus" /> Agregar 1 sello
+            </button>
+
+            <div className="grid grid-cols-2 gap-2 mt-2">
               <button
-                className="btn-primary justify-center py-4 text-base"
-                disabled={busy}
-                onClick={() => act('STAMP', 1)}
-              >
-                <Icon name="plus" /> 1 sello
-              </button>
-              <button
-                className="btn-ghost justify-center py-4 text-base"
-                disabled={busy}
-                onClick={() => act('STAMP', 5)}
-              >
-                +5 sellos
-              </button>
-              <button
-                className="btn-ghost justify-center py-4 text-base"
+                className="btn-ghost justify-center py-3.5 text-sm"
                 disabled={busy}
                 onClick={() => act('REDEEM')}
               >
                 <Icon name="gift" /> Redimir
               </button>
               <button
-                className="btn-ghost justify-center py-4 text-base"
+                className="btn-ghost justify-center py-3.5 text-sm text-mute"
                 disabled={busy}
-                onClick={() => act('VISIT')}
+                onClick={() => {
+                  setMoreErr(null);
+                  setMoreForm({ amount: 2, pin: '' });
+                  setShowMoreModal(true);
+                }}
+                title="Requiere PIN del super admin"
               >
-                <Icon name="check" /> Visita
+                🔐 Más sellos
               </button>
             </div>
 
             <button
-              className="btn-primary mt-4 w-full justify-center py-4 text-base"
+              className="btn-link mt-4 w-full justify-center text-sm"
               onClick={scanAnother}
             >
               📷 Escanear otro
             </button>
+          </div>
+        )}
+
+        {/* Modal: agregar varios sellos (requiere PIN) */}
+        {showMoreModal && data && (
+          <div
+            className="fixed inset-0 z-50 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setShowMoreModal(false)}
+          >
+            <div
+              className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="font-semibold text-lg m-0">🔐 Agregar más sellos</h3>
+              <p className="text-xs text-mute mt-1.5 leading-relaxed">
+                Cada escaneada normal agrega 1 sello. Para agregar varios
+                ingresá el <b>PIN</b> que te dio el super admin.
+              </p>
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  setMoreErr(null);
+                  if (!moreForm.pin.trim()) {
+                    setMoreErr('Ingresá el PIN');
+                    return;
+                  }
+                  if (moreForm.amount < 2 || moreForm.amount > 30) {
+                    setMoreErr('Cantidad entre 2 y 30');
+                    return;
+                  }
+                  setBusy(true);
+                  try {
+                    await act('STAMP', moreForm.amount, moreForm.pin);
+                    setShowMoreModal(false);
+                  } catch (err: any) {
+                    setMoreErr(err?.message ?? 'Error');
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+                className="mt-4 space-y-3"
+              >
+                <div>
+                  <label className="label">Cantidad de sellos</label>
+                  <input
+                    type="number"
+                    min={2}
+                    max={30}
+                    className="input"
+                    value={moreForm.amount}
+                    onChange={(e) =>
+                      setMoreForm({ ...moreForm, amount: Number(e.target.value) })
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="label">PIN del super admin</label>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    className="input font-mono tracking-widest"
+                    value={moreForm.pin}
+                    onChange={(e) =>
+                      setMoreForm({ ...moreForm, pin: e.target.value })
+                    }
+                    autoFocus
+                  />
+                </div>
+                {moreErr && (
+                  <div className="rounded-lg bg-bad-soft px-3 py-2 text-sm text-bad-ink">
+                    {moreErr}
+                  </div>
+                )}
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    className="btn-ghost flex-1 justify-center"
+                    onClick={() => setShowMoreModal(false)}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn-primary flex-1 justify-center"
+                    disabled={busy}
+                  >
+                    {busy ? 'Agregando…' : `Agregar ${moreForm.amount}`}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         )}
       </div>

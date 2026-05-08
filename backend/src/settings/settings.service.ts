@@ -9,6 +9,10 @@ export type BrandingSettings = {
   // al panel después de comprar el servicio.
   welcomePopupImageUrl: string | null;
   welcomePopupEnabled: boolean;
+  // PIN que el cajero debe ingresar en /scan cuando agrega más de 1
+  // sello a una tarjeta (anti-abuso). El super admin lo configura.
+  // Plain text — solo super admin lo lee, comparison se hace server-side.
+  scannerStaffPin: string | null;
 };
 
 const KEYS = {
@@ -17,13 +21,33 @@ const KEYS = {
   supportWhatsapp: 'support.whatsappPhone',
   welcomePopupImageUrl: 'welcomePopup.imageUrl',
   welcomePopupEnabled: 'welcomePopup.enabled',
+  scannerStaffPin: 'scanner.staffPin',
 } as const;
+
+/** Devuelve true si el PIN provisto coincide con el seteado por el super
+ * admin. Si no hay PIN configurado, también devuelve true (backwards
+ * compat — no bloquea hasta que se configure). */
+export async function checkScannerPin(prisma: any, providedPin: string | null | undefined): Promise<boolean> {
+  const row = await prisma.setting.findUnique({ where: { key: KEYS.scannerStaffPin } });
+  const stored = row?.value?.trim();
+  if (!stored) return true; // no configurado → permitir
+  return (providedPin ?? '').trim() === stored;
+}
 
 @Injectable()
 export class SettingsService {
   constructor(private prisma: PrismaService) {}
 
-  async getBranding(): Promise<BrandingSettings> {
+  /** Versión pública — NO incluye scannerStaffPin (sensitive). */
+  async getBranding(): Promise<Omit<BrandingSettings, 'scannerStaffPin'>> {
+    const full = await this.getBrandingAdmin();
+    const { scannerStaffPin, ...rest } = full;
+    void scannerStaffPin;
+    return rest;
+  }
+
+  /** Versión admin — incluye TODO incluyendo el PIN. Solo super admin. */
+  async getBrandingAdmin(): Promise<BrandingSettings> {
     const rows = await this.prisma.setting.findMany({
       where: {
         key: {
@@ -33,6 +57,7 @@ export class SettingsService {
             KEYS.supportWhatsapp,
             KEYS.welcomePopupImageUrl,
             KEYS.welcomePopupEnabled,
+            KEYS.scannerStaffPin,
           ],
         },
       },
@@ -49,8 +74,8 @@ export class SettingsService {
       faviconUrl: norm(map.get(KEYS.faviconUrl)),
       supportWhatsapp: norm(map.get(KEYS.supportWhatsapp)),
       welcomePopupImageUrl: norm(map.get(KEYS.welcomePopupImageUrl)),
-      // default true si nunca se seteó
       welcomePopupEnabled: enabledRaw === undefined ? true : enabledRaw !== 'false',
+      scannerStaffPin: norm(map.get(KEYS.scannerStaffPin)),
     };
   }
 
@@ -73,8 +98,12 @@ export class SettingsService {
         this.upsert(KEYS.welcomePopupEnabled, data.welcomePopupEnabled ? 'true' : 'false'),
       );
     }
+    if (data.scannerStaffPin !== undefined) {
+      // Trim + permitir vacío (desactiva el check)
+      ops.push(this.upsert(KEYS.scannerStaffPin, (data.scannerStaffPin ?? '').trim()));
+    }
     await Promise.all(ops);
-    return this.getBranding();
+    return this.getBrandingAdmin();
   }
 
   private upsert(key: string, value: string) {
