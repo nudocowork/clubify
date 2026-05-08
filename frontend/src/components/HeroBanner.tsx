@@ -109,23 +109,21 @@ export function HeroBanner() {
               imprenta, cero fricción.
             </p>
             <div className="flex flex-col sm:flex-row flex-wrap justify-center lg:justify-start gap-3 mt-6 sm:mt-8">
+              <Link
+                href="#precios"
+                className="inline-flex items-center justify-center gap-2 px-6 sm:px-7 py-3 sm:py-3.5 rounded-full bg-ink text-white font-semibold shadow-md hover:opacity-90 transition text-sm sm:text-base"
+              >
+                <span className="text-sm">✦</span>
+                Ver planes y empezar
+              </Link>
               <a
-                href="https://wa.me/573001234567?text=Hola%2C%20quiero%20mi%20men%C3%BA%20digital"
+                href="https://wa.me/573001234567?text=Hola%2C%20quiero%20hablar%20con%20ventas"
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center justify-center gap-2 px-5 sm:px-6 py-3 sm:py-3.5 rounded-full bg-[#25D366] text-white font-semibold shadow-md hover:opacity-90 transition text-sm sm:text-base"
+                className="inline-flex items-center justify-center gap-2 px-6 sm:px-7 py-3 sm:py-3.5 rounded-full bg-white text-ink border-2 border-ink/90 font-semibold hover:bg-ink/5 transition text-sm sm:text-base"
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448L.057 24z" />
-                </svg>
-                WhatsApp Comercial
+                Hablar con ventas
               </a>
-              <Link
-                href="/signup"
-                className="inline-flex items-center justify-center gap-2 px-5 sm:px-6 py-3 sm:py-3.5 rounded-full bg-brand text-white font-semibold shadow-md hover:opacity-90 transition text-sm sm:text-base"
-              >
-                Obtén tu menú
-              </Link>
             </div>
           </div>
 
