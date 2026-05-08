@@ -4,6 +4,7 @@ import dynamic from 'next/dynamic';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
+import { EmojiPicker } from '@/components/EmojiPicker';
 import type { MapPickResult } from '@/components/MapPicker';
 
 // Leaflet usa `window` al importar — dynamic import sin SSR
@@ -199,15 +200,27 @@ export default function LocationsPage() {
           </div>
           <div className="mt-3">
             <label className="label">📱 Texto del push wallet</label>
-            <input
-              className="input"
-              placeholder="Estás cerca de nuestro local · ¡pasa a sellar!"
-              value={form.walletRelevantText}
-              onChange={(e) =>
-                setForm({ ...form, walletRelevantText: e.target.value })
-              }
-              maxLength={120}
-            />
+            <div className="flex items-stretch gap-2">
+              <input
+                className="input flex-1"
+                placeholder="Estás cerca de nuestro local · ¡pasa a sellar!"
+                value={form.walletRelevantText}
+                onChange={(e) =>
+                  setForm({ ...form, walletRelevantText: e.target.value })
+                }
+                maxLength={120}
+              />
+              <EmojiPicker
+                onSelect={(emoji) =>
+                  setForm((f) => ({
+                    ...f,
+                    walletRelevantText: (f.walletRelevantText || '') + emoji,
+                  }))
+                }
+                size="sm"
+                placeholder="Agregar emoji"
+              />
+            </div>
             <p className="text-[11px] text-mute mt-1 leading-relaxed">
               Mensaje que aparece en el lock screen del iPhone cuando el
               cliente entra al radio. Si lo dejas vacío, usa "Estás cerca
