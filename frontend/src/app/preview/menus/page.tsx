@@ -448,6 +448,60 @@ function Option5() {
   );
 }
 
+// 6️⃣ CLUVI — fondo oscuro + cards blancas + título amarillo + VER pill
+function Option6() {
+  return (
+    <div style={{ background: '#0a0a0a' }} className="min-h-full p-3">
+      <div className="text-center py-2 mb-2">
+        <img src={HERO} alt="" className="w-10 h-10 rounded-lg inline-block ring-2 ring-yellow-400" />
+        <div className="text-white text-sm font-bold mt-1">Café del Día</div>
+      </div>
+      <div className="text-yellow-400 font-bold uppercase text-sm mb-2">
+        Recomendados
+      </div>
+      <div className="space-y-2">
+        {PRODUCTS.slice(0, 2).map((p, i) => (
+          <div key={i} className="bg-white rounded-2xl shadow flex overflow-hidden">
+            <img src={p.img} alt="" className="w-20 h-20 object-cover flex-none" />
+            <div className="flex-1 p-2.5 min-w-0">
+              <div className="font-bold text-xs leading-tight">{p.name}</div>
+              <div className="text-[9px] text-gray-500 mt-0.5 line-clamp-2 leading-snug">
+                {p.desc}
+              </div>
+              <div className="flex items-end justify-between mt-1">
+                <div className="font-bold text-[11px]">${p.price.toLocaleString('es-CO')}</div>
+                <span className="px-2 py-0.5 rounded-full text-[9px] font-semibold bg-yellow-400 text-black">
+                  VER
+                </span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="text-yellow-400 font-bold uppercase text-sm mt-3 mb-2">
+        Postres
+      </div>
+      <div className="space-y-2">
+        {POSTRES.slice(0, 1).map((p, i) => (
+          <div key={i} className="bg-white rounded-2xl shadow flex overflow-hidden">
+            <img src={p.img} alt="" className="w-20 h-20 object-cover flex-none" />
+            <div className="flex-1 p-2.5 min-w-0">
+              <div className="font-bold text-xs leading-tight">{p.name}</div>
+              <div className="text-[9px] text-gray-500 mt-0.5">{p.desc}</div>
+              <div className="flex items-end justify-between mt-1">
+                <div className="font-bold text-[11px]">${p.price.toLocaleString('es-CO')}</div>
+                <span className="px-2 py-0.5 rounded-full text-[9px] font-semibold bg-yellow-400 text-black">
+                  VER
+                </span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ============================================================
 // Page
 // ============================================================
@@ -460,7 +514,7 @@ export default function MenusPreview() {
             Preview · Storefront mobile
           </div>
           <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
-            5 maneras de ver el menú en el teléfono
+            6 maneras de ver el menú en el teléfono
           </h1>
           <p className="text-mute mt-2 text-sm max-w-2xl mx-auto">
             Cada negocio elige su estilo desde Mi sitio · Estilo del menú.
@@ -531,6 +585,19 @@ export default function MenusPreview() {
             ]}
           >
             <Option5 />
+          </Phone>
+
+          <Phone
+            num={6}
+            title="Cluvi (fondo oscuro)"
+            best="Bares, restaurantes, cafés con vibe nocturno"
+            pros={[
+              'Estilo Cluvi/Bananas',
+              'Fondo oscuro elegante',
+              'Acentos en color de marca',
+            ]}
+          >
+            <Option6 />
           </Phone>
         </div>
 

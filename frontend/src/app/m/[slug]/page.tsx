@@ -16,7 +16,7 @@ import { CO_LOCATIONS, OTRO_MUNICIPIO } from '@/lib/co-locations';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
-type MenuLayout = 'CLASSIC' | 'GRID' | 'CAROUSELS' | 'CLEAN' | 'COMPACT';
+type MenuLayout = 'CLASSIC' | 'GRID' | 'CAROUSELS' | 'CLEAN' | 'COMPACT' | 'CLUVI';
 
 type Storefront = {
   id: string;
@@ -121,10 +121,13 @@ export default function StorefrontPublic() {
   const totals = cartTotals(cart);
   const primary = s.primaryColor;
 
+  const isCluvi = (s.menuLayout ?? 'CLASSIC') === 'CLUVI';
   return (
     <div
-      className="min-h-screen pb-32"
-      style={{ background: '#FAFBFC' }}
+      className={`min-h-screen pb-32 ${isCluvi ? 'text-white' : ''}`}
+      style={{
+        background: isCluvi ? '#0a0a0a' : '#FAFBFC',
+      }}
     >
       {/* Hero */}
       <header className="relative">
@@ -1297,6 +1300,8 @@ function MenuRenderer({ layout, menu, primary, currency, onPick }: RenderProps) 
     return <LayoutClean menu={menu} primary={primary} currency={currency} onPick={onPick} />;
   if (layout === 'COMPACT')
     return <LayoutCompact menu={menu} primary={primary} currency={currency} onPick={onPick} />;
+  if (layout === 'CLUVI')
+    return <LayoutCluvi menu={menu} primary={primary} currency={currency} onPick={onPick} />;
   return <LayoutClassic menu={menu} primary={primary} currency={currency} onPick={onPick} />;
 }
 
@@ -1547,6 +1552,67 @@ function LayoutCompact({ menu, primary, currency, onPick }: LP) {
                 {p.description && (
                   <div className="text-[11px] text-mute mt-0.5 line-clamp-1">{p.description}</div>
                 )}
+              </button>
+            ))}
+          </div>
+        </section>
+      ))}
+    </>
+  );
+}
+
+// 6️⃣ CLUVI — fondo oscuro + cards blancas + secciones título amarillo + VER pill
+//      (estilo bananas-grill-bar.cluvi.co)
+function LayoutCluvi({ menu, primary, currency, onPick }: LP) {
+  return (
+    <>
+      {menu.map((cat) => (
+        <section key={cat.id} className="mb-8">
+          <h2
+            className="font-bold uppercase mb-3 text-lg tracking-tight"
+            style={{ color: primary }}
+          >
+            {cat.name}
+          </h2>
+          <div className="space-y-3">
+            {cat.products.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => onPick(p)}
+                className="w-full bg-white rounded-2xl shadow-md text-left flex items-stretch overflow-hidden"
+              >
+                {p.imageUrl ? (
+                  <img
+                    src={p.imageUrl}
+                    alt=""
+                    className="w-28 h-28 sm:w-32 sm:h-32 object-cover flex-none"
+                  />
+                ) : (
+                  <div className="w-28 h-28 sm:w-32 sm:h-32 bg-bg2 flex-none flex items-center justify-center text-3xl text-mute">
+                    🍽
+                  </div>
+                )}
+                <div className="flex-1 p-3 sm:p-4 min-w-0 flex flex-col">
+                  <div className="font-bold text-base leading-tight">
+                    {p.name}
+                  </div>
+                  {p.description && (
+                    <div className="text-xs text-mute mt-1 line-clamp-2 leading-snug flex-1">
+                      {p.description}
+                    </div>
+                  )}
+                  <div className="flex items-end justify-between mt-2 gap-2">
+                    <div className="font-bold text-sm">
+                      {fmt(Number(p.basePrice), currency)}
+                    </div>
+                    <span
+                      className="px-3 py-1 rounded-full text-xs font-semibold text-ink shrink-0"
+                      style={{ background: primary }}
+                    >
+                      VER
+                    </span>
+                  </div>
+                </div>
               </button>
             ))}
           </div>
