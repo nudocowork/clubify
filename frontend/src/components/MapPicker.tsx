@@ -120,7 +120,8 @@ export function MapPicker({
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Cuando cambia el picked, mover el mapa al punto y poner marker
+  // Cuando cambia el picked: mover mapa + actualizar marker + resetear
+  // estado del input para que muestre la dirección nueva (no el query viejo).
   useEffect(() => {
     if (!mapRef.current || !picked) return;
     mapRef.current.setView([picked.lat, picked.lng], 16, { animate: true });
@@ -131,6 +132,11 @@ export function MapPicker({
         icon: brandIcon('#22C55E', '✓'),
       }).addTo(mapRef.current);
     }
+    // Forzar input a modo "mostrar dirección elegida"
+    setEditingQuery(false);
+    setQuery('');
+    // Sacar pins de búsqueda (ya elegimos uno, no necesitamos los demás)
+    markersGroup.current?.clearLayers();
   }, [picked]);
 
   // Debounced Photon search → drop pins for each result
