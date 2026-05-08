@@ -64,6 +64,11 @@ export class MediaService {
     return this.configured;
   }
 
+  /** Base pública del bucket — usado por el proxy para validar URLs. */
+  getPublicBase(): string {
+    return this.publicUrl.replace(/\/$/, '');
+  }
+
   async upload(opts: {
     tenantId?: string;
     folder?: string;

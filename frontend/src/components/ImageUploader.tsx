@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from './Icon';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
@@ -222,6 +222,14 @@ function CropperModal({
   const CONTAINER_W = FRAME_W + PADDING * 2;
   const CONTAINER_H = FRAME_H + PADDING * 2;
 
+  // Si src es una URL remota (no blob: del file picker), usamos el proxy
+  // CORS del backend para poder leer pixels en el canvas. Si es blob:, va
+  // directo (mismo origen).
+  const loadSrc = useMemo(() => {
+    if (src.startsWith('blob:')) return src;
+    return `${API}/api/media/proxy?url=${encodeURIComponent(src)}`;
+  }, [src]);
+
   useEffect(() => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -235,11 +243,10 @@ function CropperModal({
       setImgLoaded(true);
     };
     img.onerror = () => {
-      // Si falla por CORS al re-editar imagen ya subida, mostrar mensaje
       setImgLoaded(false);
     };
-    img.src = src;
-  }, [src]);
+    img.src = loadSrc;
+  }, [loadSrc]);
 
   // Después de cambiar zoom, clampear pos para que la imagen no salga del frame
   useEffect(() => {
@@ -350,7 +357,7 @@ function CropperModal({
                 height: imgSize.h,
                 transform: `translate(-50%, -50%) translate(${pos.x}px, ${pos.y}px) scale(${zoom})`,
                 transformOrigin: 'center center',
-                backgroundImage: `url(${src})`,
+                backgroundImage: `url(${loadSrc})`,
                 backgroundSize: '100% 100%',
                 pointerEvents: 'none',
               }}
