@@ -121,7 +121,17 @@ export function ImageUploader({
     return (
       <div className={`relative group ${className}`}>
         <img src={value} alt="" className="w-full h-40 object-cover rounded-input border border-line" />
-        <div className="absolute inset-0 bg-ink/0 group-hover:bg-ink/40 rounded-input transition flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
+        <div className="absolute inset-0 bg-ink/0 group-hover:bg-ink/40 rounded-input transition flex flex-wrap items-center justify-center gap-1.5 opacity-0 group-hover:opacity-100 p-2">
+          {crop && (
+            <button
+              type="button"
+              className="btn-ghost text-xs"
+              onClick={() => setCropSrc(value)}
+              title="Re-encuadrar la imagen actual sin volver a subir"
+            >
+              <Icon name="search" size={12} /> Ajustar
+            </button>
+          )}
           <button type="button" className="btn-ghost text-xs" onClick={() => inputRef.current?.click()}>
             <Icon name="edit" size={12} /> Cambiar
           </button>
@@ -216,10 +226,15 @@ function CropperModal({
     img.onload = () => {
       imgRef.current = img;
       setImgSize({ w: img.naturalWidth, h: img.naturalHeight });
-      // Auto-fit: zoom mínimo para cubrir todo el frame
-      const minZoom = Math.max(FRAME_W / img.naturalWidth, FRAME_H / img.naturalHeight);
-      setZoom(Math.max(1, minZoom));
+      // Auto-fit: zoom inicial para que la imagen cubra el frame ("cover")
+      const coverZoom = Math.max(FRAME_W / img.naturalWidth, FRAME_H / img.naturalHeight);
+      setZoom(coverZoom);
+      setPos({ x: 0, y: 0 });
       setImgLoaded(true);
+    };
+    img.onerror = () => {
+      // Si falla por CORS al re-editar imagen ya subida, mostrar mensaje
+      setImgLoaded(false);
     };
     img.src = src;
   }, [src]);
@@ -346,26 +361,69 @@ function CropperModal({
         <label className="block mt-4">
           <div className="flex items-center justify-between mb-1.5 text-xs text-mute">
             <span>🔍 Zoom</span>
-            <span>{zoom.toFixed(1)}×</span>
+            <span className="font-semibold">{zoom.toFixed(2)}×</span>
           </div>
           <input
             type="range"
-            min={1}
-            max={4}
-            step={0.05}
+            min={0.3}
+            max={5}
+            step={0.02}
             value={zoom}
             onChange={(e) => setZoom(Number(e.target.value))}
             className="w-full"
             disabled={!imgLoaded}
           />
+          <div className="flex justify-between text-[10px] text-mute mt-0.5">
+            <span>Más chica (con margen)</span>
+            <span>Más zoom</span>
+          </div>
         </label>
 
-        <div className="flex justify-end gap-2 mt-4">
-          <button className="btn-ghost" onClick={onCancel} disabled={exporting}>Cancelar</button>
-          <button className="btn-primary" onClick={confirm} disabled={!imgLoaded || exporting}>
-            {exporting ? 'Procesando…' : 'Listo'}
-          </button>
+        <div className="flex justify-between items-center gap-2 mt-4">
+          <div className="flex gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                if (!imgRef.current) return;
+                const cz = Math.max(FRAME_W / imgSize.w, FRAME_H / imgSize.h);
+                setZoom(cz);
+                setPos({ x: 0, y: 0 });
+              }}
+              disabled={!imgLoaded || exporting}
+              className="text-xs text-mute hover:text-ink"
+              title="Volver al encuadre original"
+            >
+              ↺ Centrar
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!imgRef.current) return;
+                const cz = Math.min(FRAME_W / imgSize.w, FRAME_H / imgSize.h);
+                setZoom(cz);
+                setPos({ x: 0, y: 0 });
+              }}
+              disabled={!imgLoaded || exporting}
+              className="text-xs text-mute hover:text-ink"
+              title="Mostrar la imagen completa con margen blanco"
+            >
+              ⤢ Encajar todo
+            </button>
+          </div>
+          <div className="flex gap-2">
+            <button className="btn-ghost" onClick={onCancel} disabled={exporting}>Cancelar</button>
+            <button className="btn-primary" onClick={confirm} disabled={!imgLoaded || exporting}>
+              {exporting ? 'Procesando…' : 'Listo'}
+            </button>
+          </div>
         </div>
+        {!imgLoaded && (
+          <div className="mt-3 text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 leading-snug">
+            No se pudo cargar la imagen para reajustar (puede ser por
+            permisos del servidor de imágenes). Usá "Cambiar" para subir
+            una versión nueva.
+          </div>
+        )}
       </div>
     </div>
   );
