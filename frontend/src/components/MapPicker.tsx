@@ -1,7 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
+import { setOptions, importLibrary } from '@googlemaps/js-api-loader';
 
 export type MapPickResult = {
   name: string;
@@ -10,37 +9,37 @@ export type MapPickResult = {
   lng: number;
 };
 
-type Suggestion = {
-  name: string;
-  street?: string;
-  housenumber?: string;
-  city?: string;
-  state?: string;
-  country?: string;
-  lat: number;
-  lon: number;
-};
+const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 
-function fmtAddress(s: Suggestion): string {
-  const parts: string[] = [];
-  if (s.street) parts.push(s.housenumber ? `${s.street} ${s.housenumber}` : s.street);
-  if (s.city) parts.push(s.city);
-  if (s.state && s.state !== s.city) parts.push(s.state);
-  if (s.country) parts.push(s.country);
-  return parts.join(', ');
+let loaderPromise: Promise<typeof google> | null = null;
+let optionsSet = false;
+
+function loadGoogleMaps(): Promise<typeof google> {
+  if (typeof window === 'undefined') return Promise.reject(new Error('SSR'));
+  if (loaderPromise) return loaderPromise;
+  if (!API_KEY) return Promise.reject(new Error('Falta NEXT_PUBLIC_GOOGLE_MAPS_API_KEY'));
+  if (!optionsSet) {
+    setOptions({ key: API_KEY, v: 'weekly', language: 'es' });
+    optionsSet = true;
+  }
+  loaderPromise = (async () => {
+    await importLibrary('maps');
+    await importLibrary('places');
+    return (window as any).google as typeof google;
+  })();
+  return loaderPromise;
 }
 
 /**
- * Map picker estilo Google Places Autocomplete:
+ * Map picker con Google Maps + Places Autocomplete:
  *
- * 1. Input arriba — el usuario escribe la dirección
- * 2. A medida que tipea, dropdown debajo del input lista resultados
- *    (texto: nombre + dirección completa formateada)
- * 3. Click en una sugerencia → mapa abajo se mueve al punto y dropea pin
- * 4. Click en cualquier punto del mapa también selecciona (reverse geocoding)
+ * 1. Input arriba — Google Places Autocomplete bindea su dropdown nativo
+ *    automáticamente (mismo UX que cualquier sitio que usa Google Places)
+ * 2. Al elegir una sugerencia, se mueve el mapa y aparece el marker
+ * 3. Click directo en el mapa → reverse geocode y selecciona ese punto
  *
- * Search vía Photon (Komoot · OSM, free).
- * Mapa via Leaflet + tiles OpenStreetMap.
+ * Requiere NEXT_PUBLIC_GOOGLE_MAPS_API_KEY en el env del frontend.
+ * Habilitar en Google Cloud: Maps JavaScript API + Places API.
  */
 export function MapPicker({
   initialLat = 4.6097,
@@ -57,203 +56,147 @@ export function MapPicker({
   onPick: (r: MapPickResult) => void;
   picked: MapPickResult | null;
 }) {
-  const mapRef = useRef<L.Map | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const pickedMarker = useRef<L.Marker | null>(null);
-  const [query, setQuery] = useState('');
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [showDropdown, setShowDropdown] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const mapRef = useRef<google.maps.Map | null>(null);
+  const markerRef = useRef<google.maps.marker.AdvancedMarkerElement | google.maps.Marker | null>(null);
+  const geocoderRef = useRef<google.maps.Geocoder | null>(null);
+  const onPickRef = useRef(onPick);
+  onPickRef.current = onPick;
 
-  // Init Leaflet map una sola vez
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
+
+  // Inicializa Maps + Autocomplete una sola vez
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return;
-
-    delete (L.Icon.Default.prototype as any)._getIconUrl;
-    L.Icon.Default.mergeOptions({
-      iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-      iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-      shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-    });
-
-    const map = L.map(containerRef.current, {
-      zoomControl: true,
-      attributionControl: true,
-    }).setView([initialLat, initialLng], initialZoom);
-
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap',
-      maxZoom: 19,
-    }).addTo(map);
-
-    mapRef.current = map;
-
-    // Click directo en el mapa → reverse geocode + select
-    map.on('click', async (e: L.LeafletMouseEvent) => {
-      const { lat, lng } = e.latlng;
+    let cancelled = false;
+    (async () => {
       try {
-        const r = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
-        );
-        const d = await r.json();
-        const name = d?.name || d?.address?.road || 'Punto seleccionado';
-        const address = d?.display_name || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-        onPick({ name, address, lat, lng });
-      } catch {
-        onPick({
-          name: 'Punto seleccionado',
-          address: `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
-          lat,
-          lng,
+        const g = await loadGoogleMaps();
+        if (cancelled || !containerRef.current) return;
+
+        const map = new g.maps.Map(containerRef.current, {
+          center: { lat: initialLat, lng: initialLng },
+          zoom: initialZoom,
+          mapTypeControl: false,
+          streetViewControl: false,
+          fullscreenControl: false,
+          // mapId requerido para AdvancedMarkerElement; sin él usamos Marker clásico
         });
+        mapRef.current = map;
+        geocoderRef.current = new g.maps.Geocoder();
+
+        // Click en mapa → reverse geocode
+        map.addListener('click', async (e: google.maps.MapMouseEvent) => {
+          const ll = e.latLng;
+          if (!ll) return;
+          const lat = ll.lat();
+          const lng = ll.lng();
+          try {
+            const res = await geocoderRef.current!.geocode({ location: { lat, lng } });
+            const r = res.results?.[0];
+            onPickRef.current({
+              name: r?.address_components?.[0]?.long_name ?? 'Punto seleccionado',
+              address: r?.formatted_address ?? `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+              lat,
+              lng,
+            });
+          } catch {
+            onPickRef.current({
+              name: 'Punto seleccionado',
+              address: `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+              lat,
+              lng,
+            });
+          }
+        });
+
+        // Bindea Autocomplete al input
+        if (inputRef.current) {
+          const ac = new g.maps.places.Autocomplete(inputRef.current, {
+            fields: ['name', 'formatted_address', 'geometry'],
+            // sin types limitados: deja que Google sugiera lo que sea
+          });
+          // Cuando el usuario selecciona algo del dropdown:
+          ac.addListener('place_changed', () => {
+            const place = ac.getPlace();
+            const loc = place.geometry?.location;
+            if (!loc) return;
+            const lat = loc.lat();
+            const lng = loc.lng();
+            onPickRef.current({
+              name: place.name ?? place.formatted_address?.split(',')[0] ?? 'Punto',
+              address: place.formatted_address ?? '',
+              lat,
+              lng,
+            });
+          });
+        }
+
+        setReady(true);
+      } catch (e: any) {
+        setLoadErr(e?.message ?? 'Error cargando Google Maps');
       }
-    });
+    })();
 
     return () => {
-      map.remove();
-      mapRef.current = null;
+      cancelled = true;
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [initialLat, initialLng, initialZoom]);
 
-  // Cuando cambia el picked: animar al punto + actualizar marker
+  // Cuando cambia el picked → mover mapa + marker
   useEffect(() => {
-    if (!mapRef.current || !picked) return;
-    mapRef.current.setView([picked.lat, picked.lng], 16, { animate: true });
-    if (pickedMarker.current) {
-      pickedMarker.current.setLatLng([picked.lat, picked.lng]);
+    if (!ready || !mapRef.current || !picked) return;
+    const map = mapRef.current;
+    const pos = { lat: picked.lat, lng: picked.lng };
+    map.panTo(pos);
+    map.setZoom(16);
+    if (markerRef.current) {
+      (markerRef.current as google.maps.Marker).setPosition(pos);
     } else {
-      pickedMarker.current = L.marker([picked.lat, picked.lng], {
-        icon: brandIcon('#22C55E', '✓'),
-      }).addTo(mapRef.current);
+      markerRef.current = new google.maps.Marker({
+        position: pos,
+        map,
+        animation: google.maps.Animation.DROP,
+      });
     }
-    // Cuando hay pick, cerrar dropdown
-    setShowDropdown(false);
-  }, [picked]);
+  }, [picked, ready]);
 
-  // Debounced Photon autocomplete (200ms, 2 chars min)
-  useEffect(() => {
-    if (query.length < 2) {
-      setSuggestions([]);
-      return;
-    }
-    const id = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const r = await fetch(
-          `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&lang=es&limit=8`,
-        );
-        const data = await r.json();
-        const results: Suggestion[] = (data.features || [])
-          .map((f: any) => {
-            const lon = f.geometry?.coordinates?.[0];
-            const lat = f.geometry?.coordinates?.[1];
-            if (typeof lat !== 'number' || typeof lon !== 'number') return null;
-            return {
-              name: f.properties?.name ?? '',
-              street: f.properties?.street,
-              housenumber: f.properties?.housenumber,
-              city: f.properties?.city ?? f.properties?.locality,
-              state: f.properties?.state,
-              country: f.properties?.country,
-              lat,
-              lon,
-            } as Suggestion;
-          })
-          .filter(Boolean);
-        setSuggestions(results);
-      } catch {
-        setSuggestions([]);
-      } finally {
-        setSearching(false);
-      }
-    }, 200);
-    return () => clearTimeout(id);
-  }, [query]);
-
-  function selectSuggestion(s: Suggestion) {
-    const addr = fmtAddress(s);
-    onPick({
-      name: s.name || addr.split(',')[0] || 'Punto',
-      address: addr || s.name,
-      lat: s.lat,
-      lng: s.lon,
-    });
-    setQuery('');
-    setSuggestions([]);
+  if (loadErr) {
+    return (
+      <div className="rounded-input border border-line bg-amber-50 p-4 text-sm text-amber-900 leading-relaxed">
+        <div className="font-semibold mb-1">Google Maps no está configurado</div>
+        <div>{loadErr}</div>
+        <div className="text-xs mt-2 text-amber-800/80">
+          Necesitás definir{' '}
+          <code className="bg-amber-100 px-1 rounded">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code>{' '}
+          en el frontend con una API key con Maps JavaScript API + Places API
+          habilitadas.
+        </div>
+      </div>
+    );
   }
 
   return (
     <div>
-      {/* INPUT con autocomplete dropdown */}
       <div className="relative">
         <input
+          ref={inputRef}
           className="input w-full pr-10"
-          placeholder="Escribí la dirección de tu negocio…"
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setShowDropdown(true);
-          }}
-          onFocus={() => setShowDropdown(true)}
-          onBlur={() => {
-            // dejar 200ms para que el click en una sugerencia se registre
-            setTimeout(() => setShowDropdown(false), 200);
-          }}
+          placeholder="Escribí la dirección o nombre del negocio…"
         />
-        <div className="absolute right-3 top-1/2 -translate-y-1/2 text-mute pointer-events-none">
-          {searching ? (
-            <span className="inline-block w-4 h-4 border-2 border-mute border-t-transparent rounded-full animate-spin" />
-          ) : (
-            '🔍'
-          )}
-        </div>
-
-        {showDropdown && suggestions.length > 0 && (
-          <div className="absolute z-[500] left-0 right-0 mt-1 bg-white border border-line rounded-lg shadow-xl max-h-72 overflow-y-auto">
-            {suggestions.map((s, i) => {
-              const addr = fmtAddress(s);
-              return (
-                <button
-                  key={i}
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()} // evita que el blur cierre antes del click
-                  onClick={() => selectSuggestion(s)}
-                  className="block w-full text-left px-3 py-2.5 hover:bg-bg2 border-b border-line2 last:border-0"
-                >
-                  <div className="text-sm font-semibold flex items-start gap-2">
-                    <span className="text-base shrink-0">📍</span>
-                    <span className="flex-1">{s.name || addr || 'Sin nombre'}</span>
-                  </div>
-                  {addr && s.name !== addr && (
-                    <div className="text-xs text-mute mt-0.5 ml-6 line-clamp-1">
-                      {addr}
-                    </div>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {showDropdown && query.length >= 2 && !searching && suggestions.length === 0 && (
-          <div className="absolute z-[500] left-0 right-0 mt-1 bg-white border border-line rounded-lg shadow-xl px-3 py-3 text-xs text-mute text-center">
-            Sin resultados. Probá con otro término o haz click directo en el mapa.
-          </div>
-        )}
+        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-mute pointer-events-none">
+          🔍
+        </span>
       </div>
-
       <p className="text-[11px] text-mute mt-1.5 mb-2">
-        Tipea para autocompletar · o haz click directo en cualquier punto del mapa abajo
+        Powered by Google Places · o haz click directo en el mapa
       </p>
-
-      {/* MAPA debajo */}
       <div
         ref={containerRef}
-        className="relative rounded-input overflow-hidden border border-line"
-        style={{ height, cursor: 'crosshair' }}
+        className="rounded-input overflow-hidden border border-line bg-bg2"
+        style={{ height }}
       />
-
-      {/* Card resumen del pick */}
       {picked && (
         <div className="mt-2 bg-ok-soft border border-ok/20 rounded-xl px-3 py-2.5 flex items-start gap-3">
           <div className="w-8 h-8 rounded-full bg-ok text-white flex items-center justify-center text-base shrink-0">
@@ -272,25 +215,4 @@ export function MapPicker({
       )}
     </div>
   );
-}
-
-function brandIcon(color: string, emoji: string): L.DivIcon {
-  return L.divIcon({
-    className: '',
-    html: `<div style="
-      width: 36px;
-      height: 36px;
-      border-radius: 50%;
-      background: ${color};
-      box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-      border: 3px solid white;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: white;
-      font-size: 18px;
-    ">${emoji}</div>`,
-    iconSize: [36, 36],
-    iconAnchor: [18, 18],
-  });
 }
