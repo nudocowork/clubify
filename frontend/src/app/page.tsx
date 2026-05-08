@@ -6,6 +6,7 @@ import { RefCapture } from '@/components/RefCapture';
 import { FadeIn } from '@/components/FadeIn';
 import { HeroTrio } from '@/components/HeroTrio';
 import { HeroBanner } from '@/components/HeroBanner';
+import { InfoLinksBanner } from '@/components/InfoLinksBanner';
 import { Logo } from '@/components/Logo';
 
 const PILLARS = [
@@ -385,6 +386,9 @@ export default function Landing() {
 
       {/* ─────────── Hero secundario "Menús con IA" (estilo Cluvi) ─────────── */}
       <HeroBanner />
+
+      {/* ─────────── InfoLinks (mini-pages estilo Linktree) ─────────── */}
+      <InfoLinksBanner />
 
       {/* ─────────── Cómo funciona ─────────── */}
       <section id="como" className="py-24">
