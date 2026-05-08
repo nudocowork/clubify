@@ -107,10 +107,14 @@ export async function api<T = any>(path: string, init: RequestInit = {}): Promis
         window.location.href = '/app/billing?suspended=1';
       }
     }
-    // 401 con token: sesión vencida → forzar login
-    if (res.status === 401 && token && typeof window !== 'undefined') {
+    // 401: sesión vencida o cookie expirada (token=null pero user
+    // todavía en localStorage) → forzar login. Antes solo redirigía
+    // si había token, dejando al usuario stuck con "Unauthorized" si
+    // la cookie max-age=1h expiraba mientras navegaba.
+    if (res.status === 401 && typeof window !== 'undefined') {
+      const hadSession = !!token || !!localStorage.getItem('clubify_user');
       const onLogin = window.location.pathname.startsWith('/login');
-      if (!onLogin) {
+      if (hadSession && !onLogin) {
         clearSession();
         window.location.href = '/login?expired=1';
       }
