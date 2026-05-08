@@ -1,6 +1,14 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { api, getUser } from '@/lib/api';
+import type { MapPickResult } from '@/components/MapPicker';
+
+// Leaflet usa `window` al import — dynamic import sin SSR
+const MapPicker = dynamic(
+  () => import('@/components/MapPicker').then((m) => m.MapPicker),
+  { ssr: false, loading: () => <div className="h-[360px] rounded-input bg-bg2 animate-pulse" /> },
+);
 
 type Category = {
   slug: string;
@@ -147,73 +155,15 @@ function WelcomeStep({
 // Step 2: Address — dirección del negocio (push wallet location)
 // ═══════════════════════════════════════════════════════════
 
-type Suggestion = {
-  name: string;
-  street?: string;
-  housenumber?: string;
-  city?: string;
-  state?: string;
-  country?: string;
-  lat: number;
-  lon: number;
-};
-
-function formatAddr(s: Suggestion): string {
-  const parts: string[] = [];
-  if (s.street) parts.push(s.housenumber ? `${s.street} ${s.housenumber}` : s.street);
-  if (s.city) parts.push(s.city);
-  if (s.state && s.state !== s.city) parts.push(s.state);
-  if (s.country) parts.push(s.country);
-  return parts.join(', ');
-}
-
 function AddressStep({ onDone }: { onDone: () => void }) {
-  const [query, setQuery] = useState('');
+  const [picked, setPicked] = useState<MapPickResult | null>(null);
   const [name, setName] = useState('');
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [picked, setPicked] = useState<Suggestion | null>(null);
-  const [searching, setSearching] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  // Debounced autocomplete vía Photon (Komoot · OSM, free, 200ms, 2 chars min)
-  useEffect(() => {
-    if (query.length < 2) {
-      setSuggestions([]);
-      return;
-    }
-    const id = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const r = await fetch(
-          `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&lang=es&limit=8`,
-        );
-        const data = await r.json();
-        setSuggestions(
-          (data.features || []).map((f: any) => ({
-            name: f.properties?.name ?? '',
-            street: f.properties?.street,
-            housenumber: f.properties?.housenumber,
-            city: f.properties?.city ?? f.properties?.locality,
-            state: f.properties?.state,
-            country: f.properties?.country,
-            lon: f.geometry?.coordinates?.[0],
-            lat: f.geometry?.coordinates?.[1],
-          })),
-        );
-      } catch {
-        setSuggestions([]);
-      } finally {
-        setSearching(false);
-      }
-    }, 200);
-    return () => clearTimeout(id);
-  }, [query]);
-
-  function pickSuggestion(s: Suggestion) {
-    setPicked(s);
-    setSuggestions([]);
-    if (!name) setName(s.name || formatAddr(s).split(',')[0].trim());
-  }
+  const handlePick = useCallback((r: MapPickResult) => {
+    setPicked(r);
+    setName((curr) => curr || r.name || r.address.split(',')[0] || 'Mi negocio');
+  }, []);
 
   async function skip() {
     setBusy(true);
@@ -231,9 +181,9 @@ function AddressStep({ onDone }: { onDone: () => void }) {
         method: 'POST',
         body: JSON.stringify({
           name: name.trim(),
-          address: formatAddr(picked) || picked.name,
+          address: picked.address,
           latitude: picked.lat,
-          longitude: picked.lon,
+          longitude: picked.lng,
         }),
       });
       onDone();
@@ -242,15 +192,9 @@ function AddressStep({ onDone }: { onDone: () => void }) {
     }
   }
 
-  const lat = picked ? picked.lat : 0;
-  const lng = picked ? picked.lon : 0;
-  const mapSrc = picked
-    ? `https://www.openstreetmap.org/export/embed.html?bbox=${lng - 0.005},${lat - 0.003},${lng + 0.005},${lat + 0.003}&layer=mapnik&marker=${lat},${lng}`
-    : '';
-
   return (
     <Backdrop onClose={skip}>
-      <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden relative max-h-[92vh] flex flex-col">
+      <div className="bg-white rounded-3xl shadow-2xl max-w-xl w-full overflow-hidden relative max-h-[92vh] flex flex-col">
         <div className="px-6 pt-6 pb-3 border-b border-line">
           <h2 className="text-lg font-bold m-0">Háblanos de tu empresa</h2>
           <p className="text-base font-semibold mt-1.5">
@@ -263,77 +207,18 @@ function AddressStep({ onDone }: { onDone: () => void }) {
         </div>
 
         <div className="px-6 py-4 overflow-y-auto flex-1">
-          <div className="relative">
-            <input
-              className="input w-full"
-              placeholder="Tipea nombre, calle, barrio o ciudad…"
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                if (picked) setPicked(null);
-              }}
-              autoFocus
-            />
-            {searching && (
-              <div className="absolute right-3 top-1/2 -translate-y-1/2 text-mute text-xs">
-                buscando…
-              </div>
-            )}
-            {suggestions.length > 0 && (
-              <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-line rounded-lg shadow-lg max-h-72 overflow-y-auto">
-                {suggestions.map((s, i) => {
-                  const addr = formatAddr(s);
-                  return (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => pickSuggestion(s)}
-                      className="block w-full text-left px-3 py-2.5 hover:bg-bg2 border-b border-line2 last:border-0"
-                    >
-                      <div className="text-sm font-semibold flex items-start gap-2">
-                        <span className="text-base shrink-0">📍</span>
-                        <span className="flex-1">{s.name || addr || 'Sin nombre'}</span>
-                      </div>
-                      {addr && s.name !== addr && (
-                        <div className="text-xs text-mute mt-0.5 ml-6 line-clamp-1">
-                          {addr}
-                        </div>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          <MapPicker picked={picked} onPick={handlePick} height={360} />
 
           {picked && (
-            <div className="mt-4 space-y-3">
-              <iframe
-                src={mapSrc}
-                title="Mapa"
-                className="w-full h-48 rounded-input border border-line"
-                loading="lazy"
+            <div className="mt-4">
+              <label className="text-[11px] uppercase tracking-wider font-semibold text-mute mb-1 block">
+                Nombre del negocio
+              </label>
+              <input
+                className="input"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
               />
-              <div>
-                <label className="text-[11px] uppercase tracking-wider font-semibold text-mute mb-1 block">
-                  Nombre del negocio
-                </label>
-                <input
-                  className="input"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
-              </div>
-              <div className="text-xs text-mute leading-relaxed">
-                <span className="font-semibold text-ink">Dirección:</span>{' '}
-                {formatAddr(picked) || picked.name}
-              </div>
-            </div>
-          )}
-
-          {!picked && query.length >= 2 && !searching && suggestions.length === 0 && (
-            <div className="text-sm text-mute text-center py-6">
-              No encontramos resultados. Probá con el nombre del negocio o calle.
             </div>
           )}
         </div>
