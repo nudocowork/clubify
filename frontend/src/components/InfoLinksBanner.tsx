@@ -174,57 +174,56 @@ export function InfoLinksBanner() {
             </div>
           </div>
 
-          {/* Columna derecha: 2 iPhones tilted juntos (Aurora + Neon) */}
-          <div className="relative h-[420px] sm:h-[480px] lg:h-[520px]">
-            {/* Phone Aurora (rotado -6°, ligeramente a la izq) */}
+          {/* Columna derecha: 2 iPhones tilted juntos (Aurora + Neon)
+              Layout flex centrado con leve overlap. Cada phone tiene
+              su propio wrapper para separar transform (rotación) de
+              animation (translateY) y evitar que se pisen. */}
+          <div className="relative h-[420px] sm:h-[480px] lg:h-[520px] flex items-center justify-center">
+            {/* Aurora — rotado -8°, animation float 0s */}
             <div
-              className="absolute left-1/2 top-1/2"
-              style={{
-                transform: 'translate(-95%, -50%) rotate(-6deg)',
-                zIndex: 1,
-                animation: 'clb-info-floaty 5s ease-in-out 0s infinite',
-              }}
+              className="relative"
+              style={{ transform: 'rotate(-8deg)', zIndex: 1 }}
             >
-              <div className="hidden lg:block">
-                <Phone width={210}>
-                  <ScreenAurora />
-                </Phone>
-              </div>
-              <div className="hidden sm:block lg:hidden">
-                <Phone width={180}>
-                  <ScreenAurora />
-                </Phone>
-              </div>
-              <div className="block sm:hidden">
-                <Phone width={150}>
-                  <ScreenAurora />
-                </Phone>
+              <div style={{ animation: 'clb-info-floaty 4s ease-in-out 0s infinite' }}>
+                <div className="hidden lg:block">
+                  <Phone width={200}>
+                    <ScreenAurora />
+                  </Phone>
+                </div>
+                <div className="hidden sm:block lg:hidden">
+                  <Phone width={170}>
+                    <ScreenAurora />
+                  </Phone>
+                </div>
+                <div className="block sm:hidden">
+                  <Phone width={140}>
+                    <ScreenAurora />
+                  </Phone>
+                </div>
               </div>
             </div>
 
-            {/* Phone Neon (rotado +6°, ligeramente a la der, encima) */}
+            {/* Neon — rotado +8°, animation float 1s, overlap negativo */}
             <div
-              className="absolute left-1/2 top-1/2"
-              style={{
-                transform: 'translate(-5%, -50%) rotate(6deg)',
-                zIndex: 2,
-                animation: 'clb-info-floaty 5s ease-in-out 1.2s infinite',
-              }}
+              className="relative -ml-6 sm:-ml-8 lg:-ml-10"
+              style={{ transform: 'rotate(8deg)', zIndex: 2 }}
             >
-              <div className="hidden lg:block">
-                <Phone width={210}>
-                  <ScreenNeon />
-                </Phone>
-              </div>
-              <div className="hidden sm:block lg:hidden">
-                <Phone width={180}>
-                  <ScreenNeon />
-                </Phone>
-              </div>
-              <div className="block sm:hidden">
-                <Phone width={150}>
-                  <ScreenNeon />
-                </Phone>
+              <div style={{ animation: 'clb-info-floaty 4s ease-in-out 1s infinite' }}>
+                <div className="hidden lg:block">
+                  <Phone width={200}>
+                    <ScreenNeon />
+                  </Phone>
+                </div>
+                <div className="hidden sm:block lg:hidden">
+                  <Phone width={170}>
+                    <ScreenNeon />
+                  </Phone>
+                </div>
+                <div className="block sm:hidden">
+                  <Phone width={140}>
+                    <ScreenNeon />
+                  </Phone>
+                </div>
               </div>
             </div>
           </div>
