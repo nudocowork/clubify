@@ -10,12 +10,16 @@ import { toast } from '@/components/Toast';
 type Card = {
   id: string;
   name: string;
+  description?: string;
   type: 'STAMPS' | 'POINTS' | 'DISCOUNT' | 'MEMBERSHIP';
   rewardText: string;
   terms: string;
   primaryColor: string;
   secondaryColor: string;
   stampsRequired: number | null;
+  stampIcon?: string;
+  discountPercent?: number | null;
+  pointsPerCurrency?: number | string | null;
   isActive: boolean;
   _count?: { passes: number };
 };
@@ -105,6 +109,7 @@ export default function CardDetail() {
 
   const [passSearch, setPassSearch] = useState('');
   const [stampingPassId, setStampingPassId] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
   const filteredPasses = useMemo(() => {
     const q = passSearch.trim().toLowerCase();
     if (!q) return passesOfCard;
@@ -174,6 +179,14 @@ export default function CardDetail() {
           >
             {card.isActive ? 'Activa' : 'Pausada'}
           </span>
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="btn"
+            title="Editar nombre, descripción, recompensa, etc."
+          >
+            <Icon name="edit" /> Editar
+          </button>
           <ToggleActiveButton card={card} onChange={load} />
         </div>
       </div>
@@ -448,6 +461,17 @@ export default function CardDetail() {
           )}
         </div>
       </div>
+
+      {editing && (
+        <EditCardModal
+          card={card}
+          onClose={() => setEditing(false)}
+          onSaved={() => {
+            setEditing(false);
+            load();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -622,5 +646,224 @@ function ToggleActiveButton({
     >
       {busy ? '…' : card.isActive ? '⏸ Pausar' : '▶ Activar'}
     </button>
+  );
+}
+
+function EditCardModal({
+  card,
+  onClose,
+  onSaved,
+}: {
+  card: Card;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({
+    name: card.name,
+    description: card.description ?? '',
+    rewardText: card.rewardText ?? '',
+    terms: card.terms ?? '',
+    primaryColor: card.primaryColor,
+    secondaryColor: card.secondaryColor,
+    stampsRequired: card.stampsRequired ?? 10,
+    discountPercent: card.discountPercent ?? 10,
+    pointsPerCurrency: Number(card.pointsPerCurrency ?? 0.001),
+    stampIcon: card.stampIcon ?? '☕',
+  });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    setBusy(true);
+    try {
+      // Mandamos solo los campos relevantes según el tipo de tarjeta
+      const payload: any = {
+        name: form.name.trim(),
+        description: form.description,
+        rewardText: form.rewardText,
+        terms: form.terms,
+        primaryColor: form.primaryColor,
+        secondaryColor: form.secondaryColor,
+      };
+      if (card.type === 'STAMPS') {
+        payload.stampsRequired = form.stampsRequired;
+        payload.stampIcon = form.stampIcon;
+      }
+      if (card.type === 'DISCOUNT') payload.discountPercent = form.discountPercent;
+      if (card.type === 'POINTS') payload.pointsPerCurrency = form.pointsPerCurrency;
+      await api(`/cards/${card.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
+      toast('Tarjeta actualizada', 'success');
+      onSaved();
+    } catch (e: any) {
+      setErr(e.message || 'No se pudo guardar');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <form
+        onSubmit={save}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-auto p-5"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold m-0">Editar tarjeta</h2>
+          <button type="button" onClick={onClose} className="text-mute hover:text-ink text-xl leading-none">
+            ×
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <label className="label">Nombre</label>
+            <input
+              className="input"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              required
+            />
+          </div>
+          <div>
+            <label className="label">Descripción</label>
+            <textarea
+              className="input min-h-[80px]"
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              placeholder="Texto interno o explicativo de la tarjeta"
+            />
+          </div>
+          <div>
+            <label className="label">Recompensa</label>
+            <input
+              className="input"
+              value={form.rewardText}
+              onChange={(e) => setForm({ ...form, rewardText: e.target.value })}
+            />
+          </div>
+
+          {card.type === 'STAMPS' && (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Sellos requeridos</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={30}
+                    className="input"
+                    value={form.stampsRequired}
+                    onChange={(e) =>
+                      setForm({ ...form, stampsRequired: Number(e.target.value) })
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="label">Icono del sello</label>
+                  <input
+                    className="input text-center text-xl"
+                    value={form.stampIcon}
+                    onChange={(e) => setForm({ ...form, stampIcon: e.target.value })}
+                  />
+                </div>
+              </div>
+            </>
+          )}
+
+          {card.type === 'DISCOUNT' && (
+            <div>
+              <label className="label">% de descuento</label>
+              <input
+                type="number"
+                min={1}
+                max={100}
+                className="input"
+                value={form.discountPercent}
+                onChange={(e) =>
+                  setForm({ ...form, discountPercent: Number(e.target.value) })
+                }
+              />
+            </div>
+          )}
+
+          {card.type === 'POINTS' && (
+            <div>
+              <label className="label">Puntos por cada $1.000 de compra</label>
+              <input
+                type="number"
+                step={0.1}
+                min={0.1}
+                max={100}
+                className="input"
+                value={Number((form.pointsPerCurrency * 1000).toFixed(2))}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    pointsPerCurrency: Number(e.target.value) / 1000,
+                  })
+                }
+              />
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Color principal</label>
+              <input
+                type="color"
+                className="input h-11 p-1"
+                value={form.primaryColor}
+                onChange={(e) => setForm({ ...form, primaryColor: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="label">Color secundario</label>
+              <input
+                type="color"
+                className="input h-11 p-1"
+                value={form.secondaryColor}
+                onChange={(e) =>
+                  setForm({ ...form, secondaryColor: e.target.value })
+                }
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="label">Términos y condiciones</label>
+            <textarea
+              className="input min-h-[80px]"
+              value={form.terms}
+              onChange={(e) => setForm({ ...form, terms: e.target.value })}
+              placeholder="Lo que ven los clientes en el reverso de la tarjeta wallet"
+            />
+          </div>
+        </div>
+
+        {err && (
+          <div className="mt-3 rounded-lg bg-bad-soft px-3 py-2 text-sm text-bad-ink">
+            {err}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 mt-5">
+          <button type="button" className="btn-ghost" onClick={onClose} disabled={busy}>
+            Cancelar
+          </button>
+          <button type="submit" className="btn-primary" disabled={busy}>
+            <Icon name="check" /> {busy ? 'Guardando…' : 'Guardar cambios'}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
