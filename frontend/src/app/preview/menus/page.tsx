@@ -589,11 +589,11 @@ export default function MenusPreview() {
 
           <Phone
             num={6}
-            title="Cluvi (fondo oscuro)"
+            title="Fondo oscuro"
             best="Bares, restaurantes, cafés con vibe nocturno"
             pros={[
-              'Estilo Cluvi/Bananas',
-              'Fondo oscuro elegante',
+              'Fondo negro elegante',
+              'Cards blancas con foto + VER pill',
               'Acentos en color de marca',
             ]}
           >
