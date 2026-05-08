@@ -265,8 +265,7 @@ export default function EnrollPage() {
                 onChange={(e) => setAccept(e.target.checked)}
               />
               <span>
-                Acepto recibir mensajes por WhatsApp del negocio sobre esta
-                tarjeta. Puedo darme de baja en cualquier momento.
+                Acepto recibir notificaciones vía Push.
               </span>
             </label>
 
