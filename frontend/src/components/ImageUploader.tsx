@@ -183,18 +183,15 @@ export function ImageUploader({
 }
 
 /**
- * Cropper minimalista sin deps externas.
+ * Cropper estilo Facebook (foto de portada / banner):
  *
- * - Frame fijo cuadrado (o aspect ratio dado) muestra el área que se va a
- *   guardar — lo que ves ahí es lo que sube.
- * - Slider de zoom (1x–4x). Drag para reposicionar la imagen dentro del frame.
- * - Al confirmar, dibuja la región visible del frame a un canvas y exporta
- *   JPEG 0.92 (~tamaño moderado).
- *
- * Implementación: la imagen se renderiza con CSS transform translate + scale
- * dentro de un viewport overflow-hidden del tamaño del frame. El export
- * computa el rectángulo equivalente sobre la imagen original y lo dibuja al
- * canvas con esas dimensiones.
+ * - Vés la imagen ENTERA dentro del container (más grande que el frame)
+ * - El cuadro recortable está fijo en el centro, resaltado con borde
+ *   blanco + grid 3x3
+ * - Lo que queda FUERA del cuadro se ve oscurecido (sabés qué se va a
+ *   recortar pero seguís viendo el contexto)
+ * - Drag mueve la imagen, slider hace zoom
+ * - Al confirmar, exportamos solo el área del cuadro vía canvas
  */
 function CropperModal({
   src,
@@ -216,9 +213,14 @@ function CropperModal({
   const dragState = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null);
   const [exporting, setExporting] = useState(false);
 
-  // Frame visible (px). Mantengo cuadrado para aspect=1 ó rectangular según aspect.
-  const FRAME_W = 320;
+  // Container = viewport completo del cropper (vés la imagen aunque esté
+  // fuera del frame). Frame = área que efectivamente se guarda.
+  // El frame está centrado dentro del container.
+  const FRAME_W = 280;
   const FRAME_H = Math.round(FRAME_W / aspect);
+  const PADDING = 60; // espacio alrededor del frame para mostrar contexto
+  const CONTAINER_W = FRAME_W + PADDING * 2;
+  const CONTAINER_H = FRAME_H + PADDING * 2;
 
   useEffect(() => {
     const img = new Image();
@@ -320,14 +322,20 @@ function CropperModal({
         </div>
 
         <p className="text-xs text-mute mb-3">
-          Mové la foto para encuadrar. Lo que veas en el recuadro es lo que se guarda.
+          Arrastrá la foto. Lo que quede en el recuadro blanco se guarda;
+          lo oscurecido alrededor es solo referencia.
         </p>
 
-        {/* Viewport con frame fijo */}
+        {/* Viewport tipo Facebook: container grande con la imagen completa,
+            frame en el centro como cuadro recortable. */}
         <div
           ref={containerRef}
-          className="relative bg-ink mx-auto select-none touch-none rounded-input overflow-hidden"
-          style={{ width: FRAME_W, height: FRAME_H, cursor: imgLoaded ? 'grab' : 'wait' }}
+          className="relative bg-ink mx-auto select-none touch-none overflow-hidden rounded-xl"
+          style={{
+            width: CONTAINER_W,
+            height: CONTAINER_H,
+            cursor: imgLoaded ? 'grab' : 'wait',
+          }}
           onPointerDown={imgLoaded ? onPointerDown : undefined}
           onPointerMove={imgLoaded ? onPointerMove : undefined}
           onPointerUp={imgLoaded ? onPointerUp : undefined}
@@ -348,12 +356,45 @@ function CropperModal({
               }}
             />
           )}
-          {/* Grid 3x3 sobre el frame para guía de composición */}
-          <div className="absolute inset-0 pointer-events-none border-2 border-white/80 rounded-input">
-            <div className="absolute top-1/3 left-0 right-0 border-t border-white/30" />
-            <div className="absolute top-2/3 left-0 right-0 border-t border-white/30" />
-            <div className="absolute left-1/3 top-0 bottom-0 border-l border-white/30" />
-            <div className="absolute left-2/3 top-0 bottom-0 border-l border-white/30" />
+
+          {/* 4 capas oscuras alrededor del frame (top/bottom/left/right) —
+              dejan un "hole" del tamaño exacto del frame. */}
+          <div
+            className="absolute pointer-events-none bg-black/60"
+            style={{ left: 0, top: 0, width: '100%', height: PADDING }}
+          />
+          <div
+            className="absolute pointer-events-none bg-black/60"
+            style={{ left: 0, bottom: 0, width: '100%', height: PADDING }}
+          />
+          <div
+            className="absolute pointer-events-none bg-black/60"
+            style={{ left: 0, top: PADDING, width: PADDING, height: FRAME_H }}
+          />
+          <div
+            className="absolute pointer-events-none bg-black/60"
+            style={{ right: 0, top: PADDING, width: PADDING, height: FRAME_H }}
+          />
+
+          {/* Outline del frame + grid 3x3 (encima del dim, marca el área que se guarda) */}
+          <div
+            className="absolute pointer-events-none border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.5)]"
+            style={{
+              left: PADDING,
+              top: PADDING,
+              width: FRAME_W,
+              height: FRAME_H,
+            }}
+          >
+            <div className="absolute top-1/3 left-0 right-0 border-t border-white/40" />
+            <div className="absolute top-2/3 left-0 right-0 border-t border-white/40" />
+            <div className="absolute left-1/3 top-0 bottom-0 border-l border-white/40" />
+            <div className="absolute left-2/3 top-0 bottom-0 border-l border-white/40" />
+            {/* "Handles" en las 4 esquinas — solo decorativas (drag = imagen) */}
+            <span className="absolute -top-1 -left-1 w-3 h-3 border-l-2 border-t-2 border-white" />
+            <span className="absolute -top-1 -right-1 w-3 h-3 border-r-2 border-t-2 border-white" />
+            <span className="absolute -bottom-1 -left-1 w-3 h-3 border-l-2 border-b-2 border-white" />
+            <span className="absolute -bottom-1 -right-1 w-3 h-3 border-r-2 border-b-2 border-white" />
           </div>
         </div>
 
