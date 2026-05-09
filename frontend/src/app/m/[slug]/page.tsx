@@ -1579,7 +1579,7 @@ function LayoutCluvi({ menu, primary, currency, onPick }: LP) {
               <button
                 key={p.id}
                 onClick={() => onPick(p)}
-                className="w-full bg-white rounded-2xl shadow-md text-left flex items-stretch overflow-hidden"
+                className="w-full bg-white text-ink rounded-2xl shadow-md text-left flex items-stretch overflow-hidden"
               >
                 {p.imageUrl ? (
                   <img
