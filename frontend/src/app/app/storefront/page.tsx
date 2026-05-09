@@ -118,57 +118,49 @@ export default function StorefrontEditor() {
         <h1 className="page-title">
           Configura tu menú <span className="page-crumb">/ {sf.isPublished ? 'Publicado' : 'Borrador'}</span>
         </h1>
-        <div className="flex gap-3 flex-wrap items-start">
-          {/* Grupo: Mesa */}
-          <div className="flex flex-col gap-1">
-            <Link
-              href={tenantSlug ? `/m/${tenantSlug}?mesa=1` : '#'}
-              target="_blank"
-              className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
-              title="Vista del menú como la verá un cliente sentado en una mesa"
-            >
-              🍽 Ver menú mesa
-            </Link>
-            <Link
-              href="/app/storefront/poster"
-              className={`text-[11px] text-mute hover:text-brand text-center ${
-                !tenantSlug ? 'pointer-events-none opacity-50' : ''
-              }`}
-              title="Genera un cartel imprimible con el QR de la mesa"
-            >
-              🖨 Cartel QR
-            </Link>
-          </div>
-          {/* Grupo: Delivery */}
-          <div className="flex flex-col gap-1">
-            <Link
-              href={publicHref}
-              target="_blank"
-              className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
-              title="Vista del menú para domicilio — el link público que enviás a tus clientes"
-            >
-              🛵 Ver menú delivery
-            </Link>
-            <button
-              type="button"
-              disabled={!tenantSlug}
-              onClick={async () => {
-                if (!tenantSlug) return;
-                const url = `${window.location.origin}/m/${tenantSlug}`;
-                try {
-                  await navigator.clipboard.writeText(url);
-                  toast('Link delivery copiado — pégalo en WhatsApp', 'success');
-                } catch {
-                  toast('No se pudo copiar — selecciona el link manualmente', 'error');
-                }
-              }}
-              className="text-[11px] text-mute hover:text-brand text-center disabled:opacity-50"
-              title="Copia el link de delivery al portapapeles"
-            >
-              📋 Copiar link
-            </button>
-          </div>
-          <button className="btn-primary self-start" onClick={save} disabled={saving}>
+        <div className="flex gap-2 flex-wrap items-center">
+          <Link
+            href={tenantSlug ? `/m/${tenantSlug}?mesa=1` : '#'}
+            target="_blank"
+            className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
+            title="Vista del menú como la verá un cliente sentado en una mesa"
+          >
+            🍽 Ver menú mesa
+          </Link>
+          <Link
+            href="/app/storefront/poster"
+            className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
+            title="Genera un cartel imprimible con el QR de la mesa"
+          >
+            🖨 Cartel QR
+          </Link>
+          <Link
+            href={publicHref}
+            target="_blank"
+            className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
+            title="Vista del menú para domicilio — el link público que enviás a tus clientes"
+          >
+            🛵 Ver menú delivery
+          </Link>
+          <button
+            type="button"
+            disabled={!tenantSlug}
+            onClick={async () => {
+              if (!tenantSlug) return;
+              const url = `${window.location.origin}/m/${tenantSlug}`;
+              try {
+                await navigator.clipboard.writeText(url);
+                toast('Link delivery copiado — pégalo en WhatsApp', 'success');
+              } catch {
+                toast('No se pudo copiar — selecciona el link manualmente', 'error');
+              }
+            }}
+            className="btn-ghost disabled:opacity-50"
+            title="Copia el link de delivery al portapapeles"
+          >
+            📋 Copiar link
+          </button>
+          <button className="btn-primary" onClick={save} disabled={saving}>
             <Icon name="check" /> {saving ? 'Guardando…' : 'Publicar cambios'}
           </button>
         </div>
