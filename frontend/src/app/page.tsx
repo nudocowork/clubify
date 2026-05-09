@@ -554,8 +554,16 @@ export default function Landing() {
           <div className="space-y-3">
             {[
               {
-                q: '¿Cuánto cuesta empezar?',
-                a: 'El plan Elite es USD 50/mes y se cobra inmediatamente al crear la cuenta. Apenas se aprueba el pago entras al panel. Puedes cancelar la suscripción en cualquier momento desde tu panel — sin contratos, sin permanencia.',
+                q: '¿Cuánto pago y en qué moneda?',
+                a: 'El plan Elite es USD 50/mes y el Pro USD 99/mes, cobrados al crear tu cuenta. Te mostramos el equivalente en tu moneda local (COP, MXN, ARS, BRL, etc.) al cambio del día. Sin contratos — cancelas cuando quieras desde tu panel.',
+              },
+              {
+                q: '¿Mis clientes necesitan descargar una app?',
+                a: 'No, los clientes no necesitan descargar ninguna APP. Las tarjetas se instalan directamente en su Wallet del teléfono (Apple Wallet en iPhone, Google Wallet en Android). Cero fricción.',
+              },
+              {
+                q: '¿Funciona para negocios con pocos clientes o recién abiertos?',
+                a: 'Sin duda. Un programa de fidelización al iniciar un negocio te ayuda a crear comunidad desde el primer momento, ayudando así a crecer la marca y las ventas.',
               },
               {
                 q: '¿Cómo se procesa el pago?',
@@ -570,11 +578,7 @@ export default function Landing() {
                 a: 'Te exportamos todo: clientes, menú, pedidos, tarjetas. Mantenemos tu información disponible para descarga durante 30 días después de cancelar.',
               },
               {
-                q: '¿Cobran en mi moneda local o en USD?',
-                a: 'El precio base es USD 50/mes pero te mostramos el equivalente en tu moneda local (MXN, COP, ARS, CLP, PEN, BRL, etc.) al cambio del día.',
-              },
-              {
-                q: '¿Tengo que pagar por cada pedido o sello adicional?',
+                q: '¿Hay costos extras?',
                 a: 'No. Pedidos, tarjetas, automatizaciones y clientes son ilimitados con tu suscripción. Sin comisiones por transacción.',
               },
               {
