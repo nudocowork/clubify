@@ -111,9 +111,8 @@ export function HeroBanner() {
             <div className="flex flex-col sm:flex-row flex-wrap justify-center lg:justify-start gap-3 mt-6 sm:mt-8">
               <Link
                 href="#precios"
-                className="inline-flex items-center justify-center gap-2 px-6 sm:px-7 py-3 sm:py-3.5 rounded-full bg-ink text-white font-semibold shadow-md hover:opacity-90 transition text-sm sm:text-base"
+                className="inline-flex items-center justify-center px-6 sm:px-7 py-3 sm:py-3.5 rounded-full bg-ink text-white font-semibold shadow-md hover:opacity-90 transition text-sm sm:text-base"
               >
-                <span className="text-sm">✦</span>
                 Ver planes y empezar
               </Link>
               <a

@@ -248,10 +248,10 @@ export default function Landing() {
 
               <div className="flex gap-3 mt-8 flex-wrap">
                 <Link
-                  className="inline-flex items-center gap-2 bg-ink text-white font-semibold text-base px-6 py-3.5 rounded-pill hover:bg-ink/90 transition shadow-md"
+                  className="inline-flex items-center bg-ink text-white font-semibold text-base px-6 py-3.5 rounded-pill hover:bg-ink/90 transition shadow-md"
                   href="#precios"
                 >
-                  <Icon name="spark" /> Ver planes y empezar
+                  Ver planes y empezar
                 </Link>
                 <a
                   className="inline-flex items-center gap-2 bg-white border border-line text-ink font-semibold text-base px-6 py-3.5 rounded-pill hover:border-ink/30 transition"
@@ -640,7 +640,7 @@ export default function Landing() {
                 href="#precios"
                 className="bg-white text-ink font-semibold text-base px-6 py-3.5 rounded-pill hover:bg-white/95"
               >
-                <Icon name="spark" /> Ver planes y empezar
+                Ver planes y empezar
               </Link>
               <a
                 href="https://wa.me/573000000000?text=Hola%2C%20quiero%20saber%20m%C3%A1s%20de%20Clubify"
