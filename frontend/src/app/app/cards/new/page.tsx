@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
-import { EmojiPicker } from '@/components/EmojiPicker';
+import { StampIconPicker } from '@/components/StampIconPicker';
 import {
   CARD_TEMPLATES,
   TYPE_LABEL,
@@ -514,18 +514,10 @@ function Step3Configure({
             </div>
             <div className="mt-3">
               <label className="label">Icono del sello</label>
-              <div className="flex items-center gap-3">
-                <EmojiPicker
-                  value={form.stampIcon}
-                  onSelect={(emoji) => set('stampIcon', emoji)}
-                  size="lg"
-                  placeholder="Elige el icono del sello"
-                />
-                <div className="text-[12px] text-mute leading-snug">
-                  Toca para abrir el selector con buscador. Los clientes verán
-                  este símbolo en cada sello acumulado.
-                </div>
-              </div>
+              <StampIconPicker
+                value={form.stampIcon}
+                onSelect={(icon) => set('stampIcon', icon)}
+              />
             </div>
           </>
         )}

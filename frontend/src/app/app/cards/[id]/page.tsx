@@ -6,6 +6,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
+import { StampIconPicker } from '@/components/StampIconPicker';
 
 type Card = {
   id: string;
@@ -753,28 +754,25 @@ function EditCardModal({
 
           {card.type === 'STAMPS' && (
             <>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="label">Sellos requeridos</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={30}
-                    className="input"
-                    value={form.stampsRequired}
-                    onChange={(e) =>
-                      setForm({ ...form, stampsRequired: Number(e.target.value) })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="label">Icono del sello</label>
-                  <input
-                    className="input text-center text-xl"
-                    value={form.stampIcon}
-                    onChange={(e) => setForm({ ...form, stampIcon: e.target.value })}
-                  />
-                </div>
+              <div>
+                <label className="label">Sellos requeridos</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={30}
+                  className="input max-w-[160px]"
+                  value={form.stampsRequired}
+                  onChange={(e) =>
+                    setForm({ ...form, stampsRequired: Number(e.target.value) })
+                  }
+                />
+              </div>
+              <div>
+                <label className="label">Icono del sello</label>
+                <StampIconPicker
+                  value={form.stampIcon}
+                  onSelect={(icon) => setForm({ ...form, stampIcon: icon })}
+                />
               </div>
             </>
           )}
