@@ -16,6 +16,9 @@ class BrandingDto {
   @IsOptional() @IsString() welcomePopupImageUrl?: string | null;
   @IsOptional() @IsBoolean() welcomePopupEnabled?: boolean;
   @IsOptional() @IsString() scannerStaffPin?: string | null;
+  @IsOptional() @IsString() salesWhatsapp?: string | null;
+  @IsOptional() @IsString() salesEmail?: string | null;
+  @IsOptional() @IsString() salesInstagram?: string | null;
 }
 
 const WELCOME_POPUP_MESSAGE =

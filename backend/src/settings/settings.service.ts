@@ -13,6 +13,11 @@ export type BrandingSettings = {
   // sello a una tarjeta (anti-abuso). El super admin lo configura.
   // Plain text — solo super admin lo lee, comparison se hace server-side.
   scannerStaffPin: string | null;
+  // Datos de contacto comercial — usados en los CTAs de la landing
+  // pública (Hablar con ventas, Instagram, email). Públicos.
+  salesWhatsapp: string | null;
+  salesEmail: string | null;
+  salesInstagram: string | null;
 };
 
 const KEYS = {
@@ -22,6 +27,9 @@ const KEYS = {
   welcomePopupImageUrl: 'welcomePopup.imageUrl',
   welcomePopupEnabled: 'welcomePopup.enabled',
   scannerStaffPin: 'scanner.staffPin',
+  salesWhatsapp: 'sales.whatsappPhone',
+  salesEmail: 'sales.email',
+  salesInstagram: 'sales.instagramUrl',
 } as const;
 
 /** Devuelve true si el PIN provisto coincide con el seteado por el super
@@ -58,6 +66,9 @@ export class SettingsService {
             KEYS.welcomePopupImageUrl,
             KEYS.welcomePopupEnabled,
             KEYS.scannerStaffPin,
+            KEYS.salesWhatsapp,
+            KEYS.salesEmail,
+            KEYS.salesInstagram,
           ],
         },
       },
@@ -76,6 +87,9 @@ export class SettingsService {
       welcomePopupImageUrl: norm(map.get(KEYS.welcomePopupImageUrl)),
       welcomePopupEnabled: enabledRaw === undefined ? true : enabledRaw !== 'false',
       scannerStaffPin: norm(map.get(KEYS.scannerStaffPin)),
+      salesWhatsapp: norm(map.get(KEYS.salesWhatsapp)),
+      salesEmail: norm(map.get(KEYS.salesEmail)),
+      salesInstagram: norm(map.get(KEYS.salesInstagram)),
     };
   }
 
@@ -101,6 +115,15 @@ export class SettingsService {
     if (data.scannerStaffPin !== undefined) {
       // Trim + permitir vacío (desactiva el check)
       ops.push(this.upsert(KEYS.scannerStaffPin, (data.scannerStaffPin ?? '').trim()));
+    }
+    if (data.salesWhatsapp !== undefined) {
+      ops.push(this.upsert(KEYS.salesWhatsapp, (data.salesWhatsapp ?? '').trim()));
+    }
+    if (data.salesEmail !== undefined) {
+      ops.push(this.upsert(KEYS.salesEmail, (data.salesEmail ?? '').trim()));
+    }
+    if (data.salesInstagram !== undefined) {
+      ops.push(this.upsert(KEYS.salesInstagram, (data.salesInstagram ?? '').trim()));
     }
     await Promise.all(ops);
     return this.getBrandingAdmin();

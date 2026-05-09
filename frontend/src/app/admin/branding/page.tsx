@@ -12,6 +12,9 @@ type Branding = {
   welcomePopupImageUrl: string | null;
   welcomePopupEnabled: boolean;
   scannerStaffPin: string | null;
+  salesWhatsapp: string | null;
+  salesEmail: string | null;
+  salesInstagram: string | null;
 };
 
 export default function AdminBrandingPage() {
@@ -22,6 +25,9 @@ export default function AdminBrandingPage() {
     welcomePopupImageUrl: null,
     welcomePopupEnabled: true,
     scannerStaffPin: null,
+    salesWhatsapp: null,
+    salesEmail: null,
+    salesInstagram: null,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -108,6 +114,51 @@ export default function AdminBrandingPage() {
           </div>
         </div>
       )}
+
+      <div className="card card-pad mt-5">
+        <h2 className="text-base font-semibold m-0">
+          📞 Contacto comercial (landing pública)
+        </h2>
+        <p className="text-xs text-mute mt-1 leading-relaxed">
+          Datos que se usan en los botones de la landing{' '}
+          <code className="bg-bg2 px-1 rounded">soyclubify.com</code> —
+          "Hablar con ventas" (WhatsApp), botón de email y botón de
+          Instagram. Si dejás un campo vacío, el botón correspondiente
+          se oculta automáticamente.
+        </p>
+        <div className="mt-3.5 grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label className="label">WhatsApp ventas</label>
+            <input
+              type="text"
+              className="input"
+              placeholder="+57 300 000 0000"
+              value={b.salesWhatsapp ?? ''}
+              onChange={(e) => setB({ ...b, salesWhatsapp: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="label">Email ventas</label>
+            <input
+              type="email"
+              className="input"
+              placeholder="ventas@soyclubify.com"
+              value={b.salesEmail ?? ''}
+              onChange={(e) => setB({ ...b, salesEmail: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="label">Instagram</label>
+            <input
+              type="text"
+              className="input"
+              placeholder="https://instagram.com/clubify"
+              value={b.salesInstagram ?? ''}
+              onChange={(e) => setB({ ...b, salesInstagram: e.target.value })}
+            />
+          </div>
+        </div>
+      </div>
 
       <div className="card card-pad mt-5">
         <h2 className="text-base font-semibold m-0">

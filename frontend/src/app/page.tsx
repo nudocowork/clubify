@@ -164,9 +164,39 @@ function buildPricing(country: string | null) {
   ];
 }
 
-export default function Landing() {
+type SalesContact = {
+  whatsapp: string | null;
+  email: string | null;
+  instagram: string | null;
+};
+
+async function fetchSalesContact(): Promise<SalesContact> {
+  const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
+  try {
+    const r = await fetch(`${API}/api/branding`, { next: { revalidate: 60 } });
+    if (!r.ok) return { whatsapp: null, email: null, instagram: null };
+    const d: any = await r.json();
+    return {
+      whatsapp: d?.salesWhatsapp ?? null,
+      email: d?.salesEmail ?? null,
+      instagram: d?.salesInstagram ?? null,
+    };
+  } catch {
+    return { whatsapp: null, email: null, instagram: null };
+  }
+}
+
+export default async function Landing() {
   const country = detectCountryFromHeaders(headers());
   const PRICING = buildPricing(country);
+  const sales = await fetchSalesContact();
+  const waLink = sales.whatsapp
+    ? `https://wa.me/${sales.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent('Hola, quiero saber más de Clubify')}`
+    : 'https://wa.me/573000000000?text=Hola%2C%20quiero%20saber%20m%C3%A1s%20de%20Clubify';
+  const mailLink = sales.email
+    ? `mailto:${sales.email}?subject=${encodeURIComponent('Quiero saber más de Clubify')}`
+    : null;
+  const igLink = sales.instagram ?? null;
   return (
     <main className="min-h-screen bg-white text-ink">
       <RefCapture />
@@ -255,7 +285,7 @@ export default function Landing() {
                 </Link>
                 <a
                   className="inline-flex items-center gap-2 bg-white border border-line text-ink font-semibold text-base px-6 py-3.5 rounded-pill hover:border-ink/30 transition"
-                  href="https://wa.me/573000000000?text=Hola%2C%20quiero%20saber%20m%C3%A1s%20de%20Clubify"
+                  href={waLink}
                   target="_blank"
                   rel="noreferrer"
                 >
@@ -385,7 +415,7 @@ export default function Landing() {
       </section>
 
       {/* ─────────── Hero secundario "Menús con IA" (estilo Cluvi) ─────────── */}
-      <HeroBanner />
+      <HeroBanner waLink={waLink} mailLink={mailLink} igLink={igLink} />
 
       {/* ─────────── InfoLinks (mini-pages estilo Linktree) ─────────── */}
       <InfoLinksBanner />
@@ -605,7 +635,7 @@ export default function Landing() {
           <div className="text-center text-xs text-mute mt-6">
             ¿Otra pregunta?{' '}
             <a
-              href="https://wa.me/573000000000"
+              href={waLink}
               className="text-brand hover:underline"
             >
               Escríbenos por WhatsApp
@@ -643,7 +673,7 @@ export default function Landing() {
                 Ver planes y empezar
               </Link>
               <a
-                href="https://wa.me/573000000000?text=Hola%2C%20quiero%20saber%20m%C3%A1s%20de%20Clubify"
+                href={waLink}
                 target="_blank"
                 rel="noreferrer"
                 className="bg-white/10 hover:bg-white/15 text-white font-semibold text-base px-6 py-3.5 rounded-pill border border-white/25"
@@ -672,7 +702,7 @@ export default function Landing() {
               </p>
               <div className="flex gap-2 mt-4">
                 <a
-                  href="https://wa.me/573000000000"
+                  href={waLink}
                   target="_blank"
                   rel="noreferrer"
                   className="text-xs bg-bg2 text-ink px-3 py-1.5 rounded-pill hover:bg-line"
