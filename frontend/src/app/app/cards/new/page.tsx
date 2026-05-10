@@ -20,7 +20,6 @@ const ALL_TYPES: CardType[] = [
   'COUPON',
   'DISCOUNT',
   'POINTS',
-  'MULTI',
 ];
 
 type Step = 1 | 2 | 3;
