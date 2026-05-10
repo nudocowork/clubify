@@ -8,6 +8,7 @@ import { customAlphabet } from 'nanoid';
 import { CampaignStatus } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { AuthService } from '../auth/auth.service';
 
 const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
 
@@ -34,7 +35,7 @@ export type CreateAmbassadorDto = {
 
 @Injectable()
 export class CampaignsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private auth: AuthService) {}
 
   private assertAdmin(user: AuthUser) {
     if (user.role !== 'SUPER_ADMIN') {
@@ -95,7 +96,7 @@ export class CampaignsService {
       });
     }
 
-    return this.prisma.campaign.create({
+    const campaign = await this.prisma.campaign.create({
       data: {
         name: dto.name.trim(),
         ownerCodeId: influencerCode.id,
@@ -107,6 +108,19 @@ export class CampaignsService {
         codes: { where: { role: 'AMBASSADOR' } },
       },
     });
+
+    // Auto-invitar al influencer al panel de afiliado.
+    await this.auth
+      .inviteAffiliate({
+        email,
+        fullName: dto.influencerName,
+        role: 'AFFILIATE_INFLUENCER',
+        referralCodeId: influencerCode.id,
+        phone: dto.influencerWhatsapp,
+      })
+      .catch(() => null);
+
+    return campaign;
   }
 
   async list(user: AuthUser) {
@@ -227,7 +241,7 @@ export class CampaignsService {
     }
 
     const code = await this.resolveCode(dto.customCode);
-    return this.prisma.referralCode.create({
+    const ambassadorCode = await this.prisma.referralCode.create({
       data: {
         code,
         ownerName: dto.fullName.trim(),
@@ -239,6 +253,18 @@ export class CampaignsService {
         campaignId: camp.id,
       },
     });
+
+    await this.auth
+      .inviteAffiliate({
+        email,
+        fullName: dto.fullName,
+        role: 'AFFILIATE_AMBASSADOR',
+        referralCodeId: ambassadorCode.id,
+        phone: dto.whatsapp,
+      })
+      .catch(() => null);
+
+    return ambassadorCode;
   }
 
   async removeAmbassador(user: AuthUser, ambassadorId: string) {

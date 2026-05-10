@@ -248,6 +248,86 @@ export class AuthService {
     return { ok: true };
   }
 
+  /**
+   * Invita a un afiliado (influencer/embajador) creando su User si no
+   * existe, lo enlaza al ReferralCode, genera un token de set-password
+   * con TTL largo (7 días) y manda email con link a /reset/{token}.
+   *
+   * Idempotente: si el User ya existe se reenvía el invite.
+   * Retorna { token } solo en dev/log para inspección — el email es la
+   * via canónica de entrega.
+   */
+  async inviteAffiliate(opts: {
+    email: string;
+    fullName: string;
+    role: 'AFFILIATE_INFLUENCER' | 'AFFILIATE_AMBASSADOR';
+    referralCodeId: string;
+    phone?: string;
+  }) {
+    const email = opts.email.toLowerCase().trim();
+
+    let user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      // Password placeholder — el affiliate la define al aceptar el invite.
+      const placeholderHash = await this.hashPassword(randomBytes(32).toString('hex'));
+      user = await this.prisma.user.create({
+        data: {
+          email,
+          fullName: opts.fullName,
+          phone: opts.phone,
+          passwordHash: placeholderHash,
+          role: opts.role,
+          isActive: true,
+        },
+      });
+    } else if (
+      user.role !== opts.role &&
+      (user.role === 'AFFILIATE_INFLUENCER' || user.role === 'AFFILIATE_AMBASSADOR')
+    ) {
+      // Si ya era affiliate pero con otro rol (ej: era embajador y ahora
+      // se vuelve influencer titular), actualizamos el rol.
+      user = await this.prisma.user.update({
+        where: { id: user.id },
+        data: { role: opts.role },
+      });
+    }
+
+    // Linkear ReferralCode → User (solo si aún no estaba linkeado).
+    await this.prisma.referralCode.update({
+      where: { id: opts.referralCodeId },
+      data: { ownerUserId: user.id },
+    });
+
+    const rawToken = randomBytes(32).toString('base64url');
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7d
+    await this.prisma.passwordResetToken.create({
+      data: { userId: user.id, tokenHash, expiresAt },
+    });
+
+    const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
+    const inviteUrl = `${appUrl}/reset/${rawToken}?affiliate=1`;
+
+    this.email
+      .send({
+        to: user.email,
+        ...passwordResetTemplate({
+          fullName: user.fullName,
+          resetUrl: inviteUrl,
+          expiresInMinutes: 7 * 24 * 60,
+        }),
+      })
+      .catch((e) =>
+        this.logger.warn(`Email de invite affiliate falló: ${e.message}`),
+      );
+
+    this.logger.log(
+      `Invite affiliate enviado: ${email} role=${opts.role} (token expira en 7d)`,
+    );
+
+    return { ok: true, userId: user.id };
+  }
+
   async resetPassword(rawToken: string, newPassword: string) {
     if (newPassword.length < 8) {
       throw new BadRequestException('La contraseña debe tener al menos 8 caracteres');

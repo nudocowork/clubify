@@ -15,6 +15,11 @@ enum Role {
   SUPER_ADMIN
   TENANT_OWNER
   TENANT_STAFF
+  // Roles para el panel de afiliados (/affiliate). Cada User con uno
+  // de estos roles está vinculado vía User.referralCodeId a SU código
+  // y solo ve sus propios clientes/comisiones (scoped en AffiliateService).
+  AFFILIATE_INFLUENCER
+  AFFILIATE_AMBASSADOR
 }
 
 enum TenantStatus {

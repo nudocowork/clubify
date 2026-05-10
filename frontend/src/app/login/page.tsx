@@ -35,7 +35,14 @@ function LoginInner() {
         body: JSON.stringify({ email, password }),
       });
       setSession(data.accessToken, data.user);
-      router.push(data.user.role === 'SUPER_ADMIN' ? '/admin' : '/app');
+      router.push(
+        data.user.role === 'SUPER_ADMIN'
+          ? '/admin'
+          : data.user.role === 'AFFILIATE_INFLUENCER' ||
+            data.user.role === 'AFFILIATE_AMBASSADOR'
+          ? '/affiliate'
+          : '/app',
+      );
     } catch (e: any) {
       setErr(e.message);
     } finally {
@@ -52,7 +59,14 @@ function LoginInner() {
         { method: 'POST', body: JSON.stringify({ idToken }) },
       );
       setSession(data.accessToken, data.user);
-      router.push(data.user.role === 'SUPER_ADMIN' ? '/admin' : '/app');
+      router.push(
+        data.user.role === 'SUPER_ADMIN'
+          ? '/admin'
+          : data.user.role === 'AFFILIATE_INFLUENCER' ||
+            data.user.role === 'AFFILIATE_AMBASSADOR'
+          ? '/affiliate'
+          : '/app',
+      );
     } catch (e: any) {
       setErr(e.message);
     } finally {
