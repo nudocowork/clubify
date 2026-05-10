@@ -405,6 +405,11 @@ model Card {
   discountPercent    Int?
   validFrom          DateTime? @db.Date
   validUntil         DateTime? @db.Date
+  // Si está seteado, cada Pass de esta tarjeta vence
+  // (issuedAt + validDaysAfterIssue) días. Mutuamente excluyente con
+  // validUntil: el usuario elige una de las tres modalidades en el
+  // wizard (Ilimitado / Plazo definido / Plazo después de emisión).
+  validDaysAfterIssue Int?
   socialLinks        Json     @default("{}")
   googleClassId      String?
   isActive           Boolean  @default(true)

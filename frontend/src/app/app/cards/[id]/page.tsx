@@ -7,6 +7,7 @@ import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { StampIconPicker } from '@/components/StampIconPicker';
+import { CardExpiryPicker } from '@/components/CardExpiryPicker';
 
 type Card = {
   id: string;
@@ -21,6 +22,8 @@ type Card = {
   stampIcon?: string;
   discountPercent?: number | null;
   pointsPerCurrency?: number | string | null;
+  validUntil?: string | null;
+  validDaysAfterIssue?: number | null;
   isActive: boolean;
   _count?: { passes: number };
 };
@@ -670,6 +673,10 @@ function EditCardModal({
     discountPercent: card.discountPercent ?? 10,
     pointsPerCurrency: Number(card.pointsPerCurrency ?? 0.001),
     stampIcon: card.stampIcon ?? '☕',
+    validUntil: card.validUntil
+      ? card.validUntil.split('T')[0]
+      : (null as string | null),
+    validDaysAfterIssue: card.validDaysAfterIssue ?? (null as number | null),
   });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -687,6 +694,10 @@ function EditCardModal({
         terms: form.terms,
         primaryColor: form.primaryColor,
         secondaryColor: form.secondaryColor,
+        // null = "borrar y volver a Ilimitado"; el backend distingue
+        // entre null y campo ausente.
+        validUntil: form.validUntil,
+        validDaysAfterIssue: form.validDaysAfterIssue,
       };
       if (card.type === 'STAMPS') {
         payload.stampsRequired = form.stampsRequired;
@@ -843,6 +854,22 @@ function EditCardModal({
               value={form.terms}
               onChange={(e) => setForm({ ...form, terms: e.target.value })}
               placeholder="Lo que ven los clientes en el reverso de la tarjeta wallet"
+            />
+          </div>
+
+          <div className="pt-3 border-t border-line">
+            <CardExpiryPicker
+              value={{
+                validUntil: form.validUntil,
+                validDaysAfterIssue: form.validDaysAfterIssue,
+              }}
+              onChange={(v) =>
+                setForm({
+                  ...form,
+                  validUntil: v.validUntil,
+                  validDaysAfterIssue: v.validDaysAfterIssue,
+                })
+              }
             />
           </div>
         </div>

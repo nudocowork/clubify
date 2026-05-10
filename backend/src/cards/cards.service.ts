@@ -17,8 +17,9 @@ export type CardDto = {
   rewardText?: string;
   pointsPerCurrency?: number;
   discountPercent?: number;
-  validFrom?: string;
-  validUntil?: string;
+  validFrom?: string | null;
+  validUntil?: string | null;
+  validDaysAfterIssue?: number | null;
   socialLinks?: Record<string, string>;
   stampIcon?: string;
   isActive?: boolean;
@@ -78,6 +79,7 @@ export class CardsService {
         discountPercent: dto.discountPercent,
         validFrom: dto.validFrom ? new Date(dto.validFrom) : undefined,
         validUntil: dto.validUntil ? new Date(dto.validUntil) : undefined,
+        validDaysAfterIssue: dto.validDaysAfterIssue ?? undefined,
         socialLinks: dto.socialLinks ?? {},
         stampIcon: dto.stampIcon ?? '☕',
       },
@@ -86,14 +88,20 @@ export class CardsService {
 
   async update(user: AuthUser, id: string, dto: Partial<CardDto>) {
     await this.get(user, id);
-    return this.prisma.card.update({
-      where: { id },
-      data: {
-        ...dto,
-        validFrom: dto.validFrom ? new Date(dto.validFrom) : undefined,
-        validUntil: dto.validUntil ? new Date(dto.validUntil) : undefined,
-      },
-    });
+    // Convertimos las fechas con conciencia de null vs undefined: null
+    // significa "borrar" (volver a Ilimitado), undefined significa
+    // "no tocar".
+    const data: any = { ...dto };
+    if ('validFrom' in dto) {
+      data.validFrom = dto.validFrom ? new Date(dto.validFrom) : null;
+    }
+    if ('validUntil' in dto) {
+      data.validUntil = dto.validUntil ? new Date(dto.validUntil) : null;
+    }
+    if ('validDaysAfterIssue' in dto) {
+      data.validDaysAfterIssue = dto.validDaysAfterIssue ?? null;
+    }
+    return this.prisma.card.update({ where: { id }, data });
   }
 
   async remove(user: AuthUser, id: string) {

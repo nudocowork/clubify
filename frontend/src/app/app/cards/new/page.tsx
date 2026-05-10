@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { StampIconPicker } from '@/components/StampIconPicker';
+import { CardExpiryPicker } from '@/components/CardExpiryPicker';
 import {
   CARD_TEMPLATES,
   TYPE_LABEL,
@@ -36,6 +37,8 @@ const FROM_SCRATCH_DEFAULTS = {
   discountPercent: 10,
   pointsPerCurrency: 0.001,
   stampIcon: '☕',
+  validUntil: null as string | null,
+  validDaysAfterIssue: null as number | null,
 };
 
 export default function NewCardWizard() {
@@ -580,6 +583,22 @@ function Step3Configure({
             className="input"
             value={form.terms}
             onChange={(e) => set('terms', e.target.value)}
+          />
+        </div>
+
+        <div className="mt-4 pt-4 border-t border-line">
+          <CardExpiryPicker
+            value={{
+              validUntil: form.validUntil,
+              validDaysAfterIssue: form.validDaysAfterIssue,
+            }}
+            onChange={(v) =>
+              setForm({
+                ...form,
+                validUntil: v.validUntil,
+                validDaysAfterIssue: v.validDaysAfterIssue,
+              })
+            }
           />
         </div>
 

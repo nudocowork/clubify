@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { IsBoolean, IsEnum, IsHexColor, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsEnum, IsHexColor, IsInt, IsOptional, IsString, Min, ValidateIf } from 'class-validator';
 import { CardType } from '@prisma/client';
 import { CardsService } from './cards.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
@@ -19,8 +19,10 @@ class CardBody {
   @IsOptional() @IsString() rewardText?: string;
   @IsOptional() pointsPerCurrency?: number;
   @IsOptional() @IsInt() discountPercent?: number;
-  @IsOptional() @IsString() validFrom?: string;
-  @IsOptional() @IsString() validUntil?: string;
+  // null permite borrar la fecha y volver a "Ilimitado".
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() validFrom?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() validUntil?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(1) validDaysAfterIssue?: number | null;
   @IsOptional() socialLinks?: Record<string, string>;
   @IsOptional() @IsString() stampIcon?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
