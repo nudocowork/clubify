@@ -89,6 +89,7 @@ export default function CardsList() {
 
   const [walletLogoUrl, setWalletLogoUrl] = useState<string | null>(null);
   const [savingWalletLogo, setSavingWalletLogo] = useState(false);
+  const [showLogoModal, setShowLogoModal] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -179,39 +180,27 @@ export default function CardsList() {
             / {activeCount} activa{activeCount === 1 ? '' : 's'}
           </span>
         </h1>
-        <Link className="btn-primary" href="/app/cards/new">
-          <Icon name="plus" /> Crear tarjeta
-        </Link>
-      </div>
-
-      <div className="card card-pad mb-5">
-        <div className="flex items-start gap-4 flex-wrap">
-          <div className="flex-1 min-w-[240px]">
-            <h3 className="text-base font-semibold m-0 flex items-center gap-2">
-              📱 Logo de tarjetas wallet
-            </h3>
-            <p className="text-xs text-mute mt-1.5 leading-relaxed">
-              Aparece en el header de Apple Wallet y Google Wallet de TODAS las
-              tarjetas que emitas. Es independiente del logo general del negocio.
-            </p>
-            <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-900 leading-relaxed">
-              💡 <b>Recomendado: PNG con fondo transparente</b>. Si el archivo
-              tiene fondo blanco, va a aparecer un cuadrado blanco detrás del
-              logo en la wallet del cliente.
-            </div>
-          </div>
-          <div className="w-full sm:w-[260px]">
-            <ImageUploader
-              value={walletLogoUrl}
-              onChange={(url) => saveWalletLogo(url)}
-              folder="wallet-logos"
-            />
-            {savingWalletLogo && (
-              <div className="text-[11px] text-mute mt-1.5 text-center">
-                Guardando…
-              </div>
+        <div className="flex gap-2 flex-wrap">
+          <button
+            className="btn-ghost"
+            onClick={() => setShowLogoModal(true)}
+            title="Logo que aparece en el wallet de tus clientes"
+          >
+            {walletLogoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={walletLogoUrl}
+                alt=""
+                className="w-5 h-5 rounded object-cover"
+              />
+            ) : (
+              <span>📱</span>
             )}
-          </div>
+            Configura tu logo
+          </button>
+          <Link className="btn-primary" href="/app/cards/new">
+            <Icon name="plus" /> Crear tarjeta
+          </Link>
         </div>
       </div>
 
@@ -328,6 +317,49 @@ export default function CardsList() {
             />
           ))}
       </div>
+
+      {showLogoModal && (
+        <div
+          className="fixed inset-0 z-50 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setShowLogoModal(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl max-w-md w-full p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <h3 className="font-semibold text-base m-0">📱 Logo de tarjetas wallet</h3>
+                <p className="text-xs text-mute mt-1 leading-relaxed">
+                  Aparece en el header de Apple Wallet y Google Wallet de TODAS
+                  las tarjetas que emitas.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowLogoModal(false)}
+                className="text-mute hover:text-ink text-xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+            <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-900 leading-relaxed mb-3">
+              💡 <b>Recomendado: PNG con fondo transparente.</b> Si tiene fondo
+              blanco, va a aparecer un cuadrado blanco detrás del logo en la
+              wallet del cliente.
+            </div>
+            <ImageUploader
+              value={walletLogoUrl}
+              onChange={(url) => saveWalletLogo(url)}
+              folder="wallet-logos"
+            />
+            {savingWalletLogo && (
+              <div className="text-[11px] text-mute mt-2 text-center">
+                Guardando…
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
