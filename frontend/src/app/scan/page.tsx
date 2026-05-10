@@ -319,7 +319,7 @@ export default function ScanPage() {
 
         {!data && (
           <div className="text-center text-xs text-mute mb-2">
-            📷 Apuntá la cámara al{' '}
+            📷 Apunta la cámara al{' '}
             <strong className="text-ink">código de barras</strong> o QR
           </div>
         )}

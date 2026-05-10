@@ -292,8 +292,6 @@ export default function CustomerDetail() {
         )}
       </div>
 
-      <GamificationBanner customerId={c.id} />
-
       <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4">
         {/* Sidebar perfil */}
         <div className="space-y-4">

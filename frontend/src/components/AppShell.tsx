@@ -231,7 +231,6 @@ export default function AppShell({
               items: [
                 { href: '/app/cards', label: 'Tarjetas', icon: 'card', module: 'cards' },
                 { href: '/app/customers', label: 'Clientes', icon: 'users', module: 'customers' },
-                { href: '/app/badges', label: 'Insignias', icon: 'spark', module: 'cards' },
                 { href: '/scan', label: 'Escáner', icon: 'qr', module: 'scanner' },
                 { href: '/app/notifications', label: 'Push', icon: 'bell', module: 'push' },
                 { href: '/app/reviews', label: 'Reseña de Google', icon: 'spark' },
