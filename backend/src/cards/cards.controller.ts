@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { IsBoolean, IsEnum, IsHexColor, IsInt, IsOptional, IsString, Min, ValidateIf } from 'class-validator';
+import { IsArray, IsBoolean, IsEnum, IsHexColor, IsIn, IsInt, IsOptional, IsString, Min, ValidateIf } from 'class-validator';
 import { CardType } from '@prisma/client';
 import { CardsService } from './cards.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
@@ -25,6 +25,20 @@ class CardBody {
   @IsOptional() @IsString() rewardText?: string;
   @IsOptional() pointsPerCurrency?: number;
   @IsOptional() @IsInt() discountPercent?: number;
+  // CASHBACK: % devuelto en saldo + compra mínima opcional
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() cashbackPercent?: number | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) cashbackMinPurchase?: number | null;
+  // VISITS: cuántas visitas para canjear el premio
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(1) visitsRequired?: number | null;
+  // MEMBERSHIP con tiers VIP. tiers: [{name, threshold, perks?, color?, icon?}]
+  @IsOptional() @IsArray() tiers?: Array<{
+    name: string;
+    threshold: number;
+    perks?: string[];
+    color?: string;
+    icon?: string;
+  }>;
+  @IsOptional() @IsIn(['spend', 'visits', 'stamps']) tierMetric?: 'spend' | 'visits' | 'stamps';
   // null permite borrar la fecha y volver a "Ilimitado".
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() validFrom?: string | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() validUntil?: string | null;
