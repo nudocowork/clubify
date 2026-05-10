@@ -1,13 +1,7 @@
-// Migración idempotente para todas las features nuevas de tarjetas:
-// - Card: termsEnabled, colors avanzados, locationId, info paso 4,
-//   multiRewards, activeLinks
-// - CardUtmLink: tabla nueva
-import pg from 'pg';
+// Migración idempotente — usa Prisma Client (ya instalado) en lugar de pg.
+import { PrismaClient } from '@prisma/client';
 
-const url = process.env.DATABASE_URL;
-if (!url) throw new Error('DATABASE_URL not set');
-const c = new pg.Client({ connectionString: url });
-await c.connect();
+const prisma = new PrismaClient();
 
 const sql = [
   `ALTER TABLE "Card" ADD COLUMN IF NOT EXISTS "termsEnabled" BOOLEAN NOT NULL DEFAULT true`,
@@ -23,8 +17,6 @@ const sql = [
   `ALTER TABLE "Card" ADD COLUMN IF NOT EXISTS "rewardEarnedMessage" TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE "Card" ADD COLUMN IF NOT EXISTS "multiRewards" JSONB NOT NULL DEFAULT '[]'::jsonb`,
   `ALTER TABLE "Card" ADD COLUMN IF NOT EXISTS "activeLinks" JSONB NOT NULL DEFAULT '[]'::jsonb`,
-
-  // FK Card.locationId → Location.id (SET NULL on delete)
   `DO $$
    BEGIN
      IF NOT EXISTS (
@@ -36,8 +28,6 @@ const sql = [
      END IF;
    END $$`,
   `CREATE INDEX IF NOT EXISTS "Card_locationId_idx" ON "Card"("locationId")`,
-
-  // CardUtmLink — tabla nueva
   `CREATE TABLE IF NOT EXISTS "CardUtmLink" (
      "id" TEXT NOT NULL PRIMARY KEY,
      "cardId" TEXT NOT NULL,
@@ -55,7 +45,7 @@ const sql = [
 ];
 
 for (const q of sql) {
-  await c.query(q);
+  await prisma.$executeRawUnsafe(q);
 }
 console.log('OK', sql.length, 'statements applied');
-await c.end();
+await prisma.$disconnect();

@@ -32,8 +32,9 @@ export class CustomersController {
     @CurrentUser() user: AuthUser,
     @Query('search') search?: string,
     @Query('tenantId') tenantId?: string,
+    @Query('locationId') locationId?: string,
   ) {
-    return this.svc.list(user, search, tenantId);
+    return this.svc.list(user, search, tenantId, locationId);
   }
 
   @Get('duplicates')
@@ -55,8 +56,9 @@ export class CustomersController {
     @Res() res: Response,
     @Query('search') search?: string,
     @Query('tenantId') tenantId?: string,
+    @Query('locationId') locationId?: string,
   ) {
-    const list = await this.svc.list(user, search, tenantId);
+    const list = await this.svc.list(user, search, tenantId, locationId);
     const csv = toCSV(list as any[], [
       { key: 'fullName', label: 'Nombre' },
       { key: 'email', label: 'Email' },

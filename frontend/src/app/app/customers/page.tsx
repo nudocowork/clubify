@@ -60,6 +60,8 @@ function COP(n: number) {
 export default function CustomersPage() {
   const [list, setList] = useState<Customer[]>([]);
   const [search, setSearch] = useState('');
+  const [locationId, setLocationId] = useState<string>('');
+  const [locations, setLocations] = useState<Array<{ id: string; name: string }>>([]);
   const [segment, setSegment] = useState<Segment>('all');
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({ fullName: '', email: '', phone: '' });
@@ -73,23 +75,31 @@ export default function CustomersPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [duplicateGroups, setDuplicateGroups] = useState(0);
 
-  // Búsqueda live debounced (300ms)
+  // Búsqueda live debounced (300ms) — re-fetch también si cambia la sede.
   useEffect(() => {
     const t = setTimeout(() => load(search), 300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search]);
+  }, [search, locationId]);
 
   useEffect(() => {
     api('/customers/duplicates')
       .then((r) => setDuplicateGroups(r?.total ?? 0))
+      .catch(() => {});
+    api<any[]>('/locations')
+      .then((rows) =>
+        setLocations((rows ?? []).map((r) => ({ id: r.id, name: r.name }))),
+      )
       .catch(() => {});
   }, []);
 
   async function load(term: string = search) {
     setLoading(true);
     try {
-      const params = term ? `?search=${encodeURIComponent(term)}` : '';
+      const qs = new URLSearchParams();
+      if (term) qs.set('search', term);
+      if (locationId) qs.set('locationId', locationId);
+      const params = qs.toString() ? `?${qs}` : '';
       setList(await api(`/customers${params}`));
     } catch (e: any) {
       toast(e.message || 'Error cargando clientes', 'error');
@@ -223,6 +233,21 @@ export default function CustomersPage() {
               </button>
             )}
           </div>
+          {locations.length > 0 && (
+            <select
+              className="bg-white border border-line rounded-pill px-3 py-1.5 text-sm"
+              value={locationId}
+              onChange={(e) => setLocationId(e.target.value)}
+              title="Filtrar por sede"
+            >
+              <option value="">Todas las sedes</option>
+              {locations.map((l) => (
+                <option key={l.id} value={l.id}>
+                  📍 {l.name}
+                </option>
+              ))}
+            </select>
+          )}
           {duplicateGroups > 0 && (
             <Link
               href="/app/customers/duplicates"

@@ -202,12 +202,19 @@ export class WalletService {
     // que solo era gradient verde sólido.
     let dynamicStrips: Record<string, Buffer> = {};
     if (pass.card.type === 'STAMPS') {
+      const c: any = pass.card;
       dynamicStrips = await this.generateStampsStrip({
         primary: pass.card.primaryColor,
         secondary: pass.card.secondaryColor,
         required: pass.card.stampsRequired ?? 10,
         stamped: pass.stampsCount,
-        icon: (pass.card as any).stampIcon || '☕',
+        icon: c.stampIcon || '☕',
+        // Colores avanzados (opcionales). Si null, generateStampsStrip
+        // usa defaults computados desde primary/secondary.
+        stampActiveColor: c.stampActiveColor ?? null,
+        stampInactiveColor: c.stampInactiveColor ?? null,
+        stampContourColor: c.stampContourColor ?? null,
+        centerBgColor: c.centerBgColor ?? null,
       });
     }
 
@@ -278,9 +285,28 @@ export class WalletService {
     required: number;
     stamped: number;
     icon: string;
+    stampActiveColor?: string | null;
+    stampInactiveColor?: string | null;
+    stampContourColor?: string | null;
+    centerBgColor?: string | null;
   }): Promise<Record<string, Buffer>> {
     const sharp = (await import('sharp')).default;
-    const { primary, secondary, required, stamped, icon } = opts;
+    const {
+      primary,
+      secondary,
+      required,
+      stamped,
+      icon,
+      stampActiveColor,
+      stampInactiveColor,
+      stampContourColor,
+      centerBgColor,
+    } = opts;
+    // Defaults legibles si el dueño no configuró colores avanzados.
+    const fillFull = stampActiveColor ?? 'rgba(255,255,255,0.95)';
+    const fillEmpty = stampInactiveColor ?? 'rgba(255,255,255,0.16)';
+    const stroke = stampContourColor ?? 'rgba(255,255,255,0.95)';
+    const strokeEmpty = stampContourColor ?? 'rgba(255,255,255,0.4)';
 
     const rows = required > 6 ? 2 : 1;
     const perRow = Math.ceil(required / rows);
@@ -305,11 +331,12 @@ export class WalletService {
       const cx = padX + col * (cellW + gap) + cellW / 2;
       const cy = padY + row * (cellH + gap) + cellH / 2;
       const filled = i < stamped;
-      // Círculo: lleno blanco + emoji oscuro / vacío translúcido
+      // Círculo: filled = activeColor / empty = inactiveColor; contorno
+      // configurable también. Defaults legibles si no hay overrides.
       circles.push(
         `<circle cx="${cx}" cy="${cy}" r="${radius - 2}" fill="${
-          filled ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.16)'
-        }" stroke="rgba(255,255,255,${filled ? 0.95 : 0.4})" stroke-width="2"/>`,
+          filled ? fillFull : fillEmpty
+        }" stroke="${filled ? stroke : strokeEmpty}" stroke-width="2"/>`,
       );
       if (filled) {
         // Emoji centrado dentro del círculo. font-size un poco mayor que el
@@ -327,6 +354,11 @@ export class WalletService {
       }
     }
 
+    // Si centerBgColor está seteado, lo usamos como fondo sólido en vez
+    // del gradient primary→secondary.
+    const bgFill = centerBgColor
+      ? centerBgColor
+      : 'url(#bg)';
     const svg = `
 <svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
   <defs>
@@ -335,7 +367,7 @@ export class WalletService {
       <stop offset="100%" stop-color="${secondary}"/>
     </linearGradient>
   </defs>
-  <rect width="100%" height="100%" fill="url(#bg)"/>
+  <rect width="100%" height="100%" fill="${bgFill}"/>
   <rect width="100%" height="100%" fill="rgba(0,0,0,0.06)"/>
   ${circles.join('\n  ')}
 </svg>`.trim();

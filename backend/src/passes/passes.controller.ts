@@ -79,8 +79,12 @@ export class PassesController {
 
   @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
   @Get()
-  list(@CurrentUser() user: AuthUser, @Query('tenantId') tenantId?: string) {
-    return this.svc.list(user, tenantId);
+  list(
+    @CurrentUser() user: AuthUser,
+    @Query('tenantId') tenantId?: string,
+    @Query('locationId') locationId?: string,
+  ) {
+    return this.svc.list(user, tenantId, locationId);
   }
 
   @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')

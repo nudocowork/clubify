@@ -4,6 +4,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { QueueService } from '../jobs/queue.service';
+import { computePassExpiry } from '../cards/expiry.util';
 
 export type StampDto = {
   passId: string;
@@ -32,6 +33,19 @@ export class StampsService {
       throw new ForbiddenException();
     }
     if (pass.status === 'REVOKED') throw new BadRequestException('Pass is revoked');
+
+    // Enforcement de fecha de vencimiento de la tarjeta. Bloqueamos
+    // STAMP/POINTS_ADD/POINTS_DEDUCT/REDEEM cuando el pass está vencido,
+    // pero permitimos REFUND/VISIT (admin puede arreglar saldos).
+    const expiry = computePassExpiry(pass);
+    if (expiry && expiry.getTime() < Date.now()) {
+      const blocking = ['STAMP', 'POINTS_ADD', 'POINTS_DEDUCT', 'REDEEM'];
+      if (blocking.includes(dto.action)) {
+        throw new BadRequestException(
+          `La tarjeta está vencida desde ${expiry.toLocaleDateString('es-CO')}`,
+        );
+      }
+    }
 
     const amount = new Prisma.Decimal(dto.amount ?? 1);
 
@@ -115,6 +129,37 @@ export class StampsService {
         // Fallback: queue no disponible, push directo in-process
         this.wallet.pushPassUpdate(pass.id).catch(() => null);
       });
+
+    // Hito de multiRewards alcanzado → push de "ganaste X". Solo cuando
+    // sumamos sellos (STAMP), no en REFUND/REDEEM. Disparamos cuando
+    // newStamps cruza un hito que pass.stampsCount no había alcanzado.
+    if (dto.action === 'STAMP' && pass.card.type === 'STAMPS') {
+      const milestones: Array<{ at: number; reward: string }> =
+        Array.isArray(pass.card.multiRewards as any)
+          ? (pass.card.multiRewards as any)
+          : [];
+      const just = milestones.find(
+        (m) =>
+          typeof m.at === 'number' &&
+          m.at > 0 &&
+          pass.stampsCount < m.at &&
+          newStamps >= m.at,
+      );
+      if (just) {
+        const message = `🎉 ¡Ganaste ${just.reward}! Acumulaste ${just.at} sellos.`;
+        // Push silencioso por canal wallet — el cliente lo ve al abrir
+        // el .pkpass actualizado. La notif programada formal se podrá
+        // enviar después por SMS/Push si el dueño lo configura en
+        // automations.
+        this.jobs
+          .enqueue('wallet.push', {
+            passId: pass.id,
+            reason: 'milestone',
+            message,
+          })
+          .catch(() => null);
+      }
+    }
 
     return { stamp, pass: updatedPass };
   }

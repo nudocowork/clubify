@@ -30,7 +30,7 @@ export class CustomersService {
     return user.tenantId;
   }
 
-  list(user: AuthUser, search?: string, override?: string) {
+  list(user: AuthUser, search?: string, override?: string, locationId?: string) {
     const tid = this.tenantId(user, override);
     return this.prisma.customer.findMany({
       where: {
@@ -42,6 +42,17 @@ export class CustomersService {
                 { email: { contains: search, mode: 'insensitive' } },
                 { phone: { contains: search } },
               ],
+            }
+          : {}),
+        // Filtro por sede: el customer cuenta si tiene al menos un pass de
+        // una tarjeta vinculada a esa sede. El cliente "sin sede" (Card sin
+        // location) no aparece cuando se filtra por sede específica — es
+        // intencional: el dueño está mirando una sede en particular.
+        ...(locationId
+          ? {
+              passes: {
+                some: { card: { locationId } },
+              },
             }
           : {}),
       },

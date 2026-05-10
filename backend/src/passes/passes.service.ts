@@ -244,10 +244,13 @@ export class PassesService {
     return { passId: tmp.id, customerId: customer.id, isNew: true };
   }
 
-  list(user: AuthUser, tenantId?: string) {
+  list(user: AuthUser, tenantId?: string, locationId?: string) {
     const tid = user.role === 'SUPER_ADMIN' ? tenantId : user.tenantId ?? undefined;
     return this.prisma.pass.findMany({
-      where: tid ? { tenantId: tid } : {},
+      where: {
+        ...(tid ? { tenantId: tid } : {}),
+        ...(locationId ? { card: { locationId } } : {}),
+      },
       include: { card: true, customer: true },
       orderBy: { issuedAt: 'desc' },
       take: 200,
