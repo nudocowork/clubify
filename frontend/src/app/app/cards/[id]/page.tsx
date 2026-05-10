@@ -136,6 +136,7 @@ export default function CardDetail() {
   const [passSearch, setPassSearch] = useState('');
   const [stampingPassId, setStampingPassId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [activeTab, setActiveTab] = useState<'detail' | 'analytics'>('detail');
   const filteredPasses = useMemo(() => {
     const q = passSearch.trim().toLowerCase();
     if (!q) return passesOfCard;
@@ -216,6 +217,20 @@ export default function CardDetail() {
           <ToggleActiveButton card={card} onChange={load} />
         </div>
       </div>
+
+      {/* Tabs */}
+      <div className="flex items-center gap-1 mb-5 border-b border-line">
+        <TabBtn active={activeTab === 'detail'} onClick={() => setActiveTab('detail')}>
+          📋 Detalle
+        </TabBtn>
+        <TabBtn active={activeTab === 'analytics'} onClick={() => setActiveTab('analytics')}>
+          📊 Analytics
+        </TabBtn>
+      </div>
+
+      {activeTab === 'analytics' && <CardAnalytics cardId={String(id)} />}
+      {activeTab === 'detail' && (
+        <>
 
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
@@ -497,6 +512,8 @@ export default function CardDetail() {
             load();
           }}
         />
+      )}
+        </>
       )}
     </div>
   );
@@ -1311,4 +1328,426 @@ function UtmManager({
       </div>
     </div>
   );
+}
+
+// ─── Tabs ───
+function TabBtn({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition -mb-px ${
+        active
+          ? 'border-ink text-ink'
+          : 'border-transparent text-mute hover:text-ink hover:border-line'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// Analytics dashboard granular por card
+// ═══════════════════════════════════════════════════════════
+
+type CardMetrics = {
+  cardId: string;
+  cardType: string;
+  kpis: {
+    totalPasses: number;
+    activePasses: number;
+    completedPasses: number;
+    revokedPasses: number;
+    activeLast30: number;
+    inactiveLast30: number;
+    newLast7: number;
+    totalScans: number;
+    scansLast30: number;
+    redemptions: number;
+    avgScansPerCustomer: number;
+  };
+  scansByDay: Array<{ date: string; count: number }>;
+  newPassesByDay: Array<{ date: string; count: number }>;
+  funnel: Array<{ key: string; label: string; count: number; pct: number }>;
+  topCustomers: Array<{
+    customerId: string;
+    fullName: string;
+    scans: number;
+    lastVisit: string | null;
+  }>;
+  byType: {
+    cashback?: { totalAdded: number; totalRedeemed: number; balanceOutstanding: number };
+    points?: { totalAdded: number; totalRedeemed: number; balanceOutstanding: number };
+    membership?: {
+      distribution: Array<{ name: string; count: number }>;
+      avgTierProgress: number;
+    };
+    progress?: { completionRate: number; avgDaysToComplete: number | null };
+  };
+};
+
+function CardAnalytics({ cardId }: { cardId: string }) {
+  const [data, setData] = useState<CardMetrics | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    api<CardMetrics>(`/metrics/cards/${cardId}`)
+      .then(setData)
+      .catch((e) => setErr(e.message || 'Error cargando analytics'))
+      .finally(() => setLoading(false));
+  }, [cardId]);
+
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="card card-pad">
+              <div className="h-3 w-20 bg-bg2 rounded animate-shimmer" />
+              <div className="h-7 w-16 bg-bg2 rounded mt-2 animate-shimmer" />
+            </div>
+          ))}
+        </div>
+        <div className="card card-pad">
+          <div className="h-32 bg-bg2 rounded animate-shimmer" />
+        </div>
+      </div>
+    );
+  }
+
+  if (err || !data) {
+    return (
+      <div className="card card-pad text-center text-mute">
+        {err || 'Sin datos.'}
+      </div>
+    );
+  }
+
+  const k = data.kpis;
+  const isProgressType =
+    data.cardType === 'STAMPS' ||
+    data.cardType === 'HYBRID' ||
+    data.cardType === 'VISITS';
+  const retentionRate =
+    k.totalPasses === 0 ? 0 : Math.round((k.activeLast30 / k.totalPasses) * 100);
+
+  return (
+    <div className="space-y-5">
+      {/* KPIs principales */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Kpi2 label="Pases emitidos" value={k.totalPasses} sub={`${k.newLast7} nuevos esta semana`} />
+        <Kpi2
+          label="Activos"
+          value={k.activeLast30}
+          accent="ok"
+          sub={`${retentionRate}% retención 30d`}
+        />
+        <Kpi2
+          label="Inactivos 30d"
+          value={k.inactiveLast30}
+          accent={k.inactiveLast30 > k.activeLast30 ? 'warn' : undefined}
+          sub="Riesgo de churn"
+        />
+        <Kpi2
+          label="Redenciones"
+          value={k.redemptions}
+          accent="brand"
+          sub={`${k.totalScans} scans totales`}
+        />
+      </div>
+
+      {/* Gráfico de actividad */}
+      <div className="card card-pad">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h3 className="text-sm font-semibold m-0">📈 Actividad últimos 30 días</h3>
+            <p className="text-xs text-mute mt-0.5">
+              Scans totales · Promedio {k.avgScansPerCustomer} scans/cliente activo
+            </p>
+          </div>
+          <div className="text-xs text-mute">
+            <span className="inline-block w-2 h-2 rounded-full bg-brand mr-1.5" />
+            Scans
+            <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 ml-3 mr-1.5" />
+            Pases nuevos
+          </div>
+        </div>
+        <DualBarChart
+          scans={data.scansByDay}
+          newPasses={data.newPassesByDay}
+        />
+      </div>
+
+      {/* Embudo (solo progress types) */}
+      {isProgressType && data.funnel.length > 0 && (
+        <div className="card card-pad">
+          <h3 className="text-sm font-semibold m-0 mb-3">🎯 Embudo de fidelización</h3>
+          <div className="space-y-2">
+            {data.funnel.map((stage, i) => (
+              <div key={stage.key}>
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <div className="font-semibold">{stage.label}</div>
+                  <div className="text-mute">
+                    <strong className="text-ink">{stage.count}</strong>
+                    <span className="ml-2">{stage.pct}%</span>
+                  </div>
+                </div>
+                <div className="h-2 bg-bg2 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-brand to-violet-400"
+                    style={{ width: `${stage.pct}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+          {data.byType.progress && (
+            <div className="mt-4 pt-3 border-t border-line grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <div className="text-mute text-[11px] uppercase tracking-wider font-semibold">
+                  Completion rate
+                </div>
+                <div className="text-lg font-bold mt-1">
+                  {data.byType.progress.completionRate}%
+                </div>
+              </div>
+              <div>
+                <div className="text-mute text-[11px] uppercase tracking-wider font-semibold">
+                  Tiempo promedio
+                </div>
+                <div className="text-lg font-bold mt-1">
+                  {data.byType.progress.avgDaysToComplete != null
+                    ? `${data.byType.progress.avgDaysToComplete} días`
+                    : '—'}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Stats por tipo */}
+      {data.byType.cashback && (
+        <div className="card card-pad">
+          <h3 className="text-sm font-semibold m-0 mb-3">💰 Cashback</h3>
+          <div className="grid grid-cols-3 gap-3">
+            <Kpi2
+              label="Total emitido"
+              value={`$${data.byType.cashback.totalAdded.toLocaleString('es-CO')}`}
+            />
+            <Kpi2
+              label="Canjeado"
+              value={`$${data.byType.cashback.totalRedeemed.toLocaleString('es-CO')}`}
+              accent="ok"
+            />
+            <Kpi2
+              label="Saldo cliente"
+              value={`$${data.byType.cashback.balanceOutstanding.toLocaleString('es-CO')}`}
+              accent="amber"
+              sub="Pasivo pendiente"
+            />
+          </div>
+        </div>
+      )}
+
+      {data.byType.points && (
+        <div className="card card-pad">
+          <h3 className="text-sm font-semibold m-0 mb-3">⭐ Puntos</h3>
+          <div className="grid grid-cols-3 gap-3">
+            <Kpi2 label="Emitidos" value={data.byType.points.totalAdded} />
+            <Kpi2
+              label="Canjeados"
+              value={data.byType.points.totalRedeemed}
+              accent="ok"
+            />
+            <Kpi2
+              label="Saldo cliente"
+              value={data.byType.points.balanceOutstanding}
+              accent="amber"
+            />
+          </div>
+        </div>
+      )}
+
+      {data.byType.membership && (
+        <div className="card card-pad">
+          <h3 className="text-sm font-semibold m-0 mb-1">👑 Distribución por tier</h3>
+          <p className="text-xs text-mute mb-3">
+            Progreso promedio acumulado: <strong>{data.byType.membership.avgTierProgress}</strong>
+          </p>
+          <div className="space-y-2">
+            {data.byType.membership.distribution.map((d) => {
+              const max = Math.max(
+                ...data.byType.membership!.distribution.map((x) => x.count),
+                1,
+              );
+              const pct = Math.round((d.count / max) * 100);
+              return (
+                <div key={d.name}>
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="font-semibold">{d.name}</span>
+                    <span className="text-mute">{d.count} clientes</span>
+                  </div>
+                  <div className="h-2 bg-bg2 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-amber-400 to-amber-600"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Top clientes */}
+      <div className="card card-pad">
+        <h3 className="text-sm font-semibold m-0 mb-3">🏆 Top 10 clientes</h3>
+        {data.topCustomers.length === 0 ? (
+          <div className="text-sm text-mute text-center py-6">
+            Aún no hay actividad registrada.
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {data.topCustomers.map((c, i) => (
+              <Link
+                key={c.customerId}
+                href={`/app/customers/${c.customerId}`}
+                className="flex items-center gap-3 p-2 rounded-lg hover:bg-bg2 transition"
+              >
+                <div className="w-8 h-8 rounded-full bg-bg2 flex items-center justify-center text-xs font-bold text-mute">
+                  {i + 1}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-sm truncate">{c.fullName}</div>
+                  <div className="text-[11px] text-mute">
+                    {c.lastVisit
+                      ? `Última visita ${formatRelative(c.lastVisit)}`
+                      : 'Sin actividad'}
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="text-base font-bold">{c.scans}</div>
+                  <div className="text-[10px] uppercase tracking-wider text-mute">
+                    scans
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Dual bar chart inline (sin lib externa) ───
+function DualBarChart({
+  scans,
+  newPasses,
+}: {
+  scans: Array<{ date: string; count: number }>;
+  newPasses: Array<{ date: string; count: number }>;
+}) {
+  const max = Math.max(
+    ...scans.map((s) => s.count),
+    ...newPasses.map((p) => p.count),
+    1,
+  );
+  // Combinamos por fecha para que las barras estén en pares (scans + new) por día
+  const byDate = new Map<string, { scans: number; newPasses: number }>();
+  for (const s of scans) {
+    byDate.set(s.date, { scans: s.count, newPasses: 0 });
+  }
+  for (const p of newPasses) {
+    const existing = byDate.get(p.date);
+    if (existing) existing.newPasses = p.count;
+    else byDate.set(p.date, { scans: 0, newPasses: p.count });
+  }
+  const sorted = Array.from(byDate.entries()).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+  return (
+    <div className="flex items-end gap-1 h-32">
+      {sorted.map(([date, vals]) => {
+        const scanH = (vals.scans / max) * 100;
+        const newH = (vals.newPasses / max) * 100;
+        const day = new Date(date).getDate();
+        return (
+          <div
+            key={date}
+            className="flex-1 flex flex-col items-center gap-0.5 group relative"
+            title={`${date} · ${vals.scans} scans · ${vals.newPasses} pases`}
+          >
+            <div className="flex items-end gap-px h-full w-full">
+              <div
+                className="flex-1 bg-brand/80 rounded-sm group-hover:bg-brand transition"
+                style={{ height: `${scanH}%`, minHeight: vals.scans > 0 ? 2 : 0 }}
+              />
+              <div
+                className="flex-1 bg-emerald-500/80 rounded-sm group-hover:bg-emerald-500 transition"
+                style={{ height: `${newH}%`, minHeight: vals.newPasses > 0 ? 2 : 0 }}
+              />
+            </div>
+            {sorted.length <= 30 && day % 5 === 0 && (
+              <div className="text-[8px] text-mute mt-0.5">{day}</div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Kpi2 con sub-texto ───
+function Kpi2({
+  label,
+  value,
+  sub,
+  accent,
+}: {
+  label: string;
+  value: number | string;
+  sub?: string;
+  accent?: 'brand' | 'ok' | 'amber' | 'warn';
+}) {
+  const cls: Record<string, string> = {
+    brand: 'text-brand',
+    ok: 'text-ok',
+    amber: 'text-amber-600',
+    warn: 'text-rose-500',
+  };
+  return (
+    <div className="card p-4">
+      <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
+        {label}
+      </div>
+      <div className={`text-xl font-bold mt-1 ${accent ? cls[accent] : ''}`}>
+        {value}
+      </div>
+      {sub && <div className="text-[11px] text-mute mt-1">{sub}</div>}
+    </div>
+  );
+}
+
+function formatRelative(iso: string): string {
+  const d = new Date(iso);
+  const ms = Date.now() - d.getTime();
+  const hours = ms / (1000 * 60 * 60);
+  if (hours < 1) return 'hace unos minutos';
+  if (hours < 24) return `hace ${Math.floor(hours)}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `hace ${days}d`;
+  return d.toLocaleDateString('es-CO');
 }

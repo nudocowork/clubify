@@ -1,10 +1,15 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 import { MetricsService } from './metrics.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 
 @Controller('metrics')
 export class MetricsController {
   constructor(private svc: MetricsService) {}
+
+  @Get('cards/:id')
+  cardMetrics(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.cardMetrics(user, id);
+  }
 
   @Get('global')
   global(@CurrentUser() user: AuthUser) {

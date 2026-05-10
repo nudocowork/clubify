@@ -1143,4 +1143,283 @@ export class MetricsService {
       complete: completedCount === totalCount,
     };
   }
+
+  /**
+   * Métricas granulares de UNA tarjeta específica.
+   * KPIs + frecuencia 30d + embudo de fidelización + top clientes +
+   * stats por tipo (CASHBACK saldo emitido/canjeado, POINTS, MEMBERSHIP
+   * distribución por tier, etc).
+   */
+  async cardMetrics(user: AuthUser, cardId: string) {
+    const card = await this.prisma.card.findUnique({
+      where: { id: cardId },
+      select: {
+        id: true,
+        tenantId: true,
+        type: true,
+        stampsRequired: true,
+        visitsRequired: true,
+        cashbackPercent: true,
+        rewardText: true,
+        tiers: true,
+      },
+    });
+    if (!card) throw new ForbiddenException('Card not found');
+    if (user.role !== 'SUPER_ADMIN' && user.tenantId !== card.tenantId) {
+      throw new ForbiddenException();
+    }
+
+    const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const since7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    // Trayemos todos los pases de la card para hacer agregados in-memory
+    // (más simple que groupBy con condicionales por tipo).
+    const passes = await this.prisma.pass.findMany({
+      where: { cardId },
+      select: {
+        id: true,
+        customerId: true,
+        status: true,
+        stampsCount: true,
+        pointsBalance: true,
+        cashbackBalance: true,
+        visitsCount: true,
+        currentTier: true,
+        tierProgress: true,
+        issuedAt: true,
+        lastActivityAt: true,
+        customer: { select: { id: true, fullName: true } },
+      },
+    });
+
+    const totalPasses = passes.length;
+    const activePasses = passes.filter((p) => p.status === 'ACTIVE').length;
+    const completedPasses = passes.filter((p) => p.status === 'COMPLETED').length;
+    const revokedPasses = passes.filter((p) => p.status === 'REVOKED').length;
+    const activeLast30 = passes.filter(
+      (p) => p.lastActivityAt && p.lastActivityAt >= since30,
+    ).length;
+    const inactiveLast30 = passes.filter(
+      (p) => p.status === 'ACTIVE' && (!p.lastActivityAt || p.lastActivityAt < since30),
+    ).length;
+    const newLast7 = passes.filter((p) => p.issuedAt >= since7).length;
+
+    // Stamps recientes para frecuencia + redenciones + top clientes
+    const stamps = await this.prisma.stamp.findMany({
+      where: { passId: { in: passes.map((p) => p.id) } },
+      select: {
+        id: true,
+        action: true,
+        amount: true,
+        customerId: true,
+        passId: true,
+        createdAt: true,
+      },
+    });
+
+    const totalScans = stamps.length;
+    const redemptions = stamps.filter((s) => s.action === 'REDEEM').length;
+    const scansLast30 = stamps.filter((s) => s.createdAt >= since30).length;
+
+    // Frecuencia diaria (últimos 30 días)
+    const dailyMap = new Map<string, number>();
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+      const key = d.toISOString().slice(0, 10);
+      dailyMap.set(key, 0);
+    }
+    for (const s of stamps) {
+      if (s.createdAt < since30) continue;
+      const key = s.createdAt.toISOString().slice(0, 10);
+      if (dailyMap.has(key)) {
+        dailyMap.set(key, (dailyMap.get(key) ?? 0) + 1);
+      }
+    }
+    const scansByDay = Array.from(dailyMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, count]) => ({ date, count }));
+
+    // Top 10 clientes por scans
+    const scansByCustomer = new Map<
+      string,
+      { customerId: string; fullName: string; scans: number; lastVisit: Date | null }
+    >();
+    for (const p of passes) {
+      scansByCustomer.set(p.customer.id, {
+        customerId: p.customer.id,
+        fullName: p.customer.fullName,
+        scans: 0,
+        lastVisit: p.lastActivityAt,
+      });
+    }
+    for (const s of stamps) {
+      const entry = scansByCustomer.get(s.customerId);
+      if (entry) {
+        entry.scans += 1;
+        if (!entry.lastVisit || s.createdAt > entry.lastVisit) {
+          entry.lastVisit = s.createdAt;
+        }
+      }
+    }
+    const topCustomers = Array.from(scansByCustomer.values())
+      .filter((c) => c.scans > 0)
+      .sort((a, b) => b.scans - a.scans)
+      .slice(0, 10);
+
+    // Embudo de fidelización (solo aplica a STAMPS/HYBRID/VISITS)
+    const required =
+      card.type === 'VISITS'
+        ? card.visitsRequired ?? 10
+        : card.stampsRequired ?? 10;
+    const isProgressType =
+      card.type === 'STAMPS' || card.type === 'HYBRID' || card.type === 'VISITS';
+    let funnel: Array<{ key: string; label: string; count: number; pct: number }> = [];
+    if (isProgressType) {
+      const counterField = (p: typeof passes[number]) =>
+        card.type === 'VISITS' ? p.visitsCount : p.stampsCount;
+      const emitted = totalPasses;
+      const firstStamp = passes.filter((p) => counterField(p) >= 1).length;
+      const halfway = passes.filter((p) => counterField(p) >= Math.ceil(required / 2)).length;
+      const completed = passes.filter((p) => counterField(p) >= required).length;
+      const redeemed = redemptions;
+      const pct = (n: number, base: number) =>
+        base === 0 ? 0 : Math.round((n / base) * 1000) / 10;
+      funnel = [
+        { key: 'emitted', label: 'Emitidos', count: emitted, pct: 100 },
+        { key: 'firstStamp', label: 'Con ≥1 sello/visita', count: firstStamp, pct: pct(firstStamp, emitted) },
+        { key: 'halfway', label: '≥50% del progreso', count: halfway, pct: pct(halfway, emitted) },
+        { key: 'completed', label: 'Cartón completo', count: completed, pct: pct(completed, emitted) },
+        { key: 'redeemed', label: 'Premio canjeado', count: redeemed, pct: pct(redeemed, emitted) },
+      ];
+    }
+
+    // Stats por tipo
+    const byType: Record<string, any> = {};
+    if (card.type === 'CASHBACK') {
+      const cashbackAdded = stamps
+        .filter((s) => s.action === 'CASHBACK_ADD')
+        .reduce((sum, s) => sum + Number(s.amount), 0);
+      const cashbackRedeemed = stamps
+        .filter((s) => s.action === 'CASHBACK_REDEEM')
+        .reduce((sum, s) => sum + Number(s.amount), 0);
+      const balanceTotal = passes.reduce(
+        (s, p) => s + Number(p.cashbackBalance),
+        0,
+      );
+      byType.cashback = {
+        totalAdded: Math.round(cashbackAdded),
+        totalRedeemed: Math.round(cashbackRedeemed),
+        balanceOutstanding: Math.round(balanceTotal),
+      };
+    }
+    if (card.type === 'POINTS') {
+      const pointsAdded = stamps
+        .filter((s) => s.action === 'POINTS_ADD')
+        .reduce((sum, s) => sum + Number(s.amount), 0);
+      const pointsRedeemed = stamps
+        .filter((s) => s.action === 'POINTS_DEDUCT')
+        .reduce((sum, s) => sum + Number(s.amount), 0);
+      const balanceTotal = passes.reduce(
+        (s, p) => s + Number(p.pointsBalance),
+        0,
+      );
+      byType.points = {
+        totalAdded: Math.round(pointsAdded),
+        totalRedeemed: Math.round(pointsRedeemed),
+        balanceOutstanding: Math.round(balanceTotal),
+      };
+    }
+    if (card.type === 'MEMBERSHIP') {
+      const tiersList = (card.tiers as any[]) ?? [];
+      const distribution: Record<string, number> = { 'Sin tier': 0 };
+      for (const t of tiersList) distribution[t.name] = 0;
+      for (const p of passes) {
+        const key = p.currentTier || 'Sin tier';
+        distribution[key] = (distribution[key] ?? 0) + 1;
+      }
+      const avgProgress = totalPasses
+        ? Math.round(passes.reduce((s, p) => s + Number(p.tierProgress), 0) / totalPasses)
+        : 0;
+      byType.membership = {
+        distribution: Object.entries(distribution).map(([name, count]) => ({
+          name,
+          count,
+        })),
+        avgTierProgress: avgProgress,
+      };
+    }
+    if (isProgressType) {
+      // Tiempo promedio para completar (issuedAt → completedAt aprox)
+      const completedPassIds = passes
+        .filter((p) => {
+          const counter = card.type === 'VISITS' ? p.visitsCount : p.stampsCount;
+          return counter >= required;
+        })
+        .map((p) => p.id);
+      // lastActivityAt como proxy de "completado" (cuando alcanzó el target)
+      const daysToComplete = passes
+        .filter((p) => completedPassIds.includes(p.id) && p.lastActivityAt)
+        .map(
+          (p) =>
+            (p.lastActivityAt!.getTime() - p.issuedAt.getTime()) /
+            (24 * 60 * 60 * 1000),
+        );
+      const avgDays = daysToComplete.length
+        ? Math.round(
+            (daysToComplete.reduce((s, d) => s + d, 0) / daysToComplete.length) * 10,
+          ) / 10
+        : null;
+      byType.progress = {
+        completionRate:
+          totalPasses === 0
+            ? 0
+            : Math.round((completedPassIds.length / totalPasses) * 1000) / 10,
+        avgDaysToComplete: avgDays,
+      };
+    }
+
+    // Pases nuevos por día (últimos 30d) — para gráfico de adquisición
+    const newPassMap = new Map<string, number>();
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+      const key = d.toISOString().slice(0, 10);
+      newPassMap.set(key, 0);
+    }
+    for (const p of passes) {
+      if (p.issuedAt < since30) continue;
+      const key = p.issuedAt.toISOString().slice(0, 10);
+      if (newPassMap.has(key)) {
+        newPassMap.set(key, (newPassMap.get(key) ?? 0) + 1);
+      }
+    }
+    const newPassesByDay = Array.from(newPassMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, count]) => ({ date, count }));
+
+    return {
+      cardId: card.id,
+      cardType: card.type,
+      kpis: {
+        totalPasses,
+        activePasses,
+        completedPasses,
+        revokedPasses,
+        activeLast30,
+        inactiveLast30,
+        newLast7,
+        totalScans,
+        scansLast30,
+        redemptions,
+        avgScansPerCustomer:
+          activePasses === 0
+            ? 0
+            : Math.round((totalScans / activePasses) * 10) / 10,
+      },
+      scansByDay,
+      newPassesByDay,
+      funnel,
+      topCustomers,
+      byType,
+    };
+  }
 }
