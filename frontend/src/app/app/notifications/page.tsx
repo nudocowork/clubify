@@ -116,6 +116,8 @@ export default function NotificationsPage() {
     'special_days',
   );
   const [brandName, setBrandName] = useState<string>('Tu negocio');
+  const [brandColor, setBrandColor] = useState<string | null>(null);
+  const [brandLogoUrl, setBrandLogoUrl] = useState<string | null>(null);
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
   // Default: 1h en el futuro, redondeado al próximo cuarto de hora
   const [scheduledAt, setScheduledAt] = useState<string>(() => {
@@ -138,6 +140,9 @@ export default function NotificationsPage() {
       setHistory(h as any[]);
       setCards(c as any[]);
       if ((me as any)?.brandName) setBrandName((me as any).brandName);
+      if ((me as any)?.primaryColor) setBrandColor((me as any).primaryColor);
+      if ((me as any)?.walletLogoUrl) setBrandLogoUrl((me as any).walletLogoUrl);
+      else if ((me as any)?.logoUrl) setBrandLogoUrl((me as any).logoUrl);
     } catch (e: any) {
       toast(e.message || 'Error cargando notificaciones', 'error');
     }
@@ -321,6 +326,8 @@ export default function NotificationsPage() {
             title={form.title}
             body={form.body}
             scheduledAt={scheduleEnabled ? scheduledAt : null}
+            brandColor={brandColor ?? undefined}
+            brandLogoUrl={brandLogoUrl}
           />
         </div>
 
@@ -476,42 +483,108 @@ function PushPreview({
   title,
   body,
   scheduledAt,
+  brandColor,
+  brandLogoUrl,
 }: {
   brandName: string;
   title: string;
   body: string;
   scheduledAt: string | null;
+  brandColor?: string;
+  brandLogoUrl?: string | null;
 }) {
   const when = scheduledAt
     ? formatRelative(new Date(scheduledAt))
     : 'ahora';
   const showTitle = title.trim() || 'Tu título aparece aquí';
-  const showBody = body.trim() || 'Tu mensaje aparece aquí — escribe algo en el composer y mira la vista previa actualizarse en vivo.';
+  const showBody =
+    body.trim() ||
+    'Escribe el cuerpo del mensaje y vas a ver acá cómo se verá en la pantalla de bloqueo del iPhone de tu cliente.';
+  const initial = (brandName?.[0] || 'C').toUpperCase();
+
+  // Hora "ahora" simulada para que se vea real en lock screen.
+  const now = new Date();
+  const hh = now.getHours().toString().padStart(2, '0');
+  const mm = now.getMinutes().toString().padStart(2, '0');
+  const dateLabel = now.toLocaleDateString('es-CO', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  });
 
   return (
     <div
-      className="mx-auto rounded-[40px] border-[10px] border-ink shadow-2xl bg-bg2 relative overflow-hidden"
-      style={{ width: 240, height: 480 }}
+      className="mx-auto rounded-[44px] border-[10px] border-ink shadow-2xl relative overflow-hidden"
+      style={{
+        width: 250,
+        height: 510,
+        background:
+          'linear-gradient(160deg, #1f1f3a 0%, #2c2554 35%, #5b3b8e 70%, #8a4d8a 100%)',
+      }}
     >
-      {/* Notch */}
-      <div className="absolute left-1/2 -translate-x-1/2 top-2 w-20 h-5 bg-ink rounded-full z-10" />
-      {/* Screen */}
-      <div className="absolute inset-0 p-3 pt-9 flex flex-col">
-        {/* Notification card */}
-        <div className="bg-ink/85 backdrop-blur rounded-2xl p-3 text-white shadow-lg">
+      {/* Status bar tiempo + íconos */}
+      <div className="absolute top-3 left-0 right-0 px-6 flex items-center justify-between text-white text-[10px] font-semibold z-20 pointer-events-none">
+        <span>{hh}:{mm}</span>
+        <span className="opacity-90 tracking-tighter">●●● 100%</span>
+      </div>
+
+      {/* Dynamic Island / notch */}
+      <div className="absolute left-1/2 -translate-x-1/2 top-3 w-24 h-7 bg-ink rounded-full z-10" />
+
+      {/* Hora gigante estilo iOS lock screen */}
+      <div className="absolute left-0 right-0 text-center text-white pt-12 z-10">
+        <div className="text-[11px] font-medium opacity-80 capitalize">
+          {dateLabel}
+        </div>
+        <div
+          className="text-[64px] font-extralight tracking-tight leading-none mt-1"
+          style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui' }}
+        >
+          {hh}:{mm}
+        </div>
+      </div>
+
+      {/* Notification card iOS style */}
+      <div className="absolute left-0 right-0 bottom-0 p-3 pb-6">
+        <div className="bg-white/15 backdrop-blur-xl rounded-[20px] p-3 shadow-xl border border-white/10">
           <div className="flex items-center gap-2">
-            <div className="w-5 h-5 rounded bg-white/30 shrink-0" />
-            <div className="text-[10px] uppercase tracking-wider font-semibold flex-1 truncate opacity-90">
-              {brandName}
+            <div
+              className="w-7 h-7 rounded-[7px] shrink-0 flex items-center justify-center text-white text-xs font-bold overflow-hidden"
+              style={{
+                background: brandColor || 'linear-gradient(135deg, #6366F1, #C026D3)',
+              }}
+            >
+              {brandLogoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={brandLogoUrl}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                initial
+              )}
             </div>
-            <div className="text-[10px] opacity-70">{when}</div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] uppercase tracking-wider font-semibold text-white truncate">
+                {brandName}
+              </div>
+            </div>
+            <div className="text-[10px] text-white/70">{when}</div>
           </div>
-          <div className="text-[12px] font-semibold mt-1.5 leading-snug line-clamp-2">
-            {showTitle}
+          <div className="mt-1.5 text-white">
+            <div className="text-[12px] font-semibold leading-snug line-clamp-2">
+              {showTitle}
+            </div>
+            <div className="text-[11px] mt-0.5 leading-snug opacity-90 line-clamp-3">
+              {showBody}
+            </div>
           </div>
-          <div className="text-[11px] mt-0.5 leading-snug opacity-90 line-clamp-3">
-            {showBody}
-          </div>
+        </div>
+
+        {/* Bottom hint */}
+        <div className="text-center text-white/50 text-[9px] mt-2">
+          Deslizar para abrir
         </div>
       </div>
     </div>
