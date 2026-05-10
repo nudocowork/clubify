@@ -48,6 +48,7 @@ export default function MenuEditor() {
   const [editingCatName, setEditingCatName] = useState('');
   const [ordersEnabled, setOrdersEnabled] = useState<boolean | null>(null);
   const [togglingOrders, setTogglingOrders] = useState(false);
+  const [tenantSlug, setTenantSlug] = useState<string | null>(null);
 
   async function load(preserveActive = true) {
     const c = await api<Category[]>('/catalog/categories');
@@ -68,6 +69,9 @@ export default function MenuEditor() {
     load(false);
     loadAdicionales();
     loadOrdersEnabled();
+    api<{ slug?: string }>('/tenants/me')
+      .then((me) => setTenantSlug(me?.slug ?? null))
+      .catch(() => null);
   }, []);
 
   async function loadOrdersEnabled() {
@@ -265,6 +269,22 @@ export default function MenuEditor() {
           <button className="btn-ghost" onClick={() => setShowCatForm(!showCatForm)}>
             <Icon name="plus" /> Categoría
           </button>
+          <Link
+            href={tenantSlug ? `/m/${tenantSlug}?mesa=1` : '#'}
+            target="_blank"
+            className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
+            title="Vista del menú como la verá un cliente sentado en una mesa"
+          >
+            🍽 Ver menú mesa
+          </Link>
+          <Link
+            href={tenantSlug ? `/m/${tenantSlug}` : '#'}
+            target="_blank"
+            className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
+            title="Vista del menú para domicilio — el link público que enviás a tus clientes"
+          >
+            🛵 Ver menú delivery
+          </Link>
           <Link
             href="/app/storefront"
             className="btn-ghost"
