@@ -285,6 +285,7 @@ export class AuthService {
     brandName: string;
     whatsappPhone?: string;
     referralCode?: string;
+    couponCode?: string;
     plan?: string;
     businessCategorySlug?: string;
   }, ip?: string) {
@@ -383,21 +384,60 @@ export class AuthService {
       ip,
     });
 
-    // Si vino con código de referido, registrar el ReferralUse para tracking
-    // de comisiones. Best-effort: si el código no existe, ignorar silenciosamente.
-    if (dto.referralCode) {
+    // Atribución promo: el cliente pudo venir con un cupón, un código de
+    // referido directo, o ambos. Lookup tolerante (no falla el signup si
+    // el código no existe).
+    //
+    // Lógica:
+    //   - Si couponCode está, lo registramos como CouponUse e incrementamos
+    //     useCount. Si el cupón está asociado a un ReferralCode, también
+    //     creamos un ReferralUse para esa atribución.
+    //   - Si además vino referralCode (manual + cupón mixto), prefiere el
+    //     del cupón. Si no había cupón con atribución, usa el referralCode
+    //     manual directamente.
+    let attributedReferralCodeId: string | null = null;
+
+    if (dto.couponCode) {
+      const code = dto.couponCode.trim().toUpperCase();
+      try {
+        const coupon = await this.prisma.coupon.findUnique({ where: { code } });
+        if (coupon && coupon.status === 'ACTIVE') {
+          // Idempotente — único por (couponId, tenantId).
+          await this.prisma.couponUse.create({
+            data: { couponId: coupon.id, tenantId: tenant.id },
+          });
+          await this.prisma.coupon.update({
+            where: { id: coupon.id },
+            data: { useCount: { increment: 1 } },
+          });
+          if (coupon.referralCodeId) {
+            attributedReferralCodeId = coupon.referralCodeId;
+          }
+        }
+      } catch {
+        /* noop */
+      }
+    }
+
+    if (!attributedReferralCodeId && dto.referralCode) {
       const code = dto.referralCode.trim().toUpperCase();
       try {
         const ref = await this.prisma.referralCode.findUnique({ where: { code } });
-        if (ref && ref.isActive) {
-          await this.prisma.referralUse.create({
-            data: {
-              referralCodeId: ref.id,
-              tenantId: tenant.id,
-              status: 'SIGNED_UP',
-            },
-          });
-        }
+        if (ref && ref.isActive) attributedReferralCodeId = ref.id;
+      } catch {
+        /* noop */
+      }
+    }
+
+    if (attributedReferralCodeId) {
+      try {
+        await this.prisma.referralUse.create({
+          data: {
+            referralCodeId: attributedReferralCodeId,
+            tenantId: tenant.id,
+            status: 'SIGNED_UP',
+          },
+        });
       } catch {
         /* noop */
       }

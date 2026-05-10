@@ -1,8 +1,20 @@
 'use client';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { api, setSession } from '@/lib/api';
+
+const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+
+type PromoResolved = {
+  type: 'coupon' | 'referral' | 'mixed' | 'invalid';
+  message: string;
+  discountPercent?: number;
+  duration?: 'FIRST_MONTH' | 'RECURRING';
+  attribution?: { role: string; ownerName: string; code: string } | null;
+  couponId?: string;
+  referralCodeId?: string;
+};
 import { Icon } from '@/components/Icon';
 import { Logo } from '@/components/Logo';
 import {
@@ -38,6 +50,44 @@ function SignupInner() {
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [showPwd, setShowPwd] = useState(false);
+  const [promoCode, setPromoCode] = useState('');
+  const [promoResolved, setPromoResolved] = useState<PromoResolved | null>(null);
+  const [validatingPromo, setValidatingPromo] = useState(false);
+
+  // Pre-rellenar promo si vino por URL ?ref=X o ?promo=X
+  useEffect(() => {
+    const fromUrl = params.get('promo') || params.get('ref') || '';
+    if (fromUrl) {
+      setPromoCode(fromUrl.toUpperCase());
+    } else if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem('clubify:ref') || localStorage.getItem('clubify:promo') || '';
+      if (cached) setPromoCode(cached.toUpperCase());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Validación live del promo (debounced 350ms)
+  useEffect(() => {
+    if (!promoCode || promoCode.trim().length < 3) {
+      setPromoResolved(null);
+      return;
+    }
+    const t = setTimeout(async () => {
+      setValidatingPromo(true);
+      try {
+        const r = await fetch(
+          `${API}/api/public/promo/validate?code=${encodeURIComponent(promoCode)}&plan=${planLabel}`,
+        );
+        const data: PromoResolved = await r.json();
+        setPromoResolved(data);
+      } catch {
+        setPromoResolved({ type: 'invalid', message: 'No se pudo validar' });
+      } finally {
+        setValidatingPromo(false);
+      }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [promoCode, planLabel]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -47,12 +97,21 @@ function SignupInner() {
       return;
     }
     setSubmitting(true);
-    // Tomamos referralCode de URL o de localStorage (lo deja la landing al cargar con ?ref=)
-    let referralCode = params.get('ref') || undefined;
-    if (!referralCode && typeof window !== 'undefined') {
-      try {
-        referralCode = localStorage.getItem('clubify:ref') || undefined;
-      } catch {}
+    // Si la validación reconoció el código como cupón o mixto lo enviamos
+    // como couponCode; si fue solo referral, como referralCode. Si vino
+    // del URL/localStorage sin validar, también va como referralCode (el
+    // backend resuelve igual).
+    const trimmedPromo = promoCode.trim().toUpperCase() || undefined;
+    let referralCode: string | undefined;
+    let couponCode: string | undefined;
+    if (promoResolved && trimmedPromo) {
+      if (promoResolved.type === 'coupon' || promoResolved.type === 'mixed') {
+        couponCode = trimmedPromo;
+      } else if (promoResolved.type === 'referral') {
+        referralCode = trimmedPromo;
+      }
+    } else if (trimmedPromo) {
+      referralCode = trimmedPromo;
     }
     try {
       const r = await api<{
@@ -68,6 +127,7 @@ function SignupInner() {
           whatsappPhone: form.whatsappPhone || undefined,
           businessCategorySlug: form.businessCategorySlug,
           referralCode,
+          couponCode,
           plan: isPro ? 'pro' : 'elite',
         }),
       });
@@ -225,6 +285,34 @@ function SignupInner() {
                     {showPwd ? 'ocultar' : 'mostrar'}
                   </button>
                 </div>
+              </div>
+
+              <div>
+                <label className="label">
+                  Código promocional
+                  <span className="text-mute font-normal ml-1">(opcional)</span>
+                </label>
+                <input
+                  className="input"
+                  placeholder="JUAN10"
+                  value={promoCode}
+                  onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+                  autoComplete="off"
+                />
+                {validatingPromo && (
+                  <div className="text-xs text-mute mt-1">Validando…</div>
+                )}
+                {promoResolved && !validatingPromo && (
+                  <div
+                    className={`text-xs mt-1.5 px-2.5 py-1.5 rounded-lg ${
+                      promoResolved.type === 'invalid'
+                        ? 'bg-bad-soft text-bad-ink'
+                        : 'bg-ok-soft text-ok'
+                    }`}
+                  >
+                    {promoResolved.message}
+                  </div>
+                )}
               </div>
 
               <label className="flex items-start gap-2.5 text-sm cursor-pointer pt-1">

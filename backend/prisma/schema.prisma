@@ -322,6 +322,7 @@ model Tenant {
   suppliers        Supplier[]
   frequentProducts FrequentProduct[]
   purchaseOrders   PurchaseOrder[]
+  couponUses       CouponUse[]
 
   @@index([status])
 }
@@ -1034,6 +1035,7 @@ model ReferralCode {
 
   uses ReferralUse[]
   ownerOfCampaign Campaign? @relation("CampaignOwner")
+  coupons         Coupon[]
 
   @@index([parentCodeId])
   @@index([campaignId])
@@ -1057,7 +1059,67 @@ model Campaign {
   discountAbsorption String @default("PROPORTIONAL")
   createdAt       DateTime        @default(now())
 
-  codes ReferralCode[]
+  codes   ReferralCode[]
+  coupons Coupon[]
+}
+
+enum CouponStatus {
+  ACTIVE
+  PAUSED
+  EXPIRED
+}
+
+enum CouponDuration {
+  FIRST_MONTH
+  RECURRING
+}
+
+// Cupón de descuento. Mutuamente excluyente con ReferralCode (no son
+// la misma tabla aunque comparten el formato del código). Lookup en
+// signup: primero buscamos coupon, si no, referral.
+//
+// Asociación: opcionalmente vinculado a un ReferralCode (atribuye la venta
+// al influencer/embajador) o a una Campaign (atribuye al influencer dueño)
+// o ninguno (cupón "global" sin atribución, descuento solo).
+model Coupon {
+  id                  String         @id @default(uuid())
+  code                String         @unique
+  discountPercent     Decimal        @db.Decimal(5, 2)
+  validFrom           DateTime?
+  validUntil          DateTime?
+  maxUses             Int?
+  useCount            Int            @default(0)
+  // CSV de planNames donde aplica (vacío = todos). Ej: "Elite,Pro"
+  applicablePlans     String         @default("")
+  duration            CouponDuration @default(FIRST_MONTH)
+  status              CouponStatus   @default(ACTIVE)
+  // Atribución (opcional). Si referralCodeId está, el uso del cupón
+  // también genera la comisión del referral. Si campaignId está, atribuye
+  // al influencer titular de la campaña. Si ambos null, es global (solo
+  // descuento, sin atribución).
+  referralCodeId      String?
+  referralCode        ReferralCode?  @relation(fields: [referralCodeId], references: [id], onDelete: SetNull)
+  campaignId          String?
+  campaign            Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  createdAt           DateTime       @default(now())
+
+  uses CouponUse[]
+
+  @@index([referralCodeId])
+  @@index([campaignId])
+  @@index([status])
+}
+
+model CouponUse {
+  id          String   @id @default(uuid())
+  couponId    String
+  coupon      Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  tenantId    String?
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  @@index([couponId])
+  @@index([tenantId])
 }
 
 model ReferralUse {
