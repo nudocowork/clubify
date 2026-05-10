@@ -188,6 +188,60 @@ export function passwordResetTemplate(args: {
   };
 }
 
+/**
+ * Email de invitación a un afiliado nuevo (influencer/embajador). Se envía
+ * cuando el super admin crea su campaña/embajador. El link lleva al flujo
+ * de set-password, después logueado se redirige a /affiliate.
+ */
+export function inviteAffiliateTemplate(args: {
+  fullName: string;
+  inviteUrl: string;
+  role: 'AFFILIATE_INFLUENCER' | 'AFFILIATE_AMBASSADOR' | 'AFFILIATE_SOCIO';
+  code: string;
+  commissionPercent: number;
+  campaignName: string | null;
+  parentName: string | null;
+}) {
+  const tenant: Tenant = {
+    brandName: 'Clubify',
+    primaryColor: '#6366F1',
+    logoUrl: null,
+    whatsappPhone: null,
+    slug: 'clubify',
+  };
+  const isInfluencer = args.role === 'AFFILIATE_INFLUENCER';
+  const isSocio = args.role === 'AFFILIATE_SOCIO';
+  const roleLabel = isSocio ? 'socio' : isInfluencer ? 'influencer' : 'embajador';
+  const greeting = isSocio
+    ? `Sos socio de Clubify y recibirás el ${args.commissionPercent}% de TODAS las ventas`
+    : isInfluencer
+    ? `Te asignamos la campaña ${args.campaignName ?? 'tuya'}`
+    : `Te invitamos a ser embajador de ${args.parentName ?? 'la campaña'}`;
+
+  return {
+    subject: `Bienvenido a Clubify — sos ${roleLabel} 🎉`,
+    text: `Hola ${args.fullName},\n${greeting}.\nTu código: ${args.code} (${args.commissionPercent}% de comisión recurrente).\nActiva tu cuenta acá:\n${args.inviteUrl}\nEl link vence en 7 días.`,
+    html: shell({
+      tenant,
+      preheader: `Tu código: ${args.code} · ${args.commissionPercent}% recurrente`,
+      body: `
+        <h2 style="margin:0 0 12px;font-size:22px;font-weight:700">¡Bienvenido a Clubify, ${args.fullName.split(' ')[0]}!</h2>
+        <p style="margin:0 0 14px;color:#374151;line-height:1.55">
+          ${greeting}. Acá ganas <b>${args.commissionPercent}% recurrente</b> por cada cliente que se registre con tu código.
+        </p>
+        <div style="margin:18px 0;padding:14px 16px;background:#F8FAFC;border:1px solid #E5E7EB;border-radius:10px">
+          <div style="font-size:11px;color:#6B7280;text-transform:uppercase;letter-spacing:0.08em;font-weight:600">Tu código</div>
+          <div style="font-family:monospace;font-size:24px;font-weight:700;letter-spacing:0.05em">${args.code}</div>
+        </div>
+        <p style="margin:0 0 14px;color:#374151;line-height:1.55">
+          Para activar tu cuenta y ver tu panel con clientes y comisiones, click en el botón. <b>El link vence en 7 días.</b>
+        </p>
+      `,
+      cta: { label: 'Activar mi cuenta →', href: args.inviteUrl },
+    }),
+  };
+}
+
 export function welcomeOwnerTemplate(args: {
   tenant: Tenant;
   fullName: string;

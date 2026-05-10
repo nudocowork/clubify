@@ -1,0 +1,461 @@
+'use client';
+/**
+ * Página dedicada de una campaña — supera al modal con vista completa:
+ * mini dashboard de KPIs, lista detallada de embajadores con métricas,
+ * historial de comisiones de la campaña, crear cupón inline.
+ */
+import { useEffect, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { api } from '@/lib/api';
+import { toast } from '@/components/Toast';
+
+type Detail = {
+  id: string;
+  name: string;
+  status: 'ACTIVE' | 'PAUSED' | 'FINISHED';
+  discountAbsorption: string;
+  createdAt: string;
+  ownerCode: {
+    id: string;
+    code: string;
+    ownerName: string;
+    ownerEmail: string;
+    ownerWhatsapp: string;
+    commissionPercent: any;
+    uses: any[];
+  };
+  codes: Array<{
+    id: string;
+    code: string;
+    ownerName: string;
+    ownerEmail: string;
+    commissionPercent: any;
+    isActive: boolean;
+    approvedAt: string | null;
+    uses: any[];
+  }>;
+};
+
+const STATUS_PILL: Record<Detail['status'], { text: string; cls: string }> = {
+  ACTIVE: { text: 'Activa', cls: 'bg-ok-soft text-ok' },
+  PAUSED: { text: 'Pausada', cls: 'bg-amber-100 text-amber-800' },
+  FINISHED: { text: 'Finalizada', cls: 'bg-bg2 text-mute' },
+};
+
+function fmtUsd(n: number) {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
+}
+function fmtDate(d: string | null | undefined) {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+export default function CampaignDetailPage() {
+  const router = useRouter();
+  const params = useParams<{ id: string }>();
+  const id = params.id;
+  const [data, setData] = useState<Detail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [showCoupon, setShowCoupon] = useState(false);
+  const [addForm, setAddForm] = useState({
+    fullName: '',
+    email: '',
+    whatsapp: '',
+    commissionPercent: 25,
+    customCode: '',
+  });
+  const [couponForm, setCouponForm] = useState({
+    code: '',
+    discountPercent: 10,
+    duration: 'FIRST_MONTH' as 'FIRST_MONTH' | 'RECURRING',
+    validUntil: '',
+    maxUses: '',
+  });
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    try {
+      setData(await api<Detail>(`/campaigns/${id}`));
+    } catch (e: any) {
+      toast(e.message || 'Error', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  async function setStatus(status: Detail['status']) {
+    await api(`/campaigns/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
+    toast('Estado actualizado', 'success');
+    load();
+  }
+
+  async function addAmbassador(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api(`/campaigns/${id}/ambassadors`, {
+        method: 'POST',
+        body: JSON.stringify(addForm),
+      });
+      setAddForm({ fullName: '', email: '', whatsapp: '', commissionPercent: 25, customCode: '' });
+      setShowAdd(false);
+      toast('Embajador agregado', 'success');
+      load();
+    } catch (e: any) {
+      toast(e.message || 'Error', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeAmbassador(ambId: string) {
+    if (!confirm('¿Desactivar este embajador? El historial se conserva.')) return;
+    await api(`/campaigns/ambassadors/${ambId}`, { method: 'DELETE' });
+    toast('Embajador desactivado', 'success');
+    load();
+  }
+
+  async function createCoupon(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api('/coupons', {
+        method: 'POST',
+        body: JSON.stringify({
+          code: couponForm.code,
+          discountPercent: Number(couponForm.discountPercent),
+          duration: couponForm.duration,
+          validUntil: couponForm.validUntil || null,
+          maxUses: couponForm.maxUses ? Number(couponForm.maxUses) : null,
+          campaignId: id,
+        }),
+      });
+      setCouponForm({ code: '', discountPercent: 10, duration: 'FIRST_MONTH', validUntil: '', maxUses: '' });
+      setShowCoupon(false);
+      toast('Cupón creado y vinculado a la campaña', 'success');
+    } catch (e: any) {
+      toast(e.message || 'Error', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (loading || !data) return <div className="p-8 text-mute">Cargando…</div>;
+
+  // Métricas calculadas
+  const allUses = [
+    ...data.ownerCode.uses,
+    ...data.codes.flatMap((c) => c.uses),
+  ];
+  const allCommissions = allUses.flatMap((u: any) => u.commissions ?? []);
+  const round = (n: number) => Math.round(n * 100) / 100;
+  const directClients = data.ownerCode.uses.length;
+  const indirectClients = data.codes.reduce((s, a) => s + a.uses.length, 0);
+  const activeClients = allUses.filter(
+    (u: any) => u.status === 'PAYING' || u.status === 'ACTIVE',
+  ).length;
+  const churnedClients = allUses.filter((u: any) => u.status === 'CHURNED').length;
+  const totalCommissionsUsd = round(
+    allCommissions.reduce((s: number, c: any) => s + Number(c.amount), 0),
+  );
+  const paidUsd = round(
+    allCommissions
+      .filter((c: any) => c.status === 'PAID')
+      .reduce((s: number, c: any) => s + Number(c.amount), 0),
+  );
+  const pendingUsd = round(
+    allCommissions
+      .filter((c: any) => c.status === 'PENDING' || c.status === 'APPROVED')
+      .reduce((s: number, c: any) => s + Number(c.amount), 0),
+  );
+
+  return (
+    <div>
+      <div className="page-head flex-wrap gap-3">
+        <div className="flex-1 min-w-[260px]">
+          <Link href="/admin/referrals" className="text-xs text-mute hover:text-ink">
+            ← Volver
+          </Link>
+          <h1 className="page-title m-0 mt-1">{data.name}</h1>
+          <div className="flex items-center gap-2 mt-2">
+            <span
+              className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${STATUS_PILL[data.status].cls}`}
+            >
+              {STATUS_PILL[data.status].text}
+            </span>
+            <span className="text-xs text-mute">Regla: {data.discountAbsorption}</span>
+            <span className="text-xs text-mute">· Creada {fmtDate(data.createdAt)}</span>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          {data.status !== 'ACTIVE' && (
+            <button onClick={() => setStatus('ACTIVE')} className="btn-ghost text-sm">
+              Activar
+            </button>
+          )}
+          {data.status !== 'PAUSED' && (
+            <button onClick={() => setStatus('PAUSED')} className="btn-ghost text-sm">
+              Pausar
+            </button>
+          )}
+          {data.status !== 'FINISHED' && (
+            <button onClick={() => setStatus('FINISHED')} className="btn-ghost text-sm">
+              Finalizar
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Mini dashboard */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5 mb-5">
+        <Stat label="Clientes activos" value={String(activeClients)} tone="ok" />
+        <Stat label="Total clientes" value={String(directClients + indirectClients)} />
+        <Stat label="Cancelados" value={String(churnedClients)} />
+        <Stat label="Embajadores" value={String(data.codes.length)} />
+        <Stat label="Comisiones generadas" value={fmtUsd(totalCommissionsUsd)} tone="brand" />
+        <Stat label="Pagado" value={fmtUsd(paidUsd)} tone="ok" />
+        <Stat label="Pendiente" value={fmtUsd(pendingUsd)} tone="amber" />
+        <Stat
+          label="Directos vs indirectos"
+          value={`${directClients} / ${indirectClients}`}
+        />
+      </div>
+
+      {/* Influencer titular */}
+      <div className="card card-pad mb-5 bg-bg2/40">
+        <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1">
+          Influencer titular
+        </div>
+        <div className="font-semibold text-base">{data.ownerCode.ownerName}</div>
+        <div className="text-xs text-mute">
+          {data.ownerCode.ownerEmail} · {data.ownerCode.ownerWhatsapp}
+        </div>
+        <div className="mt-3 inline-flex items-center gap-2 bg-white px-3 py-2 rounded-lg">
+          <span className="font-mono font-bold text-lg">{data.ownerCode.code}</span>
+          <span className="text-xs text-mute">
+            · {Number(data.ownerCode.commissionPercent)}% directo
+          </span>
+        </div>
+      </div>
+
+      {/* Embajadores */}
+      <div className="card card-pad mb-5">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-semibold m-0">
+            Embajadores ({data.codes.length})
+          </h2>
+          <button onClick={() => setShowAdd(!showAdd)} className="btn-ghost text-sm">
+            {showAdd ? 'Cancelar' : '+ Embajador'}
+          </button>
+        </div>
+
+        {showAdd && (
+          <form
+            onSubmit={addAmbassador}
+            className="border border-line rounded-lg p-3 mb-3 space-y-2 bg-bg2/30"
+          >
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                className="input"
+                placeholder="Nombre"
+                required
+                value={addForm.fullName}
+                onChange={(e) => setAddForm({ ...addForm, fullName: e.target.value })}
+              />
+              <input
+                className="input"
+                type="email"
+                placeholder="Email"
+                required
+                value={addForm.email}
+                onChange={(e) => setAddForm({ ...addForm, email: e.target.value })}
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <input
+                className="input"
+                placeholder="WhatsApp"
+                required
+                value={addForm.whatsapp}
+                onChange={(e) => setAddForm({ ...addForm, whatsapp: e.target.value })}
+              />
+              <input
+                className="input"
+                type="number"
+                min={0}
+                max={100}
+                placeholder="% comisión"
+                value={addForm.commissionPercent}
+                onChange={(e) => setAddForm({ ...addForm, commissionPercent: Number(e.target.value) })}
+              />
+              <input
+                className="input"
+                placeholder="Código (opcional)"
+                value={addForm.customCode}
+                onChange={(e) => setAddForm({ ...addForm, customCode: e.target.value.toUpperCase() })}
+              />
+            </div>
+            <button type="submit" disabled={busy} className="btn-primary text-sm w-full">
+              {busy ? 'Agregando…' : 'Agregar embajador'}
+            </button>
+          </form>
+        )}
+
+        {data.codes.length === 0 ? (
+          <div className="text-center py-8 text-mute text-sm">
+            Sin embajadores aún
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {data.codes.map((amb) => {
+              const ambUses = amb.uses ?? [];
+              const ambComm = (ambUses as any[])
+                .flatMap((u) => u.commissions ?? [])
+                .reduce((s, c) => s + Number(c.amount), 0);
+              return (
+                <div
+                  key={amb.id}
+                  className={`border border-line rounded-lg p-3 flex items-center justify-between gap-3 ${
+                    amb.isActive ? '' : 'opacity-50'
+                  }`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium truncate flex items-center gap-2">
+                      {amb.ownerName}
+                      {!amb.approvedAt && (
+                        <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                          Pendiente
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-mute truncate">{amb.ownerEmail}</div>
+                  </div>
+                  <div className="font-mono font-bold text-sm bg-bg2 px-2 py-1 rounded">
+                    {amb.code}
+                  </div>
+                  <div className="text-xs text-mute whitespace-nowrap text-right">
+                    <div>{Number(amb.commissionPercent)}% · {ambUses.length} clientes</div>
+                    <div className="text-brand font-semibold">{fmtUsd(round(ambComm))}</div>
+                  </div>
+                  {amb.isActive && (
+                    <button
+                      onClick={() => removeAmbassador(amb.id)}
+                      className="text-mute hover:text-bad text-lg leading-none"
+                      aria-label="Desactivar"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Cupones */}
+      <div className="card card-pad mb-5">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-semibold m-0">Cupones de la campaña</h2>
+          <button onClick={() => setShowCoupon(!showCoupon)} className="btn-ghost text-sm">
+            {showCoupon ? 'Cancelar' : '+ Cupón'}
+          </button>
+        </div>
+        {showCoupon && (
+          <form onSubmit={createCoupon} className="border border-line rounded-lg p-3 mb-3 space-y-2 bg-bg2/30">
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                className="input"
+                placeholder="Código (ej: VERANO20)"
+                required
+                value={couponForm.code}
+                onChange={(e) => setCouponForm({ ...couponForm, code: e.target.value.toUpperCase() })}
+              />
+              <input
+                className="input"
+                type="number"
+                min={1}
+                max={100}
+                placeholder="% descuento"
+                value={couponForm.discountPercent}
+                onChange={(e) => setCouponForm({ ...couponForm, discountPercent: Number(e.target.value) })}
+              />
+            </div>
+            <select
+              className="input"
+              value={couponForm.duration}
+              onChange={(e) => setCouponForm({ ...couponForm, duration: e.target.value as any })}
+            >
+              <option value="FIRST_MONTH">Solo primer mes</option>
+              <option value="RECURRING">Recurrente mensual</option>
+            </select>
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="date"
+                className="input"
+                placeholder="Válido hasta"
+                value={couponForm.validUntil}
+                onChange={(e) => setCouponForm({ ...couponForm, validUntil: e.target.value })}
+              />
+              <input
+                type="number"
+                min={1}
+                className="input"
+                placeholder="Máx. usos (vacío = ∞)"
+                value={couponForm.maxUses}
+                onChange={(e) => setCouponForm({ ...couponForm, maxUses: e.target.value })}
+              />
+            </div>
+            <button type="submit" disabled={busy} className="btn-primary text-sm w-full">
+              {busy ? 'Creando…' : 'Crear cupón'}
+            </button>
+          </form>
+        )}
+        <div className="text-xs text-mute">
+          Los cupones de esta campaña aparecen en{' '}
+          <Link href="/admin/referrals" className="text-brand hover:underline">
+            la tab Cupones
+          </Link>
+          .
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: 'ok' | 'amber' | 'brand';
+}) {
+  const cls =
+    tone === 'ok'
+      ? 'text-ok'
+      : tone === 'amber'
+      ? 'text-amber-700'
+      : tone === 'brand'
+      ? 'text-brand'
+      : 'text-ink';
+  return (
+    <div className="card card-pad">
+      <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
+        {label}
+      </div>
+      <div className={`text-xl font-bold mt-1 ${cls}`}>{value}</div>
+    </div>
+  );
+}

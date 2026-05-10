@@ -67,6 +67,33 @@ export class ReferralsController {
   }
 
   @Roles('SUPER_ADMIN')
+  @Get('pending-ambassadors')
+  pendingAmbassadors(@CurrentUser() user: AuthUser) {
+    return this.svc.listPendingAmbassadors(user);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Post('ambassadors/:id/approve')
+  approveAmbassador(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.approveAmbassador(user, id);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Post('ambassadors/:id/reject')
+  rejectAmbassador(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.rejectAmbassador(user, id);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Post('socio')
+  createOrInviteSocio(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { fullName: string; email: string; whatsapp: string; commissionPercent?: number; customCode?: string },
+  ) {
+    return this.svc.createOrInviteSocio(user, body);
+  }
+
+  @Roles('SUPER_ADMIN')
   @Get('leaderboard')
   leaderboard(@CurrentUser() user: AuthUser) {
     return this.svc.leaderboard(user);

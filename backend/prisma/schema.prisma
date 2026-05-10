@@ -20,6 +20,9 @@ enum Role {
   // y solo ve sus propios clientes/comisiones (scoped en AffiliateService).
   AFFILIATE_INFLUENCER
   AFFILIATE_AMBASSADOR
+  // El Socio recibe 10% de TODAS las ventas. Su panel muestra el
+  // ledger de su código SOCIO (sin "clientes propios").
+  AFFILIATE_SOCIO
 }
 
 enum TenantStatus {
@@ -1034,6 +1037,11 @@ model ReferralCode {
   campaignId         String?
   campaign           Campaign?     @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   isActive           Boolean       @default(true)
+  // Cuándo se aprobó el embajador (cuando un INFLUENCER lo crea desde su
+  // panel). Si null y la config requiere aprobación, queda invisible al
+  // generar comisiones hasta que el admin apruebe. Para códigos creados
+  // por el super admin se setea a createdAt automáticamente.
+  approvedAt         DateTime?
   // Etiqueta de origen del afiliado (?source=X en /refer). Solo informativa.
   source             String?
   createdAt          DateTime      @default(now())

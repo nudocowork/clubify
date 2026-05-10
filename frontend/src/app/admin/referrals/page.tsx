@@ -305,6 +305,8 @@ function PayoutsTab() {
   const [q, setQ] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [affiliateFilter, setAffiliateFilter] = useState('');
+  const [clientFilter, setClientFilter] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [editingNotes, setEditingNotes] = useState<PayoutItem | null>(null);
 
@@ -430,6 +432,43 @@ function PayoutsTab() {
             onChange={(e) => setDateTo(e.target.value)}
           />
         </div>
+        <div>
+          <label className="label">Afiliado</label>
+          <select
+            className="input"
+            value={affiliateFilter}
+            onChange={(e) => setAffiliateFilter(e.target.value)}
+          >
+            <option value="">Todos</option>
+            {Array.from(
+              new Set((data?.items ?? []).map((i) => i.ownerEmail).filter(Boolean)),
+            ).map((email) => {
+              const item = data?.items.find((i) => i.ownerEmail === email);
+              return (
+                <option key={email} value={email}>
+                  {item?.ownerName} ({email})
+                </option>
+              );
+            })}
+          </select>
+        </div>
+        <div>
+          <label className="label">Cliente</label>
+          <select
+            className="input"
+            value={clientFilter}
+            onChange={(e) => setClientFilter(e.target.value)}
+          >
+            <option value="">Todos</option>
+            {Array.from(
+              new Set((data?.items ?? []).map((i) => i.tenantBrand).filter((b) => b && b !== '—')),
+            ).map((brand) => (
+              <option key={brand} value={brand}>
+                {brand}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <div className="text-xs text-mute mb-2">
@@ -474,7 +513,12 @@ function PayoutsTab() {
                 </tr>
               )}
               {!loading &&
-                data?.items.map((c) => {
+                (data?.items ?? [])
+                  .filter((c) =>
+                    affiliateFilter ? c.ownerEmail === affiliateFilter : true,
+                  )
+                  .filter((c) => (clientFilter ? c.tenantBrand === clientFilter : true))
+                  .map((c) => {
                   const st = PAYOUT_STATUS[c.status];
                   const dayDiff = daysFromNow(c.availableAt);
                   return (
@@ -1095,10 +1139,10 @@ function CampaignsTab() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {list.map((c) => (
-          <div
+          <a
             key={c.id}
-            className="card card-pad cursor-pointer hover:shadow-md2 transition"
-            onClick={() => setOpenCampaign(c)}
+            href={`/admin/referrals/campaigns/${c.id}`}
+            className="card card-pad cursor-pointer hover:shadow-md2 transition block"
           >
             <div className="flex items-start justify-between gap-2 mb-3">
               <div className="min-w-0">
@@ -1133,7 +1177,7 @@ function CampaignsTab() {
                 </div>
               </div>
             </div>
-          </div>
+          </a>
         ))}
       </div>
 
@@ -1942,6 +1986,7 @@ type SummaryResp = {
     activeClients: number;
     totalClients: number;
     revenueUsd: number;
+    conversionRate: number;
   }>;
   topAmbassadors: Array<{
     code: string;
@@ -1950,6 +1995,7 @@ type SummaryResp = {
     activeClients: number;
     totalClients: number;
     revenueUsd: number;
+    conversionRate: number;
   }>;
 };
 
@@ -2072,7 +2118,7 @@ function TopList({
               <div className="flex-1 min-w-0">
                 <div className="font-semibold truncate">{r.ownerName}</div>
                 <div className="text-xs text-mute truncate">
-                  <span className="font-mono">{r.code}</span> · {r.activeClients}/{r.totalClients} activos
+                  <span className="font-mono">{r.code}</span> · {r.activeClients}/{r.totalClients} activos · {r.conversionRate}% conv
                 </div>
               </div>
               <div className="font-bold text-brand whitespace-nowrap">{fmtUsd(r.revenueUsd)}</div>
@@ -2465,6 +2511,9 @@ type ConfigResp = {
   minPayoutUsd: number;
   notifyPaymentFailed: boolean;
   notifyChurn: boolean;
+  allowInfluencerCreatesAmbassadors: boolean;
+  requireAmbassadorApproval: boolean;
+  notifyChannel: 'SMS' | 'EMAIL' | 'BOTH';
 };
 
 function ConfigTab() {
@@ -2505,6 +2554,9 @@ function ConfigTab() {
           minPayoutUsd: cfg.minPayoutUsd,
           notifyPaymentFailed: cfg.notifyPaymentFailed,
           notifyChurn: cfg.notifyChurn,
+          allowInfluencerCreatesAmbassadors: cfg.allowInfluencerCreatesAmbassadors,
+          requireAmbassadorApproval: cfg.requireAmbassadorApproval,
+          notifyChannel: cfg.notifyChannel,
         }),
       });
       setCfg(updated);
@@ -2577,13 +2629,9 @@ function ConfigTab() {
             El socio recibe el 10% de TODAS las ventas de Clubify, no depende
             de qué código se use. Solo códigos con rol SOCIO aparecen acá.
           </div>
-          {socioOptions.length === 0 ? (
-            <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5 text-sm text-amber-900">
-              No hay códigos SOCIO. Crea uno desde la tab Códigos y vuelve acá.
-            </div>
-          ) : (
+          {socioOptions.length > 0 && (
             <select
-              className="input"
+              className="input mb-3"
               value={cfg.socioCodeId}
               onChange={(e) => setCfg({ ...cfg, socioCodeId: e.target.value })}
             >
@@ -2595,6 +2643,7 @@ function ConfigTab() {
               ))}
             </select>
           )}
+          <SocioInviteForm onCreated={load} />
         </div>
 
         <div>
@@ -2626,6 +2675,29 @@ function ConfigTab() {
 
       <div className="card card-pad lg:col-span-2 space-y-3">
         <div>
+          <h3 className="font-semibold m-0 mb-1">👥 Embajadores (permisos)</h3>
+          <div className="text-xs text-mute mb-3">
+            Controla si los influencers pueden crear sus propios embajadores
+            desde su panel y si esos requieren aprobación tuya.
+          </div>
+        </div>
+        <NotifToggle
+          label="Permitir que influencers creen embajadores"
+          description="Cuando está activo, el influencer ve un botón '+ Embajador' en su panel."
+          checked={cfg.allowInfluencerCreatesAmbassadors}
+          onChange={(v) => setCfg({ ...cfg, allowInfluencerCreatesAmbassadors: v })}
+        />
+        <NotifToggle
+          label="Requerir aprobación manual de embajadores"
+          description="Los embajadores creados por influencers quedan pendientes hasta que los apruebes acá."
+          checked={cfg.requireAmbassadorApproval}
+          onChange={(v) => setCfg({ ...cfg, requireAmbassadorApproval: v })}
+        />
+        <PendingAmbassadorsList />
+      </div>
+
+      <div className="card card-pad lg:col-span-2 space-y-3">
+        <div>
           <h3 className="font-semibold m-0 mb-1">🔔 Notificaciones automáticas</h3>
           <div className="text-xs text-mute mb-3">
             Avisos por WhatsApp a la cadena de atribución (embajador →
@@ -2646,6 +2718,18 @@ function ConfigTab() {
           checked={cfg.notifyChurn}
           onChange={(v) => setCfg({ ...cfg, notifyChurn: v })}
         />
+        <div className="pt-2 border-t border-line">
+          <label className="label">Canal de envío</label>
+          <select
+            className="input"
+            value={cfg.notifyChannel}
+            onChange={(e) => setCfg({ ...cfg, notifyChannel: e.target.value as any })}
+          >
+            <option value="SMS">📱 Solo SMS / WhatsApp</option>
+            <option value="EMAIL">📧 Solo email</option>
+            <option value="BOTH">📱 + 📧 Ambos</option>
+          </select>
+        </div>
       </div>
 
       <div className="lg:col-span-2 flex justify-end">
@@ -2688,6 +2772,168 @@ function NotifToggle({
           }`}
         />
       </button>
+    </div>
+  );
+}
+
+function PendingAmbassadorsList() {
+  const [pending, setPending] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  async function load() {
+    setLoading(true);
+    try {
+      setPending(await api<any[]>('/referrals/pending-ambassadors'));
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function approve(id: string) {
+    await api(`/referrals/ambassadors/${id}/approve`, { method: 'POST' });
+    toast('Embajador aprobado', 'success');
+    load();
+  }
+  async function reject(id: string) {
+    if (!confirm('¿Rechazar este embajador? Quedará desactivado.')) return;
+    await api(`/referrals/ambassadors/${id}/reject`, { method: 'POST' });
+    toast('Embajador rechazado', 'success');
+    load();
+  }
+
+  if (loading) return null;
+  if (pending.length === 0) return null;
+
+  return (
+    <div className="border-t border-line pt-3 mt-2">
+      <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
+        Pendientes de aprobación ({pending.length})
+      </div>
+      <div className="space-y-2">
+        {pending.map((p) => (
+          <div
+            key={p.id}
+            className="flex items-center justify-between gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200"
+          >
+            <div className="min-w-0">
+              <div className="font-medium text-sm">{p.ownerName}</div>
+              <div className="text-xs text-mute">
+                {p.ownerEmail} · <span className="font-mono">{p.code}</span> ·{' '}
+                {Number(p.commissionPercent)}%
+              </div>
+              {p.parentCode && (
+                <div className="text-[11px] text-mute mt-0.5">
+                  Creado por {p.parentCode.ownerName} ({p.parentCode.code})
+                </div>
+              )}
+            </div>
+            <div className="flex gap-1 shrink-0">
+              <button onClick={() => approve(p.id)} className="text-xs text-ok hover:underline">
+                ✓ Aprobar
+              </button>
+              <button onClick={() => reject(p.id)} className="text-xs text-bad hover:underline">
+                Rechazar
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SocioInviteForm({ onCreated }: { onCreated: () => void }) {
+  const [show, setShow] = useState(false);
+  const [form, setForm] = useState({
+    fullName: '',
+    email: '',
+    whatsapp: '',
+    commissionPercent: 10,
+    customCode: '',
+  });
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api('/referrals/socio', {
+        method: 'POST',
+        body: JSON.stringify(form),
+      });
+      toast('Socio creado e invitado por email', 'success');
+      setForm({ fullName: '', email: '', whatsapp: '', commissionPercent: 10, customCode: '' });
+      setShow(false);
+      onCreated();
+    } catch (e: any) {
+      toast(e.message || 'Error', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      {!show ? (
+        <button onClick={() => setShow(true)} className="btn-ghost text-xs w-full">
+          + Crear / invitar socio nuevo
+        </button>
+      ) : (
+        <form onSubmit={submit} className="border border-line rounded-lg p-3 space-y-2 bg-bg2/30">
+          <div className="grid grid-cols-2 gap-2">
+            <input
+              className="input"
+              placeholder="Nombre completo"
+              required
+              value={form.fullName}
+              onChange={(e) => setForm({ ...form, fullName: e.target.value })}
+            />
+            <input
+              className="input"
+              type="email"
+              placeholder="Email"
+              required
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+            />
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <input
+              className="input"
+              placeholder="WhatsApp"
+              required
+              value={form.whatsapp}
+              onChange={(e) => setForm({ ...form, whatsapp: e.target.value })}
+            />
+            <input
+              type="number"
+              min={0}
+              max={100}
+              className="input"
+              placeholder="% global"
+              value={form.commissionPercent}
+              onChange={(e) => setForm({ ...form, commissionPercent: Number(e.target.value) })}
+            />
+            <input
+              className="input"
+              placeholder="Código (opcional)"
+              value={form.customCode}
+              onChange={(e) => setForm({ ...form, customCode: e.target.value.toUpperCase() })}
+            />
+          </div>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setShow(false)} className="btn-ghost text-xs flex-1">
+              Cancelar
+            </button>
+            <button type="submit" disabled={busy} className="btn-primary text-xs flex-1">
+              {busy ? 'Creando…' : 'Crear y enviar invite'}
+            </button>
+          </div>
+        </form>
+      )}
     </div>
   );
 }

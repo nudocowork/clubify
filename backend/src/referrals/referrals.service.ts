@@ -4,6 +4,7 @@ import { customAlphabet } from 'nanoid';
 import { CommissionStatus } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { AuthService } from '../auth/auth.service';
 
 const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
 
@@ -19,7 +20,7 @@ export type CreateReferralDto = {
 export class ReferralsService {
   private logger = new Logger(ReferralsService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private auth: AuthService) {}
 
   /**
    * Cron diario que reconcilia comisiones recurrentes. Defensa en
@@ -429,6 +430,9 @@ export class ReferralsService {
     const codeAgg = Array.from(codeAggMap.values()).map((r) => ({
       ...r,
       revenueUsd: round(r.revenueUsd),
+      // Conversión: % de inscritos que terminaron pagando.
+      conversionRate:
+        r.totalClients > 0 ? Math.round((r.activeClients / r.totalClients) * 1000) / 10 : 0,
     }));
     const topInfluencers = codeAgg
       .filter((r) => r.role === 'INFLUENCER')
@@ -620,6 +624,9 @@ export class ReferralsService {
       'referrals.minPayoutUsd',
       'referrals.notifyPaymentFailed',
       'referrals.notifyChurn',
+      'referrals.allowInfluencerCreatesAmbassadors',
+      'referrals.requireAmbassadorApproval',
+      'referrals.notifyChannel',
     ];
     const rows = await this.prisma.setting.findMany({ where: { key: { in: keys } } });
     const map = new Map(rows.map((r) => [r.key, r.value]));
@@ -644,6 +651,11 @@ export class ReferralsService {
       minPayoutUsd: Number(map.get('referrals.minPayoutUsd') ?? 0),
       notifyPaymentFailed: map.get('referrals.notifyPaymentFailed') !== 'false',
       notifyChurn: map.get('referrals.notifyChurn') !== 'false',
+      allowInfluencerCreatesAmbassadors:
+        map.get('referrals.allowInfluencerCreatesAmbassadors') === 'true',
+      requireAmbassadorApproval:
+        map.get('referrals.requireAmbassadorApproval') === 'true',
+      notifyChannel: (map.get('referrals.notifyChannel') ?? 'SMS') as 'SMS' | 'EMAIL' | 'BOTH',
     };
   }
 
@@ -658,6 +670,9 @@ export class ReferralsService {
       minPayoutUsd: number;
       notifyPaymentFailed: boolean;
       notifyChurn: boolean;
+      allowInfluencerCreatesAmbassadors: boolean;
+      requireAmbassadorApproval: boolean;
+      notifyChannel: 'SMS' | 'EMAIL' | 'BOTH';
     }>,
   ) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
@@ -689,8 +704,102 @@ export class ReferralsService {
       writeKey('referrals.notifyPaymentFailed', patch.notifyPaymentFailed ? 'true' : 'false');
     if ('notifyChurn' in patch)
       writeKey('referrals.notifyChurn', patch.notifyChurn ? 'true' : 'false');
+    if ('allowInfluencerCreatesAmbassadors' in patch)
+      writeKey(
+        'referrals.allowInfluencerCreatesAmbassadors',
+        patch.allowInfluencerCreatesAmbassadors ? 'true' : 'false',
+      );
+    if ('requireAmbassadorApproval' in patch)
+      writeKey(
+        'referrals.requireAmbassadorApproval',
+        patch.requireAmbassadorApproval ? 'true' : 'false',
+      );
+    if ('notifyChannel' in patch)
+      writeKey('referrals.notifyChannel', patch.notifyChannel ?? 'SMS');
     await Promise.all(upserts);
     return this.getConfig(user);
+  }
+
+  /**
+   * Crea o reutiliza el código del Socio (role=SOCIO, 10% global) y le
+   * envía la invitación al panel de afiliado. Si ya existe un código
+   * SOCIO con ese email, se reutiliza y solo se reenvía el invite.
+   */
+  async createOrInviteSocio(
+    user: AuthUser,
+    dto: { fullName: string; email: string; whatsapp: string; commissionPercent?: number; customCode?: string },
+  ) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    const email = dto.email.trim().toLowerCase();
+    let code = await this.prisma.referralCode.findFirst({
+      where: { ownerEmail: email, role: 'SOCIO' },
+    });
+    if (!code) {
+      const codeText =
+        dto.customCode?.trim().toUpperCase().replace(/[^A-Z0-9]/g, '') ||
+        codeGen();
+      code = await this.prisma.referralCode.create({
+        data: {
+          code: codeText,
+          ownerName: dto.fullName,
+          ownerEmail: email,
+          ownerWhatsapp: dto.whatsapp,
+          commissionPercent: dto.commissionPercent ?? 10,
+          role: 'SOCIO',
+          approvedAt: new Date(),
+        },
+      });
+    }
+    // Setear como socio global activo.
+    await this.prisma.setting.upsert({
+      where: { key: 'referrals.socioCodeId' },
+      create: { key: 'referrals.socioCodeId', value: code.id },
+      update: { value: code.id },
+    });
+    // Invitar
+    await this.auth
+      .inviteAffiliate({
+        email,
+        fullName: dto.fullName,
+        role: 'AFFILIATE_SOCIO',
+        referralCodeId: code.id,
+        phone: dto.whatsapp,
+      })
+      .catch(() => null);
+    return code;
+  }
+
+  /**
+   * Lista embajadores pendientes de aprobación (creados por un influencer
+   * con `referrals.requireAmbassadorApproval` = true).
+   */
+  async listPendingAmbassadors(user: AuthUser) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    return this.prisma.referralCode.findMany({
+      where: { role: 'AMBASSADOR', approvedAt: null },
+      include: {
+        parentCode: { select: { code: true, ownerName: true } },
+        campaign: { select: { name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async approveAmbassador(user: AuthUser, id: string) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    return this.prisma.referralCode.update({
+      where: { id },
+      data: { approvedAt: new Date() },
+    });
+  }
+
+  async rejectAmbassador(user: AuthUser, id: string) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    // Soft-delete: desactivamos para preservar historial.
+    return this.prisma.referralCode.update({
+      where: { id },
+      data: { isActive: false },
+    });
   }
 
   /**

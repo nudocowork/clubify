@@ -7,9 +7,10 @@ import {
   HotmartCheckoutController,
 } from './hotmart.controller';
 import { IntegrationsModule } from '../integrations/integrations.module';
+import { EmailModule } from '../email/email.module';
 
 @Module({
-  imports: [IntegrationsModule],
+  imports: [IntegrationsModule, EmailModule],
   controllers: [
     BillingController,
     HotmartWebhookController,

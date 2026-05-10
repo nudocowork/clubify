@@ -11,11 +11,11 @@ import { api, clearSession } from '@/lib/api';
 import { Logo } from '@/components/Logo';
 import { toast } from '@/components/Toast';
 
-type Tab = 'overview' | 'clients' | 'commissions';
+type Tab = 'overview' | 'clients' | 'commissions' | 'settings';
 
 type Me = {
-  user: { id: string; email: string; fullName: string; role: string } | null;
-  role: 'AFFILIATE_INFLUENCER' | 'AFFILIATE_AMBASSADOR';
+  user: { id: string; email: string; fullName: string; role: string; phone?: string | null } | null;
+  role: 'AFFILIATE_INFLUENCER' | 'AFFILIATE_AMBASSADOR' | 'AFFILIATE_SOCIO';
   myCode: {
     id: string;
     code: string;
@@ -101,6 +101,7 @@ export default function AffiliatePanel() {
   if (!me) return null;
 
   const isInfluencer = me.role === 'AFFILIATE_INFLUENCER';
+  const isSocio = me.role === 'AFFILIATE_SOCIO';
   const shareLink =
     typeof window !== 'undefined' && me.myCode
       ? `${window.location.origin}/?promo=${me.myCode.code}`
@@ -118,7 +119,7 @@ export default function AffiliatePanel() {
             <div className="text-xs text-mute hidden sm:block">
               {me.user?.fullName} ·{' '}
               <span className="font-medium">
-                {isInfluencer ? '🌟 Influencer' : '👥 Embajador'}
+                {isSocio ? '💎 Socio' : isInfluencer ? '🌟 Influencer' : '👥 Embajador'}
               </span>
             </div>
             <button onClick={logout} className="text-xs text-mute hover:text-ink">
@@ -133,7 +134,12 @@ export default function AffiliatePanel() {
           Hola, {me.user?.fullName?.split(' ')[0]} 👋
         </h1>
         <div className="text-sm text-mute mb-5">
-          {me.myCode?.campaignName ? (
+          {isSocio ? (
+            <>
+              Recibes el <strong>{me.myCode?.commissionPercent}%</strong> de
+              TODAS las ventas de Clubify, sin importar qué código se use.
+            </>
+          ) : me.myCode?.campaignName ? (
             <>Campaña <strong>{me.myCode.campaignName}</strong></>
           ) : me.myCode?.parentName ? (
             <>Embajador en la campaña de <strong>{me.myCode.parentName}</strong></>
@@ -145,7 +151,7 @@ export default function AffiliatePanel() {
           <div className="card card-pad mb-5 flex items-center gap-4 flex-wrap">
             <div>
               <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
-                Tu código
+                {isSocio ? 'Tu código (interno)' : 'Tu código'}
               </div>
               <div className="font-mono font-bold text-2xl">{me.myCode.code}</div>
               <div className="text-xs text-mute">
@@ -157,28 +163,30 @@ export default function AffiliatePanel() {
                 )}
               </div>
             </div>
-            <div className="flex-1 min-w-[200px]">
-              <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
-                Tu link para compartir
+            {!isSocio && (
+              <div className="flex-1 min-w-[200px]">
+                <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
+                  Tu link para compartir
+                </div>
+                <div className="flex items-center gap-2 mt-1">
+                  <input
+                    className="input flex-1 text-xs"
+                    readOnly
+                    value={shareLink}
+                    onClick={(e) => e.currentTarget.select()}
+                  />
+                  <button
+                    onClick={async () => {
+                      await navigator.clipboard.writeText(shareLink);
+                      toast('Link copiado', 'success');
+                    }}
+                    className="btn-ghost text-xs"
+                  >
+                    Copiar
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-2 mt-1">
-                <input
-                  className="input flex-1 text-xs"
-                  readOnly
-                  value={shareLink}
-                  onClick={(e) => e.currentTarget.select()}
-                />
-                <button
-                  onClick={async () => {
-                    await navigator.clipboard.writeText(shareLink);
-                    toast('Link copiado', 'success');
-                  }}
-                  className="btn-ghost text-xs"
-                >
-                  Copiar
-                </button>
-              </div>
-            </div>
+            )}
           </div>
         )}
 
@@ -189,23 +197,42 @@ export default function AffiliatePanel() {
           >
             📊 Resumen
           </button>
-          <button
-            className={`tab ${tab === 'clients' ? 'tab-active' : ''}`}
-            onClick={() => setTab('clients')}
-          >
-            🏢 Mis clientes
-          </button>
+          {!isSocio && (
+            <button
+              className={`tab ${tab === 'clients' ? 'tab-active' : ''}`}
+              onClick={() => setTab('clients')}
+            >
+              🏢 Mis clientes
+            </button>
+          )}
           <button
             className={`tab ${tab === 'commissions' ? 'tab-active' : ''}`}
             onClick={() => setTab('commissions')}
           >
             💵 Comisiones
           </button>
+          <button
+            className={`tab ${tab === 'settings' ? 'tab-active' : ''}`}
+            onClick={() => setTab('settings')}
+          >
+            ⚙️ Configuración
+          </button>
         </div>
 
         {tab === 'overview' && <Overview me={me} />}
         {tab === 'clients' && <ClientsList />}
         {tab === 'commissions' && <CommissionsList />}
+        {tab === 'settings' && (
+          <SettingsView
+            me={me}
+            onUpdated={(u) =>
+              setMe({
+                ...me,
+                user: { ...me.user!, fullName: u.fullName, phone: (u as any).phone },
+              })
+            }
+          />
+        )}
       </main>
     </div>
   );
@@ -236,25 +263,153 @@ function Overview({ me }: { me: Me }) {
         <Stat label="Pagado" value={comm ? fmtUsd(comm.totals.paidUsd) : '—'} tone="brand" />
       </div>
 
-      {me.role === 'AFFILIATE_INFLUENCER' && me.ambassadors.length > 0 && (
-        <div className="card card-pad">
-          <h3 className="font-semibold m-0 mb-3">Tus embajadores ({me.ambassadors.length})</h3>
-          <div className="space-y-2">
-            {me.ambassadors.map((a) => (
-              <div
-                key={a.id}
-                className={`flex items-center justify-between p-2 rounded-lg bg-bg2/40 ${
-                  a.isActive ? '' : 'opacity-50'
-                }`}
-              >
-                <div className="min-w-0">
-                  <div className="font-medium truncate">{a.ownerName}</div>
-                  <div className="text-xs text-mute font-mono">{a.code}</div>
-                </div>
-                <div className="text-xs text-mute">{a.commissionPercent}%</div>
-              </div>
-            ))}
+      {me.role === 'AFFILIATE_INFLUENCER' && (
+        <InfluencerAmbassadorsPanel ambassadors={me.ambassadors} />
+      )}
+    </div>
+  );
+}
+
+function InfluencerAmbassadorsPanel({
+  ambassadors: initial,
+}: {
+  ambassadors: Me['ambassadors'];
+}) {
+  const [ambassadors, setAmbassadors] = useState(initial);
+  const [showForm, setShowForm] = useState(false);
+  const [allowed, setAllowed] = useState<boolean | null>(null);
+  const [form, setForm] = useState({ fullName: '', email: '', whatsapp: '', commissionPercent: 25 });
+  const [busy, setBusy] = useState(false);
+
+  // El backend rechaza si el toggle no está activo, pero para evitar mostrar
+  // el botón inutilizable hacemos un probe ligero al GET /affiliate/me la
+  // primera vez (alternativamente podríamos exponer la flag en /me).
+  // Por simplicidad: intentamos un POST con datos vacíos solo cuando se
+  // hace click — si el toggle está off, mostramos el mensaje.
+  useEffect(() => {
+    setAllowed(true); // optimista; el POST resuelve.
+  }, []);
+
+  async function add(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const created = await api<any>('/affiliate/ambassadors', {
+        method: 'POST',
+        body: JSON.stringify(form),
+      });
+      setAmbassadors([
+        {
+          id: created.id,
+          code: created.code,
+          ownerName: created.ownerName,
+          commissionPercent: Number(created.commissionPercent),
+          isActive: true,
+        },
+        ...ambassadors,
+      ]);
+      setForm({ fullName: '', email: '', whatsapp: '', commissionPercent: 25 });
+      setShowForm(false);
+      toast(
+        created.approvedAt
+          ? 'Embajador agregado'
+          : 'Embajador creado — pendiente de aprobación del admin',
+        'success',
+      );
+    } catch (e: any) {
+      if (String(e.message || '').includes('habilitó la creación')) {
+        setAllowed(false);
+      }
+      toast(e.message || 'Error', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card card-pad">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold m-0">Tus embajadores ({ambassadors.length})</h3>
+        {allowed !== false && (
+          <button
+            onClick={() => setShowForm(!showForm)}
+            className="btn-ghost text-xs"
+          >
+            {showForm ? 'Cancelar' : '+ Embajador'}
+          </button>
+        )}
+      </div>
+
+      {allowed === false && (
+        <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-900 mb-3">
+          El admin no habilitó la creación de embajadores desde tu panel.
+          Pide que active el toggle en su configuración.
+        </div>
+      )}
+
+      {showForm && allowed !== false && (
+        <form onSubmit={add} className="border border-line rounded-lg p-3 mb-3 space-y-2 bg-bg2/30">
+          <div className="grid grid-cols-2 gap-2">
+            <input
+              className="input"
+              placeholder="Nombre completo"
+              required
+              value={form.fullName}
+              onChange={(e) => setForm({ ...form, fullName: e.target.value })}
+            />
+            <input
+              className="input"
+              type="email"
+              placeholder="Email"
+              required
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+            />
           </div>
+          <div className="grid grid-cols-2 gap-2">
+            <input
+              className="input"
+              placeholder="WhatsApp"
+              required
+              value={form.whatsapp}
+              onChange={(e) => setForm({ ...form, whatsapp: e.target.value })}
+            />
+            <input
+              type="number"
+              min={0}
+              max={100}
+              className="input"
+              placeholder="% comisión"
+              value={form.commissionPercent}
+              onChange={(e) => setForm({ ...form, commissionPercent: Number(e.target.value) })}
+            />
+          </div>
+          <button type="submit" disabled={busy} className="btn-primary w-full text-sm">
+            {busy ? 'Creando…' : 'Agregar embajador'}
+          </button>
+        </form>
+      )}
+
+      {ambassadors.length === 0 ? (
+        <div className="text-sm text-mute text-center py-4">
+          Aún no tienes embajadores
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {ambassadors.map((a) => (
+            <div
+              key={a.id}
+              className={`flex items-center justify-between p-2 rounded-lg bg-bg2/40 ${
+                a.isActive ? '' : 'opacity-50'
+              }`}
+            >
+              <div className="min-w-0">
+                <div className="font-medium truncate">{a.ownerName}</div>
+                <div className="text-xs text-mute font-mono">{a.code}</div>
+              </div>
+              <div className="text-xs text-mute">{a.commissionPercent}%</div>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -417,5 +572,74 @@ function CommissionsList() {
         </div>
       )}
     </div>
+  );
+}
+
+function SettingsView({
+  me,
+  onUpdated,
+}: {
+  me: Me;
+  onUpdated: (u: { fullName: string; phone?: string | null }) => void;
+}) {
+  const [fullName, setFullName] = useState(me.user?.fullName ?? '');
+  const [phone, setPhone] = useState(me.user?.phone ?? '');
+  const [busy, setBusy] = useState(false);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const u = await api<{ fullName: string; phone?: string | null }>('/affiliate/me', {
+        method: 'PATCH',
+        body: JSON.stringify({ fullName: fullName.trim(), phone: phone.trim() || null }),
+      });
+      toast('Datos actualizados', 'success');
+      onUpdated(u);
+    } catch (e: any) {
+      toast(e.message || 'Error', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={save} className="card card-pad max-w-md space-y-3">
+      <h3 className="font-semibold m-0 mb-1">Tus datos</h3>
+      <div className="text-xs text-mute mb-3">
+        Estos datos los ve el administrador de Clubify y se usan para enviarte
+        notificaciones por WhatsApp cuando hay eventos en tus clientes.
+      </div>
+      <div>
+        <label className="label">Nombre completo</label>
+        <input
+          className="input"
+          value={fullName}
+          onChange={(e) => setFullName(e.target.value)}
+          required
+        />
+      </div>
+      <div>
+        <label className="label">Email</label>
+        <input className="input" value={me.user?.email ?? ''} disabled />
+        <div className="text-[11px] text-mute mt-1">
+          El email no se puede cambiar (es tu identidad para login).
+        </div>
+      </div>
+      <div>
+        <label className="label">WhatsApp</label>
+        <input
+          className="input"
+          placeholder="+57 ..."
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+        />
+      </div>
+      <div className="flex justify-end gap-2 pt-2">
+        <button type="submit" className="btn-primary" disabled={busy}>
+          {busy ? 'Guardando…' : 'Guardar cambios'}
+        </button>
+      </div>
+    </form>
   );
 }

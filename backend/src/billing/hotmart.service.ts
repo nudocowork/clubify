@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
+import { EmailService } from '../email/email.service';
 import {
   smsPaymentConfirmed,
   smsPaymentFailed,
@@ -55,6 +56,7 @@ export class HotmartService {
   constructor(
     private prisma: PrismaService,
     private growBusiness: GrowBusinessService,
+    private email: EmailService,
   ) {}
 
   /** Helper: celular del dueño para SMS (user.phone → tenant.whatsappPhone → tenant.phone). */
@@ -649,26 +651,49 @@ export class HotmartService {
         : `Atribución: ${direct.ownerName} (${direct.code})`;
     const message = `${eventLabel}\nCliente: ${brandName}\n${codeLine}`;
 
-    if (direct.ownerWhatsapp) {
-      await this.growBusiness
-        .sendSms(tenantId, direct.ownerWhatsapp, message)
-        .catch(() => null);
-    }
-    if (parent?.ownerWhatsapp && parent.ownerWhatsapp !== direct.ownerWhatsapp) {
-      await this.growBusiness
-        .sendSms(tenantId, parent.ownerWhatsapp, message)
-        .catch(() => null);
+    // Canal: SMS (default), EMAIL, o BOTH. Configurable via Setting.
+    const channelRow = await this.prisma.setting.findUnique({
+      where: { key: 'referrals.notifyChannel' },
+    });
+    const channel = (channelRow?.value as 'SMS' | 'EMAIL' | 'BOTH') ?? 'SMS';
+    const useSms = channel === 'SMS' || channel === 'BOTH';
+    const useEmail = channel === 'EMAIL' || channel === 'BOTH';
+
+    const subject = `Clubify · ${eventLabel} · ${brandName}`;
+    const htmlMessage = `<p>${eventLabel}</p><p><strong>Cliente:</strong> ${brandName}</p><p>${codeLine.replace(/\n/g, '<br>')}</p>`;
+
+    const recipients: Array<{ phone?: string; email?: string; name: string }> = [
+      { phone: direct.ownerWhatsapp, email: direct.ownerEmail, name: direct.ownerName },
+    ];
+    if (parent && (parent.ownerWhatsapp !== direct.ownerWhatsapp || parent.ownerEmail !== direct.ownerEmail)) {
+      recipients.push({ phone: parent.ownerWhatsapp, email: parent.ownerEmail, name: parent.ownerName });
     }
     const adminPhone = await this.prisma.setting.findUnique({
       where: { key: 'salesWhatsapp' },
     });
-    if (adminPhone?.value) {
-      await this.growBusiness
-        .sendSms(tenantId, adminPhone.value, message)
-        .catch(() => null);
+    const adminEmail = await this.prisma.setting.findUnique({
+      where: { key: 'salesEmail' },
+    });
+    if (adminPhone?.value || adminEmail?.value) {
+      recipients.push({
+        phone: adminPhone?.value,
+        email: adminEmail?.value,
+        name: 'Admin',
+      });
+    }
+
+    for (const r of recipients) {
+      if (useSms && r.phone) {
+        await this.growBusiness.sendSms(tenantId, r.phone, message).catch(() => null);
+      }
+      if (useEmail && r.email) {
+        await this.email
+          .send({ to: r.email, subject, text: message, html: htmlMessage })
+          .catch(() => null);
+      }
     }
     this.logger.log(
-      `Notificada cadena referidos (${event}): direct=${direct.code} parent=${parent?.code ?? '—'}`,
+      `Notificada cadena referidos (${event}, channel=${channel}): direct=${direct.code} parent=${parent?.code ?? '—'}`,
     );
   }
 }

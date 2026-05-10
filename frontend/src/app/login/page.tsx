@@ -38,8 +38,7 @@ function LoginInner() {
       router.push(
         data.user.role === 'SUPER_ADMIN'
           ? '/admin'
-          : data.user.role === 'AFFILIATE_INFLUENCER' ||
-            data.user.role === 'AFFILIATE_AMBASSADOR'
+          : data.user.role?.startsWith('AFFILIATE_')
           ? '/affiliate'
           : '/app',
       );
@@ -62,8 +61,7 @@ function LoginInner() {
       router.push(
         data.user.role === 'SUPER_ADMIN'
           ? '/admin'
-          : data.user.role === 'AFFILIATE_INFLUENCER' ||
-            data.user.role === 'AFFILIATE_AMBASSADOR'
+          : data.user.role?.startsWith('AFFILIATE_')
           ? '/affiliate'
           : '/app',
       );

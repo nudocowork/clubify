@@ -6,7 +6,11 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { createHash, randomBytes } from 'crypto';
 import { EmailService } from '../email/email.service';
-import { welcomeOwnerTemplate, passwordResetTemplate } from '../email/templates/templates';
+import {
+  welcomeOwnerTemplate,
+  passwordResetTemplate,
+  inviteAffiliateTemplate,
+} from '../email/templates/templates';
 import {
   isValidCategorySlug,
   DEFAULT_CATEGORY_SLUG,
@@ -260,7 +264,7 @@ export class AuthService {
   async inviteAffiliate(opts: {
     email: string;
     fullName: string;
-    role: 'AFFILIATE_INFLUENCER' | 'AFFILIATE_AMBASSADOR';
+    role: 'AFFILIATE_INFLUENCER' | 'AFFILIATE_AMBASSADOR' | 'AFFILIATE_SOCIO';
     referralCodeId: string;
     phone?: string;
   }) {
@@ -282,7 +286,9 @@ export class AuthService {
       });
     } else if (
       user.role !== opts.role &&
-      (user.role === 'AFFILIATE_INFLUENCER' || user.role === 'AFFILIATE_AMBASSADOR')
+      (user.role === 'AFFILIATE_INFLUENCER' ||
+        user.role === 'AFFILIATE_AMBASSADOR' ||
+        user.role === 'AFFILIATE_SOCIO')
     ) {
       // Si ya era affiliate pero con otro rol (ej: era embajador y ahora
       // se vuelve influencer titular), actualizamos el rol.
@@ -308,13 +314,26 @@ export class AuthService {
     const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
     const inviteUrl = `${appUrl}/reset/${rawToken}?affiliate=1`;
 
+    // Datos del código para el template (commission %, campaña, parent).
+    const code = await this.prisma.referralCode.findUnique({
+      where: { id: opts.referralCodeId },
+      include: {
+        parentCode: { select: { ownerName: true } },
+        ownerOfCampaign: { select: { name: true } },
+      },
+    });
+
     this.email
       .send({
         to: user.email,
-        ...passwordResetTemplate({
+        ...inviteAffiliateTemplate({
           fullName: user.fullName,
-          resetUrl: inviteUrl,
-          expiresInMinutes: 7 * 24 * 60,
+          inviteUrl,
+          role: opts.role,
+          code: code?.code ?? '',
+          commissionPercent: Number(code?.commissionPercent ?? 0),
+          campaignName: code?.ownerOfCampaign?.name ?? null,
+          parentName: code?.parentCode?.ownerName ?? null,
         }),
       })
       .catch((e) =>
