@@ -26,7 +26,7 @@ const ALL_TYPES: CardType[] = [
   'COUPON',
 ];
 
-type Step = 1 | 2 | 3 | 4;
+type Step = 1 | 2 | 3 | 4 | 5;
 
 const FROM_SCRATCH_DEFAULTS = {
   type: 'STAMPS' as CardType,
@@ -148,15 +148,16 @@ export default function NewCardWizard() {
         cardName={cardName}
         canBack={step > 1}
         canNext={
-          step < 4 &&
+          step < 5 &&
           (step === 1 ||
             (step === 2 && !!form.type) ||
-            (step === 3 && !!form.name.trim()))
+            (step === 3 && !!form.name.trim()) ||
+            step === 4)
         }
-        canSubmit={step === 4 && !!form.name.trim()}
+        canSubmit={step === 5 && !!form.name.trim()}
         submitting={submitting}
         onBack={() => setStep((s) => Math.max(1, s - 1) as Step)}
-        onNext={() => setStep((s) => Math.min(4, s + 1) as Step)}
+        onNext={() => setStep((s) => Math.min(5, s + 1) as Step)}
         onCancel={() => router.push('/app/cards')}
         onSubmit={attemptSubmit}
       />
@@ -208,7 +209,11 @@ export default function NewCardWizard() {
       )}
 
       {step === 4 && (
-        <Step4Information form={form} setForm={(f) => setForm(f)} err={err} />
+        <Step4Design form={form} setForm={(f) => setForm(f)} err={err} />
+      )}
+
+      {step === 5 && (
+        <Step5Information form={form} setForm={(f) => setForm(f)} err={err} />
       )}
     </div>
   );
@@ -245,7 +250,8 @@ function WizardHeader({
     { n: 1, label: 'Plantilla' },
     { n: 2, label: 'Tipo' },
     { n: 3, label: 'Configurar' },
-    { n: 4, label: 'Información' },
+    { n: 4, label: 'Diseño' },
+    { n: 5, label: 'Información' },
   ];
 
   return (
@@ -284,12 +290,12 @@ function WizardHeader({
             ← Anterior
           </button>
         )}
-        {step < 4 && (
+        {step < 5 && (
           <button className="btn-primary" onClick={onNext} disabled={!canNext}>
             Siguiente →
           </button>
         )}
-        {step === 4 && (
+        {step === 5 && (
           <button
             className="btn-primary"
             onClick={onSubmit}
@@ -517,7 +523,6 @@ function Step3Configure({
   }
   const brand = (form.name.split('—')[0] || 'Tu marca').trim();
   const visibleStamps = Math.min(form.stampsRequired, 7);
-  const [showAdvancedColors, setShowAdvancedColors] = useState(false);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-7">
@@ -593,13 +598,6 @@ function Step3Configure({
                 max={30}
                 value={form.stampsRequired}
                 onChange={(e) => set('stampsRequired', Number(e.target.value))}
-              />
-            </div>
-            <div className="mt-3">
-              <label className="label">Icono del sello</label>
-              <StampIconPicker
-                value={form.stampIcon}
-                onSelect={(icon) => set('stampIcon', icon)}
               />
             </div>
             <div className="mt-3">
@@ -721,13 +719,6 @@ function Step3Configure({
                 tope, se libera la recompensa.
               </div>
             </div>
-            <div className="mt-3">
-              <label className="label">Icono de visita</label>
-              <StampIconPicker
-                value={form.stampIcon}
-                onSelect={(icon) => set('stampIcon', icon)}
-              />
-            </div>
           </>
         )}
         {form.type === 'HYBRID' && (
@@ -758,13 +749,6 @@ function Step3Configure({
                 onChange={(e) => set('discountPercent', Number(e.target.value))}
               />
             </div>
-            <div>
-              <label className="label">Icono del sello</label>
-              <StampIconPicker
-                value={form.stampIcon}
-                onSelect={(icon) => set('stampIcon', icon)}
-              />
-            </div>
           </div>
         )}
         {form.type === 'MEMBERSHIP' && (
@@ -775,95 +759,6 @@ function Step3Configure({
             onChangeMetric={(m) => set('tierMetric', m)}
           />
         )}
-
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <div>
-            <label className="label">Color principal</label>
-            <input
-              type="color"
-              className="input h-11 p-1"
-              value={form.primaryColor}
-              onChange={(e) => set('primaryColor', e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="label">Color secundario</label>
-            <input
-              type="color"
-              className="input h-11 p-1"
-              value={form.secondaryColor}
-              onChange={(e) => set('secondaryColor', e.target.value)}
-            />
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => setShowAdvancedColors((v) => !v)}
-          className="text-xs text-brand hover:underline mt-2"
-        >
-          {showAdvancedColors ? '▲ Ocultar' : '▼ Colores avanzados'}
-        </button>
-        {showAdvancedColors && (
-          <div className="mt-2 grid grid-cols-2 gap-3 p-3 rounded-lg bg-bg2/40">
-            <AdvancedColorInput
-              label="Sello activo"
-              value={form.stampActiveColor}
-              onChange={(v) => set('stampActiveColor', v)}
-            />
-            <AdvancedColorInput
-              label="Sello inactivo"
-              value={form.stampInactiveColor}
-              onChange={(v) => set('stampInactiveColor', v)}
-            />
-            <AdvancedColorInput
-              label="Contorno del sello"
-              value={form.stampContourColor}
-              onChange={(v) => set('stampContourColor', v)}
-            />
-            <AdvancedColorInput
-              label="Fondo central"
-              value={form.centerBgColor}
-              onChange={(v) => set('centerBgColor', v)}
-            />
-            <div className="col-span-2 text-[11px] text-mute">
-              Si subes una imagen para el strip, estos colores se ignoran.
-            </div>
-          </div>
-        )}
-
-        <div className="mt-4 pt-3 border-t border-line">
-          <div className="flex items-center justify-between">
-            <label className="label m-0">Términos y condiciones</label>
-            <button
-              type="button"
-              onClick={() => set('termsEnabled', !form.termsEnabled)}
-              className={`relative w-10 h-5 rounded-full transition ${
-                form.termsEnabled ? 'bg-brand' : 'bg-bg2 border border-line'
-              }`}
-              aria-label="Toggle T&C"
-            >
-              <span
-                className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition ${
-                  form.termsEnabled ? 'left-[22px]' : 'left-0.5'
-                }`}
-              />
-            </button>
-          </div>
-          {form.termsEnabled ? (
-            <textarea
-              className="input mt-2"
-              rows={3}
-              value={form.terms}
-              onChange={(e) => set('terms', e.target.value)}
-              placeholder="Aparecen en el reverso de la tarjeta wallet"
-            />
-          ) : (
-            <div className="text-xs text-mute mt-2">
-              Esta tarjeta no muestra términos y condiciones.
-            </div>
-          )}
-        </div>
 
         <div className="mt-4 pt-4 border-t border-line">
           <CardExpiryPicker
@@ -879,6 +774,11 @@ function Step3Configure({
               })
             }
           />
+        </div>
+
+        <div className="mt-3 text-[11px] text-mute p-3 rounded-lg bg-bg2/40">
+          💡 En el siguiente paso configuras los <b>colores y diseño</b> visual.
+          Acá solo definimos lo funcional (qué hace la tarjeta).
         </div>
 
         {err && (
@@ -992,10 +892,253 @@ function Step3Configure({
 }
 
 // ═══════════════════════════════════════════════════════════
-// Step 4: Información (reverso del .pkpass + enlaces activos)
+// Step 4: Diseño (colores, T&C — solo visual)
 // ═══════════════════════════════════════════════════════════
 
-function Step4Information({
+function Step4Design({
+  form,
+  setForm,
+  err,
+}: {
+  form: typeof FROM_SCRATCH_DEFAULTS;
+  setForm: (f: typeof FROM_SCRATCH_DEFAULTS) => void;
+  err: string | null;
+}) {
+  function set<K extends keyof typeof form>(k: K, v: any) {
+    setForm({ ...form, [k]: v });
+  }
+  const brand = (form.name.split('—')[0] || 'Tu marca').trim();
+  const visibleStamps = Math.min(form.stampsRequired, 7);
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-7">
+      <div className="card card-pad space-y-4">
+        <div>
+          <h3 className="font-semibold text-base m-0">🎨 Colores de marca</h3>
+          <p className="text-xs text-mute mt-1">
+            Estos colores aplican al fondo del wallet pass del cliente.
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label">Color principal</label>
+            <input
+              type="color"
+              className="input h-11 p-1"
+              value={form.primaryColor}
+              onChange={(e) => set('primaryColor', e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="label">Color secundario</label>
+            <input
+              type="color"
+              className="input h-11 p-1"
+              value={form.secondaryColor}
+              onChange={(e) => set('secondaryColor', e.target.value)}
+            />
+          </div>
+        </div>
+
+        {(form.type === 'STAMPS' || form.type === 'HYBRID' || form.type === 'VISITS') && (
+          <div className="pt-2 border-t border-line">
+            <h4 className="text-sm font-semibold m-0 mb-2">🎯 Colores avanzados del sello</h4>
+            <p className="text-[11px] text-mute mb-3">
+              Personaliza cada elemento del sello individualmente. Si los dejas
+              vacíos, se calculan desde los colores de marca.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <AdvancedColorInput
+                label="Sello activo"
+                value={form.stampActiveColor}
+                onChange={(v) => set('stampActiveColor', v)}
+              />
+              <AdvancedColorInput
+                label="Sello inactivo"
+                value={form.stampInactiveColor}
+                onChange={(v) => set('stampInactiveColor', v)}
+              />
+              <AdvancedColorInput
+                label="Contorno del sello"
+                value={form.stampContourColor}
+                onChange={(v) => set('stampContourColor', v)}
+              />
+              <AdvancedColorInput
+                label="Fondo central"
+                value={form.centerBgColor}
+                onChange={(v) => set('centerBgColor', v)}
+              />
+            </div>
+          </div>
+        )}
+
+        {(form.type === 'STAMPS' || form.type === 'HYBRID' || form.type === 'VISITS') && (
+          <div className="pt-2 border-t border-line">
+            <label className="label">Icono del sello</label>
+            <StampIconPicker
+              value={form.stampIcon}
+              onSelect={(icon) => set('stampIcon', icon)}
+            />
+          </div>
+        )}
+
+        <div className="pt-2 border-t border-line">
+          <div className="flex items-center justify-between">
+            <label className="label m-0">Términos y condiciones</label>
+            <button
+              type="button"
+              onClick={() => set('termsEnabled', !form.termsEnabled)}
+              className={`relative w-10 h-5 rounded-full transition ${
+                form.termsEnabled ? 'bg-brand' : 'bg-bg2 border border-line'
+              }`}
+              aria-label="Toggle T&C"
+            >
+              <span
+                className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition ${
+                  form.termsEnabled ? 'left-[22px]' : 'left-0.5'
+                }`}
+              />
+            </button>
+          </div>
+          {form.termsEnabled ? (
+            <textarea
+              className="input mt-2"
+              rows={3}
+              value={form.terms}
+              onChange={(e) => set('terms', e.target.value)}
+              placeholder="Aparecen en el reverso de la tarjeta wallet"
+            />
+          ) : (
+            <div className="text-xs text-mute mt-2">
+              Esta tarjeta no muestra términos y condiciones.
+            </div>
+          )}
+        </div>
+
+        {err && (
+          <div className="rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink">
+            {err}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-2.5">
+          Vista previa
+        </div>
+        <div className="flex justify-center">
+          <div className="iphone">
+            <div className="iphone-notch" />
+            <div className="iphone-screen">
+              <div className="iphone-bar">
+                <span>11:42</span>
+                <span className="text-[10px]">●●● 100%</span>
+              </div>
+              <div className="wallet-actions">
+                <span className="wallet-ok">OK</span>
+                <span className="text-mute2 text-xs">↑ ···</span>
+              </div>
+              <div className="mx-2 mb-2">
+                <div
+                  className="pass"
+                  style={{
+                    background: `linear-gradient(135deg, ${form.primaryColor}, ${form.secondaryColor})`,
+                  }}
+                >
+                  <div className="pass-head">
+                    <div className="pass-logo">
+                      <span className="pass-logo-mark">
+                        {(brand[0] || 'C').toUpperCase()}
+                      </span>{' '}
+                      {brand}
+                    </div>
+                    <div className="pass-side">
+                      <div className="pass-side-lbl">
+                        {TYPE_LABEL[form.type].toUpperCase()}
+                      </div>
+                      <div className="pass-side-val">
+                        {form.type === 'STAMPS' || form.type === 'HYBRID'
+                          ? `3/${form.stampsRequired}`
+                          : form.type === 'POINTS'
+                          ? '120'
+                          : form.type === 'DISCOUNT'
+                          ? `${form.discountPercent}%`
+                          : form.type === 'CASHBACK'
+                          ? '$15.000'
+                          : form.type === 'VISITS'
+                          ? `3/${form.visitsRequired ?? 10}`
+                          : form.type === 'MEMBERSHIP'
+                          ? form.tiers[0]?.name || 'Activa'
+                          : '—'}
+                      </div>
+                    </div>
+                  </div>
+                  <div
+                    className="pass-strip"
+                    style={{
+                      background: form.centerBgColor
+                        ? `linear-gradient(135deg, ${form.centerBgColor}cc, ${form.centerBgColor}aa)`
+                        : 'linear-gradient(135deg,rgba(0,0,0,.15),rgba(0,0,0,.05))',
+                    }}
+                  >
+                    <div className="strip-stamps">
+                      {Array.from({ length: visibleStamps }).map((_, i) => (
+                        <div
+                          key={i}
+                          className={`strip-stamp ${i < 3 ? 'full' : ''}`}
+                          style={{
+                            color: i < 3
+                              ? form.stampActiveColor || form.primaryColor
+                              : form.stampInactiveColor || '#fff',
+                            borderColor: form.stampContourColor || undefined,
+                          }}
+                        >
+                          {i < 3 ? form.stampIcon || '✓' : ''}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="pass-fields">
+                    <div>
+                      <div className="pf-lbl">TITULAR</div>
+                      <div className="pf-val">RICARDO PÉREZ</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="pf-lbl">RECOMPENSA</div>
+                      <div className="pf-val text-xs">{form.rewardText}</div>
+                    </div>
+                  </div>
+                  <div className="pass-bar">
+                    <div className="w-32 h-32 bg-ink/10 rounded grid place-items-center text-mute text-xs">
+                      QR
+                    </div>
+                    <div className="pager">
+                      <span className="pager-dot" />
+                      <span className="pager-dot on" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="card card-pad mt-4 flex items-start gap-3">
+          <Icon name="spark" size={18} className="text-brand flex-none mt-0.5" />
+          <div className="text-sm">
+            <strong>Tip:</strong> usá los colores exactos de tu identidad de marca. El
+            cliente reconoce tu negocio en su Wallet al primer vistazo.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// Step 5: Información (reverso del .pkpass + enlaces activos)
+// ═══════════════════════════════════════════════════════════
+
+function Step5Information({
   form,
   setForm,
   err,
