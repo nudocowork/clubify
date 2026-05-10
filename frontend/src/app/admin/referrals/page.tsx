@@ -49,6 +49,8 @@ type PayoutItem = {
   ownerWhatsapp: string;
   codeText: string;
   tenantBrand: string;
+  notes: string | null;
+  clientContactedAt: string | null;
 };
 
 type PayoutsResp = {
@@ -304,6 +306,7 @@ function PayoutsTab() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [editingNotes, setEditingNotes] = useState<PayoutItem | null>(null);
 
   async function load() {
     setLoading(true);
@@ -511,6 +514,25 @@ function PayoutsTab() {
                         {fmtDate(c.paidAt)}
                       </td>
                       <td className="px-4 py-3.5 text-right whitespace-nowrap">
+                        <button
+                          onClick={() => setEditingNotes(c)}
+                          className="text-xs text-mute hover:text-ink mr-2"
+                          title={
+                            c.notes
+                              ? `Nota: ${c.notes.slice(0, 60)}${c.notes.length > 60 ? '…' : ''}`
+                              : 'Agregar nota interna'
+                          }
+                        >
+                          {c.notes ? '📝' : '＋'}
+                        </button>
+                        {c.clientContactedAt && (
+                          <span
+                            className="text-[10px] text-ok mr-2"
+                            title={`Contactado: ${fmtDate(c.clientContactedAt)}`}
+                          >
+                            ✓ contactado
+                          </span>
+                        )}
                         {(c.status === 'APPROVED' || c.status === 'PENDING') && (
                           <>
                             <button
@@ -543,6 +565,96 @@ function PayoutsTab() {
                 })}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {editingNotes && (
+        <CommissionNotesModal
+          item={editingNotes}
+          onClose={() => setEditingNotes(null)}
+          onSaved={() => {
+            setEditingNotes(null);
+            load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function CommissionNotesModal({
+  item,
+  onClose,
+  onSaved,
+}: {
+  item: PayoutItem;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [notes, setNotes] = useState(item.notes ?? '');
+  const [contacted, setContacted] = useState(!!item.clientContactedAt);
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    setBusy(true);
+    try {
+      await api(`/referrals/commissions/${item.id}/notes`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          notes: notes.trim() || null,
+          markContacted: contacted,
+        }),
+      });
+      toast('Nota guardada', 'success');
+      onSaved();
+    } catch (e: any) {
+      toast(e.message || 'Error', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-2xl shadow-xl max-w-md w-full p-5"
+      >
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold m-0">Nota interna</h2>
+          <button onClick={onClose} className="text-mute hover:text-ink text-xl leading-none">
+            ×
+          </button>
+        </div>
+        <div className="text-xs text-mute mb-3">
+          Comisión de <strong>{item.ownerName}</strong> · {fmtUsd(item.amount)} ·{' '}
+          cliente <strong>{item.tenantBrand}</strong>
+        </div>
+        <textarea
+          className="input min-h-[120px] mb-3"
+          placeholder="Ej: Pagado vía Wise · Cliente prometió pagar el 15 ·…"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+        <label className="flex items-center gap-2 text-sm cursor-pointer mb-4">
+          <input
+            type="checkbox"
+            checked={contacted}
+            onChange={(e) => setContacted(e.target.checked)}
+            className="accent-brand"
+          />
+          <span>Cliente fue contactado por pago</span>
+        </label>
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="btn-ghost" disabled={busy}>
+            Cancelar
+          </button>
+          <button onClick={save} className="btn-primary" disabled={busy}>
+            {busy ? 'Guardando…' : 'Guardar'}
+          </button>
         </div>
       </div>
     </div>
@@ -1823,6 +1935,22 @@ type SummaryResp = {
     activeClients: number;
     mrrUsd: number;
   }>;
+  topInfluencers: Array<{
+    code: string;
+    ownerName: string;
+    role: string;
+    activeClients: number;
+    totalClients: number;
+    revenueUsd: number;
+  }>;
+  topAmbassadors: Array<{
+    code: string;
+    ownerName: string;
+    role: string;
+    activeClients: number;
+    totalClients: number;
+    revenueUsd: number;
+  }>;
 };
 
 function SummaryTab() {
@@ -1913,6 +2041,45 @@ function SummaryTab() {
           </div>
         )}
       </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <TopList title="🌟 Top influencers (revenue total)" rows={data.topInfluencers} />
+        <TopList title="👥 Top embajadores (revenue total)" rows={data.topAmbassadors} />
+      </div>
+    </div>
+  );
+}
+
+function TopList({
+  title,
+  rows,
+}: {
+  title: string;
+  rows: SummaryResp['topInfluencers'];
+}) {
+  return (
+    <div className="card card-pad">
+      <h3 className="font-semibold m-0 mb-3">{title}</h3>
+      {rows.length === 0 ? (
+        <div className="text-center text-mute py-6 text-sm">Sin datos aún</div>
+      ) : (
+        <div className="space-y-2">
+          {rows.map((r, i) => (
+            <div key={r.code} className="flex items-center gap-3 p-2 rounded-lg hover:bg-bg2/40">
+              <div className="font-bold text-base w-6 text-center">
+                {['🥇', '🥈', '🥉'][i] ?? `${i + 1}`}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold truncate">{r.ownerName}</div>
+                <div className="text-xs text-mute truncate">
+                  <span className="font-mono">{r.code}</span> · {r.activeClients}/{r.totalClients} activos
+                </div>
+              </div>
+              <div className="font-bold text-brand whitespace-nowrap">{fmtUsd(r.revenueUsd)}</div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

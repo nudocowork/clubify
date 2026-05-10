@@ -217,6 +217,20 @@ export class ReferralsService {
     });
   }
 
+  async setCommissionNotes(
+    id: string,
+    patch: { notes?: string | null; markContacted?: boolean },
+  ) {
+    return this.prisma.commission.update({
+      where: { id },
+      data: {
+        notes: patch.notes ?? undefined,
+        clientContactedAt:
+          patch.markContacted === true ? new Date() : patch.markContacted === false ? null : undefined,
+      },
+    });
+  }
+
   /**
    * Leaderboard: agrega por afiliado (matcheado por email del code), suma
    * inscritos / conversiones / revenue generado / comisiones pagadas y
@@ -383,6 +397,48 @@ export class ReferralsService {
       };
     });
 
+    // Top influencers/embajadores por revenue total generado.
+    type CodeAgg = {
+      code: string;
+      ownerName: string;
+      role: string;
+      activeClients: number;
+      totalClients: number;
+      revenueUsd: number;
+    };
+    const codeAggMap = new Map<string, CodeAgg>();
+    for (const u of uses) {
+      if (u.referralCode.role === 'SOCIO') continue;
+      const key = u.referralCode.code;
+      const row = codeAggMap.get(key) ?? {
+        code: u.referralCode.code,
+        ownerName: u.referralCode.ownerName,
+        role: u.referralCode.role,
+        activeClients: 0,
+        totalClients: 0,
+        revenueUsd: 0,
+      };
+      row.totalClients += 1;
+      if (u.status === 'PAYING' || u.status === 'ACTIVE') row.activeClients += 1;
+      const revenue = commissions
+        .filter((c) => c.referralUseId === u.id && c.status !== 'REJECTED')
+        .reduce((s, c) => s + Number(c.amount), 0);
+      row.revenueUsd += revenue;
+      codeAggMap.set(key, row);
+    }
+    const codeAgg = Array.from(codeAggMap.values()).map((r) => ({
+      ...r,
+      revenueUsd: round(r.revenueUsd),
+    }));
+    const topInfluencers = codeAgg
+      .filter((r) => r.role === 'INFLUENCER')
+      .sort((a, b) => b.revenueUsd - a.revenueUsd)
+      .slice(0, 5);
+    const topAmbassadors = codeAgg
+      .filter((r) => r.role === 'AMBASSADOR')
+      .sort((a, b) => b.revenueUsd - a.revenueUsd)
+      .slice(0, 5);
+
     // Comisión socio: suma de comisiones del use cuyo code tiene role=SOCIO.
     const socioCommissions = uses
       .filter((u) => u.referralCode.role === 'SOCIO')
@@ -421,6 +477,8 @@ export class ReferralsService {
       topCampaigns: campaignRows
         .sort((a, b) => b.mrrUsd - a.mrrUsd)
         .slice(0, 5),
+      topInfluencers,
+      topAmbassadors,
     };
   }
 
@@ -723,6 +781,8 @@ export class ReferralsService {
         ownerWhatsapp: r?.ownerWhatsapp ?? '',
         codeText: r?.code ?? '',
         tenantBrand: t?.brandName ?? '—',
+        notes: c.notes,
+        clientContactedAt: c.clientContactedAt,
       };
     });
 

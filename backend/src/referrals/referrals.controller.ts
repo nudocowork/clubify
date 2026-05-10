@@ -118,4 +118,13 @@ export class ReferralsController {
   setStatus(@Param('id') id: string, @Body() body: CommissionBody) {
     return this.svc.setCommissionStatus(id, body.status);
   }
+
+  @Roles('SUPER_ADMIN')
+  @Patch('commissions/:id/notes')
+  setNotes(
+    @Param('id') id: string,
+    @Body() body: { notes?: string | null; markContacted?: boolean },
+  ) {
+    return this.svc.setCommissionNotes(id, body);
+  }
 }

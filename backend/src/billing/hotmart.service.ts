@@ -390,16 +390,16 @@ export class HotmartService {
     paidAmount: number | null;
     transactionId?: string;
   }) {
-    // Resolver monto pagado: payload Hotmart > plan.priceMonthly
-    let amountPaid = opts.paidAmount;
-    if (!amountPaid || amountPaid <= 0) {
-      const tenant = await this.prisma.tenant.findUnique({
-        where: { id: opts.tenantId },
-        select: { plan: { select: { priceMonthly: true } } },
-      });
-      amountPaid = Number(tenant?.plan?.priceMonthly ?? 0);
-    }
-    if (!amountPaid || amountPaid <= 0) {
+    // Resolver precio original del plan + monto efectivamente pagado.
+    // Hotmart envía el monto cobrado en `purchase.price.value` (ya con
+    // descuento si aplicó cupón). El precio original lo sacamos del plan.
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: opts.tenantId },
+      select: { plan: { select: { priceMonthly: true } } },
+    });
+    const originalPrice = Number(tenant?.plan?.priceMonthly ?? 0);
+    let amountPaid = opts.paidAmount && opts.paidAmount > 0 ? opts.paidAmount : originalPrice;
+    if (!originalPrice || originalPrice <= 0) {
       this.logger.warn(`Skip comisión: sin precio para tenant=${opts.tenantId}`);
       return;
     }
@@ -414,12 +414,39 @@ export class HotmartService {
       },
       include: {
         referralCode: {
-          include: { parentCode: true },
+          include: {
+            parentCode: true,
+            campaign: { select: { discountAbsorption: true } },
+            ownerOfCampaign: { select: { discountAbsorption: true } },
+          },
         },
         commissions: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    // Resolver regla de absorción de descuento. La regla vive en la
+    // campaña — un embajador la hereda de su `campaignId`; un influencer
+    // titular de campaña la lee de `ownerOfCampaign`. Sin campaña asociada:
+    // PROPORTIONAL como default seguro.
+    const absorption =
+      use?.referralCode.campaign?.discountAbsorption ??
+      use?.referralCode.ownerOfCampaign?.discountAbsorption ??
+      'PROPORTIONAL';
+    // Base sobre la cual calculamos la comisión del referido (directa+indirecta):
+    //   - PAID_PRICE: usa el monto efectivamente pagado (descuento prorrateado).
+    //   - resto: usa el precio original (referidos cobran sobre tarifa lista).
+    const referralBase =
+      absorption === 'PAID_PRICE' ? amountPaid : originalPrice;
+    // Base para la comisión del SOCIO:
+    //   - EMPRESA_ABSORBS: socio cobra sobre original (descuento sale solo de empresa).
+    //   - ORIGINAL_PRICE: socio cobra sobre original.
+    //   - PAID_PRICE: socio cobra sobre lo pagado.
+    //   - PROPORTIONAL: socio cobra sobre lo pagado (comparte el descuento con empresa).
+    const socioBase =
+      absorption === 'ORIGINAL_PRICE' || absorption === 'EMPRESA_ABSORBS'
+        ? originalPrice
+        : amountPaid;
 
     if (use) {
       const last = use.commissions[0];
@@ -427,7 +454,7 @@ export class HotmartService {
 
       if (!recent) {
         const pct = Number(use.referralCode.commissionPercent ?? 25);
-        const direct = round2((amountPaid * pct) / 100);
+        const direct = round2((referralBase * pct) / 100);
 
         if (use.status === 'SIGNED_UP') {
           await this.prisma.referralUse.update({
@@ -439,7 +466,7 @@ export class HotmartService {
           data: { referralUseId: use.id, amount: direct, status: 'PENDING' },
         });
         this.logger.log(
-          `Comisión directa: ${use.referralCode.role} ${use.referralCode.code} $${direct} (${pct}%)`,
+          `Comisión directa: ${use.referralCode.role} ${use.referralCode.code} $${direct} (${pct}% sobre $${referralBase} · ${absorption})`,
         );
 
         // Indirecta: si es embajador, su influencer parent gana 5% por default.
@@ -447,7 +474,7 @@ export class HotmartService {
         if (use.referralCode.role === 'AMBASSADOR' && use.referralCode.parentCode) {
           const parent = use.referralCode.parentCode;
           const indirectPct = await this.getNumberSetting('referrals.indirectPercent', 5);
-          const indirect = round2((amountPaid * indirectPct) / 100);
+          const indirect = round2((referralBase * indirectPct) / 100);
           // Necesitamos un ReferralUse del parent para colgar la comisión.
           // Match-or-create: uno por tenantId+codeId.
           const parentUse = await this.prisma.referralUse.upsert({
@@ -491,7 +518,7 @@ export class HotmartService {
 
     // 2) Comisión SOCIO (10% global). Aplica SIEMPRE, exista o no
     // un código de referido. Solo si el super admin configuró el socio.
-    await this.generateSocioCommission(opts.tenantId, amountPaid).catch((e) =>
+    await this.generateSocioCommission(opts.tenantId, socioBase).catch((e) =>
       this.logger.warn(`Comisión socio falló: ${(e as Error).message}`),
     );
   }

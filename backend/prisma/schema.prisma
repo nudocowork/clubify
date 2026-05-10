@@ -1145,6 +1145,12 @@ model Commission {
   currency      String           @default("USD")
   status        CommissionStatus @default(PENDING)
   paidAt        DateTime?
+  // Nota interna del super admin (ej: "Pagado vía Wise", "Cliente
+  // contactado el 2026-05-12, prometió pagar"). Visible solo en panel.
+  notes         String?          @db.Text
+  // Marca de contacto al cliente cuando hubo pago fallido — se setea
+  // desde la tab "Pendientes por pagar" para llevar registro.
+  clientContactedAt DateTime?
   createdAt     DateTime         @default(now())
 
   @@index([status])
