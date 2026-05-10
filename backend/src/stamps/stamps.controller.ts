@@ -14,6 +14,10 @@ class StampBody {
   // Requerido cuando se hace STAMP con amount>1 desde el escáner
   // (ver scanner.staffPin en super admin / settings).
   @IsOptional() @IsString() pin?: string;
+  // Monto que el cliente pagó por la compra que motivó el scan.
+  // Required en STAMP/VISIT para cards STAMPS/VISITS/HYBRID (validado en svc).
+  // Solo informativo — no afecta la cantidad de sellos otorgados.
+  @IsOptional() purchaseAmount?: number;
 }
 
 @Controller('stamps')

@@ -1211,6 +1211,7 @@ export class MetricsService {
         id: true,
         action: true,
         amount: true,
+        purchaseAmount: true,
         customerId: true,
         passId: true,
         createdAt: true,
@@ -1239,16 +1240,23 @@ export class MetricsService {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, count]) => ({ date, count }));
 
-    // Top 10 clientes por scans
+    // Top 10 clientes por scans + revenue acumulado por cliente
     const scansByCustomer = new Map<
       string,
-      { customerId: string; fullName: string; scans: number; lastVisit: Date | null }
+      {
+        customerId: string;
+        fullName: string;
+        scans: number;
+        revenue: number;
+        lastVisit: Date | null;
+      }
     >();
     for (const p of passes) {
       scansByCustomer.set(p.customer.id, {
         customerId: p.customer.id,
         fullName: p.customer.fullName,
         scans: 0,
+        revenue: 0,
         lastVisit: p.lastActivityAt,
       });
     }
@@ -1256,6 +1264,7 @@ export class MetricsService {
       const entry = scansByCustomer.get(s.customerId);
       if (entry) {
         entry.scans += 1;
+        if (s.purchaseAmount) entry.revenue += Number(s.purchaseAmount);
         if (!entry.lastVisit || s.createdAt > entry.lastVisit) {
           entry.lastVisit = s.createdAt;
         }
@@ -1264,7 +1273,47 @@ export class MetricsService {
     const topCustomers = Array.from(scansByCustomer.values())
       .filter((c) => c.scans > 0)
       .sort((a, b) => b.scans - a.scans)
-      .slice(0, 10);
+      .slice(0, 10)
+      .map((c) => ({ ...c, revenue: Math.round(c.revenue) }));
+    const topByRevenue = Array.from(scansByCustomer.values())
+      .filter((c) => c.revenue > 0)
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 10)
+      .map((c) => ({ ...c, revenue: Math.round(c.revenue) }));
+
+    // Revenue agregado de scans con purchaseAmount (STAMP/VISIT en cards
+    // de fidelización) + por día para el chart.
+    const purchaseStamps = stamps.filter(
+      (s) => s.purchaseAmount && Number(s.purchaseAmount) > 0,
+    );
+    const totalRevenue = purchaseStamps.reduce(
+      (sum, s) => sum + Number(s.purchaseAmount),
+      0,
+    );
+    const revenueLast30 = purchaseStamps
+      .filter((s) => s.createdAt >= since30)
+      .reduce((sum, s) => sum + Number(s.purchaseAmount), 0);
+    const avgTicket =
+      purchaseStamps.length > 0
+        ? Math.round(totalRevenue / purchaseStamps.length)
+        : 0;
+    const revenueByDay = (() => {
+      const m = new Map<string, number>();
+      for (let i = 0; i < 30; i++) {
+        const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+        m.set(d.toISOString().slice(0, 10), 0);
+      }
+      for (const s of purchaseStamps) {
+        if (s.createdAt < since30) continue;
+        const key = s.createdAt.toISOString().slice(0, 10);
+        if (m.has(key)) {
+          m.set(key, (m.get(key) ?? 0) + Number(s.purchaseAmount));
+        }
+      }
+      return Array.from(m.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, amount]) => ({ date, amount: Math.round(amount) }));
+    })();
 
     // Embudo de fidelización (solo aplica a STAMPS/HYBRID/VISITS)
     const required =
@@ -1415,10 +1464,18 @@ export class MetricsService {
             ? 0
             : Math.round((totalScans / activePasses) * 10) / 10,
       },
+      revenue: {
+        total: Math.round(totalRevenue),
+        last30: Math.round(revenueLast30),
+        avgTicket,
+        scansWithPurchase: purchaseStamps.length,
+      },
       scansByDay,
       newPassesByDay,
+      revenueByDay,
       funnel,
       topCustomers,
+      topByRevenue,
       byType,
     };
   }

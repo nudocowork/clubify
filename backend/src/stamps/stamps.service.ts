@@ -15,7 +15,16 @@ export type StampDto = {
   note?: string;
   locationId?: string;
   pin?: string;
+  // Monto que el cliente pagó por la compra que motivó el scan.
+  // Solo informativo — no cambia cuántos sellos se otorgan.
+  purchaseAmount?: number;
 };
+
+// Anti-fraude: tiempo mínimo entre dos STAMP/VISIT consecutivos al mismo pass.
+// Evita que el staff abuse del scanner agregando múltiples sellos en una sola
+// compra. 30 segundos es suficiente para que un cliente legítimo vuelva a
+// comprar (Apple Pay tap → comprar otro café → tap de nuevo) sin frustrar.
+const MIN_SECONDS_BETWEEN_STAMPS = 30;
 
 @Injectable()
 export class StampsService {
@@ -72,6 +81,50 @@ export class StampsService {
       if (expected && (dto.pin ?? '').trim() !== expected) {
         throw new ForbiddenException('PIN del escáner inválido');
       }
+    }
+
+    // Anti-fraude: rate-limit STAMP/VISIT al mismo pass. Bypass solo si
+    // el operator es SUPER_ADMIN (puede arreglar errores manualmente).
+    if (
+      (dto.action === 'STAMP' || dto.action === 'VISIT') &&
+      user.role !== 'SUPER_ADMIN'
+    ) {
+      const recent = await this.prisma.stamp.findFirst({
+        where: {
+          passId: pass.id,
+          action: { in: ['STAMP', 'VISIT'] },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      });
+      if (recent) {
+        const elapsedSec = (Date.now() - recent.createdAt.getTime()) / 1000;
+        if (elapsedSec < MIN_SECONDS_BETWEEN_STAMPS) {
+          throw new BadRequestException(
+            `Esperá ${Math.ceil(
+              MIN_SECONDS_BETWEEN_STAMPS - elapsedSec,
+            )}s antes del próximo sello (anti-fraude).`,
+          );
+        }
+      }
+    }
+
+    // Para STAMP/VISIT en cards de fidelización, el frontend exige
+    // monto de compra (regla de negocio). Validamos que esté presente
+    // y > 0 — pero solo para tipos de cards que lo requieren.
+    const requiresPurchase =
+      (dto.action === 'STAMP' || dto.action === 'VISIT') &&
+      ['STAMPS', 'VISITS', 'HYBRID'].includes(pass.card.type);
+    if (
+      requiresPurchase &&
+      user.role !== 'SUPER_ADMIN' &&
+      (dto.purchaseAmount === undefined ||
+        dto.purchaseAmount === null ||
+        Number(dto.purchaseAmount) <= 0)
+    ) {
+      throw new BadRequestException(
+        'Monto de compra requerido para registrar el sello.',
+      );
     }
 
     let newStamps = pass.stampsCount;
@@ -165,6 +218,10 @@ export class StampsService {
           operatorId: user.id,
           action: dto.action,
           amount,
+          purchaseAmount:
+            dto.purchaseAmount !== undefined && dto.purchaseAmount !== null
+              ? new Prisma.Decimal(dto.purchaseAmount)
+              : undefined,
           note: dto.note,
         },
       }),

@@ -1374,13 +1374,28 @@ type CardMetrics = {
     redemptions: number;
     avgScansPerCustomer: number;
   };
+  revenue: {
+    total: number;
+    last30: number;
+    avgTicket: number;
+    scansWithPurchase: number;
+  };
   scansByDay: Array<{ date: string; count: number }>;
   newPassesByDay: Array<{ date: string; count: number }>;
+  revenueByDay: Array<{ date: string; amount: number }>;
   funnel: Array<{ key: string; label: string; count: number; pct: number }>;
   topCustomers: Array<{
     customerId: string;
     fullName: string;
     scans: number;
+    revenue: number;
+    lastVisit: string | null;
+  }>;
+  topByRevenue: Array<{
+    customerId: string;
+    fullName: string;
+    scans: number;
+    revenue: number;
     lastVisit: string | null;
   }>;
   byType: {
@@ -1487,6 +1502,76 @@ function CardAnalytics({ cardId }: { cardId: string }) {
           newPasses={data.newPassesByDay}
         />
       </div>
+
+      {/* Facturación de tarjetas fidelizadas */}
+      {data.revenue.scansWithPurchase > 0 && (
+        <div className="card card-pad">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="text-sm font-semibold m-0">💵 Facturación generada</h3>
+              <p className="text-xs text-mute mt-0.5">
+                Monto registrado por el operador en cada scan. Solo informativo —
+                no afecta la cantidad de sellos.
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+            <Kpi2
+              label="Facturación 30d"
+              value={`$${data.revenue.last30.toLocaleString('es-CO')}`}
+              accent="ok"
+            />
+            <Kpi2
+              label="Facturación total"
+              value={`$${data.revenue.total.toLocaleString('es-CO')}`}
+            />
+            <Kpi2
+              label="Ticket promedio"
+              value={`$${data.revenue.avgTicket.toLocaleString('es-CO')}`}
+              accent="brand"
+            />
+            <Kpi2
+              label="Compras registradas"
+              value={data.revenue.scansWithPurchase}
+              sub="con monto"
+            />
+          </div>
+          <RevenueBarChart data={data.revenueByDay} />
+        </div>
+      )}
+
+      {/* Top clientes por facturación */}
+      {data.topByRevenue && data.topByRevenue.length > 0 && (
+        <div className="card card-pad">
+          <h3 className="text-sm font-semibold m-0 mb-3">
+            💎 Top clientes por facturación
+          </h3>
+          <div className="space-y-1.5">
+            {data.topByRevenue.map((c, i) => (
+              <Link
+                key={c.customerId}
+                href={`/app/customers/${c.customerId}`}
+                className="flex items-center gap-3 p-2 rounded-lg hover:bg-bg2 transition"
+              >
+                <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-xs font-bold text-emerald-700">
+                  {i + 1}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-sm truncate">{c.fullName}</div>
+                  <div className="text-[11px] text-mute">
+                    {c.scans} {c.scans === 1 ? 'scan' : 'scans'}
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="text-base font-bold text-emerald-700">
+                    ${c.revenue.toLocaleString('es-CO')}
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Embudo (solo progress types) */}
       {isProgressType && data.funnel.length > 0 && (
@@ -1750,4 +1835,34 @@ function formatRelative(iso: string): string {
   const days = Math.floor(hours / 24);
   if (days < 30) return `hace ${days}d`;
   return d.toLocaleDateString('es-CO');
+}
+
+// ─── Bar chart de facturación diaria (30d) ───
+function RevenueBarChart({ data }: { data: Array<{ date: string; amount: number }> }) {
+  const max = Math.max(...data.map((d) => d.amount), 1);
+  return (
+    <div>
+      <div className="flex items-end gap-1 h-24">
+        {data.map((d) => {
+          const h = (d.amount / max) * 100;
+          const day = new Date(d.date).getDate();
+          return (
+            <div
+              key={d.date}
+              className="flex-1 flex flex-col items-center gap-0.5 group"
+              title={`${d.date} · $${d.amount.toLocaleString('es-CO')}`}
+            >
+              <div
+                className="w-full bg-emerald-500/70 group-hover:bg-emerald-500 rounded-sm transition"
+                style={{ height: `${h}%`, minHeight: d.amount > 0 ? 2 : 0 }}
+              />
+              {data.length <= 30 && day % 5 === 0 && (
+                <div className="text-[8px] text-mute">{day}</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }

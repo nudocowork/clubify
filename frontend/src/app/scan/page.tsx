@@ -35,6 +35,12 @@ export default function ScanPage() {
   const [showMoreModal, setShowMoreModal] = useState(false);
   const [moreForm, setMoreForm] = useState({ amount: 2, pin: '' });
   const [moreErr, setMoreErr] = useState<string | null>(null);
+  // Modal de compra: aparece al tocar "Agregar sello / Registrar visita".
+  // Pide el monto pagado (regla de negocio: 1 scan = 1 sello, monto solo
+  // informativo para analytics). Si action=VISIT, el botón dice "registrar visita".
+  const [showPurchase, setShowPurchase] = useState<null | 'STAMP' | 'VISIT'>(null);
+  const [purchaseAmount, setPurchaseAmount] = useState<string>('');
+  const [purchaseErr, setPurchaseErr] = useState<string | null>(null);
 
   // Inicia (o re-inicia) el scanner. Idempotente.
   async function startScanner() {
@@ -188,7 +194,12 @@ export default function ScanPage() {
     }
   }
 
-  async function act(action: string, amount = 1, pin?: string) {
+  async function act(
+    action: string,
+    amount = 1,
+    pin?: string,
+    purchaseAmount?: number,
+  ) {
     if (!data?.pass) return;
     setBusy(true);
     try {
@@ -199,6 +210,7 @@ export default function ScanPage() {
           action,
           amount,
           ...(pin ? { pin } : {}),
+          ...(purchaseAmount !== undefined ? { purchaseAmount } : {}),
         }),
       });
       // El backend devuelve `pass` sin includes (solo campos del Pass).
@@ -462,9 +474,13 @@ export default function ScanPage() {
                 <button
                   className="btn-primary w-full justify-center py-5 text-lg mt-5"
                   disabled={busy}
-                  onClick={() => act('STAMP', 1)}
+                  onClick={() => {
+                    setPurchaseAmount('');
+                    setPurchaseErr(null);
+                    setShowPurchase('STAMP');
+                  }}
                 >
-                  <Icon name="plus" /> Agregar 1 sello
+                  <Icon name="plus" /> Confirmar compra y agregar sello
                 </button>
                 <div className="grid grid-cols-2 gap-2 mt-2">
                   <button
@@ -495,9 +511,13 @@ export default function ScanPage() {
                 <button
                   className="btn-primary w-full justify-center py-5 text-lg mt-5"
                   disabled={busy}
-                  onClick={() => act('VISIT', 1)}
+                  onClick={() => {
+                    setPurchaseAmount('');
+                    setPurchaseErr(null);
+                    setShowPurchase('VISIT');
+                  }}
                 >
-                  <Icon name="plus" /> Registrar visita
+                  <Icon name="plus" /> Confirmar compra y registrar visita
                 </button>
                 <button
                   className="btn-ghost w-full justify-center py-3.5 text-sm mt-2"
@@ -511,7 +531,9 @@ export default function ScanPage() {
 
             {data.pass.card.type === 'CASHBACK' && (
               <CashbackActions
-                onAdd={(amt) => act('CASHBACK_ADD', amt)}
+                onAdd={(amt, purchaseAmt) =>
+                  act('CASHBACK_ADD', amt, undefined, purchaseAmt)
+                }
                 onRedeem={(amt) => act('CASHBACK_REDEEM', amt)}
                 cashbackPercent={data.pass.card.cashbackPercent ?? 5}
                 busy={busy}
@@ -636,6 +658,104 @@ export default function ScanPage() {
             </div>
           </div>
         )}
+
+        {/* Modal: confirmar compra y agregar 1 sello / 1 visita */}
+        {showPurchase && data && (
+          <div
+            className="fixed inset-0 z-50 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setShowPurchase(null)}
+          >
+            <div
+              className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="font-semibold text-lg m-0">
+                {showPurchase === 'STAMP' ? '🛍 Registrar compra' : '🚶 Registrar visita'}
+              </h3>
+              <p className="text-xs text-mute mt-1.5 leading-relaxed">
+                Cliente: <strong>{data.pass.customer.fullName}</strong>
+                <br />
+                Tarjeta: <strong>{data.pass.card.name}</strong>
+                <br />
+                {showPurchase === 'STAMP'
+                  ? `Sellos: ${data.pass.stampsCount} / ${data.pass.card.stampsRequired ?? 10}`
+                  : `Visitas: ${data.pass.visitsCount ?? 0} / ${data.pass.card.visitsRequired ?? 10}`}
+              </p>
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  setPurchaseErr(null);
+                  const amt = Number(purchaseAmount);
+                  if (!amt || amt <= 0) {
+                    setPurchaseErr('Ingresá el monto de la compra');
+                    return;
+                  }
+                  setBusy(true);
+                  try {
+                    await act(showPurchase, 1, undefined, amt);
+                    setShowPurchase(null);
+                    setPurchaseAmount('');
+                  } catch (err: any) {
+                    setPurchaseErr(err?.message ?? 'Error');
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+                className="mt-4 space-y-3"
+              >
+                <div>
+                  <label className="label">Monto de la compra</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-mute font-semibold">
+                      $
+                    </span>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      autoFocus
+                      inputMode="decimal"
+                      className="input pl-7 text-lg font-semibold"
+                      value={purchaseAmount}
+                      onChange={(e) => setPurchaseAmount(e.target.value)}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div className="text-[11px] text-mute mt-1.5 leading-snug">
+                    El monto es <b>solo informativo</b> (alimenta los KPIs de
+                    facturación). No cambia cuántos sellos se otorgan: 1 compra = 1 sello.
+                  </div>
+                </div>
+                {purchaseErr && (
+                  <div className="rounded-lg bg-bad-soft px-3 py-2 text-sm text-bad-ink">
+                    {purchaseErr}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    disabled={busy}
+                    className="btn-primary flex-1 justify-center"
+                  >
+                    {busy
+                      ? 'Procesando…'
+                      : showPurchase === 'STAMP'
+                      ? 'Confirmar y agregar sello'
+                      : 'Confirmar y registrar visita'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowPurchase(null)}
+                    disabled={busy}
+                    className="btn-ghost"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -648,7 +768,7 @@ function CashbackActions({
   cashbackPercent,
   busy,
 }: {
-  onAdd: (amt: number) => void;
+  onAdd: (amt: number, purchaseAmount: number) => void;
   onRedeem: (amt: number) => void;
   cashbackPercent: number;
   busy: boolean;
@@ -674,7 +794,7 @@ function CashbackActions({
             className="btn-primary px-4"
             disabled={busy || earned <= 0}
             onClick={() => {
-              onAdd(earned);
+              onAdd(earned, purchase);
               setPurchase(0);
             }}
           >
@@ -682,7 +802,8 @@ function CashbackActions({
           </button>
         </div>
         <div className="text-[11px] text-mute mt-1">
-          {cashbackPercent}% sobre la compra → saldo del cliente
+          {cashbackPercent}% sobre la compra → saldo del cliente. El monto
+          alimenta los KPIs de facturación del programa.
         </div>
       </div>
       <div className="p-3 rounded-xl border border-line">
