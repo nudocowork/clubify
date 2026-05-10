@@ -139,18 +139,9 @@ export class WalletService {
         300,
       ),
       storeCard: {
-        // Stamps cuenta arriba a la derecha (no encima del strip) →
-        // headerFields se renderiza en el header opuesto al logo del tenant.
-        headerFields: [
-          {
-            key: 'stamps',
-            label: 'SELLOS',
-            value: `${pass.stampsCount} / ${pass.card.stampsRequired ?? 10}`,
-            // Apple Wallet muestra banner "Tu pase de X cambió: Y sellos…"
-            // cuando este field cambia. %@ se reemplaza con el value nuevo.
-            changeMessage: 'Sellos: %@',
-          },
-        ],
+        // Header field principal — varía por tipo de tarjeta. Apple Wallet
+        // muestra banner "Tu pase de X cambió: Y…" cuando este field cambia.
+        headerFields: [this.buildHeaderField(pass)],
         // primaryFields vacío → el strip image actúa de hero principal sin
         // texto encima.
         primaryFields: [],
@@ -268,6 +259,60 @@ export class WalletService {
 
     const pkpass = new PKPass(buffers, certOpts);
     return pkpass.getAsBuffer();
+  }
+
+  /**
+   * Calcula el header field principal del pkpass según el tipo de tarjeta.
+   * Cada tipo muestra el dato relevante (sellos / saldo / visitas / tier).
+   */
+  private buildHeaderField(pass: any): {
+    key: string;
+    label: string;
+    value: string;
+    changeMessage: string;
+  } {
+    const t = pass.card.type;
+    if (t === 'CASHBACK') {
+      const bal = Math.round(Number(pass.cashbackBalance ?? 0));
+      return {
+        key: 'cashback',
+        label: 'SALDO',
+        value: `$${bal.toLocaleString('es-CO')}`,
+        changeMessage: 'Saldo: %@',
+      };
+    }
+    if (t === 'VISITS') {
+      return {
+        key: 'visits',
+        label: 'VISITAS',
+        value: `${pass.visitsCount ?? 0} / ${pass.card.visitsRequired ?? 10}`,
+        changeMessage: 'Visitas: %@',
+      };
+    }
+    if (t === 'POINTS') {
+      const pts = Math.round(Number(pass.pointsBalance ?? 0));
+      return {
+        key: 'points',
+        label: 'PUNTOS',
+        value: `${pts}`,
+        changeMessage: 'Puntos: %@',
+      };
+    }
+    if (t === 'MEMBERSHIP') {
+      return {
+        key: 'tier',
+        label: 'NIVEL',
+        value: pass.currentTier || 'Miembro',
+        changeMessage: 'Nuevo nivel: %@',
+      };
+    }
+    // STAMPS / HYBRID / DISCOUNT / GIFT / COUPON / MULTI: comportamiento clásico de sellos.
+    return {
+      key: 'stamps',
+      label: 'SELLOS',
+      value: `${pass.stampsCount} / ${pass.card.stampsRequired ?? 10}`,
+      changeMessage: 'Sellos: %@',
+    };
   }
 
   /**

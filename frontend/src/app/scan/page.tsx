@@ -210,6 +210,10 @@ export default function ScanPage() {
           ...data.pass,
           stampsCount: res.pass.stampsCount,
           pointsBalance: res.pass.pointsBalance,
+          cashbackBalance: res.pass.cashbackBalance,
+          visitsCount: res.pass.visitsCount,
+          currentTier: res.pass.currentTier,
+          tierProgress: res.pass.tierProgress,
           status: res.pass.status,
           lastActivityAt: res.pass.lastActivityAt,
         },
@@ -375,7 +379,7 @@ export default function ScanPage() {
               <span className="badge badge-info shrink-0">✓</span>
             </div>
 
-            {data.pass.card.type === 'STAMPS' && (
+            {(data.pass.card.type === 'STAMPS' || data.pass.card.type === 'HYBRID') && (
               <>
                 <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-4 justify-center">
                   {Array.from({ length: data.pass.card.stampsRequired ?? 10 }).map(
@@ -411,36 +415,127 @@ export default function ScanPage() {
               </>
             )}
 
-            {/* Acción principal: 1 sello por escaneada (regla anti-abuso) */}
-            <button
-              className="btn-primary w-full justify-center py-5 text-lg mt-5"
-              disabled={busy}
-              onClick={() => act('STAMP', 1)}
-            >
-              <Icon name="plus" /> Agregar 1 sello
-            </button>
+            {data.pass.card.type === 'VISITS' && (
+              <div className="mt-4 p-4 rounded-xl bg-bg2/50 text-center">
+                <div className="text-4xl font-bold">
+                  {data.pass.visitsCount ?? 0}
+                  <span className="text-mute text-base"> / {data.pass.card.visitsRequired ?? 10}</span>
+                </div>
+                <div className="text-xs text-mute mt-1">visitas registradas</div>
+              </div>
+            )}
 
-            <div className="grid grid-cols-2 gap-2 mt-2">
+            {data.pass.card.type === 'CASHBACK' && (
+              <div className="mt-4 p-4 rounded-xl bg-emerald-50 text-center">
+                <div className="text-3xl font-bold text-emerald-700">
+                  ${Number(data.pass.cashbackBalance ?? 0).toLocaleString('es-CO')}
+                </div>
+                <div className="text-xs text-emerald-700/70 mt-1">
+                  saldo de cashback disponible
+                </div>
+              </div>
+            )}
+
+            {data.pass.card.type === 'POINTS' && (
+              <div className="mt-4 p-4 rounded-xl bg-bg2/50 text-center">
+                <div className="text-3xl font-bold">
+                  {Math.round(Number(data.pass.pointsBalance ?? 0))} <span className="text-mute text-base">pts</span>
+                </div>
+              </div>
+            )}
+
+            {data.pass.card.type === 'MEMBERSHIP' && data.pass.currentTier && (
+              <div className="mt-4 p-4 rounded-xl bg-amber-50 text-center">
+                <div className="text-3xl font-bold text-amber-700">
+                  {data.pass.currentTier}
+                </div>
+                <div className="text-xs text-amber-700/70 mt-1">
+                  tier actual · acumulado: $
+                  {Number(data.pass.tierProgress ?? 0).toLocaleString('es-CO')}
+                </div>
+              </div>
+            )}
+
+            {/* Acciones según el tipo de tarjeta */}
+            {(data.pass.card.type === 'STAMPS' || data.pass.card.type === 'HYBRID') && (
+              <>
+                <button
+                  className="btn-primary w-full justify-center py-5 text-lg mt-5"
+                  disabled={busy}
+                  onClick={() => act('STAMP', 1)}
+                >
+                  <Icon name="plus" /> Agregar 1 sello
+                </button>
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <button
+                    className="btn-ghost justify-center py-3.5 text-sm"
+                    disabled={busy}
+                    onClick={() => act('REDEEM')}
+                  >
+                    <Icon name="gift" /> Redimir
+                  </button>
+                  <button
+                    className="btn-ghost justify-center py-3.5 text-sm text-mute"
+                    disabled={busy}
+                    onClick={() => {
+                      setMoreErr(null);
+                      setMoreForm({ amount: 2, pin: '' });
+                      setShowMoreModal(true);
+                    }}
+                    title="Requiere PIN del super admin"
+                  >
+                    🔐 Más sellos
+                  </button>
+                </div>
+              </>
+            )}
+
+            {data.pass.card.type === 'VISITS' && (
+              <>
+                <button
+                  className="btn-primary w-full justify-center py-5 text-lg mt-5"
+                  disabled={busy}
+                  onClick={() => act('VISIT', 1)}
+                >
+                  <Icon name="plus" /> Registrar visita
+                </button>
+                <button
+                  className="btn-ghost w-full justify-center py-3.5 text-sm mt-2"
+                  disabled={busy}
+                  onClick={() => act('REDEEM')}
+                >
+                  <Icon name="gift" /> Canjear recompensa
+                </button>
+              </>
+            )}
+
+            {data.pass.card.type === 'CASHBACK' && (
+              <CashbackActions
+                onAdd={(amt) => act('CASHBACK_ADD', amt)}
+                onRedeem={(amt) => act('CASHBACK_REDEEM', amt)}
+                cashbackPercent={data.pass.card.cashbackPercent ?? 5}
+                busy={busy}
+              />
+            )}
+
+            {data.pass.card.type === 'POINTS' && (
+              <PointsActions
+                onAdd={(amt) => act('POINTS_ADD', amt)}
+                onDeduct={(amt) => act('POINTS_DEDUCT', amt)}
+                pointsPerCurrency={Number(data.pass.card.pointsPerCurrency ?? 0.001)}
+                busy={busy}
+              />
+            )}
+
+            {data.pass.card.type === 'MEMBERSHIP' && (
               <button
-                className="btn-ghost justify-center py-3.5 text-sm"
+                className="btn-primary w-full justify-center py-5 text-lg mt-5"
                 disabled={busy}
-                onClick={() => act('REDEEM')}
+                onClick={() => act('VISIT', 1)}
               >
-                <Icon name="gift" /> Redimir
+                <Icon name="plus" /> Registrar visita
               </button>
-              <button
-                className="btn-ghost justify-center py-3.5 text-sm text-mute"
-                disabled={busy}
-                onClick={() => {
-                  setMoreErr(null);
-                  setMoreForm({ amount: 2, pin: '' });
-                  setShowMoreModal(true);
-                }}
-                title="Requiere PIN del super admin"
-              >
-                🔐 Más sellos
-              </button>
-            </div>
+            )}
 
             <button
               className="btn-link mt-4 w-full justify-center text-sm"
@@ -541,6 +636,147 @@ export default function ScanPage() {
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Acciones cashback (sumar/canjear saldo) ───
+function CashbackActions({
+  onAdd,
+  onRedeem,
+  cashbackPercent,
+  busy,
+}: {
+  onAdd: (amt: number) => void;
+  onRedeem: (amt: number) => void;
+  cashbackPercent: number;
+  busy: boolean;
+}) {
+  const [purchase, setPurchase] = useState<number>(0);
+  const [redeem, setRedeem] = useState<number>(0);
+  const earned = Math.round((purchase * cashbackPercent) / 100);
+  return (
+    <div className="mt-5 space-y-3">
+      <div className="p-3 rounded-xl border border-line">
+        <div className="text-xs font-semibold mb-2">💰 Sumar cashback</div>
+        <div className="flex gap-2">
+          <input
+            type="number"
+            min={0}
+            step={1000}
+            placeholder="Monto compra"
+            className="input flex-1"
+            value={purchase || ''}
+            onChange={(e) => setPurchase(Number(e.target.value))}
+          />
+          <button
+            className="btn-primary px-4"
+            disabled={busy || earned <= 0}
+            onClick={() => {
+              onAdd(earned);
+              setPurchase(0);
+            }}
+          >
+            +${earned.toLocaleString('es-CO')}
+          </button>
+        </div>
+        <div className="text-[11px] text-mute mt-1">
+          {cashbackPercent}% sobre la compra → saldo del cliente
+        </div>
+      </div>
+      <div className="p-3 rounded-xl border border-line">
+        <div className="text-xs font-semibold mb-2">🎁 Canjear saldo</div>
+        <div className="flex gap-2">
+          <input
+            type="number"
+            min={0}
+            step={1000}
+            placeholder="Monto a usar"
+            className="input flex-1"
+            value={redeem || ''}
+            onChange={(e) => setRedeem(Number(e.target.value))}
+          />
+          <button
+            className="btn-ghost px-4"
+            disabled={busy || redeem <= 0}
+            onClick={() => {
+              onRedeem(redeem);
+              setRedeem(0);
+            }}
+          >
+            -${redeem.toLocaleString('es-CO')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Acciones puntos ───
+function PointsActions({
+  onAdd,
+  onDeduct,
+  pointsPerCurrency,
+  busy,
+}: {
+  onAdd: (amt: number) => void;
+  onDeduct: (amt: number) => void;
+  pointsPerCurrency: number;
+  busy: boolean;
+}) {
+  const [purchase, setPurchase] = useState<number>(0);
+  const [deduct, setDeduct] = useState<number>(0);
+  const earnedPts = Math.round(purchase * pointsPerCurrency);
+  return (
+    <div className="mt-5 space-y-3">
+      <div className="p-3 rounded-xl border border-line">
+        <div className="text-xs font-semibold mb-2">⭐ Sumar puntos</div>
+        <div className="flex gap-2">
+          <input
+            type="number"
+            min={0}
+            step={1000}
+            placeholder="Monto compra"
+            className="input flex-1"
+            value={purchase || ''}
+            onChange={(e) => setPurchase(Number(e.target.value))}
+          />
+          <button
+            className="btn-primary px-4"
+            disabled={busy || earnedPts <= 0}
+            onClick={() => {
+              onAdd(earnedPts);
+              setPurchase(0);
+            }}
+          >
+            +{earnedPts} pts
+          </button>
+        </div>
+      </div>
+      <div className="p-3 rounded-xl border border-line">
+        <div className="text-xs font-semibold mb-2">🎁 Canjear puntos</div>
+        <div className="flex gap-2">
+          <input
+            type="number"
+            min={0}
+            step={10}
+            placeholder="Puntos a quitar"
+            className="input flex-1"
+            value={deduct || ''}
+            onChange={(e) => setDeduct(Number(e.target.value))}
+          />
+          <button
+            className="btn-ghost px-4"
+            disabled={busy || deduct <= 0}
+            onClick={() => {
+              onDeduct(deduct);
+              setDeduct(0);
+            }}
+          >
+            -{deduct} pts
+          </button>
+        </div>
       </div>
     </div>
   );

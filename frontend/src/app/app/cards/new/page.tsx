@@ -16,11 +16,14 @@ import {
 
 const ALL_TYPES: CardType[] = [
   'STAMPS',
+  'POINTS',
+  'CASHBACK',
+  'VISITS',
   'MEMBERSHIP',
+  'HYBRID',
+  'DISCOUNT',
   'GIFT',
   'COUPON',
-  'DISCOUNT',
-  'POINTS',
 ];
 
 type Step = 1 | 2 | 3 | 4;
@@ -41,6 +44,17 @@ const FROM_SCRATCH_DEFAULTS = {
   rewardText: '1 producto gratis',
   discountPercent: 10,
   pointsPerCurrency: 0.001,
+  cashbackPercent: 5 as number | null,
+  cashbackMinPurchase: 0 as number | null,
+  visitsRequired: 10 as number | null,
+  tiers: [] as Array<{
+    name: string;
+    threshold: number;
+    perks?: string[];
+    color?: string;
+    icon?: string;
+  }>,
+  tierMetric: 'spend' as 'spend' | 'visits' | 'stamps',
   stampIcon: '☕',
   validUntil: null as string | null,
   validDaysAfterIssue: null as number | null,
@@ -656,6 +670,111 @@ function Step3Configure({
             </div>
           </div>
         )}
+        {form.type === 'CASHBACK' && (
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">% de cashback</label>
+              <input
+                type="number"
+                className="input"
+                min={1}
+                max={50}
+                value={form.cashbackPercent ?? 5}
+                onChange={(e) => set('cashbackPercent', Number(e.target.value))}
+              />
+              <div className="text-[11px] text-mute mt-1">
+                % devuelto en saldo de moneda en cada compra.
+              </div>
+            </div>
+            <div>
+              <label className="label">Compra mínima</label>
+              <input
+                type="number"
+                className="input"
+                min={0}
+                step={1000}
+                value={form.cashbackMinPurchase ?? 0}
+                onChange={(e) =>
+                  set('cashbackMinPurchase', Number(e.target.value))
+                }
+              />
+              <div className="text-[11px] text-mute mt-1">
+                Mínimo a gastar para activar cashback (0 = sin mínimo).
+              </div>
+            </div>
+          </div>
+        )}
+        {form.type === 'VISITS' && (
+          <>
+            <div className="mt-3">
+              <label className="label">Visitas requeridas</label>
+              <input
+                type="number"
+                className="input"
+                min={1}
+                max={50}
+                value={form.visitsRequired ?? 10}
+                onChange={(e) => set('visitsRequired', Number(e.target.value))}
+              />
+              <div className="text-[11px] text-mute mt-1">
+                Cada scan suma 1 visita, sin importar el monto. Al alcanzar el
+                tope, se libera la recompensa.
+              </div>
+            </div>
+            <div className="mt-3">
+              <label className="label">Icono de visita</label>
+              <StampIconPicker
+                value={form.stampIcon}
+                onSelect={(icon) => set('stampIcon', icon)}
+              />
+            </div>
+          </>
+        )}
+        {form.type === 'HYBRID' && (
+          <div className="mt-3 space-y-3">
+            <div className="text-xs p-3 rounded-lg bg-brand/10 border border-brand/30">
+              💡 Tarjeta híbrida: combina sellos + descuento permanente.
+              Configura ambos.
+            </div>
+            <div>
+              <label className="label">Sellos requeridos</label>
+              <input
+                type="number"
+                className="input"
+                min={1}
+                max={30}
+                value={form.stampsRequired}
+                onChange={(e) => set('stampsRequired', Number(e.target.value))}
+              />
+            </div>
+            <div>
+              <label className="label">% descuento permanente</label>
+              <input
+                type="number"
+                className="input"
+                min={1}
+                max={50}
+                value={form.discountPercent}
+                onChange={(e) => set('discountPercent', Number(e.target.value))}
+              />
+            </div>
+            <div>
+              <label className="label">Icono del sello</label>
+              <StampIconPicker
+                value={form.stampIcon}
+                onSelect={(icon) => set('stampIcon', icon)}
+              />
+            </div>
+          </div>
+        )}
+        {form.type === 'MEMBERSHIP' && (
+          <TiersEditor
+            tiers={form.tiers}
+            metric={form.tierMetric}
+            onChangeTiers={(t) => set('tiers', t)}
+            onChangeMetric={(m) => set('tierMetric', m)}
+          />
+        )}
 
         <div className="mt-3 grid grid-cols-2 gap-3">
           <div>
@@ -1192,6 +1311,155 @@ function ActivateConfirmModal({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Tiers VIP editor (MEMBERSHIP) ───
+type Tier = {
+  name: string;
+  threshold: number;
+  perks?: string[];
+  color?: string;
+  icon?: string;
+};
+
+function TiersEditor({
+  tiers,
+  metric,
+  onChangeTiers,
+  onChangeMetric,
+}: {
+  tiers: Tier[];
+  metric: 'spend' | 'visits' | 'stamps';
+  onChangeTiers: (t: Tier[]) => void;
+  onChangeMetric: (m: 'spend' | 'visits' | 'stamps') => void;
+}) {
+  function addTier() {
+    onChangeTiers([
+      ...tiers,
+      {
+        name: tiers.length === 0 ? 'Silver' : tiers.length === 1 ? 'Gold' : 'Black',
+        threshold: tiers.length === 0 ? 0 : (tiers[tiers.length - 1].threshold + 100000),
+        perks: [],
+        color: tiers.length === 0 ? '#9CA3AF' : tiers.length === 1 ? '#F59E0B' : '#111827',
+        icon: tiers.length === 0 ? '🥈' : tiers.length === 1 ? '🥇' : '⚫',
+      },
+    ]);
+  }
+  function patch(i: number, p: Partial<Tier>) {
+    onChangeTiers(tiers.map((t, idx) => (idx === i ? { ...t, ...p } : t)));
+  }
+  function removeTier(i: number) {
+    onChangeTiers(tiers.filter((_, idx) => idx !== i));
+  }
+
+  const metricLabel: Record<typeof metric, string> = {
+    spend: 'Monto gastado',
+    visits: 'Cantidad de visitas',
+    stamps: 'Sellos acumulados',
+  };
+
+  return (
+    <div className="mt-3 space-y-3">
+      <div>
+        <label className="label">Métrica para subir de tier</label>
+        <select
+          className="input"
+          value={metric}
+          onChange={(e) => onChangeMetric(e.target.value as any)}
+        >
+          <option value="spend">Monto total gastado</option>
+          <option value="visits">Cantidad de visitas</option>
+          <option value="stamps">Sellos acumulados</option>
+        </select>
+        <div className="text-[11px] text-mute mt-1">
+          El cliente sube de tier al alcanzar el umbral de {metricLabel[metric].toLowerCase()}.
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <label className="label m-0">Tiers VIP</label>
+        <button
+          type="button"
+          onClick={addTier}
+          className="text-xs text-brand hover:underline"
+        >
+          + Añadir tier
+        </button>
+      </div>
+
+      {tiers.length === 0 && (
+        <div className="text-xs text-mute p-3 rounded-lg bg-bg2/40 border border-dashed border-line">
+          Sin tiers configurados. Añade Silver/Gold/Black para gamificar la
+          membresía. Si no agregas ninguno, la tarjeta se comporta como
+          membresía única sin niveles.
+        </div>
+      )}
+
+      {tiers.map((t, i) => (
+        <div key={i} className="p-3 rounded-lg border border-line bg-bg2/30 space-y-2">
+          <div className="flex items-center gap-2">
+            <input
+              className="input flex-1"
+              placeholder="Nombre (ej. Silver)"
+              value={t.name}
+              onChange={(e) => patch(i, { name: e.target.value })}
+            />
+            <input
+              className="input w-16 text-center"
+              placeholder="🥈"
+              value={t.icon ?? ''}
+              onChange={(e) => patch(i, { icon: e.target.value })}
+            />
+            <input
+              type="color"
+              className="input h-10 p-1 w-12"
+              value={t.color ?? '#9CA3AF'}
+              onChange={(e) => patch(i, { color: e.target.value })}
+            />
+            <button
+              type="button"
+              onClick={() => removeTier(i)}
+              className="text-xs text-rose-500 hover:underline"
+            >
+              Quitar
+            </button>
+          </div>
+          <div>
+            <label className="label">
+              Umbral ({metricLabel[metric]})
+            </label>
+            <input
+              type="number"
+              className="input"
+              min={0}
+              step={metric === 'spend' ? 10000 : 1}
+              value={t.threshold}
+              onChange={(e) =>
+                patch(i, { threshold: Number(e.target.value) })
+              }
+            />
+          </div>
+          <div>
+            <label className="label">Beneficios (uno por línea)</label>
+            <textarea
+              className="input"
+              rows={2}
+              value={(t.perks ?? []).join('\n')}
+              onChange={(e) =>
+                patch(i, {
+                  perks: e.target.value
+                    .split('\n')
+                    .map((s) => s.trim())
+                    .filter(Boolean),
+                })
+              }
+              placeholder="5% descuento&#10;Cumpleaños con regalo"
+            />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

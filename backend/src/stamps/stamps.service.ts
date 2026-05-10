@@ -39,7 +39,15 @@ export class StampsService {
     // pero permitimos REFUND/VISIT (admin puede arreglar saldos).
     const expiry = computePassExpiry(pass);
     if (expiry && expiry.getTime() < Date.now()) {
-      const blocking = ['STAMP', 'POINTS_ADD', 'POINTS_DEDUCT', 'REDEEM'];
+      const blocking = [
+        'STAMP',
+        'POINTS_ADD',
+        'POINTS_DEDUCT',
+        'REDEEM',
+        'CASHBACK_ADD',
+        'CASHBACK_REDEEM',
+        'VISIT',
+      ];
       if (blocking.includes(dto.action)) {
         throw new BadRequestException(
           `La tarjeta está vencida desde ${expiry.toLocaleDateString('es-CO')}`,
@@ -64,6 +72,8 @@ export class StampsService {
 
     let newStamps = pass.stampsCount;
     let newPoints = pass.pointsBalance;
+    let newCashback = pass.cashbackBalance;
+    let newVisits = pass.visitsCount;
 
     switch (dto.action) {
       case 'STAMP':
@@ -81,18 +91,65 @@ export class StampsService {
           const required = pass.card.stampsRequired ?? 10;
           if (pass.stampsCount < required) throw new BadRequestException('Not enough stamps to redeem');
           newStamps = pass.stampsCount - required;
+        } else if (pass.card.type === 'VISITS') {
+          const required = pass.card.visitsRequired ?? 10;
+          if (pass.visitsCount < required) throw new BadRequestException('Not enough visits to redeem');
+          newVisits = pass.visitsCount - required;
         }
         break;
       case 'REFUND':
-        newStamps = Math.max(0, pass.stampsCount - Number(amount));
+        if (pass.card.type === 'VISITS') {
+          newVisits = Math.max(0, pass.visitsCount - Number(amount));
+        } else {
+          newStamps = Math.max(0, pass.stampsCount - Number(amount));
+        }
         break;
       case 'VISIT':
-        // sólo registrar, sin afectar balance
+        // VISITS card type: incrementa visitsCount. Otros tipos: sólo registra.
+        if (pass.card.type === 'VISITS') {
+          newVisits = pass.visitsCount + Number(amount);
+        }
+        break;
+      case 'CASHBACK_ADD':
+        newCashback = new Prisma.Decimal(pass.cashbackBalance).add(amount);
+        break;
+      case 'CASHBACK_REDEEM':
+        newCashback = new Prisma.Decimal(pass.cashbackBalance).sub(amount);
+        if (Number(newCashback) < 0) throw new BadRequestException('Insufficient cashback');
         break;
     }
 
+    // Recalcular tier para tarjetas con tiers configurados (MEMBERSHIP).
+    // tierMetric: spend|visits|stamps. Acumulamos en pass.tierProgress.
+    let newTierProgress = new Prisma.Decimal(pass.tierProgress);
+    let newCurrentTier = pass.currentTier;
+    const tiers: Array<{ name: string; threshold: number }> = Array.isArray(
+      pass.card.tiers as any,
+    )
+      ? (pass.card.tiers as any)
+      : [];
+    if (tiers.length > 0) {
+      const metric = pass.card.tierMetric || 'spend';
+      // Sumar contribución a tierProgress según métrica + acción.
+      let delta = new Prisma.Decimal(0);
+      if (metric === 'spend' && (dto.action === 'POINTS_ADD' || dto.action === 'CASHBACK_ADD')) {
+        delta = new Prisma.Decimal(amount);
+      } else if (metric === 'visits' && (dto.action === 'VISIT' || dto.action === 'STAMP')) {
+        delta = new Prisma.Decimal(amount);
+      } else if (metric === 'stamps' && dto.action === 'STAMP') {
+        delta = new Prisma.Decimal(amount);
+      }
+      newTierProgress = newTierProgress.add(delta);
+      const sortedTiers = [...tiers].sort((a, b) => b.threshold - a.threshold);
+      const matched = sortedTiers.find((t) => Number(newTierProgress) >= t.threshold);
+      if (matched) newCurrentTier = matched.name;
+    }
+
     const required = pass.card.stampsRequired ?? Number.MAX_SAFE_INTEGER;
-    const completed = pass.card.type === 'STAMPS' && newStamps >= required;
+    const visitsReq = pass.card.visitsRequired ?? Number.MAX_SAFE_INTEGER;
+    const completed =
+      (pass.card.type === 'STAMPS' && newStamps >= required) ||
+      (pass.card.type === 'VISITS' && newVisits >= visitsReq);
 
     const [stamp, updatedPass] = await this.prisma.$transaction([
       this.prisma.stamp.create({
@@ -112,6 +169,10 @@ export class StampsService {
         data: {
           stampsCount: newStamps,
           pointsBalance: newPoints,
+          cashbackBalance: newCashback,
+          visitsCount: newVisits,
+          currentTier: newCurrentTier,
+          tierProgress: newTierProgress,
           lastActivityAt: new Date(),
           status: completed ? 'COMPLETED' : pass.status,
         },

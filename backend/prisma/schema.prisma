@@ -39,6 +39,17 @@ enum CardType {
   COUPON
   GIFT
   MULTI
+  // CASHBACK: % devuelto en saldo de moneda. El cliente acumula
+  // pesos/dolares y los canjea contra futuras compras.
+  CASHBACK
+  // VISITS: tarjeta tipo punch card pero la métrica es "visitas registradas",
+  // no compras. Útil para gimnasios, peluquerías, lavaderos donde lo
+  // que importa es la frecuencia, no el ticket.
+  VISITS
+  // HYBRID: tarjeta combinada — sellos + puntos + descuento en una sola.
+  // Sucesor de MULTI con UI activa en el wizard. Internamente
+  // comparten lógica.
+  HYBRID
 }
 
 enum PassStatus {
@@ -59,6 +70,9 @@ enum StampAction {
   REDEEM
   REFUND
   VISIT
+  // CASHBACK: amount = saldo (en moneda) ganado/canjeado en el Pass.
+  CASHBACK_ADD
+  CASHBACK_REDEEM
 }
 
 enum NotificationTrigger {
@@ -421,6 +435,17 @@ model Card {
   rewardText         String   @default("")
   pointsPerCurrency  Decimal? @db.Decimal(10, 2)
   discountPercent    Int?
+  // CASHBACK: % devuelto por compra. Compra mínima opcional para activar.
+  cashbackPercent    Int?
+  cashbackMinPurchase Decimal? @db.Decimal(12, 2)
+  // VISITS: cuántas visitas para canjear la recompensa (equivalente a
+  // stampsRequired pero sin importar el ticket).
+  visitsRequired     Int?
+  // MEMBERSHIP con tiers VIP. Cada tier:
+  //   { name:'Silver', threshold:0,  perks:['Acceso premium'], color:'#9CA3AF', icon:'🥈' }
+  // tierMetric: spend|visits|stamps — qué métrica decide el tier.
+  tiers              Json     @default("[]")
+  tierMetric         String   @default("spend")
   validFrom          DateTime? @db.Date
   validUntil         DateTime? @db.Date
   // Si está seteado, cada Pass de esta tarjeta vence
@@ -500,6 +525,14 @@ model Pass {
   authToken       String
   stampsCount     Int        @default(0)
   pointsBalance   Decimal    @default(0) @db.Decimal(12, 2)
+  // CASHBACK: saldo en moneda acumulado en este pass.
+  cashbackBalance Decimal    @default(0) @db.Decimal(12, 2)
+  // VISITS: contador de visitas registradas (acción VISIT).
+  visitsCount     Int        @default(0)
+  // MEMBERSHIP con tiers: nombre del tier actual + métrica acumulada
+  // sobre la que se calcula el siguiente tier.
+  currentTier     String?
+  tierProgress    Decimal    @default(0) @db.Decimal(12, 2)
   status          PassStatus @default(ACTIVE)
   issuedAt        DateTime   @default(now())
   lastActivityAt  DateTime?

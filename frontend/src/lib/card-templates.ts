@@ -14,7 +14,10 @@ export type CardType =
   | 'MEMBERSHIP'
   | 'COUPON'
   | 'GIFT'
-  | 'MULTI';
+  | 'MULTI'
+  | 'CASHBACK'
+  | 'VISITS'
+  | 'HYBRID';
 
 export type CardTemplate = {
   id: string;
@@ -34,6 +37,17 @@ export type CardTemplate = {
     stampsRequired?: number;
     discountPercent?: number;
     pointsPerCurrency?: number;
+    cashbackPercent?: number;
+    cashbackMinPurchase?: number;
+    visitsRequired?: number;
+    tiers?: Array<{
+      name: string;
+      threshold: number;
+      perks?: string[];
+      color?: string;
+      icon?: string;
+    }>;
+    tierMetric?: 'spend' | 'visits' | 'stamps';
   };
 };
 
@@ -457,6 +471,121 @@ export const CARD_TEMPLATES: CardTemplate[] = [
       discountPercent: 10,
     },
   },
+
+  // ─── Cashback (genéricas) ───
+  {
+    id: 'generic-cashback-5',
+    categorySlug: 'other',
+    type: 'CASHBACK',
+    displayName: 'Cashback — 5% saldo en cada compra',
+    defaults: {
+      name: 'Cashback 5%',
+      rewardText: 'Acumula saldo y úsalo cuando quieras',
+      primaryColor: '#0F766E',
+      secondaryColor: '#134E4A',
+      cashbackPercent: 5,
+      cashbackMinPurchase: 0,
+    },
+  },
+  {
+    id: 'restaurant-cashback-10',
+    categorySlug: 'restaurant',
+    type: 'CASHBACK',
+    displayName: 'Restaurante — 10% cashback de la cuenta',
+    defaults: {
+      name: '10% cashback en cada visita',
+      rewardText: 'Saldo que descuentas en próximas visitas',
+      primaryColor: '#0E7490',
+      secondaryColor: '#155E75',
+      cashbackPercent: 10,
+      cashbackMinPurchase: 30000,
+    },
+  },
+
+  // ─── Visitas (frecuencia, no ticket) ───
+  {
+    id: 'gym-visits-20',
+    categorySlug: 'gym',
+    type: 'VISITS',
+    displayName: 'Gym — 20 visitas, 1 mes gratis',
+    defaults: {
+      name: '20 visitas → 1 mes cortesía',
+      rewardText: '1 mes de gimnasio sin costo',
+      primaryColor: '#16A34A',
+      secondaryColor: '#14532D',
+      stampIcon: '💪',
+      visitsRequired: 20,
+    },
+  },
+  {
+    id: 'yoga-visits-10',
+    categorySlug: 'other',
+    type: 'VISITS',
+    displayName: 'Estudio — 10 clases, 1 gratis',
+    defaults: {
+      name: '10 clases, 1 cortesía',
+      rewardText: '1 clase a elección',
+      primaryColor: '#7C3AED',
+      secondaryColor: '#4C1D95',
+      stampIcon: '🧘',
+      visitsRequired: 10,
+    },
+  },
+
+  // ─── Híbridas (sellos + descuento + cashback) ───
+  {
+    id: 'hybrid-pro',
+    categorySlug: 'other',
+    type: 'HYBRID',
+    displayName: 'Híbrida — Sellos + descuento VIP',
+    defaults: {
+      name: 'Premio cliente frecuente',
+      rewardText: 'Gana sellos y disfruta descuento perpetuo',
+      primaryColor: '#1E40AF',
+      secondaryColor: '#1E3A8A',
+      stampIcon: '⭐',
+      stampsRequired: 10,
+      discountPercent: 10,
+    },
+  },
+
+  // ─── Membresías VIP con tiers ───
+  {
+    id: 'membership-tiers-vip',
+    categorySlug: 'other',
+    type: 'MEMBERSHIP',
+    displayName: 'Membresía VIP — Silver / Gold / Black',
+    defaults: {
+      name: 'Membresía VIP',
+      rewardText: 'Sube de nivel y desbloquea beneficios',
+      primaryColor: '#0F172A',
+      secondaryColor: '#1E293B',
+      tierMetric: 'spend',
+      tiers: [
+        {
+          name: 'Silver',
+          threshold: 0,
+          color: '#9CA3AF',
+          icon: '🥈',
+          perks: ['5% de descuento', 'Cumpleaños con regalo'],
+        },
+        {
+          name: 'Gold',
+          threshold: 500000,
+          color: '#F59E0B',
+          icon: '🥇',
+          perks: ['10% de descuento', 'Atención prioritaria', 'Eventos privados'],
+        },
+        {
+          name: 'Black',
+          threshold: 2000000,
+          color: '#111827',
+          icon: '⚫',
+          perks: ['15% de descuento', 'Concierge', 'Acceso ilimitado a beneficios'],
+        },
+      ],
+    },
+  },
 ];
 
 export const TYPE_LABEL: Record<CardType, string> = {
@@ -467,6 +596,9 @@ export const TYPE_LABEL: Record<CardType, string> = {
   COUPON: 'Cupón',
   GIFT: 'Tarjeta de regalo',
   MULTI: 'Múltiple',
+  CASHBACK: 'Cashback',
+  VISITS: 'Visitas',
+  HYBRID: 'Híbrida',
 };
 
 export const TYPE_EMOJI: Record<CardType, string> = {
@@ -477,14 +609,20 @@ export const TYPE_EMOJI: Record<CardType, string> = {
   COUPON: '🎟',
   GIFT: '🎁',
   MULTI: '✨',
+  CASHBACK: '💰',
+  VISITS: '🚶',
+  HYBRID: '🔀',
 };
 
 export const TYPE_DESCRIPTION: Record<CardType, string> = {
   STAMPS: 'Acumula sellos por visita o compra y entrega un premio cada N sellos.',
   POINTS: 'Cliente acumula puntos según el monto de compra. Canjea por descuentos o productos.',
   DISCOUNT: 'Descuento fijo % en cada compra. Sin acumulación, beneficio inmediato.',
-  MEMBERSHIP: 'Membresía/suscripción mensual o anual con beneficios exclusivos.',
+  MEMBERSHIP: 'Membresía/suscripción mensual o anual con beneficios exclusivos. Soporta tiers VIP (Silver/Gold/Black).',
   COUPON: 'Cupón único de regalo o promoción puntual (ej. "primera compra 50% off").',
   GIFT: 'Tarjeta con saldo precargado que el cliente compra o recibe como regalo.',
   MULTI: 'Combina varios mecanismos en una sola tarjeta (sellos + puntos + descuento).',
+  CASHBACK: 'Devuelve un % en saldo de moneda por cada compra. El cliente lo usa contra pagos futuros.',
+  VISITS: 'Punch card por frecuencia. Cada scan suma una visita, sin importar el ticket.',
+  HYBRID: 'Combina sellos + descuento + cashback en una sola tarjeta. Pensada para clientes premium.',
 };

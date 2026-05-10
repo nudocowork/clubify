@@ -22,6 +22,17 @@ export type CardDto = {
   rewardText?: string;
   pointsPerCurrency?: number;
   discountPercent?: number;
+  cashbackPercent?: number | null;
+  cashbackMinPurchase?: number | null;
+  visitsRequired?: number | null;
+  tiers?: Array<{
+    name: string;
+    threshold: number;
+    perks?: string[];
+    color?: string;
+    icon?: string;
+  }>;
+  tierMetric?: 'spend' | 'visits' | 'stamps';
   validFrom?: string | null;
   validUntil?: string | null;
   validDaysAfterIssue?: number | null;
@@ -113,6 +124,11 @@ export class CardsService {
         rewardText: dto.rewardText ?? '',
         pointsPerCurrency: dto.pointsPerCurrency,
         discountPercent: dto.discountPercent,
+        cashbackPercent: dto.cashbackPercent ?? undefined,
+        cashbackMinPurchase: dto.cashbackMinPurchase ?? undefined,
+        visitsRequired: dto.visitsRequired ?? undefined,
+        tiers: (dto.tiers ?? []) as any,
+        tierMetric: dto.tierMetric ?? 'spend',
         validFrom: dto.validFrom ? new Date(dto.validFrom) : undefined,
         validUntil: dto.validUntil ? new Date(dto.validUntil) : undefined,
         validDaysAfterIssue: dto.validDaysAfterIssue ?? undefined,
@@ -160,9 +176,13 @@ export class CardsService {
       'stampInactiveColor',
       'stampContourColor',
       'centerBgColor',
+      'cashbackPercent',
+      'cashbackMinPurchase',
+      'visitsRequired',
     ] as const) {
       if (k in dto) data[k] = dto[k] ?? null;
     }
+    if ('tiers' in dto) data.tiers = (dto.tiers ?? []) as any;
     return this.prisma.card.update({ where: { id }, data });
   }
 
