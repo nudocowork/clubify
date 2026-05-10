@@ -292,6 +292,8 @@ export default function CustomerDetail() {
         )}
       </div>
 
+      <GamificationBanner customerId={c.id} />
+
       <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4">
         {/* Sidebar perfil */}
         <div className="space-y-4">
@@ -877,5 +879,146 @@ function MergeIntoThisCustomer({
         </div>
       )}
     </>
+  );
+}
+
+// ─── Banner de gamificación (level + XP + streak + badges) ───
+type GamificationData = {
+  level: number;
+  tier: { level: number; name: string; minXp: number; color: string };
+  nextTier: { level: number; name: string; minXp: number; color: string } | null;
+  xpPoints: number;
+  xpToNext: number;
+  tierProgressPct: number;
+  currentStreak: number;
+  longestStreak: number;
+  rank: number | null;
+  badges: Array<{
+    id: string;
+    name: string;
+    description: string;
+    icon: string;
+    color: string;
+    earnedAt: string;
+  }>;
+};
+
+function GamificationBanner({ customerId }: { customerId: string }) {
+  const [data, setData] = useState<GamificationData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api<GamificationData>(`/customers/${customerId}/gamification`)
+      .then(setData)
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, [customerId]);
+
+  if (loading || !data) return null;
+  if (data.xpPoints === 0 && data.badges.length === 0) {
+    return (
+      <div className="card card-pad mb-4 bg-bg2/30 border-dashed text-center">
+        <div className="text-2xl mb-1">🎮</div>
+        <div className="text-sm text-mute">
+          Sin actividad de gamificación todavía. Cuando este cliente scanee su
+          tarjeta empezará a ganar XP y desbloquear insignias automáticamente.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="rounded-2xl p-5 mb-4 text-white relative overflow-hidden shadow-md"
+      style={{
+        background: `linear-gradient(135deg, ${data.tier.color}, ${data.tier.color}dd)`,
+      }}
+    >
+      <div
+        className="absolute -right-8 -top-8 text-[150px] opacity-10 select-none pointer-events-none"
+        aria-hidden
+      >
+        {data.tier.level >= 5 ? '💎' : data.tier.level >= 4 ? '🥇' : data.tier.level >= 3 ? '🥈' : data.tier.level >= 2 ? '🥉' : '⭐'}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 relative">
+        {/* Level + XP */}
+        <div>
+          <div className="text-[10px] uppercase tracking-wider opacity-80 font-bold">
+            Nivel {data.tier.level}
+          </div>
+          <div className="text-2xl font-black mt-0.5">{data.tier.name}</div>
+          <div className="text-xs opacity-85 mt-1">
+            <strong className="text-base">{data.xpPoints.toLocaleString('es-CO')}</strong>{' '}
+            XP totales
+          </div>
+          {data.nextTier && (
+            <div className="mt-3">
+              <div className="h-1.5 bg-white/20 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-white"
+                  style={{ width: `${data.tierProgressPct}%` }}
+                />
+              </div>
+              <div className="text-[10px] opacity-80 mt-1">
+                {data.xpToNext.toLocaleString('es-CO')} XP para {data.nextTier.name}
+              </div>
+            </div>
+          )}
+          {!data.nextTier && (
+            <div className="text-xs opacity-90 mt-2">
+              👑 Nivel máximo alcanzado
+            </div>
+          )}
+        </div>
+
+        {/* Streak */}
+        <div>
+          <div className="text-[10px] uppercase tracking-wider opacity-80 font-bold">
+            Racha actual
+          </div>
+          <div className="text-2xl font-black mt-0.5 flex items-center gap-1.5">
+            🔥 {data.currentStreak} {data.currentStreak === 1 ? 'día' : 'días'}
+          </div>
+          <div className="text-xs opacity-85 mt-1">
+            Récord: <strong>{data.longestStreak}</strong> días consecutivos
+          </div>
+          {data.rank !== null && (
+            <div className="text-xs opacity-90 mt-2">
+              🏆 #{data.rank} en el ranking
+            </div>
+          )}
+        </div>
+
+        {/* Badges */}
+        <div>
+          <div className="text-[10px] uppercase tracking-wider opacity-80 font-bold">
+            Insignias ({data.badges.length})
+          </div>
+          {data.badges.length === 0 ? (
+            <div className="text-xs opacity-85 mt-2">
+              Aún no desbloqueó ninguna insignia.
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {data.badges.slice(0, 8).map((b) => (
+                <div
+                  key={b.id}
+                  title={`${b.name} — ${b.description}`}
+                  className="w-10 h-10 rounded-xl bg-white/15 backdrop-blur flex items-center justify-center text-xl border border-white/20"
+                >
+                  {b.icon}
+                </div>
+              ))}
+              {data.badges.length > 8 && (
+                <div className="w-10 h-10 rounded-xl bg-white/15 backdrop-blur flex items-center justify-center text-xs font-bold border border-white/20">
+                  +{data.badges.length - 8}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

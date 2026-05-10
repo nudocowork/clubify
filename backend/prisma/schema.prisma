@@ -345,6 +345,7 @@ model Tenant {
   frequentProducts FrequentProduct[]
   purchaseOrders   PurchaseOrder[]
   couponUses       CouponUse[]
+  badges           Badge[]
 
   @@index([status])
 }
@@ -392,6 +393,17 @@ model Customer {
   marketingOptIn      Boolean   @default(true)
   whatsappVerified    Boolean   @default(false)
 
+  // Gamificación. xpPoints acumulan por scan/redención; level se calcula
+  // a partir del XP en backend (Bronce 0+, Plata 100+, Oro 300+, Platino
+  // 600+, Diamante 1000+ por defecto). currentStreakDays cuenta días
+  // consecutivos con al menos 1 scan; lastVisitDay (YYYY-MM-DD) se usa
+  // para detectar si el streak se cortó.
+  xpPoints            Int       @default(0)
+  currentLevel        Int       @default(1)
+  currentStreakDays   Int       @default(0)
+  longestStreakDays   Int       @default(0)
+  lastVisitDay        String?
+
   createdAt  DateTime @default(now())
 
   passes  Pass[]
@@ -399,6 +411,7 @@ model Customer {
   carts   Cart[]
   orders  Order[]
   messages Message[]
+  badges  CustomerBadge[]
 
   @@unique([tenantId, email])
   @@unique([tenantId, phone])
@@ -1373,4 +1386,51 @@ model AuditLog {
   createdAt DateTime @default(now())
 
   @@index([tenantId, createdAt])
+}
+
+// ============================================================
+//                       GAMIFICATION
+// ============================================================
+
+// Insignia/badge configurable por el dueño del negocio.
+// criteria.type:
+//   - SCANS_TOTAL: cuando customer.scansTotal >= threshold
+//   - CARDS_COMPLETED: cuando completa N cartones
+//   - STREAK_DAYS: cuando alcanza N días consecutivos
+//   - CASHBACK_EARNED: cuando recibe ≥ N en cashback (un solo card o todos)
+//   - FIRST_VISIT: al recibir el primer sello/visita en cualquier card
+//   - BIRTHDAY: el día de su cumpleaños (manual trigger via cron)
+//   - CUSTOM: solo otorgable manualmente desde el panel
+model Badge {
+  id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  description String   @default("")
+  // Emoji o glyph corto que aparece como icono
+  icon        String   @default("🏅")
+  color       String   @default("#F59E0B")
+  // Criterios de desbloqueo automático. Si type=CUSTOM no auto-otorga.
+  criteria    Json     @default("{}")
+  // XP que regala al cliente al desbloquearlo (suma a customer.xpPoints).
+  xpReward    Int      @default(50)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  earned      CustomerBadge[]
+
+  @@index([tenantId])
+}
+
+// Badge ganado por un customer. unique para no otorgar el mismo dos veces.
+model CustomerBadge {
+  id         String   @id @default(uuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  badgeId    String
+  badge      Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+  earnedAt   DateTime @default(now())
+
+  @@unique([customerId, badgeId])
+  @@index([customerId])
 }

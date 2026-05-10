@@ -5,6 +5,7 @@ import { WalletService } from '../wallet/wallet.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { QueueService } from '../jobs/queue.service';
 import { computePassExpiry } from '../cards/expiry.util';
+import { GamificationService } from '../badges/gamification.service';
 
 export type StampDto = {
   passId: string;
@@ -21,6 +22,7 @@ export class StampsService {
     private prisma: PrismaService,
     private wallet: WalletService,
     private jobs: QueueService,
+    private gamification: GamificationService,
   ) {}
 
   async record(user: AuthUser, dto: StampDto) {
@@ -221,6 +223,17 @@ export class StampsService {
           .catch(() => null);
       }
     }
+
+    // Hook de gamificación: XP, level up, streak, badges automáticos.
+    // Disparado fire-and-forget para no bloquear la respuesta del scanner.
+    this.gamification
+      .processStamp({
+        customerId: pass.customerId,
+        tenantId: pass.tenantId,
+        action: dto.action,
+        cardId: pass.cardId,
+      })
+      .catch(() => null);
 
     return { stamp, pass: updatedPass };
   }

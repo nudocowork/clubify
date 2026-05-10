@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Res } from '@
 import { ArrayMinSize, ArrayUnique, IsArray, IsEmail, IsOptional, IsString } from 'class-validator';
 import { Response } from 'express';
 import { CustomersService } from './customers.service';
+import { GamificationService } from '../badges/gamification.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { toCSV } from '../common/csv';
@@ -25,7 +26,22 @@ class MergeBody {
 @Controller('customers')
 @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
 export class CustomersController {
-  constructor(private svc: CustomersService) {}
+  constructor(
+    private svc: CustomersService,
+    private gamification: GamificationService,
+  ) {}
+
+  @Get('leaderboard')
+  async leaderboard(
+    @CurrentUser() user: AuthUser,
+    @Query('limit') limit?: string,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    const tid =
+      user.role === 'SUPER_ADMIN' ? tenantId : user.tenantId ?? undefined;
+    if (!tid) return [];
+    return this.gamification.leaderboard(tid, limit ? Number(limit) : 10);
+  }
 
   @Get()
   list(
@@ -104,6 +120,15 @@ export class CustomersController {
       `attachment; filename="clientes-${stamp}.csv"`,
     );
     res.send(csv);
+  }
+
+  @Get(':id/gamification')
+  async getGamification(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    const c = await this.svc.get(user, id);
+    return this.gamification.getCustomerGamification(id, c.tenantId);
   }
 
   @Get(':id')
