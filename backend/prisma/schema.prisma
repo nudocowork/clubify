@@ -988,21 +988,76 @@ model Event {
 //                       REFERRALS (v1)
 // ============================================================
 
+// Rol del titular del código (Fase 2 — sistema de campañas).
+//   - INFLUENCER: 30% directo, 5% indirecto cuando lo usa un embajador suyo.
+//   - AMBASSADOR: 25% directo, está dentro de una campaña de un influencer.
+//   - SOCIO: 10% global de toda venta. No depende de qué código se use.
+// Default INFLUENCER para compat con códigos existentes (eran "afiliados"
+// individuales sin jerarquía y todos se comportaban como influencer directo).
+enum ReferralRole {
+  INFLUENCER
+  AMBASSADOR
+  SOCIO
+}
+
+enum CampaignStatus {
+  ACTIVE
+  PAUSED
+  FINISHED
+}
+
 model ReferralCode {
-  id                 String   @id @default(uuid())
-  code               String   @unique
+  id                 String        @id @default(uuid())
+  code               String        @unique
   ownerName          String
   ownerEmail         String
   ownerWhatsapp      String
   ownerUserId        String?
-  ownerUser          User?    @relation(fields: [ownerUserId], references: [id])
-  commissionPercent  Decimal  @default(20) @db.Decimal(5, 2)
-  isActive           Boolean  @default(true)
+  ownerUser          User?         @relation(fields: [ownerUserId], references: [id])
+  commissionPercent  Decimal       @default(20) @db.Decimal(5, 2)
+  role               ReferralRole  @default(INFLUENCER)
+  // Si role=AMBASSADOR, parentCodeId apunta al ReferralCode del influencer
+  // dueño de la campaña. Cuando un cliente usa este código, además de la
+  // comisión directa del embajador, generamos una comisión indirecta para
+  // el influencer (5% por defecto).
+  parentCodeId       String?
+  parentCode         ReferralCode? @relation("AmbassadorParent", fields: [parentCodeId], references: [id], onDelete: SetNull)
+  ambassadors        ReferralCode[] @relation("AmbassadorParent")
+  // Si pertenece a una campaña (los embajadores siempre, los influencers
+  // pueden ser titulares de su propia campaña).
+  campaignId         String?
+  campaign           Campaign?     @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  isActive           Boolean       @default(true)
   // Etiqueta de origen del afiliado (?source=X en /refer). Solo informativa.
   source             String?
-  createdAt          DateTime @default(now())
+  createdAt          DateTime      @default(now())
 
   uses ReferralUse[]
+  ownerOfCampaign Campaign? @relation("CampaignOwner")
+
+  @@index([parentCodeId])
+  @@index([campaignId])
+}
+
+// Campaña — agrupa un influencer principal y sus embajadores.
+// El influencer se modela como un ReferralCode con role=INFLUENCER y
+// el campo `ownerCodeId` apunta a él. La relación inversa se usa para
+// listar las campañas de un influencer.
+model Campaign {
+  id              String          @id @default(uuid())
+  name            String
+  ownerCodeId     String          @unique
+  ownerCode       ReferralCode    @relation("CampaignOwner", fields: [ownerCodeId], references: [id], onDelete: Cascade)
+  status          CampaignStatus  @default(ACTIVE)
+  // Configuración de absorción de descuento (4 modos).
+  // ORIGINAL_PRICE: comisiones sobre precio original; descuento sale del bolsillo de la empresa
+  // PAID_PRICE: comisiones sobre precio efectivamente pagado
+  // EMPRESA_ABSORBS: descuento sale solo de la empresa
+  // PROPORTIONAL: socio y empresa comparten el descuento proporcionalmente
+  discountAbsorption String @default("PROPORTIONAL")
+  createdAt       DateTime        @default(now())
+
+  codes ReferralCode[]
 }
 
 model ReferralUse {

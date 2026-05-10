@@ -11,7 +11,7 @@ const STATUS_LABEL: Record<string, { text: string; cls: string }> = {
   CHURNED: { text: 'Canceló', cls: 'bg-red-100 text-red-800' },
 };
 
-type Tab = 'leaderboard' | 'payouts' | 'codes';
+type Tab = 'leaderboard' | 'payouts' | 'codes' | 'campaigns';
 
 type LeaderRow = {
   ownerName: string;
@@ -85,6 +85,12 @@ export default function AdminReferrals() {
 
       <div className="tabs mb-5">
         <button
+          className={`tab ${tab === 'campaigns' ? 'tab-active' : ''}`}
+          onClick={() => setTab('campaigns')}
+        >
+          🎯 Campañas
+        </button>
+        <button
           className={`tab ${tab === 'leaderboard' ? 'tab-active' : ''}`}
           onClick={() => setTab('leaderboard')}
         >
@@ -104,6 +110,7 @@ export default function AdminReferrals() {
         </button>
       </div>
 
+      {tab === 'campaigns' && <CampaignsTab />}
       {tab === 'leaderboard' && <LeaderboardTab />}
       {tab === 'payouts' && <PayoutsTab />}
       {tab === 'codes' && <CodesTab />}
@@ -884,3 +891,515 @@ function CodesTab() {
     </div>
   );
 }
+
+// =============================================================
+//                       CAMPAIGNS TAB (Fase 2)
+// =============================================================
+
+type CampaignSummary = {
+  id: string;
+  name: string;
+  status: 'ACTIVE' | 'PAUSED' | 'FINISHED';
+  discountAbsorption: string;
+  createdAt: string;
+  ownerCode: { id: string; code: string; ownerName: string; commissionPercent: number };
+  ambassadorsCount: number;
+  directClients: number;
+  indirectClients: number;
+  totalActiveClients: number;
+  ambassadorCommissionsUsd: number;
+};
+
+const STATUS_PILL: Record<CampaignSummary['status'], { text: string; cls: string }> = {
+  ACTIVE: { text: 'Activa', cls: 'bg-ok-soft text-ok' },
+  PAUSED: { text: 'Pausada', cls: 'bg-amber-100 text-amber-800' },
+  FINISHED: { text: 'Finalizada', cls: 'bg-bg2 text-mute' },
+};
+
+function CampaignsTab() {
+  const [list, setList] = useState<CampaignSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [openCampaign, setOpenCampaign] = useState<CampaignSummary | null>(null);
+
+  async function load() {
+    setLoading(true);
+    try {
+      setList(await api<CampaignSummary[]>('/campaigns'));
+    } catch (e: any) {
+      toast(e.message || 'Error cargando campañas', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => {
+    load();
+  }, []);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <div className="text-sm text-mute">
+          Cada campaña pertenece a un influencer. Los embajadores reciben 25%
+          y el influencer gana 5% por las ventas indirectas.
+        </div>
+        <button onClick={() => setShowCreate(true)} className="btn-primary text-sm">
+          <Icon name="plus" /> Nueva campaña
+        </button>
+      </div>
+
+      {loading && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="card card-pad h-44 animate-shimmer" />
+          ))}
+        </div>
+      )}
+
+      {!loading && list.length === 0 && (
+        <div className="card card-pad text-center py-12">
+          <div className="text-4xl mb-2">🎯</div>
+          <div className="font-semibold">Aún no hay campañas</div>
+          <div className="text-sm text-mute mt-1">
+            Crea la primera para asignar un influencer y sumar embajadores.
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {list.map((c) => (
+          <div
+            key={c.id}
+            className="card card-pad cursor-pointer hover:shadow-md2 transition"
+            onClick={() => setOpenCampaign(c)}
+          >
+            <div className="flex items-start justify-between gap-2 mb-3">
+              <div className="min-w-0">
+                <div className="font-bold text-base leading-tight truncate">{c.name}</div>
+                <div className="text-xs text-mute mt-0.5 truncate">{c.ownerCode.ownerName}</div>
+              </div>
+              <span
+                className={`text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded ${STATUS_PILL[c.status].cls}`}
+              >
+                {STATUS_PILL[c.status].text}
+              </span>
+            </div>
+            <div className="bg-bg2 rounded-lg px-3 py-2 mb-3 font-mono text-sm font-bold">
+              {c.ownerCode.code}
+              <span className="text-mute font-normal ml-2 text-xs">
+                · {c.ownerCode.commissionPercent}%
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="bg-bg2/50 rounded p-2">
+                <div className="text-mute">Embajadores</div>
+                <div className="font-bold text-base">{c.ambassadorsCount}</div>
+              </div>
+              <div className="bg-bg2/50 rounded p-2">
+                <div className="text-mute">Clientes activos</div>
+                <div className="font-bold text-base">{c.totalActiveClients}</div>
+              </div>
+              <div className="bg-bg2/50 rounded p-2 col-span-2">
+                <div className="text-mute">Comisiones embajadores</div>
+                <div className="font-bold text-base text-brand">
+                  {fmtUsd(c.ambassadorCommissionsUsd)}
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {showCreate && (
+        <CreateCampaignModal
+          onClose={() => setShowCreate(false)}
+          onCreated={() => {
+            setShowCreate(false);
+            load();
+          }}
+        />
+      )}
+      {openCampaign && (
+        <CampaignDetailModal
+          campaignId={openCampaign.id}
+          onClose={() => setOpenCampaign(null)}
+          onChanged={() => {
+            load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function CreateCampaignModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [form, setForm] = useState({
+    name: '',
+    influencerName: '',
+    influencerEmail: '',
+    influencerWhatsapp: '',
+    influencerCommissionPercent: 30,
+    influencerCustomCode: '',
+    discountAbsorption: 'PROPORTIONAL',
+  });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    setBusy(true);
+    try {
+      await api('/campaigns', { method: 'POST', body: JSON.stringify(form) });
+      toast('Campaña creada', 'success');
+      onCreated();
+    } catch (e: any) {
+      setErr(e.message || 'No se pudo crear');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <form
+        onSubmit={submit}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-5"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold m-0">Nueva campaña</h2>
+          <button type="button" onClick={onClose} className="text-mute hover:text-ink text-xl leading-none">
+            ×
+          </button>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="label">Nombre de campaña</label>
+            <input
+              className="input"
+              required
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="Ej: Campaña Influencer Juan"
+            />
+          </div>
+          <div className="pt-2 border-t border-line text-xs uppercase tracking-wider text-mute font-semibold">
+            Influencer titular
+          </div>
+          <div>
+            <label className="label">Nombre</label>
+            <input
+              className="input"
+              required
+              value={form.influencerName}
+              onChange={(e) => setForm({ ...form, influencerName: e.target.value })}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="label">Email</label>
+              <input
+                className="input"
+                type="email"
+                required
+                value={form.influencerEmail}
+                onChange={(e) => setForm({ ...form, influencerEmail: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="label">WhatsApp</label>
+              <input
+                className="input"
+                required
+                value={form.influencerWhatsapp}
+                onChange={(e) => setForm({ ...form, influencerWhatsapp: e.target.value })}
+                placeholder="+57..."
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="label">% Directo</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                className="input"
+                value={form.influencerCommissionPercent}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    influencerCommissionPercent: Number(e.target.value),
+                  })
+                }
+              />
+            </div>
+            <div>
+              <label className="label">Código (opcional)</label>
+              <input
+                className="input"
+                placeholder="JUAN30"
+                value={form.influencerCustomCode}
+                onChange={(e) =>
+                  setForm({ ...form, influencerCustomCode: e.target.value.toUpperCase() })
+                }
+              />
+            </div>
+          </div>
+          <div>
+            <label className="label">Regla de descuento</label>
+            <select
+              className="input"
+              value={form.discountAbsorption}
+              onChange={(e) => setForm({ ...form, discountAbsorption: e.target.value })}
+            >
+              <option value="PROPORTIONAL">Socio + empresa proporcional (default)</option>
+              <option value="EMPRESA_ABSORBS">Solo empresa absorbe</option>
+              <option value="ORIGINAL_PRICE">Comisión sobre precio original</option>
+              <option value="PAID_PRICE">Comisión sobre precio pagado</option>
+            </select>
+          </div>
+        </div>
+        {err && <div className="mt-3 rounded-lg bg-bad-soft px-3 py-2 text-sm text-bad-ink">{err}</div>}
+        <div className="flex justify-end gap-2 mt-5">
+          <button type="button" className="btn-ghost" onClick={onClose} disabled={busy}>
+            Cancelar
+          </button>
+          <button type="submit" className="btn-primary" disabled={busy}>
+            {busy ? 'Creando…' : 'Crear campaña'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function CampaignDetailModal({
+  campaignId,
+  onClose,
+  onChanged,
+}: {
+  campaignId: string;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [addForm, setAddForm] = useState({ fullName: '', email: '', whatsapp: '', commissionPercent: 25, customCode: '' });
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    try {
+      setData(await api(`/campaigns/${campaignId}`));
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => {
+    load();
+  }, [campaignId]);
+
+  async function setStatus(status: 'ACTIVE' | 'PAUSED' | 'FINISHED') {
+    await api(`/campaigns/${campaignId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
+    toast(`Campaña ${status === 'ACTIVE' ? 'activada' : status === 'PAUSED' ? 'pausada' : 'finalizada'}`, 'success');
+    load();
+    onChanged();
+  }
+
+  async function addAmbassador(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api(`/campaigns/${campaignId}/ambassadors`, {
+        method: 'POST',
+        body: JSON.stringify(addForm),
+      });
+      setAddForm({ fullName: '', email: '', whatsapp: '', commissionPercent: 25, customCode: '' });
+      setShowAdd(false);
+      toast('Embajador agregado', 'success');
+      load();
+      onChanged();
+    } catch (e: any) {
+      toast(e.message || 'Error', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeAmbassador(id: string) {
+    if (!confirm('¿Desactivar este embajador? El historial se conserva.')) return;
+    await api(`/campaigns/ambassadors/${id}`, { method: 'DELETE' });
+    toast('Embajador desactivado', 'success');
+    load();
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-2xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-auto p-5"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold m-0">{loading ? 'Cargando…' : data?.name}</h2>
+          <button onClick={onClose} className="text-mute hover:text-ink text-xl leading-none">
+            ×
+          </button>
+        </div>
+
+        {data && (
+          <>
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              <span className={`text-xs uppercase font-bold px-2 py-0.5 rounded ${STATUS_PILL[data.status as keyof typeof STATUS_PILL].cls}`}>
+                {STATUS_PILL[data.status as keyof typeof STATUS_PILL].text}
+              </span>
+              <span className="text-xs text-mute">Regla: {data.discountAbsorption}</span>
+              <div className="ml-auto flex gap-1">
+                {data.status !== 'ACTIVE' && (
+                  <button onClick={() => setStatus('ACTIVE')} className="btn-ghost text-xs">
+                    Activar
+                  </button>
+                )}
+                {data.status !== 'PAUSED' && (
+                  <button onClick={() => setStatus('PAUSED')} className="btn-ghost text-xs">
+                    Pausar
+                  </button>
+                )}
+                {data.status !== 'FINISHED' && (
+                  <button onClick={() => setStatus('FINISHED')} className="btn-ghost text-xs">
+                    Finalizar
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="card card-pad mb-4 bg-bg2/40">
+              <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1">
+                Influencer titular
+              </div>
+              <div className="font-semibold">{data.ownerCode.ownerName}</div>
+              <div className="text-xs text-mute">{data.ownerCode.ownerEmail}</div>
+              <div className="mt-2 font-mono font-bold text-lg bg-white px-3 py-2 rounded inline-block">
+                {data.ownerCode.code}{' '}
+                <span className="text-xs text-mute font-normal">
+                  · {Number(data.ownerCode.commissionPercent)}% directo
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="font-semibold m-0">Embajadores ({data.codes.length})</h3>
+              <button onClick={() => setShowAdd(!showAdd)} className="btn-ghost text-xs">
+                {showAdd ? 'Cancelar' : '+ Embajador'}
+              </button>
+            </div>
+
+            {showAdd && (
+              <form onSubmit={addAmbassador} className="border border-line rounded-lg p-3 mb-3 space-y-2 bg-bg2/30">
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    className="input"
+                    placeholder="Nombre"
+                    required
+                    value={addForm.fullName}
+                    onChange={(e) => setAddForm({ ...addForm, fullName: e.target.value })}
+                  />
+                  <input
+                    className="input"
+                    type="email"
+                    placeholder="Email"
+                    required
+                    value={addForm.email}
+                    onChange={(e) => setAddForm({ ...addForm, email: e.target.value })}
+                  />
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <input
+                    className="input"
+                    placeholder="WhatsApp"
+                    required
+                    value={addForm.whatsapp}
+                    onChange={(e) => setAddForm({ ...addForm, whatsapp: e.target.value })}
+                  />
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    max={100}
+                    placeholder="% comisión"
+                    value={addForm.commissionPercent}
+                    onChange={(e) => setAddForm({ ...addForm, commissionPercent: Number(e.target.value) })}
+                  />
+                  <input
+                    className="input"
+                    placeholder="Código (opcional)"
+                    value={addForm.customCode}
+                    onChange={(e) => setAddForm({ ...addForm, customCode: e.target.value.toUpperCase() })}
+                  />
+                </div>
+                <button type="submit" className="btn-primary text-sm w-full" disabled={busy}>
+                  {busy ? 'Agregando…' : 'Agregar embajador'}
+                </button>
+              </form>
+            )}
+
+            {data.codes.length === 0 ? (
+              <div className="text-center py-8 text-mute text-sm">
+                Sin embajadores aún
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {data.codes.map((amb: any) => (
+                  <div
+                    key={amb.id}
+                    className={`border border-line rounded-lg p-3 flex items-center justify-between gap-2 ${
+                      amb.isActive ? '' : 'opacity-50'
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{amb.ownerName}</div>
+                      <div className="text-xs text-mute truncate">{amb.ownerEmail}</div>
+                    </div>
+                    <div className="font-mono font-bold text-sm bg-bg2 px-2 py-1 rounded">
+                      {amb.code}
+                    </div>
+                    <div className="text-xs text-mute whitespace-nowrap">
+                      {Number(amb.commissionPercent)}% · {amb.uses?.length ?? 0} clientes
+                    </div>
+                    {amb.isActive && (
+                      <button
+                        onClick={() => removeAmbassador(amb.id)}
+                        className="text-mute hover:text-bad text-lg leading-none"
+                        aria-label="Desactivar"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+

@@ -12,6 +12,7 @@ import { StampsModule } from './stamps/stamps.module';
 import { LocationsModule } from './locations/locations.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ReferralsModule } from './referrals/referrals.module';
+import { CampaignsModule } from './campaigns/campaigns.module';
 import { WalletModule } from './wallet/wallet.module';
 import { ScannerModule } from './scanner/scanner.module';
 import { MetricsModule } from './metrics/metrics.module';
@@ -52,6 +53,7 @@ import { OnboardingModule } from './onboarding/onboarding.module';
     LocationsModule,
     NotificationsModule,
     ReferralsModule,
+    CampaignsModule,
     WalletModule,
     ScannerModule,
     MetricsModule,

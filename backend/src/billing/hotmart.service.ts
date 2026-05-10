@@ -6,6 +6,8 @@ import {
   smsPaymentFailed,
 } from './billing-sms-templates';
 
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
 /**
  * Tipos de evento que Hotmart envía vía webhook.
  * Solo procesamos los críticos para el ciclo de vida de la suscripción.
@@ -357,32 +359,28 @@ export class HotmartService {
   // ============================================================
 
   /**
-   * Genera una Commission para el ReferralUse asociado al tenant cuando
-   * Hotmart confirma un pago. Idempotente:
-   *   - Si la última Commission del use es < 25 días → skip (mismo ciclo)
-   *   - Si no hay ReferralUse para el tenant → no-op
+   * Genera la(s) Commission asociadas a un pago confirmado de Hotmart,
+   * con conciencia de roles (Fase 2):
    *
-   * Marca también el ReferralUse como PAYING (la primera vez) para que el
-   * leaderboard cuente conversión real, no sólo signup.
+   * - DIRECTA: el código usado (influencer 30% por default, embajador 25%).
+   * - INDIRECTA: si el código es de un EMBAJADOR, su `parentCode`
+   *   (el INFLUENCER dueño de la campaña) recibe 5%.
+   * - SOCIO: 10% global de TODA venta. Tenant sin referido también
+   *   genera esta. El socio se identifica por Setting key
+   *   `referrals.socioCodeId`.
    *
-   * Monto: paidAmount del payload si vino, sino plan.priceMonthly del tenant.
-   * % de comisión: ReferralCode.commissionPercent (default 25%).
+   * Idempotente por ReferralUse: si la última comisión del use es
+   * < 25 días, skipea (mismo ciclo).
+   *
+   * Si tenant no tiene ReferralUse, igual generamos la del SOCIO sobre un
+   * "use sintético" — para no perder la atribución global. Lo modelamos
+   * creando un ReferralUse para el código del socio con tenantId del cliente.
    */
   private async generateReferralCommission(opts: {
     tenantId: string;
     paidAmount: number | null;
     transactionId?: string;
   }) {
-    const use = await this.prisma.referralUse.findFirst({
-      where: { tenantId: opts.tenantId },
-      include: {
-        referralCode: { select: { commissionPercent: true } },
-        commissions: { orderBy: { createdAt: 'desc' }, take: 1 },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (!use) return; // tenant sin referido — no hay comisión que generar
-
     // Resolver monto pagado: payload Hotmart > plan.priceMonthly
     let amountPaid = opts.paidAmount;
     if (!amountPaid || amountPaid <= 0) {
@@ -393,46 +391,146 @@ export class HotmartService {
       amountPaid = Number(tenant?.plan?.priceMonthly ?? 0);
     }
     if (!amountPaid || amountPaid <= 0) {
-      this.logger.warn(
-        `Skip comisión: sin precio para tenant=${opts.tenantId}`,
-      );
+      this.logger.warn(`Skip comisión: sin precio para tenant=${opts.tenantId}`);
       return;
     }
 
-    const pct = Number(use.referralCode.commissionPercent ?? 25);
-    const commissionAmount = Math.round((amountPaid * pct) / 100 * 100) / 100;
+    // 1) Comisión DIRECTA (+ posible INDIRECTA al influencer parent).
+    const use = await this.prisma.referralUse.findFirst({
+      where: {
+        tenantId: opts.tenantId,
+        // El use del socio (creado abajo) tiene role=SOCIO; lo excluimos para
+        // que no se mezcle con la atribución directa del cliente.
+        referralCode: { role: { in: ['INFLUENCER', 'AMBASSADOR'] } },
+      },
+      include: {
+        referralCode: {
+          include: { parentCode: true },
+        },
+        commissions: { orderBy: { createdAt: 'desc' }, take: 1 },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
 
-    // Idempotencia: si la última comisión es muy reciente (mismo ciclo
-    // mensual), no creamos otra. Hotmart a veces re-envía webhooks.
-    const last = use.commissions[0];
-    if (last) {
-      const daysSince = (Date.now() - new Date(last.createdAt).getTime()) / 86400_000;
-      if (daysSince < 25) {
+    if (use) {
+      const last = use.commissions[0];
+      const recent = last && (Date.now() - new Date(last.createdAt).getTime()) / 86400_000 < 25;
+
+      if (!recent) {
+        const pct = Number(use.referralCode.commissionPercent ?? 25);
+        const direct = round2((amountPaid * pct) / 100);
+
+        if (use.status === 'SIGNED_UP') {
+          await this.prisma.referralUse.update({
+            where: { id: use.id },
+            data: { status: 'PAYING', convertedAt: new Date() },
+          });
+        }
+        await this.prisma.commission.create({
+          data: { referralUseId: use.id, amount: direct, status: 'PENDING' },
+        });
         this.logger.log(
-          `Skip comisión duplicada: tenant=${opts.tenantId} última=${daysSince.toFixed(1)}d`,
+          `Comisión directa: ${use.referralCode.role} ${use.referralCode.code} $${direct} (${pct}%)`,
         );
-        return;
+
+        // Indirecta: si es embajador, su influencer parent gana 5% por default.
+        // Configurable más adelante via Setting key `referrals.indirectPercent`.
+        if (use.referralCode.role === 'AMBASSADOR' && use.referralCode.parentCode) {
+          const parent = use.referralCode.parentCode;
+          const indirectPct = await this.getNumberSetting('referrals.indirectPercent', 5);
+          const indirect = round2((amountPaid * indirectPct) / 100);
+          // Necesitamos un ReferralUse del parent para colgar la comisión.
+          // Match-or-create: uno por tenantId+codeId.
+          const parentUse = await this.prisma.referralUse.upsert({
+            where: {
+              // Sin unique compuesto en schema → fallback al patrón findFirst+create.
+              // Usamos un id sintético via findFirst.
+              id: 'sentinel-not-used',
+            },
+            create: {
+              referralCodeId: parent.id,
+              tenantId: opts.tenantId,
+              status: 'PAYING',
+              convertedAt: new Date(),
+            },
+            update: {},
+          }).catch(async () => {
+            const existing = await this.prisma.referralUse.findFirst({
+              where: { referralCodeId: parent.id, tenantId: opts.tenantId },
+            });
+            if (existing) return existing;
+            return this.prisma.referralUse.create({
+              data: {
+                referralCodeId: parent.id,
+                tenantId: opts.tenantId,
+                status: 'PAYING',
+                convertedAt: new Date(),
+              },
+            });
+          });
+          await this.prisma.commission.create({
+            data: { referralUseId: parentUse.id, amount: indirect, status: 'PENDING' },
+          });
+          this.logger.log(
+            `Comisión indirecta INFLUENCER ${parent.code}: $${indirect} (${indirectPct}%)`,
+          );
+        }
+      } else {
+        this.logger.log(`Skip directa duplicada (last < 25d) tenant=${opts.tenantId}`);
       }
     }
 
-    // Promover a PAYING si está SIGNED_UP (primer pago confirmado).
-    if (use.status === 'SIGNED_UP') {
-      await this.prisma.referralUse.update({
-        where: { id: use.id },
-        data: { status: 'PAYING', convertedAt: new Date() },
-      });
-    }
-
-    await this.prisma.commission.create({
-      data: {
-        referralUseId: use.id,
-        amount: commissionAmount,
-        status: 'PENDING', // pasa a APPROVED automáticamente a los 30d
-      },
-    });
-    this.logger.log(
-      `Comisión generada: tenant=${opts.tenantId} use=${use.id} $${commissionAmount} (${pct}% de $${amountPaid})`,
+    // 2) Comisión SOCIO (10% global). Aplica SIEMPRE, exista o no
+    // un código de referido. Solo si el super admin configuró el socio.
+    await this.generateSocioCommission(opts.tenantId, amountPaid).catch((e) =>
+      this.logger.warn(`Comisión socio falló: ${(e as Error).message}`),
     );
+  }
+
+  private async generateSocioCommission(tenantId: string, amountPaid: number) {
+    const socioRow = await this.prisma.setting.findUnique({
+      where: { key: 'referrals.socioCodeId' },
+    });
+    if (!socioRow?.value) return; // socio no configurado
+    const socio = await this.prisma.referralCode.findUnique({
+      where: { id: socioRow.value },
+    });
+    if (!socio || socio.role !== 'SOCIO' || !socio.isActive) return;
+
+    const pct = Number(socio.commissionPercent ?? 10);
+    const amount = round2((amountPaid * pct) / 100);
+
+    let use = await this.prisma.referralUse.findFirst({
+      where: { referralCodeId: socio.id, tenantId },
+      include: { commissions: { orderBy: { createdAt: 'desc' }, take: 1 } },
+    });
+    if (!use) {
+      use = await this.prisma.referralUse
+        .create({
+          data: {
+            referralCodeId: socio.id,
+            tenantId,
+            status: 'PAYING',
+            convertedAt: new Date(),
+          },
+          include: { commissions: { orderBy: { createdAt: 'desc' }, take: 1 } },
+        });
+    }
+    const last = use.commissions[0];
+    if (last && (Date.now() - new Date(last.createdAt).getTime()) / 86400_000 < 25) {
+      return; // mismo ciclo
+    }
+    await this.prisma.commission.create({
+      data: { referralUseId: use.id, amount, status: 'PENDING' },
+    });
+    this.logger.log(`Comisión SOCIO ${socio.code}: $${amount} (${pct}%)`);
+  }
+
+  private async getNumberSetting(key: string, defaultValue: number): Promise<number> {
+    const row = await this.prisma.setting.findUnique({ where: { key } });
+    if (!row?.value) return defaultValue;
+    const n = Number(row.value);
+    return Number.isFinite(n) ? n : defaultValue;
   }
 
   /**
