@@ -1,4 +1,5 @@
 'use client';
+import { useEffect, useState } from 'react';
 import { Barcode } from '@/components/Barcode';
 import { Icon } from '@/components/Icon';
 import { ClubifyBadge } from '@/components/ClubifyBadge';
@@ -10,6 +11,14 @@ type Props = {
 };
 
 export function WalletPassView({ passId, data, googleSaveUrl }: Props) {
+  // Detectar plataforma para reordenar los botones — el "save" del nativo
+  // del usuario va primero. iOS → Apple primero. Android → Google primero.
+  const [platform, setPlatform] = useState<'ios' | 'android' | 'other'>('other');
+  useEffect(() => {
+    const ua = navigator.userAgent.toLowerCase();
+    if (/iphone|ipad|ipod/.test(ua)) setPlatform('ios');
+    else if (/android/.test(ua)) setPlatform('android');
+  }, []);
   const required = data.card.stampsRequired ?? 10;
   const stamped = data.stampsCount ?? 0;
   const stampIcon: string = data.card.stampIcon || '☕';
@@ -145,23 +154,47 @@ export function WalletPassView({ passId, data, googleSaveUrl }: Props) {
         </div>
 
         <div className="space-y-2.5 mt-6">
-          <a
-            href={`/w/${passId}/apple`}
-            className="btn-primary w-full justify-center"
-            style={{ background: '#000', borderColor: '#000' }}
-            download
-          >
-            <Icon name="apple" />  Add to Apple Wallet
-          </a>
-          {googleSaveUrl && (
-            <a
-              href={googleSaveUrl}
-              className="btn-ghost w-full justify-center"
-              target="_blank"
-              rel="noreferrer"
-            >
-              <Icon name="google" /> Save to Google Wallet
-            </a>
+          {/* En Android, el botón principal es Google Wallet. iOS y desktop → Apple. */}
+          {platform === 'android' && googleSaveUrl ? (
+            <>
+              <a
+                href={googleSaveUrl}
+                className="btn-primary w-full justify-center"
+                style={{ background: '#000', borderColor: '#000' }}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Icon name="google" /> Add to Google Wallet
+              </a>
+              <a
+                href={`/w/${passId}/apple`}
+                className="btn-ghost w-full justify-center"
+                download
+              >
+                <Icon name="apple" /> Add to Apple Wallet
+              </a>
+            </>
+          ) : (
+            <>
+              <a
+                href={`/w/${passId}/apple`}
+                className="btn-primary w-full justify-center"
+                style={{ background: '#000', borderColor: '#000' }}
+                download
+              >
+                <Icon name="apple" /> Add to Apple Wallet
+              </a>
+              {googleSaveUrl && (
+                <a
+                  href={googleSaveUrl}
+                  className="btn-ghost w-full justify-center"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <Icon name="google" /> Save to Google Wallet
+                </a>
+              )}
+            </>
           )}
         </div>
 

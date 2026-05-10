@@ -3,6 +3,7 @@ import { sign } from 'jsonwebtoken';
 import * as fs from 'fs';
 import * as path from 'path';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { GoogleWalletService } from './google-wallet.service';
 
 /**
  * Genera pases para Apple Wallet (.pkpass) y Google Wallet (save link).
@@ -14,7 +15,10 @@ export class WalletService {
   private logger = new Logger(WalletService.name);
   /** Caché de imágenes default cargadas desde disco una sola vez */
   private defaultImages: Record<string, Buffer> | null = null;
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private googleWallet: GoogleWalletService,
+  ) {}
 
   /**
    * Carga el JSON del Service Account de Google Wallet desde:
@@ -614,79 +618,13 @@ export class WalletService {
     };
   }
 
+  /**
+   * Delegado a GoogleWalletService para mantener wallet.service manageable.
+   * Genera el JWT save URL con LoyaltyClass + LoyaltyObject inline para que
+   * el cliente lo abra desde Android Chrome y lo agregue a Google Wallet.
+   */
   async generateGoogleSaveUrl(passId: string): Promise<string> {
-    const pass = await this.prisma.pass.findUnique({
-      where: { id: passId },
-      include: { card: true, tenant: true, customer: true },
-    });
-    if (!pass) throw new NotFoundException('Pass');
-
-    const issuerId = process.env.GOOGLE_WALLET_ISSUER_ID;
-    const sa = this.loadGoogleServiceAccount();
-
-    if (!issuerId || !sa) {
-      this.logger.warn('Google Wallet not configured; returning mock URL');
-      return `https://pay.google.com/gp/v/save/MOCK_${passId}`;
-    }
-    // Google Wallet IDs only allow [a-zA-Z0-9._] — UUIDs (with dashes) need sanitizing.
-    const safe = (s: string) => s.replace(/[^a-zA-Z0-9._]/g, '_');
-    const objectId = `${issuerId}.pass_${safe(pass.id)}`;
-    const classId = `${issuerId}.card_${safe(pass.cardId)}`;
-    const hex = pass.card.primaryColor || '#5B5EEE';
-    // El logo TIENE que ser HTTPS público accesible (Google scraper lo descarga).
-    // En dev preferimos el tunnel; ignoramos APP_URL si apunta a localhost.
-    const publicBase =
-      process.env.PUBLIC_LOGO_BASE_URL ||
-      (process.env.APP_URL && !process.env.APP_URL.includes('localhost')
-        ? process.env.APP_URL
-        : 'https://attacked-princess-understand-racks.trycloudflare.com');
-    const logoUri = pass.tenant.logoUrl || `${publicBase}/icons/icon-512.png`;
-
-    // LoyaltyClass inline — Google Wallet la crea on-the-fly si no existe.
-    // Sin esto el JWT save link falla porque Google requiere class antes que object.
-    // No incluimos `reviewStatus` ni `countryCode`: son sólo válidos vía REST API,
-    // no en el payload inline del JWT save link.
-    const loyaltyClass = {
-      id: classId,
-      issuerName: pass.tenant.brandName,
-      programName: pass.card.name,
-      programLogo: {
-        sourceUri: { uri: logoUri },
-        contentDescription: { defaultValue: { language: 'es', value: pass.tenant.brandName } },
-      },
-      hexBackgroundColor: hex,
-    };
-
-    const loyaltyObject = {
-      id: objectId,
-      classId,
-      state: 'ACTIVE',
-      accountName: pass.customer.fullName,
-      accountId: safe(pass.customer.id),
-      loyaltyPoints: {
-        balance: { string: `${pass.stampsCount}/${pass.card.stampsRequired ?? 10}` },
-        label: 'Sellos',
-      },
-      barcode: { type: 'PDF_417', value: pass.serialNumber, alternateText: pass.serialNumber },
-      hexBackgroundColor: hex,
-    };
-
-    const claims = {
-      iss: sa.client_email,
-      aud: 'google',
-      typ: 'savetowallet',
-      iat: Math.floor(Date.now() / 1000),
-      payload: {
-        loyaltyClasses: [loyaltyClass],
-        loyaltyObjects: [loyaltyObject],
-      },
-    };
-
-    const token = sign(claims, sa.private_key, { algorithm: 'RS256' });
-    const url = `https://pay.google.com/gp/v/save/${token}`;
-
-    await this.prisma.pass.update({ where: { id: passId }, data: { googleObjectId: objectId } });
-    return url;
+    return this.googleWallet.generateSaveUrl(passId);
   }
 
   /**
@@ -699,6 +637,12 @@ export class WalletService {
    * Si faltan, loggea y skipea (modo dev).
    */
   async pushPassUpdate(passId: string) {
+    // Google Wallet PATCH — propaga sellos/saldo/visitas/tier a Android.
+    // Fire-and-forget para no bloquear el APNs push.
+    this.googleWallet.pushUpdate(passId).catch((e) => {
+      this.logger.warn(`Google Wallet push failed: ${e?.message ?? e}`);
+    });
+
     const devices = await this.prisma.walletDevice.findMany({
       where: { passId, platform: 'APPLE' },
     });
