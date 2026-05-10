@@ -560,6 +560,8 @@ export class ReferralsService {
       'referrals.defaultAmbassadorPercent',
       'referrals.holdDays',
       'referrals.minPayoutUsd',
+      'referrals.notifyPaymentFailed',
+      'referrals.notifyChurn',
     ];
     const rows = await this.prisma.setting.findMany({ where: { key: { in: keys } } });
     const map = new Map(rows.map((r) => [r.key, r.value]));
@@ -582,6 +584,8 @@ export class ReferralsService {
       ),
       holdDays: Number(map.get('referrals.holdDays') ?? 30),
       minPayoutUsd: Number(map.get('referrals.minPayoutUsd') ?? 0),
+      notifyPaymentFailed: map.get('referrals.notifyPaymentFailed') !== 'false',
+      notifyChurn: map.get('referrals.notifyChurn') !== 'false',
     };
   }
 
@@ -594,6 +598,8 @@ export class ReferralsService {
       defaultAmbassadorPercent: number;
       holdDays: number;
       minPayoutUsd: number;
+      notifyPaymentFailed: boolean;
+      notifyChurn: boolean;
     }>,
   ) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
@@ -621,6 +627,10 @@ export class ReferralsService {
     if ('holdDays' in patch) writeKey('referrals.holdDays', String(patch.holdDays ?? 30));
     if ('minPayoutUsd' in patch)
       writeKey('referrals.minPayoutUsd', String(patch.minPayoutUsd ?? 0));
+    if ('notifyPaymentFailed' in patch)
+      writeKey('referrals.notifyPaymentFailed', patch.notifyPaymentFailed ? 'true' : 'false');
+    if ('notifyChurn' in patch)
+      writeKey('referrals.notifyChurn', patch.notifyChurn ? 'true' : 'false');
     await Promise.all(upserts);
     return this.getConfig(user);
   }

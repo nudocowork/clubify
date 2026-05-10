@@ -2296,6 +2296,8 @@ type ConfigResp = {
   defaultAmbassadorPercent: number;
   holdDays: number;
   minPayoutUsd: number;
+  notifyPaymentFailed: boolean;
+  notifyChurn: boolean;
 };
 
 function ConfigTab() {
@@ -2334,6 +2336,8 @@ function ConfigTab() {
           defaultAmbassadorPercent: cfg.defaultAmbassadorPercent,
           holdDays: cfg.holdDays,
           minPayoutUsd: cfg.minPayoutUsd,
+          notifyPaymentFailed: cfg.notifyPaymentFailed,
+          notifyChurn: cfg.notifyChurn,
         }),
       });
       setCfg(updated);
@@ -2453,11 +2457,70 @@ function ConfigTab() {
         </div>
       </div>
 
+      <div className="card card-pad lg:col-span-2 space-y-3">
+        <div>
+          <h3 className="font-semibold m-0 mb-1">🔔 Notificaciones automáticas</h3>
+          <div className="text-xs text-mute mb-3">
+            Avisos por WhatsApp a la cadena de atribución (embajador →
+            influencer → admin) cuando un cliente referido falla un pago o
+            cancela. El admin recibe el aviso al WhatsApp configurado en
+            Settings (key <code className="bg-bg2 px-1 rounded">salesWhatsapp</code>).
+          </div>
+        </div>
+        <NotifToggle
+          label="Pago fallido"
+          description="Hotmart reportó pago atrasado, billete pendiente o protesto."
+          checked={cfg.notifyPaymentFailed}
+          onChange={(v) => setCfg({ ...cfg, notifyPaymentFailed: v })}
+        />
+        <NotifToggle
+          label="Cliente canceló o reembolso"
+          description="Cuando un cliente referido se da de baja, refund o chargeback."
+          checked={cfg.notifyChurn}
+          onChange={(v) => setCfg({ ...cfg, notifyChurn: v })}
+        />
+      </div>
+
       <div className="lg:col-span-2 flex justify-end">
         <button onClick={save} disabled={saving} className="btn-primary">
           {saving ? 'Guardando…' : 'Guardar configuración'}
         </button>
       </div>
+    </div>
+  );
+}
+
+function NotifToggle({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-bg2/40">
+      <div className="min-w-0">
+        <div className="font-medium text-sm">{label}</div>
+        <div className="text-xs text-mute">{description}</div>
+      </div>
+      <button
+        type="button"
+        onClick={() => onChange(!checked)}
+        className={`relative w-10 h-5 rounded-full transition shrink-0 ${
+          checked ? 'bg-brand' : 'bg-bg2 border border-line'
+        }`}
+        aria-label={`Toggle ${label}`}
+      >
+        <span
+          className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition ${
+            checked ? 'left-[22px]' : 'left-0.5'
+          }`}
+        />
+      </button>
     </div>
   );
 }

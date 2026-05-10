@@ -189,6 +189,11 @@ export class HotmartService {
           tenant.brandName,
           smsPaymentFailed({ brandName: tenant.brandName }),
         ).catch(() => null);
+        // Aviso a la cadena de atribución (embajador → influencer → admin)
+        // si el dueño activó las notificaciones de pago fallido.
+        this.notifyReferralChain(tenant.id, tenant.brandName, 'PAYMENT_FAILED').catch(
+          () => null,
+        );
         return { ok: true, action: 'past_due' };
       }
 
@@ -212,6 +217,10 @@ export class HotmartService {
           rejectLastCommission: isRefundOrChargeback,
         }).catch((e) =>
           this.logger.warn(`churnReferral falló: ${(e as Error).message}`),
+        );
+        // Aviso a la cadena de atribución
+        this.notifyReferralChain(tenant.id, tenant.brandName, 'CHURNED').catch(
+          () => null,
         );
         return { ok: true, action: 'suspended' };
       }
@@ -566,5 +575,73 @@ export class HotmartService {
         data: { status: 'REJECTED' },
       });
     }
+  }
+
+  /**
+   * Notifica a la cadena de atribución (embajador → influencer → admin)
+   * cuando un cliente referido entra en estado de pago fallido o se da
+   * de baja. Best-effort vía SMS; no falla el webhook si no llega.
+   *
+   * Toggleable por Setting key:
+   *   - referrals.notifyPaymentFailed (default true; 'false' para apagar)
+   *   - referrals.notifyChurn (default true)
+   *
+   * El admin se notifica al WhatsApp de Setting `salesWhatsapp` si existe.
+   */
+  private async notifyReferralChain(
+    tenantId: string,
+    brandName: string,
+    event: 'PAYMENT_FAILED' | 'CHURNED',
+  ) {
+    const enabledKey =
+      event === 'PAYMENT_FAILED'
+        ? 'referrals.notifyPaymentFailed'
+        : 'referrals.notifyChurn';
+    const enabled = await this.prisma.setting.findUnique({ where: { key: enabledKey } });
+    if (enabled?.value === 'false') return;
+
+    const use = await this.prisma.referralUse.findFirst({
+      where: {
+        tenantId,
+        referralCode: { role: { in: ['INFLUENCER', 'AMBASSADOR'] } },
+      },
+      include: {
+        referralCode: { include: { parentCode: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!use) return;
+
+    const direct = use.referralCode;
+    const parent = direct.parentCode;
+    const eventLabel =
+      event === 'PAYMENT_FAILED' ? '⚠️ Pago fallido' : '⛔ Cliente cancelado';
+    const codeLine =
+      direct.role === 'AMBASSADOR' && parent
+        ? `Embajador: ${direct.ownerName} (${direct.code})\nInfluencer: ${parent.ownerName} (${parent.code})`
+        : `Atribución: ${direct.ownerName} (${direct.code})`;
+    const message = `${eventLabel}\nCliente: ${brandName}\n${codeLine}`;
+
+    if (direct.ownerWhatsapp) {
+      await this.growBusiness
+        .sendSms(tenantId, direct.ownerWhatsapp, message)
+        .catch(() => null);
+    }
+    if (parent?.ownerWhatsapp && parent.ownerWhatsapp !== direct.ownerWhatsapp) {
+      await this.growBusiness
+        .sendSms(tenantId, parent.ownerWhatsapp, message)
+        .catch(() => null);
+    }
+    const adminPhone = await this.prisma.setting.findUnique({
+      where: { key: 'salesWhatsapp' },
+    });
+    if (adminPhone?.value) {
+      await this.growBusiness
+        .sendSms(tenantId, adminPhone.value, message)
+        .catch(() => null);
+    }
+    this.logger.log(
+      `Notificada cadena referidos (${event}): direct=${direct.code} parent=${parent?.code ?? '—'}`,
+    );
   }
 }
