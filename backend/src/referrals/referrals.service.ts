@@ -291,6 +291,340 @@ export class ReferralsService {
       });
   }
 
+  // ============================================================
+  //              FASE 4 — Admin: dashboard + listas
+  // ============================================================
+
+  /**
+   * Resumen global del módulo. Agrega TODO lo que necesita el tab
+   * "Resumen" del admin: KPIs, top campañas, top influencers, top
+   * embajadores, breakdown por estado de comisiones.
+   */
+  async adminSummary(user: AuthUser) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+
+    const [campaigns, codes, uses, commissions, coupons] = await Promise.all([
+      this.prisma.campaign.findMany({
+        include: {
+          ownerCode: { include: { uses: { include: { commissions: true } } } },
+          codes: { include: { uses: { include: { commissions: true } } } },
+        },
+      }),
+      this.prisma.referralCode.findMany({ where: { isActive: true } }),
+      this.prisma.referralUse.findMany({
+        include: {
+          referralCode: { select: { role: true, ownerName: true, code: true } },
+        },
+      }),
+      this.prisma.commission.findMany(),
+      this.prisma.coupon.findMany({
+        select: { id: true, status: true, useCount: true, discountPercent: true },
+      }),
+    ]);
+
+    const round = (n: number) => Math.round(n * 100) / 100;
+    let mrrUsd = 0;
+    let commPaidUsd = 0;
+    let commPendingUsd = 0;
+    let commApprovedUsd = 0;
+    let commRejectedUsd = 0;
+    for (const c of commissions) {
+      const a = Number(c.amount);
+      if (c.status === 'PAID') commPaidUsd += a;
+      else if (c.status === 'APPROVED') commApprovedUsd += a;
+      else if (c.status === 'PENDING') commPendingUsd += a;
+      else if (c.status === 'REJECTED') commRejectedUsd += a;
+    }
+    // MRR estimado: comisiones del último mes calendárico de uses PAYING/ACTIVE.
+    const oneMonthAgo = Date.now() - 30 * 86400_000;
+    for (const c of commissions) {
+      if (new Date(c.createdAt).getTime() >= oneMonthAgo && c.status !== 'REJECTED') {
+        mrrUsd += Number(c.amount);
+      }
+    }
+
+    const activeUses = uses.filter((u) => u.status === 'PAYING' || u.status === 'ACTIVE');
+    const churnedUses = uses.filter((u) => u.status === 'CHURNED');
+    const trialUses = uses.filter((u) => u.status === 'SIGNED_UP');
+
+    const influencerCount = codes.filter((c) => c.role === 'INFLUENCER').length;
+    const ambassadorCount = codes.filter((c) => c.role === 'AMBASSADOR').length;
+
+    // Discount aplicado: suma de discountPercent * useCount * priceMonthly aprox.
+    // Nivel de detalle suficiente para el dashboard, no para contabilidad.
+    const discountUsedUsd = coupons.reduce(
+      (s, c) => s + Number(c.discountPercent) * c.useCount,
+      0,
+    );
+
+    // Top campañas por MRR generado (últimos 30d).
+    const campaignRows = campaigns.map((camp) => {
+      const allUses = [
+        ...camp.ownerCode.uses,
+        ...camp.codes.flatMap((c) => c.uses),
+      ];
+      const recentMrr = allUses
+        .flatMap((u) => u.commissions)
+        .filter(
+          (c) =>
+            c.status !== 'REJECTED' &&
+            new Date(c.createdAt).getTime() >= oneMonthAgo,
+        )
+        .reduce((s, c) => s + Number(c.amount), 0);
+      return {
+        id: camp.id,
+        name: camp.name,
+        ownerCode: camp.ownerCode.code,
+        ownerName: camp.ownerCode.ownerName,
+        status: camp.status,
+        ambassadors: camp.codes.length,
+        activeClients: allUses.filter((u) => u.status === 'PAYING' || u.status === 'ACTIVE').length,
+        mrrUsd: round(recentMrr),
+      };
+    });
+
+    // Comisión socio: suma de comisiones del use cuyo code tiene role=SOCIO.
+    const socioCommissions = uses
+      .filter((u) => u.referralCode.role === 'SOCIO')
+      .flatMap(() => []);
+    const socioRows = uses.filter((u) => u.referralCode.role === 'SOCIO');
+    let socioPaidUsd = 0;
+    let socioPendingUsd = 0;
+    for (const u of socioRows) {
+      const ucs = commissions.filter((c) => c.referralUseId === u.id);
+      for (const c of ucs) {
+        const a = Number(c.amount);
+        if (c.status === 'PAID') socioPaidUsd += a;
+        else if (c.status === 'PENDING' || c.status === 'APPROVED') socioPendingUsd += a;
+      }
+    }
+
+    return {
+      kpis: {
+        activeCampaigns: campaigns.filter((c) => c.status === 'ACTIVE').length,
+        totalCampaigns: campaigns.length,
+        influencerCount,
+        ambassadorCount,
+        totalReferredClients: uses.filter((u) => u.referralCode.role !== 'SOCIO').length,
+        activeClients: activeUses.filter((u) => u.referralCode.role !== 'SOCIO').length,
+        churnedClients: churnedUses.filter((u) => u.referralCode.role !== 'SOCIO').length,
+        trialClients: trialUses.filter((u) => u.referralCode.role !== 'SOCIO').length,
+        mrrUsd: round(mrrUsd),
+        commPaidUsd: round(commPaidUsd),
+        commPendingUsd: round(commPendingUsd + commApprovedUsd),
+        commRejectedUsd: round(commRejectedUsd),
+        socioPaidUsd: round(socioPaidUsd),
+        socioPendingUsd: round(socioPendingUsd),
+        discountUsedUsd: round(discountUsedUsd),
+        netoEmpresaUsd: round(commissions.length === 0 ? 0 : 0), // placeholder; F5 calcula real
+      },
+      topCampaigns: campaignRows
+        .sort((a, b) => b.mrrUsd - a.mrrUsd)
+        .slice(0, 5),
+    };
+  }
+
+  async listInfluencers(user: AuthUser) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    const codes = await this.prisma.referralCode.findMany({
+      where: { role: 'INFLUENCER' },
+      include: {
+        ownerOfCampaign: true,
+        ambassadors: { select: { id: true, isActive: true } },
+        uses: { include: { commissions: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return codes.map((c) => {
+      const directUses = c.uses;
+      const directActive = directUses.filter(
+        (u) => u.status === 'PAYING' || u.status === 'ACTIVE',
+      ).length;
+      const allComm = directUses.flatMap((u) => u.commissions);
+      const paid = allComm.filter((x) => x.status === 'PAID').reduce((s, x) => s + Number(x.amount), 0);
+      const pending = allComm
+        .filter((x) => x.status === 'PENDING' || x.status === 'APPROVED')
+        .reduce((s, x) => s + Number(x.amount), 0);
+      return {
+        id: c.id,
+        code: c.code,
+        ownerName: c.ownerName,
+        ownerEmail: c.ownerEmail,
+        ownerWhatsapp: c.ownerWhatsapp,
+        commissionPercent: Number(c.commissionPercent),
+        isActive: c.isActive,
+        campaignName: c.ownerOfCampaign?.name ?? null,
+        ambassadorsCount: c.ambassadors.filter((a) => a.isActive).length,
+        directClients: directUses.length,
+        directActiveClients: directActive,
+        paidUsd: Math.round(paid * 100) / 100,
+        pendingUsd: Math.round(pending * 100) / 100,
+        createdAt: c.createdAt,
+      };
+    });
+  }
+
+  async listAmbassadors(user: AuthUser) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    const codes = await this.prisma.referralCode.findMany({
+      where: { role: 'AMBASSADOR' },
+      include: {
+        parentCode: { select: { code: true, ownerName: true } },
+        campaign: { select: { name: true } },
+        uses: { include: { commissions: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return codes.map((c) => {
+      const allComm = c.uses.flatMap((u) => u.commissions);
+      const paid = allComm.filter((x) => x.status === 'PAID').reduce((s, x) => s + Number(x.amount), 0);
+      const pending = allComm
+        .filter((x) => x.status === 'PENDING' || x.status === 'APPROVED')
+        .reduce((s, x) => s + Number(x.amount), 0);
+      return {
+        id: c.id,
+        code: c.code,
+        ownerName: c.ownerName,
+        ownerEmail: c.ownerEmail,
+        ownerWhatsapp: c.ownerWhatsapp,
+        commissionPercent: Number(c.commissionPercent),
+        isActive: c.isActive,
+        parentCode: c.parentCode?.code ?? null,
+        parentName: c.parentCode?.ownerName ?? null,
+        campaignName: c.campaign?.name ?? null,
+        clients: c.uses.length,
+        activeClients: c.uses.filter((u) => u.status === 'PAYING' || u.status === 'ACTIVE').length,
+        paidUsd: Math.round(paid * 100) / 100,
+        pendingUsd: Math.round(pending * 100) / 100,
+        createdAt: c.createdAt,
+      };
+    });
+  }
+
+  async listClients(user: AuthUser) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    const uses = await this.prisma.referralUse.findMany({
+      where: { tenantId: { not: null } },
+      include: {
+        tenant: {
+          select: {
+            brandName: true,
+            status: true,
+            currentPeriodEnd: true,
+            plan: { select: { name: true } },
+          },
+        },
+        referralCode: {
+          select: { code: true, ownerName: true, role: true, parentCode: { select: { code: true, ownerName: true } } },
+        },
+        commissions: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return uses
+      .filter((u) => u.referralCode.role !== 'SOCIO')
+      .map((u) => ({
+        id: u.id,
+        tenantBrand: u.tenant?.brandName ?? '—',
+        tenantStatus: u.tenant?.status ?? '—',
+        plan: u.tenant?.plan?.name ?? '—',
+        currentPeriodEnd: u.tenant?.currentPeriodEnd ?? null,
+        attribution: {
+          role: u.referralCode.role,
+          code: u.referralCode.code,
+          ownerName: u.referralCode.ownerName,
+          parentCode: u.referralCode.parentCode?.code ?? null,
+          parentName: u.referralCode.parentCode?.ownerName ?? null,
+        },
+        status: u.status,
+        signedUpAt: u.createdAt,
+        convertedAt: u.convertedAt,
+        commissionsCount: u.commissions.length,
+        commissionsTotalUsd:
+          Math.round(
+            u.commissions.reduce((s, c) => s + Number(c.amount), 0) * 100,
+          ) / 100,
+      }));
+  }
+
+  /**
+   * GET configuración del módulo. Lee los Setting keys
+   * `referrals.*` y los devuelve con defaults.
+   */
+  async getConfig(user: AuthUser) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    const keys = [
+      'referrals.socioCodeId',
+      'referrals.indirectPercent',
+      'referrals.defaultInfluencerPercent',
+      'referrals.defaultAmbassadorPercent',
+      'referrals.holdDays',
+      'referrals.minPayoutUsd',
+    ];
+    const rows = await this.prisma.setting.findMany({ where: { key: { in: keys } } });
+    const map = new Map(rows.map((r) => [r.key, r.value]));
+    const socioId = map.get('referrals.socioCodeId') ?? '';
+    const socio = socioId
+      ? await this.prisma.referralCode.findUnique({
+          where: { id: socioId },
+          select: { id: true, code: true, ownerName: true, commissionPercent: true, role: true },
+        })
+      : null;
+    return {
+      socioCodeId: socioId,
+      socio,
+      indirectPercent: Number(map.get('referrals.indirectPercent') ?? 5),
+      defaultInfluencerPercent: Number(
+        map.get('referrals.defaultInfluencerPercent') ?? 30,
+      ),
+      defaultAmbassadorPercent: Number(
+        map.get('referrals.defaultAmbassadorPercent') ?? 25,
+      ),
+      holdDays: Number(map.get('referrals.holdDays') ?? 30),
+      minPayoutUsd: Number(map.get('referrals.minPayoutUsd') ?? 0),
+    };
+  }
+
+  async setConfig(
+    user: AuthUser,
+    patch: Partial<{
+      socioCodeId: string | null;
+      indirectPercent: number;
+      defaultInfluencerPercent: number;
+      defaultAmbassadorPercent: number;
+      holdDays: number;
+      minPayoutUsd: number;
+    }>,
+  ) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    const upserts: Array<Promise<any>> = [];
+    const writeKey = (key: string, value: string | null) => {
+      if (value === null) {
+        upserts.push(this.prisma.setting.delete({ where: { key } }).catch(() => null));
+      } else {
+        upserts.push(
+          this.prisma.setting.upsert({
+            where: { key },
+            create: { key, value },
+            update: { value },
+          }),
+        );
+      }
+    };
+    if ('socioCodeId' in patch) writeKey('referrals.socioCodeId', patch.socioCodeId ?? null);
+    if ('indirectPercent' in patch)
+      writeKey('referrals.indirectPercent', String(patch.indirectPercent ?? 5));
+    if ('defaultInfluencerPercent' in patch)
+      writeKey('referrals.defaultInfluencerPercent', String(patch.defaultInfluencerPercent ?? 30));
+    if ('defaultAmbassadorPercent' in patch)
+      writeKey('referrals.defaultAmbassadorPercent', String(patch.defaultAmbassadorPercent ?? 25));
+    if ('holdDays' in patch) writeKey('referrals.holdDays', String(patch.holdDays ?? 30));
+    if ('minPayoutUsd' in patch)
+      writeKey('referrals.minPayoutUsd', String(patch.minPayoutUsd ?? 0));
+    await Promise.all(upserts);
+    return this.getConfig(user);
+  }
+
   /**
    * Payouts: comisiones con regla de 30 días de hold.
    * - Si una comisión PENDING ya cumplió 30 días desde createdAt, se

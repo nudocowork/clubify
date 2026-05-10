@@ -11,7 +11,18 @@ const STATUS_LABEL: Record<string, { text: string; cls: string }> = {
   CHURNED: { text: 'Canceló', cls: 'bg-red-100 text-red-800' },
 };
 
-type Tab = 'leaderboard' | 'payouts' | 'codes' | 'campaigns' | 'coupons';
+type Tab =
+  | 'summary'
+  | 'campaigns'
+  | 'influencers'
+  | 'ambassadors'
+  | 'clients'
+  | 'commissions'
+  | 'payouts'
+  | 'coupons'
+  | 'config'
+  | 'leaderboard'
+  | 'codes';
 
 type LeaderRow = {
   ownerName: string;
@@ -75,7 +86,19 @@ const PAYOUT_STATUS: Record<PayoutItem['status'], { text: string; cls: string }>
 };
 
 export default function AdminReferrals() {
-  const [tab, setTab] = useState<Tab>('leaderboard');
+  const [tab, setTab] = useState<Tab>('summary');
+
+  const TABS: { id: Tab; label: string }[] = [
+    { id: 'summary', label: '📊 Resumen' },
+    { id: 'campaigns', label: '🎯 Campañas' },
+    { id: 'influencers', label: '🌟 Influencers' },
+    { id: 'ambassadors', label: '👥 Embajadores' },
+    { id: 'clients', label: '🏢 Clientes' },
+    { id: 'commissions', label: '💵 Comisiones' },
+    { id: 'payouts', label: '⏳ Pendientes por pagar' },
+    { id: 'coupons', label: '🎟 Cupones' },
+    { id: 'config', label: '⚙️ Configuración' },
+  ];
 
   return (
     <div>
@@ -83,44 +106,29 @@ export default function AdminReferrals() {
         <h1 className="page-title">Referidos</h1>
       </div>
 
-      <div className="tabs mb-5">
-        <button
-          className={`tab ${tab === 'campaigns' ? 'tab-active' : ''}`}
-          onClick={() => setTab('campaigns')}
-        >
-          🎯 Campañas
-        </button>
-        <button
-          className={`tab ${tab === 'leaderboard' ? 'tab-active' : ''}`}
-          onClick={() => setTab('leaderboard')}
-        >
-          🏆 Leaderboard
-        </button>
-        <button
-          className={`tab ${tab === 'payouts' ? 'tab-active' : ''}`}
-          onClick={() => setTab('payouts')}
-        >
-          💰 Pendientes por pagar
-        </button>
-        <button
-          className={`tab ${tab === 'codes' ? 'tab-active' : ''}`}
-          onClick={() => setTab('codes')}
-        >
-          🔗 Códigos
-        </button>
-        <button
-          className={`tab ${tab === 'coupons' ? 'tab-active' : ''}`}
-          onClick={() => setTab('coupons')}
-        >
-          🎟 Cupones
-        </button>
+      <div className="tabs mb-5 flex-wrap">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            className={`tab ${tab === t.id ? 'tab-active' : ''}`}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
+      {tab === 'summary' && <SummaryTab />}
       {tab === 'campaigns' && <CampaignsTab />}
-      {tab === 'leaderboard' && <LeaderboardTab />}
+      {tab === 'influencers' && <InfluencersTab />}
+      {tab === 'ambassadors' && <AmbassadorsTab />}
+      {tab === 'clients' && <ClientsTab />}
+      {tab === 'commissions' && <CommissionsTab />}
       {tab === 'payouts' && <PayoutsTab />}
-      {tab === 'codes' && <CodesTab />}
       {tab === 'coupons' && <CouponsTab />}
+      {tab === 'config' && <ConfigTab />}
+      {tab === 'leaderboard' && <LeaderboardTab />}
+      {tab === 'codes' && <CodesTab />}
     </div>
   );
 }
@@ -1781,3 +1789,675 @@ function CreateCouponModal({
   );
 }
 
+
+// =============================================================
+//                       SUMMARY TAB (Fase 4)
+// =============================================================
+
+type SummaryResp = {
+  kpis: {
+    activeCampaigns: number;
+    totalCampaigns: number;
+    influencerCount: number;
+    ambassadorCount: number;
+    totalReferredClients: number;
+    activeClients: number;
+    churnedClients: number;
+    trialClients: number;
+    mrrUsd: number;
+    commPaidUsd: number;
+    commPendingUsd: number;
+    commRejectedUsd: number;
+    socioPaidUsd: number;
+    socioPendingUsd: number;
+    discountUsedUsd: number;
+    netoEmpresaUsd: number;
+  };
+  topCampaigns: Array<{
+    id: string;
+    name: string;
+    ownerCode: string;
+    ownerName: string;
+    status: string;
+    ambassadors: number;
+    activeClients: number;
+    mrrUsd: number;
+  }>;
+};
+
+function SummaryTab() {
+  const [data, setData] = useState<SummaryResp | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api<SummaryResp>('/referrals/summary')
+      .then(setData)
+      .catch((e) => toast(e.message || 'Error', 'error'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="card card-pad h-32 animate-shimmer" />;
+  if (!data) return null;
+
+  const k = data.kpis;
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Kpi label="Campañas activas" value={`${k.activeCampaigns}/${k.totalCampaigns}`} />
+        <Kpi label="Influencers" value={k.influencerCount.toString()} />
+        <Kpi label="Embajadores" value={k.ambassadorCount.toString()} />
+        <Kpi label="Clientes referidos" value={k.totalReferredClients.toString()} />
+        <Kpi label="Clientes activos" value={k.activeClients.toString()} tone="ok" />
+        <Kpi label="En trial" value={k.trialClients.toString()} />
+        <Kpi label="Cancelados" value={k.churnedClients.toString()} />
+        <Kpi label="MRR (30d)" value={fmtUsd(k.mrrUsd)} tone="brand" />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="card card-pad">
+          <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1">
+            Comisiones referidos
+          </div>
+          <div className="space-y-1.5">
+            <SumRow label="Pagadas" value={fmtUsd(k.commPaidUsd)} tone="ok" />
+            <SumRow label="Pendientes" value={fmtUsd(k.commPendingUsd)} tone="amber" />
+            <SumRow label="Rechazadas" value={fmtUsd(k.commRejectedUsd)} tone="muted" />
+          </div>
+        </div>
+        <div className="card card-pad">
+          <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1">
+            Comisión socio (10%)
+          </div>
+          <div className="space-y-1.5">
+            <SumRow label="Pagado" value={fmtUsd(k.socioPaidUsd)} tone="ok" />
+            <SumRow label="Pendiente" value={fmtUsd(k.socioPendingUsd)} tone="amber" />
+          </div>
+        </div>
+        <div className="card card-pad">
+          <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1">
+            Descuentos aplicados
+          </div>
+          <div className="text-2xl font-bold text-brand">{fmtUsd(k.discountUsedUsd)}</div>
+          <div className="text-xs text-mute mt-1">
+            Suma estimada por cupones × usos
+          </div>
+        </div>
+      </div>
+
+      <div className="card card-pad">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold m-0">🔥 Top campañas (MRR 30d)</h3>
+        </div>
+        {data.topCampaigns.length === 0 ? (
+          <div className="text-center text-mute py-6 text-sm">Sin actividad reciente</div>
+        ) : (
+          <div className="space-y-2">
+            {data.topCampaigns.map((c, i) => (
+              <div
+                key={c.id}
+                className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-bg2/40"
+              >
+                <div className="font-bold text-base w-6 text-center">
+                  {['🥇', '🥈', '🥉'][i] ?? `${i + 1}`}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold truncate">{c.name}</div>
+                  <div className="text-xs text-mute truncate">
+                    {c.ownerName} · <span className="font-mono">{c.ownerCode}</span> ·{' '}
+                    {c.ambassadors} embajadores · {c.activeClients} activos
+                  </div>
+                </div>
+                <div className="font-bold text-brand whitespace-nowrap">{fmtUsd(c.mrrUsd)}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SumRow({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: 'ok' | 'amber' | 'muted';
+}) {
+  const cls =
+    tone === 'ok'
+      ? 'text-ok'
+      : tone === 'amber'
+      ? 'text-amber-700'
+      : tone === 'muted'
+      ? 'text-mute'
+      : 'text-ink';
+  return (
+    <div className="flex items-center justify-between text-sm">
+      <span className="text-mute">{label}</span>
+      <span className={`font-semibold ${cls}`}>{value}</span>
+    </div>
+  );
+}
+
+// =============================================================
+//                  INFLUENCERS / AMBASSADORS / CLIENTS
+// =============================================================
+
+function InfluencersTab() {
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    api<any[]>('/referrals/influencers')
+      .then((r) => setRows(r ?? []))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="card card-pad h-32 animate-shimmer" />;
+
+  return (
+    <div className="card overflow-hidden p-0">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[860px]">
+          <thead className="bg-bg2">
+            <tr>
+              {['Influencer', 'Código', '%', 'Campaña', 'Embajadores', 'Clientes', 'Pagado', 'Pendiente'].map(
+                (h) => (
+                  <th
+                    key={h}
+                    className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
+                  >
+                    {h}
+                  </th>
+                ),
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={8} className="text-center py-12 text-mute">
+                  Aún no hay influencers
+                </td>
+              </tr>
+            )}
+            {rows.map((r) => (
+              <tr key={r.id} className="border-t border-line2 hover:bg-[#FAFAFB]">
+                <td className="px-4 py-3">
+                  <div className="font-medium">{r.ownerName}</div>
+                  <div className="text-xs text-mute">{r.ownerEmail}</div>
+                </td>
+                <td className="px-4 py-3 font-mono font-bold">{r.code}</td>
+                <td className="px-4 py-3">{r.commissionPercent}%</td>
+                <td className="px-4 py-3 text-xs">{r.campaignName ?? '—'}</td>
+                <td className="px-4 py-3 text-center">{r.ambassadorsCount}</td>
+                <td className="px-4 py-3 text-center">
+                  {r.directActiveClients}
+                  {r.directClients !== r.directActiveClients && (
+                    <span className="text-mute"> / {r.directClients}</span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-ok font-medium">{fmtUsd(r.paidUsd)}</td>
+                <td className="px-4 py-3 text-amber-700 font-medium">{fmtUsd(r.pendingUsd)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function AmbassadorsTab() {
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    api<any[]>('/referrals/ambassadors')
+      .then((r) => setRows(r ?? []))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="card card-pad h-32 animate-shimmer" />;
+
+  return (
+    <div className="card overflow-hidden p-0">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[920px]">
+          <thead className="bg-bg2">
+            <tr>
+              {['Embajador', 'Código', '%', 'Influencer parent', 'Campaña', 'Activos', 'Total', 'Pagado', 'Pendiente'].map(
+                (h) => (
+                  <th
+                    key={h}
+                    className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
+                  >
+                    {h}
+                  </th>
+                ),
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={9} className="text-center py-12 text-mute">
+                  Aún no hay embajadores
+                </td>
+              </tr>
+            )}
+            {rows.map((r) => (
+              <tr
+                key={r.id}
+                className={`border-t border-line2 hover:bg-[#FAFAFB] ${r.isActive ? '' : 'opacity-50'}`}
+              >
+                <td className="px-4 py-3">
+                  <div className="font-medium">{r.ownerName}</div>
+                  <div className="text-xs text-mute">{r.ownerEmail}</div>
+                </td>
+                <td className="px-4 py-3 font-mono font-bold">{r.code}</td>
+                <td className="px-4 py-3">{r.commissionPercent}%</td>
+                <td className="px-4 py-3 text-xs">
+                  {r.parentName && (
+                    <>
+                      {r.parentName}
+                      <div className="text-mute font-mono">{r.parentCode}</div>
+                    </>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-xs">{r.campaignName ?? '—'}</td>
+                <td className="px-4 py-3 text-center">{r.activeClients}</td>
+                <td className="px-4 py-3 text-center">{r.clients}</td>
+                <td className="px-4 py-3 text-ok font-medium">{fmtUsd(r.paidUsd)}</td>
+                <td className="px-4 py-3 text-amber-700 font-medium">{fmtUsd(r.pendingUsd)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+const CLIENT_STATUS: Record<string, { text: string; cls: string }> = {
+  SIGNED_UP: { text: 'Inscrito', cls: 'bg-bg2 text-mute' },
+  ACTIVE: { text: 'Activo', cls: 'bg-ok-soft text-ok' },
+  PAYING: { text: 'Pagando', cls: 'bg-ok-soft text-ok' },
+  CHURNED: { text: 'Canceló', cls: 'bg-red-100 text-red-800' },
+};
+
+function ClientsTab() {
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<'all' | 'active' | 'churned' | 'trial'>('all');
+
+  useEffect(() => {
+    api<any[]>('/referrals/clients')
+      .then((r) => setRows(r ?? []))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const visible = rows.filter((r) => {
+    if (filter === 'active') return r.status === 'ACTIVE' || r.status === 'PAYING';
+    if (filter === 'churned') return r.status === 'CHURNED';
+    if (filter === 'trial') return r.status === 'SIGNED_UP';
+    return true;
+  });
+
+  if (loading) return <div className="card card-pad h-32 animate-shimmer" />;
+
+  return (
+    <div>
+      <div className="flex gap-1 mb-3 flex-wrap">
+        {(['all', 'active', 'trial', 'churned'] as const).map((f) => {
+          const count =
+            f === 'all'
+              ? rows.length
+              : f === 'active'
+              ? rows.filter((r) => r.status === 'ACTIVE' || r.status === 'PAYING').length
+              : f === 'churned'
+              ? rows.filter((r) => r.status === 'CHURNED').length
+              : rows.filter((r) => r.status === 'SIGNED_UP').length;
+          return (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`text-xs px-3 py-1.5 rounded-pill border ${
+                filter === f
+                  ? 'bg-ink text-white border-ink'
+                  : 'bg-white border-line text-mute hover:text-ink'
+              }`}
+            >
+              {f === 'all' ? 'Todos' : f === 'active' ? 'Activos' : f === 'trial' ? 'En trial' : 'Cancelados'}{' '}
+              ({count})
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="card overflow-hidden p-0">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[920px]">
+            <thead className="bg-bg2">
+              <tr>
+                {['Negocio', 'Plan', 'Atribución', 'Tipo', 'Estado', 'Inscrito', 'Comisiones'].map(
+                  (h) => (
+                    <th
+                      key={h}
+                      className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
+                    >
+                      {h}
+                    </th>
+                  ),
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {visible.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="text-center py-12 text-mute">
+                    Sin clientes en este filtro
+                  </td>
+                </tr>
+              )}
+              {visible.map((r) => {
+                const s = CLIENT_STATUS[r.status] ?? CLIENT_STATUS.SIGNED_UP;
+                return (
+                  <tr key={r.id} className="border-t border-line2 hover:bg-[#FAFAFB]">
+                    <td className="px-4 py-3">
+                      <div className="font-medium">{r.tenantBrand}</div>
+                      <div className="text-xs text-mute">{r.tenantStatus}</div>
+                    </td>
+                    <td className="px-4 py-3 text-xs">{r.plan}</td>
+                    <td className="px-4 py-3 text-xs">
+                      <div className="font-medium">{r.attribution.ownerName}</div>
+                      <div className="text-mute font-mono">{r.attribution.code}</div>
+                      {r.attribution.parentCode && (
+                        <div className="text-mute text-[10px] mt-0.5">
+                          via {r.attribution.parentName}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-xs">
+                      <span className="px-1.5 py-0.5 rounded bg-bg2 text-[10px] uppercase font-bold">
+                        {r.attribution.role}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${s.cls}`}>
+                        {s.text}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-mute">{fmtDate(r.signedUpAt)}</td>
+                    <td className="px-4 py-3 text-xs">
+                      {r.commissionsCount} · {fmtUsd(r.commissionsTotalUsd)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =============================================================
+//                       COMMISSIONS (TODAS)
+// =============================================================
+
+function CommissionsTab() {
+  // Reusa /referrals/payouts pero sin filtro de status — muestra TODAS.
+  // PayoutsTab ya filtra por defecto a APPROVED, este muestra el ledger completo.
+  const [data, setData] = useState<PayoutsResp | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api<PayoutsResp>('/referrals/payouts').then(setData).finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="card card-pad h-32 animate-shimmer" />;
+  if (!data) return null;
+
+  return (
+    <div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <Kpi label="Disponible" value={fmtUsd(data.totals.availableUsd)} tone="ok" />
+        <Kpi label="En hold" value={fmtUsd(data.totals.pendingUsd)} />
+        <Kpi label="Pagado" value={fmtUsd(data.totals.paidUsd)} tone="brand" />
+        <Kpi label="Total registros" value={data.totals.count.toString()} />
+      </div>
+
+      <div className="card overflow-hidden p-0">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[820px]">
+            <thead className="bg-bg2">
+              <tr>
+                {['Beneficiario', 'Código', 'Cliente', 'Monto', 'Estado', 'Creada', 'Pagada'].map(
+                  (h) => (
+                    <th
+                      key={h}
+                      className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
+                    >
+                      {h}
+                    </th>
+                  ),
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {data.items.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="text-center py-12 text-mute">
+                    Sin comisiones todavía
+                  </td>
+                </tr>
+              )}
+              {data.items.map((c) => {
+                const s = PAYOUT_STATUS[c.status];
+                return (
+                  <tr key={c.id} className="border-t border-line2 hover:bg-[#FAFAFB]">
+                    <td className="px-4 py-3">
+                      <div className="font-medium">{c.ownerName}</div>
+                      <div className="text-xs text-mute">{c.ownerEmail}</div>
+                    </td>
+                    <td className="px-4 py-3 font-mono font-bold text-xs">{c.codeText}</td>
+                    <td className="px-4 py-3 text-xs">{c.tenantBrand}</td>
+                    <td className="px-4 py-3 font-bold">{fmtUsd(c.amount)}</td>
+                    <td className="px-4 py-3">
+                      <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${s.cls}`}>
+                        {s.text}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-mute">{fmtDate(c.createdAt)}</td>
+                    <td className="px-4 py-3 text-xs text-mute">{fmtDate(c.paidAt)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =============================================================
+//                       CONFIGURATION TAB
+// =============================================================
+
+type ConfigResp = {
+  socioCodeId: string;
+  socio: { id: string; code: string; ownerName: string; commissionPercent: number; role: string } | null;
+  indirectPercent: number;
+  defaultInfluencerPercent: number;
+  defaultAmbassadorPercent: number;
+  holdDays: number;
+  minPayoutUsd: number;
+};
+
+function ConfigTab() {
+  const [cfg, setCfg] = useState<ConfigResp | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [referrals, setReferrals] = useState<any[]>([]);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const [c, codes] = await Promise.all([
+        api<ConfigResp>('/referrals/config'),
+        api<any[]>('/referrals'),
+      ]);
+      setCfg(c);
+      setReferrals(codes);
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function save() {
+    if (!cfg) return;
+    setSaving(true);
+    try {
+      const updated = await api<ConfigResp>('/referrals/config', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          socioCodeId: cfg.socioCodeId || null,
+          indirectPercent: cfg.indirectPercent,
+          defaultInfluencerPercent: cfg.defaultInfluencerPercent,
+          defaultAmbassadorPercent: cfg.defaultAmbassadorPercent,
+          holdDays: cfg.holdDays,
+          minPayoutUsd: cfg.minPayoutUsd,
+        }),
+      });
+      setCfg(updated);
+      toast('Configuración guardada', 'success');
+    } catch (e: any) {
+      toast(e.message || 'Error', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading || !cfg) return <div className="card card-pad h-32 animate-shimmer" />;
+
+  const socioOptions = referrals.filter((r: any) => r.role === 'SOCIO');
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div className="card card-pad space-y-4">
+        <div>
+          <h3 className="font-semibold m-0 mb-1">Comisiones por defecto</h3>
+          <div className="text-xs text-mute mb-3">
+            Aplican cuando se crea un nuevo influencer/embajador sin un % específico.
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Influencer directo</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                className="input"
+                value={cfg.defaultInfluencerPercent}
+                onChange={(e) =>
+                  setCfg({ ...cfg, defaultInfluencerPercent: Number(e.target.value) })
+                }
+              />
+            </div>
+            <div>
+              <label className="label">Embajador</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                className="input"
+                value={cfg.defaultAmbassadorPercent}
+                onChange={(e) =>
+                  setCfg({ ...cfg, defaultAmbassadorPercent: Number(e.target.value) })
+                }
+              />
+            </div>
+          </div>
+          <div className="mt-3">
+            <label className="label">Influencer indirecto (cuando lo usa un embajador)</label>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              className="input"
+              value={cfg.indirectPercent}
+              onChange={(e) => setCfg({ ...cfg, indirectPercent: Number(e.target.value) })}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="card card-pad space-y-4">
+        <div>
+          <h3 className="font-semibold m-0 mb-1">Socio global</h3>
+          <div className="text-xs text-mute mb-3">
+            El socio recibe el 10% de TODAS las ventas de Clubify, no depende
+            de qué código se use. Solo códigos con rol SOCIO aparecen acá.
+          </div>
+          {socioOptions.length === 0 ? (
+            <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5 text-sm text-amber-900">
+              No hay códigos SOCIO. Crea uno desde la tab Códigos y vuelve acá.
+            </div>
+          ) : (
+            <select
+              className="input"
+              value={cfg.socioCodeId}
+              onChange={(e) => setCfg({ ...cfg, socioCodeId: e.target.value })}
+            >
+              <option value="">— Sin socio configurado —</option>
+              {socioOptions.map((r: any) => (
+                <option key={r.id} value={r.id}>
+                  {r.ownerName} ({r.code}) — {Number(r.commissionPercent)}%
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+
+        <div>
+          <h3 className="font-semibold m-0 mb-1">Pagos</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Días de hold</label>
+              <input
+                type="number"
+                min={0}
+                className="input"
+                value={cfg.holdDays}
+                onChange={(e) => setCfg({ ...cfg, holdDays: Number(e.target.value) })}
+              />
+            </div>
+            <div>
+              <label className="label">Mínimo para pagar (USD)</label>
+              <input
+                type="number"
+                min={0}
+                className="input"
+                value={cfg.minPayoutUsd}
+                onChange={(e) => setCfg({ ...cfg, minPayoutUsd: Number(e.target.value) })}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="lg:col-span-2 flex justify-end">
+        <button onClick={save} disabled={saving} className="btn-primary">
+          {saving ? 'Guardando…' : 'Guardar configuración'}
+        </button>
+      </div>
+    </div>
+  );
+}

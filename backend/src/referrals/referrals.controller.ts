@@ -31,6 +31,42 @@ export class ReferralsController {
   // Rutas con paths fijos primero (defense-in-depth: NestJS matchea por
   // orden de declaración cuando hay path params).
   @Roles('SUPER_ADMIN')
+  @Get('summary')
+  summary(@CurrentUser() user: AuthUser) {
+    return this.svc.adminSummary(user);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Get('influencers')
+  influencers(@CurrentUser() user: AuthUser) {
+    return this.svc.listInfluencers(user);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Get('ambassadors')
+  ambassadors(@CurrentUser() user: AuthUser) {
+    return this.svc.listAmbassadors(user);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Get('clients')
+  clients(@CurrentUser() user: AuthUser) {
+    return this.svc.listClients(user);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Get('config')
+  getConfig(@CurrentUser() user: AuthUser) {
+    return this.svc.getConfig(user);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Patch('config')
+  setConfig(@CurrentUser() user: AuthUser, @Body() body: any) {
+    return this.svc.setConfig(user, body);
+  }
+
+  @Roles('SUPER_ADMIN')
   @Get('leaderboard')
   leaderboard(@CurrentUser() user: AuthUser) {
     return this.svc.leaderboard(user);
