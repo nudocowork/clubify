@@ -38,6 +38,9 @@ export type HotmartWebhookPayload = {
       transaction?: string;
       status?: string;
       approved_date?: number;
+      // Hotmart manda el monto pagado en USD acá. Lo usamos para calcular
+      // la comisión del referido. Si no viene, caemos a plan.priceMonthly.
+      price?: { value?: number; currency_code?: string };
     };
     product?: { id?: number; name?: string };
   };
@@ -141,6 +144,16 @@ export class HotmartService {
             pausePendingNoticeSentAt: null,
           },
         });
+        // Generar la comisión recurrente del referido. Idempotente por
+        // tx/período: si ya creamos una comisión para esta misma transacción
+        // o en los últimos 25 días, skipea.
+        await this.generateReferralCommission({
+          tenantId: tenant.id,
+          paidAmount: payload.data?.purchase?.price?.value ?? null,
+          transactionId,
+        }).catch((e) => {
+          this.logger.warn(`generateReferralCommission falló: ${(e as Error).message}`);
+        });
         // SMS de confirmación al dueño (best-effort)
         this.notifyOwner(
           tenant.id,
@@ -187,6 +200,17 @@ export class HotmartService {
             suspendedAt: new Date(),
           },
         });
+        // Reflejar el cambio en el referido. CHURNED frena nuevas comisiones
+        // recurrentes. Si fue refund/chargeback, además rechazamos la última
+        // comisión PENDING/APPROVED para no pagar algo que el cliente revirtió.
+        const isRefundOrChargeback =
+          event === 'PURCHASE_REFUNDED' || event === 'PURCHASE_CHARGEBACK';
+        await this.churnReferral({
+          tenantId: tenant.id,
+          rejectLastCommission: isRefundOrChargeback,
+        }).catch((e) =>
+          this.logger.warn(`churnReferral falló: ${(e as Error).message}`),
+        );
         return { ok: true, action: 'suspended' };
       }
 
@@ -326,5 +350,123 @@ export class HotmartService {
       !!process.env.HOTMART_PRODUCT_ID_ELITE ||
       !!process.env.HOTMART_PRODUCT_ID_PRO;
     return hasAnyProduct && !!process.env.HOTMART_HOTTOK;
+  }
+
+  // ============================================================
+  //   Comisiones de referidos — automatización (Fase 1)
+  // ============================================================
+
+  /**
+   * Genera una Commission para el ReferralUse asociado al tenant cuando
+   * Hotmart confirma un pago. Idempotente:
+   *   - Si la última Commission del use es < 25 días → skip (mismo ciclo)
+   *   - Si no hay ReferralUse para el tenant → no-op
+   *
+   * Marca también el ReferralUse como PAYING (la primera vez) para que el
+   * leaderboard cuente conversión real, no sólo signup.
+   *
+   * Monto: paidAmount del payload si vino, sino plan.priceMonthly del tenant.
+   * % de comisión: ReferralCode.commissionPercent (default 25%).
+   */
+  private async generateReferralCommission(opts: {
+    tenantId: string;
+    paidAmount: number | null;
+    transactionId?: string;
+  }) {
+    const use = await this.prisma.referralUse.findFirst({
+      where: { tenantId: opts.tenantId },
+      include: {
+        referralCode: { select: { commissionPercent: true } },
+        commissions: { orderBy: { createdAt: 'desc' }, take: 1 },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!use) return; // tenant sin referido — no hay comisión que generar
+
+    // Resolver monto pagado: payload Hotmart > plan.priceMonthly
+    let amountPaid = opts.paidAmount;
+    if (!amountPaid || amountPaid <= 0) {
+      const tenant = await this.prisma.tenant.findUnique({
+        where: { id: opts.tenantId },
+        select: { plan: { select: { priceMonthly: true } } },
+      });
+      amountPaid = Number(tenant?.plan?.priceMonthly ?? 0);
+    }
+    if (!amountPaid || amountPaid <= 0) {
+      this.logger.warn(
+        `Skip comisión: sin precio para tenant=${opts.tenantId}`,
+      );
+      return;
+    }
+
+    const pct = Number(use.referralCode.commissionPercent ?? 25);
+    const commissionAmount = Math.round((amountPaid * pct) / 100 * 100) / 100;
+
+    // Idempotencia: si la última comisión es muy reciente (mismo ciclo
+    // mensual), no creamos otra. Hotmart a veces re-envía webhooks.
+    const last = use.commissions[0];
+    if (last) {
+      const daysSince = (Date.now() - new Date(last.createdAt).getTime()) / 86400_000;
+      if (daysSince < 25) {
+        this.logger.log(
+          `Skip comisión duplicada: tenant=${opts.tenantId} última=${daysSince.toFixed(1)}d`,
+        );
+        return;
+      }
+    }
+
+    // Promover a PAYING si está SIGNED_UP (primer pago confirmado).
+    if (use.status === 'SIGNED_UP') {
+      await this.prisma.referralUse.update({
+        where: { id: use.id },
+        data: { status: 'PAYING', convertedAt: new Date() },
+      });
+    }
+
+    await this.prisma.commission.create({
+      data: {
+        referralUseId: use.id,
+        amount: commissionAmount,
+        status: 'PENDING', // pasa a APPROVED automáticamente a los 30d
+      },
+    });
+    this.logger.log(
+      `Comisión generada: tenant=${opts.tenantId} use=${use.id} $${commissionAmount} (${pct}% de $${amountPaid})`,
+    );
+  }
+
+  /**
+   * Marca el ReferralUse como CHURNED (frena recurrencia futura). Si el
+   * caller indica `rejectLastCommission`, además rechaza la última
+   * comisión PENDING/APPROVED para no pagar lo que el cliente revirtió.
+   */
+  private async churnReferral(opts: {
+    tenantId: string;
+    rejectLastCommission: boolean;
+  }) {
+    const use = await this.prisma.referralUse.findFirst({
+      where: { tenantId: opts.tenantId },
+      include: {
+        commissions: {
+          where: { status: { in: ['PENDING', 'APPROVED'] } },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!use) return;
+
+    await this.prisma.referralUse.update({
+      where: { id: use.id },
+      data: { status: 'CHURNED' },
+    });
+
+    if (opts.rejectLastCommission && use.commissions[0]) {
+      await this.prisma.commission.update({
+        where: { id: use.commissions[0].id },
+        data: { status: 'REJECTED' },
+      });
+    }
   }
 }

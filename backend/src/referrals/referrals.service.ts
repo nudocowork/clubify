@@ -1,4 +1,5 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { customAlphabet } from 'nanoid';
 import { CommissionStatus } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -16,7 +17,61 @@ export type CreateReferralDto = {
 
 @Injectable()
 export class ReferralsService {
+  private logger = new Logger(ReferralsService.name);
+
   constructor(private prisma: PrismaService) {}
+
+  /**
+   * Cron diario que reconcilia comisiones recurrentes. Defensa en
+   * profundidad por si el webhook Hotmart no llegó en algún ciclo
+   * (problemas de red, payload distinto, etc).
+   *
+   * Lógica:
+   *   1. Para cada ReferralUse en estado PAYING/ACTIVE
+   *   2. Cuyo tenant esté ACTIVE y currentPeriodEnd > now (sigue suscrito)
+   *   3. Cuya última Commission sea > 28 días (próximo ciclo)
+   *   4. Crea una nueva Commission PENDING con el plan.priceMonthly *
+   *      referralCode.commissionPercent / 100.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_4AM)
+  async reconcileRecurringCommissions() {
+    const now = new Date();
+    const cutoff = new Date(now.getTime() - 28 * 86400_000);
+
+    const candidates = await this.prisma.referralUse.findMany({
+      where: {
+        status: { in: ['PAYING', 'ACTIVE'] },
+        tenantId: { not: null },
+        tenant: {
+          status: 'ACTIVE',
+          currentPeriodEnd: { gt: now },
+        },
+      },
+      include: {
+        referralCode: { select: { commissionPercent: true } },
+        tenant: { select: { plan: { select: { priceMonthly: true } } } },
+        commissions: { orderBy: { createdAt: 'desc' }, take: 1 },
+      },
+    });
+
+    let created = 0;
+    for (const use of candidates) {
+      const last = use.commissions[0];
+      if (last && new Date(last.createdAt) > cutoff) continue;
+      const price = Number(use.tenant?.plan?.priceMonthly ?? 0);
+      if (price <= 0) continue;
+      const pct = Number(use.referralCode.commissionPercent ?? 25);
+      const amount = Math.round((price * pct) / 100 * 100) / 100;
+      await this.prisma.commission.create({
+        data: { referralUseId: use.id, amount, status: 'PENDING' },
+      });
+      created += 1;
+    }
+
+    if (created > 0) {
+      this.logger.log(`Reconciled recurring commissions: created=${created}`);
+    }
+  }
 
   async createCode(dto: CreateReferralDto) {
     if (!dto.fullName || !dto.email || !dto.whatsapp) {
