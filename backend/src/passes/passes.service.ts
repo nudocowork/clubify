@@ -140,7 +140,7 @@ export class PassesService {
    */
   async enrollPublic(
     cardId: string,
-    dto: { fullName: string; email?: string; phone: string },
+    dto: { fullName: string; email?: string; phone: string; utmSlug?: string },
   ) {
     const card = await this.prisma.card.findUnique({
       where: { id: cardId },
@@ -195,6 +195,27 @@ export class PassesService {
       return { passId: existing.id, customerId: customer.id, isNew: false };
     }
 
+    // Aplicamos bonus de bienvenida si vino vía link UTM con bonus activo.
+    let bonusStamps = 0;
+    let bonusPoints = 0;
+    if (dto.utmSlug) {
+      const utm = await this.prisma.cardUtmLink.findUnique({
+        where: { slug: dto.utmSlug },
+      });
+      if (utm && utm.cardId === cardId) {
+        const bonusActive =
+          !utm.bonusExpiresAt || utm.bonusExpiresAt.getTime() > Date.now();
+        if (bonusActive) {
+          bonusStamps = utm.welcomeStamps ?? 0;
+          bonusPoints = utm.welcomePoints ? Number(utm.welcomePoints) : 0;
+          await this.prisma.cardUtmLink.update({
+            where: { id: utm.id },
+            data: { useCount: { increment: 1 } },
+          });
+        }
+      }
+    }
+
     // Crear pass nuevo (mismo flujo que issue() pero sin auth check)
     const serial = `CLB-${nanoid(10).toUpperCase()}`;
     const authToken = nanoid(32);
@@ -206,6 +227,8 @@ export class PassesService {
         serialNumber: serial,
         qrToken: 'placeholder',
         authToken,
+        stampsCount: bonusStamps,
+        pointsBalance: bonusPoints,
       },
     });
     const finalQr = sign(

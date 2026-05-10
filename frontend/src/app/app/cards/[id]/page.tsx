@@ -16,14 +16,36 @@ type Card = {
   type: 'STAMPS' | 'POINTS' | 'DISCOUNT' | 'MEMBERSHIP';
   rewardText: string;
   terms: string;
+  termsEnabled?: boolean;
   primaryColor: string;
   secondaryColor: string;
+  stampActiveColor?: string | null;
+  stampInactiveColor?: string | null;
+  stampContourColor?: string | null;
+  centerBgColor?: string | null;
   stampsRequired: number | null;
   stampIcon?: string;
   discountPercent?: number | null;
   pointsPerCurrency?: number | string | null;
   validUntil?: string | null;
   validDaysAfterIssue?: number | null;
+  locationId?: string | null;
+  howToEarnText?: string;
+  businessName?: string;
+  rewardDescText?: string;
+  stampEarnedMessage?: string;
+  rewardEarnedMessage?: string;
+  multiRewards?: Array<{ at: number; reward: string }>;
+  activeLinks?: Array<{ type: string; url: string; label: string }>;
+  utmLinks?: Array<{
+    id: string;
+    source: string;
+    slug: string;
+    welcomeStamps: number | null;
+    welcomePoints: number | string | null;
+    bonusExpiresAt: string | null;
+    useCount: number;
+  }>;
   isActive: boolean;
   _count?: { passes: number };
 };
@@ -667,8 +689,13 @@ function EditCardModal({
     description: card.description ?? '',
     rewardText: card.rewardText ?? '',
     terms: card.terms ?? '',
+    termsEnabled: card.termsEnabled ?? true,
     primaryColor: card.primaryColor,
     secondaryColor: card.secondaryColor,
+    stampActiveColor: card.stampActiveColor ?? (null as string | null),
+    stampInactiveColor: card.stampInactiveColor ?? (null as string | null),
+    stampContourColor: card.stampContourColor ?? (null as string | null),
+    centerBgColor: card.centerBgColor ?? (null as string | null),
     stampsRequired: card.stampsRequired ?? 10,
     discountPercent: card.discountPercent ?? 10,
     pointsPerCurrency: Number(card.pointsPerCurrency ?? 0.001),
@@ -677,27 +704,56 @@ function EditCardModal({
       ? card.validUntil.split('T')[0]
       : (null as string | null),
     validDaysAfterIssue: card.validDaysAfterIssue ?? (null as number | null),
+    locationId: card.locationId ?? (null as string | null),
+    howToEarnText: card.howToEarnText ?? '',
+    businessName: card.businessName ?? '',
+    rewardDescText: card.rewardDescText ?? '',
+    stampEarnedMessage: card.stampEarnedMessage ?? '',
+    rewardEarnedMessage: card.rewardEarnedMessage ?? '',
+    multiRewards: card.multiRewards ?? [],
+    activeLinks: card.activeLinks ?? [],
   });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [showAdvancedColors, setShowAdvancedColors] = useState(false);
+  const [locations, setLocations] = useState<Array<{ id: string; name: string }>>([]);
+  const [utmLinks, setUtmLinks] = useState(card.utmLinks ?? []);
+
+  useEffect(() => {
+    api<any[]>('/locations')
+      .then((rows) =>
+        setLocations((rows ?? []).map((r) => ({ id: r.id, name: r.name }))),
+      )
+      .catch(() => {});
+  }, []);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
     setBusy(true);
     try {
-      // Mandamos solo los campos relevantes según el tipo de tarjeta
       const payload: any = {
         name: form.name.trim(),
         description: form.description,
         rewardText: form.rewardText,
         terms: form.terms,
+        termsEnabled: form.termsEnabled,
         primaryColor: form.primaryColor,
         secondaryColor: form.secondaryColor,
-        // null = "borrar y volver a Ilimitado"; el backend distingue
-        // entre null y campo ausente.
+        stampActiveColor: form.stampActiveColor,
+        stampInactiveColor: form.stampInactiveColor,
+        stampContourColor: form.stampContourColor,
+        centerBgColor: form.centerBgColor,
         validUntil: form.validUntil,
         validDaysAfterIssue: form.validDaysAfterIssue,
+        locationId: form.locationId,
+        howToEarnText: form.howToEarnText,
+        businessName: form.businessName,
+        rewardDescText: form.rewardDescText,
+        stampEarnedMessage: form.stampEarnedMessage,
+        rewardEarnedMessage: form.rewardEarnedMessage,
+        multiRewards: form.multiRewards,
+        activeLinks: form.activeLinks,
       };
       if (card.type === 'STAMPS') {
         payload.stampsRequired = form.stampsRequired;
@@ -716,6 +772,34 @@ function EditCardModal({
     } finally {
       setBusy(false);
     }
+  }
+
+  function addLink() {
+    setForm({
+      ...form,
+      activeLinks: [...form.activeLinks, { type: 'URL', url: '', label: '' }],
+    });
+  }
+  function updateLink(i: number, patch: Partial<{ type: string; url: string; label: string }>) {
+    const next = [...form.activeLinks];
+    next[i] = { ...next[i], ...patch };
+    setForm({ ...form, activeLinks: next });
+  }
+  function removeLink(i: number) {
+    setForm({ ...form, activeLinks: form.activeLinks.filter((_, j) => j !== i) });
+  }
+
+  async function addUtm(source: string, welcomeStamps: number | null, welcomePoints: number | null) {
+    if (!source.trim()) return;
+    const created = await api<any>(`/cards/${card.id}/utm`, {
+      method: 'POST',
+      body: JSON.stringify({ source, welcomeStamps, welcomePoints }),
+    });
+    setUtmLinks([created, ...utmLinks]);
+  }
+  async function deleteUtm(utmId: string) {
+    await api(`/cards/${card.id}/utm/${utmId}`, { method: 'DELETE' });
+    setUtmLinks(utmLinks.filter((u) => u.id !== utmId));
   }
 
   return (
@@ -745,6 +829,28 @@ function EditCardModal({
               required
             />
           </div>
+
+          <div>
+            <label className="label">
+              Sede / Ubicación
+              <span className="text-mute font-normal ml-1">(opcional)</span>
+            </label>
+            <select
+              className="input"
+              value={form.locationId ?? ''}
+              onChange={(e) =>
+                setForm({ ...form, locationId: e.target.value || null })
+              }
+            >
+              <option value="">Todas las sedes</option>
+              {locations.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div>
             <label className="label">Descripción</label>
             <textarea
@@ -784,6 +890,32 @@ function EditCardModal({
                   value={form.stampIcon}
                   onSelect={(icon) => setForm({ ...form, stampIcon: icon })}
                 />
+              </div>
+              <div>
+                <label className="label">
+                  Recompensas intermedias
+                  <span className="text-mute font-normal ml-1">(opcional)</span>
+                </label>
+                <input
+                  className="input"
+                  placeholder="Ej: 5:5% off, 10:10% off"
+                  value={form.multiRewards.map((m) => `${m.at}:${m.reward}`).join(', ')}
+                  onChange={(e) => {
+                    const parsed = e.target.value
+                      .split(',')
+                      .map((s) => s.trim())
+                      .filter(Boolean)
+                      .map((s) => {
+                        const [at, ...rest] = s.split(':');
+                        return { at: Number(at) || 0, reward: rest.join(':').trim() };
+                      })
+                      .filter((m) => m.at > 0 && m.reward);
+                    setForm({ ...form, multiRewards: parsed });
+                  }}
+                />
+                <div className="text-[11px] text-mute mt-1">
+                  Sintaxis: <code className="bg-bg2 px-1 rounded">N:premio</code> separados por coma.
+                </div>
               </div>
             </>
           )}
@@ -847,14 +979,68 @@ function EditCardModal({
             </div>
           </div>
 
-          <div>
-            <label className="label">Términos y condiciones</label>
-            <textarea
-              className="input min-h-[80px]"
-              value={form.terms}
-              onChange={(e) => setForm({ ...form, terms: e.target.value })}
-              placeholder="Lo que ven los clientes en el reverso de la tarjeta wallet"
-            />
+          <button
+            type="button"
+            onClick={() => setShowAdvancedColors((v) => !v)}
+            className="text-xs text-brand hover:underline"
+          >
+            {showAdvancedColors ? '▲ Ocultar' : '▼ Colores avanzados'}
+          </button>
+          {showAdvancedColors && (
+            <div className="grid grid-cols-2 gap-3 p-3 rounded-lg bg-bg2/40">
+              <ModalAdvancedColor
+                label="Sello activo"
+                value={form.stampActiveColor}
+                onChange={(v) => setForm({ ...form, stampActiveColor: v })}
+              />
+              <ModalAdvancedColor
+                label="Sello inactivo"
+                value={form.stampInactiveColor}
+                onChange={(v) => setForm({ ...form, stampInactiveColor: v })}
+              />
+              <ModalAdvancedColor
+                label="Contorno"
+                value={form.stampContourColor}
+                onChange={(v) => setForm({ ...form, stampContourColor: v })}
+              />
+              <ModalAdvancedColor
+                label="Fondo central"
+                value={form.centerBgColor}
+                onChange={(v) => setForm({ ...form, centerBgColor: v })}
+              />
+            </div>
+          )}
+
+          <div className="pt-3 border-t border-line">
+            <div className="flex items-center justify-between">
+              <label className="label m-0">Términos y condiciones</label>
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, termsEnabled: !form.termsEnabled })}
+                className={`relative w-10 h-5 rounded-full transition ${
+                  form.termsEnabled ? 'bg-brand' : 'bg-bg2 border border-line'
+                }`}
+                aria-label="Toggle T&C"
+              >
+                <span
+                  className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition ${
+                    form.termsEnabled ? 'left-[22px]' : 'left-0.5'
+                  }`}
+                />
+              </button>
+            </div>
+            {form.termsEnabled ? (
+              <textarea
+                className="input min-h-[80px] mt-2"
+                value={form.terms}
+                onChange={(e) => setForm({ ...form, terms: e.target.value })}
+                placeholder="Lo que ven los clientes en el reverso de la tarjeta wallet"
+              />
+            ) : (
+              <div className="text-xs text-mute mt-2">
+                Esta tarjeta no muestra términos.
+              </div>
+            )}
           </div>
 
           <div className="pt-3 border-t border-line">
@@ -870,6 +1056,97 @@ function EditCardModal({
                   validDaysAfterIssue: v.validDaysAfterIssue,
                 })
               }
+            />
+          </div>
+
+          <div className="pt-3 border-t border-line space-y-2">
+            <div className="text-xs uppercase tracking-wider text-mute font-semibold">
+              Información (reverso)
+            </div>
+            <input
+              className="input"
+              placeholder="Cómo ganar un sello"
+              value={form.howToEarnText}
+              onChange={(e) => setForm({ ...form, howToEarnText: e.target.value })}
+            />
+            <input
+              className="input"
+              placeholder="Nombre de empresa"
+              value={form.businessName}
+              onChange={(e) => setForm({ ...form, businessName: e.target.value })}
+            />
+            <input
+              className="input"
+              placeholder="Descripción de la recompensa"
+              value={form.rewardDescText}
+              onChange={(e) => setForm({ ...form, rewardDescText: e.target.value })}
+            />
+            <input
+              className="input"
+              placeholder="Mensaje de sello ganado (usa [#] para sellos restantes)"
+              value={form.stampEarnedMessage}
+              onChange={(e) => setForm({ ...form, stampEarnedMessage: e.target.value })}
+            />
+            <input
+              className="input"
+              placeholder="Mensaje de recompensa ganada"
+              value={form.rewardEarnedMessage}
+              onChange={(e) => setForm({ ...form, rewardEarnedMessage: e.target.value })}
+            />
+          </div>
+
+          <div className="pt-3 border-t border-line">
+            <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
+              Enlaces activos
+            </div>
+            {form.activeLinks.map((link, i) => (
+              <div key={i} className="grid grid-cols-[100px_1fr_1fr_24px] gap-2 mb-2 items-center">
+                <select
+                  className="input"
+                  value={link.type}
+                  onChange={(e) => updateLink(i, { type: e.target.value })}
+                >
+                  <option value="URL">URL</option>
+                  <option value="PHONE">Tel</option>
+                  <option value="EMAIL">Email</option>
+                  <option value="ADDRESS">Dirección</option>
+                </select>
+                <input
+                  className="input"
+                  placeholder="https://..."
+                  value={link.url}
+                  onChange={(e) => updateLink(i, { url: e.target.value })}
+                />
+                <input
+                  className="input"
+                  placeholder="Etiqueta"
+                  value={link.label}
+                  onChange={(e) => updateLink(i, { label: e.target.value })}
+                />
+                <button
+                  type="button"
+                  onClick={() => removeLink(i)}
+                  className="text-mute hover:text-bad"
+                  aria-label="Quitar"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            <button type="button" onClick={addLink} className="btn-ghost w-full text-sm">
+              + Añadir enlace
+            </button>
+          </div>
+
+          <div className="pt-3 border-t border-line">
+            <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
+              Enlaces UTM (campañas)
+            </div>
+            <UtmManager
+              cardId={card.id}
+              links={utmLinks}
+              onAdd={addUtm}
+              onDelete={deleteUtm}
             />
           </div>
         </div>
@@ -889,6 +1166,149 @@ function EditCardModal({
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function ModalAdvancedColor({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string | null;
+  onChange: (v: string | null) => void;
+}) {
+  const enabled = value != null;
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <label className="label m-0 text-xs">{label}</label>
+        <button
+          type="button"
+          onClick={() => onChange(enabled ? null : '#000000')}
+          className="text-[10px] text-brand hover:underline"
+        >
+          {enabled ? 'Limpiar' : 'Usar custom'}
+        </button>
+      </div>
+      <input
+        type="color"
+        className="input h-9 p-1 w-full"
+        disabled={!enabled}
+        value={value ?? '#000000'}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </div>
+  );
+}
+
+function UtmManager({
+  cardId,
+  links,
+  onAdd,
+  onDelete,
+}: {
+  cardId: string;
+  links: NonNullable<Card['utmLinks']>;
+  onAdd: (source: string, welcomeStamps: number | null, welcomePoints: number | null) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+}) {
+  const [source, setSource] = useState('');
+  const [stamps, setStamps] = useState<string>('');
+  const [points, setPoints] = useState<string>('');
+  const [adding, setAdding] = useState(false);
+
+  async function handleAdd() {
+    if (!source.trim()) return;
+    setAdding(true);
+    try {
+      await onAdd(
+        source.trim(),
+        stamps ? Number(stamps) : null,
+        points ? Number(points) : null,
+      );
+      setSource('');
+      setStamps('');
+      setPoints('');
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  const baseUrl =
+    typeof window !== 'undefined' ? `${window.location.origin}/c/u/` : '/c/u/';
+
+  return (
+    <div className="space-y-2">
+      <div className="text-[11px] text-mute">
+        Crea links únicos por canal (Facebook, IG, TikTok, etc) y asigna sellos
+        o puntos de bienvenida que el cliente recibe al inscribirse.
+      </div>
+      {links.map((u) => (
+        <div
+          key={u.id}
+          className="flex items-center justify-between gap-2 p-2 rounded bg-bg2 text-xs"
+        >
+          <div className="flex-1 min-w-0">
+            <div className="font-medium truncate">{u.source}</div>
+            <a
+              href={`${baseUrl}${u.slug}`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-brand hover:underline truncate block"
+            >
+              {baseUrl}{u.slug}
+            </a>
+            <div className="text-mute mt-0.5">
+              Bonus: {u.welcomeStamps ? `${u.welcomeStamps} sellos ` : ''}
+              {u.welcomePoints ? `${u.welcomePoints} puntos ` : ''}
+              {!u.welcomeStamps && !u.welcomePoints && 'sin bonus'} ·{' '}
+              {u.useCount} usos
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onDelete(u.id)}
+            className="text-mute hover:text-bad text-lg leading-none"
+            aria-label="Eliminar UTM"
+          >
+            ×
+          </button>
+        </div>
+      ))}
+      <div className="grid grid-cols-[1fr_70px_70px_auto] gap-2">
+        <input
+          className="input"
+          placeholder="Origen (Ej: Facebook)"
+          value={source}
+          onChange={(e) => setSource(e.target.value)}
+        />
+        <input
+          className="input"
+          placeholder="Sellos"
+          type="number"
+          min={1}
+          value={stamps}
+          onChange={(e) => setStamps(e.target.value)}
+        />
+        <input
+          className="input"
+          placeholder="Puntos"
+          type="number"
+          min={1}
+          value={points}
+          onChange={(e) => setPoints(e.target.value)}
+        />
+        <button
+          type="button"
+          onClick={handleAdd}
+          disabled={!source.trim() || adding}
+          className="btn-primary disabled:opacity-50"
+        >
+          +
+        </button>
+      </div>
     </div>
   );
 }

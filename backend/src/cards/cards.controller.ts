@@ -10,8 +10,14 @@ class CardBody {
   @IsString() name!: string;
   @IsOptional() @IsString() description?: string;
   @IsOptional() @IsString() terms?: string;
+  @IsOptional() @IsBoolean() termsEnabled?: boolean;
   @IsOptional() @IsHexColor() primaryColor?: string;
   @IsOptional() @IsHexColor() secondaryColor?: string;
+  // Colores avanzados — null = limpiar y volver a default.
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsHexColor() stampActiveColor?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsHexColor() stampInactiveColor?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsHexColor() stampContourColor?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsHexColor() centerBgColor?: string | null;
   @IsOptional() @IsString() logoUrl?: string;
   @IsOptional() @IsString() heroImageUrl?: string;
   @IsOptional() @IsString() iconUrl?: string;
@@ -23,6 +29,18 @@ class CardBody {
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() validFrom?: string | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() validUntil?: string | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(1) validDaysAfterIssue?: number | null;
+  // Ubicación / sede asociada (multi-sede). null = limpiar.
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() locationId?: string | null;
+  // Información (paso 4 del wizard) — todos opcionales.
+  @IsOptional() @IsString() howToEarnText?: string;
+  @IsOptional() @IsString() businessName?: string;
+  @IsOptional() @IsString() rewardDescText?: string;
+  @IsOptional() @IsString() stampEarnedMessage?: string;
+  @IsOptional() @IsString() rewardEarnedMessage?: string;
+  // multiRewards: [{at:5, reward:"5% off"}, {at:10, reward:"10% off"}]
+  // activeLinks: [{type:"URL"|"PHONE"|"EMAIL"|"ADDRESS", url, label}]
+  @IsOptional() multiRewards?: Array<{ at: number; reward: string }>;
+  @IsOptional() activeLinks?: Array<{ type: string; url: string; label: string }>;
   @IsOptional() socialLinks?: Record<string, string>;
   @IsOptional() @IsString() stampIcon?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;

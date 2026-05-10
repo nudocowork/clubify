@@ -97,6 +97,12 @@ export default function EnrollPage() {
       return;
     }
     setSubmitting(true);
+    // Si el cliente vino vía /c/u/{slug} (UTM) el query string trae ?utm=<slug>
+    // y se lo pasamos al backend para aplicar el bonus de bienvenida.
+    const utmSlug =
+      typeof window !== 'undefined'
+        ? new URLSearchParams(window.location.search).get('utm') ?? undefined
+        : undefined;
     try {
       const res = await fetch(`${API}/api/passes/enroll/${cardId}`, {
         method: 'POST',
@@ -105,6 +111,7 @@ export default function EnrollPage() {
           fullName: fullName.trim(),
           email: email.trim() || undefined,
           phone: phoneFull,
+          utmSlug,
         }),
       });
       if (!res.ok) {

@@ -8,8 +8,13 @@ export type CardDto = {
   name: string;
   description?: string;
   terms?: string;
+  termsEnabled?: boolean;
   primaryColor?: string;
   secondaryColor?: string;
+  stampActiveColor?: string | null;
+  stampInactiveColor?: string | null;
+  stampContourColor?: string | null;
+  centerBgColor?: string | null;
   logoUrl?: string;
   heroImageUrl?: string;
   iconUrl?: string;
@@ -20,6 +25,14 @@ export type CardDto = {
   validFrom?: string | null;
   validUntil?: string | null;
   validDaysAfterIssue?: number | null;
+  locationId?: string | null;
+  howToEarnText?: string;
+  businessName?: string;
+  rewardDescText?: string;
+  stampEarnedMessage?: string;
+  rewardEarnedMessage?: string;
+  multiRewards?: Array<{ at: number; reward: string }>;
+  activeLinks?: Array<{ type: string; url: string; label: string }>;
   socialLinks?: Record<string, string>;
   stampIcon?: string;
   isActive?: boolean;
@@ -42,7 +55,11 @@ export class CardsService {
     const tid = this.resolveTenantId(user, tenantId);
     return this.prisma.card.findMany({
       where: { tenantId: tid },
-      include: { _count: { select: { passes: true } } },
+      include: {
+        _count: { select: { passes: true } },
+        location: { select: { id: true, name: true } },
+        utmLinks: true,
+      },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -50,7 +67,11 @@ export class CardsService {
   async get(user: AuthUser, id: string) {
     const card = await this.prisma.card.findUnique({
       where: { id },
-      include: { _count: { select: { passes: true } } },
+      include: {
+        _count: { select: { passes: true } },
+        location: { select: { id: true, name: true } },
+        utmLinks: true,
+      },
     });
     if (!card) throw new NotFoundException('Card');
     if (user.role !== 'SUPER_ADMIN' && card.tenantId !== user.tenantId) {
@@ -59,8 +80,18 @@ export class CardsService {
     return card;
   }
 
-  create(user: AuthUser, dto: CardDto, tenantId?: string) {
+  async create(user: AuthUser, dto: CardDto, tenantId?: string) {
     const tid = this.resolveTenantId(user, tenantId);
+    // Validamos que la sede pertenezca al tenant si vino seteada.
+    if (dto.locationId) {
+      const loc = await this.prisma.location.findUnique({
+        where: { id: dto.locationId },
+        select: { tenantId: true },
+      });
+      if (!loc || loc.tenantId !== tid) {
+        throw new ForbiddenException('Location does not belong to tenant');
+      }
+    }
     return this.prisma.card.create({
       data: {
         tenantId: tid,
@@ -68,8 +99,13 @@ export class CardsService {
         name: dto.name,
         description: dto.description ?? '',
         terms: dto.terms ?? '',
+        termsEnabled: dto.termsEnabled ?? true,
         primaryColor: dto.primaryColor ?? '#0F3D2E',
         secondaryColor: dto.secondaryColor ?? '#2E7D5B',
+        stampActiveColor: dto.stampActiveColor ?? undefined,
+        stampInactiveColor: dto.stampInactiveColor ?? undefined,
+        stampContourColor: dto.stampContourColor ?? undefined,
+        centerBgColor: dto.centerBgColor ?? undefined,
         logoUrl: dto.logoUrl,
         heroImageUrl: dto.heroImageUrl,
         iconUrl: dto.iconUrl,
@@ -80,6 +116,14 @@ export class CardsService {
         validFrom: dto.validFrom ? new Date(dto.validFrom) : undefined,
         validUntil: dto.validUntil ? new Date(dto.validUntil) : undefined,
         validDaysAfterIssue: dto.validDaysAfterIssue ?? undefined,
+        locationId: dto.locationId ?? undefined,
+        howToEarnText: dto.howToEarnText ?? '',
+        businessName: dto.businessName ?? '',
+        rewardDescText: dto.rewardDescText ?? '',
+        stampEarnedMessage: dto.stampEarnedMessage ?? '',
+        rewardEarnedMessage: dto.rewardEarnedMessage ?? '',
+        multiRewards: (dto.multiRewards ?? []) as any,
+        activeLinks: (dto.activeLinks ?? []) as any,
         socialLinks: dto.socialLinks ?? {},
         stampIcon: dto.stampIcon ?? '☕',
       },
@@ -87,10 +131,17 @@ export class CardsService {
   }
 
   async update(user: AuthUser, id: string, dto: Partial<CardDto>) {
-    await this.get(user, id);
-    // Convertimos las fechas con conciencia de null vs undefined: null
-    // significa "borrar" (volver a Ilimitado), undefined significa
-    // "no tocar".
+    const existing = await this.get(user, id);
+    if (dto.locationId) {
+      const loc = await this.prisma.location.findUnique({
+        where: { id: dto.locationId },
+        select: { tenantId: true },
+      });
+      if (!loc || loc.tenantId !== existing.tenantId) {
+        throw new ForbiddenException('Location does not belong to tenant');
+      }
+    }
+    // null en estos campos significa "borrar"; undefined = "no tocar".
     const data: any = { ...dto };
     if ('validFrom' in dto) {
       data.validFrom = dto.validFrom ? new Date(dto.validFrom) : null;
@@ -100,6 +151,17 @@ export class CardsService {
     }
     if ('validDaysAfterIssue' in dto) {
       data.validDaysAfterIssue = dto.validDaysAfterIssue ?? null;
+    }
+    if ('locationId' in dto) {
+      data.locationId = dto.locationId ?? null;
+    }
+    for (const k of [
+      'stampActiveColor',
+      'stampInactiveColor',
+      'stampContourColor',
+      'centerBgColor',
+    ] as const) {
+      if (k in dto) data[k] = dto[k] ?? null;
     }
     return this.prisma.card.update({ where: { id }, data });
   }

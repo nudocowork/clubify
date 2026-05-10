@@ -23,15 +23,20 @@ const ALL_TYPES: CardType[] = [
   'POINTS',
 ];
 
-type Step = 1 | 2 | 3;
+type Step = 1 | 2 | 3 | 4;
 
 const FROM_SCRATCH_DEFAULTS = {
   type: 'STAMPS' as CardType,
   name: '',
   description: '',
   terms: '',
+  termsEnabled: true,
   primaryColor: '#22C55E',
   secondaryColor: '#15803D',
+  stampActiveColor: null as string | null,
+  stampInactiveColor: null as string | null,
+  stampContourColor: null as string | null,
+  centerBgColor: null as string | null,
   stampsRequired: 10,
   rewardText: '1 producto gratis',
   discountPercent: 10,
@@ -39,7 +44,18 @@ const FROM_SCRATCH_DEFAULTS = {
   stampIcon: '☕',
   validUntil: null as string | null,
   validDaysAfterIssue: null as number | null,
+  locationId: null as string | null,
+  // Información (paso 4)
+  howToEarnText: '',
+  businessName: '',
+  rewardDescText: '',
+  stampEarnedMessage: '¡Solo [#] para tu recompensa!',
+  rewardEarnedMessage: '¡Has ganado tu recompensa!',
+  multiRewards: [] as Array<{ at: number; reward: string }>,
+  activeLinks: [] as Array<{ type: string; url: string; label: string }>,
 };
+
+type LocationLite = { id: string; name: string };
 
 export default function NewCardWizard() {
   const router = useRouter();
@@ -53,12 +69,16 @@ export default function NewCardWizard() {
   const [err, setErr] = useState<string | null>(null);
   const [confirmActivate, setConfirmActivate] = useState(false);
 
-  // Cargar categoría del tenant para filtrar plantillas relevantes
+  const [locations, setLocations] = useState<LocationLite[]>([]);
+  // Cargar categoría del tenant + sedes
   useEffect(() => {
     api<any>('/tenants/me')
       .then((me) => {
         if (me?.businessCategorySlug) setTenantCategorySlug(me.businessCategorySlug);
       })
+      .catch(() => {});
+    api<any[]>('/locations')
+      .then((rows) => setLocations((rows ?? []).map((r) => ({ id: r.id, name: r.name }))))
       .catch(() => {});
   }, []);
 
@@ -113,11 +133,16 @@ export default function NewCardWizard() {
         step={step}
         cardName={cardName}
         canBack={step > 1}
-        canNext={step < 3 && (step === 1 || (step === 2 && !!form.type))}
-        canSubmit={step === 3 && !!form.name.trim()}
+        canNext={
+          step < 4 &&
+          (step === 1 ||
+            (step === 2 && !!form.type) ||
+            (step === 3 && !!form.name.trim()))
+        }
+        canSubmit={step === 4 && !!form.name.trim()}
         submitting={submitting}
-        onBack={() => setStep((s) => (s === 3 ? 2 : 1) as Step)}
-        onNext={() => setStep((s) => (s === 1 ? 2 : 3) as Step)}
+        onBack={() => setStep((s) => Math.max(1, s - 1) as Step)}
+        onNext={() => setStep((s) => Math.min(4, s + 1) as Step)}
         onCancel={() => router.push('/app/cards')}
         onSubmit={attemptSubmit}
       />
@@ -160,7 +185,16 @@ export default function NewCardWizard() {
       )}
 
       {step === 3 && (
-        <Step3Configure form={form} setForm={(f) => setForm(f)} err={err} />
+        <Step3Configure
+          form={form}
+          setForm={(f) => setForm(f)}
+          err={err}
+          locations={locations}
+        />
+      )}
+
+      {step === 4 && (
+        <Step4Information form={form} setForm={(f) => setForm(f)} err={err} />
       )}
     </div>
   );
@@ -197,6 +231,7 @@ function WizardHeader({
     { n: 1, label: 'Plantilla' },
     { n: 2, label: 'Tipo' },
     { n: 3, label: 'Configurar' },
+    { n: 4, label: 'Información' },
   ];
 
   return (
@@ -235,12 +270,12 @@ function WizardHeader({
             ← Anterior
           </button>
         )}
-        {step < 3 && (
+        {step < 4 && (
           <button className="btn-primary" onClick={onNext} disabled={!canNext}>
             Siguiente →
           </button>
         )}
-        {step === 3 && (
+        {step === 4 && (
           <button
             className="btn-primary"
             onClick={onSubmit}
@@ -456,16 +491,19 @@ function Step3Configure({
   form,
   setForm,
   err,
+  locations,
 }: {
   form: typeof FROM_SCRATCH_DEFAULTS;
   setForm: (f: typeof FROM_SCRATCH_DEFAULTS) => void;
   err: string | null;
+  locations: LocationLite[];
 }) {
   function set<K extends keyof typeof form>(k: K, v: any) {
     setForm({ ...form, [k]: v });
   }
   const brand = (form.name.split('—')[0] || 'Tu marca').trim();
   const visibleStamps = Math.min(form.stampsRequired, 7);
+  const [showAdvancedColors, setShowAdvancedColors] = useState(false);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-7">
@@ -484,6 +522,35 @@ function Step3Configure({
             placeholder="Café del Día — 10 sellos"
           />
         </div>
+
+        <div className="mt-3">
+          <label className="label">
+            Sede / Ubicación
+            <span className="text-mute font-normal ml-1">(opcional)</span>
+          </label>
+          <select
+            className="input"
+            value={form.locationId ?? ''}
+            onChange={(e) => set('locationId', e.target.value || null)}
+          >
+            <option value="">Todas las sedes</option>
+            {locations.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+          <div className="text-[11px] text-mute mt-1">
+            Si tu negocio tiene varias sedes, asociar la tarjeta a una sede te
+            permite filtrar clientes por origen.{' '}
+            {locations.length === 0 && (
+              <a href="/app/locations" className="text-brand hover:underline">
+                Crear una sede →
+              </a>
+            )}
+          </div>
+        </div>
+
         <div className="mt-3">
           <label className="label">Descripción</label>
           <textarea
@@ -520,6 +587,39 @@ function Step3Configure({
                 value={form.stampIcon}
                 onSelect={(icon) => set('stampIcon', icon)}
               />
+            </div>
+            <div className="mt-3">
+              <label className="label">
+                Recompensas intermedias
+                <span className="text-mute font-normal ml-1">(opcional)</span>
+              </label>
+              <input
+                className="input"
+                placeholder="Ej: 5:5% off, 10:10% off"
+                value={(form.multiRewards ?? [])
+                  .map((m) => `${m.at}:${m.reward}`)
+                  .join(', ')}
+                onChange={(e) => {
+                  const parsed = e.target.value
+                    .split(',')
+                    .map((s) => s.trim())
+                    .filter(Boolean)
+                    .map((s) => {
+                      const [at, ...rest] = s.split(':');
+                      return {
+                        at: Number(at) || 0,
+                        reward: rest.join(':').trim(),
+                      };
+                    })
+                    .filter((m) => m.at > 0 && m.reward);
+                  set('multiRewards', parsed);
+                }}
+              />
+              <div className="text-[11px] text-mute mt-1">
+                Sintaxis: <code className="bg-bg2 px-1 rounded">N:premio</code>{' '}
+                separados por coma. Ej: <code className="bg-bg2 px-1 rounded">5:5% off, 10:10% off</code>.
+                Si lo dejas vacío, solo hay recompensa al alcanzar los sellos requeridos.
+              </div>
             </div>
           </>
         )}
@@ -577,13 +677,73 @@ function Step3Configure({
             />
           </div>
         </div>
-        <div className="mt-3">
-          <label className="label">Condiciones</label>
-          <textarea
-            className="input"
-            value={form.terms}
-            onChange={(e) => set('terms', e.target.value)}
-          />
+
+        <button
+          type="button"
+          onClick={() => setShowAdvancedColors((v) => !v)}
+          className="text-xs text-brand hover:underline mt-2"
+        >
+          {showAdvancedColors ? '▲ Ocultar' : '▼ Colores avanzados'}
+        </button>
+        {showAdvancedColors && (
+          <div className="mt-2 grid grid-cols-2 gap-3 p-3 rounded-lg bg-bg2/40">
+            <AdvancedColorInput
+              label="Sello activo"
+              value={form.stampActiveColor}
+              onChange={(v) => set('stampActiveColor', v)}
+            />
+            <AdvancedColorInput
+              label="Sello inactivo"
+              value={form.stampInactiveColor}
+              onChange={(v) => set('stampInactiveColor', v)}
+            />
+            <AdvancedColorInput
+              label="Contorno del sello"
+              value={form.stampContourColor}
+              onChange={(v) => set('stampContourColor', v)}
+            />
+            <AdvancedColorInput
+              label="Fondo central"
+              value={form.centerBgColor}
+              onChange={(v) => set('centerBgColor', v)}
+            />
+            <div className="col-span-2 text-[11px] text-mute">
+              Si subes una imagen para el strip, estos colores se ignoran.
+            </div>
+          </div>
+        )}
+
+        <div className="mt-4 pt-3 border-t border-line">
+          <div className="flex items-center justify-between">
+            <label className="label m-0">Términos y condiciones</label>
+            <button
+              type="button"
+              onClick={() => set('termsEnabled', !form.termsEnabled)}
+              className={`relative w-10 h-5 rounded-full transition ${
+                form.termsEnabled ? 'bg-brand' : 'bg-bg2 border border-line'
+              }`}
+              aria-label="Toggle T&C"
+            >
+              <span
+                className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition ${
+                  form.termsEnabled ? 'left-[22px]' : 'left-0.5'
+                }`}
+              />
+            </button>
+          </div>
+          {form.termsEnabled ? (
+            <textarea
+              className="input mt-2"
+              rows={3}
+              value={form.terms}
+              onChange={(e) => set('terms', e.target.value)}
+              placeholder="Aparecen en el reverso de la tarjeta wallet"
+            />
+          ) : (
+            <div className="text-xs text-mute mt-2">
+              Esta tarjeta no muestra términos y condiciones.
+            </div>
+          )}
         </div>
 
         <div className="mt-4 pt-4 border-t border-line">
@@ -708,6 +868,255 @@ function Step3Configure({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// Step 4: Información (reverso del .pkpass + enlaces activos)
+// ═══════════════════════════════════════════════════════════
+
+function Step4Information({
+  form,
+  setForm,
+  err,
+}: {
+  form: typeof FROM_SCRATCH_DEFAULTS;
+  setForm: (f: typeof FROM_SCRATCH_DEFAULTS) => void;
+  err: string | null;
+}) {
+  function set<K extends keyof typeof form>(k: K, v: any) {
+    setForm({ ...form, [k]: v });
+  }
+
+  function addLink() {
+    set('activeLinks', [
+      ...form.activeLinks,
+      { type: 'URL', url: '', label: '' },
+    ]);
+  }
+  function updateLink(i: number, patch: Partial<{ type: string; url: string; label: string }>) {
+    const next = [...form.activeLinks];
+    next[i] = { ...next[i], ...patch };
+    set('activeLinks', next);
+  }
+  function removeLink(i: number) {
+    set('activeLinks', form.activeLinks.filter((_, j) => j !== i));
+  }
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-7">
+      <div className="card card-pad space-y-3">
+        <div className="text-xs text-mute mb-1">
+          Esta información va al reverso de la tarjeta wallet del cliente.
+        </div>
+
+        <div>
+          <label className="label">Cómo ganar un sello</label>
+          <input
+            className="input"
+            placeholder="Ej: Comprar cualquier producto para obtener un sello"
+            value={form.howToEarnText}
+            onChange={(e) => set('howToEarnText', e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="label">Nombre de empresa</label>
+          <input
+            className="input"
+            placeholder="Como se ve en el reverso"
+            value={form.businessName}
+            onChange={(e) => set('businessName', e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="label">Descripción de la recompensa</label>
+          <input
+            className="input"
+            placeholder="Ej: Café gratis al completar 10 sellos"
+            value={form.rewardDescText}
+            onChange={(e) => set('rewardDescText', e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="label">
+            Mensaje de sello ganado
+            <span className="text-mute font-normal ml-1">
+              ({'['}#{']'} = sellos restantes)
+            </span>
+          </label>
+          <input
+            className="input"
+            placeholder="¡Solo [#] para tu recompensa!"
+            value={form.stampEarnedMessage}
+            onChange={(e) => set('stampEarnedMessage', e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="label">Mensaje de recompensa ganada</label>
+          <input
+            className="input"
+            placeholder="¡Has ganado tu recompensa!"
+            value={form.rewardEarnedMessage}
+            onChange={(e) => set('rewardEarnedMessage', e.target.value)}
+          />
+        </div>
+
+        <div className="pt-3 border-t border-line">
+          <label className="label">Enlaces activos</label>
+          <div className="text-[11px] text-mute mb-2">
+            Aparecen en el reverso del pass y el cliente puede tocarlos.
+          </div>
+          {form.activeLinks.map((link, i) => (
+            <div
+              key={i}
+              className="grid grid-cols-[110px_1fr_1fr_28px] gap-2 mb-2 items-center"
+            >
+              <select
+                className="input"
+                value={link.type}
+                onChange={(e) => updateLink(i, { type: e.target.value })}
+              >
+                <option value="URL">URL</option>
+                <option value="PHONE">Teléfono</option>
+                <option value="EMAIL">Correo</option>
+                <option value="ADDRESS">Dirección</option>
+              </select>
+              <input
+                className="input"
+                placeholder={
+                  link.type === 'URL'
+                    ? 'https://...'
+                    : link.type === 'PHONE'
+                    ? '+57...'
+                    : link.type === 'EMAIL'
+                    ? 'tu@email.com'
+                    : 'Dirección'
+                }
+                value={link.url}
+                onChange={(e) => updateLink(i, { url: e.target.value })}
+              />
+              <input
+                className="input"
+                placeholder="Etiqueta (Ej: Instagram)"
+                value={link.label}
+                onChange={(e) => updateLink(i, { label: e.target.value })}
+              />
+              <button
+                type="button"
+                onClick={() => removeLink(i)}
+                className="text-mute hover:text-bad text-lg leading-none"
+                aria-label="Quitar"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={addLink}
+            className="btn-ghost w-full mt-1 text-sm"
+          >
+            + Añadir enlace
+          </button>
+        </div>
+
+        {err && (
+          <div className="rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink">
+            {err}
+          </div>
+        )}
+      </div>
+
+      <div className="card card-pad">
+        <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-3">
+          Vista previa del reverso
+        </div>
+        <div className="bg-bg2 rounded-lg p-4 space-y-2 text-sm">
+          {form.howToEarnText && (
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
+                Cómo ganar un sello
+              </div>
+              <div>{form.howToEarnText}</div>
+            </div>
+          )}
+          {form.businessName && (
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
+                Empresa
+              </div>
+              <div>{form.businessName}</div>
+            </div>
+          )}
+          {form.rewardDescText && (
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
+                Recompensa
+              </div>
+              <div>{form.rewardDescText}</div>
+            </div>
+          )}
+          {form.activeLinks.length > 0 && (
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
+                Enlaces
+              </div>
+              <ul className="list-disc list-inside">
+                {form.activeLinks
+                  .filter((l) => l.url)
+                  .map((l, i) => (
+                    <li key={i} className="truncate">
+                      {l.label || l.url}
+                    </li>
+                  ))}
+              </ul>
+            </div>
+          )}
+          {form.termsEnabled && form.terms && (
+            <div className="pt-2 border-t border-line">
+              <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
+                Términos
+              </div>
+              <div className="whitespace-pre-line text-xs">{form.terms}</div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Color avanzado con toggle "usar default"
+function AdvancedColorInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string | null;
+  onChange: (v: string | null) => void;
+}) {
+  const enabled = value != null;
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <label className="label m-0 text-xs">{label}</label>
+        <button
+          type="button"
+          className="text-[10px] text-brand hover:underline"
+          onClick={() => onChange(enabled ? null : '#000000')}
+        >
+          {enabled ? 'Limpiar' : 'Usar custom'}
+        </button>
+      </div>
+      <input
+        type="color"
+        className="input h-9 p-1 w-full"
+        disabled={!enabled}
+        value={value ?? '#000000'}
+        onChange={(e) => onChange(e.target.value)}
+      />
     </div>
   );
 }
