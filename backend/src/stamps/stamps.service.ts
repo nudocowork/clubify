@@ -6,6 +6,7 @@ import { AuthUser } from '../common/decorators/current-user.decorator';
 import { QueueService } from '../jobs/queue.service';
 import { computePassExpiry } from '../cards/expiry.util';
 import { GamificationService } from '../badges/gamification.service';
+import { AutomationsService } from '../automations/automations.service';
 
 export type StampDto = {
   passId: string;
@@ -23,6 +24,7 @@ export class StampsService {
     private wallet: WalletService,
     private jobs: QueueService,
     private gamification: GamificationService,
+    private automations: AutomationsService,
   ) {}
 
   async record(user: AuthUser, dto: StampDto) {
@@ -234,6 +236,73 @@ export class StampsService {
         cardId: pass.cardId,
       })
       .catch(() => null);
+
+    // Hook automations:
+    //   STAMP_ADDED — cualquier scan registrado (ofrece feedback / cross-sell)
+    //   NEAR_REWARD — al cliente le faltan 1-2 sellos para canjear (regla
+    //     anti-churn que lo empuja a volver pronto)
+    //   PASS_COMPLETED — alcanzó el target de la card (ya estaba contemplado
+    //     pero no disparado acá; lo añadimos ahora)
+    //   REWARD_REDEEMED — canjeó el premio
+    if (dto.action === 'STAMP' || dto.action === 'VISIT') {
+      const required =
+        pass.card.type === 'VISITS'
+          ? pass.card.visitsRequired ?? Number.MAX_SAFE_INTEGER
+          : pass.card.stampsRequired ?? Number.MAX_SAFE_INTEGER;
+      const current = pass.card.type === 'VISITS' ? newVisits : newStamps;
+      const remaining = Math.max(0, required - current);
+      this.automations
+        .emit('STAMP_ADDED', {
+          tenantId: pass.tenantId,
+          customerId: pass.customerId,
+          cardId: pass.cardId,
+          passId: pass.id,
+          stampsCount: newStamps,
+          visitsCount: newVisits,
+          remaining,
+          action: dto.action,
+        })
+        .catch(() => null);
+      // NEAR_REWARD: 1 o 2 unidades antes del premio. Solo cuando crossed
+      // (la stamp anterior no estaba en este rango), evita spam.
+      const previousRemaining = Math.max(
+        0,
+        required - (pass.card.type === 'VISITS' ? pass.visitsCount : pass.stampsCount),
+      );
+      if (remaining > 0 && remaining <= 2 && previousRemaining > remaining) {
+        this.automations
+          .emit('NEAR_REWARD', {
+            tenantId: pass.tenantId,
+            customerId: pass.customerId,
+            cardId: pass.cardId,
+            passId: pass.id,
+            remaining,
+            rewardText: pass.card.rewardText || 'tu premio',
+          })
+          .catch(() => null);
+      }
+    }
+    if (completed && pass.status !== 'COMPLETED') {
+      this.automations
+        .emit('PASS_COMPLETED', {
+          tenantId: pass.tenantId,
+          customerId: pass.customerId,
+          cardId: pass.cardId,
+          passId: pass.id,
+          rewardText: pass.card.rewardText || '',
+        })
+        .catch(() => null);
+    }
+    if (dto.action === 'REDEEM') {
+      this.automations
+        .emit('REWARD_REDEEMED', {
+          tenantId: pass.tenantId,
+          customerId: pass.customerId,
+          cardId: pass.cardId,
+          passId: pass.id,
+        })
+        .catch(() => null);
+    }
 
     return { stamp, pass: updatedPass };
   }

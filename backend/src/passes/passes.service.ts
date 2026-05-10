@@ -3,10 +3,14 @@ import { sign } from 'jsonwebtoken';
 import { nanoid } from 'nanoid';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { AutomationsService } from '../automations/automations.service';
 
 @Injectable()
 export class PassesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private automations: AutomationsService,
+  ) {}
 
   private guardTenant(user: AuthUser, tenantId: string) {
     if (user.role !== 'SUPER_ADMIN' && user.tenantId !== tenantId) {
@@ -53,7 +57,21 @@ export class PassesService {
       process.env.QR_HMAC_SECRET ?? 'dev-qr',
       { algorithm: 'HS256' },
     );
-    return this.prisma.pass.update({ where: { id: pass.id }, data: { qrToken: finalQr } });
+    const updated = await this.prisma.pass.update({ where: { id: pass.id }, data: { qrToken: finalQr } });
+
+    // Hook PASS_CREATED — dispara mensaje de bienvenida si hay regla activa.
+    this.automations
+      .emit('PASS_CREATED', {
+        tenantId: card.tenantId,
+        customerId,
+        cardId,
+        passId: pass.id,
+        customerName: customer.fullName,
+        cardName: card.name,
+      })
+      .catch(() => null);
+
+    return updated;
   }
 
   async get(user: AuthUser, id: string) {

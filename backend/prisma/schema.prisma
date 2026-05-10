@@ -89,10 +89,16 @@ enum AutomationEvent {
   GEO_ENTER
   REWARD_REDEEMED
   PASS_CREATED
+  PASS_COMPLETED
   ORDER_CREATED
   ORDER_CONFIRMED
   ORDER_DELIVERED
+  ORDER_RATED
   BIRTHDAY
+  // NEAR_REWARD: cuando al cliente le faltan 1-2 sellos/visitas para
+  // canjear su recompensa (lo empuja a volver pronto). Disparado desde
+  // stamps.service tras cada STAMP/VISIT.
+  NEAR_REWARD
 }
 
 enum ReferralStatus {

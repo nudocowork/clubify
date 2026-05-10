@@ -9,7 +9,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { IsArray, IsBoolean, IsObject, IsOptional, IsString } from 'class-validator';
-import { AutomationsService } from './automations.service';
+import { AutomationsService, AUTOMATION_TEMPLATES } from './automations.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 
@@ -26,6 +26,21 @@ class RuleBody {
 @Roles('TENANT_OWNER', 'SUPER_ADMIN')
 export class AutomationsController {
   constructor(private svc: AutomationsService) {}
+
+  @Get('templates')
+  templates() {
+    return AUTOMATION_TEMPLATES;
+  }
+
+  @Post('from-template/:id')
+  createFromTemplate(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: { cardId?: string },
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.svc.createFromTemplate(user, id, body ?? {}, tenantId);
+  }
 
   @Get()
   list(@CurrentUser() user: AuthUser, @Query('tenantId') tenantId?: string) {

@@ -6,6 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { AutomationRunStatus, ChannelType } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
@@ -23,7 +24,8 @@ export type AutomationEvent =
   | 'ORDER_CONFIRMED'
   | 'ORDER_DELIVERED'
   | 'ORDER_RATED'
-  | 'BIRTHDAY';
+  | 'BIRTHDAY'
+  | 'NEAR_REWARD';
 
 export type Trigger = { type: AutomationEvent; days?: number };
 export type Condition = { field: string; op: 'eq' | 'gt' | 'lt' | 'in' | 'contains'; value: any };
@@ -309,4 +311,205 @@ export class AutomationsService {
       },
     });
   }
+
+  // ========== Crons diarios ==========
+
+  /**
+   * Cron BIRTHDAY — todos los días a las 8am UTC.
+   * Encuentra customers cuyo cumpleaños es HOY (mes/día) y emite el
+   * evento. Si el tenant tiene una regla activa con trigger=BIRTHDAY,
+   * dispara el saludo (push/SMS/WA según action).
+   */
+  @Cron('0 8 * * *')
+  async cronBirthday() {
+    const today = new Date();
+    const month = today.getMonth() + 1;
+    const day = today.getDate();
+    // Postgres date_part para extraer mes/día sin importar el año
+    const customers = await this.prisma.$queryRaw<
+      Array<{ id: string; tenantId: string; fullName: string }>
+    >`
+      SELECT id, "tenantId", "fullName" FROM "Customer"
+      WHERE "birthday" IS NOT NULL
+        AND EXTRACT(MONTH FROM "birthday") = ${month}
+        AND EXTRACT(DAY FROM "birthday") = ${day}
+    `;
+    this.logger.log(`cronBirthday: ${customers.length} cumpleañeros hoy`);
+    for (const c of customers) {
+      await this.emit('BIRTHDAY', {
+        tenantId: c.tenantId,
+        customerId: c.id,
+        customerName: c.fullName,
+      }).catch(() => null);
+    }
+  }
+
+  /**
+   * Cron INACTIVITY — todos los días a las 9am UTC.
+   * Encuentra customers que no tuvieron actividad en > 30 días (lastVisitDay
+   * más viejo o null). Idempotente: solo dispara si lastVisitDay es
+   * EXACTAMENTE el día 31 (o sea, ayer cayeron al umbral) — así un cliente
+   * recibe el mensaje 1 vez, no todos los días después.
+   */
+  @Cron('0 9 * * *')
+  async cronInactivity() {
+    // Fecha de hace 30 días en formato YYYY-MM-DD
+    const t = new Date();
+    t.setDate(t.getDate() - 30);
+    const targetDay = t.toISOString().slice(0, 10);
+
+    const customers = await this.prisma.customer.findMany({
+      where: { lastVisitDay: targetDay },
+      select: {
+        id: true,
+        tenantId: true,
+        fullName: true,
+        lastVisitDay: true,
+      },
+    });
+    this.logger.log(`cronInactivity: ${customers.length} customers cruzaron el umbral 30d`);
+    for (const c of customers) {
+      await this.emit('INACTIVITY', {
+        tenantId: c.tenantId,
+        customerId: c.id,
+        customerName: c.fullName,
+        daysSinceLastVisit: 30,
+      }).catch(() => null);
+    }
+  }
+
+  // ========== Plantillas pre-armadas ==========
+
+  /**
+   * Crea una regla a partir de una plantilla. La plantilla solo
+   * provee defaults — el dueño puede después editar el body en
+   * /app/automations.
+   */
+  async createFromTemplate(
+    user: AuthUser,
+    templateId: string,
+    overrides: { cardId?: string } = {},
+    tenantIdOverride?: string,
+  ) {
+    const tid = this.tid(user, tenantIdOverride);
+    await this.assertProPlan(tid);
+    const tpl = AUTOMATION_TEMPLATES.find((t) => t.id === templateId);
+    if (!tpl) throw new NotFoundException('Template');
+    return this.prisma.automationRule.create({
+      data: {
+        tenantId: tid,
+        name: tpl.name,
+        description: tpl.description,
+        trigger: tpl.trigger as any,
+        conditions: (tpl.conditions ?? []) as any,
+        actions: tpl.actions as any,
+        isActive: true,
+      },
+    });
+  }
 }
+
+// ─── Plantillas pre-armadas ───
+// 5 plantillas listas para usar. Cada una crea un AutomationRule con un
+// click. El dueño puede editar el texto después en /app/automations.
+export const AUTOMATION_TEMPLATES: Array<{
+  id: string;
+  name: string;
+  description: string;
+  emoji: string;
+  category: 'fidelizacion' | 'reactivacion' | 'ocasion';
+  trigger: Trigger;
+  conditions?: Condition[];
+  actions: Action[];
+}> = [
+  {
+    id: 'welcome',
+    name: 'Bienvenida al inscribirse',
+    description: 'Saluda al cliente apenas obtiene su primera tarjeta de fidelización.',
+    emoji: '👋',
+    category: 'fidelizacion',
+    trigger: { type: 'PASS_CREATED' },
+    actions: [
+      {
+        type: 'SEND_PUSH',
+        title: '¡Bienvenido/a {{customerName}}! 🎉',
+        body: 'Tu tarjeta {{cardName}} está activa. Empieza a sumar para tu primera recompensa.',
+      },
+    ],
+  },
+  {
+    id: 'near-reward',
+    name: 'Cerca de la recompensa',
+    description: 'Avisa cuando al cliente le faltan 1-2 sellos para canjear su premio.',
+    emoji: '🎯',
+    category: 'fidelizacion',
+    trigger: { type: 'NEAR_REWARD' },
+    actions: [
+      {
+        type: 'SEND_PUSH',
+        title: '¡Solo te faltan {{remaining}}! 🔥',
+        body: 'Estás a {{remaining}} de obtener {{rewardText}}. ¡Pasá hoy!',
+      },
+    ],
+  },
+  {
+    id: 'reward-ready',
+    name: 'Premio listo para canjear',
+    description: 'Notifica al cliente cuando completó el cartón y puede canjear.',
+    emoji: '🎁',
+    category: 'fidelizacion',
+    trigger: { type: 'PASS_COMPLETED' },
+    actions: [
+      {
+        type: 'SEND_PUSH',
+        title: '🎁 ¡Premio desbloqueado!',
+        body: '{{rewardText}} es tuyo. Canjealo en tu próxima visita.',
+      },
+    ],
+  },
+  {
+    id: 'birthday',
+    name: 'Saludo de cumpleaños',
+    description: 'Saluda automáticamente al cliente el día de su cumpleaños.',
+    emoji: '🎂',
+    category: 'ocasion',
+    trigger: { type: 'BIRTHDAY' },
+    actions: [
+      {
+        type: 'SEND_PUSH',
+        title: '🎂 ¡Feliz cumpleaños {{customerName}}!',
+        body: 'Te esperamos esta semana con un regalo especial. ¡Que la pases increíble!',
+      },
+    ],
+  },
+  {
+    id: 'reactivation-30d',
+    name: 'Reactivación 30 días',
+    description: 'Mensaje a clientes que llevan 30 días sin visitarte para que vuelvan.',
+    emoji: '💌',
+    category: 'reactivacion',
+    trigger: { type: 'INACTIVITY', days: 30 },
+    actions: [
+      {
+        type: 'SEND_PUSH',
+        title: 'Te extrañamos {{customerName}} 💌',
+        body: 'Hace un mes que no nos vemos. Pasá esta semana y disfrutá de tu fidelidad.',
+      },
+    ],
+  },
+  {
+    id: 'redeemed-thanks',
+    name: 'Gracias post-canje',
+    description: 'Agradece al cliente después de canjear su premio para mantener engagement.',
+    emoji: '🙌',
+    category: 'fidelizacion',
+    trigger: { type: 'REWARD_REDEEMED' },
+    actions: [
+      {
+        type: 'SEND_PUSH',
+        title: '🙌 Gracias por canjear',
+        body: '¡Esperamos que lo disfrutes! Empezá a sumar de nuevo, hay más recompensas esperándote.',
+      },
+    ],
+  },
+];

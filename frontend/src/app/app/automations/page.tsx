@@ -17,60 +17,41 @@ type Rule = {
   stats?: { runs?: number; lastRunAt?: string };
 };
 
+type TemplateBackend = {
+  id: string;
+  name: string;
+  description: string;
+  emoji: string;
+  category: 'fidelizacion' | 'reactivacion' | 'ocasion';
+  trigger: { type: string; days?: number };
+  conditions?: any[];
+  actions: any[];
+};
+
 const TRIGGERS = [
   { type: 'ORDER_CREATED', label: 'Pedido recibido' },
   { type: 'ORDER_CONFIRMED', label: 'Pedido confirmado' },
   { type: 'ORDER_DELIVERED', label: 'Pedido entregado' },
+  { type: 'PASS_CREATED', label: 'Cliente recibe nueva tarjeta' },
   { type: 'PASS_COMPLETED', label: 'Tarjeta completada (recompensa lista)' },
+  { type: 'STAMP_ADDED', label: 'Sello agregado' },
+  { type: 'NEAR_REWARD', label: 'Cliente cerca de la recompensa (1-2 sellos)' },
+  { type: 'REWARD_REDEEMED', label: 'Premio canjeado' },
   { type: 'INACTIVITY', label: 'Cliente inactivo X días' },
   { type: 'BIRTHDAY', label: 'Cumpleaños del cliente' },
   { type: 'GEO_ENTER', label: 'Cliente cerca del local' },
 ];
 
-const RECIPES: Partial<Rule>[] = [
-  {
-    name: 'Agradecer pedido confirmado',
-    description: 'Mensaje de WhatsApp al cliente cuando confirmas su pedido.',
-    trigger: { type: 'ORDER_CONFIRMED' },
-    conditions: [],
-    actions: [
-      {
-        type: 'SEND_WHATSAPP_LINK',
-        body:
-          '¡Gracias {{nombre}}! Tu pedido #{{order_code}} está confirmado. 🙌',
-      },
-    ],
-  },
-  {
-    name: 'Recompensa lista',
-    description: 'Avisa al cliente que llegó al tope de sellos.',
-    trigger: { type: 'PASS_COMPLETED' },
-    conditions: [],
-    actions: [
-      {
-        type: 'SEND_WHATSAPP_LINK',
-        body:
-          '🎉 ¡{{nombre}}! Llegaste a 10 sellos. Tu recompensa te espera. Pásate cuando puedas.',
-      },
-    ],
-  },
-  {
-    name: 'Recuperar inactivo 7 días',
-    description: 'Mensaje a clientes que no piden hace 7 días.',
-    trigger: { type: 'INACTIVITY', days: 7 },
-    conditions: [],
-    actions: [
-      {
-        type: 'SEND_WHATSAPP_LINK',
-        body:
-          'Te extrañamos {{nombre}}. Vuelve esta semana y te regalamos 2 sellos extra. ☕',
-      },
-    ],
-  },
-];
+const CATEGORY_LABEL: Record<TemplateBackend['category'], string> = {
+  fidelizacion: '💚 Fidelización',
+  reactivacion: '💌 Reactivación',
+  ocasion: '🎂 Ocasiones especiales',
+};
 
 export default function AutomationsPage() {
   const [list, setList] = useState<Rule[]>([]);
+  const [templates, setTemplates] = useState<TemplateBackend[]>([]);
+  const [showTemplates, setShowTemplates] = useState(false);
   const [editing, setEditing] = useState<Partial<Rule> | null>(null);
   const [planName, setPlanName] = useState<string | null>(null);
   const isPro = planName === 'Pro';
@@ -92,8 +73,25 @@ export default function AutomationsPage() {
     api<any>('/tenants/me')
       .then((t) => setPlanName(t?.plan?.name ?? null))
       .catch(() => null);
+    api<TemplateBackend[]>('/automations/templates')
+      .then(setTemplates)
+      .catch(() => setTemplates([]));
     load();
   }, []);
+
+  async function createFromTemplate(t: TemplateBackend) {
+    try {
+      await api(`/automations/from-template/${t.id}`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      toast(`Regla "${t.name}" creada y activada`, 'success');
+      setShowTemplates(false);
+      load();
+    } catch (e: any) {
+      toast(e.message || 'Error', 'error');
+    }
+  }
 
   // Lockscreen: si el plan está cargado y NO es Pro, bloqueamos toda la página
   if (planName !== null && !isPro) {
@@ -209,52 +207,63 @@ export default function AutomationsPage() {
         <h1 className="page-title">
           Automatizaciones <span className="page-crumb">/ {list.length} reglas</span>
         </h1>
-        <button
-          className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-          disabled={planName !== null && !isPro}
-          title={!isPro && planName ? 'Requiere plan Pro' : ''}
-          onClick={() => {
-            if (!isPro) {
-              toast('Las automatizaciones requieren plan Pro. Actualiza tu suscripción.', 'info');
-              return;
-            }
-            setEditing({
-              name: '',
-              description: '',
-              trigger: { type: 'ORDER_CONFIRMED' },
-              conditions: [],
-              actions: [{ type: 'SEND_WHATSAPP_LINK', body: '' }],
-              isActive: true,
-            });
-          }}
-        >
-          <Icon name="plus" /> Nueva regla
-        </button>
+        <div className="flex gap-2">
+          <button
+            className="btn-ghost"
+            disabled={planName !== null && !isPro}
+            onClick={() => {
+              if (!isPro) {
+                toast('Las automatizaciones requieren plan Pro.', 'info');
+                return;
+              }
+              setShowTemplates(true);
+            }}
+          >
+            <Icon name="spark" /> Plantillas
+          </button>
+          <button
+            className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={planName !== null && !isPro}
+            title={!isPro && planName ? 'Requiere plan Pro' : ''}
+            onClick={() => {
+              if (!isPro) {
+                toast('Las automatizaciones requieren plan Pro. Actualiza tu suscripción.', 'info');
+                return;
+              }
+              setEditing({
+                name: '',
+                description: '',
+                trigger: { type: 'ORDER_CONFIRMED' },
+                conditions: [],
+                actions: [{ type: 'SEND_WHATSAPP_LINK', body: '' }],
+                isActive: true,
+              });
+            }}
+          >
+            <Icon name="plus" /> Nueva regla
+          </button>
+        </div>
       </div>
 
-      {/* Recetas */}
-      {list.length === 0 && (
-        <div className="card card-pad mb-5">
-          <h3 className="text-base font-semibold m-0">Recetas para empezar</h3>
-          <p className="text-mute text-sm mt-1">
-            Activa una regla con un click. Después la puedes personalizar.
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
-            {RECIPES.map((r) => (
-              <div key={r.name} className="border border-line2 rounded-lg p-3">
-                <div className="flex items-center gap-2">
-                  <Icon name="spark" size={16} className="text-brand" />
-                  <div className="font-medium text-sm">{r.name}</div>
-                </div>
-                <div className="text-xs text-mute mt-1">{r.description}</div>
-                <button
-                  className="btn-link text-xs mt-2"
-                  onClick={() => setEditing({ ...r })}
-                >
-                  Usar receta →
-                </button>
-              </div>
-            ))}
+      {list.length === 0 && templates.length > 0 && (
+        <div className="card card-pad mb-5 bg-brand/5 border-brand/30">
+          <div className="flex items-start gap-3">
+            <span className="text-2xl">⚡</span>
+            <div className="flex-1">
+              <h3 className="text-base font-semibold m-0">
+                Empezá con una plantilla pre-armada
+              </h3>
+              <p className="text-mute text-sm mt-1">
+                {templates.length} mensajes automáticos listos para activar con un
+                click — bienvenida, cumpleaños, reactivación, premio listo, y más.
+              </p>
+              <button
+                className="btn-primary mt-3"
+                onClick={() => setShowTemplates(true)}
+              >
+                Ver {templates.length} plantillas →
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -317,6 +326,94 @@ export default function AutomationsPage() {
           onSave={save}
         />
       )}
+
+      {showTemplates && (
+        <TemplatesModal
+          templates={templates}
+          existingTriggers={new Set(list.map((r) => r.trigger?.type))}
+          onPick={createFromTemplate}
+          onClose={() => setShowTemplates(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function TemplatesModal({
+  templates,
+  existingTriggers,
+  onPick,
+  onClose,
+}: {
+  templates: TemplateBackend[];
+  existingTriggers: Set<string>;
+  onPick: (t: TemplateBackend) => void;
+  onClose: () => void;
+}) {
+  const grouped = templates.reduce<Record<string, TemplateBackend[]>>((acc, t) => {
+    (acc[t.category] = acc[t.category] || []).push(t);
+    return acc;
+  }, {});
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-ink/60 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-xl max-w-3xl w-full max-h-[85vh] overflow-auto p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-bold m-0">Plantillas pre-armadas</h2>
+            <p className="text-xs text-mute mt-0.5">
+              Activa con un click. Después podés editar el texto y los canales.
+            </p>
+          </div>
+          <button onClick={onClose} className="text-mute hover:text-ink text-xl leading-none">
+            ×
+          </button>
+        </div>
+        <div className="space-y-5">
+          {Object.entries(grouped).map(([cat, items]) => (
+            <div key={cat}>
+              <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
+                {CATEGORY_LABEL[cat as TemplateBackend['category']] ?? cat}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {items.map((t) => {
+                  const exists = existingTriggers.has(t.trigger.type);
+                  return (
+                    <div
+                      key={t.id}
+                      className="card p-3 flex items-start gap-3"
+                    >
+                      <div className="text-2xl shrink-0">{t.emoji}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-sm">{t.name}</div>
+                        <div className="text-xs text-mute mt-0.5 leading-snug">
+                          {t.description}
+                        </div>
+                        <button
+                          onClick={() => onPick(t)}
+                          disabled={exists}
+                          className={`text-xs mt-2 font-semibold ${
+                            exists
+                              ? 'text-mute cursor-not-allowed'
+                              : 'text-brand hover:underline'
+                          }`}
+                        >
+                          {exists ? '✓ Ya tienes una con este trigger' : 'Activar →'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
