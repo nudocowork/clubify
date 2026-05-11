@@ -134,9 +134,9 @@ export default function CotizacionesPage() {
           <Link className="btn-secondary" href="/admin/cotizaciones/precios">
             <Icon name="gear" /> Editar precios
           </Link>
-          <button className="btn-primary opacity-50 cursor-not-allowed" disabled title="Disponible en Fase 3 — wizard de creación">
+          <Link className="btn-primary" href="/admin/cotizaciones/nueva">
             <Icon name="plus" /> Nueva cotización
-          </button>
+          </Link>
         </div>
       </div>
 
@@ -225,8 +225,13 @@ export default function CotizacionesPage() {
                 <tr>
                   <td colSpan={7} className="px-4 py-12 text-center">
                     <div className="text-mute text-sm">
-                      Aún no hay cotizaciones. El wizard de creación llega en
-                      la próxima fase.
+                      Aún no hay cotizaciones.{' '}
+                      <Link
+                        href="/admin/cotizaciones/nueva"
+                        className="text-brand font-semibold hover:underline"
+                      >
+                        Crear la primera →
+                      </Link>
                     </div>
                   </td>
                 </tr>
