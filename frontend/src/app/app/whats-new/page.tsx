@@ -22,9 +22,9 @@ const CHANGELOG: Entry[] = [
       },
       {
         emoji: '🖨',
-        title: 'Cartel QR imprimible',
+        title: 'QR Menú imprimible',
         body: 'Generador de poster A4 para imprimir y poner en mesas. 4 templates visuales, 4 mensajes preset y opción de número de mesa.',
-        href: '/app/storefront/poster',
+        href: '/app/marketing/qr-menu',
       },
       {
         emoji: '📦',

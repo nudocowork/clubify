@@ -128,11 +128,11 @@ export default function StorefrontEditor() {
             🍽 Ver menú mesa
           </Link>
           <Link
-            href="/app/storefront/poster"
+            href="/app/marketing/qr-menu"
             className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
-            title="Genera un cartel imprimible con el QR de la mesa"
+            title="Genera un cartel imprimible con el QR de tu menú"
           >
-            🖨 Cartel QR
+            🖨 QR Menú
           </Link>
           <Link
             href={publicHref}

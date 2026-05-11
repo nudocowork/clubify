@@ -237,6 +237,15 @@ export default function AppShell({
               ],
             },
             {
+              section: 'Marketing',
+              items: [
+                { href: '/app/marketing/qr-menu', label: 'QR Menú', icon: 'menu', module: 'menu' },
+                { href: '/app/marketing/qr-counter', label: 'QR Mostrador', icon: 'card' },
+                { href: '/app/marketing/qr-discount', label: 'QR Descuento', icon: 'gift' },
+                { href: '/app/marketing/qr-reviews', label: 'QR Reseñas', icon: 'spark' },
+              ],
+            },
+            {
               section: catalogSectionName,
               items: [
                 { href: '/app/menu', label: menuLabel, icon: 'menu', module: 'menu' },
