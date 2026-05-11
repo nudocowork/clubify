@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { PhoneInput } from '@/components/PhoneInput';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
@@ -15,7 +16,7 @@ type Tenant = {
   googleReviewUrl: string | null;
 };
 
-type Step = 'rate' | 'happy' | 'feedback' | 'thanks';
+type Step = 'rate' | 'feedback' | 'thanks';
 
 export default function ReviewPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -42,40 +43,59 @@ export default function ReviewPage() {
       .catch((e: Error) => setErr(e.message || 'No disponible'));
   }, [slug]);
 
-  async function submitInternal(toGoogle: boolean) {
+  async function submitNegative() {
     if (rating === 0) return;
+    // Para 1-3★: nombre + teléfono son obligatorios (regla de negocio:
+    // capturar al cliente insatisfecho antes de perderlo)
+    if (!name.trim() || phone.trim().length < 6) return;
     setSubmitting(true);
+    await postReview(rating, false, comment, name, phone);
+    setSubmitting(false);
+    setStep('thanks');
+  }
+
+  async function pickRating(n: number) {
+    setRating(n);
+    if (n >= 4) {
+      // 4-5★ → POST silencioso + redirect inmediato a Google.
+      // Si no hay googleReviewUrl configurado, mostramos thanks.
+      if (!t?.googleReviewUrl) {
+        await postReview(n, true, '', '', '');
+        setStep('thanks');
+        return;
+      }
+      await postReview(n, true, '', '', '');
+      setTimeout(() => {
+        window.location.href = t.googleReviewUrl!;
+      }, 150);
+    } else {
+      // 1-3★ → form obligatorio nombre + teléfono para capturar al cliente
+      setStep('feedback');
+    }
+  }
+
+  async function postReview(
+    r: number,
+    toGoogle: boolean,
+    cmt: string,
+    nm: string,
+    ph: string,
+  ) {
     try {
       await fetch(`${API}/api/public/r/${slug}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          rating,
-          comment: comment.trim() || undefined,
-          customerName: name.trim() || undefined,
-          customerPhone: phone.trim() || undefined,
+          rating: r,
+          comment: cmt.trim() || undefined,
+          customerName: nm.trim() || undefined,
+          customerPhone: ph.trim() || undefined,
           redirectedToGoogle: toGoogle,
         }),
       });
-      if (toGoogle && t?.googleReviewUrl) {
-        // pequeño delay para que el POST llegue antes de la redirección
-        setTimeout(() => {
-          window.location.href = t.googleReviewUrl!;
-        }, 200);
-      } else {
-        setStep('thanks');
-      }
     } catch {
-      setStep('thanks');
-    } finally {
-      setSubmitting(false);
+      // Best-effort. No bloqueamos UX por error de red.
     }
-  }
-
-  function pickRating(n: number) {
-    setRating(n);
-    if (n >= 4) setStep('happy');
-    else setStep('feedback');
   }
 
   if (err) {
@@ -149,49 +169,6 @@ export default function ReviewPage() {
           </>
         )}
 
-        {step === 'happy' && (
-          <>
-            <div className="mt-4 text-6xl">🙌</div>
-            <h2 className="text-xl font-bold mt-3">¡Gracias por tu visita!</h2>
-            <p className="text-mute mt-2 leading-relaxed">
-              Tu reseña en Google nos ayuda muchísimo a llegar a más
-              personas. ¿Nos compartes una?
-            </p>
-            <div className="w-full mt-6 space-y-2.5">
-              {t.googleReviewUrl ? (
-                <button
-                  type="button"
-                  disabled={submitting}
-                  onClick={() => submitInternal(true)}
-                  className="w-full py-4 rounded-xl text-white font-semibold text-base shadow-md hover:opacity-95 transition flex items-center justify-center gap-2 disabled:opacity-60"
-                  style={{ background: primary }}
-                >
-                  {submitting ? (
-                    'Abriendo Google…'
-                  ) : (
-                    <>
-                      <span style={{ fontSize: 18 }}>★</span> Dejar mi reseña en
-                      Google
-                    </>
-                  )}
-                </button>
-              ) : (
-                <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900">
-                  El negocio aún no configuró su link de Google Reviews. ¡Pero
-                  gracias por tu valoración!
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={() => setStep('feedback')}
-                className="w-full py-3 rounded-xl border border-line text-mute hover:bg-bg2/40 text-sm"
-              >
-                Prefiero darte feedback en privado
-              </button>
-            </div>
-          </>
-        )}
-
         {step === 'feedback' && (
           <>
             <div className="mt-4 text-5xl">
@@ -204,46 +181,58 @@ export default function ReviewPage() {
             </h2>
             <p className="text-mute mt-2 leading-relaxed text-sm">
               Tu mensaje llega directo al dueño del negocio (no se publica
-              en ningún lado). Lo vamos a leer y vamos a actuar.
+              en ningún lado). Necesitamos tu contacto para resolver lo que
+              pasó.
             </p>
             <div className="w-full mt-5 space-y-3 text-left">
               <div>
-                <label className="label">¿Qué pasó?</label>
-                <textarea
+                <label className="label">
+                  Tu nombre <span className="text-bad">*</span>
+                </label>
+                <input
                   className="input"
-                  rows={4}
-                  value={comment}
-                  onChange={(e) => setComment(e.target.value)}
-                  placeholder="Lo más específico posible nos ayuda a mejorar."
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Cómo te llamas"
+                  required
                   autoFocus
                 />
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="label">Tu nombre (opcional)</label>
-                  <input
-                    className="input"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                  />
+              <div>
+                <label className="label">
+                  Tu WhatsApp <span className="text-bad">*</span>
+                </label>
+                <PhoneInput
+                  value={phone}
+                  onChange={setPhone}
+                  placeholder="Tu número"
+                />
+                <div className="text-[11px] text-mute mt-1">
+                  Te contactaremos por aquí para resolver tu experiencia.
                 </div>
-                <div>
-                  <label className="label">WhatsApp (opcional)</label>
-                  <input
-                    className="input"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                  />
-                </div>
+              </div>
+              <div>
+                <label className="label">
+                  ¿Qué pasó? <span className="text-mute font-normal">(opcional)</span>
+                </label>
+                <textarea
+                  className="input"
+                  rows={3}
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  placeholder="Lo más específico posible nos ayuda a mejorar."
+                />
               </div>
               <button
                 type="button"
-                disabled={submitting || !comment.trim()}
-                onClick={() => submitInternal(false)}
+                disabled={
+                  submitting || !name.trim() || phone.trim().length < 6
+                }
+                onClick={submitNegative}
                 className="w-full py-3 rounded-xl text-white font-semibold text-base shadow-md disabled:opacity-50 transition"
                 style={{ background: primary }}
               >
-                {submitting ? 'Enviando…' : 'Enviar feedback'}
+                {submitting ? 'Enviando…' : 'Enviar y recibir respuesta'}
               </button>
             </div>
           </>
