@@ -21,13 +21,22 @@ import {
   defaultConfig,
   normalizeConfig,
 } from '@/lib/marketing/qr-poster-config';
+import { QR_TEMPLATES, applyTemplate } from '@/lib/marketing/qr-templates';
 
 type Props = {
   type: QrPosterType;
-  /** URL a la que apunta el QR. Se calcula afuera según el `type`. */
-  qrUrl: string;
+  /** URL destino del QR. String fijo o función que recibe el `meta`
+   *  type-specific (cardId, promoCode, etc) y construye la URL. */
+  qrUrl: string | ((meta: Record<string, any>) => string);
   /** Nombre del negocio — se usa como default del layer "brand". */
   brandName: string;
+  /** Slot para UI type-specific en el sidebar (selector de card para
+   *  QR Mostrador, input de código para QR Descuento, etc). Recibe el
+   *  meta actual y un setter para actualizarlo en el config. */
+  metaSlot?: (
+    meta: Record<string, any>,
+    setMeta: (m: Record<string, any>) => void,
+  ) => React.ReactNode;
 };
 
 const STAGE_MAX_DISPLAY_W = 540; // px en pantalla; el canvas interno es 1080+
@@ -77,7 +86,12 @@ function rectFillProps(bg: BgConfig, w: number, h: number) {
   };
 }
 
-export default function QrPosterEditor({ type, qrUrl, brandName }: Props) {
+export default function QrPosterEditor({
+  type,
+  qrUrl,
+  brandName,
+  metaSlot,
+}: Props) {
   const [cfg, setCfg] = useState<QrPosterConfig>(() => defaultConfig(brandName));
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [posterId, setPosterId] = useState<string | null>(null);
@@ -114,10 +128,19 @@ export default function QrPosterEditor({ type, qrUrl, brandName }: Props) {
     };
   }, [type, brandName]);
 
-  // Regenerar QR cuando cambia url / colores / size
+  // URL efectiva del QR. Si qrUrl es función, la llamamos con el meta
+  // type-specific actual (cardId, promoCode, etc).
+  const meta = cfg.meta ?? {};
+  const effectiveUrl = typeof qrUrl === 'function' ? qrUrl(meta) : qrUrl;
+
+  // Regenerar QR cuando cambia url efectiva / colores / size
   useEffect(() => {
     let cancelled = false;
-    QRCode.toDataURL(qrUrl, {
+    if (!effectiveUrl) {
+      setQrDataUrl(null);
+      return;
+    }
+    QRCode.toDataURL(effectiveUrl, {
       width: cfg.qr.size,
       margin: 1,
       color: { dark: cfg.qr.fg, light: cfg.qr.bg },
@@ -130,7 +153,7 @@ export default function QrPosterEditor({ type, qrUrl, brandName }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [qrUrl, cfg.qr.fg, cfg.qr.bg, cfg.qr.size]);
+  }, [effectiveUrl, cfg.qr.fg, cfg.qr.bg, cfg.qr.size]);
 
   // Responsive: ajusta el ancho del stage al container
   useEffect(() => {
@@ -242,6 +265,11 @@ export default function QrPosterEditor({ type, qrUrl, brandName }: Props) {
     <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-5">
       {/* ─────────────────────── Sidebar de propiedades ─────────────────────── */}
       <div className="space-y-4 lg:max-h-[calc(100vh-160px)] lg:overflow-y-auto lg:pr-2">
+        {/* Slot type-specific (selector de card para Mostrador, código
+            promo para Descuento, etc). Va arriba para que sea lo primero
+            que el dueño configure. */}
+        {metaSlot &&
+          metaSlot(meta, (m) => setCfg((c) => ({ ...c, meta: m })))}
         {/* Acciones */}
         <div className="card card-pad space-y-2">
           <div className="flex gap-2">
@@ -296,6 +324,39 @@ export default function QrPosterEditor({ type, qrUrl, brandName }: Props) {
             {cfg.canvas.mm?.h ?? 297} mm.
           </div>
         </div>
+
+        {/* Templates prediseñados */}
+        <Section title="Templates">
+          <div className="grid grid-cols-2 gap-2">
+            {QR_TEMPLATES.map((tpl) => (
+              <button
+                key={tpl.id}
+                onClick={() => setCfg((c) => applyTemplate(c, tpl))}
+                className="text-left rounded-lg overflow-hidden border-2 border-line hover:border-brand transition group"
+                title={`Aplicar template ${tpl.name}`}
+              >
+                <div
+                  className="h-14 flex items-center justify-center text-lg font-bold"
+                  style={{
+                    background: tpl.swatch.to
+                      ? `linear-gradient(135deg, ${tpl.swatch.from}, ${tpl.swatch.to})`
+                      : tpl.swatch.from,
+                    color: tpl.swatch.text,
+                  }}
+                >
+                  Aa
+                </div>
+                <div className="px-2 py-1.5 text-[11px] font-semibold text-ink leading-tight">
+                  {tpl.name}
+                </div>
+              </button>
+            ))}
+          </div>
+          <div className="text-[10px] text-mute mt-2 leading-relaxed">
+            Aplicar un template cambia colores, fuentes y copy. Tu canvas y
+            posiciones se mantienen.
+          </div>
+        </Section>
 
         {/* Fondo */}
         <Section title="Fondo">

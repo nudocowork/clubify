@@ -1,8 +1,27 @@
 'use client';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { UnderConstruction } from '@/components/UnderConstruction';
+import dynamic from 'next/dynamic';
+import { api } from '@/lib/api';
+
+const QrPosterEditor = dynamic(
+  () => import('@/components/marketing/QrPosterEditor'),
+  { ssr: false, loading: () => <div className="text-mute py-8 text-center">Cargando editor…</div> },
+);
 
 export default function QrDiscountPage() {
+  const [tenant, setTenant] = useState<any>(null);
+
+  useEffect(() => {
+    api<any>('/tenants/me').then(setTenant).catch(() => null);
+  }, []);
+
+  if (!tenant) return <div className="text-mute">Cargando…</div>;
+
+  const slug = tenant.slug ?? 'demo';
+  const origin =
+    typeof window !== 'undefined' ? window.location.origin : 'https://soyclubify.com';
+
   return (
     <div>
       <div className="page-head">
@@ -13,9 +32,46 @@ export default function QrDiscountPage() {
           <span className="page-crumb">/ QR Descuento</span>
         </h1>
       </div>
-      <UnderConstruction
-        title="QR Descuento — próximamente"
-        description="Cartel promocional pequeño con constructor visual editable. Pensado para promociones, descuentos, primera compra y activaciones de campaña."
+
+      <p className="text-sm text-mute max-w-2xl mb-5 leading-relaxed">
+        Cartel promocional para campañas, primera compra o activaciones. Cargá
+        tu código de descuento y el QR lleva al cliente directo al menú con
+        ese código pre-aplicado.
+      </p>
+
+      <QrPosterEditor
+        type="DISCOUNT"
+        brandName={tenant.brandName ?? 'Mi Negocio'}
+        qrUrl={(meta) => {
+          const code = (meta?.promoCode ?? '').toString().trim();
+          return code
+            ? `${origin}/m/${slug}?promo=${encodeURIComponent(code)}`
+            : `${origin}/m/${slug}`;
+        }}
+        metaSlot={(meta, setMeta) => (
+          <div className="card card-pad space-y-2">
+            <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
+              Código promocional
+            </div>
+            <input
+              type="text"
+              value={meta?.promoCode ?? ''}
+              onChange={(e) =>
+                setMeta({ ...meta, promoCode: e.target.value.toUpperCase() })
+              }
+              placeholder="Ej: BIENVENIDA10"
+              maxLength={32}
+              className="input text-sm uppercase tracking-wider"
+            />
+            <div className="text-[11px] text-mute leading-relaxed">
+              Creá el código primero en{' '}
+              <Link href="/app/promos" className="text-brand underline">
+                Promociones
+              </Link>
+              . El QR llevará al cliente a tu menú con el código aplicado.
+            </div>
+          </div>
+        )}
       />
     </div>
   );

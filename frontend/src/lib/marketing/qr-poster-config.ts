@@ -50,6 +50,10 @@ export type QrPosterConfig = {
   /** Footer "Powered by Clubify" — siempre visible (no removible, ver
    *  feedback_clubify_branding_locked memory). */
   showClubifyFooter: true;
+  /** Datos opaque type-specific (cardId para COUNTER, promoCode para
+   *  DISCOUNT, etc). Persisten en config.meta JSON; el editor los trata
+   *  como caja negra. */
+  meta?: Record<string, any>;
 };
 
 export const FONT_OPTIONS: { label: string; value: string }[] = [
@@ -176,5 +180,6 @@ export function normalizeConfig(
       brand: { ...def.texts.brand, ...(cfg.texts?.brand ?? {}) },
     },
     showClubifyFooter: true,
+    meta: cfg.meta ?? {},
   };
 }

@@ -26,7 +26,7 @@ const TOOLS: QrTool[] = [
     title: 'QR Mostrador',
     description:
       'Cartel para que el cliente escanee, instale su wallet y empiece a sumar sellos al instante.',
-    ready: false,
+    ready: true,
   },
   {
     href: '/app/marketing/qr-discount',
@@ -34,7 +34,7 @@ const TOOLS: QrTool[] = [
     title: 'QR Descuento',
     description:
       'Cartel promocional pequeño para campañas, primera compra, activaciones y descuentos.',
-    ready: false,
+    ready: true,
   },
   {
     href: '/app/marketing/qr-reviews',
