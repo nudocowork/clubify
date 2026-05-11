@@ -34,9 +34,18 @@ type ListResp = { items: Quote[]; total: number; take: number; skip: number };
 type Stats = {
   total: number;
   last30dCount: number;
-  byPlan: { plan: Plan; count: number }[];
+  byPlan: { plan: Plan; count: number; sumPrice: string }[];
   byAdvisor: { advisorId: string | null; advisorName: string; count: number }[];
+  byTemplate: { templateSlug: string | null; count: number }[];
+  byMonth: { key: string; total: number; elite: number; pro: number }[];
 };
+
+function monthLabel(key: string) {
+  // key viene como YYYY-MM
+  const [y, m] = key.split('-').map(Number);
+  const d = new Date(y, m - 1, 1);
+  return d.toLocaleDateString('es-CO', { month: 'short' }).replace('.', '');
+}
 
 function fmtDate(iso: string) {
   const d = new Date(iso);
@@ -128,6 +137,17 @@ export default function CotizacionesPage() {
     return m;
   }, [stats]);
 
+  const totalRevenue = useMemo(() => {
+    if (!stats) return 0;
+    return stats.byPlan.reduce((acc, b) => acc + Number(b.sumPrice || 0), 0);
+  }, [stats]);
+
+  const topMonthCount = useMemo(() => {
+    if (!stats?.byMonth.length) return 0;
+    return Math.max(1, ...stats.byMonth.map((b) => b.total));
+  }, [stats]);
+
+  const [insightsOpen, setInsightsOpen] = useState(false);
   const topAdvisor = stats?.byAdvisor?.[0];
 
   return (
@@ -147,34 +167,219 @@ export default function CotizacionesPage() {
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-        <div className="card card-pad">
-          <div className="text-[11px] uppercase tracking-[0.1em] text-mute font-semibold">Total</div>
-          <div className="text-2xl font-bold mt-1">{stats?.total ?? '—'}</div>
-        </div>
-        <div className="card card-pad">
-          <div className="text-[11px] uppercase tracking-[0.1em] text-mute font-semibold">Últimos 30 días</div>
-          <div className="text-2xl font-bold mt-1">{stats?.last30dCount ?? '—'}</div>
-        </div>
-        <div className="card card-pad">
-          <div className="text-[11px] uppercase tracking-[0.1em] text-mute font-semibold">Elite / Pro</div>
-          <div className="text-2xl font-bold mt-1">
-            <span className="text-brand">{byPlanMap.ELITE}</span>
-            <span className="text-mute mx-1">/</span>
-            <span className="text-brand">{byPlanMap.PRO}</span>
-          </div>
-        </div>
-        <div className="card card-pad">
-          <div className="text-[11px] uppercase tracking-[0.1em] text-mute font-semibold">Top asesor</div>
-          <div className="text-sm font-semibold mt-1 truncate" title={topAdvisor?.advisorName}>
-            {topAdvisor ? topAdvisor.advisorName : '—'}
-          </div>
-          <div className="text-xs text-mute">
-            {topAdvisor ? `${topAdvisor.count} cotización${topAdvisor.count === 1 ? '' : 'es'}` : ''}
-          </div>
-        </div>
+      {/* Stats cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+        <StatCard
+          label="Total"
+          value={stats ? String(stats.total) : null}
+          loading={loading && !stats}
+        />
+        <StatCard
+          label="Últimos 30 días"
+          value={stats ? String(stats.last30dCount) : null}
+          loading={loading && !stats}
+        />
+        <StatCard
+          label="Elite / Pro"
+          loading={loading && !stats}
+          render={
+            stats ? (
+              <div className="text-2xl font-bold">
+                <span>{byPlanMap.ELITE}</span>
+                <span className="text-mute mx-1">/</span>
+                <span className="text-brand">{byPlanMap.PRO}</span>
+              </div>
+            ) : null
+          }
+          sub={
+            stats && totalRevenue > 0
+              ? `${fmtMoney(totalRevenue, list[0]?.currencySnapshot ?? 'USD')} acumulado`
+              : undefined
+          }
+        />
+        <StatCard
+          label="Top asesor"
+          loading={loading && !stats}
+          render={
+            topAdvisor ? (
+              <>
+                <div
+                  className="text-sm font-semibold truncate"
+                  title={topAdvisor.advisorName}
+                >
+                  {topAdvisor.advisorName}
+                </div>
+                <div className="text-xs text-mute mt-0.5">
+                  {topAdvisor.count} cotización
+                  {topAdvisor.count === 1 ? '' : 'es'}
+                </div>
+              </>
+            ) : (
+              <div className="text-sm text-mute">—</div>
+            )
+          }
+        />
       </div>
+
+      {/* Insights expandible */}
+      {stats && stats.total > 0 && (
+        <div className="card overflow-hidden p-0 mb-5">
+          <button
+            type="button"
+            onClick={() => setInsightsOpen((v) => !v)}
+            className="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-bg2/50 transition"
+            aria-expanded={insightsOpen}
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-brand">
+                <Icon name="trend-up" />
+              </span>
+              <div>
+                <div className="text-sm font-semibold">Insights</div>
+                <div className="text-xs text-mute">
+                  Distribución por mes, plantilla y asesor (últimos 6 meses)
+                </div>
+              </div>
+            </div>
+            <span
+              className={`text-mute transition-transform ${insightsOpen ? 'rotate-180' : ''}`}
+            >
+              <Icon name="arrow-right" />
+            </span>
+          </button>
+          {insightsOpen && (
+            <div className="border-t border-line p-5 grid grid-cols-1 lg:grid-cols-3 gap-5">
+              {/* Chart mensual */}
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.1em] text-mute font-semibold mb-3">
+                  Cotizaciones por mes
+                </div>
+                <div className="flex items-end gap-2 h-32">
+                  {stats.byMonth.map((b) => {
+                    const elitePct = Math.round(
+                      (b.elite / topMonthCount) * 100,
+                    );
+                    const proPct = Math.round((b.pro / topMonthCount) * 100);
+                    return (
+                      <div
+                        key={b.key}
+                        className="flex-1 flex flex-col items-center gap-1"
+                      >
+                        <div className="text-[10px] font-semibold text-mute">
+                          {b.total || ''}
+                        </div>
+                        <div className="w-full flex flex-col-reverse h-full bg-bg2/40 rounded overflow-hidden">
+                          <div
+                            className="bg-ink/80 transition-all"
+                            style={{ height: `${elitePct}%`, minHeight: b.elite ? 2 : 0 }}
+                            title={`Elite: ${b.elite}`}
+                          />
+                          <div
+                            className="bg-brand transition-all"
+                            style={{ height: `${proPct}%`, minHeight: b.pro ? 2 : 0 }}
+                            title={`Pro: ${b.pro}`}
+                          />
+                        </div>
+                        <div className="text-[10px] text-mute uppercase">
+                          {monthLabel(b.key)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center gap-3 mt-3 text-[11px] text-mute">
+                  <span className="flex items-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-ink/80 inline-block" />
+                    Elite
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-brand inline-block" />
+                    Pro
+                  </span>
+                </div>
+              </div>
+
+              {/* Top plantillas */}
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.1em] text-mute font-semibold mb-3">
+                  Plantillas más cotizadas
+                </div>
+                {stats.byTemplate.length === 0 ? (
+                  <div className="text-xs text-mute py-2">Sin datos aún.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {stats.byTemplate.slice(0, 6).map((b) => {
+                      const pct = Math.round(
+                        (b.count / Math.max(stats.total, 1)) * 100,
+                      );
+                      const t = getQuoteTemplateBySlug(b.templateSlug);
+                      return (
+                        <div key={b.templateSlug ?? 'none'}>
+                          <div className="flex items-center justify-between text-xs mb-1">
+                            <span className="flex items-center gap-1.5">
+                              {t?.emoji && <span>{t.emoji}</span>}
+                              <span className="text-ink">
+                                {t?.name ?? humanizeSlug(b.templateSlug)}
+                              </span>
+                            </span>
+                            <span className="text-mute font-mono tabular-nums">
+                              {b.count} · {pct}%
+                            </span>
+                          </div>
+                          <div className="h-1.5 bg-bg2 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-brand transition-all"
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Ranking asesores */}
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.1em] text-mute font-semibold mb-3">
+                  Ranking de asesores
+                </div>
+                {stats.byAdvisor.length === 0 ? (
+                  <div className="text-xs text-mute py-2">Sin datos aún.</div>
+                ) : (
+                  <ol className="space-y-1">
+                    {stats.byAdvisor.slice(0, 8).map((a, i) => (
+                      <li
+                        key={a.advisorId ?? `idx-${i}`}
+                        className="flex items-center gap-2 text-sm"
+                      >
+                        <span
+                          className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${
+                            i === 0
+                              ? 'bg-brand text-white'
+                              : 'bg-bg2 text-mute'
+                          }`}
+                        >
+                          {i + 1}
+                        </span>
+                        <span
+                          className="flex-1 truncate"
+                          title={a.advisorName}
+                        >
+                          {a.advisorName}
+                        </span>
+                        <span className="text-mute font-mono tabular-nums text-xs">
+                          {a.count}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Filtros */}
       <div className="mb-3.5 flex flex-wrap gap-3 items-center">
@@ -223,22 +428,48 @@ export default function CotizacionesPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-mute">
-                    Cargando…
-                  </td>
-                </tr>
+                Array.from({ length: 5 }).map((_, i) => (
+                  <tr key={`skel-${i}`} className="border-t border-line">
+                    {Array.from({ length: 7 }).map((__, j) => (
+                      <td key={j} className="px-4 py-4">
+                        <div
+                          className="h-3 rounded bg-bg2 animate-shimmer"
+                          style={{
+                            backgroundImage:
+                              'linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent)',
+                            backgroundSize: '200% 100%',
+                            width: j === 0 ? '70%' : j === 6 ? '40%' : '60%',
+                          }}
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                ))
               ) : list.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center">
-                    <div className="text-mute text-sm">
-                      Aún no hay cotizaciones.{' '}
-                      <Link
-                        href="/admin/cotizaciones/nueva"
-                        className="text-brand font-semibold hover:underline"
-                      >
-                        Crear la primera →
-                      </Link>
+                  <td colSpan={7} className="px-4 py-16">
+                    <div className="max-w-md mx-auto text-center">
+                      <div className="w-14 h-14 mx-auto rounded-full bg-brand-soft text-brand flex items-center justify-center mb-3">
+                        <Icon name="clipboard" size={24} />
+                      </div>
+                      <h3 className="text-base font-semibold m-0">
+                        {search || filterPlan !== 'ALL'
+                          ? 'Sin resultados'
+                          : 'Aún no hay cotizaciones'}
+                      </h3>
+                      <p className="text-xs text-mute mt-1 leading-relaxed">
+                        {search || filterPlan !== 'ALL'
+                          ? 'Probá con otros filtros o limpiá la búsqueda.'
+                          : 'Generá tu primera propuesta profesional en 5 pasos: cliente, plantilla, plan, preview y PDF.'}
+                      </p>
+                      {!(search || filterPlan !== 'ALL') && (
+                        <Link
+                          className="btn-primary mt-4"
+                          href="/admin/cotizaciones/nueva"
+                        >
+                          <Icon name="plus" /> Crear primera cotización
+                        </Link>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -319,6 +550,38 @@ export default function CotizacionesPage() {
           </table>
         </div>
       </div>
+    </div>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  sub,
+  render,
+  loading,
+}: {
+  label: string;
+  value?: string | null;
+  sub?: string;
+  render?: React.ReactNode;
+  loading?: boolean;
+}) {
+  return (
+    <div className="card card-pad">
+      <div className="text-[11px] uppercase tracking-[0.1em] text-mute font-semibold">
+        {label}
+      </div>
+      {loading ? (
+        <div className="mt-2 h-7 w-16 bg-bg2 rounded animate-shimmer" />
+      ) : render ? (
+        <div className="mt-1">{render}</div>
+      ) : (
+        <div className="text-2xl font-bold mt-1">{value ?? '—'}</div>
+      )}
+      {sub && !loading && (
+        <div className="text-xs text-mute mt-0.5">{sub}</div>
+      )}
     </div>
   );
 }
