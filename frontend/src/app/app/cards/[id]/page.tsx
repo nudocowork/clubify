@@ -8,12 +8,25 @@ import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { StampIconPicker } from '@/components/StampIconPicker';
 import { CardExpiryPicker } from '@/components/CardExpiryPicker';
+import { WalletPassPreview } from '@/components/WalletPassPreview';
+
+type CardType =
+  | 'STAMPS'
+  | 'POINTS'
+  | 'DISCOUNT'
+  | 'MEMBERSHIP'
+  | 'CASHBACK'
+  | 'VISITS'
+  | 'HYBRID'
+  | 'COUPON'
+  | 'GIFT'
+  | 'MULTI';
 
 type Card = {
   id: string;
   name: string;
   description?: string;
-  type: 'STAMPS' | 'POINTS' | 'DISCOUNT' | 'MEMBERSHIP';
+  type: CardType;
   rewardText: string;
   terms: string;
   termsEnabled?: boolean;
@@ -27,6 +40,9 @@ type Card = {
   stampIcon?: string;
   discountPercent?: number | null;
   pointsPerCurrency?: number | string | null;
+  cashbackPercent?: number | null;
+  visitsRequired?: number | null;
+  tiers?: Array<{ name: string }>;
   validUntil?: string | null;
   validDaysAfterIssue?: number | null;
   locationId?: string | null;
@@ -48,6 +64,12 @@ type Card = {
   }>;
   isActive: boolean;
   _count?: { passes: number };
+};
+
+type TenantInfo = {
+  brandName?: string;
+  walletLogoUrl?: string | null;
+  logoUrl?: string | null;
 };
 
 type Customer = {
@@ -78,6 +100,7 @@ const STATUS_LABEL: Record<string, string> = {
 export default function CardDetail() {
   const { id } = useParams<{ id: string }>();
   const [card, setCard] = useState<Card | null>(null);
+  const [tenant, setTenant] = useState<TenantInfo | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [allPasses, setAllPasses] = useState<Pass[]>([]);
   const [issuing, setIssuing] = useState(false);
@@ -86,14 +109,16 @@ export default function CardDetail() {
 
   async function load() {
     try {
-      const [c, cs, ps] = await Promise.all([
+      const [c, cs, ps, t] = await Promise.all([
         api<Card>(`/cards/${id}`),
         api<Customer[]>('/customers'),
         api<Pass[]>('/passes'),
+        api<TenantInfo>('/tenants/me').catch(() => null),
       ]);
       setCard(c);
       setCustomers(cs);
       setAllPasses(ps);
+      setTenant(t);
     } catch (e: any) {
       toast(e.message || 'Error cargando tarjeta', 'error');
     }
@@ -243,69 +268,37 @@ export default function CardDetail() {
       <EnrollLinkCard cardId={String(id)} cardName={card.name} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Preview grande */}
+        {/* Preview grande — mismo componente que el wizard y el wallet del cliente */}
         <div className="space-y-4">
-          <div
-            className="rounded-2xl p-6 text-white shadow-md2 relative overflow-hidden"
-            style={{
-              background: `linear-gradient(135deg, ${card.primaryColor}, ${card.secondaryColor})`,
-              minHeight: 280,
-            }}
-          >
-            <div className="text-[11px] uppercase tracking-[0.18em] opacity-80">
-              {card.type}
-            </div>
-            <div className="text-2xl font-bold mt-1.5 leading-tight">
-              {card.name}
-            </div>
-
-            {card.type === 'STAMPS' && (
-              <>
-                <div className="mt-6">
-                  <div className="text-[11px] uppercase tracking-[0.18em] opacity-80 mb-2">
-                    Progreso
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {Array.from({ length: required }).map((_, i) => {
-                      // Mostramos los primeros 3 sellos rellenos como demo
-                      const filled = i < Math.min(3, required);
-                      return (
-                        <span
-                          key={i}
-                          className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold"
-                          style={{
-                            background: filled ? '#fff' : 'rgba(255,255,255,0.15)',
-                            border:
-                              '1.5px solid ' +
-                              (filled ? '#fff' : 'rgba(255,255,255,0.4)'),
-                            color: filled ? card.primaryColor : '#fff',
-                          }}
-                        >
-                          {i + 1}
-                        </span>
-                      );
-                    })}
-                  </div>
-                </div>
-                <div className="text-[11px] uppercase tracking-[0.18em] opacity-80 mt-5">
-                  Recompensa al completar
-                </div>
-                <div className="text-base font-semibold">
-                  {card.rewardText || `Premio al completar ${required} sellos`}
-                </div>
-              </>
-            )}
-
-            {card.type !== 'STAMPS' && (
-              <div className="mt-6">
-                <div className="text-[11px] uppercase tracking-[0.18em] opacity-80">
-                  Recompensa
-                </div>
-                <div className="text-base font-semibold">
-                  {card.rewardText || '—'}
-                </div>
-              </div>
-            )}
+          <div className="flex justify-center">
+            <WalletPassPreview
+              brandName={
+                tenant?.brandName ||
+                card.businessName ||
+                card.name.split('—')[0].trim() ||
+                'Tu marca'
+              }
+              brandLogoUrl={tenant?.walletLogoUrl ?? tenant?.logoUrl ?? null}
+              primaryColor={card.primaryColor}
+              secondaryColor={card.secondaryColor}
+              cardName={card.name}
+              cardType={card.type}
+              stampsRequired={card.stampsRequired}
+              stampsCount={Math.min(3, card.stampsRequired ?? 10)}
+              visitsRequired={card.visitsRequired}
+              visitsCount={3}
+              cashbackBalance={15000}
+              pointsBalance={120}
+              discountPercent={card.discountPercent}
+              currentTier={card.tiers?.[0]?.name}
+              tiers={card.tiers}
+              stampIcon={card.stampIcon}
+              stampActiveColor={card.stampActiveColor}
+              stampInactiveColor={card.stampInactiveColor}
+              stampContourColor={card.stampContourColor}
+              centerBgColor={card.centerBgColor}
+              rewardText={card.rewardText}
+            />
           </div>
 
           {card.terms && (

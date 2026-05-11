@@ -9,5 +9,12 @@ const nextConfig = {
       },
     ];
   },
+  // react-konva (QrPosterEditor) intenta resolver 'canvas' (binding nativo
+  // de Node). Es client-only via dynamic import, pero webpack igual lo
+  // escanea. Marcar como external evita el module-not-found.
+  webpack: (config) => {
+    config.externals = [...(config.externals || []), { canvas: 'canvas' }];
+    return config;
+  },
 };
 module.exports = nextConfig;
