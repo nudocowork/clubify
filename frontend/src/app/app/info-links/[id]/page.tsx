@@ -716,33 +716,67 @@ function PublicLinkPreview({
   tenant: any;
   primary: string;
 }) {
+  const initial = (tenant?.brandName?.[0] || 'C').toUpperCase();
   return (
-    <div className="text-ink" style={{ ['--primary' as any]: primary }}>
-      {link.heroImageUrl ? (
-        <img src={link.heroImageUrl} alt="" className="w-full h-32 object-cover" />
-      ) : (
-        <div
-          className="w-full h-20"
-          style={{ background: `linear-gradient(135deg, ${primary}, #15803D)` }}
-        />
-      )}
-      <div className="px-4 py-3">
-        <h1 className="text-xl font-bold leading-tight">{link.title}</h1>
+    <div className="text-ink bg-white" style={{ ['--primary' as any]: primary }}>
+      {/* Hero con degradado de marca */}
+      <div className="relative">
+        {link.heroImageUrl ? (
+          <img
+            src={link.heroImageUrl}
+            alt=""
+            className="w-full h-28 object-cover"
+          />
+        ) : (
+          <div
+            className="w-full h-24"
+            style={{
+              background: `linear-gradient(135deg, ${primary}, ${tenant?.secondaryColor || primary})`,
+            }}
+          />
+        )}
+        {/* Avatar superpuesto */}
+        <div className="absolute -bottom-7 left-1/2 -translate-x-1/2">
+          {tenant?.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={tenant.logoUrl}
+              alt=""
+              className="w-14 h-14 rounded-full object-cover border-4 border-white shadow-md bg-white"
+            />
+          ) : (
+            <div
+              className="w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-lg border-4 border-white shadow-md"
+              style={{ background: primary }}
+            >
+              {initial}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="px-4 pt-9 pb-4 text-center">
+        <h1 className="text-base font-bold leading-tight">{link.title}</h1>
         {link.subtitle && (
-          <p className="text-sm text-mute mt-1">{link.subtitle}</p>
+          <p className="text-[11px] text-mute mt-1 leading-snug">{link.subtitle}</p>
         )}
 
-        {/* Botones */}
+        {/* Botones tipo Linktree */}
         {link.buttons.length > 0 && (
-          <div className="space-y-2 mt-4">
+          <div className="space-y-2 mt-4 text-left">
             {link.buttons.map((b, i) => (
               <div
                 key={i}
-                className="block w-full py-2.5 rounded-full text-center text-sm font-medium"
+                className="block w-full py-2.5 px-4 rounded-2xl text-center text-[13px] font-semibold transition shadow-sm"
                 style={{
-                  background: b.style === 'secondary' ? '#fff' : primary,
+                  background:
+                    b.style === 'secondary' ? '#fff' : primary,
                   color: b.style === 'secondary' ? primary : '#fff',
-                  border: `1px solid ${primary}`,
+                  border: `1.5px solid ${primary}`,
+                  boxShadow:
+                    b.style === 'secondary'
+                      ? '0 1px 2px rgba(0,0,0,.04)'
+                      : `0 4px 12px ${primary}33`,
                 }}
               >
                 {b.label}
@@ -752,7 +786,7 @@ function PublicLinkPreview({
         )}
 
         {/* Bloques */}
-        <div className="mt-4 space-y-3">
+        <div className="mt-4 space-y-3 text-left">
           {link.sections.map((s, i) => {
             if (s.type === 'heading')
               return (

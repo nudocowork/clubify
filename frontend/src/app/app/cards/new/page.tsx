@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { StampIconPicker } from '@/components/StampIconPicker';
 import { CardExpiryPicker } from '@/components/CardExpiryPicker';
+import { WalletPassPreview } from '@/components/WalletPassPreview';
 import {
   CARD_TEMPLATES,
   TYPE_LABEL,
@@ -793,90 +794,30 @@ function Step3Configure({
           Así se verá en el iPhone
         </div>
         <div className="flex justify-center">
-          <div className="iphone">
-            <div className="iphone-notch" />
-            <div className="iphone-screen">
-              <div className="iphone-bar">
-                <span>11:42</span>
-                <span className="text-[10px]">●●● 100%</span>
-              </div>
-              <div className="wallet-actions">
-                <span className="wallet-ok">OK</span>
-                <span className="text-mute2 text-xs">↑ ···</span>
-              </div>
-              <div className="mx-2 mb-2">
-                <div
-                  className="pass"
-                  style={{
-                    background: `linear-gradient(135deg, ${form.primaryColor}, ${form.secondaryColor})`,
-                  }}
-                >
-                  <div className="pass-head">
-                    <div className="pass-logo">
-                      <span className="pass-logo-mark">
-                        {(brand[0] || 'C').toUpperCase()}
-                      </span>{' '}
-                      {brand}
-                    </div>
-                    <div className="pass-side">
-                      <div className="pass-side-lbl">
-                        {TYPE_LABEL[form.type].toUpperCase()}
-                      </div>
-                      <div className="pass-side-val">
-                        {form.type === 'STAMPS'
-                          ? `3/${form.stampsRequired}`
-                          : form.type === 'POINTS'
-                          ? '120'
-                          : form.type === 'DISCOUNT'
-                          ? `${form.discountPercent}%`
-                          : form.type === 'MEMBERSHIP'
-                          ? 'Activa'
-                          : '—'}
-                      </div>
-                    </div>
-                  </div>
-                  <div
-                    className="pass-strip"
-                    style={{
-                      background:
-                        'linear-gradient(135deg,rgba(0,0,0,.15),rgba(0,0,0,.05))',
-                    }}
-                  >
-                    <div className="strip-stamps">
-                      {Array.from({ length: visibleStamps }).map((_, i) => (
-                        <div
-                          key={i}
-                          className={`strip-stamp ${i < 3 ? 'full' : ''}`}
-                          style={{ color: i < 3 ? form.primaryColor : '#fff' }}
-                        >
-                          {i < 3 ? form.stampIcon || '✓' : ''}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="pass-fields">
-                    <div>
-                      <div className="pf-lbl">TITULAR</div>
-                      <div className="pf-val">RICARDO PÉREZ</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="pf-lbl">RECOMPENSA</div>
-                      <div className="pf-val text-xs">{form.rewardText}</div>
-                    </div>
-                  </div>
-                  <div className="pass-bar">
-                    <div className="w-32 h-32 bg-ink/10 rounded grid place-items-center text-mute text-xs">
-                      QR
-                    </div>
-                    <div className="pager">
-                      <span className="pager-dot" />
-                      <span className="pager-dot on" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <WalletPassPreview
+            brandName={brand}
+            primaryColor={form.primaryColor}
+            secondaryColor={form.secondaryColor}
+            cardName={form.name}
+            cardType={form.type}
+            stampsRequired={form.stampsRequired}
+            stampsCount={Math.min(3, form.stampsRequired)}
+            visitsRequired={form.visitsRequired}
+            visitsCount={3}
+            cashbackBalance={15000}
+            pointsBalance={120}
+            discountPercent={form.discountPercent}
+            currentTier={form.tiers[0]?.name}
+            tiers={form.tiers}
+            stampIcon={form.stampIcon}
+            stampActiveColor={form.stampActiveColor}
+            stampInactiveColor={form.stampInactiveColor}
+            stampContourColor={form.stampContourColor}
+            centerBgColor={form.centerBgColor}
+            rewardText={form.rewardText}
+            customerName="RICARDO PÉREZ"
+            barcodeValue="DEMO123456"
+          />
         </div>
 
         <div className="card card-pad mt-4 flex items-start gap-3">
@@ -1027,100 +968,30 @@ function Step4Design({
           Vista previa
         </div>
         <div className="flex justify-center">
-          <div className="iphone">
-            <div className="iphone-notch" />
-            <div className="iphone-screen">
-              <div className="iphone-bar">
-                <span>11:42</span>
-                <span className="text-[10px]">●●● 100%</span>
-              </div>
-              <div className="wallet-actions">
-                <span className="wallet-ok">OK</span>
-                <span className="text-mute2 text-xs">↑ ···</span>
-              </div>
-              <div className="mx-2 mb-2">
-                <div
-                  className="pass"
-                  style={{
-                    background: `linear-gradient(135deg, ${form.primaryColor}, ${form.secondaryColor})`,
-                  }}
-                >
-                  <div className="pass-head">
-                    <div className="pass-logo">
-                      <span className="pass-logo-mark">
-                        {(brand[0] || 'C').toUpperCase()}
-                      </span>{' '}
-                      {brand}
-                    </div>
-                    <div className="pass-side">
-                      <div className="pass-side-lbl">
-                        {TYPE_LABEL[form.type].toUpperCase()}
-                      </div>
-                      <div className="pass-side-val">
-                        {form.type === 'STAMPS' || form.type === 'HYBRID'
-                          ? `3/${form.stampsRequired}`
-                          : form.type === 'POINTS'
-                          ? '120'
-                          : form.type === 'DISCOUNT'
-                          ? `${form.discountPercent}%`
-                          : form.type === 'CASHBACK'
-                          ? '$15.000'
-                          : form.type === 'VISITS'
-                          ? `3/${form.visitsRequired ?? 10}`
-                          : form.type === 'MEMBERSHIP'
-                          ? form.tiers[0]?.name || 'Activa'
-                          : '—'}
-                      </div>
-                    </div>
-                  </div>
-                  <div
-                    className="pass-strip"
-                    style={{
-                      background: form.centerBgColor
-                        ? `linear-gradient(135deg, ${form.centerBgColor}cc, ${form.centerBgColor}aa)`
-                        : 'linear-gradient(135deg,rgba(0,0,0,.15),rgba(0,0,0,.05))',
-                    }}
-                  >
-                    <div className="strip-stamps">
-                      {Array.from({ length: visibleStamps }).map((_, i) => (
-                        <div
-                          key={i}
-                          className={`strip-stamp ${i < 3 ? 'full' : ''}`}
-                          style={{
-                            color: i < 3
-                              ? form.stampActiveColor || form.primaryColor
-                              : form.stampInactiveColor || '#fff',
-                            borderColor: form.stampContourColor || undefined,
-                          }}
-                        >
-                          {i < 3 ? form.stampIcon || '✓' : ''}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="pass-fields">
-                    <div>
-                      <div className="pf-lbl">TITULAR</div>
-                      <div className="pf-val">RICARDO PÉREZ</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="pf-lbl">RECOMPENSA</div>
-                      <div className="pf-val text-xs">{form.rewardText}</div>
-                    </div>
-                  </div>
-                  <div className="pass-bar">
-                    <div className="w-32 h-32 bg-ink/10 rounded grid place-items-center text-mute text-xs">
-                      QR
-                    </div>
-                    <div className="pager">
-                      <span className="pager-dot" />
-                      <span className="pager-dot on" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <WalletPassPreview
+            brandName={brand}
+            primaryColor={form.primaryColor}
+            secondaryColor={form.secondaryColor}
+            cardName={form.name}
+            cardType={form.type}
+            stampsRequired={form.stampsRequired}
+            stampsCount={Math.min(3, form.stampsRequired)}
+            visitsRequired={form.visitsRequired}
+            visitsCount={3}
+            cashbackBalance={15000}
+            pointsBalance={120}
+            discountPercent={form.discountPercent}
+            currentTier={form.tiers[0]?.name}
+            tiers={form.tiers}
+            stampIcon={form.stampIcon}
+            stampActiveColor={form.stampActiveColor}
+            stampInactiveColor={form.stampInactiveColor}
+            stampContourColor={form.stampContourColor}
+            centerBgColor={form.centerBgColor}
+            rewardText={form.rewardText}
+            customerName="RICARDO PÉREZ"
+            barcodeValue="DEMO123456"
+          />
         </div>
         <div className="card card-pad mt-4 flex items-start gap-3">
           <Icon name="spark" size={18} className="text-brand flex-none mt-0.5" />
