@@ -196,6 +196,12 @@ export default function AppShell({
             ],
           },
           {
+            section: 'Ventas',
+            items: [
+              { href: '/admin/cotizaciones', label: 'Cotizaciones', icon: 'clipboard' },
+            ],
+          },
+          {
             section: 'Sistema',
             items: [
               { href: '/admin/business-categories', label: 'Categorías', icon: 'grid' },

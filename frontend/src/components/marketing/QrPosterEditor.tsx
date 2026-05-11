@@ -270,6 +270,28 @@ export default function QrPosterEditor({
             que el dueño configure. */}
         {metaSlot &&
           metaSlot(meta, (m) => setCfg((c) => ({ ...c, meta: m })))}
+
+        {/* QR dinámico: comunica visualmente que el QR sigue funcionando
+            aunque cambie el menú/wallet/reseñas del tenant. La URL apunta
+            a slugs estables, no IDs efímeros. */}
+        <div className="card card-pad bg-emerald-50/60 border-emerald-200">
+          <div className="flex items-start gap-2">
+            <span className="text-base">🔗</span>
+            <div className="flex-1 min-w-0">
+              <div className="text-[11px] uppercase tracking-wider font-semibold text-emerald-800">
+                QR dinámico
+              </div>
+              <div className="text-xs text-emerald-900 break-all mt-1 font-mono">
+                {effectiveUrl.replace(/^https?:\/\//, '')}
+              </div>
+              <div className="text-[11px] text-emerald-800/80 mt-1.5 leading-relaxed">
+                Aunque cambies tu menú, wallet o promociones, el cartel
+                impreso sigue funcionando.
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Acciones */}
         <div className="card card-pad space-y-2">
           <div className="flex gap-2">

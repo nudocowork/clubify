@@ -42,7 +42,7 @@ const TOOLS: QrTool[] = [
     title: 'QR Reseñas',
     description:
       'Cartel para incentivar reseñas de Google. Usa automáticamente el filtro inteligente de 4-5★.',
-    ready: false,
+    ready: true,
   },
 ];
 
