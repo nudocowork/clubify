@@ -38,19 +38,81 @@ export type TextLayer = {
   opacity?: number;
 };
 
+/** Layer del logo del negocio (opcional). Se pinta como imagen Konva. */
+export type LogoLayer = {
+  url: string;
+  x: number;
+  y: number;
+  size: number; // ancho/alto en px (logo cuadrado)
+  opacity?: number;
+};
+
+/** Formas standalone — rectángulo o círculo decorativos. Cada una con
+ *  su id estable para drag-reorder en el panel de capas. */
+export type ShapeLayer = {
+  id: string;
+  type: 'rect' | 'circle';
+  x: number;
+  y: number;
+  /** Ancho (rect) o diámetro (circle). h se usa solo en rect. */
+  w: number;
+  h: number;
+  fill: string;
+  opacity?: number;
+  /** Solo rect — radio de esquinas. */
+  borderRadius?: number;
+  stroke?: string;
+  strokeWidth?: number;
+};
+
+/** Capa de "icono" — emoji renderizado como Konva.Text (sin
+ *  rasterización SVG, más simple y portable). */
+export type IconLayer = {
+  id: string;
+  emoji: string;
+  x: number;
+  y: number;
+  size: number;
+  opacity?: number;
+};
+
+/** ID estable de cada capa para el sistema de z-order. Los texts/qr/bg
+ *  son fijos (un solo elemento); shapes/icons usan id dinámico. */
+export type LayerId =
+  | 'bg'
+  | 'qr'
+  | 'logo'
+  | 'text.title'
+  | 'text.subtitle'
+  | 'text.cta'
+  | 'text.brand'
+  | 'footer'
+  | `shape.${string}`
+  | `icon.${string}`;
+
 export type QrPosterConfig = {
   /** w/h son px internos del lienzo Konva (definen aspecto + precisión
    *  de layout). mm es la medida física para imprenta — se usa al
    *  exportar para calcular pixelRatio = 300 DPI. */
   canvas: { w: number; h: number; mm?: { w: number; h: number } };
+  /** Si 'circle', el canvas se clipea a una circunferencia centrada —
+   *  útil para imprentar carteles circulares (acrílico, sticker). */
+  clipShape?: 'circle';
   bg: BgConfig;
   qr: QrConfig;
+  /** Logo del negocio. Null = no mostrar. */
+  logo?: LogoLayer | null;
+  shapes?: ShapeLayer[];
+  icons?: IconLayer[];
   texts: {
     title: TextLayer;
     subtitle: TextLayer;
     cta: TextLayer;
     brand: TextLayer & { auto: boolean };
   };
+  /** Orden visual de las capas (back → front). Si falta, se usa el
+   *  orden default basado en los tipos. */
+  layerOrder?: LayerId[];
   /** Footer "Powered by Clubify" — siempre visible (no removible, ver
    *  feedback_clubify_branding_locked memory). */
   showClubifyFooter: true;
@@ -59,6 +121,48 @@ export type QrPosterConfig = {
    *  como caja negra. */
   meta?: Record<string, any>;
 };
+
+/** Orden default de capas (back → front). Si la config no tiene
+ *  layerOrder explícito, se calcula esto. shapes e icons quedan
+ *  detrás de los textos por default — el panel de capas permite
+ *  reordenar a voluntad. */
+export function defaultLayerOrder(cfg: QrPosterConfig): LayerId[] {
+  const shapeIds: LayerId[] = (cfg.shapes ?? []).map(
+    (s) => `shape.${s.id}` as LayerId,
+  );
+  const iconIds: LayerId[] = (cfg.icons ?? []).map(
+    (i) => `icon.${i.id}` as LayerId,
+  );
+  return [
+    'bg',
+    ...shapeIds,
+    'qr',
+    'logo',
+    'text.brand',
+    'text.title',
+    'text.subtitle',
+    'text.cta',
+    ...iconIds,
+    'footer',
+  ];
+}
+
+/** Filtra el layerOrder guardado para incluir solo IDs que aún existen
+ *  en cfg (un shape borrado no debería seguir apareciendo). Y appendea
+ *  IDs nuevos que el user agregó después de que se guardó layerOrder. */
+export function effectiveLayerOrder(cfg: QrPosterConfig): LayerId[] {
+  const defaultOrder = defaultLayerOrder(cfg);
+  if (!cfg.layerOrder) return defaultOrder;
+  const validSet = new Set(defaultOrder);
+  const filtered = cfg.layerOrder.filter((id) => validSet.has(id));
+  // Append IDs que aparecen en defaultOrder pero no en filtered (nuevas
+  // capas creadas después de persistir layerOrder)
+  const filteredSet = new Set(filtered);
+  for (const id of defaultOrder) {
+    if (!filteredSet.has(id)) filtered.push(id);
+  }
+  return filtered;
+}
 
 export const FONT_OPTIONS: { label: string; value: string }[] = [
   { label: 'Inter', value: 'Inter, system-ui, sans-serif' },
@@ -84,6 +188,30 @@ export const CANVAS_PRESETS: CanvasPreset[] = [
   { label: 'Vertical alto', w: 1080, h: 1920, mm: { w: 148, h: 263 } },
   { label: 'Sticker 10cm', w: 1080, h: 1080, mm: { w: 100, h: 100 } },
   { label: 'Acrílico 10×15', w: 1080, h: 1528, mm: { w: 100, h: 150 } },
+  { label: 'Circular 10cm', w: 1080, h: 1080, mm: { w: 100, h: 100 } },
+  { label: 'Circular 15cm', w: 1080, h: 1080, mm: { w: 150, h: 150 } },
+];
+
+/** Catálogo curado de emojis para usar como "icono" en el editor.
+ *  Agrupados por uso típico en cartelería. Cualquier emoji adicional
+ *  funciona — esto es solo el quick-pick. */
+export const ICON_EMOJI_CATALOG: { group: string; emojis: string[] }[] = [
+  {
+    group: 'Comida & bebida',
+    emojis: ['☕', '🍕', '🍔', '🍟', '🌮', '🍣', '🍰', '🍦', '🍷', '🍺', '🥗', '🍲'],
+  },
+  {
+    group: 'Fitness & belleza',
+    emojis: ['💪', '🏋️', '🧘', '💆', '💇', '💅', '✂️', '💄', '🌸', '✨'],
+  },
+  {
+    group: 'Marketing & promos',
+    emojis: ['🎁', '🏷️', '💰', '💸', '🎉', '🎊', '⭐', '🌟', '🔥', '💎', '🏆', '🎯'],
+  },
+  {
+    group: 'Acciones',
+    emojis: ['📱', '📲', '👇', '👆', '👉', '👈', '✅', '🆕', '⚡', '🚀', '❤️', '✨'],
+  },
 ];
 
 /** Pixel ratio para que el export a 300 DPI alcance la resolución física
@@ -175,14 +303,19 @@ export function normalizeConfig(
   if (!cfg || typeof cfg !== 'object') return def;
   return {
     canvas: cfg.canvas ?? def.canvas,
+    clipShape: cfg.clipShape,
     bg: (cfg.bg as BgConfig) ?? def.bg,
     qr: { ...def.qr, ...(cfg.qr ?? {}) },
+    logo: cfg.logo ?? null,
+    shapes: Array.isArray(cfg.shapes) ? cfg.shapes : [],
+    icons: Array.isArray(cfg.icons) ? cfg.icons : [],
     texts: {
       title: { ...def.texts.title, ...(cfg.texts?.title ?? {}) },
       subtitle: { ...def.texts.subtitle, ...(cfg.texts?.subtitle ?? {}) },
       cta: { ...def.texts.cta, ...(cfg.texts?.cta ?? {}) },
       brand: { ...def.texts.brand, ...(cfg.texts?.brand ?? {}) },
     },
+    layerOrder: Array.isArray(cfg.layerOrder) ? cfg.layerOrder : undefined,
     showClubifyFooter: true,
     meta: cfg.meta ?? {},
   };

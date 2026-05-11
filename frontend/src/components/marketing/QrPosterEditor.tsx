@@ -7,7 +7,15 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import type Konva from 'konva';
-import { Stage, Layer, Rect, Text, Image as KonvaImage } from 'react-konva';
+import {
+  Stage,
+  Layer,
+  Rect,
+  Circle,
+  Group,
+  Text,
+  Image as KonvaImage,
+} from 'react-konva';
 import QRCode from 'qrcode';
 import jsPDF from 'jspdf';
 import { api } from '@/lib/api';
@@ -16,10 +24,15 @@ import {
   type QrPosterType,
   type TextLayer,
   type BgConfig,
+  type ShapeLayer,
+  type IconLayer,
+  type LayerId,
   FONT_OPTIONS,
   CANVAS_PRESETS,
+  ICON_EMOJI_CATALOG,
   defaultConfig,
   normalizeConfig,
+  effectiveLayerOrder,
 } from '@/lib/marketing/qr-poster-config';
 import { QR_TEMPLATES, applyTemplate } from '@/lib/marketing/qr-templates';
 
@@ -30,6 +43,9 @@ type Props = {
   qrUrl: string | ((meta: Record<string, any>) => string);
   /** Nombre del negocio — se usa como default del layer "brand". */
   brandName: string;
+  /** URL del logo del tenant (logoUrl o walletLogoUrl). Si presente,
+   *  permite activar la capa "Logo" en el editor. */
+  logoUrl?: string | null;
   /** Slot para UI type-specific en el sidebar (selector de card para
    *  QR Mostrador, input de código para QR Descuento, etc). Recibe el
    *  meta actual y un setter para actualizarlo en el config. */
@@ -69,6 +85,29 @@ function useImageFromDataUrl(dataUrl: string | null) {
   return img;
 }
 
+/** Carga una imagen HTTP/HTTPS (logo del tenant). Distinto de
+ *  useImageFromDataUrl porque setea crossOrigin para que Konva pueda
+ *  exportarla sin tainting el canvas (necesario para PNG/PDF export). */
+function useImageFromUrl(url: string | null | undefined) {
+  const [img, setImg] = useState<HTMLImageElement | null>(null);
+  useEffect(() => {
+    if (!url) {
+      setImg(null);
+      return;
+    }
+    const i = new window.Image();
+    i.crossOrigin = 'anonymous';
+    i.onload = () => setImg(i);
+    i.onerror = () => setImg(null);
+    i.src = url;
+  }, [url]);
+  return img;
+}
+
+function newId() {
+  return Math.random().toString(36).slice(2, 9);
+}
+
 /** Convierte el BgConfig a un fill que Konva entiende. Para gradientes
  *  retorna las props específicas que se setean en el Rect. */
 function rectFillProps(bg: BgConfig, w: number, h: number) {
@@ -97,6 +136,7 @@ export default function QrPosterEditor({
   type,
   qrUrl,
   brandName,
+  logoUrl,
   metaSlot,
 }: Props) {
   const [{ history, idx }, setHist] = useState<HistoryState>(() => ({
@@ -224,6 +264,7 @@ export default function QrPosterEditor({
   const stageHeight = cfg.canvas.h * scale;
 
   const qrImage = useImageFromDataUrl(qrDataUrl);
+  const logoImage = useImageFromUrl(cfg.logo?.url ?? null);
 
   async function save() {
     setSaving(true);
@@ -324,11 +365,99 @@ export default function QrPosterEditor({
     }));
   }
 
+  function patchShape(id: string, patch: Partial<ShapeLayer>) {
+    setCfg((c) => ({
+      ...c,
+      shapes: (c.shapes ?? []).map((s) => (s.id === id ? { ...s, ...patch } : s)),
+    }));
+  }
+  function patchIcon(id: string, patch: Partial<IconLayer>) {
+    setCfg((c) => ({
+      ...c,
+      icons: (c.icons ?? []).map((i) => (i.id === id ? { ...i, ...patch } : i)),
+    }));
+  }
+  function patchLogo(patch: Partial<NonNullable<QrPosterConfig['logo']>>) {
+    setCfg((c) => ({
+      ...c,
+      logo: c.logo ? { ...c.logo, ...patch } : c.logo,
+    }));
+  }
+  function addShape(type: 'rect' | 'circle') {
+    const id = newId();
+    const newShape: ShapeLayer = {
+      id,
+      type,
+      x: 200,
+      y: 200,
+      w: type === 'circle' ? 200 : 400,
+      h: type === 'circle' ? 200 : 200,
+      fill: '#3B82F6',
+      opacity: 1,
+      borderRadius: type === 'rect' ? 0 : undefined,
+    };
+    setCfg((c) => ({ ...c, shapes: [...(c.shapes ?? []), newShape] }));
+  }
+  function removeShape(id: string) {
+    setCfg((c) => ({
+      ...c,
+      shapes: (c.shapes ?? []).filter((s) => s.id !== id),
+      layerOrder: c.layerOrder?.filter((lid) => lid !== `shape.${id}`),
+    }));
+  }
+  function addIcon(emoji: string) {
+    const id = newId();
+    const newIcon: IconLayer = {
+      id,
+      emoji,
+      x: cfg.canvas.w / 2 - 50,
+      y: cfg.canvas.h / 2 - 50,
+      size: 100,
+      opacity: 1,
+    };
+    setCfg((c) => ({ ...c, icons: [...(c.icons ?? []), newIcon] }));
+  }
+  function removeIcon(id: string) {
+    setCfg((c) => ({
+      ...c,
+      icons: (c.icons ?? []).filter((i) => i.id !== id),
+      layerOrder: c.layerOrder?.filter((lid) => lid !== `icon.${id}`),
+    }));
+  }
+  function toggleLogo() {
+    setCfg((c) => {
+      if (c.logo) return { ...c, logo: null };
+      if (!logoUrl) return c;
+      return {
+        ...c,
+        logo: {
+          url: logoUrl,
+          x: c.canvas.w / 2 - 150,
+          y: 200,
+          size: 300,
+          opacity: 1,
+        },
+      };
+    });
+  }
+  function moveLayer(id: LayerId, direction: 'up' | 'down') {
+    setCfg((c) => {
+      const order = effectiveLayerOrder(c).slice();
+      const idx = order.indexOf(id);
+      if (idx < 0) return c;
+      const target = direction === 'up' ? idx + 1 : idx - 1;
+      if (target < 0 || target >= order.length) return c;
+      [order[idx], order[target]] = [order[target], order[idx]];
+      return { ...c, layerOrder: order };
+    });
+  }
+
   if (loading) {
     return <div className="text-mute py-8 text-center">Cargando editor…</div>;
   }
 
   const bgFill = rectFillProps(cfg.bg, cfg.canvas.w, cfg.canvas.h);
+  const layerOrder = effectiveLayerOrder(cfg);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-5">
@@ -642,11 +771,13 @@ export default function QrPosterEditor({
         <Section title="Tamaño de lienzo">
           <div className="grid grid-cols-2 gap-2">
             {CANVAS_PRESETS.map((p) => {
+              const isCircular = p.label.startsWith('Circular');
               const active =
                 cfg.canvas.w === p.w &&
                 cfg.canvas.h === p.h &&
                 cfg.canvas.mm?.w === p.mm.w &&
-                cfg.canvas.mm?.h === p.mm.h;
+                cfg.canvas.mm?.h === p.mm.h &&
+                (isCircular ? cfg.clipShape === 'circle' : !cfg.clipShape);
               return (
                 <button
                   key={p.label}
@@ -654,6 +785,7 @@ export default function QrPosterEditor({
                     setCfg((c) => ({
                       ...c,
                       canvas: { w: p.w, h: p.h, mm: p.mm },
+                      clipShape: isCircular ? 'circle' : undefined,
                     }))
                   }
                   className={`text-xs px-2 py-2 rounded-lg border-2 transition ${
@@ -667,6 +799,251 @@ export default function QrPosterEditor({
                     {p.mm.w}×{p.mm.h} mm
                   </div>
                 </button>
+              );
+            })}
+          </div>
+        </Section>
+
+        {/* Logo */}
+        <Section title="Logo del negocio">
+          {!logoUrl ? (
+            <div className="text-[11px] text-mute leading-relaxed">
+              Cargá tu logo en{' '}
+              <a href="/app/settings" className="text-brand underline">
+                Configuraciones
+              </a>{' '}
+              para poder usarlo como capa.
+            </div>
+          ) : (
+            <>
+              <button
+                onClick={toggleLogo}
+                className={`w-full text-xs px-2 py-2 rounded-lg border-2 transition ${
+                  cfg.logo
+                    ? 'border-brand bg-brand-soft text-brand-700 font-semibold'
+                    : 'border-line hover:border-mute'
+                }`}
+              >
+                {cfg.logo ? '✓ Logo activo (tocá para quitar)' : '+ Agregar logo'}
+              </button>
+              {cfg.logo && (
+                <>
+                  <NumberRow
+                    label="Tamaño"
+                    value={cfg.logo.size}
+                    min={60}
+                    max={600}
+                    step={10}
+                    onChange={(v) => patchLogo({ size: v })}
+                  />
+                  <PositionRow
+                    x={cfg.logo.x}
+                    y={cfg.logo.y}
+                    onChange={(x, y) => patchLogo({ x, y })}
+                  />
+                  <OpacityRow
+                    value={cfg.logo.opacity ?? 1}
+                    onChange={(v) => patchLogo({ opacity: v })}
+                  />
+                </>
+              )}
+            </>
+          )}
+        </Section>
+
+        {/* Iconos (emoji) */}
+        <Section title="Iconos">
+          <div className="text-[10px] text-mute mb-1.5">
+            Tocá un emoji para agregarlo al cartel. Después lo arrastrás y
+            redimensionás.
+          </div>
+          <div className="space-y-2 max-h-[180px] overflow-y-auto pr-1">
+            {ICON_EMOJI_CATALOG.map((group) => (
+              <div key={group.group}>
+                <div className="text-[10px] text-mute mb-0.5 font-semibold">
+                  {group.group}
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {group.emojis.map((e) => (
+                    <button
+                      key={e}
+                      onClick={() => addIcon(e)}
+                      className="text-xl hover:bg-bg2 rounded p-1 transition"
+                      title={`Agregar ${e}`}
+                    >
+                      {e}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          {(cfg.icons ?? []).length > 0 && (
+            <div className="border-t border-line pt-2 mt-2 space-y-1">
+              <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
+                Iconos agregados
+              </div>
+              {(cfg.icons ?? []).map((i) => (
+                <div
+                  key={i.id}
+                  className="flex items-center gap-2 bg-bg2/40 rounded p-1.5"
+                >
+                  <span className="text-xl">{i.emoji}</span>
+                  <input
+                    type="number"
+                    value={i.size}
+                    min={20}
+                    max={400}
+                    step={10}
+                    onChange={(e) =>
+                      patchIcon(i.id, { size: Number(e.target.value) })
+                    }
+                    className="input text-xs w-[60px]"
+                    title="Tamaño"
+                  />
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={i.opacity ?? 1}
+                    onChange={(e) =>
+                      patchIcon(i.id, { opacity: Number(e.target.value) })
+                    }
+                    className="flex-1 accent-brand"
+                    title="Opacidad"
+                  />
+                  <button
+                    onClick={() => removeIcon(i.id)}
+                    className="text-mute hover:text-red-500 text-xs"
+                    title="Eliminar"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </Section>
+
+        {/* Formas */}
+        <Section title="Formas">
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => addShape('rect')}
+              className="text-xs px-2 py-2 rounded-lg border-2 border-line hover:border-brand transition"
+            >
+              ▭ Rectángulo
+            </button>
+            <button
+              onClick={() => addShape('circle')}
+              className="text-xs px-2 py-2 rounded-lg border-2 border-line hover:border-brand transition"
+            >
+              ◯ Círculo
+            </button>
+          </div>
+          {(cfg.shapes ?? []).length > 0 && (
+            <div className="border-t border-line pt-2 mt-2 space-y-2">
+              <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
+                Formas agregadas
+              </div>
+              {(cfg.shapes ?? []).map((s) => (
+                <div key={s.id} className="bg-bg2/40 rounded p-2 space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold flex-1">
+                      {s.type === 'rect' ? '▭ Rectángulo' : '◯ Círculo'}
+                    </span>
+                    <button
+                      onClick={() => removeShape(s.id)}
+                      className="text-mute hover:text-red-500 text-xs"
+                      title="Eliminar"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <ColorRow
+                    label="Relleno"
+                    value={s.fill}
+                    onChange={(v) => patchShape(s.id, { fill: v })}
+                  />
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <NumberRow
+                      label={s.type === 'circle' ? 'Diám' : 'Ancho'}
+                      value={s.w}
+                      min={20}
+                      max={1200}
+                      step={10}
+                      onChange={(v) => patchShape(s.id, { w: v })}
+                    />
+                    {s.type === 'rect' && (
+                      <NumberRow
+                        label="Alto"
+                        value={s.h}
+                        min={20}
+                        max={1200}
+                        step={10}
+                        onChange={(v) => patchShape(s.id, { h: v })}
+                      />
+                    )}
+                  </div>
+                  {s.type === 'rect' && (
+                    <NumberRow
+                      label="Esquinas"
+                      value={s.borderRadius ?? 0}
+                      min={0}
+                      max={200}
+                      step={5}
+                      onChange={(v) =>
+                        patchShape(s.id, { borderRadius: v })
+                      }
+                    />
+                  )}
+                  <OpacityRow
+                    value={s.opacity ?? 1}
+                    onChange={(v) => patchShape(s.id, { opacity: v })}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </Section>
+
+        {/* Capas (z-index) */}
+        <Section title="Capas">
+          <div className="text-[10px] text-mute mb-1.5">
+            Las capas de arriba se ven sobre las de abajo (frente → atrás).
+          </div>
+          <div className="space-y-1">
+            {[...layerOrder].reverse().map((id, displayIdx) => {
+              const total = layerOrder.length;
+              const realIdx = total - 1 - displayIdx;
+              const label = layerLabel(id, cfg);
+              if (!label) return null;
+              return (
+                <div
+                  key={id}
+                  className="flex items-center gap-1 bg-bg2/40 rounded p-1.5 text-xs"
+                >
+                  <span className="flex-1 truncate" title={label}>
+                    {label}
+                  </span>
+                  <button
+                    onClick={() => moveLayer(id, 'up')}
+                    disabled={realIdx === total - 1}
+                    className="text-mute hover:text-ink disabled:opacity-20 px-1"
+                    title="Subir (al frente)"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    onClick={() => moveLayer(id, 'down')}
+                    disabled={realIdx === 0}
+                    className="text-mute hover:text-ink disabled:opacity-20 px-1"
+                    title="Bajar (al fondo)"
+                  >
+                    ↓
+                  </button>
+                </div>
               );
             })}
           </div>
@@ -691,71 +1068,199 @@ export default function QrPosterEditor({
               scaleY={scale}
             >
               <Layer>
-                <Rect
-                  x={0}
-                  y={0}
-                  width={cfg.canvas.w}
-                  height={cfg.canvas.h}
-                  {...bgFill}
-                />
-                {qrImage && (
-                  <KonvaImage
-                    image={qrImage}
-                    x={cfg.qr.x}
-                    y={cfg.qr.y}
-                    width={cfg.qr.size}
-                    height={cfg.qr.size}
-                    opacity={cfg.qr.opacity ?? 1}
-                    draggable
-                    onDragEnd={(e) => {
-                      const nx = e.target.x();
-                      const ny = e.target.y();
-                      setCfg((c) => ({ ...c, qr: { ...c.qr, x: nx, y: ny } }));
-                    }}
-                  />
-                )}
-                {(['brand', 'title', 'subtitle', 'cta'] as const).map((k) => {
-                  const t = cfg.texts[k];
-                  const isFullWidth = t.align === 'center' || t.align === 'right';
-                  return (
-                    <Text
-                      key={k}
-                      text={t.text}
-                      x={isFullWidth ? 0 : t.x}
-                      y={t.y}
-                      width={isFullWidth ? cfg.canvas.w : undefined}
-                      fontFamily={t.font}
-                      fontSize={t.size}
-                      fontStyle={t.weight >= 700 ? 'bold' : 'normal'}
-                      fill={t.color}
-                      align={t.align}
-                      opacity={t.opacity ?? 1}
-                      draggable
-                      // Para textos centrados / right, el bounding box ocupa
-                      // todo el canvas — solo dejamos drag vertical. Para
-                      // textos left, drag libre en X e Y.
-                      dragBoundFunc={(pos) => ({
-                        x: isFullWidth ? 0 : pos.x,
-                        y: pos.y,
-                      })}
-                      onDragEnd={(e) => {
-                        const ny = e.target.y();
-                        const nx = isFullWidth ? t.x : e.target.x();
-                        patchText(k, { x: nx, y: ny });
-                      }}
-                    />
-                  );
-                })}
-                <Text
-                  text="Powered by Clubify"
-                  x={0}
-                  y={cfg.canvas.h - 60}
-                  width={cfg.canvas.w}
-                  fontFamily="Inter, system-ui, sans-serif"
-                  fontSize={22}
-                  fill={cfg.bg.type === 'solid' && cfg.bg.color1.toUpperCase() === '#FFFFFF' ? '#9CA3AF' : 'rgba(255,255,255,0.75)'}
-                  align="center"
-                />
+                <Group
+                  clipFunc={
+                    cfg.clipShape === 'circle'
+                      ? (ctx) => {
+                          ctx.beginPath();
+                          const r = Math.min(cfg.canvas.w, cfg.canvas.h) / 2;
+                          ctx.arc(
+                            cfg.canvas.w / 2,
+                            cfg.canvas.h / 2,
+                            r,
+                            0,
+                            Math.PI * 2,
+                          );
+                          ctx.closePath();
+                        }
+                      : undefined
+                  }
+                >
+                  {layerOrder.map((id) => {
+                    if (id === 'bg') {
+                      return (
+                        <Rect
+                          key="bg"
+                          x={0}
+                          y={0}
+                          width={cfg.canvas.w}
+                          height={cfg.canvas.h}
+                          listening={false}
+                          {...bgFill}
+                        />
+                      );
+                    }
+                    if (id === 'qr') {
+                      if (!qrImage) return null;
+                      return (
+                        <KonvaImage
+                          key="qr"
+                          image={qrImage}
+                          x={cfg.qr.x}
+                          y={cfg.qr.y}
+                          width={cfg.qr.size}
+                          height={cfg.qr.size}
+                          opacity={cfg.qr.opacity ?? 1}
+                          draggable
+                          onDragEnd={(e) => {
+                            const nx = e.target.x();
+                            const ny = e.target.y();
+                            setCfg((c) => ({
+                              ...c,
+                              qr: { ...c.qr, x: nx, y: ny },
+                            }));
+                          }}
+                        />
+                      );
+                    }
+                    if (id === 'logo') {
+                      if (!cfg.logo || !logoImage) return null;
+                      return (
+                        <KonvaImage
+                          key="logo"
+                          image={logoImage}
+                          x={cfg.logo.x}
+                          y={cfg.logo.y}
+                          width={cfg.logo.size}
+                          height={cfg.logo.size}
+                          opacity={cfg.logo.opacity ?? 1}
+                          draggable
+                          onDragEnd={(e) =>
+                            patchLogo({ x: e.target.x(), y: e.target.y() })
+                          }
+                        />
+                      );
+                    }
+                    if (id.startsWith('text.')) {
+                      const key = id.slice(5) as keyof QrPosterConfig['texts'];
+                      const t = cfg.texts[key];
+                      if (!t) return null;
+                      const isFullWidth =
+                        t.align === 'center' || t.align === 'right';
+                      return (
+                        <Text
+                          key={id}
+                          text={t.text}
+                          x={isFullWidth ? 0 : t.x}
+                          y={t.y}
+                          width={isFullWidth ? cfg.canvas.w : undefined}
+                          fontFamily={t.font}
+                          fontSize={t.size}
+                          fontStyle={t.weight >= 700 ? 'bold' : 'normal'}
+                          fill={t.color}
+                          align={t.align}
+                          opacity={t.opacity ?? 1}
+                          draggable
+                          dragBoundFunc={(pos) => ({
+                            x: isFullWidth ? 0 : pos.x,
+                            y: pos.y,
+                          })}
+                          onDragEnd={(e) => {
+                            const ny = e.target.y();
+                            const nx = isFullWidth ? t.x : e.target.x();
+                            patchText(key, { x: nx, y: ny });
+                          }}
+                        />
+                      );
+                    }
+                    if (id === 'footer') {
+                      return (
+                        <Text
+                          key="footer"
+                          text="Powered by Clubify"
+                          x={0}
+                          y={cfg.canvas.h - 60}
+                          width={cfg.canvas.w}
+                          fontFamily="Inter, system-ui, sans-serif"
+                          fontSize={22}
+                          fill={
+                            cfg.bg.type === 'solid' &&
+                            cfg.bg.color1.toUpperCase() === '#FFFFFF'
+                              ? '#9CA3AF'
+                              : 'rgba(255,255,255,0.75)'
+                          }
+                          align="center"
+                          listening={false}
+                        />
+                      );
+                    }
+                    if (id.startsWith('shape.')) {
+                      const sid = id.slice(6);
+                      const s = cfg.shapes?.find((sh) => sh.id === sid);
+                      if (!s) return null;
+                      const common = {
+                        fill: s.fill,
+                        opacity: s.opacity ?? 1,
+                        stroke: s.stroke,
+                        strokeWidth: s.strokeWidth ?? 0,
+                        draggable: true,
+                        onDragEnd: (e: any) =>
+                          patchShape(sid, {
+                            x: e.target.x(),
+                            y: e.target.y(),
+                          }),
+                      };
+                      return s.type === 'circle' ? (
+                        <Circle
+                          key={id}
+                          x={s.x + s.w / 2}
+                          y={s.y + s.w / 2}
+                          radius={s.w / 2}
+                          {...common}
+                          onDragEnd={(e: any) =>
+                            patchShape(sid, {
+                              x: e.target.x() - s.w / 2,
+                              y: e.target.y() - s.w / 2,
+                            })
+                          }
+                        />
+                      ) : (
+                        <Rect
+                          key={id}
+                          x={s.x}
+                          y={s.y}
+                          width={s.w}
+                          height={s.h}
+                          cornerRadius={s.borderRadius ?? 0}
+                          {...common}
+                        />
+                      );
+                    }
+                    if (id.startsWith('icon.')) {
+                      const iid = id.slice(5);
+                      const i = cfg.icons?.find((ic) => ic.id === iid);
+                      if (!i) return null;
+                      return (
+                        <Text
+                          key={id}
+                          text={i.emoji}
+                          x={i.x}
+                          y={i.y}
+                          fontSize={i.size}
+                          opacity={i.opacity ?? 1}
+                          draggable
+                          onDragEnd={(e) =>
+                            patchIcon(iid, {
+                              x: e.target.x(),
+                              y: e.target.y(),
+                            })
+                          }
+                        />
+                      );
+                    }
+                    return null;
+                  })}
+                </Group>
               </Layer>
             </Stage>
           </div>
@@ -868,6 +1373,31 @@ function NumberRow({
       />
     </div>
   );
+}
+
+/** Label legible para cada LayerId en el panel "Capas". Para shapes e
+ *  iconos devuelve el tipo + un preview del contenido. */
+function layerLabel(id: LayerId, cfg: QrPosterConfig): string | null {
+  if (id === 'bg') return 'Fondo';
+  if (id === 'qr') return 'Código QR';
+  if (id === 'logo') return cfg.logo ? 'Logo' : null;
+  if (id === 'footer') return 'Pie "Powered by Clubify"';
+  if (id === 'text.title') return `Título: ${cfg.texts.title.text || ''}`;
+  if (id === 'text.subtitle')
+    return `Subtítulo: ${cfg.texts.subtitle.text || ''}`;
+  if (id === 'text.cta') return `CTA: ${cfg.texts.cta.text || ''}`;
+  if (id === 'text.brand') return `Marca: ${cfg.texts.brand.text || ''}`;
+  if (id.startsWith('shape.')) {
+    const s = cfg.shapes?.find((sh) => sh.id === id.slice(6));
+    if (!s) return null;
+    return s.type === 'rect' ? '▭ Rectángulo' : '◯ Círculo';
+  }
+  if (id.startsWith('icon.')) {
+    const i = cfg.icons?.find((ic) => ic.id === id.slice(5));
+    if (!i) return null;
+    return `${i.emoji} Ícono`;
+  }
+  return null;
 }
 
 function OpacityRow({

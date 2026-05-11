@@ -50,6 +50,7 @@ export default function QrCounterPage() {
       <QrPosterEditor
         type="COUNTER"
         brandName={tenant.brandName ?? 'Mi Negocio'}
+        logoUrl={tenant.walletLogoUrl ?? tenant.logoUrl ?? null}
         qrUrl={(meta) => {
           const cardId = meta?.cardId || cards[0]?.id;
           return cardId ? `${origin}/c/${cardId}` : `${origin}/m/${slug}`;

@@ -42,6 +42,7 @@ export default function QrDiscountPage() {
       <QrPosterEditor
         type="DISCOUNT"
         brandName={tenant.brandName ?? 'Mi Negocio'}
+        logoUrl={tenant.walletLogoUrl ?? tenant.logoUrl ?? null}
         qrUrl={(meta) => {
           const code = (meta?.promoCode ?? '').toString().trim();
           return code
