@@ -18,6 +18,8 @@ export type QrConfig = {
   size: number; // square side in px
   fg: string; // dot/module color
   bg: string; // QR background (paper)
+  /** 0..1 — opacidad del QR (default 1) */
+  opacity?: number;
 };
 
 export type TextLayer = {
@@ -32,6 +34,8 @@ export type TextLayer = {
   color: string;
   weight: number; // 400 | 700 | 900
   align: 'left' | 'center' | 'right';
+  /** 0..1 — opacidad del texto (default 1) */
+  opacity?: number;
 };
 
 export type QrPosterConfig = {

@@ -86,13 +86,65 @@ function rectFillProps(bg: BgConfig, w: number, h: number) {
   };
 }
 
+// Tope de history para evitar uso desmedido de memoria. ~50 acciones es
+// suficiente para flujos típicos de diseño; pisar entradas viejas es un
+// trade-off aceptable.
+const HISTORY_MAX = 50;
+
+type HistoryState = { history: QrPosterConfig[]; idx: number };
+
 export default function QrPosterEditor({
   type,
   qrUrl,
   brandName,
   metaSlot,
 }: Props) {
-  const [cfg, setCfg] = useState<QrPosterConfig>(() => defaultConfig(brandName));
+  const [{ history, idx }, setHist] = useState<HistoryState>(() => ({
+    history: [defaultConfig(brandName)],
+    idx: 0,
+  }));
+  const cfg = history[idx];
+
+  /** Push de un nuevo cfg al history. Trunca la rama "redo" si estábamos
+   *  parados en el medio. Caps a HISTORY_MAX. */
+  function setCfg(
+    updater: ((c: QrPosterConfig) => QrPosterConfig) | QrPosterConfig,
+  ) {
+    setHist((s) => {
+      const current = s.history[s.idx];
+      const next =
+        typeof updater === 'function'
+          ? (updater as (c: QrPosterConfig) => QrPosterConfig)(current)
+          : updater;
+      // Si no cambia nada, no pushear (evita ruido en undo/redo)
+      if (next === current) return s;
+      const truncated = s.history.slice(0, s.idx + 1);
+      const appended = [...truncated, next];
+      const trimmed =
+        appended.length > HISTORY_MAX
+          ? appended.slice(appended.length - HISTORY_MAX)
+          : appended;
+      return { history: trimmed, idx: trimmed.length - 1 };
+    });
+  }
+
+  /** Reemplaza el history entero — usado al cargar del backend o al
+   *  resetear a defaults. No queda nada para "deshacer" hacia atrás. */
+  function replaceHistory(newCfg: QrPosterConfig) {
+    setHist({ history: [newCfg], idx: 0 });
+  }
+
+  function undo() {
+    setHist((s) => (s.idx > 0 ? { ...s, idx: s.idx - 1 } : s));
+  }
+  function redo() {
+    setHist((s) =>
+      s.idx < s.history.length - 1 ? { ...s, idx: s.idx + 1 } : s,
+    );
+  }
+  const canUndo = idx > 0;
+  const canRedo = idx < history.length - 1;
+
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [posterId, setPosterId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -115,7 +167,7 @@ export default function QrPosterEditor({
       .then((row) => {
         if (cancelled) return;
         if (row?.config) {
-          setCfg(normalizeConfig(row.config, brandName));
+          replaceHistory(normalizeConfig(row.config, brandName));
           setPosterId(row.id);
         }
       })
@@ -195,9 +247,26 @@ export default function QrPosterEditor({
         await api(`/qr-posters/by-type/${type}`, { method: 'DELETE' });
       } catch {}
     }
-    setCfg(defaultConfig(brandName));
+    replaceHistory(defaultConfig(brandName));
     setPosterId(null);
   }
+
+  // Keyboard shortcuts: Cmd/Ctrl+Z = undo, Cmd/Ctrl+Shift+Z = redo
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod || e.key.toLowerCase() !== 'z') return;
+      // Ignorar si el target es un input/textarea/select — el browser
+      // tiene su propio undo nativo ahí
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      e.preventDefault();
+      if (e.shiftKey) redo();
+      else undo();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   /**
    * Export a calidad imprenta. Konva.Stage.toDataURL respeta el scale
@@ -302,14 +371,32 @@ export default function QrPosterEditor({
               ↺
             </button>
           </div>
+          <div className="flex gap-2">
+            <button
+              onClick={undo}
+              disabled={!canUndo}
+              className="btn-ghost flex-1 text-xs disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Deshacer (⌘Z)"
+            >
+              ← Deshacer
+            </button>
+            <button
+              onClick={redo}
+              disabled={!canRedo}
+              className="btn-ghost flex-1 text-xs disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Rehacer (⌘⇧Z)"
+            >
+              Rehacer →
+            </button>
+          </div>
           {savedAt && (
             <div className="text-[11px] text-emerald-600 font-semibold">
               ✓ Guardado
             </div>
           )}
-          <div className="text-[11px] text-mute">
-            Los cambios se ven al instante en la vista derecha. Guardá para
-            persistirlos.
+          <div className="text-[11px] text-mute leading-relaxed">
+            Arrastrá los elementos directamente en el canvas para moverlos.
+            ⌘Z para deshacer.
           </div>
         </div>
 
@@ -475,6 +562,12 @@ export default function QrPosterEditor({
             value={cfg.qr.bg}
             onChange={(v) => setCfg((c) => ({ ...c, qr: { ...c.qr, bg: v } }))}
           />
+          <OpacityRow
+            value={cfg.qr.opacity ?? 1}
+            onChange={(v) =>
+              setCfg((c) => ({ ...c, qr: { ...c.qr, opacity: v } }))
+            }
+          />
         </Section>
 
         {/* Textos */}
@@ -537,6 +630,10 @@ export default function QrPosterEditor({
                 { label: 'Der.', value: 'right' },
               ]}
               onChange={(v) => patchText(key, { align: v as any })}
+            />
+            <OpacityRow
+              value={cfg.texts[key].opacity ?? 1}
+              onChange={(v) => patchText(key, { opacity: v })}
             />
           </Section>
         ))}
@@ -608,28 +705,44 @@ export default function QrPosterEditor({
                     y={cfg.qr.y}
                     width={cfg.qr.size}
                     height={cfg.qr.size}
+                    opacity={cfg.qr.opacity ?? 1}
+                    draggable
+                    onDragEnd={(e) => {
+                      const nx = e.target.x();
+                      const ny = e.target.y();
+                      setCfg((c) => ({ ...c, qr: { ...c.qr, x: nx, y: ny } }));
+                    }}
                   />
                 )}
                 {(['brand', 'title', 'subtitle', 'cta'] as const).map((k) => {
                   const t = cfg.texts[k];
+                  const isFullWidth = t.align === 'center' || t.align === 'right';
                   return (
                     <Text
                       key={k}
                       text={t.text}
-                      x={
-                        t.align === 'center'
-                          ? 0
-                          : t.align === 'right'
-                          ? 0
-                          : t.x
-                      }
+                      x={isFullWidth ? 0 : t.x}
                       y={t.y}
-                      width={t.align === 'center' || t.align === 'right' ? cfg.canvas.w : undefined}
+                      width={isFullWidth ? cfg.canvas.w : undefined}
                       fontFamily={t.font}
                       fontSize={t.size}
                       fontStyle={t.weight >= 700 ? 'bold' : 'normal'}
                       fill={t.color}
                       align={t.align}
+                      opacity={t.opacity ?? 1}
+                      draggable
+                      // Para textos centrados / right, el bounding box ocupa
+                      // todo el canvas — solo dejamos drag vertical. Para
+                      // textos left, drag libre en X e Y.
+                      dragBoundFunc={(pos) => ({
+                        x: isFullWidth ? 0 : pos.x,
+                        y: pos.y,
+                      })}
+                      onDragEnd={(e) => {
+                        const ny = e.target.y();
+                        const nx = isFullWidth ? t.x : e.target.x();
+                        patchText(k, { x: nx, y: ny });
+                      }}
                     />
                   );
                 })}
@@ -753,6 +866,32 @@ function NumberRow({
         onChange={(e) => onChange(Number(e.target.value))}
         className="input text-xs w-[80px]"
       />
+    </div>
+  );
+}
+
+function OpacityRow({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <label className="text-xs text-mute w-[64px]">Opacidad</label>
+      <input
+        type="range"
+        min={0}
+        max={1}
+        step={0.05}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="flex-1 accent-brand"
+      />
+      <span className="text-xs text-mute tabular-nums w-[32px] text-right">
+        {Math.round(value * 100)}%
+      </span>
     </div>
   );
 }
