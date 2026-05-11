@@ -1530,6 +1530,14 @@ model Quote {
   // POST /api/public/quote/:token/pdf-downloaded (cliente).
   pdfDownloadCount Int       @default(0)
   lastPdfDownloadAt DateTime?
+  // Engagement de la vista pública /q/<token>. Se incrementa cada vez que
+  // el cliente abre el link. firstViewedAt queda fijo (señal de "ya lo
+  // abrió al menos una vez"); lastViewedAt es proxy de re-engagement.
+  // Útil para que el asesor sepa cuándo hacer follow-up — si la cotización
+  // fue vista 5 veces en 3 días, el cliente está caliente.
+  viewCount      Int       @default(0)
+  firstViewedAt  DateTime?
+  lastViewedAt   DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

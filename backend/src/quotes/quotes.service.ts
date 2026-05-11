@@ -147,6 +147,7 @@ export class QuotesService {
     const q = await this.prisma.quote.findUnique({
       where: { publicToken: token },
       select: {
+        id: true,
         publicToken: true,
         customerName: true,
         businessName: true,
@@ -156,10 +157,32 @@ export class QuotesService {
         priceSnapshot: true,
         currencySnapshot: true,
         createdAt: true,
+        firstViewedAt: true,
       },
     });
     if (!q) throw new NotFoundException('Cotización no encontrada');
-    return q;
+
+    // Bump de engagement fire-and-forget. No await — si la DB tiene un
+    // hipo, el cliente igual ve la cotización. Idempotencia para
+    // firstViewedAt: solo se setea si era null.
+    const isFirstView = q.firstViewedAt === null;
+    this.prisma.quote
+      .update({
+        where: { id: q.id },
+        data: {
+          viewCount: { increment: 1 },
+          lastViewedAt: new Date(),
+          ...(isFirstView ? { firstViewedAt: new Date() } : {}),
+        },
+        select: { id: true },
+      })
+      .catch(() => null);
+
+    // No exponemos id, viewCount ni firstViewedAt al cliente — son
+    // métricas internas para el asesor. Devolvemos solo lo que la página
+    // necesita renderizar.
+    const { id: _id, firstViewedAt: _fv, ...publicData } = q;
+    return publicData;
   }
 
   /** Métricas del CRM para el header del listing + sección Insights. */

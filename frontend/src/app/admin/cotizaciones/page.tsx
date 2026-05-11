@@ -28,6 +28,9 @@ type Quote = {
   currencySnapshot: string;
   pdfDownloadCount?: number;
   lastPdfDownloadAt?: string | null;
+  viewCount?: number;
+  firstViewedAt?: string | null;
+  lastViewedAt?: string | null;
   createdAt: string;
 };
 
@@ -56,6 +59,23 @@ function fmtDate(iso: string) {
     month: 'short',
     year: 'numeric',
   });
+}
+
+/** "hace 3h" / "hace 2d" — para badges de actividad reciente. */
+function fmtRelative(iso: string) {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  if (diffMs < 0) return 'recién';
+  const min = Math.floor(diffMs / 60000);
+  if (min < 1) return 'hace segundos';
+  if (min < 60) return `hace ${min}m`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `hace ${h}h`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `hace ${d}d`;
+  const w = Math.floor(d / 7);
+  if (w < 5) return `hace ${w}sem`;
+  const mo = Math.floor(d / 30);
+  return `hace ${mo}mes`;
 }
 
 function fmtMoney(amount: string | number, currency: string) {
@@ -690,14 +710,28 @@ export default function CotizacionesPage() {
                       <td className="px-4 py-3.5 text-sm">{q.advisorName}</td>
                       <td className="px-4 py-3.5 text-sm text-mute">
                         {fmtDate(q.createdAt)}
-                        {q.pdfDownloadCount ? (
-                          <div
-                            className="text-[11px] text-brand-700 font-semibold mt-0.5"
-                            title="Veces que se descargó el PDF"
-                          >
-                            ↓ {q.pdfDownloadCount}
-                          </div>
-                        ) : null}
+                        <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5 text-[11px] font-semibold">
+                          {q.viewCount ? (
+                            <span
+                              className="text-emerald-700"
+                              title={
+                                q.lastViewedAt
+                                  ? `Última vista ${fmtRelative(q.lastViewedAt)}`
+                                  : 'Veces que el cliente abrió el link'
+                              }
+                            >
+                              👁 {q.viewCount}
+                            </span>
+                          ) : null}
+                          {q.pdfDownloadCount ? (
+                            <span
+                              className="text-brand-700"
+                              title="Veces que se descargó el PDF"
+                            >
+                              ↓ {q.pdfDownloadCount}
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-4 py-3.5 text-right whitespace-nowrap">
                         <DownloadQuotePDFButton

@@ -28,6 +28,9 @@ type Quote = {
   currencySnapshot: string;
   pdfDownloadCount?: number;
   lastPdfDownloadAt?: string | null;
+  viewCount?: number;
+  firstViewedAt?: string | null;
+  lastViewedAt?: string | null;
   createdAt: string;
 };
 
@@ -102,6 +105,7 @@ export default function CotizacionDetallePage() {
   const price = Number(quote.priceSnapshot);
 
   const downloadCount = quote.pdfDownloadCount ?? 0;
+  const viewCount = quote.viewCount ?? 0;
   const downloadButtonProps = {
     quoteId: quote.id,
     onDownloaded: load,
@@ -124,6 +128,18 @@ export default function CotizacionDetallePage() {
           {quote.businessName}{' '}
           <span className="page-crumb">
             / Cotización · {quote.plan === 'PRO' ? 'Pro' : 'Elite'}
+            {viewCount > 0 && (
+              <span
+                className="ml-2 text-emerald-700 font-semibold"
+                title={
+                  quote.lastViewedAt
+                    ? `Última vista: ${new Date(quote.lastViewedAt).toLocaleString('es-CO')}`
+                    : undefined
+                }
+              >
+                👁 {viewCount}
+              </span>
+            )}
             {downloadCount > 0 && (
               <span
                 className="ml-2 text-brand-700 font-semibold"
