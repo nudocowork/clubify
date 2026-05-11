@@ -16,14 +16,34 @@ import {
   DEFAULT_CATEGORY_SLUG,
 } from '../common/business-categories';
 
+// Subdominios reservados por Clubify (no pueden ser tenant slugs porque
+// chocan con app.soyclubify.com / api.soyclubify.com / etc.).
+// MANTENER SINCRONIZADO con frontend/src/middleware.ts RESERVED_SUBS.
+const RESERVED_SLUGS = new Set([
+  'www',
+  'app',
+  'api',
+  'admin',
+  'docs',
+  'help',
+  'status',
+  'mail',
+  'cdn',
+  'assets',
+]);
+
 function slugify(s: string) {
-  return s
+  const base = s
     .toLowerCase()
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '')
     .slice(0, 60);
+  // Si el slug resulta ser una palabra reservada, le añadimos un sufijo
+  // numérico para evitar conflicto con subdominios del sistema.
+  if (RESERVED_SLUGS.has(base)) return `${base}-1`;
+  return base;
 }
 
 @Injectable()
