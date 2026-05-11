@@ -4,6 +4,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
+import { DownloadQuotePDFButton } from '@/components/DownloadQuotePDFButton';
+import {
+  getQuoteTemplateBySlug,
+  QUOTE_TEMPLATES,
+} from '@/lib/quote-templates';
+
+const FALLBACK_TEMPLATE = QUOTE_TEMPLATES.find((t) => t.slug === 'other')!;
 
 type Plan = 'ELITE' | 'PRO';
 
@@ -236,51 +243,77 @@ export default function CotizacionesPage() {
                   </td>
                 </tr>
               ) : (
-                list.map((q) => (
-                  <tr key={q.id} className="border-t border-line hover:bg-bg2/50">
-                    <td className="px-4 py-3.5">
-                      <div className="font-semibold">{q.customerName}</div>
-                      {q.email || q.phone ? (
-                        <div className="text-xs text-mute">
-                          {q.email}
-                          {q.email && q.phone ? ' · ' : ''}
-                          {q.phone}
+                list.map((q) => {
+                  const template =
+                    getQuoteTemplateBySlug(q.templateSlug) ?? FALLBACK_TEMPLATE;
+                  return (
+                    <tr
+                      key={q.id}
+                      className="border-t border-line hover:bg-bg2/50"
+                    >
+                      <td className="px-4 py-3.5">
+                        <Link
+                          href={`/admin/cotizaciones/${q.id}`}
+                          className="font-semibold hover:underline"
+                        >
+                          {q.customerName}
+                        </Link>
+                        {q.email || q.phone ? (
+                          <div className="text-xs text-mute">
+                            {q.email}
+                            {q.email && q.phone ? ' · ' : ''}
+                            {q.phone}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-3.5">{q.businessName}</td>
+                      <td className="px-4 py-3.5">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                            q.plan === 'PRO'
+                              ? 'bg-brand-soft text-brand-700'
+                              : 'bg-bg2 text-ink'
+                          }`}
+                        >
+                          {q.plan}
+                        </span>
+                        <div className="text-xs text-mute mt-0.5">
+                          {fmtMoney(q.priceSnapshot, q.currencySnapshot)}
                         </div>
-                      ) : null}
-                    </td>
-                    <td className="px-4 py-3.5">{q.businessName}</td>
-                    <td className="px-4 py-3.5">
-                      <span
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                          q.plan === 'PRO'
-                            ? 'bg-brand-soft text-brand'
-                            : 'bg-bg2 text-fg'
-                        }`}
-                      >
-                        {q.plan}
-                      </span>
-                      <div className="text-xs text-mute mt-0.5">
-                        {fmtMoney(q.priceSnapshot, q.currencySnapshot)}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3.5 text-sm">
-                      {humanizeSlug(q.templateSlug)}
-                    </td>
-                    <td className="px-4 py-3.5 text-sm">{q.advisorName}</td>
-                    <td className="px-4 py-3.5 text-sm text-mute">
-                      {fmtDate(q.createdAt)}
-                    </td>
-                    <td className="px-4 py-3.5 text-right">
-                      <button
-                        className="btn-ghost text-danger"
-                        onClick={() => remove(q)}
-                        title="Eliminar"
-                      >
-                        <Icon name="trash" />
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                      <td className="px-4 py-3.5 text-sm">
+                        {humanizeSlug(q.templateSlug)}
+                      </td>
+                      <td className="px-4 py-3.5 text-sm">{q.advisorName}</td>
+                      <td className="px-4 py-3.5 text-sm text-mute">
+                        {fmtDate(q.createdAt)}
+                      </td>
+                      <td className="px-4 py-3.5 text-right whitespace-nowrap">
+                        <DownloadQuotePDFButton
+                          iconOnly
+                          customerName={q.customerName}
+                          businessName={q.businessName}
+                          phone={q.phone}
+                          email={q.email}
+                          plan={q.plan}
+                          template={template}
+                          price={Number(q.priceSnapshot)}
+                          currency={q.currencySnapshot}
+                          advisorName={q.advisorName}
+                          date={new Date(q.createdAt)}
+                          label="Descargar PDF"
+                        />
+                        <button
+                          className="btn-ghost text-bad"
+                          onClick={() => remove(q)}
+                          title="Eliminar"
+                        >
+                          <Icon name="trash" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

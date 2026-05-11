@@ -85,7 +85,7 @@ export default function NuevaCotizacionPage() {
     if (!plan || !template) return;
     setSubmitting(true);
     try {
-      await api('/admin/quotes', {
+      const created = await api<{ id: string }>('/admin/quotes', {
         method: 'POST',
         body: JSON.stringify({
           customerName: customerName.trim(),
@@ -96,8 +96,8 @@ export default function NuevaCotizacionPage() {
           templateSlug: template.slug,
         }),
       });
-      toast('Cotización creada', 'success');
-      router.push('/admin/cotizaciones');
+      toast('Cotización creada · ahora podés descargar el PDF', 'success');
+      router.push(`/admin/cotizaciones/${created.id}`);
     } catch (e: any) {
       toast(e.message || 'No se pudo crear la cotización', 'error');
     } finally {
@@ -352,9 +352,10 @@ export default function NuevaCotizacionPage() {
             />
           </dl>
           <div className="mt-5 p-3 rounded-lg bg-brand-soft border border-brand/20 text-xs text-mute leading-relaxed">
-            La descarga del PDF profesional llega en la próxima fase. Por ahora
-            la cotización queda guardada en el CRM con su snapshot de precio y
-            podés re-abrir el preview cuando quieras.
+            Al confirmar te llevamos al detalle de la cotización donde podés
+            descargar el PDF profesional para enviárselo al cliente. El
+            precio se congela en el snapshot, así editar /admin/cotizaciones/precios
+            después no rompe esta propuesta.
           </div>
         </div>
       )}
