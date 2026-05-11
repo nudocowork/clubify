@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import { Icon } from '@/components/Icon';
 import { ClubifyBadge } from '@/components/ClubifyBadge';
 import { WalletPassPreview } from '@/components/WalletPassPreview';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
+import { useT } from '@/lib/i18n';
 
 type Props = {
   passId: string;
@@ -11,6 +13,7 @@ type Props = {
 };
 
 export function WalletPassView({ passId, data, googleSaveUrl }: Props) {
+  const tt = useT();
   // Detectar plataforma para reordenar los botones — el "save" del nativo
   // del usuario va primero. iOS → Apple primero. Android → Google primero.
   const [platform, setPlatform] = useState<'ios' | 'android' | 'other'>('other');
@@ -21,10 +24,10 @@ export function WalletPassView({ passId, data, googleSaveUrl }: Props) {
   }, []);
   return (
     <div className="min-h-screen bg-gradient-to-b from-bg via-bg to-bg2/30">
-      <div className="max-w-md mx-auto px-5 py-10">
+      <div className="max-w-md mx-auto px-5 py-10 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <div className="text-center mb-6">
           <div className="text-[11px] uppercase tracking-[0.2em] text-mute font-semibold">
-            Tu tarjeta de fidelidad
+            {tt('wallet.show_at_counter')}
           </div>
           <h1 className="text-xl font-bold mt-1">{data.tenant.brandName}</h1>
           <div className="text-sm text-mute">{data.card.name}</div>
@@ -64,39 +67,39 @@ export function WalletPassView({ passId, data, googleSaveUrl }: Props) {
             <>
               <a
                 href={googleSaveUrl}
-                className="btn-primary w-full justify-center"
+                className="btn-primary w-full justify-center hover:opacity-90 active:scale-[0.98] transition"
                 style={{ background: '#000', borderColor: '#000' }}
                 target="_blank"
                 rel="noreferrer"
               >
-                <Icon name="google" /> Add to Google Wallet
+                <Icon name="google" /> {tt('wallet.add_google')}
               </a>
               <a
                 href={`/w/${passId}/apple`}
-                className="btn-ghost w-full justify-center"
+                className="btn-ghost w-full justify-center active:scale-[0.98] transition"
                 download
               >
-                <Icon name="apple" /> Add to Apple Wallet
+                <Icon name="apple" /> {tt('wallet.add_apple')}
               </a>
             </>
           ) : (
             <>
               <a
                 href={`/w/${passId}/apple`}
-                className="btn-primary w-full justify-center"
+                className="btn-primary w-full justify-center hover:opacity-90 active:scale-[0.98] transition"
                 style={{ background: '#000', borderColor: '#000' }}
                 download
               >
-                <Icon name="apple" /> Add to Apple Wallet
+                <Icon name="apple" /> {tt('wallet.add_apple')}
               </a>
               {googleSaveUrl && (
                 <a
                   href={googleSaveUrl}
-                  className="btn-ghost w-full justify-center"
+                  className="btn-ghost w-full justify-center active:scale-[0.98] transition"
                   target="_blank"
                   rel="noreferrer"
                 >
-                  <Icon name="google" /> Save to Google Wallet
+                  <Icon name="google" /> {tt('wallet.add_google')}
                 </a>
               )}
             </>
@@ -112,6 +115,7 @@ export function WalletPassView({ passId, data, googleSaveUrl }: Props) {
           </div>
         )}
         <ClubifyBadge />
+        <LanguageSwitcher />
       </div>
     </div>
   );

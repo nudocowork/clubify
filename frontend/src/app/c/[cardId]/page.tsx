@@ -2,6 +2,8 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ClubifyBadge } from '@/components/ClubifyBadge';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
+import { useT } from '@/lib/i18n';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -58,6 +60,7 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 export default function EnrollPage() {
+  const tt = useT();
   const router = useRouter();
   const { cardId } = useParams<{ cardId: string }>();
   const [card, setCard] = useState<Card | null>(null);
@@ -142,7 +145,7 @@ export default function EnrollPage() {
   if (loading) {
     return (
       <main className="min-h-screen bg-bg flex items-center justify-center px-5">
-        <div className="text-mute">Cargando…</div>
+        <div className="text-mute animate-pulse">{tt('common.loading')}</div>
       </main>
     );
   }
@@ -150,14 +153,14 @@ export default function EnrollPage() {
   if (unavailable || !card) {
     return (
       <main className="min-h-screen bg-bg flex items-center justify-center px-5">
-        <div className="card card-pad text-center max-w-sm">
+        <div className="card card-pad text-center max-w-sm animate-in fade-in slide-in-from-bottom-2 duration-300">
           <div className="text-5xl mb-3">😞</div>
-          <h1 className="text-xl font-bold">Tarjeta no disponible</h1>
+          <h1 className="text-xl font-bold">{tt('storefront.unavailable_title')}</h1>
           <p className="text-mute text-sm mt-2">
-            Es posible que el negocio la haya pausado o que el link sea
-            incorrecto. Pregúntale al negocio por uno actualizado.
+            {tt('storefront.unavailable_msg')}
           </p>
         </div>
+        <LanguageSwitcher />
       </main>
     );
   }
@@ -213,18 +216,17 @@ export default function EnrollPage() {
           onSubmit={submit}
           className="card card-pad shadow-xl"
         >
-          <h2 className="text-lg font-bold">Crea tu tarjeta digital</h2>
+          <h2 className="text-lg font-bold">{tt('card.join_title')}</h2>
           <p className="text-xs text-mute mt-1">
-            La instalas en tu Apple Wallet / Google Wallet en menos de 30
-            segundos.
+            {tt('card.join_sub')}
           </p>
 
           <div className="mt-5 space-y-3">
             <div>
-              <label className="label">Nombre completo</label>
+              <label className="label">{tt('card.full_name')}</label>
               <input
                 className="input"
-                placeholder="Tu nombre"
+                placeholder={tt('card.full_name')}
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 required
@@ -233,7 +235,7 @@ export default function EnrollPage() {
             </div>
 
             <div>
-              <label className="label">WhatsApp</label>
+              <label className="label">{tt('card.phone')}</label>
               <div className="flex gap-2">
                 <select
                   className="input w-32"
@@ -265,7 +267,7 @@ export default function EnrollPage() {
             </div>
 
             <div>
-              <label className="label">Email (opcional)</label>
+              <label className="label">{tt('card.email')}</label>
               <input
                 className="input"
                 type="email"
@@ -277,14 +279,14 @@ export default function EnrollPage() {
             </div>
 
             <div>
-              <label className="label">🎂 Tu cumpleaños (opcional)</label>
+              <label className="label">🎂 {tt('card.birthday')}</label>
               <div className="grid grid-cols-2 gap-2">
                 <select
                   className="input"
                   value={bdayDay}
                   onChange={(e) => setBdayDay(e.target.value)}
                 >
-                  <option value="">Día</option>
+                  <option value="">{tt('card.birth_day')}</option>
                   {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
                     <option key={d} value={d}>
                       {d}
@@ -296,7 +298,7 @@ export default function EnrollPage() {
                   value={bdayMonth}
                   onChange={(e) => setBdayMonth(e.target.value)}
                 >
-                  <option value="">Mes</option>
+                  <option value="">{tt('card.birth_month')}</option>
                   {[
                     'Enero',
                     'Febrero',
@@ -343,10 +345,10 @@ export default function EnrollPage() {
             <button
               type="submit"
               disabled={submitting || !fullName || !phone || !accept}
-              className="w-full justify-center text-base py-3.5 rounded-pill font-semibold text-white shadow-md transition disabled:opacity-50"
+              className="w-full justify-center text-base py-3.5 rounded-pill font-semibold text-white shadow-md transition disabled:opacity-50 hover:opacity-95 active:scale-[0.98]"
               style={{ background: primary }}
             >
-              {submitting ? 'Creando tu tarjeta…' : 'Crear mi tarjeta →'}
+              {submitting ? tt('card.submitting') : tt('card.submit') + ' →'}
             </button>
           </div>
         </form>
@@ -361,6 +363,7 @@ export default function EnrollPage() {
         )}
 
         <ClubifyBadge />
+        <LanguageSwitcher />
       </div>
     </main>
   );

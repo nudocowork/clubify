@@ -10,24 +10,63 @@
     @apply bg-bg text-ink antialiased font-sans;
     font-feature-settings: 'cv11', 'ss01';
   }
+
+  /* Tap feedback global en botones y links — más natural en mobile */
+  button,
+  a {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  /* Scroll suave en navegación interna (#anchors, etc.) */
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Reduce motion: respetar la preferencia del usuario */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }
 
 @layer components {
-  /* Buttons (pill shape, Nudo style) */
+  /* Buttons (pill shape, Nudo style) — con tap feedback y micro-shadow */
   .btn {
-    @apply inline-flex items-center gap-2 px-4 py-2.5 rounded-pill text-sm font-medium border border-transparent transition cursor-pointer leading-none;
+    @apply inline-flex items-center gap-2 px-4 py-2.5 rounded-pill text-sm font-medium border border-transparent transition-all cursor-pointer leading-none active:scale-[0.97];
   }
   .btn-primary {
-    @apply btn bg-brand text-white border-brand hover:bg-brand-700 hover:border-brand-700;
+    @apply btn bg-brand text-white border-brand hover:bg-brand-700 hover:border-brand-700 hover:shadow-md;
   }
   .btn-ghost {
     @apply btn bg-white text-ink border-line hover:bg-bg2 hover:border-gray-300;
   }
   .btn-danger {
-    @apply btn bg-white text-bad border-red-200;
+    @apply btn bg-white text-bad border-red-200 hover:bg-red-50;
   }
   .btn-link {
     @apply text-brand bg-transparent p-0 font-medium hover:underline cursor-pointer;
+  }
+
+  /* Pulse de carga para skeletons custom */
+  .pulse-soft {
+    @apply animate-pulse bg-bg2 rounded-md;
+  }
+
+  /* Hover lift suave para tarjetas clickeables */
+  .hover-lift {
+    @apply transition-all hover:-translate-y-0.5 hover:shadow-md2;
+  }
+
+  /* Fade-in de entrada para vistas y secciones */
+  .fade-enter {
+    @apply animate-in fade-in slide-in-from-bottom-1 duration-300;
   }
 
   /* Forms */

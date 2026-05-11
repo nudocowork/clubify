@@ -12,7 +12,9 @@ import {
 import { Icon } from '@/components/Icon';
 import { Barcode } from '@/components/Barcode';
 import { ClubifyBadge } from '@/components/ClubifyBadge';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { CO_LOCATIONS, OTRO_MUNICIPIO } from '@/lib/co-locations';
+import { useT } from '@/lib/i18n';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -68,6 +70,7 @@ function fmt(n: number, currency = 'COP') {
 }
 
 export default function StorefrontPublic() {
+  const tt = useT();
   const { slug } = useParams<{ slug: string }>();
   const [s, setS] = useState<Storefront | null>(null);
   const [menu, setMenu] = useState<Category[]>([]);
@@ -103,20 +106,21 @@ export default function StorefrontPublic() {
   if (loadError) {
     return (
       <div className="min-h-screen flex items-center justify-center px-6 bg-bg">
-        <div className="text-center max-w-sm">
+        <div className="text-center max-w-sm animate-in fade-in slide-in-from-bottom-2 duration-300">
           <div className="text-5xl mb-3">😔</div>
-          <h1 className="text-xl font-bold">Negocio no disponible</h1>
+          <h1 className="text-xl font-bold">{tt('storefront.unavailable_title')}</h1>
           <p className="text-mute mt-2 text-sm leading-relaxed">
             {loadError === 'No disponible' ||
             loadError === 'Negocio no disponible'
-              ? 'Esta tienda no está activa en este momento. Contacta directamente al negocio o intenta de nuevo más tarde.'
+              ? tt('storefront.unavailable_msg')
               : loadError}
           </p>
         </div>
+        <LanguageSwitcher />
       </div>
     );
   }
-  if (!s) return <div className="p-8 text-mute">Cargando…</div>;
+  if (!s) return <div className="p-8 text-mute">{tt('common.loading')}</div>;
 
   const totals = cartTotals(cart);
   const primary = s.primaryColor;
@@ -195,7 +199,7 @@ export default function StorefrontPublic() {
                 target="_blank"
                 className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white/90 backdrop-blur border border-line text-sm font-medium text-ink hover:bg-white transition"
               >
-                <Icon name="pin" size={14} /> Cómo llegar
+                <Icon name="pin" size={14} /> {tt('storefront.directions')}
               </a>
             )}
           </div>
@@ -215,7 +219,7 @@ export default function StorefrontPublic() {
                 color: tab === t ? '#fff' : '#6B7280',
               }}
             >
-              {t === 'menu' ? 'Menú' : 'Promociones'}
+              {t === 'menu' ? tt('storefront.tab_menu') : tt('storefront.tab_promos')}
             </button>
           ))}
         </div>
@@ -225,20 +229,20 @@ export default function StorefrontPublic() {
       {tab === 'menu' && (
         <div className="max-w-2xl mx-auto mt-4 px-5">
           {menu.length === 0 && (
-            <div className="text-center py-16">
+            <div className="text-center py-16 animate-in fade-in duration-300">
               <div className="text-5xl mb-3">📋</div>
-              <div className="font-semibold text-lg">Pronto publicamos el menú</div>
+              <div className="font-semibold text-lg">{tt('storefront.menu_empty_title')}</div>
               <div className={`text-sm mt-1 max-w-xs mx-auto ${isCluvi ? 'text-white/70' : 'text-mute'}`}>
-                Mientras tanto, escríbenos por WhatsApp para hacer tu pedido.
+                {tt('storefront.menu_empty_sub')}
               </div>
               {s.whatsappPhone && (
                 <a
                   href={`https://wa.me/${s.whatsappPhone.replace(/\D/g, '')}`}
                   target="_blank"
-                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-pill text-white font-semibold text-sm"
+                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-pill text-white font-semibold text-sm hover:opacity-90 active:scale-95 transition"
                   style={{ background: '#25D366' }}
                 >
-                  Hablar por WhatsApp →
+                  {tt('storefront.menu_chat_wa')}
                 </a>
               )}
             </div>
@@ -257,11 +261,11 @@ export default function StorefrontPublic() {
       {tab === 'promos' && (
         <div className="max-w-2xl mx-auto mt-4 px-5 space-y-3">
           {s.promotions.length === 0 && (
-            <div className="text-center py-16">
+            <div className="text-center py-16 animate-in fade-in duration-300">
               <div className="text-5xl mb-3">🎁</div>
-              <div className="font-semibold text-lg">No hay promos activas</div>
+              <div className="font-semibold text-lg">{tt('storefront.promos_empty_title')}</div>
               <div className={`text-sm mt-1 ${isCluvi ? 'text-white/70' : 'text-mute'}`}>
-                Vuelve pronto, siempre estamos lanzando algo nuevo.
+                {tt('storefront.promos_empty_sub')}
               </div>
             </div>
           )}
@@ -284,7 +288,7 @@ export default function StorefrontPublic() {
                       className="absolute top-3 left-3 text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded text-white shadow"
                       style={{ background: primary }}
                     >
-                      🎁 Promo
+                      {tt('storefront.promo_label')}
                     </span>
                   </div>
                 )}
@@ -294,7 +298,7 @@ export default function StorefrontPublic() {
                       className="text-[10px] uppercase tracking-wider font-bold mb-2 inline-block px-2 py-1 rounded text-white"
                       style={{ background: primary }}
                     >
-                      🎁 Promo
+                      {tt('storefront.promo_label')}
                     </div>
                   )}
                   <div className="font-bold text-lg leading-tight">{p.name}</div>
@@ -324,7 +328,7 @@ export default function StorefrontPublic() {
                   )}
                   {p.validUntil && (
                     <div className="text-xs text-mute mt-2 flex items-center gap-1">
-                      ⏰ Hasta {new Date(p.validUntil).toLocaleDateString('es-CO', { day: 'numeric', month: 'long' })}
+                      ⏰ {tt('storefront.promo_until', { date: new Date(p.validUntil).toLocaleDateString(undefined, { day: 'numeric', month: 'long' }) })}
                     </div>
                   )}
                   {orderHref ? (
@@ -332,18 +336,18 @@ export default function StorefrontPublic() {
                       href={orderHref}
                       target="_blank"
                       rel="noreferrer"
-                      className="mt-4 block w-full text-center text-white font-semibold py-2.5 rounded-pill"
+                      className="mt-4 block w-full text-center text-white font-semibold py-2.5 rounded-pill hover:opacity-90 active:scale-[0.98] transition"
                       style={{ background: '#25D366' }}
                     >
-                      💬 Ordenar esta promo por WhatsApp
+                      {tt('storefront.promo_order_wa')}
                     </a>
                   ) : (
                     <button
                       onClick={() => setTab('menu')}
-                      className="mt-4 block w-full text-center text-white font-semibold py-2.5 rounded-pill"
+                      className="mt-4 block w-full text-center text-white font-semibold py-2.5 rounded-pill hover:opacity-90 active:scale-[0.98] transition"
                       style={{ background: primary }}
                     >
-                      Ver el menú →
+                      {tt('storefront.promo_see_menu')}
                     </button>
                   )}
                 </div>
@@ -364,12 +368,12 @@ export default function StorefrontPublic() {
         >
           <button
             onClick={() => setShowCart(true)}
-            className="w-full rounded-pill text-white font-semibold py-3.5 flex items-center justify-between px-5"
+            className="w-full rounded-pill text-white font-semibold py-3.5 flex items-center justify-between px-5 shadow-lg hover:opacity-95 active:scale-[0.98] transition animate-in slide-in-from-bottom-4 duration-200"
             style={{ background: primary }}
           >
-            <span>🛒 {totals.count} items</span>
+            <span>{tt('storefront.cart_items', { count: totals.count })}</span>
             <span>{fmt(totals.subtotal, s.currency)}</span>
-            <span>Pedir →</span>
+            <span>{tt('storefront.cart_order')}</span>
           </button>
         </div>
       )}
@@ -418,6 +422,7 @@ export default function StorefrontPublic() {
 
       {/* Marca Clubify — siempre visible, no removible */}
       <ClubifyBadge />
+      <LanguageSwitcher />
     </div>
   );
 }
@@ -440,6 +445,7 @@ function ProductModal({
   ordersEnabled: boolean;
   onClose: () => void;
 }) {
+  const tt = useT();
   const defaultVar = product.variants.find((v) => v.isDefault) ?? product.variants[0];
   const [variantId, setVariantId] = useState<string | undefined>(defaultVar?.id);
   const [extras, setExtras] = useState<string[]>([]);
@@ -470,9 +476,9 @@ function ProductModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center animate-in fade-in duration-150">
       <div className="absolute inset-0 bg-ink/60" onClick={onClose} />
-      <div className="relative w-full sm:max-w-md bg-white sm:rounded-card rounded-t-3xl max-h-[90vh] overflow-auto text-ink">
+      <div className="relative w-full sm:max-w-md bg-white sm:rounded-card rounded-t-3xl max-h-[90vh] overflow-auto text-ink animate-in slide-in-from-bottom-6 sm:slide-in-from-bottom-2 duration-200">
         {product.imageUrl && (
           <img src={product.imageUrl} alt="" className="w-full h-48 object-cover" />
         )}
@@ -482,7 +488,7 @@ function ProductModal({
               <h2 className="text-xl font-bold">{product.name}</h2>
               <p className="text-sm text-mute mt-1">{product.description}</p>
             </div>
-            <button onClick={onClose} className="text-mute text-2xl">
+            <button onClick={onClose} aria-label={tt('common.close')} className="text-mute text-2xl hover:text-ink active:scale-90 transition">
               ✕
             </button>
           </div>
@@ -523,7 +529,7 @@ function ProductModal({
           {product.extras.length > 0 && (
             <div className="mt-5">
               <div className="text-xs uppercase tracking-wider text-mute font-semibold">
-                Extras
+                {tt('product.extras')}
               </div>
               <div className="space-y-1.5 mt-2">
                 {product.extras.map((e) => (
@@ -557,7 +563,7 @@ function ProductModal({
           {ordersEnabled && (
             <div className="mt-5">
               <label className="text-xs uppercase tracking-wider text-mute font-semibold">
-                Notas (opcional)
+                {tt('product.notes')}
               </label>
               <input
                 className="input mt-2"
@@ -586,10 +592,10 @@ function ProductModal({
               </div>
               <button
                 onClick={add}
-                className="rounded-pill text-white font-semibold py-3 px-6"
+                className="rounded-pill text-white font-semibold py-3 px-6 hover:opacity-95 active:scale-[0.97] transition shadow-md"
                 style={{ background: primary }}
               >
-                Agregar · {fmt(total, currency)}
+                {tt('product.add_to_cart', { total: fmt(total, currency) })}
               </button>
             </div>
           ) : (
@@ -621,22 +627,23 @@ function CartSheet({
   onClose: () => void;
   onCheckout: () => void;
 }) {
+  const tt = useT();
   const totals = cartTotals(items);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center">
+    <div className="fixed inset-0 z-50 flex items-end justify-center animate-in fade-in duration-150">
       <div className="absolute inset-0 bg-ink/60" onClick={onClose} />
-      <div className="relative w-full sm:max-w-md bg-white rounded-t-3xl max-h-[80vh] overflow-auto text-ink">
+      <div className="relative w-full sm:max-w-md bg-white rounded-t-3xl max-h-[80vh] overflow-auto text-ink animate-in slide-in-from-bottom-6 duration-200">
         <div className="p-5">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold">Tu pedido</h2>
-            <button onClick={onClose} className="text-mute text-2xl">
+            <h2 className="text-xl font-bold">{tt('cart.title')}</h2>
+            <button onClick={onClose} aria-label={tt('common.close')} className="text-mute text-2xl hover:text-ink active:scale-90 transition">
               ✕
             </button>
           </div>
 
           {items.length === 0 && (
-            <div className="text-center text-mute py-12">Tu carrito está vacío.</div>
+            <div className="text-center text-mute py-12">{tt('cart.empty')}</div>
           )}
 
           <div className="space-y-3">
@@ -678,15 +685,15 @@ function CartSheet({
           {items.length > 0 && (
             <>
               <div className="mt-4 flex items-center justify-between font-semibold">
-                <span>Total</span>
+                <span>{tt('common.total')}</span>
                 <span className="text-lg">{fmt(totals.subtotal, currency)}</span>
               </div>
               <button
                 onClick={onCheckout}
-                className="w-full rounded-pill text-white font-semibold py-3.5 mt-5"
+                className="w-full rounded-pill text-white font-semibold py-3.5 mt-5 hover:opacity-95 active:scale-[0.98] transition shadow-md"
                 style={{ background: primary }}
               >
-                Finalizar pedido por WhatsApp
+                {tt('cart.checkout_wa')}
               </button>
             </>
           )}
@@ -714,6 +721,7 @@ function CheckoutSheet({
   planName: string | null;
   onClose: () => void;
 }) {
+  const tt = useT();
   // Si la URL trae ?mesa=N (escaneo de QR de mesa), pre-rellenamos y
   // forzamos fulfillment a DINE_IN. El número de mesa SIEMPRE viene del
   // QR — el cliente nunca lo escribe a mano.
@@ -765,9 +773,7 @@ function CheckoutSheet({
     // Validación adicional para delivery: dirección obligatoria
     if (form.fulfillment === 'DELIVERY') {
       if (!form.departamento || !municipioFinal || !form.direccion.trim()) {
-        setErr(
-          'Completa departamento, municipio y dirección para entregar a domicilio.',
-        );
+        setErr(tt('checkout.error_address'));
         return;
       }
     }
@@ -831,13 +837,13 @@ function CheckoutSheet({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center">
+    <div className="fixed inset-0 z-50 flex items-end justify-center animate-in fade-in duration-150">
       <div className="absolute inset-0 bg-ink/60" onClick={onClose} />
-      <div className="relative w-full sm:max-w-md bg-white rounded-t-3xl max-h-[90vh] overflow-auto text-ink">
+      <div className="relative w-full sm:max-w-md bg-white rounded-t-3xl max-h-[90vh] overflow-auto text-ink animate-in slide-in-from-bottom-6 duration-200">
         <div className="p-5">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold">Tus datos</h2>
-            <button onClick={onClose} className="text-mute text-2xl">
+            <h2 className="text-xl font-bold">{tt('checkout.title')}</h2>
+            <button onClick={onClose} aria-label={tt('common.close')} className="text-mute text-2xl hover:text-ink active:scale-90 transition">
               ✕
             </button>
           </div>
@@ -845,10 +851,10 @@ function CheckoutSheet({
           <form onSubmit={submit} className="space-y-3">
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="label">Nombre</label>
+                <label className="label">{tt('checkout.first_name')}</label>
                 <input
                   className="input"
-                  placeholder="Nombre"
+                  placeholder={tt('checkout.first_name')}
                   value={form.firstName}
                   onChange={(e) =>
                     setForm({ ...form, firstName: e.target.value })
@@ -857,10 +863,10 @@ function CheckoutSheet({
                 />
               </div>
               <div>
-                <label className="label">Apellido</label>
+                <label className="label">{tt('checkout.last_name')}</label>
                 <input
                   className="input"
-                  placeholder="Apellido"
+                  placeholder={tt('checkout.last_name')}
                   value={form.lastName}
                   onChange={(e) =>
                     setForm({ ...form, lastName: e.target.value })
@@ -870,7 +876,7 @@ function CheckoutSheet({
               </div>
             </div>
             <div>
-              <label className="label">WhatsApp</label>
+              <label className="label">{tt('checkout.whatsapp')}</label>
               <input
                 className="input"
                 placeholder="+57 ..."
@@ -881,21 +887,21 @@ function CheckoutSheet({
             </div>
             {!lockedTable && (
               <div>
-                <label className="label">¿Es para...?</label>
+                <label className="label">{tt('checkout.fulfillment_q')}</label>
                 <div className="grid grid-cols-2 gap-2">
                   {(
                     [
                       {
                         v: 'DINE_IN' as const,
-                        l: '🍽 Mesa',
+                        l: tt('checkout.fulfillment_dinein'),
                         disabled: !lockedTable,
-                        hint: 'Escanea el QR de tu mesa',
+                        hint: tt('checkout.fulfillment_dinein_hint'),
                       },
                       {
                         v: 'DELIVERY' as const,
-                        l: '🛵 Domicilio',
+                        l: tt('checkout.fulfillment_delivery'),
                         disabled: !isPro,
-                        hint: 'Disponible en plan Pro',
+                        hint: tt('checkout.fulfillment_delivery_hint'),
                       },
                     ]
                   ).map((o) => {
@@ -939,11 +945,10 @@ function CheckoutSheet({
             {!lockedTable && !isPro && (
               <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5 text-sm text-amber-900">
                 <div className="font-semibold mb-0.5">
-                  📍 Para pedir desde aquí
+                  {tt('checkout.no_options_title')}
                 </div>
                 <div className="text-xs">
-                  Escanea el QR de tu mesa, o contáctanos por WhatsApp para
-                  hacer tu pedido.
+                  {tt('checkout.no_options_sub')}
                 </div>
               </div>
             )}
@@ -951,19 +956,18 @@ function CheckoutSheet({
               <div className="rounded-lg bg-brand-soft text-brand-700 px-3 py-2.5 text-sm flex items-center gap-2">
                 <span>📍</span>
                 <span>
-                  Pidiendo desde la <b>mesa {form.tableNumber}</b> · entregamos
-                  a tu mesa
+                  {tt('checkout.table_locked', { n: form.tableNumber })}
                 </span>
               </div>
             )}
 
             {form.fulfillment === 'DELIVERY' && (
-              <div className="rounded-lg border border-line bg-bg2/30 p-3 space-y-2.5">
+              <div className="rounded-lg border border-line bg-bg2/30 p-3 space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-200">
                 <div className="text-xs uppercase tracking-wider text-mute font-semibold">
-                  📦 Dirección de envío
+                  {tt('checkout.shipping_title')}
                 </div>
                 <div>
-                  <label className="label">Departamento *</label>
+                  <label className="label">{tt('checkout.dept')} *</label>
                   <select
                     className="input"
                     value={form.departamento}
@@ -977,7 +981,7 @@ function CheckoutSheet({
                     }
                     required
                   >
-                    <option value="">Departamento</option>
+                    <option value="">{tt('checkout.dept')}</option>
                     {CO_LOCATIONS.map((d) => (
                       <option key={d.departamento} value={d.departamento}>
                         {d.departamento}
@@ -986,7 +990,7 @@ function CheckoutSheet({
                   </select>
                 </div>
                 <div>
-                  <label className="label">Municipio *</label>
+                  <label className="label">{tt('checkout.muni')} *</label>
                   <select
                     className="input"
                     value={form.municipio}
@@ -997,7 +1001,7 @@ function CheckoutSheet({
                     required
                   >
                     <option value="">
-                      {form.departamento ? 'Municipio' : 'Elige un departamento primero'}
+                      {form.departamento ? tt('checkout.muni') : tt('checkout.dept')}
                     </option>
                     {munList.map((m) => (
                       <option key={m} value={m}>
@@ -1011,10 +1015,10 @@ function CheckoutSheet({
                 </div>
                 {form.municipio === OTRO_MUNICIPIO && (
                   <div>
-                    <label className="label">Nombre del municipio *</label>
+                    <label className="label">{tt('checkout.muni_other')} *</label>
                     <input
                       className="input"
-                      placeholder="Escribe el nombre del municipio"
+                      placeholder={tt('checkout.muni_other')}
                       value={form.municipioOtro}
                       onChange={(e) =>
                         setForm({ ...form, municipioOtro: e.target.value })
@@ -1024,10 +1028,10 @@ function CheckoutSheet({
                   </div>
                 )}
                 <div>
-                  <label className="label">Dirección *</label>
+                  <label className="label">{tt('checkout.address')} *</label>
                   <input
                     className="input"
-                    placeholder="Ej: Calle 123 #45-67, Apto 301, Barrio…"
+                    placeholder={tt('checkout.address_ph')}
                     value={form.direccion}
                     onChange={(e) =>
                       setForm({ ...form, direccion: e.target.value })
@@ -1039,7 +1043,7 @@ function CheckoutSheet({
             )}
 
             <div>
-              <label className="label">Notas (opcional)</label>
+              <label className="label">{tt('checkout.notes')}</label>
               <textarea
                 className="input"
                 value={form.customerNote}
@@ -1050,7 +1054,7 @@ function CheckoutSheet({
             </div>
 
             {err && (
-              <div className="rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink">
+              <div className="rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink animate-in fade-in slide-in-from-top-1 duration-200">
                 {err}
               </div>
             )}
@@ -1058,15 +1062,15 @@ function CheckoutSheet({
             <button
               type="submit"
               disabled={submitting || defaultFulfillment === null}
-              className="w-full rounded-pill text-white font-semibold py-3.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full rounded-pill text-white font-semibold py-3.5 disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-95 active:scale-[0.98] transition shadow-md"
               style={{ background: primary }}
               title={
                 defaultFulfillment === null
-                  ? 'Escanea el QR de tu mesa para pedir desde aquí'
+                  ? tt('checkout.no_options_sub')
                   : undefined
               }
             >
-              {submitting ? 'Enviando…' : 'Enviar pedido por WhatsApp'}
+              {submitting ? tt('common.sending') : tt('checkout.submit')}
             </button>
           </form>
         </div>

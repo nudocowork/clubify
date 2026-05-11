@@ -2,6 +2,8 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { PhoneInput } from '@/components/PhoneInput';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
+import { useT } from '@/lib/i18n';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
@@ -19,6 +21,7 @@ type Tenant = {
 type Step = 'rate' | 'feedback' | 'thanks';
 
 export default function ReviewPage() {
+  const tt = useT();
   const { slug } = useParams<{ slug: string }>();
   const [t, setT] = useState<Tenant | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -101,19 +104,20 @@ export default function ReviewPage() {
   if (err) {
     return (
       <div className="min-h-screen flex items-center justify-center px-6 bg-bg">
-        <div className="text-center max-w-sm">
+        <div className="text-center max-w-sm animate-in fade-in slide-in-from-bottom-2 duration-300">
           <div className="text-5xl mb-3">😔</div>
-          <h1 className="text-xl font-bold">No disponible</h1>
+          <h1 className="text-xl font-bold">{tt('storefront.unavailable_title')}</h1>
           <p className="text-mute mt-2 text-sm">
             {err === 'Negocio no disponible'
-              ? 'Esta página no está activa.'
+              ? tt('storefront.unavailable_msg')
               : err}
           </p>
         </div>
+        <LanguageSwitcher />
       </div>
     );
   }
-  if (!t) return <div className="p-8 text-mute text-center">Cargando…</div>;
+  if (!t) return <div className="p-8 text-mute text-center animate-pulse">{tt('common.loading')}</div>;
 
   const primary = t.primaryColor || '#22C55E';
 
@@ -145,7 +149,7 @@ export default function ReviewPage() {
         {step === 'rate' && (
           <>
             <p className="text-mute mt-2 leading-relaxed">
-              ¿Cómo fue tu experiencia con nosotros?
+              {tt('review.title')}
             </p>
             <div className="flex gap-2 mt-6">
               {[1, 2, 3, 4, 5].map((n) => (
@@ -155,7 +159,7 @@ export default function ReviewPage() {
                   onMouseEnter={() => setHover(n)}
                   onMouseLeave={() => setHover(0)}
                   onClick={() => pickRating(n)}
-                  className="text-5xl transition transform hover:scale-110 focus:outline-none"
+                  className="text-5xl transition transform hover:scale-110 active:scale-95 focus:outline-none"
                   aria-label={`${n} estrella${n > 1 ? 's' : ''}`}
                   style={{
                     color: n <= (hover || rating) ? '#FACC15' : '#E5E7EB',
@@ -165,62 +169,54 @@ export default function ReviewPage() {
                 </button>
               ))}
             </div>
-            <p className="text-xs text-mute mt-3">Toca una estrella para empezar</p>
+            <p className="text-xs text-mute mt-3">{tt('review.sub')}</p>
           </>
         )}
 
         {step === 'feedback' && (
-          <>
-            <div className="mt-4 text-5xl">
+          <div className="w-full animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="mt-4 text-5xl text-center">
               {rating <= 2 ? '😔' : '🙏'}
             </div>
-            <h2 className="text-xl font-bold mt-3">
-              {rating <= 2
-                ? 'Lo sentimos mucho'
-                : 'Cuéntanos cómo podemos mejorar'}
+            <h2 className="text-xl font-bold mt-3 text-center">
+              {tt('review.bad_title')}
             </h2>
-            <p className="text-mute mt-2 leading-relaxed text-sm">
-              Tu mensaje llega directo al dueño del negocio (no se publica
-              en ningún lado). Necesitamos tu contacto para resolver lo que
-              pasó.
+            <p className="text-mute mt-2 leading-relaxed text-sm text-center">
+              {tt('review.bad_sub')}
             </p>
             <div className="w-full mt-5 space-y-3 text-left">
               <div>
                 <label className="label">
-                  Tu nombre <span className="text-bad">*</span>
+                  {tt('review.your_name')} <span className="text-bad">*</span>
                 </label>
                 <input
                   className="input"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="Cómo te llamas"
+                  placeholder={tt('review.your_name')}
                   required
                   autoFocus
                 />
               </div>
               <div>
                 <label className="label">
-                  Tu WhatsApp <span className="text-bad">*</span>
+                  {tt('review.your_phone')} <span className="text-bad">*</span>
                 </label>
                 <PhoneInput
                   value={phone}
                   onChange={setPhone}
-                  placeholder="Tu número"
+                  placeholder={tt('review.your_phone')}
                 />
-                <div className="text-[11px] text-mute mt-1">
-                  Te contactaremos por aquí para resolver tu experiencia.
-                </div>
               </div>
               <div>
                 <label className="label">
-                  ¿Qué pasó? <span className="text-mute font-normal">(opcional)</span>
+                  {tt('review.your_message')} <span className="text-mute font-normal">({tt('common.optional')})</span>
                 </label>
                 <textarea
                   className="input"
                   rows={3}
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
-                  placeholder="Lo más específico posible nos ayuda a mejorar."
                 />
               </div>
               <button
@@ -229,21 +225,21 @@ export default function ReviewPage() {
                   submitting || !name.trim() || phone.trim().length < 6
                 }
                 onClick={submitNegative}
-                className="w-full py-3 rounded-xl text-white font-semibold text-base shadow-md disabled:opacity-50 transition"
+                className="w-full py-3 rounded-xl text-white font-semibold text-base shadow-md disabled:opacity-50 hover:opacity-95 active:scale-[0.98] transition"
                 style={{ background: primary }}
               >
-                {submitting ? 'Enviando…' : 'Enviar y recibir respuesta'}
+                {submitting ? tt('common.sending') : tt('review.send')}
               </button>
             </div>
-          </>
+          </div>
         )}
 
         {step === 'thanks' && (
-          <>
+          <div className="animate-in fade-in zoom-in-95 duration-300">
             <div className="mt-4 text-6xl">💚</div>
-            <h2 className="text-xl font-bold mt-3">¡Gracias!</h2>
+            <h2 className="text-xl font-bold mt-3">{tt('review.thanks_title')}</h2>
             <p className="text-mute mt-2 leading-relaxed">
-              Recibimos tu mensaje. Lo vamos a revisar pronto.
+              {tt('review.thanks_sub')}
             </p>
             {t.whatsappPhone && (
               <a
@@ -253,16 +249,17 @@ export default function ReviewPage() {
                 className="mt-6 inline-flex items-center gap-2 text-sm font-semibold underline"
                 style={{ color: primary }}
               >
-                💬 Escribir por WhatsApp
+                💬 WhatsApp
               </a>
             )}
-          </>
+          </div>
         )}
 
         <div className="mt-10 text-[11px] text-mute opacity-70">
-          Powered by Clubify
+          {tt('common.brand_powered')}
         </div>
       </article>
+      <LanguageSwitcher />
     </div>
   );
 }
