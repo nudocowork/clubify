@@ -6,8 +6,10 @@
  * drop libre y undo/redo en H6.
  */
 import { useEffect, useRef, useState } from 'react';
+import type Konva from 'konva';
 import { Stage, Layer, Rect, Text, Image as KonvaImage } from 'react-konva';
 import QRCode from 'qrcode';
+import jsPDF from 'jspdf';
 import { api } from '@/lib/api';
 import {
   type QrPosterConfig,
@@ -82,7 +84,9 @@ export default function QrPosterEditor({ type, qrUrl, brandName }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [exporting, setExporting] = useState<null | 'png' | 'jpg' | 'pdf'>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const stageRef = useRef<Konva.Stage | null>(null);
   const [stageWidth, setStageWidth] = useState(STAGE_MAX_DISPLAY_W);
 
   useEffect(() => {
@@ -172,6 +176,55 @@ export default function QrPosterEditor({ type, qrUrl, brandName }: Props) {
     setPosterId(null);
   }
 
+  /**
+   * Export a calidad imprenta. Konva.Stage.toDataURL respeta el scale
+   * actual del stage — calculamos pixelRatio para que el output alcance
+   * 300 DPI sobre el tamaño físico (mm) del preset. No mutamos el stage,
+   * así no hay flicker en el preview.
+   */
+  async function doExport(kind: 'png' | 'jpg' | 'pdf') {
+    const stage = stageRef.current;
+    if (!stage) return;
+    setExporting(kind);
+    // Frame para que el spinner pinte antes de bloquear el thread con el render
+    await new Promise((r) => requestAnimationFrame(() => r(null)));
+    try {
+      const mm = cfg.canvas.mm ?? { w: 210, h: 297 };
+      // 300 DPI = 11.811 px/mm
+      const targetPxW = mm.w * 11.811;
+      const pixelRatio = Math.max(1, targetPxW / stage.width());
+
+      const mimeType = kind === 'jpg' ? 'image/jpeg' : 'image/png';
+      const dataUrl = stage.toDataURL({
+        mimeType,
+        quality: kind === 'jpg' ? 0.95 : 1,
+        pixelRatio,
+      });
+
+      const baseName = `clubify-${type.toLowerCase()}-${Date.now()}`;
+
+      if (kind === 'pdf') {
+        const pdf = new jsPDF({
+          unit: 'mm',
+          format: [mm.w, mm.h],
+          orientation: mm.w >= mm.h ? 'landscape' : 'portrait',
+          compress: true,
+        });
+        pdf.addImage(dataUrl, 'PNG', 0, 0, mm.w, mm.h, undefined, 'FAST');
+        pdf.save(`${baseName}.pdf`);
+      } else {
+        const a = document.createElement('a');
+        a.href = dataUrl;
+        a.download = `${baseName}.${kind}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+    } finally {
+      setExporting(null);
+    }
+  }
+
   function patchText(layer: keyof QrPosterConfig['texts'], patch: Partial<TextLayer>) {
     setCfg((c) => ({
       ...c,
@@ -207,6 +260,40 @@ export default function QrPosterEditor({ type, qrUrl, brandName }: Props) {
           <div className="text-[11px] text-mute">
             Los cambios se ven al instante en la vista derecha. Guardá para
             persistirlos.
+          </div>
+        </div>
+
+        {/* Export imprenta */}
+        <div className="card card-pad space-y-2">
+          <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
+            Descargar
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <ExportButton
+              label="PNG"
+              hint="Imagen"
+              busy={exporting === 'png'}
+              disabled={!!exporting}
+              onClick={() => doExport('png')}
+            />
+            <ExportButton
+              label="JPG"
+              hint="Liviano"
+              busy={exporting === 'jpg'}
+              disabled={!!exporting}
+              onClick={() => doExport('jpg')}
+            />
+            <ExportButton
+              label="PDF"
+              hint="Imprenta"
+              busy={exporting === 'pdf'}
+              disabled={!!exporting}
+              onClick={() => doExport('pdf')}
+            />
+          </div>
+          <div className="text-[11px] text-mute leading-relaxed">
+            Calidad imprenta: 300 DPI sobre {cfg.canvas.mm?.w ?? 210}×
+            {cfg.canvas.mm?.h ?? 297} mm.
           </div>
         </div>
 
@@ -376,12 +463,18 @@ export default function QrPosterEditor({ type, qrUrl, brandName }: Props) {
           <div className="grid grid-cols-2 gap-2">
             {CANVAS_PRESETS.map((p) => {
               const active =
-                cfg.canvas.w === p.w && cfg.canvas.h === p.h;
+                cfg.canvas.w === p.w &&
+                cfg.canvas.h === p.h &&
+                cfg.canvas.mm?.w === p.mm.w &&
+                cfg.canvas.mm?.h === p.mm.h;
               return (
                 <button
                   key={p.label}
                   onClick={() =>
-                    setCfg((c) => ({ ...c, canvas: { w: p.w, h: p.h } }))
+                    setCfg((c) => ({
+                      ...c,
+                      canvas: { w: p.w, h: p.h, mm: p.mm },
+                    }))
                   }
                   className={`text-xs px-2 py-2 rounded-lg border-2 transition ${
                     active
@@ -391,7 +484,7 @@ export default function QrPosterEditor({ type, qrUrl, brandName }: Props) {
                 >
                   {p.label}
                   <div className="text-[10px] text-mute mt-0.5">
-                    {p.w}×{p.h}
+                    {p.mm.w}×{p.mm.h} mm
                   </div>
                 </button>
               );
@@ -411,6 +504,7 @@ export default function QrPosterEditor({ type, qrUrl, brandName }: Props) {
             }}
           >
             <Stage
+              ref={stageRef}
               width={stageWidth}
               height={stageHeight}
               scaleX={scale}
@@ -662,6 +756,36 @@ function FontPicker({
         </option>
       ))}
     </select>
+  );
+}
+
+function ExportButton({
+  label,
+  hint,
+  busy,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  hint: string;
+  busy: boolean;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`flex flex-col items-center justify-center rounded-lg border-2 py-2 text-xs font-semibold transition ${
+        busy
+          ? 'border-brand bg-brand-soft text-brand-700'
+          : 'border-line hover:border-brand hover:bg-brand-soft hover:text-brand-700'
+      } disabled:opacity-50 disabled:cursor-not-allowed`}
+    >
+      {busy ? '…' : label}
+      <span className="text-[10px] text-mute font-normal mt-0.5">{hint}</span>
+    </button>
   );
 }
 

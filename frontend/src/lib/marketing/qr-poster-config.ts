@@ -35,7 +35,10 @@ export type TextLayer = {
 };
 
 export type QrPosterConfig = {
-  canvas: { w: number; h: number };
+  /** w/h son px internos del lienzo Konva (definen aspecto + precisión
+   *  de layout). mm es la medida física para imprenta — se usa al
+   *  exportar para calcular pixelRatio = 300 DPI. */
+  canvas: { w: number; h: number; mm?: { w: number; h: number } };
   bg: BgConfig;
   qr: QrConfig;
   texts: {
@@ -57,16 +60,32 @@ export const FONT_OPTIONS: { label: string; value: string }[] = [
   { label: 'Montserrat', value: 'Montserrat, sans-serif' },
 ];
 
-export const CANVAS_PRESETS: {
+export type CanvasPreset = {
   label: string;
   w: number;
   h: number;
-}[] = [
-  { label: 'A4 vertical', w: 1080, h: 1528 },
-  { label: 'Cuadrado', w: 1080, h: 1080 },
-  { label: 'Vertical alto', w: 1080, h: 1920 },
-  { label: 'Horizontal', w: 1528, h: 1080 },
+  mm: { w: number; h: number };
+};
+
+export const CANVAS_PRESETS: CanvasPreset[] = [
+  { label: 'A4 vertical', w: 1080, h: 1528, mm: { w: 210, h: 297 } },
+  { label: 'A4 horizontal', w: 1528, h: 1080, mm: { w: 297, h: 210 } },
+  { label: 'Carta US', w: 1080, h: 1397, mm: { w: 215.9, h: 279.4 } },
+  { label: 'A3 poster', w: 1080, h: 1528, mm: { w: 297, h: 420 } },
+  { label: 'Cuadrado', w: 1080, h: 1080, mm: { w: 210, h: 210 } },
+  { label: 'Vertical alto', w: 1080, h: 1920, mm: { w: 148, h: 263 } },
+  { label: 'Sticker 10cm', w: 1080, h: 1080, mm: { w: 100, h: 100 } },
+  { label: 'Acrílico 10×15', w: 1080, h: 1528, mm: { w: 100, h: 150 } },
 ];
+
+/** Pixel ratio para que el export a 300 DPI alcance la resolución física
+ *  del preset. Si no hay mm definidos, asumimos A4 vertical. */
+export function pixelRatioFor300Dpi(canvas: QrPosterConfig['canvas']): number {
+  const mm = canvas.mm ?? { w: 210, h: 297 };
+  // 300 DPI → 11.811 px/mm
+  const targetW = mm.w * 11.811;
+  return Math.max(1, targetW / canvas.w);
+}
 
 export function defaultConfig(brandName: string): QrPosterConfig {
   const w = 1080;
@@ -74,7 +93,7 @@ export function defaultConfig(brandName: string): QrPosterConfig {
   const qrSize = 560;
   const qrX = (w - qrSize) / 2;
   return {
-    canvas: { w, h },
+    canvas: { w, h, mm: { w: 210, h: 297 } },
     bg: { type: 'solid', color1: '#FFFFFF' },
     qr: {
       x: qrX,
