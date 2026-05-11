@@ -7,14 +7,14 @@ import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import {
   QUOTE_TEMPLATES,
-  getQuoteTemplateBySlug,
   type QuoteTemplate,
 } from '@/lib/quote-templates';
 import {
   getPlanBenefits,
-  COMPARISON_FEATURES,
   type QuotePlan,
 } from '@/lib/quote-benefits';
+import { QuotePreviewPremium } from '@/components/QuotePreviewPremium';
+import { getUser } from '@/lib/api';
 
 type Step = 1 | 2 | 3 | 4 | 5;
 type Pricing = { eliteCost: number; proCost: number; currency: string };
@@ -314,19 +314,19 @@ export default function NuevaCotizacionPage() {
         </div>
       )}
 
-      {/* Step 4 — Preview */}
+      {/* Step 4 — Preview premium */}
       {step === 4 && plan && template && (
-        <div className="space-y-5">
-          <QuotePreviewCard
-            customerName={customerName}
-            businessName={businessName}
-            plan={plan}
-            template={template}
-            price={priceFor(plan)}
-            currency={currency}
-          />
-          <ComparisonTable />
-        </div>
+        <QuotePreviewPremium
+          customerName={customerName}
+          businessName={businessName}
+          phone={phone || undefined}
+          email={email || undefined}
+          plan={plan}
+          template={template}
+          price={priceFor(plan)}
+          currency={currency}
+          advisorName={getUser()?.fullName || getUser()?.email}
+        />
       )}
 
       {/* Step 5 — Confirmar */}
@@ -407,152 +407,3 @@ function SummaryItem({ label, value }: { label: string; value: string }) {
   );
 }
 
-function QuotePreviewCard({
-  customerName,
-  businessName,
-  plan,
-  template,
-  price,
-  currency,
-}: {
-  customerName: string;
-  businessName: string;
-  plan: QuotePlan;
-  template: QuoteTemplate;
-  price: number;
-  currency: string;
-}) {
-  const benefits = getPlanBenefits(plan);
-  return (
-    <div
-      className="rounded-2xl overflow-hidden border border-line"
-      style={{
-        background: `linear-gradient(135deg, ${template.accent}08, transparent 60%)`,
-      }}
-    >
-      <div
-        className="p-6 text-white"
-        style={{ background: template.accent }}
-      >
-        <div className="flex items-center gap-3">
-          <span className="text-3xl">{template.emoji}</span>
-          <div>
-            <div className="text-xs uppercase tracking-wider opacity-80">
-              Propuesta Clubify
-            </div>
-            <div className="text-xl font-bold">{businessName || '—'}</div>
-            <div className="text-sm opacity-90">
-              Para: {customerName || '—'}
-            </div>
-          </div>
-          <div className="ml-auto text-right">
-            <div className="text-xs uppercase tracking-wider opacity-80">
-              Plan
-            </div>
-            <div className="text-2xl font-bold">
-              {plan === 'PRO' ? 'Pro' : 'Elite'}
-            </div>
-            <div className="text-sm opacity-90">
-              {fmtMoney(price, currency)} / mes
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="p-6 bg-bg">
-        <div className="text-sm text-mute leading-relaxed mb-4">
-          {template.tagline}
-        </div>
-        <h3 className="text-sm font-semibold uppercase tracking-wider text-mute mb-3">
-          ¿Qué incluye?
-        </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {benefits.map((b) => (
-            <div
-              key={b.title}
-              className="flex gap-3 items-start p-3 rounded-lg border border-line bg-bg2/30"
-            >
-              <span className="text-2xl shrink-0">{b.icon}</span>
-              <div>
-                <div className="text-sm font-semibold">{b.title}</div>
-                <div className="text-xs text-mute leading-snug mt-0.5">
-                  {b.description}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {template.highlights.length > 0 && (
-          <>
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-mute mt-5 mb-2">
-              Hecho a medida para {template.name.toLowerCase()}
-            </h3>
-            <ul className="space-y-1.5">
-              {template.highlights.map((h, i) => (
-                <li
-                  key={i}
-                  className="flex gap-2 text-sm items-start text-fg/80"
-                >
-                  <span style={{ color: template.accent }}>▸</span>
-                  <span>{h}</span>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ComparisonTable() {
-  return (
-    <div className="card overflow-hidden p-0">
-      <div className="px-5 py-4 border-b border-line">
-        <h3 className="text-base font-semibold m-0">Elite vs Pro</h3>
-        <p className="text-xs text-mute mt-0.5">
-          Comparativa completa de qué incluye cada plan.
-        </p>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[480px]">
-          <thead className="bg-bg2">
-            <tr>
-              <th className="text-left px-5 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold">
-                Característica
-              </th>
-              <th className="text-center px-5 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold w-24">
-                Elite
-              </th>
-              <th className="text-center px-5 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold w-24">
-                Pro
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {COMPARISON_FEATURES.map((f) => (
-              <tr key={f.label} className="border-t border-line">
-                <td className="px-5 py-3">{f.label}</td>
-                <td className="px-5 py-3 text-center">
-                  {f.elite ? (
-                    <span className="text-success font-bold">✓</span>
-                  ) : (
-                    <span className="text-mute">—</span>
-                  )}
-                </td>
-                <td className="px-5 py-3 text-center">
-                  {f.pro ? (
-                    <span className="text-success font-bold">✓</span>
-                  ) : (
-                    <span className="text-mute">—</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
