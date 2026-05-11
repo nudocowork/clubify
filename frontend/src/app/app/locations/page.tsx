@@ -189,9 +189,7 @@ export default function LocationsPage() {
               }
             >
               <option value={100}>100 m</option>
-              <option value={300}>300 m (recomendado)</option>
-              <option value={500}>500 m</option>
-              <option value={1000}>1 km</option>
+              <option value={300}>⭐ Recomendado: 300 m</option>
             </select>
             <p className="text-[11px] text-mute mt-1 leading-relaxed">
               Apple Wallet muestra la tarjeta del cliente en el lock screen
@@ -255,7 +253,12 @@ export default function LocationsPage() {
               </div>
             )}
             {list.map((l) => (
-              <LocationCard key={l.id} loc={l} onRemove={() => remove(l.id)} />
+              <LocationCard
+                key={l.id}
+                loc={l}
+                onRemove={() => remove(l.id)}
+                onSaved={load}
+              />
             ))}
           </div>
         </div>
@@ -267,11 +270,14 @@ export default function LocationsPage() {
 function LocationCard({
   loc,
   onRemove,
+  onSaved,
 }: {
   loc: any;
   onRemove: () => void;
+  onSaved: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
   const lat = Number(loc.latitude);
   const lng = Number(loc.longitude);
   // BBox aproximado para que el zoom sea razonable según el radio (300m → ~0.005°)
@@ -304,6 +310,13 @@ function LocationCard({
           >
             🗺 {open ? 'Ocultar' : 'Ver'} mapa
           </button>
+          <button
+            onClick={() => setEditing(true)}
+            className="btn-ghost text-xs"
+            title="Editar dirección, radio y mensaje"
+          >
+            <Icon name="edit" /> Editar
+          </button>
           <a
             href={`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`}
             target="_blank"
@@ -322,6 +335,16 @@ function LocationCard({
           </button>
         </div>
       </div>
+      {editing && (
+        <EditLocationModal
+          loc={loc}
+          onClose={() => setEditing(false)}
+          onSaved={() => {
+            setEditing(false);
+            onSaved();
+          }}
+        />
+      )}
       {open && (
         <div className="border-t border-line2">
           <iframe
@@ -343,6 +366,163 @@ function LocationCard({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Modal de edición de ubicación / GeoPush ───
+function EditLocationModal({
+  loc,
+  onClose,
+  onSaved,
+}: {
+  loc: any;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({
+    name: loc.name ?? '',
+    address: loc.address ?? '',
+    latitude: Number(loc.latitude),
+    longitude: Number(loc.longitude),
+    radiusMeters: Number(loc.radiusMeters ?? 300),
+    walletRelevantText: loc.walletRelevantText ?? '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    setSaving(true);
+    try {
+      await api(`/locations/${loc.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(form),
+      });
+      toast('Ubicación actualizada', 'success');
+      onSaved();
+    } catch (e: any) {
+      setErr(e.message || 'Error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <form
+        onSubmit={save}
+        className="bg-white rounded-2xl shadow-xl max-w-md w-full p-5 space-y-3 max-h-[90vh] overflow-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-base m-0">📍 Editar ubicación</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-mute hover:text-ink text-xl leading-none"
+          >
+            ×
+          </button>
+        </div>
+
+        <div>
+          <label className="label">Nombre del local</label>
+          <input
+            className="input"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            required
+          />
+        </div>
+
+        <div>
+          <label className="label">Dirección</label>
+          <input
+            className="input"
+            value={form.address}
+            onChange={(e) => setForm({ ...form, address: e.target.value })}
+            placeholder="Calle 123 #45-67, Bogotá"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="label">Latitud</label>
+            <input
+              type="number"
+              step="0.000001"
+              className="input"
+              value={form.latitude}
+              onChange={(e) =>
+                setForm({ ...form, latitude: Number(e.target.value) })
+              }
+            />
+          </div>
+          <div>
+            <label className="label">Longitud</label>
+            <input
+              type="number"
+              step="0.000001"
+              className="input"
+              value={form.longitude}
+              onChange={(e) =>
+                setForm({ ...form, longitude: Number(e.target.value) })
+              }
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="label">Radio de geolocalización</label>
+          <select
+            className="input"
+            value={form.radiusMeters}
+            onChange={(e) =>
+              setForm({ ...form, radiusMeters: Number(e.target.value) })
+            }
+          >
+            <option value={100}>100 m</option>
+            <option value={300}>⭐ Recomendado: 300 m</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="label">📱 Texto del push wallet (GeoPush)</label>
+          <input
+            className="input"
+            placeholder="Estás cerca de nuestro local · ¡pasa a sellar!"
+            value={form.walletRelevantText}
+            onChange={(e) =>
+              setForm({ ...form, walletRelevantText: e.target.value })
+            }
+            maxLength={120}
+          />
+          <p className="text-[11px] text-mute mt-1 leading-snug">
+            Aparece en el lock screen del iPhone cuando el cliente entra al
+            radio. Vacío = "Estás cerca de [tu marca]" por default.
+          </p>
+        </div>
+
+        {err && (
+          <div className="rounded-lg bg-bad-soft px-3 py-2 text-sm text-bad-ink">
+            {err}
+          </div>
+        )}
+
+        <div className="flex gap-2 pt-2">
+          <button type="submit" className="btn-primary flex-1" disabled={saving}>
+            {saving ? 'Guardando…' : 'Guardar cambios'}
+          </button>
+          <button type="button" onClick={onClose} className="btn-ghost">
+            Cancelar
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

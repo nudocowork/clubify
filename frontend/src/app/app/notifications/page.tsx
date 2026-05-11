@@ -367,6 +367,17 @@ export default function NotificationsPage() {
             >
               📍 GeoPush
             </button>
+            <button
+              type="button"
+              onClick={() => setActiveGroup('automations' as any)}
+              className={`px-3 py-1.5 rounded-pill text-xs font-semibold transition ${
+                (activeGroup as any) === 'automations'
+                  ? 'bg-brand text-white shadow-sm'
+                  : 'bg-bg2 text-ink hover:bg-line'
+              }`}
+            >
+              ⚡ Automatizaciones
+            </button>
           </div>
 
           {(activeGroup as any) === 'geopush' ? (
@@ -389,6 +400,8 @@ export default function NotificationsPage() {
                 <Icon name="pin" /> Ir a Ubicaciones
               </Link>
             </div>
+          ) : (activeGroup as any) === 'automations' ? (
+            <AutomationsTab />
           ) : (
             <>
               {TEMPLATE_GROUPS.find((g) => g.id === activeGroup) && (
@@ -611,4 +624,81 @@ function formatRelative(d: Date): string {
   const days = Math.round(h / 24);
   if (days < 7) return `en ${days} d`;
   return d.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' });
+}
+
+// ─── Tab inline de automatizaciones (consume /api/automations) ───
+function AutomationsTab() {
+  const [rules, setRules] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    api<any[]>('/automations')
+      .then((rs) => setRules(rs ?? []))
+      .catch(() => setRules([]))
+      .finally(() => setLoading(false));
+  }, []);
+  return (
+    <div>
+      <p className="text-sm text-mute leading-relaxed">
+        Las <b className="text-ink">automatizaciones</b> envían push o sumas de
+        sellos a tus clientes cuando ocurre un evento (cumpleaños, recompensa
+        cerca, cliente inactivo, etc.). Las configuras una vez y se disparan
+        solas.
+      </p>
+      <Link
+        href="/app/automations"
+        className="btn-primary mt-3 inline-flex"
+      >
+        <Icon name="spark" /> Ir a Automatizaciones
+      </Link>
+
+      {loading && (
+        <div className="mt-4 text-xs text-mute">Cargando reglas…</div>
+      )}
+
+      {!loading && rules.length > 0 && (
+        <div className="mt-4">
+          <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
+            Reglas activas ({rules.filter((r) => r.isActive).length} de {rules.length})
+          </div>
+          <div className="space-y-1.5 max-h-72 overflow-auto">
+            {rules.map((r) => (
+              <Link
+                key={r.id}
+                href="/app/automations"
+                className="flex items-center gap-3 p-2 rounded-lg border border-line2 hover:bg-bg2 transition"
+              >
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    r.isActive ? 'bg-ok' : 'bg-mute'
+                  }`}
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-sm truncate">{r.name}</div>
+                  <div className="text-[11px] text-mute">
+                    Trigger: {r.trigger?.type ?? '—'} ·{' '}
+                    {r.actions?.length ?? 0} acciones · {r.stats?.runs ?? 0} ejecuciones
+                  </div>
+                </div>
+                {r.stats?.lastRunAt && (
+                  <div className="text-[10px] text-mute whitespace-nowrap">
+                    {new Date(r.stats.lastRunAt).toLocaleDateString('es-CO', {
+                      day: 'numeric',
+                      month: 'short',
+                    })}
+                  </div>
+                )}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!loading && rules.length === 0 && (
+        <div className="mt-4 p-4 text-center bg-bg2/40 rounded-lg text-sm text-mute">
+          Sin reglas configuradas. En /app/automations encontrás{' '}
+          <b className="text-ink">6 plantillas</b> listas para activar con un click.
+        </div>
+      )}
+    </div>
+  );
 }
