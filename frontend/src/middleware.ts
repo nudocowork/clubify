@@ -100,6 +100,7 @@ export async function middleware(req: NextRequest) {
     url.pathname.startsWith('/o/') ||
     url.pathname.startsWith('/w/') ||
     url.pathname.startsWith('/c/') ||
+    url.pathname.startsWith('/q/') ||
     url.pathname.startsWith('/preview/') ||
     url.pathname.startsWith('/manifest') ||
     url.pathname.startsWith('/icons/') ||

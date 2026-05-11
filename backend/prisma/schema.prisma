@@ -1502,6 +1502,10 @@ enum QuotePlan {
 
 model Quote {
   id            String    @id @default(uuid())
+  // Token público para compartir vista de cliente — soyclubify.com/q/<token>.
+  // Distinto del id para que el id interno no quede expuesto en links que
+  // se mandan por WA/email. UUID es suficientemente opaco e impredecible.
+  publicToken   String    @unique @default(uuid())
   customerName  String
   businessName  String
   phone         String?
