@@ -352,6 +352,7 @@ model Tenant {
   purchaseOrders   PurchaseOrder[]
   couponUses       CouponUse[]
   badges           Badge[]
+  qrPosters        QrPoster[]
 
   @@index([status])
 }
@@ -1273,6 +1274,42 @@ model ReviewFeedback {
 
   @@index([tenantId, createdAt])
   @@index([tenantId, rating])
+}
+
+// ============================================================
+//                    QR POSTERS / MARKETING
+// ============================================================
+// Carteles QR personalizables (sección "Marketing" del panel). Cada
+// tenant tiene como máximo 1 poster activo por tipo. El campo `config`
+// guarda el JSON serializado del editor visual (Konva): background,
+// posición/estilo del QR, textos (título, subtítulo, CTA), tipografías,
+// tamaño de lienzo, etc. La URL destino se calcula en render time según
+// el `type` (MENU → /m/{slug}, COUNTER → /c/{cardId}, REVIEWS → /r/{slug},
+// DISCOUNT → /m/{slug}?promo={code}). Así el QR sigue siendo dinámico aún
+// si el negocio cambia el menú/wallet/promociones.
+enum QrPosterType {
+  MENU
+  COUNTER
+  DISCOUNT
+  REVIEWS
+}
+
+model QrPoster {
+  id        String       @id @default(uuid())
+  tenantId  String
+  tenant    Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type      QrPosterType
+  name      String       @default("")
+  // JSON del editor (capas, posiciones, colores, fuentes, etc).
+  config    Json         @default("{}")
+  // Último export subido a R2 (PNG/PDF). Se llena en H3 cuando se
+  // implementa el export profesional para imprenta.
+  lastExportUrl String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([tenantId, type])
+  @@index([tenantId])
 }
 
 // ============================================================
