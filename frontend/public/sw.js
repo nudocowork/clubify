@@ -9,7 +9,7 @@
 // importantes que necesitan invalidar TODA la cache de los clientes.
 // Cada vez que cambia, el SW activate purga las caches viejas y los clientes
 // vuelven a descargar todo fresh.
-const VERSION = 'v2-2026-05-11-fase-g';
+const VERSION = 'v2-2026-05-11-fase-h7-marketing';
 const SHELL_CACHE = `clubify-shell-${VERSION}`;
 const ASSET_CACHE = `clubify-assets-${VERSION}`;
 
