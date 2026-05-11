@@ -1,6 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 
+/** Pricing global de los planes Clubify usado por el módulo Cotizaciones
+ * (SuperAdmin). Editables sin redeploy. Las cotizaciones congelan el
+ * precio en su `priceSnapshot` al crearse, así que cambiar acá no rompe
+ * cotizaciones viejas. */
+export type PricingSettings = {
+  eliteCost: number;
+  proCost: number;
+  currency: string;
+};
+
 export type BrandingSettings = {
   appLogoUrl: string | null;
   faviconUrl: string | null;
@@ -30,7 +40,16 @@ const KEYS = {
   salesWhatsapp: 'sales.whatsappPhone',
   salesEmail: 'sales.email',
   salesInstagram: 'sales.instagramUrl',
+  pricingEliteCost: 'pricing.eliteCost',
+  pricingProCost: 'pricing.proCost',
+  pricingCurrency: 'pricing.currency',
 } as const;
+
+const PRICING_DEFAULTS: PricingSettings = {
+  eliteCost: 50,
+  proCost: 99,
+  currency: 'USD',
+};
 
 /** Devuelve true si el PIN provisto coincide con el seteado por el super
  * admin. Si no hay PIN configurado, también devuelve true (backwards
@@ -127,6 +146,47 @@ export class SettingsService {
     }
     await Promise.all(ops);
     return this.getBrandingAdmin();
+  }
+
+  /** Lee precios fijos de Elite/Pro y moneda. Si no están seteados usa
+   * los defaults de PRICING_DEFAULTS. Lectura pública: la cotización
+   * la crea el super admin pero los precios igual pueden mostrarse en
+   * landing o materiales públicos. */
+  async getPricing(): Promise<PricingSettings> {
+    const rows = await this.prisma.setting.findMany({
+      where: {
+        key: {
+          in: [KEYS.pricingEliteCost, KEYS.pricingProCost, KEYS.pricingCurrency],
+        },
+      },
+    });
+    const map = new Map(rows.map((r) => [r.key, r.value]));
+    const num = (v: string | undefined, def: number) => {
+      if (v === undefined) return def;
+      const n = Number(v);
+      return Number.isFinite(n) && n >= 0 ? n : def;
+    };
+    const currency = (map.get(KEYS.pricingCurrency) ?? '').trim();
+    return {
+      eliteCost: num(map.get(KEYS.pricingEliteCost), PRICING_DEFAULTS.eliteCost),
+      proCost: num(map.get(KEYS.pricingProCost), PRICING_DEFAULTS.proCost),
+      currency: currency || PRICING_DEFAULTS.currency,
+    };
+  }
+
+  async setPricing(data: Partial<PricingSettings>): Promise<PricingSettings> {
+    const ops: Promise<unknown>[] = [];
+    if (data.eliteCost !== undefined) {
+      ops.push(this.upsert(KEYS.pricingEliteCost, String(data.eliteCost)));
+    }
+    if (data.proCost !== undefined) {
+      ops.push(this.upsert(KEYS.pricingProCost, String(data.proCost)));
+    }
+    if (data.currency !== undefined) {
+      ops.push(this.upsert(KEYS.pricingCurrency, (data.currency ?? '').trim()));
+    }
+    await Promise.all(ops);
+    return this.getPricing();
   }
 
   private upsert(key: string, value: string) {

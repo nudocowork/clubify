@@ -41,6 +41,7 @@ import { ReviewsModule } from './reviews/reviews.module';
 import { QrPostersModule } from './qr-posters/qr-posters.module';
 import { AdminModule } from './admin/admin.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
+import { QuotesModule } from './quotes/quotes.module';
 
 @Module({
   imports: [
@@ -86,6 +87,7 @@ import { OnboardingModule } from './onboarding/onboarding.module';
     QrPostersModule,
     AdminModule,
     OnboardingModule,
+    QuotesModule,
   ],
 })
 export class AppModule {}

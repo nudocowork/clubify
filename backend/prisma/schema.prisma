@@ -375,6 +375,7 @@ model User {
   auditLogs      AuditLog[]
   passwordResetTokens PasswordResetToken[]
   reminders      Reminder[] @relation("ReminderEmployee")
+  quotesCreated  Quote[]    @relation("QuoteAdvisor")
 
   @@index([tenantId])
   @@index([role])
@@ -1484,4 +1485,45 @@ model CustomerBadge {
 
   @@unique([customerId, badgeId])
   @@index([customerId])
+}
+
+// ============================================================
+//                       COTIZACIONES (SuperAdmin)
+// ============================================================
+// Propuesta comercial generada por un asesor (SUPER_ADMIN) para un
+// prospect. NO está vinculada a Tenant — la cotización se hace ANTES
+// de que el cliente se convierta en tenant. Los precios se congelan
+// en priceSnapshot/currencySnapshot al momento de crear, así futuros
+// cambios en Settings (pricing.*) no rompen PDFs generados en el pasado.
+enum QuotePlan {
+  ELITE
+  PRO
+}
+
+model Quote {
+  id            String    @id @default(uuid())
+  customerName  String
+  businessName  String
+  phone         String?
+  email         String?
+  plan          QuotePlan
+  // slug de plantilla aplicada (restaurant, coffee_shop, cowork, gym,
+  // barber_shop, other). Opcional para permitir cotización "neutra".
+  templateSlug  String?
+  // Asesor (SUPER_ADMIN) que generó la cotización. Si el usuario se
+  // elimina, mantenemos el snapshot del nombre y el FK queda en NULL
+  // — la cotización sigue siendo válida y los PDFs viejos no se rompen.
+  advisorId     String?
+  advisor       User?     @relation("QuoteAdvisor", fields: [advisorId], references: [id], onDelete: SetNull)
+  advisorName   String
+  // Snapshot del precio del plan cotizado en la moneda elegida.
+  priceSnapshot    Decimal @db.Decimal(10, 2)
+  currencySnapshot String  @default("USD")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([advisorId])
+  @@index([plan])
+  @@index([templateSlug])
+  @@index([createdAt])
 }

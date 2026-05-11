@@ -1,5 +1,5 @@
 import { Body, Controller, ForbiddenException, Get, Patch, Post } from '@nestjs/common';
-import { IsBoolean, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsNumber, IsOptional, IsString, Length, Min } from 'class-validator';
 import { SettingsService } from './settings.service';
 import { Public } from '../common/decorators/public.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -19,6 +19,12 @@ class BrandingDto {
   @IsOptional() @IsString() salesWhatsapp?: string | null;
   @IsOptional() @IsString() salesEmail?: string | null;
   @IsOptional() @IsString() salesInstagram?: string | null;
+}
+
+class PricingDto {
+  @IsOptional() @IsNumber() @Min(0) eliteCost?: number;
+  @IsOptional() @IsNumber() @Min(0) proCost?: number;
+  @IsOptional() @IsString() @Length(3, 3) currency?: string;
 }
 
 const WELCOME_POPUP_MESSAGE =
@@ -50,6 +56,21 @@ export class SettingsController {
   @Roles('SUPER_ADMIN')
   setBranding(@Body() body: BrandingDto) {
     return this.svc.setBranding(body);
+  }
+
+  /** Precios globales Elite/Pro usados por el módulo Cotizaciones.
+   * Lectura: super admin (el módulo público no necesita esto todavía,
+   * si más adelante se quiere exponer en landing se cambia a @Public). */
+  @Get('admin/pricing')
+  @Roles('SUPER_ADMIN')
+  getPricing() {
+    return this.svc.getPricing();
+  }
+
+  @Patch('admin/pricing')
+  @Roles('SUPER_ADMIN')
+  setPricing(@Body() body: PricingDto) {
+    return this.svc.setPricing(body);
   }
 
   /**
