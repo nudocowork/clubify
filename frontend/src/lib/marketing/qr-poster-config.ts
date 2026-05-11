@@ -223,6 +223,74 @@ export function pixelRatioFor300Dpi(canvas: QrPosterConfig['canvas']): number {
   return Math.max(1, targetW / canvas.w);
 }
 
+/** Re-escala todas las posiciones del cfg a un canvas nuevo, manteniendo
+ *  cada elemento en la misma posición RELATIVA. Tamaños se preservan
+ *  para que el texto/QR no se distorsione. Si después del re-escalado
+ *  algún elemento queda fuera del canvas, se clampea al borde. */
+export function rescaleForCanvas(
+  cfg: QrPosterConfig,
+  newCanvas: { w: number; h: number; mm?: { w: number; h: number } },
+): QrPosterConfig {
+  const sx = newCanvas.w / cfg.canvas.w;
+  const sy = newCanvas.h / cfg.canvas.h;
+  const clampX = (x: number, elemW = 0) =>
+    Math.max(0, Math.min(newCanvas.w - elemW, x));
+  const clampY = (y: number, elemH = 0) =>
+    Math.max(0, Math.min(newCanvas.h - elemH, y));
+
+  return {
+    ...cfg,
+    canvas: newCanvas,
+    qr: {
+      ...cfg.qr,
+      x: clampX(Math.round(cfg.qr.x * sx), cfg.qr.size),
+      y: clampY(Math.round(cfg.qr.y * sy), cfg.qr.size),
+    },
+    logo: cfg.logo
+      ? {
+          ...cfg.logo,
+          x: clampX(Math.round(cfg.logo.x * sx), cfg.logo.size),
+          y: clampY(Math.round(cfg.logo.y * sy), cfg.logo.size),
+        }
+      : cfg.logo,
+    texts: {
+      title: {
+        ...cfg.texts.title,
+        x: Math.round(cfg.texts.title.x * sx),
+        y: clampY(Math.round(cfg.texts.title.y * sy), cfg.texts.title.size),
+      },
+      subtitle: {
+        ...cfg.texts.subtitle,
+        x: Math.round(cfg.texts.subtitle.x * sx),
+        y: clampY(
+          Math.round(cfg.texts.subtitle.y * sy),
+          cfg.texts.subtitle.size,
+        ),
+      },
+      cta: {
+        ...cfg.texts.cta,
+        x: Math.round(cfg.texts.cta.x * sx),
+        y: clampY(Math.round(cfg.texts.cta.y * sy), cfg.texts.cta.size),
+      },
+      brand: {
+        ...cfg.texts.brand,
+        x: Math.round(cfg.texts.brand.x * sx),
+        y: clampY(Math.round(cfg.texts.brand.y * sy), cfg.texts.brand.size),
+      },
+    },
+    shapes: (cfg.shapes ?? []).map((s) => ({
+      ...s,
+      x: clampX(Math.round(s.x * sx), s.w),
+      y: clampY(Math.round(s.y * sy), s.h),
+    })),
+    icons: (cfg.icons ?? []).map((i) => ({
+      ...i,
+      x: clampX(Math.round(i.x * sx), i.size),
+      y: clampY(Math.round(i.y * sy), i.size),
+    })),
+  };
+}
+
 export function defaultConfig(brandName: string): QrPosterConfig {
   const w = 1080;
   const h = 1528;

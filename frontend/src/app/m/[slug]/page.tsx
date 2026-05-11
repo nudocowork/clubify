@@ -80,6 +80,10 @@ export default function StorefrontPublic() {
   const [showCart, setShowCart] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Promo capturado vía QR Descuento (?promo=CODE). Persiste en
+  // localStorage para que el cliente lo vea aunque vuelva sin el query
+  // param (links posteriores compartidos, etc).
+  const [capturedPromo, setCapturedPromo] = useState<string | null>(null);
 
   useEffect(() => {
     setLoadError(null);
@@ -101,6 +105,31 @@ export default function StorefrontPublic() {
     const handler = () => setCart(readCart(slug));
     window.addEventListener(`cart:${slug}`, handler);
     return () => window.removeEventListener(`cart:${slug}`, handler);
+  }, [slug]);
+
+  // Capturar ?promo=CODE del QR Descuento. Se persiste en localStorage
+  // para que el banner sobreviva navegaciones. El código se PRESENTA al
+  // pagar — no se aplica automáticamente (los cupones de orders no están
+  // wired en backend; ver project_marketing_qr_system memory).
+  useEffect(() => {
+    if (typeof window === 'undefined' || !slug) return;
+    const lsKey = `clubify:promo:${slug}`;
+    const params = new URLSearchParams(window.location.search);
+    const raw = params.get('promo');
+    if (raw) {
+      const code = raw.trim().toUpperCase().slice(0, 32);
+      if (code) {
+        try {
+          localStorage.setItem(lsKey, code);
+        } catch {}
+        setCapturedPromo(code);
+        return;
+      }
+    }
+    try {
+      const stored = localStorage.getItem(lsKey);
+      if (stored) setCapturedPromo(stored);
+    } catch {}
   }, [slug]);
 
   if (loadError) {
@@ -205,6 +234,39 @@ export default function StorefrontPublic() {
           </div>
         </div>
       </header>
+
+      {/* Banner de promo capturado vía QR Descuento — el código se
+          presenta al pagar (capture-only, no auto-apply en checkout). */}
+      {capturedPromo && (
+        <div className="px-5 max-w-2xl mx-auto -mt-2 mb-3 animate-in fade-in slide-in-from-top-1 duration-300">
+          <div className="rounded-2xl bg-gradient-to-r from-emerald-50 to-emerald-100 border border-emerald-200 px-4 py-3 flex items-center gap-3 shadow-sm">
+            <span className="text-2xl">🎁</span>
+            <div className="flex-1 min-w-0">
+              <div className="text-[11px] uppercase tracking-wider font-semibold text-emerald-700">
+                Cupón capturado
+              </div>
+              <div className="font-bold text-emerald-900 text-lg tracking-wider font-mono">
+                {capturedPromo}
+              </div>
+              <div className="text-[11px] text-emerald-800/80 leading-tight">
+                Presentalo al pagar para activar el descuento.
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                try {
+                  localStorage.removeItem(`clubify:promo:${slug}`);
+                } catch {}
+                setCapturedPromo(null);
+              }}
+              className="text-emerald-700/60 hover:text-emerald-900 text-sm px-1"
+              title="Descartar cupón"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="px-5 max-w-2xl mx-auto sticky top-2 z-20">

@@ -33,6 +33,7 @@ import {
   defaultConfig,
   normalizeConfig,
   effectiveLayerOrder,
+  rescaleForCanvas,
 } from '@/lib/marketing/qr-poster-config';
 import { QR_TEMPLATES, applyTemplate } from '@/lib/marketing/qr-templates';
 
@@ -190,6 +191,7 @@ export default function QrPosterEditor({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [exporting, setExporting] = useState<null | 'png' | 'jpg' | 'pdf'>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<Konva.Stage | null>(null);
@@ -268,6 +270,7 @@ export default function QrPosterEditor({
 
   async function save() {
     setSaving(true);
+    setSaveError(null);
     try {
       const row = await api<any>(`/qr-posters/by-type/${type}`, {
         method: 'PUT',
@@ -276,6 +279,11 @@ export default function QrPosterEditor({
       setPosterId(row.id);
       setSavedAt(Date.now());
       window.setTimeout(() => setSavedAt(null), 2500);
+    } catch (e: any) {
+      setSaveError(
+        e?.message?.toString() ||
+          'No se pudo guardar. Revisá tu conexión y volvé a intentar.',
+      );
     } finally {
       setSaving(false);
     }
@@ -518,9 +526,14 @@ export default function QrPosterEditor({
               Rehacer →
             </button>
           </div>
-          {savedAt && (
+          {savedAt && !saveError && (
             <div className="text-[11px] text-emerald-600 font-semibold">
               ✓ Guardado
+            </div>
+          )}
+          {saveError && (
+            <div className="text-[11px] text-red-600 leading-relaxed bg-red-50 border border-red-200 rounded px-2 py-1.5">
+              ✕ {saveError}
             </div>
           )}
           <div className="text-[11px] text-mute leading-relaxed">
@@ -783,8 +796,7 @@ export default function QrPosterEditor({
                   key={p.label}
                   onClick={() =>
                     setCfg((c) => ({
-                      ...c,
-                      canvas: { w: p.w, h: p.h, mm: p.mm },
+                      ...rescaleForCanvas(c, { w: p.w, h: p.h, mm: p.mm }),
                       clipShape: isCircular ? 'circle' : undefined,
                     }))
                   }

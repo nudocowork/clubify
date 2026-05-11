@@ -34,15 +34,15 @@ export default function QrDiscountPage() {
       </div>
 
       <p className="text-sm text-mute max-w-2xl mb-5 leading-relaxed">
-        Cartel promocional para campañas, primera compra o activaciones. Cargá
-        tu código de descuento y el QR lleva al cliente directo al menú con
-        ese código pre-aplicado.
+        Cartel promocional para campañas, primera compra o activaciones. El
+        cliente escanea, ve un banner con tu código en el menú y lo presenta
+        al pagar para activar el descuento.
       </p>
 
       <QrPosterEditor
         type="DISCOUNT"
         brandName={tenant.brandName ?? 'Mi Negocio'}
-        logoUrl={tenant.walletLogoUrl ?? tenant.logoUrl ?? null}
+        logoUrl={tenant.walletLogoUrl || tenant.logoUrl || null}
         qrUrl={(meta) => {
           const code = (meta?.promoCode ?? '').toString().trim();
           return code
@@ -65,11 +65,13 @@ export default function QrDiscountPage() {
               className="input text-sm uppercase tracking-wider"
             />
             <div className="text-[11px] text-mute leading-relaxed">
-              Creá el código primero en{' '}
+              El cliente verá un banner con el código al escanear y lo
+              presenta al pagar. Para que el descuento sea válido, dálo de
+              alta en{' '}
               <Link href="/app/promos" className="text-brand underline">
                 Promociones
-              </Link>
-              . El QR llevará al cliente a tu menú con el código aplicado.
+              </Link>{' '}
+              también.
             </div>
           </div>
         )}

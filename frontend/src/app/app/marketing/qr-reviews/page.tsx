@@ -61,7 +61,7 @@ export default function QrReviewsPage() {
         type="REVIEWS"
         qrUrl={qrUrl}
         brandName={tenant.brandName ?? 'Mi Negocio'}
-        logoUrl={tenant.walletLogoUrl ?? tenant.logoUrl ?? null}
+        logoUrl={tenant.walletLogoUrl || tenant.logoUrl || null}
       />
     </div>
   );
