@@ -15,7 +15,7 @@ const MODULE_INFO: Record<BusinessModule, { emoji: string; label: string }> = {
   menu: { emoji: '📋', label: 'Menú/catálogo' },
   orders: { emoji: '🛒', label: 'Pedidos' },
   analytics: { emoji: '📊', label: 'Analítica' },
-  staff: { emoji: '👤', label: 'Empleados' },
+  staff: { emoji: '👤', label: 'Equipo de trabajo' },
   info_links: { emoji: '🔗', label: 'InfoLinks' },
   services: { emoji: '🛠', label: 'Servicios' },
 };

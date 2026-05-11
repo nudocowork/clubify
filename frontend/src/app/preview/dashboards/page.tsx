@@ -73,7 +73,7 @@ function SidebarDark({ active = 'Dashboard' }: { active?: string }) {
 function SidebarSlate({ active = 'Dashboard' }: { active?: string }) {
   const items = [
     { l: 'Dashboard', s: 'PRINCIPAL' },
-    { l: 'Empleados', s: '' },
+    { l: 'Equipo de trabajo', s: '' },
     { l: 'Horarios', s: '' },
     { l: 'Nómina', s: 'GESTIÓN' },
     { l: 'Propinas', s: '' },

@@ -83,7 +83,7 @@ export default function StaffPage() {
         method: 'PATCH',
         body: JSON.stringify({ isActive: !u.isActive }),
       });
-      toast(u.isActive ? 'Empleado desactivado' : 'Empleado activado', 'success');
+      toast(u.isActive ? 'Miembro desactivado' : 'Miembro activado', 'success');
       await load();
     } catch (e: any) {
       toast(e.message || 'No se pudo actualizar', 'error');
@@ -120,7 +120,7 @@ export default function StaffPage() {
     if (!confirm(`¿Eliminar a ${u.fullName}? Esta acción es permanente.`)) return;
     try {
       await api(`/tenants/me/staff/${u.id}`, { method: 'DELETE' });
-      toast('Empleado eliminado', 'success');
+      toast('Miembro eliminado', 'success');
       await load();
     } catch (e: any) {
       toast(e.message || 'No se pudo eliminar', 'error');
@@ -139,7 +139,7 @@ export default function StaffPage() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Empleados{' '}
+          Equipo de trabajo{' '}
           <span className="page-crumb">
             / {list.length} {list.length === 1 ? 'persona' : 'personas'}
           </span>
@@ -149,7 +149,7 @@ export default function StaffPage() {
             className="btn-primary"
             onClick={() => setShowInvite((v) => !v)}
           >
-            <Icon name="plus" /> Invitar empleado
+            <Icon name="plus" /> Invitar al equipo
           </button>
         )}
       </div>
@@ -203,7 +203,7 @@ export default function StaffPage() {
                   setForm({ ...form, role: e.target.value as any })
                 }
               >
-                <option value="TENANT_STAFF">Empleado (escanea, ve pedidos)</option>
+                <option value="TENANT_STAFF">Equipo (escanea, ve pedidos)</option>
                 <option value="TENANT_OWNER">Propietario (acceso total)</option>
               </select>
             </label>
@@ -239,7 +239,7 @@ export default function StaffPage() {
                 Comparte estas credenciales por WhatsApp
               </div>
               <div className="text-sm text-mute mb-2">
-                Solo se muestran una vez. El empleado podrá cambiarlas al ingresar.
+                Solo se muestran una vez. El miembro del equipo podrá cambiarlas al ingresar.
               </div>
               <div className="bg-bg2 rounded-lg p-3 font-mono text-sm">
                 <div>
@@ -311,7 +311,7 @@ export default function StaffPage() {
                   u.role === 'TENANT_OWNER' ? 'badge-info' : 'badge-mute'
                 }`}
               >
-                {u.role === 'TENANT_OWNER' ? 'Propietario' : 'Empleado'}
+                {u.role === 'TENANT_OWNER' ? 'Propietario' : 'Equipo'}
               </span>
               <span
                 className={`badge ${u.isActive ? 'badge-ok' : 'badge-mute'}`}
@@ -327,7 +327,7 @@ export default function StaffPage() {
                       changeRole(u, e.target.value as any)
                     }
                   >
-                    <option value="TENANT_STAFF">Empleado</option>
+                    <option value="TENANT_STAFF">Equipo</option>
                     <option value="TENANT_OWNER">Propietario</option>
                   </select>
                   <button

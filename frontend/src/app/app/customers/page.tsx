@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { api, downloadFile } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
-import { CSVImporter } from '@/components/CSVImport';
 
 type Customer = {
   id: string;
@@ -72,7 +71,6 @@ export default function CustomersPage() {
   const [waMessage, setWaMessage] = useState(
     '¡Hola {{nombre}}! Te queríamos contar que…',
   );
-  const [importOpen, setImportOpen] = useState(false);
   const [duplicateGroups, setDuplicateGroups] = useState(0);
 
   // Búsqueda live debounced (300ms) — re-fetch también si cambia la sede.
@@ -260,13 +258,6 @@ export default function CustomersPage() {
               </span>
             </Link>
           )}
-          <button
-            className="btn-ghost text-xs"
-            title="Importar clientes desde CSV"
-            onClick={() => setImportOpen(true)}
-          >
-            ⤒ Importar CSV
-          </button>
           <button
             className="btn-ghost text-xs"
             title="Descargar CSV de la búsqueda actual"
@@ -491,14 +482,6 @@ export default function CustomersPage() {
         </table>
        </div>
       </div>
-
-      {/* CSV Import modal */}
-      {importOpen && (
-        <CSVImporter
-          onClose={() => setImportOpen(false)}
-          onDone={() => load()}
-        />
-      )}
 
       {/* Barra flotante de selección */}
       {selected.size > 0 && (

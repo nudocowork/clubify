@@ -52,7 +52,7 @@ export function CommandPalette({ variant }: { variant: 'admin' | 'app' }) {
       { id: 'n13', group: 'Ir a', label: 'InfoLinks', href: '/app/info-links', icon: 'arrow-right' },
       { id: 'n14', group: 'Ir a', label: 'Ubicaciones', href: '/app/locations', icon: 'pin', keywords: 'sucursales' },
       { id: 'n15', group: 'Ir a', label: 'Programa de referidos', href: '/app/referrals', icon: 'gift' },
-      { id: 'n16', group: 'Ir a', label: 'Empleados', href: '/app/staff', icon: 'users', keywords: 'team equipo' },
+      { id: 'n16', group: 'Ir a', label: 'Equipo de trabajo', href: '/app/staff', icon: 'users', keywords: 'team empleados staff' },
       { id: 'n17', group: 'Ir a', label: 'Suscripción', href: '/app/billing', icon: 'card', keywords: 'pago cobro' },
       { id: 'n18', group: 'Ir a', label: 'Mi cuenta', href: '/app/settings', icon: 'users', keywords: 'profile perfil' },
       { id: 'n19', group: 'Ir a', label: 'Novedades / changelog', href: '/app/whats-new', icon: 'spark', keywords: 'whats new release notes' },

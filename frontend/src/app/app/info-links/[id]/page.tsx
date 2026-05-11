@@ -25,6 +25,14 @@ type Button = {
   label: string;
   type: 'WHATSAPP' | 'INSTAGRAM' | 'MAPS' | 'MENU' | 'CARD' | 'PROMO' | 'EXTERNAL';
   url?: string;
+  // Campos específicos por tipo
+  // INSTAGRAM: handle del usuario sin '@', se construye https://instagram.com/<handle>
+  igHandle?: string;
+  // WHATSAPP: número + mensaje pre-rellenado, se construye wa.me link
+  waPhone?: string;
+  waMessage?: string;
+  // MAPS: locationId opcional — si null, usa el primer location del tenant
+  locationId?: string | null;
   style?: 'primary' | 'secondary';
 };
 
@@ -47,7 +55,6 @@ const BUTTON_TYPE_LABEL: Record<string, string> = {
   INSTAGRAM: '📷 Instagram',
   MAPS: '📍 Cómo llegar',
   MENU: '🍽 Ver menú',
-  CARD: '💳 Mi tarjeta',
   PROMO: '🎁 Promociones',
   EXTERNAL: '🔗 Link externo',
 };
@@ -60,12 +67,16 @@ export default function InfoLinkEditor() {
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [busy, setBusy] = useState(false);
   const [stats, setStats] = useState<any>(null);
+  const [locations, setLocations] = useState<Array<{ id: string; name: string }>>([]);
 
   async function load() {
     const l = await api<InfoLink>(`/info-links/${id}`);
     setLink(l);
     setTenant(await api('/tenants/me'));
     setStats(await api(`/info-links/${id}/stats`).catch(() => null));
+    setLocations(
+      await api<Array<{ id: string; name: string }>>('/locations').catch(() => []),
+    );
   }
   useEffect(() => {
     load();
@@ -428,6 +439,73 @@ export default function InfoLinkEditor() {
                       value={b.url ?? ''}
                       onChange={(e) => updateButton(i, { url: e.target.value })}
                     />
+                  )}
+                  {b.type === 'INSTAGRAM' && (
+                    <div className="col-span-full">
+                      <div className="flex gap-2 items-center">
+                        <span className="text-mute text-sm font-semibold">@</span>
+                        <input
+                          className="input flex-1"
+                          placeholder="nudocowork"
+                          value={b.igHandle ?? ''}
+                          onChange={(e) =>
+                            updateButton(i, {
+                              igHandle: e.target.value
+                                .replace(/^@/, '')
+                                .trim(),
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="text-[11px] text-mute mt-1">
+                        Solo el usuario, sin URL completa. Abre instagram.com/<b>{b.igHandle || 'usuario'}</b>
+                      </div>
+                    </div>
+                  )}
+                  {b.type === 'WHATSAPP' && (
+                    <div className="col-span-full grid grid-cols-1 sm:grid-cols-[160px_1fr] gap-2">
+                      <input
+                        className="input"
+                        placeholder="+57 300 000 0000"
+                        value={b.waPhone ?? ''}
+                        onChange={(e) => updateButton(i, { waPhone: e.target.value })}
+                      />
+                      <input
+                        className="input"
+                        placeholder="Hola, quiero más información"
+                        value={b.waMessage ?? ''}
+                        onChange={(e) => updateButton(i, { waMessage: e.target.value })}
+                      />
+                    </div>
+                  )}
+                  {b.type === 'MAPS' && (
+                    <div className="col-span-full">
+                      {locations.length === 0 ? (
+                        <div className="text-[11px] text-mute p-2 bg-bg2/50 rounded">
+                          No tienes ubicaciones registradas.{' '}
+                          <a href="/app/locations" className="text-brand underline">
+                            Crear una en Ubicaciones →
+                          </a>
+                        </div>
+                      ) : (
+                        <select
+                          className="input"
+                          value={b.locationId ?? ''}
+                          onChange={(e) =>
+                            updateButton(i, {
+                              locationId: e.target.value || null,
+                            })
+                          }
+                        >
+                          <option value="">Primera ubicación (default)</option>
+                          {locations.map((loc) => (
+                            <option key={loc.id} value={loc.id}>
+                              {loc.name}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
                   )}
                 </div>
               ))}

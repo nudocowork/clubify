@@ -254,7 +254,7 @@ export default function AppShell({
             {
               section: 'Cuenta',
               items: [
-                { href: '/app/staff', label: 'Empleados', icon: 'users', module: 'staff' },
+                { href: '/app/staff', label: 'Equipo de trabajo', icon: 'users', module: 'staff' },
                 { href: '/app/billing', label: 'Suscripción', icon: 'card' },
                 { href: '/app/settings', label: 'Configuraciones', icon: 'gear' },
                 { href: '/app/referrals', label: 'Referidos', icon: 'gift' },
@@ -297,7 +297,10 @@ export default function AppShell({
     );
   }
 
-  const brandTitle = variant === 'admin' ? 'Admin Clubify' : 'Mi Negocio';
+  const brandTitle =
+    variant === 'admin'
+      ? 'Admin Clubify'
+      : tenantInfo?.brandName?.trim() || 'Mi Negocio';
 
   const renderBrandMark = (size: number) =>
     branding.appLogoUrl ? (

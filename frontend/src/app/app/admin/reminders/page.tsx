@@ -204,7 +204,7 @@ export default function RemindersPage() {
 
       <div className="card overflow-hidden">
         <div className="grid grid-cols-[1.4fr_1.2fr_2fr_0.8fr_0.9fr_auto] gap-3 px-4 py-3 text-[11px] uppercase tracking-wider text-mute font-semibold border-b border-line">
-          <div>Empleado</div>
+          <div>Equipo</div>
           <div>Recurrencia</div>
           <div>Mensaje</div>
           <div>Estado</div>
@@ -305,7 +305,7 @@ export default function RemindersPage() {
       {showForm && (
         <Modal title={editing ? 'Editar recordatorio' : 'Nuevo recordatorio'} onClose={() => setShowForm(false)}>
           <form onSubmit={save} className="space-y-4">
-            <Field label="Empleado">
+            <Field label="Miembro del equipo">
               <select
                 className="input"
                 value={form.employeeId}

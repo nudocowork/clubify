@@ -149,6 +149,16 @@ export class InfoLinksService {
         mapsUrl: true,
         slug: true,
         status: true,
+        locations: {
+          where: { isActive: true },
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            latitude: true,
+            longitude: true,
+          },
+        },
       },
     });
     if (!tenant || tenant.status === 'SUSPENDED') {

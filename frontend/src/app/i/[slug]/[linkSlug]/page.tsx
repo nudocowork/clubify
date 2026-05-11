@@ -11,7 +11,19 @@ type Button = {
   label: string;
   type: 'WHATSAPP' | 'INSTAGRAM' | 'MAPS' | 'MENU' | 'CARD' | 'PROMO' | 'EXTERNAL';
   url?: string;
+  igHandle?: string;
+  waPhone?: string;
+  waMessage?: string;
+  locationId?: string | null;
   style?: 'primary' | 'secondary';
+};
+
+type Location = {
+  id: string;
+  name: string;
+  address: string;
+  latitude: number;
+  longitude: number;
 };
 
 type Tenant = {
@@ -24,6 +36,7 @@ type Tenant = {
   instagramUrl: string | null;
   mapsUrl: string | null;
   slug: string;
+  locations?: Location[];
 };
 
 type Link = {
@@ -108,14 +121,38 @@ export default function PublicInfoLink() {
 
   function buttonHref(b: Button): string | undefined {
     switch (b.type) {
-      case 'WHATSAPP':
-        return tenant.whatsappPhone
-          ? `https://wa.me/${tenant.whatsappPhone.replace(/\D/g, '')}`
-          : undefined;
-      case 'INSTAGRAM':
+      case 'WHATSAPP': {
+        // Prioridad: número específico del botón > whatsappPhone del tenant
+        const phone = (b.waPhone || tenant.whatsappPhone || '').replace(/\D/g, '');
+        if (!phone) return undefined;
+        const msg = (b.waMessage || '').trim();
+        return msg
+          ? `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`
+          : `https://wa.me/${phone}`;
+      }
+      case 'INSTAGRAM': {
+        // Prioridad: handle específico del botón > instagramUrl del tenant
+        if (b.igHandle) {
+          const handle = b.igHandle.replace(/^@/, '').trim();
+          return `https://instagram.com/${handle}`;
+        }
         return tenant.instagramUrl ?? undefined;
-      case 'MAPS':
-        return tenant.mapsUrl ?? undefined;
+      }
+      case 'MAPS': {
+        // Prioridad: location específico del botón > mapsUrl del tenant > primera location
+        if (b.locationId && tenant.locations) {
+          const loc = tenant.locations.find((l) => l.id === b.locationId);
+          if (loc) {
+            return `https://maps.google.com/?q=${loc.latitude},${loc.longitude}`;
+          }
+        }
+        if (tenant.mapsUrl) return tenant.mapsUrl;
+        if (tenant.locations && tenant.locations.length > 0) {
+          const l = tenant.locations[0];
+          return `https://maps.google.com/?q=${l.latitude},${l.longitude}`;
+        }
+        return undefined;
+      }
       case 'MENU':
         return `/m/${tenant.slug}`;
       case 'CARD':

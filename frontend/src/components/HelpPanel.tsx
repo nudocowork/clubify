@@ -26,7 +26,7 @@ const FAQS: FAQ[] = [
   {
     category: 'Empezar',
     q: '¿Cómo invito a mi cajero o staff?',
-    a: 'Ve a Empleados → "Invitar empleado". Generamos una contraseña temporal. Puedes mandársela por WhatsApp.',
+    a: 'Ve a Equipo de trabajo → "Invitar al equipo". Generamos una contraseña temporal. Puedes mandársela por WhatsApp.',
     href: '/app/staff',
   },
   {

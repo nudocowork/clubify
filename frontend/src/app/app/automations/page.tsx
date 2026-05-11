@@ -235,7 +235,7 @@ export default function AutomationsPage() {
                 description: '',
                 trigger: { type: 'ORDER_CONFIRMED' },
                 conditions: [],
-                actions: [{ type: 'SEND_WHATSAPP_LINK', body: '' }],
+                actions: [{ type: 'SEND_PUSH', title: '', body: '' }],
                 isActive: true,
               });
             }}
@@ -512,18 +512,9 @@ function RuleDrawer({
                   value={a.type}
                   onChange={(e) => updateAction(i, { type: e.target.value })}
                 >
-                  <option value="SEND_WHATSAPP_LINK">Enviar WhatsApp (link)</option>
                   <option value="SEND_PUSH">Enviar push a Wallet</option>
                   <option value="ADD_STAMPS">Sumar sellos</option>
                 </select>
-                {a.type === 'SEND_WHATSAPP_LINK' && (
-                  <textarea
-                    className="input"
-                    placeholder="Mensaje. Variables: {{nombre}}, {{order_code}}"
-                    value={a.body ?? ''}
-                    onChange={(e) => updateAction(i, { body: e.target.value })}
-                  />
-                )}
                 {a.type === 'SEND_PUSH' && (
                   <>
                     <input
@@ -558,7 +549,7 @@ function RuleDrawer({
               onClick={() =>
                 update('actions', [
                   ...(form.actions ?? []),
-                  { type: 'SEND_WHATSAPP_LINK', body: '' },
+                  { type: 'SEND_PUSH', title: '', body: '' },
                 ])
               }
             >
