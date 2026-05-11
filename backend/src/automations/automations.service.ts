@@ -335,11 +335,24 @@ export class AutomationsService {
         AND EXTRACT(DAY FROM "birthday") = ${day}
     `;
     this.logger.log(`cronBirthday: ${customers.length} cumpleañeros hoy`);
+
+    // Cache businessName por tenant para evitar N queries
+    const brandCache = new Map<string, string>();
     for (const c of customers) {
+      let brand = brandCache.get(c.tenantId);
+      if (brand === undefined) {
+        const t = await this.prisma.tenant.findUnique({
+          where: { id: c.tenantId },
+          select: { brandName: true },
+        });
+        brand = t?.brandName ?? 'nuestro local';
+        brandCache.set(c.tenantId, brand);
+      }
       await this.emit('BIRTHDAY', {
         tenantId: c.tenantId,
         customerId: c.id,
         customerName: c.fullName,
+        businessName: brand,
       }).catch(() => null);
     }
   }
@@ -470,15 +483,15 @@ export const AUTOMATION_TEMPLATES: Array<{
   {
     id: 'birthday',
     name: 'Saludo de cumpleaños',
-    description: 'Saluda automáticamente al cliente el día de su cumpleaños.',
+    description: 'Push automático al cliente el día de su cumpleaños con un mensaje personalizado.',
     emoji: '🎂',
     category: 'ocasion',
     trigger: { type: 'BIRTHDAY' },
     actions: [
       {
         type: 'SEND_PUSH',
-        title: '🎂 ¡Feliz cumpleaños {{customerName}}!',
-        body: 'Te esperamos esta semana con un regalo especial. ¡Que la pases increíble!',
+        title: '🎉 Feliz cumpleaños {{customerName}}',
+        body: 'Ven a {{businessName}}, tenemos un obsequio para ti 🎁',
       },
     ],
   },

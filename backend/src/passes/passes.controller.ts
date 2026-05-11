@@ -18,6 +18,9 @@ class EnrollBody {
   @IsString() @MinLength(2) @MaxLength(80) fullName!: string;
   @IsString() @MinLength(8) @MaxLength(20) phone!: string;
   @IsOptional() @IsEmail() email?: string;
+  // Cumpleaños opcional. Solo se usa el día/mes (el año es ficticio).
+  // Formato YYYY-MM-DD para que Prisma lo acepte como @db.Date.
+  @IsOptional() @IsString() birthday?: string;
   // Si vino el cliente vía un link UTM (/c/u/{slug}), aplicamos el bonus
   // de bienvenida configurado por el dueño.
   @IsOptional() @IsString() utmSlug?: string;

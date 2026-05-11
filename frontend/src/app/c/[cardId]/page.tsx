@@ -68,6 +68,8 @@ export default function EnrollPage() {
   const [phone, setPhone] = useState('');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
+  const [bdayDay, setBdayDay] = useState<string>('');
+  const [bdayMonth, setBdayMonth] = useState<string>('');
   const [accept, setAccept] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -104,6 +106,15 @@ export default function EnrollPage() {
         ? new URLSearchParams(window.location.search).get('utm') ?? undefined
         : undefined;
     try {
+      // Birthday: usamos año "ficticio" 2000 para tener una fecha completa
+      // (Customer.birthday es @db.Date). El año NO se usa, solo día/mes —
+      // el cron BIRTHDAY filtra por EXTRACT(MONTH/DAY FROM birthday).
+      let birthday: string | undefined;
+      if (bdayDay && bdayMonth) {
+        const dd = String(bdayDay).padStart(2, '0');
+        const mm = String(bdayMonth).padStart(2, '0');
+        birthday = `2000-${mm}-${dd}`;
+      }
       const res = await fetch(`${API}/api/passes/enroll/${cardId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -111,6 +122,7 @@ export default function EnrollPage() {
           fullName: fullName.trim(),
           email: email.trim() || undefined,
           phone: phoneFull,
+          birthday,
           utmSlug,
         }),
       });
@@ -262,6 +274,52 @@ export default function EnrollPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email"
               />
+            </div>
+
+            <div>
+              <label className="label">🎂 Tu cumpleaños (opcional)</label>
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  className="input"
+                  value={bdayDay}
+                  onChange={(e) => setBdayDay(e.target.value)}
+                >
+                  <option value="">Día</option>
+                  {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="input"
+                  value={bdayMonth}
+                  onChange={(e) => setBdayMonth(e.target.value)}
+                >
+                  <option value="">Mes</option>
+                  {[
+                    'Enero',
+                    'Febrero',
+                    'Marzo',
+                    'Abril',
+                    'Mayo',
+                    'Junio',
+                    'Julio',
+                    'Agosto',
+                    'Septiembre',
+                    'Octubre',
+                    'Noviembre',
+                    'Diciembre',
+                  ].map((m, i) => (
+                    <option key={m} value={i + 1}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="text-[11px] text-mute mt-1">
+                Te enviamos un regalo el día de tu cumple 🎁
+              </div>
             </div>
 
             <label className="flex items-start gap-2 text-xs text-mute pt-1">

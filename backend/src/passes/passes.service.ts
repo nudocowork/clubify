@@ -158,7 +158,13 @@ export class PassesService {
    */
   async enrollPublic(
     cardId: string,
-    dto: { fullName: string; email?: string; phone: string; utmSlug?: string },
+    dto: {
+      fullName: string;
+      email?: string;
+      phone: string;
+      birthday?: string;
+      utmSlug?: string;
+    },
   ) {
     const card = await this.prisma.card.findUnique({
       where: { id: cardId },
@@ -182,6 +188,12 @@ export class PassesService {
         where: { tenantId_phone: { tenantId: card.tenantId, phone: phoneNorm } },
       })
       .catch(() => null);
+    // Birthday: aceptamos YYYY-MM-DD. El año es ficticio (2000), solo
+    // usamos día/mes para el cron BIRTHDAY que filtra por extract().
+    const birthdayDate = dto.birthday ? new Date(dto.birthday) : null;
+    const validBday =
+      birthdayDate && !Number.isNaN(birthdayDate.getTime()) ? birthdayDate : null;
+
     if (!customer) {
       customer = await this.prisma.customer.create({
         data: {
@@ -189,18 +201,22 @@ export class PassesService {
           fullName: dto.fullName.trim(),
           phone: phoneNorm,
           email: email ?? undefined,
+          birthday: validBday ?? undefined,
         },
       });
     } else if (
       customer.fullName !== dto.fullName.trim() ||
-      (email && !customer.email)
+      (email && !customer.email) ||
+      (validBday && !customer.birthday)
     ) {
-      // Actualizar nombre si cambió, y email si lo deja por primera vez
+      // Actualizar nombre si cambió, email si lo deja por primera vez,
+      // birthday si lo deja por primera vez (no sobreescribe si ya estaba).
       customer = await this.prisma.customer.update({
         where: { id: customer.id },
         data: {
           fullName: dto.fullName.trim(),
           email: email ?? customer.email,
+          birthday: validBday ?? customer.birthday,
         },
       });
     }
