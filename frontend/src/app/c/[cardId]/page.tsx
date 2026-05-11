@@ -155,9 +155,9 @@ export default function EnrollPage() {
       <main className="min-h-screen bg-bg flex items-center justify-center px-5">
         <div className="card card-pad text-center max-w-sm animate-in fade-in slide-in-from-bottom-2 duration-300">
           <div className="text-5xl mb-3">😞</div>
-          <h1 className="text-xl font-bold">{tt('storefront.unavailable_title')}</h1>
+          <h1 className="text-xl font-bold">{tt('card.unavailable_title')}</h1>
           <p className="text-mute text-sm mt-2">
-            {tt('storefront.unavailable_msg')}
+            {tt('card.unavailable_msg')}
           </p>
         </div>
         <LanguageSwitcher />

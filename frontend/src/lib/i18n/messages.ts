@@ -101,6 +101,9 @@ export const messages = {
     'card.submitting': 'Creando tu tarjeta…',
     'card.success_title': '¡Listo! Tu tarjeta ya está activa',
     'card.success_sub': 'Mostrala en cada compra para acumular',
+    'card.unavailable_title': 'Tarjeta no disponible',
+    'card.unavailable_msg':
+      'Es posible que el negocio la haya pausado o que el link sea incorrecto. Pedile al negocio uno actualizado.',
 
     // Wallet view (/w/[passId])
     'wallet.add_apple': 'Añadir a Apple Wallet',
@@ -237,6 +240,9 @@ export const messages = {
     'card.submitting': 'Creating your card…',
     'card.success_title': "All set! Your card is active",
     'card.success_sub': 'Show it at every visit to earn',
+    'card.unavailable_title': 'Card unavailable',
+    'card.unavailable_msg':
+      'The business may have paused this card or the link may be wrong. Ask the business for an updated one.',
 
     // Wallet view
     'wallet.add_apple': 'Add to Apple Wallet',
@@ -373,6 +379,9 @@ export const messages = {
     'card.submitting': 'Criando seu cartão…',
     'card.success_title': 'Pronto! Seu cartão está ativo',
     'card.success_sub': 'Mostre em cada visita para acumular',
+    'card.unavailable_title': 'Cartão indisponível',
+    'card.unavailable_msg':
+      'O negócio pode ter pausado este cartão ou o link pode estar errado. Peça um novo ao negócio.',
 
     // Wallet view
     'wallet.add_apple': 'Adicionar à Apple Wallet',

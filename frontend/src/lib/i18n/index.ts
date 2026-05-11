@@ -42,17 +42,35 @@ function detectInitial(): Locale {
   return 'es';
 }
 
-let _currentLocale: Locale | null = null;
+let _detected: Locale | null = null;
+let _hydrated = false;
 const listeners = new Set<(l: Locale) => void>();
 
+/**
+ * Devuelve el locale activo. Antes de hidratar (en SSR y primer render del
+ * cliente) siempre devuelve 'es' para evitar hydration mismatch. Después de
+ * hidratar (cuando algún useT/useLocale corrió su useEffect) devuelve el
+ * locale detectado o el override guardado.
+ */
 export function getLocale(): Locale {
-  if (_currentLocale) return _currentLocale;
-  _currentLocale = detectInitial();
-  return _currentLocale;
+  if (!_hydrated) return 'es';
+  if (_detected) return _detected;
+  _detected = detectInitial();
+  return _detected;
+}
+
+function markHydrated() {
+  if (_hydrated) return;
+  _hydrated = true;
+  if (!_detected) _detected = detectInitial();
+  if (_detected !== 'es') {
+    listeners.forEach((fn) => fn(_detected!));
+  }
 }
 
 export function setLocale(l: Locale) {
-  _currentLocale = l;
+  _detected = l;
+  _hydrated = true;
   try {
     localStorage.setItem(STORAGE_KEY, l);
   } catch {}
@@ -79,14 +97,15 @@ export function t(
 
 /**
  * Hook que devuelve la función t() y re-renderiza al cambiar idioma.
- * Pensado para componentes 'use client'.
+ * En primer render devuelve español (matchea SSR). En el useEffect marca
+ * hydrated → si el detect difiere de 'es', dispara re-render.
  */
 export function useT() {
   const [, force] = useState(0);
   useEffect(() => {
     const fn = () => force((x) => x + 1);
     listeners.add(fn);
-    // Si el SSR pintó con un default y el cliente detecta otro, sincronizamos
+    markHydrated();
     if (typeof document !== 'undefined') {
       document.documentElement.lang = getLocale();
     }
@@ -97,10 +116,11 @@ export function useT() {
   return t;
 }
 
-/** Hook que devuelve [locale, setLocale]. */
+/** Hook que devuelve [locale, setLocale]. Inicia en 'es' para SSR. */
 export function useLocale(): [Locale, (l: Locale) => void] {
-  const [loc, setLoc] = useState<Locale>(() => getLocale());
+  const [loc, setLoc] = useState<Locale>('es');
   useEffect(() => {
+    markHydrated();
     setLoc(getLocale());
     const fn = (l: Locale) => setLoc(l);
     listeners.add(fn);

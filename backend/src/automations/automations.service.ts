@@ -225,11 +225,16 @@ export class AutomationsService {
         break;
       }
       case 'SEND_PUSH': {
+        // FIX: antes de Fase C+5, las plantillas con {{customerName}},
+        // {{businessName}}, {{cardName}}, {{rewardText}}, etc. se guardaban
+        // verbatim — el cliente recibía el push con `{{customerName}}` literal.
+        const title = await this.renderTemplate(action.title, payload);
+        const body = await this.renderTemplate(action.body, payload);
         await this.prisma.notification.create({
           data: {
             tenantId,
-            title: action.title,
-            body: action.body,
+            title,
+            body,
             triggerType: 'AUTOMATION',
             sentAt: new Date(),
             stats: { targeted: customerId ? 1 : 0 },
@@ -276,16 +281,20 @@ export class AutomationsService {
   }
 
   private async renderTemplate(body: string, payload: any) {
-    // Reemplaza {{var}} con payload.var. Si pide {{customer.fullName}}, busca customer.
+    if (!body) return body;
     let out = body;
 
-    if (payload.customerId) {
+    // Lookups async desde DB (legacy {{nombre}} y {{order_*}})
+    if (payload.customerId && /\{\{(nombre|customer\.fullName)\}\}/.test(out)) {
       const c = await this.prisma.customer.findUnique({
         where: { id: payload.customerId },
       });
-      out = out.replace(/\{\{nombre\}\}|\{\{customer\.fullName\}\}/g, c?.fullName ?? '');
+      out = out.replace(
+        /\{\{nombre\}\}|\{\{customer\.fullName\}\}/g,
+        c?.fullName ?? '',
+      );
     }
-    if (payload.orderId) {
+    if (payload.orderId && /\{\{order_(code|total)\}\}/.test(out)) {
       const o = await this.prisma.order.findUnique({
         where: { id: payload.orderId },
       });
@@ -293,6 +302,18 @@ export class AutomationsService {
         .replace(/\{\{order_code\}\}/g, o?.code ?? '')
         .replace(/\{\{order_total\}\}/g, String(Number(o?.total ?? 0)));
     }
+
+    // Sustitución genérica de cualquier {{key}} o {{a.b}} contra el payload.
+    // Cubre {{customerName}}, {{businessName}}, {{cardName}}, {{remaining}},
+    // {{rewardText}} y cualquier campo nuevo que se agregue al payload sin
+    // tener que mantener una whitelist.
+    out = out.replace(/\{\{([\w.]+)\}\}/g, (raw, key: string) => {
+      const value = key
+        .split('.')
+        .reduce<any>((obj, k) => (obj == null ? undefined : obj[k]), payload);
+      return value === undefined || value === null ? raw : String(value);
+    });
+
     return out;
   }
 
