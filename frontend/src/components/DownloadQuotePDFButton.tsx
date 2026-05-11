@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { pdf } from '@react-pdf/renderer';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
+import { api } from '@/lib/api';
 import { QuotePDF, type QuotePDFProps } from '@/components/QuotePDF';
 
 type Props = QuotePDFProps & {
@@ -17,6 +18,12 @@ type Props = QuotePDFProps & {
   className?: string;
   /** Si true, renderiza solo el ícono (uso en tablas). */
   iconOnly?: boolean;
+  /** Si se pasa, después de generar el PDF se hace POST a
+   * /admin/quotes/:quoteId/pdf-downloaded para bumpear el contador
+   * (fire-and-forget — errores se loggean pero no rompen UX). */
+  quoteId?: string;
+  /** Callback opcional para que el caller refresque su UI tras el bump. */
+  onDownloaded?: () => void;
 };
 
 function slugify(s: string) {
@@ -32,6 +39,8 @@ export function DownloadQuotePDFButton({
   label = 'Descargar PDF',
   className = 'btn-primary',
   iconOnly = false,
+  quoteId,
+  onDownloaded,
   ...quoteProps
 }: Props) {
   const [busy, setBusy] = useState(false);
@@ -51,6 +60,12 @@ export function DownloadQuotePDFButton({
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       toast('PDF generado', 'success');
+      if (quoteId) {
+        // fire-and-forget — si falla, no rompemos la UX del usuario
+        api(`/admin/quotes/${quoteId}/pdf-downloaded`, { method: 'POST' })
+          .then(() => onDownloaded?.())
+          .catch((err) => console.warn('pdf bump failed', err));
+      }
     } catch (e: any) {
       console.error(e);
       toast(e?.message || 'No se pudo generar el PDF', 'error');

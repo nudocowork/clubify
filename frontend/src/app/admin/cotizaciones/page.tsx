@@ -26,6 +26,8 @@ type Quote = {
   advisorName: string;
   priceSnapshot: string; // viene Decimal serializado como string
   currencySnapshot: string;
+  pdfDownloadCount?: number;
+  lastPdfDownloadAt?: string | null;
   createdAt: string;
 };
 
@@ -85,16 +87,29 @@ export default function CotizacionesPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [filterPlan, setFilterPlan] = useState<'ALL' | Plan>('ALL');
+  const [filterTemplate, setFilterTemplate] = useState<string>('');
+  const [filterAdvisor, setFilterAdvisor] = useState<string>('');
+  const [filterFrom, setFilterFrom] = useState<string>('');
+  const [filterTo, setFilterTo] = useState<string>('');
   const [search, setSearch] = useState('');
+  const [exporting, setExporting] = useState(false);
+
+  function buildParams(): URLSearchParams {
+    const p = new URLSearchParams();
+    if (filterPlan !== 'ALL') p.set('plan', filterPlan);
+    if (filterTemplate) p.set('templateSlug', filterTemplate);
+    if (filterAdvisor) p.set('advisorId', filterAdvisor);
+    if (filterFrom) p.set('from', filterFrom);
+    if (filterTo) p.set('to', filterTo);
+    if (search.trim()) p.set('search', search.trim());
+    return p;
+  }
 
   async function load() {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (filterPlan !== 'ALL') params.set('plan', filterPlan);
-      if (search.trim()) params.set('search', search.trim());
       const [resp, st] = await Promise.all([
-        api<ListResp>(`/admin/quotes?${params.toString()}`),
+        api<ListResp>(`/admin/quotes?${buildParams().toString()}`),
         api<Stats>('/admin/quotes/stats'),
       ]);
       setList(resp.items);
@@ -110,7 +125,92 @@ export default function CotizacionesPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterPlan]);
+  }, [filterPlan, filterTemplate, filterAdvisor, filterFrom, filterTo]);
+
+  function clearFilters() {
+    setFilterPlan('ALL');
+    setFilterTemplate('');
+    setFilterAdvisor('');
+    setFilterFrom('');
+    setFilterTo('');
+    setSearch('');
+  }
+
+  const anyFilterActive =
+    filterPlan !== 'ALL' ||
+    !!filterTemplate ||
+    !!filterAdvisor ||
+    !!filterFrom ||
+    !!filterTo ||
+    !!search.trim();
+
+  async function exportCSV() {
+    setExporting(true);
+    try {
+      // Pedimos hasta 500 filas con los mismos filtros activos
+      const p = buildParams();
+      p.set('take', '500');
+      const resp = await api<ListResp>(`/admin/quotes?${p.toString()}`);
+      const rows = resp.items;
+      if (!rows.length) {
+        toast('No hay filas para exportar', 'error');
+        return;
+      }
+      const headers = [
+        'fecha',
+        'cliente',
+        'negocio',
+        'telefono',
+        'email',
+        'plan',
+        'precio',
+        'moneda',
+        'plantilla',
+        'asesor',
+      ];
+      const esc = (v: string | null | undefined) => {
+        const s = String(v ?? '');
+        if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+        return s;
+      };
+      const body = rows
+        .map((r) =>
+          [
+            new Date(r.createdAt).toISOString().slice(0, 10),
+            r.customerName,
+            r.businessName,
+            r.phone,
+            r.email,
+            r.plan,
+            r.priceSnapshot,
+            r.currencySnapshot,
+            r.templateSlug ?? '',
+            r.advisorName,
+          ]
+            .map(esc)
+            .join(','),
+        )
+        .join('\n');
+      const csv = `${headers.join(',')}\n${body}\n`;
+      const blob = new Blob(['﻿' + csv], {
+        type: 'text/csv;charset=utf-8',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const stamp = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `clubify-cotizaciones-${stamp}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast(`Exportadas ${rows.length} cotizaciones`, 'success');
+    } catch (e: any) {
+      toast(e.message || 'No se pudo exportar', 'error');
+    } finally {
+      setExporting(false);
+    }
+  }
 
   // Buscar con debounce sutil al apretar Enter o al perder foco
   function onSearchKey(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -158,6 +258,16 @@ export default function CotizacionesPage() {
           <span className="page-crumb">/ {total} registros</span>
         </h1>
         <div className="flex gap-2 flex-wrap">
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={exportCSV}
+            disabled={exporting || (loading && !list.length)}
+            title="Exportar CSV de los resultados visibles (máx 500)"
+          >
+            <Icon name="out" />
+            {exporting ? 'Exportando…' : 'Exportar CSV'}
+          </button>
           <Link className="btn-secondary" href="/admin/cotizaciones/precios">
             <Icon name="gear" /> Editar precios
           </Link>
@@ -382,31 +492,93 @@ export default function CotizacionesPage() {
       )}
 
       {/* Filtros */}
-      <div className="mb-3.5 flex flex-wrap gap-3 items-center">
-        <div className="tabs">
-          {(['ALL', 'ELITE', 'PRO'] as const).map((f) => (
+      <div className="mb-3.5 space-y-2.5">
+        <div className="flex flex-wrap gap-3 items-center">
+          <div className="tabs">
+            {(['ALL', 'ELITE', 'PRO'] as const).map((f) => (
+              <button
+                key={f}
+                onClick={() => setFilterPlan(f)}
+                className={`tab ${filterPlan === f ? 'tab-active' : ''}`}
+              >
+                {f === 'ALL' ? 'Todos' : f === 'ELITE' ? 'Elite' : 'Pro'}
+              </button>
+            ))}
+          </div>
+          <div className="relative flex-1 min-w-[220px]">
+            <input
+              type="text"
+              className="input pl-9"
+              placeholder="Buscar cliente, negocio, email…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={onSearchKey}
+              onBlur={() => load()}
+            />
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-mute">
+              <Icon name="search" />
+            </span>
+          </div>
+          {anyFilterActive && (
             <button
-              key={f}
-              onClick={() => setFilterPlan(f)}
-              className={`tab ${filterPlan === f ? 'tab-active' : ''}`}
+              type="button"
+              className="btn-ghost text-mute text-xs"
+              onClick={clearFilters}
+              title="Limpiar todos los filtros"
             >
-              {f === 'ALL' ? 'Todos' : f === 'ELITE' ? 'Elite' : 'Pro'}
+              Limpiar filtros
             </button>
-          ))}
+          )}
         </div>
-        <div className="relative flex-1 min-w-[220px]">
-          <input
-            type="text"
-            className="input pl-9"
-            placeholder="Buscar cliente, negocio, email…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={onSearchKey}
-            onBlur={() => load()}
-          />
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-mute">
-            <Icon name="search" />
-          </span>
+
+        <div className="flex flex-wrap gap-2 items-center text-xs">
+          <select
+            className="input py-1.5 text-xs w-auto"
+            value={filterTemplate}
+            onChange={(e) => setFilterTemplate(e.target.value)}
+            title="Filtrar por plantilla"
+          >
+            <option value="">Todas las plantillas</option>
+            {QUOTE_TEMPLATES.map((t) => (
+              <option key={t.slug} value={t.slug}>
+                {t.emoji} {t.name}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className="input py-1.5 text-xs w-auto"
+            value={filterAdvisor}
+            onChange={(e) => setFilterAdvisor(e.target.value)}
+            disabled={!stats?.byAdvisor.length}
+            title="Filtrar por asesor"
+          >
+            <option value="">Todos los asesores</option>
+            {stats?.byAdvisor.map((a) => (
+              <option key={a.advisorId ?? 'none'} value={a.advisorId ?? ''}>
+                {a.advisorName} ({a.count})
+              </option>
+            ))}
+          </select>
+
+          <div className="flex items-center gap-1 text-mute">
+            <span>Desde</span>
+            <input
+              type="date"
+              className="input py-1.5 text-xs w-auto"
+              value={filterFrom}
+              onChange={(e) => setFilterFrom(e.target.value)}
+              max={filterTo || undefined}
+            />
+            <span>hasta</span>
+            <input
+              type="date"
+              className="input py-1.5 text-xs w-auto"
+              value={filterTo}
+              onChange={(e) => setFilterTo(e.target.value)}
+              min={filterFrom || undefined}
+            />
+          </div>
         </div>
       </div>
 
@@ -518,10 +690,20 @@ export default function CotizacionesPage() {
                       <td className="px-4 py-3.5 text-sm">{q.advisorName}</td>
                       <td className="px-4 py-3.5 text-sm text-mute">
                         {fmtDate(q.createdAt)}
+                        {q.pdfDownloadCount ? (
+                          <div
+                            className="text-[11px] text-brand-700 font-semibold mt-0.5"
+                            title="Veces que se descargó el PDF"
+                          >
+                            ↓ {q.pdfDownloadCount}
+                          </div>
+                        ) : null}
                       </td>
                       <td className="px-4 py-3.5 text-right whitespace-nowrap">
                         <DownloadQuotePDFButton
                           iconOnly
+                          quoteId={q.id}
+                          onDownloaded={load}
                           customerName={q.customerName}
                           businessName={q.businessName}
                           phone={q.phone}

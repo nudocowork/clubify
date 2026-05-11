@@ -17,6 +17,10 @@ export type ListQuotesFilters = {
   templateSlug?: string;
   advisorId?: string;
   search?: string;
+  /** ISO date — inclusive desde el inicio del día. */
+  from?: string;
+  /** ISO date — exclusive (filter < end-of-day del valor). */
+  to?: string;
   take?: number;
   skip?: number;
 };
@@ -73,7 +77,27 @@ export class QuotesService {
         ];
       }
     }
-    const take = Math.min(Math.max(filters.take ?? 50, 1), 200);
+    if (filters.from || filters.to) {
+      const range: { gte?: Date; lt?: Date } = {};
+      if (filters.from) {
+        const d = new Date(filters.from);
+        if (!Number.isNaN(d.getTime())) {
+          d.setHours(0, 0, 0, 0);
+          range.gte = d;
+        }
+      }
+      if (filters.to) {
+        const d = new Date(filters.to);
+        if (!Number.isNaN(d.getTime())) {
+          // end-of-day exclusive
+          d.setHours(0, 0, 0, 0);
+          d.setDate(d.getDate() + 1);
+          range.lt = d;
+        }
+      }
+      if (range.gte || range.lt) where.createdAt = range;
+    }
+    const take = Math.min(Math.max(filters.take ?? 50, 1), 500);
     const skip = Math.max(filters.skip ?? 0, 0);
     const [items, total] = await Promise.all([
       this.prisma.quote.findMany({
@@ -97,6 +121,21 @@ export class QuotesService {
     await this.getById(id);
     await this.prisma.quote.delete({ where: { id } });
     return { ok: true };
+  }
+
+  /** Incrementa el contador de descargas del PDF. Lo llaman tanto el panel
+   * del super admin como la vista pública /q/<token> — el llamador resuelve
+   * el id antes (en público se hace findUnique by publicToken). */
+  async bumpPdfDownload(id: string) {
+    const q = await this.prisma.quote.update({
+      where: { id },
+      data: {
+        pdfDownloadCount: { increment: 1 },
+        lastPdfDownloadAt: new Date(),
+      },
+      select: { id: true, pdfDownloadCount: true, lastPdfDownloadAt: true },
+    });
+    return q;
   }
 
   /**

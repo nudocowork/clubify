@@ -8,6 +8,7 @@ import {
   Query,
 } from '@nestjs/common';
 import {
+  IsDateString,
   IsEmail,
   IsEnum,
   IsInt,
@@ -41,7 +42,9 @@ class ListQuotesQuery {
   @IsOptional() @IsString() @MaxLength(60) templateSlug?: string;
   @IsOptional() @IsString() advisorId?: string;
   @IsOptional() @IsString() @MaxLength(120) search?: string;
-  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(200) take?: number;
+  @IsOptional() @IsDateString() from?: string;
+  @IsOptional() @IsDateString() to?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(500) take?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) skip?: number;
 }
 
@@ -73,5 +76,13 @@ export class QuotesController {
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.svc.remove(id);
+  }
+
+  /** Marcar que el PDF de esta cotización fue descargado. Proxy de
+   * "interés del cliente" — el frontend lo llama fire-and-forget después
+   * de generar el blob. */
+  @Post(':id/pdf-downloaded')
+  bumpPdfDownload(@Param('id') id: string) {
+    return this.svc.bumpPdfDownload(id);
   }
 }

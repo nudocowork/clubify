@@ -1523,6 +1523,13 @@ model Quote {
   // Snapshot del precio del plan cotizado en la moneda elegida.
   priceSnapshot    Decimal @db.Decimal(10, 2)
   currencySnapshot String  @default("USD")
+  // Contador de veces que el PDF fue descargado desde el panel o desde la
+  // vista pública /q/<token>. Útil para saber qué cotizaciones el cliente
+  // realmente abrió/guardó (proxy de "interés"). Se incrementa via
+  // POST /admin/quotes/:id/pdf-downloaded (super admin) o
+  // POST /api/public/quote/:token/pdf-downloaded (cliente).
+  pdfDownloadCount Int       @default(0)
+  lastPdfDownloadAt DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

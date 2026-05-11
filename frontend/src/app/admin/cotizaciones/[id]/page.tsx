@@ -26,6 +26,8 @@ type Quote = {
   advisorName: string;
   priceSnapshot: string;
   currencySnapshot: string;
+  pdfDownloadCount?: number;
+  lastPdfDownloadAt?: string | null;
   createdAt: string;
 };
 
@@ -99,13 +101,41 @@ export default function CotizacionDetallePage() {
     getQuoteTemplateBySlug(quote.templateSlug) ?? FALLBACK_TEMPLATE;
   const price = Number(quote.priceSnapshot);
 
+  const downloadCount = quote.pdfDownloadCount ?? 0;
+  const downloadButtonProps = {
+    quoteId: quote.id,
+    onDownloaded: load,
+    customerName: quote.customerName,
+    businessName: quote.businessName,
+    phone: quote.phone,
+    email: quote.email,
+    plan: quote.plan,
+    template,
+    price,
+    currency: quote.currencySnapshot,
+    advisorName: quote.advisorName,
+    date: new Date(quote.createdAt),
+  };
+
   return (
-    <div>
+    <div className="pb-20 lg:pb-0">
       <div className="page-head">
         <h1 className="page-title">
           {quote.businessName}{' '}
           <span className="page-crumb">
             / Cotización · {quote.plan === 'PRO' ? 'Pro' : 'Elite'}
+            {downloadCount > 0 && (
+              <span
+                className="ml-2 text-brand-700 font-semibold"
+                title={
+                  quote.lastPdfDownloadAt
+                    ? `Última descarga: ${new Date(quote.lastPdfDownloadAt).toLocaleString('es-CO')}`
+                    : undefined
+                }
+              >
+                ↓ {downloadCount}
+              </span>
+            )}
           </span>
         </h1>
         <div className="flex gap-2 flex-wrap">
@@ -125,18 +155,10 @@ export default function CotizacionDetallePage() {
           >
             <Icon name="trash" /> Eliminar
           </button>
-          <DownloadQuotePDFButton
-            customerName={quote.customerName}
-            businessName={quote.businessName}
-            phone={quote.phone}
-            email={quote.email}
-            plan={quote.plan}
-            template={template}
-            price={price}
-            currency={quote.currencySnapshot}
-            advisorName={quote.advisorName}
-            date={new Date(quote.createdAt)}
-          />
+          {/* En desktop el botón vive en el header. En mobile aparece sticky abajo (ver más abajo). */}
+          <div className="hidden lg:inline-flex">
+            <DownloadQuotePDFButton {...downloadButtonProps} />
+          </div>
         </div>
       </div>
 
@@ -152,6 +174,18 @@ export default function CotizacionDetallePage() {
         advisorName={quote.advisorName}
         date={new Date(quote.createdAt)}
       />
+
+      {/* Sticky bottom bar mobile — el botón principal queda siempre alcanzable
+          al scrollear el preview largo */}
+      <div
+        className="fixed bottom-0 left-0 right-0 z-30 lg:hidden bg-surface border-t border-line px-4 py-3 shadow-md2"
+        style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 12px)' }}
+      >
+        <DownloadQuotePDFButton
+          {...downloadButtonProps}
+          className="btn-primary w-full justify-center"
+        />
+      </div>
     </div>
   );
 }

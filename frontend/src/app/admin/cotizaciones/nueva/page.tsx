@@ -57,7 +57,18 @@ export default function NuevaCotizacionPage() {
       .catch((e) => toast(e.message || 'No se pudo cargar precios', 'error'));
   }, []);
 
-  const step1Valid = customerName.trim().length > 0 && businessName.trim().length > 0;
+  // Validaciones suaves: el email solo se valida si está cargado, igual el
+  // teléfono. Cliente y negocio son los únicos obligatorios — el resto del
+  // contacto puede llenarse después o ir directo al WhatsApp.
+  const emailValid =
+    !email.trim() || /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(email.trim());
+  const phoneValid = !phone.trim() || /^[\d+()\-.\s]{6,}$/.test(phone.trim());
+
+  const step1Valid =
+    customerName.trim().length > 0 &&
+    businessName.trim().length > 0 &&
+    emailValid &&
+    phoneValid;
   const step2Valid = !!template;
   const step3Valid = !!plan;
 
@@ -185,21 +196,33 @@ export default function NuevaCotizacionPage() {
             <div>
               <label className="label">Teléfono / WhatsApp</label>
               <input
-                className="input"
+                className={`input ${!phoneValid ? 'border-bad' : ''}`}
                 placeholder="+57 300 000 0000"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
+                aria-invalid={!phoneValid}
               />
+              {!phoneValid && (
+                <p className="text-xs text-bad mt-1">
+                  Formato no válido (mínimo 6 dígitos, permite + - ( ) y espacios).
+                </p>
+              )}
             </div>
             <div>
               <label className="label">Email</label>
               <input
-                className="input"
+                className={`input ${!emailValid ? 'border-bad' : ''}`}
                 type="email"
                 placeholder="cliente@negocio.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                aria-invalid={!emailValid}
               />
+              {!emailValid && (
+                <p className="text-xs text-bad mt-1">
+                  Email no válido. Dejá vacío si no querés cargarlo.
+                </p>
+              )}
             </div>
           </div>
         </div>
