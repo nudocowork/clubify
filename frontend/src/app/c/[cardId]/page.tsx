@@ -165,14 +165,14 @@ export default function EnrollPage() {
     );
   }
 
-  const primary = card.primaryColor || card.tenant.primaryColor || '#22C55E';
+  const primary = card.primaryColor || card.tenant.primaryColor || '#6366F1';
 
   return (
     <main className="min-h-screen bg-bg pb-12">
       <div
         className="px-5 pt-10 pb-16 text-white"
         style={{
-          background: `linear-gradient(135deg, ${primary}, ${card.secondaryColor || '#15803D'})`,
+          background: `linear-gradient(135deg, ${primary}, ${card.secondaryColor || '#A855F7'})`,
         }}
       >
         <div className="max-w-md mx-auto">

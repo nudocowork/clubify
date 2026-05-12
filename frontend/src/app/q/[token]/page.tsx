@@ -74,7 +74,7 @@ export default async function PublicQuotePage({
   const template = quote.templateSlug
     ? QUOTE_TEMPLATES.find((t) => t.slug === quote.templateSlug) ?? null
     : null;
-  const accent = template?.accent ?? '#22C55E';
+  const accent = template?.accent ?? '#6366F1';
   const planLabel = quote.plan === 'ELITE' ? 'Elite' : 'Pro';
   const priceLabel = fmtMoney(quote.priceSnapshot, quote.currencySnapshot);
   // qt = publicToken completo para que el signup pueda atribuir la conversión

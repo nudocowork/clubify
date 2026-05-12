@@ -19,8 +19,8 @@ export default function Onboarding() {
   const [brand, setBrand] = useState({
     brandName: '',
     logoUrl: null as string | null,
-    primaryColor: '#22C55E',
-    secondaryColor: '#15803D',
+    primaryColor: '#6366F1',
+    secondaryColor: '#A855F7',
   });
   const [whatsapp, setWhatsapp] = useState({
     whatsappPhone: '',
@@ -59,8 +59,8 @@ export default function Onboarding() {
       setBrand({
         brandName: t.brandName || '',
         logoUrl: t.logoUrl,
-        primaryColor: t.primaryColor || '#22C55E',
-        secondaryColor: t.secondaryColor || '#15803D',
+        primaryColor: t.primaryColor || '#6366F1',
+        secondaryColor: t.secondaryColor || '#A855F7',
       });
       setWhatsapp({
         whatsappPhone: t.whatsappPhone || '',

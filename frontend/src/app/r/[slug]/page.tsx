@@ -119,7 +119,7 @@ export default function ReviewPage() {
   }
   if (!t) return <div className="p-8 text-mute text-center animate-pulse">{tt('common.loading')}</div>;
 
-  const primary = t.primaryColor || '#22C55E';
+  const primary = t.primaryColor || '#6366F1';
 
   return (
     <div

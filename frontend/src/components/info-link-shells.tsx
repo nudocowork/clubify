@@ -216,7 +216,7 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode }: Shel
   const initial = tenant.brandName[0]?.toUpperCase() ?? '?';
   const heroBg =
     link.heroImageUrl ||
-    `linear-gradient(135deg, ${primary}, ${tenant.secondaryColor || '#15803D'})`;
+    `linear-gradient(135deg, ${primary}, ${tenant.secondaryColor || '#A855F7'})`;
   const galleryShown = (link.gallery ?? []).slice(0, 6);
   const primaryBtn = buttons.find((b) => b.isPrimary) ?? buttons[0];
   const secondaryBtns = buttons.filter((b) => b !== primaryBtn).slice(0, 3);
