@@ -27,6 +27,11 @@ import {
 } from '../common/decorators/current-user.decorator';
 import { SuppliersService } from './suppliers.service';
 import { PurchaseOrdersService } from './purchase-orders.service';
+import { GrowBusinessService } from '../integrations/grow-business.service';
+
+class NotifySupplierBody {
+  @IsString() @MinLength(1) @MaxLength(2000) message!: string;
+}
 
 class SupplierBody {
   @IsString() @MinLength(1) @MaxLength(120) name!: string;
@@ -76,6 +81,7 @@ export class AdminController {
   constructor(
     private suppliers: SuppliersService,
     private purchase: PurchaseOrdersService,
+    private growBusiness: GrowBusinessService,
   ) {}
 
   // ─────────── Suppliers ───────────
@@ -175,5 +181,24 @@ export class AdminController {
   @Roles('TENANT_OWNER')
   setTemplate(@Body() body: TemplateBody) {
     return this.purchase.setTemplate(body.template);
+  }
+
+  /**
+   * Envía un mensaje al proveedor vía Grow Business (SMS). El service
+   * prepone automáticamente "#Switch{N}\n\n" si el tenant tiene
+   * growBusinessSwitchNumber configurado. Si el tenant no está conectado
+   * a Grow Business, devuelve { ok: false } y el frontend cae al fallback
+   * de wa.me link.
+   */
+  @Post('suppliers/:id/notify')
+  @Roles('TENANT_OWNER')
+  async notifySupplier(
+    @CurrentUser() u: AuthUser,
+    @Param('id') supplierId: string,
+    @Body() body: NotifySupplierBody,
+  ) {
+    if (!u.tenantId) throw new ForbiddenException();
+    const supplier = await this.suppliers.get(u.tenantId, supplierId);
+    return this.growBusiness.sendSms(u.tenantId, supplier.phone, body.message);
   }
 }

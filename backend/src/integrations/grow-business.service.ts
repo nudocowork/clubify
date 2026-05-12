@@ -27,6 +27,7 @@ export class GrowBusinessService {
       select: {
         growBusinessLocationId: true,
         growBusinessConnectedAt: true,
+        growBusinessSwitchNumber: true,
       },
     });
     if (!t) throw new NotFoundException('Negocio no encontrado');
@@ -34,10 +35,16 @@ export class GrowBusinessService {
       connected: !!t.growBusinessLocationId,
       locationId: t.growBusinessLocationId,
       connectedAt: t.growBusinessConnectedAt,
+      switchNumber: t.growBusinessSwitchNumber,
     };
   }
 
-  async connect(tenantId: string, locationId: string, apiKey: string) {
+  async connect(
+    tenantId: string,
+    locationId: string,
+    apiKey: string,
+    switchNumber?: number | null,
+  ) {
     if (!locationId?.trim() || !apiKey?.trim()) {
       throw new BadRequestException('Location ID y API key son obligatorios');
     }
@@ -53,10 +60,33 @@ export class GrowBusinessService {
         growBusinessLocationId: locationId.trim(),
         growBusinessApiKey: apiKey.trim(),
         growBusinessConnectedAt: new Date(),
+        // Solo seteamos switch si llegó. Si vino undefined, respetamos
+        // el valor anterior; si llegó null explícito (limpiar), lo
+        // borramos.
+        ...(switchNumber === undefined
+          ? {}
+          : { growBusinessSwitchNumber: switchNumber }),
       },
     });
     this.logger.log(`Conectado tenant=${t.brandName} locationId=${locationId}`);
     return { ok: true, connectedAt: new Date() };
+  }
+
+  /** Actualiza SOLO el switch number, sin tocar locationId/apiKey. */
+  async setSwitchNumber(tenantId: string, switchNumber: number | null) {
+    if (switchNumber !== null && (!Number.isInteger(switchNumber) || switchNumber < 1)) {
+      throw new BadRequestException('Switch number debe ser un entero ≥ 1');
+    }
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true },
+    });
+    if (!t) throw new NotFoundException('Negocio no encontrado');
+    await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: { growBusinessSwitchNumber: switchNumber },
+    });
+    return { ok: true, switchNumber };
   }
 
   async disconnect(tenantId: string) {
@@ -127,11 +157,22 @@ export class GrowBusinessService {
   async sendSms(tenantId: string, toPhone: string, body: string) {
     const creds = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
-      select: { growBusinessLocationId: true, growBusinessApiKey: true },
+      select: {
+        growBusinessLocationId: true,
+        growBusinessApiKey: true,
+        growBusinessSwitchNumber: true,
+      },
     });
     if (!creds?.growBusinessLocationId || !creds.growBusinessApiKey) {
       return { ok: false as const, message: 'Negocio no conectado a Grow Business' };
     }
+    // Si el tenant tiene un switchNumber configurado, lo preponemos al
+    // body para que el workflow de GHL pueda enrutar a su sub-canal.
+    // Formato: "#Switch{N}\n\n{cuerpo}". Si está null, va sin prefijo.
+    const messageBody =
+      creds.growBusinessSwitchNumber != null
+        ? `#Switch${creds.growBusinessSwitchNumber}\n\n${body}`
+        : body;
     try {
       const res = await fetch(`${this.API_BASE}/conversations/messages`, {
         method: 'POST',
@@ -144,7 +185,7 @@ export class GrowBusinessService {
         body: JSON.stringify({
           type: 'SMS',
           locationId: creds.growBusinessLocationId,
-          message: body,
+          message: messageBody,
           toNumber: toPhone,
         }),
       });

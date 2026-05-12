@@ -8,6 +8,7 @@ type Status = {
   connected: boolean;
   locationId: string | null;
   connectedAt: string | null;
+  switchNumber: number | null;
 };
 
 /**
@@ -30,6 +31,7 @@ export function GrowBusinessCard({
   const [locationId, setLocationId] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
+  const [switchNumber, setSwitchNumber] = useState<string>('');
   const [working, setWorking] = useState(false);
 
   async function load() {
@@ -38,6 +40,7 @@ export function GrowBusinessCard({
       const s = await api<Status>(`/admin/tenants/${tenantId}/grow-business`);
       setStatus(s);
       if (s.locationId) setLocationId(s.locationId);
+      setSwitchNumber(s.switchNumber != null ? String(s.switchNumber) : '');
     } catch (e: any) {
       toast(e.message || 'Error cargando estado de Grow Business', 'error');
     } finally {
@@ -53,11 +56,21 @@ export function GrowBusinessCard({
       toast('Location ID y API key son obligatorios', 'error');
       return;
     }
+    const sn = switchNumber.trim();
+    const parsedSwitch = sn ? Number(sn) : undefined;
+    if (parsedSwitch !== undefined && (!Number.isInteger(parsedSwitch) || parsedSwitch < 1)) {
+      toast('El switch debe ser un entero ≥ 1 (o vacío)', 'error');
+      return;
+    }
     setWorking(true);
     try {
       await api(`/admin/tenants/${tenantId}/grow-business`, {
         method: 'POST',
-        body: JSON.stringify({ locationId: locationId.trim(), apiKey: apiKey.trim() }),
+        body: JSON.stringify({
+          locationId: locationId.trim(),
+          apiKey: apiKey.trim(),
+          ...(parsedSwitch !== undefined ? { switchNumber: parsedSwitch } : {}),
+        }),
       });
       toast('Negocio conectado a Grow Business', 'success');
       setApiKey('');
@@ -65,6 +78,34 @@ export function GrowBusinessCard({
       load();
     } catch (e: any) {
       toast(e.message || 'No se pudo conectar', 'error');
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  /** Actualiza solo el switch number — sin re-pedir credenciales. */
+  async function saveSwitch() {
+    const sn = switchNumber.trim();
+    const parsed = sn ? Number(sn) : null;
+    if (parsed !== null && (!Number.isInteger(parsed) || parsed < 1)) {
+      toast('El switch debe ser un entero ≥ 1 (o vacío)', 'error');
+      return;
+    }
+    setWorking(true);
+    try {
+      await api(`/admin/tenants/${tenantId}/grow-business/switch`, {
+        method: 'PATCH',
+        body: JSON.stringify({ switchNumber: parsed }),
+      });
+      toast(
+        parsed != null
+          ? `Switch ${parsed} guardado · cada SMS se prefijará con #Switch${parsed}`
+          : 'Switch removido · los SMS irán sin prefijo',
+        'success',
+      );
+      load();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo guardar el switch', 'error');
     } finally {
       setWorking(false);
     }
@@ -158,6 +199,13 @@ export function GrowBusinessCard({
                 year: 'numeric',
               })}{' '}
               · Location <code className="text-ink">{status.locationId}</code>
+              {status.switchNumber != null && (
+                <>
+                  {' '}
+                  · Prefijo{' '}
+                  <code className="text-ink">#Switch{status.switchNumber}</code>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -185,6 +233,43 @@ export function GrowBusinessCard({
           )}
         </div>
       </div>
+
+      {/* Switch number — visible siempre que esté conectado, sin re-editar
+          credenciales. El admin lo ajusta independiente de locationId/apiKey. */}
+      {connected && !editing && (
+        <div className="mt-4 pt-4 border-t border-line">
+          <label className="label">Número de Switch (workflow GHL)</label>
+          <div className="flex gap-2 items-center">
+            <div className="flex items-center gap-1">
+              <span className="text-mute font-mono text-sm">#Switch</span>
+              <input
+                className="input font-mono text-sm w-[80px]"
+                type="number"
+                min={1}
+                placeholder="—"
+                value={switchNumber}
+                onChange={(e) => setSwitchNumber(e.target.value)}
+              />
+            </div>
+            <button
+              className="btn-ghost text-sm"
+              onClick={saveSwitch}
+              disabled={
+                working ||
+                String(status?.switchNumber ?? '') === switchNumber.trim()
+              }
+            >
+              Guardar switch
+            </button>
+          </div>
+          <div className="text-[11px] text-mute mt-1.5 leading-relaxed">
+            Cada SMS saliente se prefijará con{' '}
+            <code className="text-ink">#Switch{switchNumber || 'N'}</code> +
+            doble salto, lo que permite que el workflow de GHL enrute al
+            sub-canal correcto. Dejá vacío para enviar sin prefijo.
+          </div>
+        </div>
+      )}
 
       {(editing || !connected) && (
         <div className="mt-4 grid gap-3">
@@ -223,6 +308,26 @@ export function GrowBusinessCard({
             <div className="text-[11px] text-mute mt-1">
               Se guarda cifrada en la base de datos. El dueño del negocio NO
               la ve.
+            </div>
+          </div>
+          <div>
+            <label className="label">Número de Switch (opcional)</label>
+            <div className="flex items-center gap-1">
+              <span className="text-mute font-mono text-sm">#Switch</span>
+              <input
+                className="input font-mono text-sm w-[100px]"
+                type="number"
+                min={1}
+                placeholder="1, 2, 3…"
+                value={switchNumber}
+                onChange={(e) => setSwitchNumber(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            <div className="text-[11px] text-mute mt-1">
+              Si lo configurás, los SMS se prefijan con{' '}
+              <code className="text-ink">#Switch{switchNumber || 'N'}</code>{' '}
+              para que el workflow de GHL pueda enrutar.
             </div>
           </div>
           <div className="flex gap-2 justify-end">

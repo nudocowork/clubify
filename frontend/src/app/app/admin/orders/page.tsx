@@ -445,29 +445,96 @@ export default function OrdersGeneratorPage() {
       {/* ──────────── Modal: Proveedores ──────────── */}
       {showSupplier && (
         <Modal title="Proveedores" onClose={() => setShowSupplier(false)} maxW="lg">
-          <form onSubmit={saveSupplier} className="grid grid-cols-2 gap-3 mb-4">
-            <input className="input" placeholder="Nombre" value={supplierForm.name} onChange={(e) => setSupplierForm({ ...supplierForm, name: e.target.value })} />
-            <input className="input" placeholder="WhatsApp / SMS" value={supplierForm.phone} onChange={(e) => setSupplierForm({ ...supplierForm, phone: e.target.value })} />
-            <input className="input col-span-2" placeholder="Email (opcional)" value={supplierForm.email} onChange={(e) => setSupplierForm({ ...supplierForm, email: e.target.value })} />
-            <input className="input col-span-2" placeholder="Notas (opcional)" value={supplierForm.notes} onChange={(e) => setSupplierForm({ ...supplierForm, notes: e.target.value })} />
-            <button className="btn-primary col-span-2" type="submit" disabled={busy}>
+          <form
+            onSubmit={saveSupplier}
+            className="rounded-xl border border-line bg-gradient-to-br from-brand-soft/40 to-bg2/30 p-4 mb-4 space-y-3"
+          >
+            <div className="text-[11px] uppercase tracking-wider text-brand font-semibold">
+              Nuevo proveedor
+            </div>
+            <div className="grid grid-cols-2 gap-2.5">
+              <Field label="Nombre">
+                <input
+                  className="input"
+                  placeholder="Ej: Carnicería La Sazón"
+                  value={supplierForm.name}
+                  onChange={(e) =>
+                    setSupplierForm({ ...supplierForm, name: e.target.value })
+                  }
+                />
+              </Field>
+              <Field label="WhatsApp / SMS">
+                <input
+                  className="input"
+                  placeholder="+57 300 000 0000"
+                  value={supplierForm.phone}
+                  onChange={(e) =>
+                    setSupplierForm({ ...supplierForm, phone: e.target.value })
+                  }
+                />
+              </Field>
+              <div className="col-span-2">
+                <Field label="Email (opcional)">
+                  <input
+                    className="input"
+                    placeholder="contacto@proveedor.com"
+                    value={supplierForm.email}
+                    onChange={(e) =>
+                      setSupplierForm({ ...supplierForm, email: e.target.value })
+                    }
+                  />
+                </Field>
+              </div>
+              <div className="col-span-2">
+                <Field label="Notas (opcional)">
+                  <input
+                    className="input"
+                    placeholder="Horarios, condiciones de pago, etc"
+                    value={supplierForm.notes}
+                    onChange={(e) =>
+                      setSupplierForm({ ...supplierForm, notes: e.target.value })
+                    }
+                  />
+                </Field>
+              </div>
+            </div>
+            <button className="btn-primary w-full" type="submit" disabled={busy}>
               <Icon name="plus" /> Agregar proveedor
             </button>
           </form>
+          <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
+            Proveedores ({suppliers.length})
+          </div>
           <div className="space-y-2 max-h-[40vh] overflow-auto">
             {suppliers.map((s) => (
-              <div key={s.id} className="flex items-center justify-between p-3 border border-line rounded-lg">
-                <div>
-                  <div className="font-medium">{s.name}</div>
-                  <div className="text-xs text-mute">{s.phone} {s.email && `· ${s.email}`}</div>
+              <div
+                key={s.id}
+                className="flex items-center justify-between p-3 border border-line rounded-lg hover:bg-bg2/30 transition"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium truncate">{s.name}</div>
+                  <div className="text-xs text-mute truncate">
+                    {s.phone} {s.email && `· ${s.email}`}
+                  </div>
+                  {s.notes && (
+                    <div className="text-[11px] text-mute mt-0.5 line-clamp-1 italic">
+                      {s.notes}
+                    </div>
+                  )}
                 </div>
-                <button onClick={() => deleteSupplier(s.id)} className="text-mute hover:text-red-500">
+                <button
+                  onClick={() => deleteSupplier(s.id)}
+                  className="text-mute hover:text-red-500 ml-2 shrink-0"
+                  title="Eliminar"
+                >
                   <Icon name="trash" />
                 </button>
               </div>
             ))}
             {suppliers.length === 0 && (
-              <div className="text-sm text-mute text-center py-6">Aún no hay proveedores</div>
+              <div className="text-sm text-mute text-center py-8 border-2 border-dashed border-line rounded-lg">
+                Aún no hay proveedores. Cargá el primero arriba ↑
+              </div>
             )}
           </div>
         </Modal>
@@ -550,23 +617,7 @@ export default function OrdersGeneratorPage() {
         <Modal title="Enviar pedidos a proveedores" onClose={() => { setShowSendDialog(false); setItems([]); }} maxW="xl">
           <div className="space-y-3">
             {messages.map((m, i) => (
-              <div key={i} className="border border-line rounded-xl overflow-hidden">
-                <div className="px-4 py-3 bg-bg2/50 flex items-center justify-between">
-                  <div>
-                    <div className="font-semibold">{m.supplier.name}</div>
-                    <div className="text-xs text-mute">
-                      <span className="badge-info text-[10px] mr-1">{m.day}</span>
-                      {m.items.length} producto{m.items.length === 1 ? '' : 's'} · <span className="text-ok">{m.supplier.phone}</span>
-                    </div>
-                  </div>
-                </div>
-                <pre className="p-4 text-sm whitespace-pre-wrap font-sans bg-card">{m.message}</pre>
-                <div className="px-4 py-2 bg-bg2/30 text-right">
-                  <a className="btn-primary inline-flex" href={m.waLink} target="_blank" rel="noreferrer">
-                    <Icon name="send" /> Enviar por WhatsApp
-                  </a>
-                </div>
-              </div>
+              <SupplierMessageCard key={i} message={m} />
             ))}
             {messages.length === 0 && (
               <div className="text-sm text-mute text-center py-6">
@@ -579,6 +630,99 @@ export default function OrdersGeneratorPage() {
           </div>
         </Modal>
       )}
+    </div>
+  );
+}
+
+/** Card de un mensaje a proveedor — preview del cuerpo + dos vías de
+ *  envío: wa.me link (manual) y Grow Business API (automático, si el
+ *  tenant está conectado). La via API prefija con #Switch{N} server-side
+ *  cuando aplique. */
+function SupplierMessageCard({
+  message: m,
+}: {
+  message: {
+    supplier: Supplier | { id: string | null; name: string; phone: string };
+    day: string;
+    items: OrderItem[];
+    message: string;
+    waLink: string;
+  };
+}) {
+  const [sending, setSending] = useState<'idle' | 'sending' | 'sent' | 'error'>(
+    'idle',
+  );
+  const [errMsg, setErrMsg] = useState<string | null>(null);
+
+  async function sendViaApi() {
+    if (!m.supplier.id) {
+      toast('Asigná un proveedor real antes de enviar', 'error');
+      return;
+    }
+    setSending('sending');
+    setErrMsg(null);
+    try {
+      const r = await api<{ ok: boolean; id?: string | null; message?: string }>(
+        `/admin/suppliers/${m.supplier.id}/notify`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ message: m.message }),
+        },
+      );
+      if (r.ok) {
+        setSending('sent');
+        toast(`SMS enviado a ${m.supplier.name}`, 'success');
+      } else {
+        setSending('error');
+        setErrMsg(r.message ?? 'No se pudo enviar');
+        toast(r.message ?? 'No se pudo enviar', 'error');
+      }
+    } catch (e: any) {
+      setSending('error');
+      setErrMsg(e.message ?? 'Error');
+      toast(e.message ?? 'Error', 'error');
+    }
+  }
+
+  return (
+    <div className="border border-line rounded-xl overflow-hidden shadow-card">
+      <div className="px-4 py-3 bg-gradient-to-r from-brand-soft to-bg2/30 flex items-center justify-between">
+        <div>
+          <div className="font-semibold">{m.supplier.name}</div>
+          <div className="text-xs text-mute">
+            <span className="badge-info text-[10px] mr-1">{m.day}</span>
+            {m.items.length} producto{m.items.length === 1 ? '' : 's'} ·{' '}
+            <span className="text-ok">{m.supplier.phone}</span>
+          </div>
+        </div>
+      </div>
+      <pre className="p-4 text-sm whitespace-pre-wrap font-sans bg-white">{m.message}</pre>
+      <div className="px-4 py-2.5 bg-bg2/40 flex flex-wrap gap-2 justify-end items-center">
+        {sending === 'sent' && (
+          <span className="text-xs text-ok font-semibold">✓ Enviado por Grow Business</span>
+        )}
+        {sending === 'error' && (
+          <span className="text-xs text-bad" title={errMsg ?? ''}>
+            ✕ {errMsg ?? 'Error'}
+          </span>
+        )}
+        <button
+          type="button"
+          className="btn-ghost text-sm"
+          onClick={sendViaApi}
+          disabled={sending === 'sending' || sending === 'sent'}
+        >
+          {sending === 'sending' ? 'Enviando…' : '⚡ Grow Business'}
+        </button>
+        <a
+          className="btn-primary inline-flex"
+          href={m.waLink}
+          target="_blank"
+          rel="noreferrer"
+        >
+          <Icon name="send" /> WhatsApp
+        </a>
+      </div>
     </div>
   );
 }

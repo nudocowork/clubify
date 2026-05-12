@@ -127,7 +127,7 @@ async function main() {
       planId: proPlan.id,
       status: 'ACTIVE',
       primaryColor: '#6366F1',
-      secondaryColor: '#C026D3',
+      secondaryColor: '#A855F7',
       currency: 'COP',
       timezone: 'America/Bogota',
       instagramUrl: 'https://instagram.com/cafedeldia',
@@ -155,7 +155,7 @@ async function main() {
       tenantId: demoTenant.id,
       description:
         'Café de especialidad en el centro de Bogotá. Granos seleccionados, repostería casera, ambiente para trabajar.',
-      theme: { primaryColor: '#6366F1', secondaryColor: '#C026D3' },
+      theme: { primaryColor: '#6366F1', secondaryColor: '#A855F7' },
       blocks: [
         { type: 'hero' },
         { type: 'social' },
@@ -180,7 +180,7 @@ async function main() {
       terms:
         'No acumulable con otras promociones. Válido en todas las sucursales.',
       primaryColor: '#6366F1',
-      secondaryColor: '#C026D3',
+      secondaryColor: '#A855F7',
       stampsRequired: 10,
       rewardText: '1 café gratis',
       autoStampOnOrder: true,

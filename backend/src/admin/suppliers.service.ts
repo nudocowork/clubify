@@ -19,6 +19,14 @@ export class SuppliersService {
     });
   }
 
+  async get(tenantId: string, id: string) {
+    const s = await this.prisma.supplier.findFirst({
+      where: { id, tenantId },
+    });
+    if (!s) throw new NotFoundException('Proveedor no encontrado');
+    return s;
+  }
+
   async create(tenantId: string, dto: CreateSupplierDto) {
     return this.prisma.supplier.create({
       data: {

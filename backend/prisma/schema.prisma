@@ -350,6 +350,11 @@ model Tenant {
   growBusinessLocationId      String?
   growBusinessApiKey          String?
   growBusinessConnectedAt     DateTime?
+  /// Número de "Switch" que GHL usa para enrutar el mensaje al
+  /// sub-account correcto. Se prepone al body como "#Switch{N}\n\n".
+  /// Cada tenant tiene su propio número (1, 2, 3, ...). Null = no se
+  /// prepone prefijo (mensaje plano).
+  growBusinessSwitchNumber    Int?
   createdAt                   DateTime     @default(now())
 
   users               User[]
