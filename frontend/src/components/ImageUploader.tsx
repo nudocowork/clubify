@@ -303,19 +303,62 @@ function CropperModal({
     const sx = cx - sw / 2;
     const sy = cy - sh / 2;
 
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, OUT_W, OUT_H);
+    // Detecta si la fuente tiene transparencia (PNG con alpha). Si la
+    // tiene, exportamos como PNG sin fondo blanco, así no se rompe el
+    // diseño de logos transparentes al pasar por el cropper.
+    const probe = document.createElement('canvas');
+    probe.width = 1;
+    probe.height = 1;
+    const pctx = probe.getContext('2d');
+    let sourceHasAlpha = false;
+    if (pctx) {
+      pctx.drawImage(imgRef.current, 0, 0, 1, 1);
+      try {
+        const px = pctx.getImageData(0, 0, 1, 1).data;
+        sourceHasAlpha = px[3] < 255;
+      } catch {
+        // Cross-origin: asumir sin alpha (caso común para fotos)
+        sourceHasAlpha = false;
+      }
+    }
+    // Heurística mejor: muestrear las 4 esquinas de la imagen original
+    if (!sourceHasAlpha && pctx) {
+      const cornerProbe = document.createElement('canvas');
+      cornerProbe.width = imgSize.w;
+      cornerProbe.height = imgSize.h;
+      const cctx = cornerProbe.getContext('2d');
+      if (cctx) {
+        cctx.drawImage(imgRef.current, 0, 0);
+        try {
+          const checks: Array<[number, number]> = [
+            [0, 0],
+            [imgSize.w - 1, 0],
+            [0, imgSize.h - 1],
+            [imgSize.w - 1, imgSize.h - 1],
+          ];
+          sourceHasAlpha = checks.some(([x, y]) => cctx.getImageData(x, y, 1, 1).data[3] < 255);
+        } catch {}
+      }
+    }
+
+    if (!sourceHasAlpha) {
+      // Foto / JPEG: relleno blanco previo + export JPEG (más liviano)
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, OUT_W, OUT_H);
+    }
     ctx.drawImage(imgRef.current, sx, sy, sw, sh, 0, 0, OUT_W, OUT_H);
+
+    const format = sourceHasAlpha ? 'image/png' : 'image/jpeg';
+    const ext = sourceHasAlpha ? 'png' : 'jpg';
     canvas.toBlob(
       (blob) => {
         setExporting(false);
         if (blob) {
-          // Forzar nombre + tipo
-          const file = new File([blob], 'cropped.jpg', { type: 'image/jpeg' });
+          const file = new File([blob], `cropped.${ext}`, { type: format });
           onConfirm(file);
         }
       },
-      'image/jpeg',
+      format,
       0.92,
     );
   }

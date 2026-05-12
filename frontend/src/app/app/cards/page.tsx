@@ -351,6 +351,7 @@ export default function CardsList() {
               value={walletLogoUrl}
               onChange={(url) => saveWalletLogo(url)}
               folder="wallet-logos"
+              crop={false}
             />
             {savingWalletLogo && (
               <div className="text-[11px] text-mute mt-2 text-center">
