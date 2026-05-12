@@ -194,7 +194,11 @@ export default function StorefrontPublic() {
             <div className="flex-1 min-w-0">
               <div className="font-bold text-2xl tracking-tight truncate">{s.brandName}</div>
               {s.description && (
-                <div className={`text-sm truncate ${isCluvi ? 'text-white/70' : 'text-mute'}`}>
+                <div
+                  className={`text-sm leading-snug whitespace-pre-line ${
+                    isCluvi ? 'text-white/70' : 'text-mute'
+                  }`}
+                >
                   {s.description}
                 </div>
               )}
@@ -1383,15 +1387,68 @@ function MenuRenderer({ layout, menu, primary, currency, onPick }: RenderProps) 
 
 type LP = Omit<RenderProps, 'layout'>;
 
+/** Sección de categoría con acordeón. Default expandida — el cliente
+ *  puede colapsarla con un click en el header. State local: si el
+ *  cliente recarga la página vuelve a quedar todo expandido (no se
+ *  persiste). Usado en todos los layouts verticales del menú. */
+function AccordionSection({
+  catId,
+  className = 'mb-6',
+  header,
+  children,
+}: {
+  catId: string;
+  className?: string;
+  header: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(true);
+  return (
+    <section id={`cat-${catId}`} className={className}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-2 text-left mb-3 group"
+        aria-expanded={open}
+      >
+        <div className="flex-1 min-w-0">{header}</div>
+        <span
+          className={`text-mute text-sm shrink-0 transition-transform ${
+            open ? '' : '-rotate-90'
+          } group-hover:text-ink`}
+          aria-hidden
+        >
+          ▾
+        </span>
+      </button>
+      <div
+        className={`overflow-hidden transition-all duration-300 ease-out ${
+          open ? 'max-h-[10000px] opacity-100' : 'max-h-0 opacity-0'
+        }`}
+      >
+        {children}
+      </div>
+    </section>
+  );
+}
+
 // 1️⃣ CLASSIC — foto izq + info der (estilo Rappi/UberEats)
 function LayoutClassic({ menu, primary, currency, onPick }: LP) {
   return (
     <>
       {menu.map((cat) => (
-        <section key={cat.id} className="mb-6">
-          <h2 className="text-xs uppercase tracking-[0.18em] text-mute font-semibold mb-3">
-            {cat.name}
-          </h2>
+        <AccordionSection
+          key={cat.id}
+          catId={cat.id}
+          header={
+            <h2 className="text-xs uppercase tracking-[0.18em] text-mute font-semibold">
+              {cat.name}{' '}
+              <span className="text-mute/70 font-normal normal-case tracking-normal">
+                · {cat.products.length}
+              </span>
+            </h2>
+          }
+        >
           <div className="space-y-2.5">
             {cat.products.map((p) => (
               <button
@@ -1432,7 +1489,7 @@ function LayoutClassic({ menu, primary, currency, onPick }: LP) {
               </button>
             ))}
           </div>
-        </section>
+        </AccordionSection>
       ))}
     </>
   );
@@ -1443,10 +1500,18 @@ function LayoutGrid({ menu, primary, currency, onPick }: LP) {
   return (
     <>
       {menu.map((cat) => (
-        <section key={cat.id} className="mb-6">
-          <h2 className="text-xs uppercase tracking-[0.18em] text-mute font-semibold mb-3">
-            {cat.name}
-          </h2>
+        <AccordionSection
+          key={cat.id}
+          catId={cat.id}
+          header={
+            <h2 className="text-xs uppercase tracking-[0.18em] text-mute font-semibold">
+              {cat.name}{' '}
+              <span className="text-mute/70 font-normal normal-case tracking-normal">
+                · {cat.products.length}
+              </span>
+            </h2>
+          }
+        >
           <div className="grid grid-cols-2 gap-3">
             {cat.products.map((p) => (
               <button
@@ -1483,7 +1548,7 @@ function LayoutGrid({ menu, primary, currency, onPick }: LP) {
               </button>
             ))}
           </div>
-        </section>
+        </AccordionSection>
       ))}
     </>
   );
@@ -1542,13 +1607,19 @@ function LayoutClean({ menu, currency, onPick }: LP) {
   return (
     <div className="font-serif">
       {menu.map((cat) => (
-        <section key={cat.id} className="mb-7">
-          <div className="text-center mb-4">
-            <div className="text-[10px] tracking-[0.3em] uppercase font-semibold text-mute mb-1.5">
-              {cat.name}
+        <AccordionSection
+          key={cat.id}
+          catId={cat.id}
+          className="mb-7"
+          header={
+            <div className="text-center">
+              <div className="text-[10px] tracking-[0.3em] uppercase font-semibold text-mute mb-1.5">
+                {cat.name}
+              </div>
+              <div className="w-12 h-px bg-ink mx-auto" />
             </div>
-            <div className="w-12 h-px bg-ink mx-auto" />
-          </div>
+          }
+        >
           <div className="space-y-4">
             {cat.products.map((p) => (
               <button
@@ -1573,7 +1644,7 @@ function LayoutClean({ menu, currency, onPick }: LP) {
               </button>
             ))}
           </div>
-        </section>
+        </AccordionSection>
       ))}
     </div>
   );
@@ -1598,8 +1669,19 @@ function LayoutCompact({ menu, primary, currency, onPick }: LP) {
         </div>
       )}
       {menu.map((cat) => (
-        <section key={cat.id} id={`cat-${cat.id}`} className="mb-5">
-          <h2 className="font-bold text-sm mt-1 mb-2">{cat.name}</h2>
+        <AccordionSection
+          key={cat.id}
+          catId={cat.id}
+          className="mb-5"
+          header={
+            <h2 className="font-bold text-sm mt-1">
+              {cat.name}{' '}
+              <span className="text-mute font-normal text-xs">
+                · {cat.products.length}
+              </span>
+            </h2>
+          }
+        >
           <div className="bg-white rounded-card border border-line overflow-hidden">
             {cat.products.map((p, i) => (
               <button
@@ -1631,7 +1713,7 @@ function LayoutCompact({ menu, primary, currency, onPick }: LP) {
               </button>
             ))}
           </div>
-        </section>
+        </AccordionSection>
       ))}
     </>
   );
@@ -1643,13 +1725,19 @@ function LayoutCluvi({ menu, primary, currency, onPick }: LP) {
   return (
     <>
       {menu.map((cat) => (
-        <section key={cat.id} className="mb-8">
-          <h2
-            className="font-bold uppercase mb-3 text-lg tracking-tight"
-            style={{ color: primary }}
-          >
-            {cat.name}
-          </h2>
+        <AccordionSection
+          key={cat.id}
+          catId={cat.id}
+          className="mb-8"
+          header={
+            <h2
+              className="font-bold uppercase text-lg tracking-tight"
+              style={{ color: primary }}
+            >
+              {cat.name}
+            </h2>
+          }
+        >
           <div className="space-y-3">
             {cat.products.map((p) => (
               <button
@@ -1692,7 +1780,7 @@ function LayoutCluvi({ menu, primary, currency, onPick }: LP) {
               </button>
             ))}
           </div>
-        </section>
+        </AccordionSection>
       ))}
     </>
   );

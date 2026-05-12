@@ -105,9 +105,9 @@ export const QR_TEMPLATES: QrTemplate[] = [
     id: 'cowork-tech',
     name: 'Cowork Tech',
     category: 'service',
-    swatch: { from: '#6366F1', to: '#C026D3', text: '#FFFFFF' },
+    swatch: { from: '#6366F1', to: '#A855F7', text: '#FFFFFF' },
     overrides: {
-      bg: { type: 'gradient', color1: '#6366F1', color2: '#C026D3', angle: 135 },
+      bg: { type: 'gradient', color1: '#6366F1', color2: '#A855F7', angle: 135 },
       qr: { fg: '#0A0A0A', bg: '#FFFFFF' },
       texts: {
         title: { color: '#FFFFFF', font: INTER, fontLabel: 'Inter', weight: 700 },

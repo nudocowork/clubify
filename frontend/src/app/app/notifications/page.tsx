@@ -564,7 +564,7 @@ function PushPreview({
             <div
               className="w-7 h-7 rounded-[7px] shrink-0 flex items-center justify-center text-white text-xs font-bold overflow-hidden"
               style={{
-                background: brandColor || 'linear-gradient(135deg, #6366F1, #C026D3)',
+                background: brandColor || 'linear-gradient(135deg, #6366F1, #A855F7)',
               }}
             >
               {brandLogoUrl ? (
