@@ -122,7 +122,23 @@ export class GoogleWalletService {
     const balance = this.buildBalance(pass);
 
     // textModulesData: equivalente a backFields del .pkpass.
+    // RECOMPENSA y CLIENTE arriba para que aparezcan prominentes (Google
+    // Wallet renderiza los textModulesData en orden bajo el header).
     const textModules: Array<{ id: string; header: string; body: string }> = [];
+    if (card.rewardText) {
+      textModules.push({
+        id: 'reward',
+        header: 'RECOMPENSA',
+        body: card.rewardText,
+      });
+    }
+    if (pass.customer?.fullName) {
+      textModules.push({
+        id: 'customer',
+        header: 'CLIENTE',
+        body: pass.customer.fullName,
+      });
+    }
     if (card.howToEarnText) {
       textModules.push({
         id: 'how-to-earn',
@@ -133,7 +149,7 @@ export class GoogleWalletService {
     if (card.rewardDescText) {
       textModules.push({
         id: 'reward-desc',
-        header: 'Recompensa',
+        header: 'Detalles',
         body: card.rewardDescText,
       });
     }
@@ -149,6 +165,37 @@ export class GoogleWalletService {
         id: 'terms',
         header: 'Términos y condiciones',
         body: card.terms,
+      });
+    }
+
+    // imageModulesData: Google Wallet renderiza una imagen prominente bajo
+    // el header. Para tarjetas tipo STAMPS/HYBRID/VISITS, servimos la
+    // misma grilla de sellos que en el strip de Apple Wallet. Cache-bust
+    // con lastActivityAt → Google re-fetchea cuando el cliente suma sellos.
+    const imageModules: Array<{
+      id: string;
+      mainImage: {
+        sourceUri: { uri: string };
+        contentDescription: { defaultValue: { language: string; value: string } };
+      };
+    }> = [];
+    const t = card.type;
+    if (t === 'STAMPS' || t === 'HYBRID' || t === 'VISITS') {
+      const apiUrl =
+        process.env.API_URL || 'https://api.soyclubify.com';
+      const cacheBust = pass.lastActivityAt
+        ? new Date(pass.lastActivityAt).getTime()
+        : Date.now();
+      imageModules.push({
+        id: 'strip',
+        mainImage: {
+          sourceUri: {
+            uri: `${apiUrl}/api/passes/${pass.id}/strip.png?v=${cacheBust}`,
+          },
+          contentDescription: {
+            defaultValue: { language: 'es', value: 'Sellos' },
+          },
+        },
       });
     }
 
@@ -184,6 +231,7 @@ export class GoogleWalletService {
       },
       hexBackgroundColor: card.primaryColor || '#5B5EEE',
       textModulesData: textModules.length > 0 ? textModules : undefined,
+      imageModulesData: imageModules.length > 0 ? imageModules : undefined,
       linksModuleData:
         linksList.length > 0 ? { uris: linksList } : undefined,
     };
@@ -288,13 +336,14 @@ export class GoogleWalletService {
       });
       const wallet = google.walletobjects({ version: 'v1', auth });
 
-      const balance = this.buildBalance(pass);
-      // PATCH solo el balance (loyaltyPoints) — minimiza la chance de
-      // conflictos con campos que el cliente puede haber ajustado.
+      // PATCH del objeto completo para que cambios visuales (textModules,
+      // imageModules con strip de sellos actual) se propaguen al pase
+      // instalado, no sólo los puntos.
+      const objectBody = this.buildObject(pass, ids.classId, ids.objectId);
       await wallet.loyaltyobject.patch({
         resourceId: pass.googleObjectId,
         requestBody: {
-          loyaltyPoints: balance as any,
+          ...objectBody,
           state: pass.status === 'REVOKED' ? 'INACTIVE' : 'ACTIVE',
         } as any,
       });

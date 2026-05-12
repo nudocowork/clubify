@@ -141,6 +141,27 @@ export class PassesController {
   }
 
   /**
+   * Imagen del strip de sellos del pase como PNG público. La consume
+   * Google Wallet via imageModulesData / heroImage para mostrar la grilla
+   * de sellos. El query param ?v= sirve para cache-busting (Google cachea
+   * el URL — al cambiar v fuerza re-fetch tras un nuevo sello).
+   */
+  @Public()
+  @Get(':id/strip.png')
+  async strip(@Param('id') id: string, @Res() res: Response) {
+    const buf = await this.wallet.generatePassStripImage(id);
+    if (!buf) {
+      res.status(404).send();
+      return;
+    }
+    res.set({
+      'Content-Type': 'image/png',
+      'Cache-Control': 'public, max-age=60',
+    });
+    res.send(buf);
+  }
+
+  /**
    * Dispara silent APNs push para forzar a Apple Wallet a re-fetchear el
    * .pkpass actualizado (refresca strip, logo, fields). Útil después de
    * deploys que cambian visualmente el pase. Requiere que el dispositivo

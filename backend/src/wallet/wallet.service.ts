@@ -367,6 +367,41 @@ export class WalletService {
    * Layout: si required ≤ 6 → 1 fila; si > 6 → 2 filas balanceadas (10 = 5+5).
    * Sellos llenos = círculo blanco con el emoji; vacíos = círculo translúcido.
    */
+  /**
+   * Genera la imagen del strip de sellos del pase como PNG público.
+   * Usado por Google Wallet (imageModulesData) para mostrar la grilla de
+   * sellos similar al strip de Apple Wallet. Devuelve null si el tipo de
+   * tarjeta no usa strip (CASHBACK/POINTS/etc).
+   */
+  async generatePassStripImage(passId: string): Promise<Buffer | null> {
+    const pass = await this.prisma.pass.findUnique({
+      where: { id: passId },
+      include: { card: true },
+    });
+    if (!pass) return null;
+    const t = pass.card.type;
+    if (t !== 'STAMPS' && t !== 'HYBRID' && t !== 'VISITS') return null;
+    const c: any = pass.card;
+    const required =
+      t === 'VISITS'
+        ? pass.card.visitsRequired ?? 10
+        : pass.card.stampsRequired ?? 10;
+    const stamped = t === 'VISITS' ? pass.visitsCount : pass.stampsCount;
+    const result = await this.generateStampsStrip({
+      primary: pass.card.primaryColor,
+      secondary: pass.card.secondaryColor,
+      required,
+      stamped,
+      icon: c.stampIcon || '☕',
+      stampActiveColor: c.stampActiveColor ?? null,
+      stampInactiveColor: c.stampInactiveColor ?? null,
+      stampContourColor: c.stampContourColor ?? null,
+      centerBgColor: c.centerBgColor ?? null,
+    });
+    // Usamos la versión @2x (640×246) que se ve bien en Android y desktop.
+    return result['strip@2x.png'] ?? result['strip.png'] ?? null;
+  }
+
   private async generateStampsStrip(opts: {
     primary: string;
     secondary: string;
