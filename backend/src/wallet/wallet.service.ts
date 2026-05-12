@@ -222,11 +222,49 @@ export class WalletService {
     //   para que el logo de Clubify default no aparezca (pedido del cliente).
     // Logo del wallet: walletLogoUrl tiene prioridad (logo dedicado con
     // alpha que el dueño sube específicamente para wallet en /app/cards),
-    // sino fallback al logoUrl general del negocio.
-    const walletLogo =
-      (pass.tenant as any).walletLogoUrl ?? pass.tenant.logoUrl;
-    const tenantIcons = await this.generateTenantIcons(walletLogo);
-    const tenantLogos = await this.generateTenantLogos(walletLogo);
+    // sino fallback al logoUrl general del negocio. Tratar string vacío
+    // como ausente — el frontend puede mandar '' al borrar y ?? solo cae
+    // con null/undefined, lo que dejaba el logo transparente aunque
+    // logoUrl existiera.
+    // Resolución del logo del pase:
+    // 1. walletLogoUrl (logo dedicado para wallet) si existe y procesa bien.
+    // 2. logoUrl (logo general de la marca) como fallback.
+    // String vacío se trata como ausente (?? no cae con '').
+    // Si el primer candidato produce un logo "vacío" (todo blanco tras
+    // chroma-key, típico de uploads viejos que pasaron por el cropper que
+    // exportaba JPG con relleno blanco), automáticamente probamos el
+    // segundo candidato.
+    const normalize = (u: any): string | null =>
+      typeof u === 'string' && u.trim() ? u.trim() : null;
+    const candidates = [
+      normalize((pass.tenant as any).walletLogoUrl),
+      normalize(pass.tenant.logoUrl),
+    ].filter((u): u is string => u !== null);
+
+    let tenantLogos: Record<string, Buffer> = {};
+    let usedLogoUrl: string | null = null;
+    for (const url of candidates) {
+      const attempt = await this.generateTenantLogos(url);
+      const main = attempt['logo.png'];
+      // Un PNG 160×50 totalmente transparente pesa ~130 bytes. Si lo que
+      // generamos es <500 bytes, asumimos que el chroma-key vació la
+      // imagen (probablemente JPG todo-blanco del cropper viejo) y damos
+      // chance al siguiente candidato.
+      if (main && main.length >= 500) {
+        tenantLogos = attempt;
+        usedLogoUrl = url;
+        break;
+      }
+      this.logger.log(
+        `[LOGO] candidato ${url} produjo logo.png de ${main?.length ?? 0}b — intentando siguiente`,
+      );
+    }
+    if (usedLogoUrl) {
+      this.logger.log(`[LOGO] usando ${usedLogoUrl} para pass=${pass.id}`);
+    } else {
+      this.logger.log(`[LOGO] sin logo válido para pass=${pass.id} — pase sin logo`);
+    }
+    const tenantIcons = await this.generateTenantIcons(usedLogoUrl ?? candidates[0] ?? null);
 
     const buffers: Record<string, Buffer> = {
       'pass.json': Buffer.from(JSON.stringify(passJson)),
@@ -720,9 +758,10 @@ export class WalletService {
    */
   async pushPassUpdate(passId: string) {
     // Google Wallet PATCH — propaga sellos/saldo/visitas/tier a Android.
-    // Fire-and-forget para no bloquear el APNs push.
-    this.googleWallet.pushUpdate(passId).catch((e) => {
+    // En paralelo con APNs para que ambos lleguen lo antes posible.
+    const googlePromise = this.googleWallet.pushUpdate(passId).catch((e) => {
       this.logger.warn(`Google Wallet push failed: ${e?.message ?? e}`);
+      return { ok: false, status: 'error', error: e?.message ?? String(e) };
     });
 
     const devices = await this.prisma.walletDevice.findMany({
@@ -730,7 +769,8 @@ export class WalletService {
     });
     if (devices.length === 0) {
       this.logger.debug(`pushPassUpdate(${passId}): no Apple devices registered`);
-      return { sent: 0, skipped: 0 };
+      const google = await googlePromise;
+      return { sent: 0, skipped: 0, google };
     }
 
     const keyBuf = this.loadApnsKey();
@@ -742,7 +782,8 @@ export class WalletService {
       this.logger.warn(
         `pushPassUpdate(${passId}): APNs no configurado (${devices.length} dispositivos esperando) — skipeando`,
       );
-      return { sent: 0, skipped: devices.length };
+      const google = await googlePromise;
+      return { sent: 0, skipped: devices.length, google };
     }
 
     const apn = await import('apn');
@@ -837,7 +878,11 @@ export class WalletService {
     this.logger.log(
       `pushPassUpdate(${passId}): ${sent} enviados / ${skipped} fallidos (${devices.length} devices)`,
     );
-    return { sent, skipped };
+    const google = await googlePromise;
+    this.logger.log(
+      `pushPassUpdate(${passId}): google=${google?.status ?? 'unknown'}`,
+    );
+    return { sent, skipped, google };
   }
 
   private hexToRgb(hex: string): string {

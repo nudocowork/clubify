@@ -152,23 +152,36 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
   async function refreshWallet() {
     setBusy(true);
     try {
-      const r = await api<{ sent: number; skipped: number; error?: string }>(
-        `/passes/${p.id}/push-update`,
-        { method: 'POST' },
-      );
+      const r = await api<{
+        sent: number;
+        skipped: number;
+        error?: string;
+        google?: { ok: boolean; status: string; error?: string };
+      }>(`/passes/${p.id}/push-update`, { method: 'POST' });
       if (r.error === 'pass_not_found') {
         toast('Pase no encontrado', 'error');
-      } else if (r.sent === 0 && r.skipped === 0) {
-        toast(
-          'El cliente todavía no instaló el pase en Apple Wallet — no hay dispositivos registrados',
-          'info',
-        );
-      } else {
-        toast(
-          `Push enviado · ${r.sent} dispositivo${r.sent === 1 ? '' : 's'} · refrescá Apple Wallet en 5-10 seg`,
-          'success',
-        );
+        return;
       }
+      const apple =
+        r.sent > 0
+          ? `Apple: ${r.sent} dispositivo${r.sent === 1 ? '' : 's'}`
+          : r.skipped > 0
+            ? `Apple: ${r.skipped} fallidos`
+            : 'Apple: no instalado';
+      const g = r.google;
+      let google = 'Google: no instalado';
+      if (g) {
+        if (g.status === 'patched') google = 'Google: actualizado';
+        else if (g.status === 'not_saved_to_google_wallet') google = 'Google: no instalado';
+        else if (g.status === 'object_not_found') google = 'Google: pase no encontrado en Google';
+        else if (g.status === 'api_disabled')
+          google = 'Google: API deshabilitada (habilitar en Google Cloud)';
+        else if (g.status === 'not_configured') google = 'Google: no configurado';
+        else if (g.status === 'pass_not_found') google = 'Google: pase no encontrado';
+        else google = `Google: ${g.error ?? g.status}`;
+      }
+      const ok = r.sent > 0 || g?.ok;
+      toast(`${apple} · ${google}`, ok ? 'success' : 'info');
     } catch (e: any) {
       toast(e.message || 'No se pudo refrescar', 'error');
     } finally {
