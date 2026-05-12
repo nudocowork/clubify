@@ -189,6 +189,45 @@ export class SettingsService {
     return this.getPricing();
   }
 
+  /** Cupón Hotmart global. Se aplica a TODOS los checkouts. String
+   *  vacío = sin cupón. Hotmart aplica el descuento server-side al
+   *  cargar la página de pago. */
+  async getHotmartCoupon(): Promise<{ couponCode: string | null }> {
+    const s = await this.prisma.setting.findUnique({
+      where: { key: 'billing.hotmartCouponCode' },
+    });
+    const v = s?.value?.trim();
+    return { couponCode: v ? v : null };
+  }
+
+  async setHotmartCoupon(
+    couponCode: string | null,
+  ): Promise<{ couponCode: string | null }> {
+    const clean = couponCode?.trim() ?? '';
+    await this.upsert('billing.hotmartCouponCode', clean);
+    return { couponCode: clean ? clean : null };
+  }
+
+  /** Master prompt opcional para la IA Clubify — texto libre que se
+   *  prepone al system prompt del support widget. El admin lo edita
+   *  desde /admin/ai-knowledge para inyectar instrucciones / tono /
+   *  features específicas sin tocar el código. */
+  async getSupportMasterPrompt(): Promise<{ prompt: string | null }> {
+    const s = await this.prisma.setting.findUnique({
+      where: { key: 'support.masterPrompt' },
+    });
+    const v = s?.value?.trim();
+    return { prompt: v ? v : null };
+  }
+
+  async setSupportMasterPrompt(
+    prompt: string | null,
+  ): Promise<{ prompt: string | null }> {
+    const clean = prompt?.trim() ?? '';
+    await this.upsert('support.masterPrompt', clean);
+    return { prompt: clean ? clean : null };
+  }
+
   private upsert(key: string, value: string) {
     return this.prisma.setting.upsert({
       where: { key },

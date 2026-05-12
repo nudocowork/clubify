@@ -188,7 +188,104 @@ export default function CotizacionesPreciosPage() {
               </li>
             </ul>
           </div>
+
+          <HotmartCouponCard />
         </>
+      )}
+    </div>
+  );
+}
+
+/** Card para configurar el cupón Hotmart global. Item 28 del spec —
+ *  permite aplicar un descuento manual a TODOS los checkouts sin tener
+ *  que crear una offer pre-configurada en Hotmart. La offer
+ *  pre-configurada sigue siendo el método A (env vars
+ *  HOTMART_OFFER_CODE_*) — este input es el método B (cupón manual). */
+function HotmartCouponCard() {
+  const [loaded, setLoaded] = useState(false);
+  const [coupon, setCoupon] = useState('');
+  const [original, setOriginal] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api<{ couponCode: string | null }>('/admin/billing/hotmart-coupon')
+      .then((r) => {
+        const v = r.couponCode ?? '';
+        setCoupon(v);
+        setOriginal(v);
+      })
+      .catch(() => {})
+      .finally(() => setLoaded(true));
+  }, []);
+
+  async function save() {
+    setBusy(true);
+    try {
+      const r = await api<{ couponCode: string | null }>(
+        '/admin/billing/hotmart-coupon',
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ couponCode: coupon.trim() || null }),
+        },
+      );
+      const v = r.couponCode ?? '';
+      setOriginal(v);
+      toast(v ? `Cupón activo: ${v}` : 'Cupón removido — sin descuento', 'success');
+    } catch (e: any) {
+      toast(e.message || 'No se pudo guardar', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!loaded) return null;
+
+  return (
+    <div className="card card-pad mt-5">
+      <h3 className="text-sm font-semibold m-0 flex items-center gap-2">
+        🎟 Cupón Hotmart global
+      </h3>
+      <p className="text-xs text-mute mt-1.5 leading-relaxed">
+        Cupón manual que se agrega a TODOS los checkouts vía{' '}
+        <code>?couponCode=X</code>. Hotmart aplica el descuento al cargar
+        la página de pago. Es la opción <strong>B</strong> de descuentos —
+        la opción A son las offers pre-configuradas en Hotmart vía env
+        vars (<code>HOTMART_OFFER_CODE_ELITE</code>, etc) y pueden
+        coexistir con un cupón aquí.
+      </p>
+      <div className="flex gap-2 items-center mt-3 flex-wrap">
+        <input
+          value={coupon}
+          onChange={(e) => setCoupon(e.target.value.toUpperCase())}
+          placeholder="DESCUENTO20"
+          className="input font-mono text-sm flex-1 min-w-[180px]"
+          maxLength={40}
+        />
+        <button
+          onClick={save}
+          disabled={busy || coupon.trim() === original.trim()}
+          className="btn-primary disabled:opacity-50 text-sm"
+        >
+          {busy ? 'Guardando…' : original ? 'Actualizar' : 'Aplicar cupón'}
+        </button>
+        {original && (
+          <button
+            onClick={() => {
+              setCoupon('');
+              save();
+            }}
+            disabled={busy}
+            className="btn-ghost text-xs"
+          >
+            Quitar
+          </button>
+        )}
+      </div>
+      {original && (
+        <div className="text-[11px] text-ok mt-2">
+          ✓ Cupón activo: <code className="text-ink">{original}</code> —
+          se aplica a Elite y Pro
+        </div>
       )}
     </div>
   );

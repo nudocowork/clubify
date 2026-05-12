@@ -73,6 +73,21 @@ export class SettingsController {
     return this.svc.setPricing(body);
   }
 
+  /** Cupón Hotmart global — se preponne al checkout URL como
+   *  ?couponCode=X para que Hotmart aplique el descuento. String vacío
+   *  o null = sin cupón. */
+  @Get('admin/billing/hotmart-coupon')
+  @Roles('SUPER_ADMIN')
+  getHotmartCoupon() {
+    return this.svc.getHotmartCoupon();
+  }
+
+  @Patch('admin/billing/hotmart-coupon')
+  @Roles('SUPER_ADMIN')
+  setHotmartCoupon(@Body() body: { couponCode?: string | null }) {
+    return this.svc.setHotmartCoupon(body.couponCode ?? null);
+  }
+
   /**
    * Indica al frontend del panel si debe mostrar el popup de bienvenida.
    * Combina la config global (super admin) + estado del tenant actual

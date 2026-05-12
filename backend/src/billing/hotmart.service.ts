@@ -307,18 +307,52 @@ export class HotmartService {
    *   HOTMART_OFFER_CODE_<PLAN> → opcional, `off=` para offers específicas
    *   HOTMART_BID_<PLAN>        → opcional, `bid=` para tracking de oferta/bid
    */
-  buildCheckoutUrl(opts: { email?: string; planName?: string }) {
+  /**
+   * Construye la URL de checkout. Soporta 2 modos de descuento:
+   *
+   *   A) Offer pre-configurada — env var HOTMART_OFFER_CODE_<PLAN> +
+   *      HOTMART_BID_<PLAN>. La offer ya tiene el descuento aplicado en
+   *      Hotmart; el cliente paga el precio reducido sin tipear nada.
+   *
+   *   B) Coupon manual — Setting key `billing.hotmartCouponCode` (o el
+   *      override `couponCode` del caller). Se agrega `?couponCode=X` al
+   *      query y Hotmart aplica el descuento al cargar el checkout.
+   *      Setting global por ahora (todos los tenants reciben el mismo
+   *      coupon); si en el futuro queremos cupones por campaña se mueve
+   *      a Tenant.
+   *
+   * Ambos modos son compatibles entre sí — pueden coexistir si la offer
+   * ya tiene precio rebajado Y el coupon agrega más descuento.
+   */
+  async buildCheckoutUrl(opts: {
+    email?: string;
+    planName?: string;
+    couponCode?: string;
+  }) {
     const productId = this.resolveProductId(opts.planName);
     if (!productId) return null;
     const offerCode = this.resolveOfferCode(opts.planName);
     const bid = this.resolveBid(opts.planName);
+    const coupon = opts.couponCode ?? (await this.resolveGlobalCoupon());
     const base = `https://pay.hotmart.com/${productId}`;
     const params = new URLSearchParams();
     if (offerCode) params.set('off', offerCode);
     if (bid) params.set('bid', bid);
     if (opts.email) params.set('email', opts.email);
+    if (coupon) params.set('couponCode', coupon);
     const qs = params.toString();
     return qs ? `${base}?${qs}` : base;
+  }
+
+  /** Busca un coupon global configurado en Settings. Cualquier admin
+   *  puede setearlo desde /admin/billing — se aplica a TODOS los
+   *  checkouts. Usar string vacío para limpiar (= sin coupon). */
+  private async resolveGlobalCoupon(): Promise<string | undefined> {
+    const s = await this.prisma.setting.findUnique({
+      where: { key: 'billing.hotmartCouponCode' },
+    });
+    const v = s?.value?.trim();
+    return v ? v : undefined;
   }
 
   private resolveProductId(planName?: string): string | undefined {

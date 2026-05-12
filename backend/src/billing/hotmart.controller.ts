@@ -70,7 +70,7 @@ export class HotmartCheckoutController {
       where: { id: user.id },
       select: { email: true, tenant: { select: { plan: { select: { name: true } } } } },
     });
-    const url = this.hotmart.buildCheckoutUrl({
+    const url = await this.hotmart.buildCheckoutUrl({
       email: u?.email,
       planName: planOverride || u?.tenant?.plan?.name,
     });

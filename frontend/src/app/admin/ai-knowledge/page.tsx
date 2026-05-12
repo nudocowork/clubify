@@ -133,14 +133,18 @@ export default function AIKnowledgePage() {
             / {activeCount} activas · {list.length} totales
           </span>
         </h1>
-        <button
-          className="btn-primary"
-          onClick={() =>
-            setEditing({ title: '', content: '', category: 'General', isActive: true })
-          }
-        >
-          <Icon name="plus" /> Nueva entrada
-        </button>
+        <div className="flex gap-2 flex-wrap">
+          <BulkImportButton onDone={load} />
+          <MasterPromptButton />
+          <button
+            className="btn-primary"
+            onClick={() =>
+              setEditing({ title: '', content: '', category: 'General', isActive: true })
+            }
+          >
+            <Icon name="plus" /> Nueva entrada
+          </button>
+        </div>
       </div>
 
       <div className="card card-pad mb-5">
@@ -343,5 +347,255 @@ export default function AIKnowledgePage() {
         </div>
       )}
     </div>
+  );
+}
+
+/** Modal de import masivo: el admin pega un documento + elige cómo
+ *  partirlo (## sections, párrafos, o uno solo). Cada chunk se vuelve
+ *  un KnowledgeEntry — upsert por title dentro de la misma categoría. */
+function BulkImportButton({ onDone }: { onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState('');
+  const [mode, setMode] = useState<'sections' | 'paragraphs' | 'whole'>('sections');
+  const [category, setCategory] = useState('General');
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    if (!text.trim()) {
+      toast('Pegá algún contenido primero', 'error');
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await api<{ count: number }>('/admin/knowledge/bulk-import', {
+        method: 'POST',
+        body: JSON.stringify({ text, mode, category }),
+      });
+      toast(`✓ Se importaron ${r.count} entradas`, 'success');
+      setOpen(false);
+      setText('');
+      onDone();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo importar', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <button className="btn-ghost text-sm" onClick={() => setOpen(true)}>
+        📥 Importar documento
+      </button>
+      {open && (
+        <div
+          className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4"
+          onClick={() => !busy && setOpen(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-5 border-b border-line flex items-center justify-between">
+              <h3 className="text-lg font-semibold m-0">Importar documento → IA</h3>
+              <button
+                onClick={() => setOpen(false)}
+                className="text-mute hover:text-ink"
+                disabled={busy}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-5 space-y-3">
+              <div className="text-sm text-mute leading-relaxed">
+                Pegá un documento largo (FAQ, brief, copy de la landing) y la
+                IA lo partirá automáticamente en entradas individuales del
+                knowledge base. No tenés que crear cada pregunta-respuesta
+                a mano.
+              </div>
+
+              <div>
+                <label className="label">Modo de split</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(
+                    [
+                      { v: 'sections', label: '## Headers', hint: 'Splittea por "## Título"' },
+                      { v: 'paragraphs', label: 'Párrafos', hint: 'Splittea por doble salto' },
+                      { v: 'whole', label: 'Documento entero', hint: '1 sola entrada' },
+                    ] as const
+                  ).map((m) => (
+                    <button
+                      key={m.v}
+                      type="button"
+                      onClick={() => setMode(m.v)}
+                      className={`text-left p-2.5 rounded-lg border-2 transition ${
+                        mode === m.v
+                          ? 'border-brand bg-brand-soft'
+                          : 'border-line hover:border-mute'
+                      }`}
+                    >
+                      <div className="text-xs font-semibold">{m.label}</div>
+                      <div className="text-[10px] text-mute mt-0.5">{m.hint}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="label">Categoría destino</label>
+                <input
+                  className="input"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  placeholder="General"
+                />
+                <div className="text-[11px] text-mute mt-1">
+                  Si ya existe una entrada con el mismo título en esta
+                  categoría, se sobrescribe (no se duplica).
+                </div>
+              </div>
+
+              <div>
+                <label className="label">Documento</label>
+                <textarea
+                  className="input font-mono text-xs"
+                  rows={14}
+                  placeholder={
+                    mode === 'sections'
+                      ? '## ¿Cómo funcionan las tarjetas wallet?\nClubify genera pkpass para Apple y JWT save links para Google...\n\n## ¿Qué pasa si el cliente cambia de celular?\nEl pass se restaura automáticamente desde iCloud...'
+                      : 'Pegá acá el documento. Será partido automáticamente según el modo elegido.'
+                  }
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                />
+                <div className="text-[11px] text-mute mt-1">
+                  {text.length.toLocaleString()} caracteres · máx 200.000
+                </div>
+              </div>
+            </div>
+            <div className="p-5 border-t border-line flex gap-2 justify-end">
+              <button
+                onClick={() => setOpen(false)}
+                disabled={busy}
+                className="btn-ghost"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={submit}
+                disabled={busy || !text.trim()}
+                className="btn-primary disabled:opacity-50"
+              >
+                {busy ? 'Importando…' : `Importar ${text.length > 0 ? `(${Math.max(1, text.split(/\n\s*\n/).length)} ~chunks)` : ''}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Modal del master prompt — texto libre que se prepone al system prompt
+ *  del widget. Permite ajustar tono, instrucciones, restricciones sin
+ *  redeploy. */
+function MasterPromptButton() {
+  const [open, setOpen] = useState(false);
+  const [prompt, setPrompt] = useState('');
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    api<{ prompt: string | null }>('/admin/support/master-prompt')
+      .then((r) => {
+        setPrompt(r.prompt ?? '');
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, [open]);
+
+  async function save() {
+    setBusy(true);
+    try {
+      await api('/admin/support/master-prompt', {
+        method: 'PATCH',
+        body: JSON.stringify({ prompt: prompt.trim() || null }),
+      });
+      toast('Master prompt guardado', 'success');
+      setOpen(false);
+    } catch (e: any) {
+      toast(e.message || 'No se pudo guardar', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <button className="btn-ghost text-sm" onClick={() => setOpen(true)}>
+        🧠 Master prompt
+      </button>
+      {open && (
+        <div
+          className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4"
+          onClick={() => !busy && setOpen(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-5 border-b border-line flex items-center justify-between">
+              <h3 className="text-lg font-semibold m-0">Master prompt de la IA</h3>
+              <button
+                onClick={() => setOpen(false)}
+                className="text-mute hover:text-ink"
+                disabled={busy}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-5 space-y-3">
+              <div className="text-sm text-mute leading-relaxed">
+                Texto que se preponne al system prompt del widget IA. Sirve
+                para fijar tono, agregar instrucciones específicas o
+                restricciones sin redeploy. Si está vacío, se usa solo el
+                prompt default + el knowledge base.
+              </div>
+              {loaded ? (
+                <textarea
+                  className="input font-mono text-xs"
+                  rows={16}
+                  placeholder="Ejemplo:&#10;Sos un asistente de Clubify. Hablás en español neutro LATAM. Nunca uses jerga argentina. Si el cliente menciona precios sin tener login, redirígelo a /signup. Si pregunta por el plan Pro, mencioná que incluye automatizaciones WhatsApp y prioridad de soporte."
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                />
+              ) : (
+                <div className="text-sm text-mute py-8 text-center">Cargando…</div>
+              )}
+              <div className="text-[11px] text-mute">
+                {prompt.length.toLocaleString()} caracteres · máx 20.000
+              </div>
+            </div>
+            <div className="p-5 border-t border-line flex gap-2 justify-end">
+              <button
+                onClick={() => setOpen(false)}
+                disabled={busy}
+                className="btn-ghost"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={save}
+                disabled={busy || !loaded}
+                className="btn-primary disabled:opacity-50"
+              >
+                {busy ? 'Guardando…' : 'Guardar prompt'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

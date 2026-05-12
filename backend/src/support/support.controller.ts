@@ -19,6 +19,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { SupportService } from './support.service';
+import { SettingsService } from '../settings/settings.service';
 import { Roles } from '../common/decorators/roles.decorator';
 
 class ChatMessageDto {
@@ -49,9 +50,23 @@ class KnowledgeUpdateBody {
   @IsOptional() @IsBoolean() isActive?: boolean;
 }
 
+class BulkImportBody {
+  @IsString() @MaxLength(200_000) text!: string;
+  @IsIn(['sections', 'paragraphs', 'whole']) mode!: 'sections' | 'paragraphs' | 'whole';
+  @IsOptional() @IsString() @MaxLength(80) category?: string;
+}
+
+class MasterPromptBody {
+  // Null o string vacío = limpiar el master prompt.
+  @IsOptional() @IsString() @MaxLength(20_000) prompt?: string | null;
+}
+
 @Controller()
 export class SupportController {
-  constructor(private svc: SupportService) {}
+  constructor(
+    private svc: SupportService,
+    private settings: SettingsService,
+  ) {}
 
   /**
    * Endpoint del widget — accesible para cualquier usuario logueado en
@@ -89,5 +104,30 @@ export class SupportController {
   @Delete('admin/knowledge/:id')
   remove(@Param('id') id: string) {
     return this.svc.remove(id);
+  }
+
+  /** Import masivo desde un documento pegado. Soporta 3 modos:
+   *  sections (## headers), paragraphs, whole. Item 29 del spec —
+   *  permite al admin subir un brief largo y partirlo en KnowledgeEntry
+   *  sin tipear cada uno. */
+  @Roles('SUPER_ADMIN')
+  @Post('admin/knowledge/bulk-import')
+  bulkImport(@Body() body: BulkImportBody) {
+    return this.svc.bulkImport(body);
+  }
+
+  /** Master prompt opcional — texto libre que se prepone al system
+   *  prompt del widget. Permite al admin inyectar instrucciones
+   *  específicas sin redeploy. */
+  @Roles('SUPER_ADMIN')
+  @Get('admin/support/master-prompt')
+  getMasterPrompt() {
+    return this.settings.getSupportMasterPrompt();
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Patch('admin/support/master-prompt')
+  setMasterPrompt(@Body() body: MasterPromptBody) {
+    return this.settings.setSupportMasterPrompt(body.prompt ?? null);
   }
 }
