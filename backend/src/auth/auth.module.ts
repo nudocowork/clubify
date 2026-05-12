@@ -8,6 +8,8 @@ import { AppConfigService } from '../common/config/app-config.service';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
+import { RefreshTokenService } from './refresh-token.service';
+import { TwoFactorService } from './two-factor.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { TenantStatusGuard } from '../common/guards/tenant-status.guard';
@@ -28,11 +30,13 @@ import { TenantStatusGuard } from '../common/guards/tenant-status.guard';
   providers: [
     AuthService,
     JwtStrategy,
+    RefreshTokenService,
+    TwoFactorService,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: TenantStatusGuard },
   ],
   controllers: [AuthController],
-  exports: [AuthService, JwtModule],
+  exports: [AuthService, JwtModule, RefreshTokenService, TwoFactorService],
 })
 export class AuthModule {}

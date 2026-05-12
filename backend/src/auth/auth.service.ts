@@ -7,6 +7,8 @@ import { AuditService } from '../audit/audit.service';
 import { createHash, randomBytes } from 'crypto';
 import { EmailService } from '../email/email.service';
 import { AppConfigService } from '../common/config/app-config.service';
+import { RefreshTokenService } from './refresh-token.service';
+import { TwoFactorService } from './two-factor.service';
 import {
   welcomeOwnerTemplate,
   passwordResetTemplate,
@@ -58,6 +60,8 @@ export class AuthService {
     private audit: AuditService,
     private email: EmailService,
     private appConfig: AppConfigService,
+    private refreshTokens: RefreshTokenService,
+    private twoFactor: TwoFactorService,
   ) {
     const clientId = appConfig.get('GOOGLE_CLIENT_ID');
     this.googleClient = clientId ? new OAuth2Client(clientId) : null;
@@ -70,7 +74,7 @@ export class AuthService {
     email: string,
     password: string,
     ip?: string,
-    opts: { scope?: 'scanner' } = {},
+    opts: { scope?: 'scanner'; userAgent?: string } = {},
   ) {
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user || !user.isActive) {
@@ -93,6 +97,55 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    // Si el usuario tiene 2FA activo, NO emitimos tokens todavía. Retornamos
+    // un challengeToken corto (5 min) que el cliente debe canjear vía
+    // POST /auth/2fa/challenge con el código TOTP. El challenge se firma
+    // con JWT_REFRESH_SECRET para que NO sirva como accessToken (JwtStrategy
+    // usa JWT_SECRET) ni como refreshToken (no está en la tabla RefreshToken).
+    if (user.totpEnabledAt) {
+      const challengeToken = this.jwt.sign(
+        { sub: user.id, purpose: '2fa_challenge' },
+        {
+          secret: this.appConfig.JWT_REFRESH_SECRET,
+          expiresIn: '5m',
+        },
+      );
+      this.audit.log({
+        actorId: user.id,
+        tenantId: user.tenantId,
+        action: 'auth.2fa.challenge.required',
+        resource: `user:${user.id}`,
+        ip,
+      });
+      return { requires2FA: true as const, challengeToken };
+    }
+
+    return this.issueSession(user, ip, {
+      scope: opts.scope,
+      userAgent: opts.userAgent,
+      auditAction: 'auth.login',
+    });
+  }
+
+  /**
+   * Emite access + refresh tokens para un usuario ya autenticado. Centraliza
+   * la firma de tokens y el persist del refresh para login/signup/google/2fa.
+   */
+  private async issueSession(
+    user: {
+      id: string;
+      email: string;
+      role: any;
+      tenantId: string | null;
+      fullName: string;
+    },
+    ip: string | undefined,
+    opts: {
+      scope?: 'scanner';
+      userAgent?: string;
+      auditAction: string;
+    },
+  ) {
     await this.prisma.user.update({
       where: { id: user.id },
       data: { lastLoginAt: new Date() },
@@ -101,7 +154,7 @@ export class AuthService {
     this.audit.log({
       actorId: user.id,
       tenantId: user.tenantId,
-      action: 'auth.login',
+      action: opts.auditAction,
       resource: `user:${user.id}`,
       ip,
     });
@@ -113,15 +166,15 @@ export class AuthService {
       tenantId: user.tenantId,
     };
 
-    // Sesión "scanner" dura 6h (turno largo de cajero/staff que escanea
-    // todo el día). Sesión normal usa el JWT_EXPIRES default.
     const accessToken =
       opts.scope === 'scanner'
         ? this.jwt.sign(payload, { expiresIn: '6h' })
         : this.jwt.sign(payload);
-    const refreshToken = this.jwt.sign(payload, {
-      secret: this.appConfig.JWT_REFRESH_SECRET,
-      expiresIn: this.appConfig.JWT_REFRESH_EXPIRES,
+    const refreshToken = await this.refreshTokens.issue({
+      userId: user.id,
+      payload,
+      ip: ip ?? null,
+      userAgent: opts.userAgent ?? null,
     });
 
     return {
@@ -139,12 +192,61 @@ export class AuthService {
   }
 
   /**
+   * Segundo paso del login cuando el usuario tiene 2FA activado. Valida el
+   * challengeToken (TTL 5min) + el código TOTP, y emite los tokens reales.
+   */
+  async challenge2FA(
+    challengeToken: string,
+    totpCode: string,
+    ip?: string,
+    userAgent?: string,
+  ) {
+    if (!challengeToken || !totpCode) {
+      throw new UnauthorizedException('Challenge inválido');
+    }
+    let payload: any;
+    try {
+      payload = this.jwt.verify(challengeToken, {
+        secret: this.appConfig.JWT_REFRESH_SECRET,
+      });
+    } catch {
+      throw new UnauthorizedException('Challenge expirado, volvé a hacer login');
+    }
+    if (payload?.purpose !== '2fa_challenge' || !payload?.sub) {
+      throw new UnauthorizedException('Challenge inválido');
+    }
+
+    const valid = await this.twoFactor.verify(payload.sub, totpCode);
+    if (!valid) {
+      this.audit.log({
+        actorId: payload.sub,
+        action: 'auth.2fa.challenge.failed',
+        resource: `user:${payload.sub}`,
+        ip,
+      });
+      throw new UnauthorizedException('Código TOTP inválido');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+    });
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException();
+    }
+
+    return this.issueSession(user, ip, {
+      userAgent,
+      auditAction: 'auth.2fa.challenge.ok',
+    });
+  }
+
+  /**
    * Login con Google: el frontend obtiene un ID token vía Google Identity
    * Services y nos lo pasa. Verificamos firma + audience contra GOOGLE_CLIENT_ID
    * y mapeamos por email a un User existente. NO creamos cuentas nuevas vía
    * Google — si el email no tiene cuenta, devolvemos 401 con mensaje claro.
    */
-  async loginWithGoogle(idToken: string, ip?: string) {
+  async loginWithGoogle(idToken: string, ip?: string, userAgent?: string) {
     const googleClientId = this.appConfig.get('GOOGLE_CLIENT_ID');
     if (!this.googleClient || !googleClientId) {
       throw new BadRequestException(
@@ -183,59 +285,40 @@ export class AuthService {
       );
     }
 
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() },
-    });
+    // Mismo gating de 2FA que el login con password.
+    if (user.totpEnabledAt) {
+      const challengeToken = this.jwt.sign(
+        { sub: user.id, purpose: '2fa_challenge' },
+        { secret: this.appConfig.JWT_REFRESH_SECRET, expiresIn: '5m' },
+      );
+      return { requires2FA: true as const, challengeToken };
+    }
 
-    this.audit.log({
-      actorId: user.id,
-      tenantId: user.tenantId,
-      action: 'auth.login.google',
-      resource: `user:${user.id}`,
-      ip,
+    return this.issueSession(user, ip, {
+      userAgent,
+      auditAction: 'auth.login.google',
     });
-
-    const tokenPayload = {
-      sub: user.id,
-      email: user.email,
-      role: user.role,
-      tenantId: user.tenantId,
-    };
-    const accessToken = this.jwt.sign(tokenPayload);
-    const refreshToken = this.jwt.sign(tokenPayload, {
-      secret: this.appConfig.JWT_REFRESH_SECRET,
-      expiresIn: this.appConfig.JWT_REFRESH_EXPIRES,
-    });
-
-    return {
-      accessToken,
-      refreshToken,
-      user: {
-        id: user.id,
-        email: user.email,
-        fullName: user.fullName,
-        role: user.role,
-        tenantId: user.tenantId,
-      },
-    };
   }
 
-  async refresh(refreshToken: string) {
-    try {
-      const payload = this.jwt.verify(refreshToken, {
-        secret: this.appConfig.JWT_REFRESH_SECRET,
-      });
-      const newPayload = {
-        sub: payload.sub,
-        email: payload.email,
-        role: payload.role,
-        tenantId: payload.tenantId,
-      };
-      return { accessToken: this.jwt.sign(newPayload) };
-    } catch {
-      throw new UnauthorizedException('Invalid refresh token');
+  async refresh(
+    refreshToken: string,
+    ip?: string,
+    userAgent?: string,
+  ) {
+    const { refreshToken: newRefresh, payload } = await this.refreshTokens.rotate(
+      refreshToken,
+      { ip: ip ?? null, userAgent: userAgent ?? null },
+    );
+    const accessToken = this.jwt.sign(payload);
+    return { accessToken, refreshToken: newRefresh };
+  }
+
+  /** Logout: revoca el refresh actual. Idempotente. */
+  async logout(refreshToken?: string) {
+    if (refreshToken) {
+      await this.refreshTokens.revokeOne(refreshToken);
     }
+    return { ok: true };
   }
 
   async hashPassword(plain: string) {
@@ -382,21 +465,30 @@ export class AuthService {
       throw new UnauthorizedException('Link inválido o expirado');
     }
     const passwordHash = await this.hashPassword(newPassword);
+    const now = new Date();
     await this.prisma.$transaction([
       this.prisma.user.update({
         where: { id: record.userId },
-        data: { passwordHash },
+        // passwordChangedAt fuerza que cualquier refresh emitido antes de
+        // ahora sea rechazado (RefreshTokenService.rotate verifica iat).
+        data: { passwordHash, passwordChangedAt: now },
       }),
       this.prisma.passwordResetToken.update({
         where: { id: record.id },
-        data: { usedAt: new Date() },
+        data: { usedAt: now },
       }),
       // Invalida tokens previos del mismo user (defensa en profundidad)
       this.prisma.passwordResetToken.updateMany({
         where: { userId: record.userId, usedAt: null, id: { not: record.id } },
-        data: { usedAt: new Date() },
+        data: { usedAt: now },
       }),
     ]);
+
+    // Revocar TODAS las sesiones activas del usuario (logout global). Si la
+    // razón del reset fue robo de credenciales, esto cierra el agujero de
+    // inmediato — los tokens existentes quedan inservibles.
+    await this.refreshTokens.revokeAllForUser(record.userId);
+
     return { ok: true };
   }
 
@@ -603,9 +695,11 @@ export class AuthService {
       tenantId: user.tenantId,
     };
     const accessToken = this.jwt.sign(payload);
-    const refreshToken = this.jwt.sign(payload, {
-      secret: this.appConfig.JWT_REFRESH_SECRET,
-      expiresIn: this.appConfig.JWT_REFRESH_EXPIRES,
+    const refreshToken = await this.refreshTokens.issue({
+      userId: user.id,
+      payload,
+      ip: ip ?? null,
+      userAgent: null,
     });
 
     return {

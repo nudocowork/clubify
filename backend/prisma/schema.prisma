@@ -208,19 +208,19 @@ enum AutomationRunStatus {
 // ============================================================
 
 model Plan {
-  id            String   @id @default(uuid())
-  name          String   @unique
-  maxLocations  Int      @default(3)
-  maxCards      Int      @default(5)
-  maxCustomers  Int      @default(1000)
-  maxProducts   Int      @default(50)
-  maxOrdersMonth Int     @default(500)
-  pushIncluded  Int      @default(1000)
-  whatsappIncluded Int   @default(1000)
-  priceMonthly  Decimal  @default(0) @db.Decimal(10, 2)
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  tenants       Tenant[]
+  id               String   @id @default(uuid())
+  name             String   @unique
+  maxLocations     Int      @default(3)
+  maxCards         Int      @default(5)
+  maxCustomers     Int      @default(1000)
+  maxProducts      Int      @default(50)
+  maxOrdersMonth   Int      @default(500)
+  pushIncluded     Int      @default(1000)
+  whatsappIncluded Int      @default(1000)
+  priceMonthly     Decimal  @default(0) @db.Decimal(10, 2)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  tenants          Tenant[]
 }
 
 /// Configuración global de Clubify (singleton key/value).
@@ -233,30 +233,58 @@ model Setting {
 }
 
 model PasswordResetToken {
-  id         String    @id @default(uuid())
-  userId     String
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash  String    @unique
-  expiresAt  DateTime
-  usedAt     DateTime?
-  createdAt  DateTime  @default(now())
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
 
   @@index([userId])
 }
 
+// Refresh tokens persistidos para soportar rotation + revocation.
+// Cada refresh emitido vive una sola vez: al usarse se marca como
+// `replacedByTokenId` apuntando al nuevo token de la misma familia.
+// Si un token YA rotado se intenta usar de nuevo → reuso sospechoso,
+// la familia entera se revoca (token reuse detection). El `familyId`
+// agrupa todos los refresh derivados de un mismo login.
+model RefreshToken {
+  id                String    @id @default(uuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // SHA256 hex del token. NUNCA guardamos el token plano.
+  tokenHash         String    @unique
+  // Agrupa rotation chain. Al detectar reuso se revoca toda la family.
+  familyId          String
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  // Si fue rotado, apunta al token nuevo de la misma family.
+  replacedByTokenId String?
+  // Metadata diagnóstica (no PII sensible).
+  ip                String?
+  userAgent         String?   @db.Text
+  createdAt         DateTime  @default(now())
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
+}
+
 model Tenant {
-  id                   String       @id @default(uuid())
-  name                 String
-  brandName            String
-  slug                 String       @unique
-  email                String
-  phone                String?
-  whatsappPhone        String?
+  id                          String       @id @default(uuid())
+  name                        String
+  brandName                   String
+  slug                        String       @unique
+  email                       String
+  phone                       String?
+  whatsappPhone               String?
   // URL completa de Google Reviews del negocio (el dueño la pega desde
   // Google Business Profile → Get more reviews → "Compartir formulario").
   // Usado por /r/{slug} review filter: clientes con 4-5★ van directo
   // a Google; <4★ se redirigen a feedback privado en /api/public/r/.
-  googleReviewUrl      String?
+  googleReviewUrl             String?
   // Mensajería del flujo de pedidos (Pro-only):
   // - whatsappOrdersPhone: número del NEGOCIO/CAJA donde el cliente envía
   //   sus pedidos desde el menú (mesa o delivery). Si está vacío usa
@@ -264,37 +292,37 @@ model Tenant {
   // - whatsappDeliveryPhone: número del COURIER/empresa de domicilio.
   //   Cuando el negocio acepta el pago de un pedido DELIVERY se abre un
   //   wa.me a este número con el resumen + dirección.
-  whatsappOrdersPhone   String?
-  whatsappDeliveryPhone String?
-  logoUrl              String?
+  whatsappOrdersPhone         String?
+  whatsappDeliveryPhone       String?
+  logoUrl                     String?
   // Logo específico para las tarjetas wallet (header de Apple/Google
   // Wallet). Si null, fallback a logoUrl. PNG con alpha recomendado.
-  walletLogoUrl        String?
-  primaryColor         String       @default("#6366F1")
-  secondaryColor       String       @default("#C026D3")
-  status               TenantStatus @default(TRIAL)
+  walletLogoUrl               String?
+  primaryColor                String       @default("#6366F1")
+  secondaryColor              String       @default("#A855F7")
+  status                      TenantStatus @default(TRIAL)
   // Categoría del rubro (restaurante, autolavado, barbería, etc.) — define
   // qué módulos del panel ve el dueño. Lista en common/business-categories.ts.
   // Nullable por compat con tenants viejos; en runtime cae a 'restaurant'.
-  businessCategorySlug String?
-  planId               String
-  plan                 Plan         @relation(fields: [planId], references: [id])
-  maxLocationsOverride Int?
-  referredByCode       String?
-  currency             String       @default("COP")
-  timezone             String       @default("America/Bogota")
-  instagramUrl         String?
-  facebookUrl          String?
-  mapsUrl              String?
+  businessCategorySlug        String?
+  planId                      String
+  plan                        Plan         @relation(fields: [planId], references: [id])
+  maxLocationsOverride        Int?
+  referredByCode              String?
+  currency                    String       @default("COP")
+  timezone                    String       @default("America/Bogota")
+  instagramUrl                String?
+  facebookUrl                 String?
+  mapsUrl                     String?
   // Trial / billing
-  trialStartedAt       DateTime?
-  trialEndsAt          DateTime?
-  currentPeriodEnd     DateTime?
-  hotmartSubscriberCode String?
-  hotmartTransactionId String?
-  failedPaymentCount   Int          @default(0)
-  lastPaymentAttemptAt DateTime?
-  suspendedAt          DateTime?
+  trialStartedAt              DateTime?
+  trialEndsAt                 DateTime?
+  currentPeriodEnd            DateTime?
+  hotmartSubscriberCode       String?
+  hotmartTransactionId        String?
+  failedPaymentCount          Int          @default(0)
+  lastPaymentAttemptAt        DateTime?
+  suspendedAt                 DateTime?
   // Tracking de notificaciones de cobro automáticas (idempotencia del cron):
   // - paymentReminderSentFor: igualamos a currentPeriodEnd cuando ya
   //   enviamos el "tu cobro es mañana". Evita re-enviar si el cron corre
@@ -319,43 +347,43 @@ model Tenant {
   businessAddressOnboardedAt  DateTime?
   businessCategoryOnboardedAt DateTime?
   // Integración Grow Business (proveedor externo de SMS, conectado por super admin)
-  growBusinessLocationId   String?
-  growBusinessApiKey       String?
-  growBusinessConnectedAt  DateTime?
-  createdAt            DateTime     @default(now())
+  growBusinessLocationId      String?
+  growBusinessApiKey          String?
+  growBusinessConnectedAt     DateTime?
+  createdAt                   DateTime     @default(now())
 
-  users         User[]
-  cards         Card[]
-  customers     Customer[]
-  passes        Pass[]
-  locations     Location[]
-  stamps        Stamp[]
+  users               User[]
+  cards               Card[]
+  customers           Customer[]
+  passes              Pass[]
+  locations           Location[]
+  stamps              Stamp[]
   walletNotifications Notification[]
-  automations   AutomationRule[]
-  referralUses  ReferralUse[]
-  categories    Category[]
-  products      Product[]
-  adicionales   Adicional[]
-  carts         Cart[]
-  orders        Order[]
-  promotions    Promotion[]
-  channelConfigs ChannelConfig[]
-  messages      Message[]
-  templates     MessageTemplate[]
-  storefront    Storefront?
-  infoLinks     InfoLink[]
-  events        Event[]
-  reviewFeedbacks ReviewFeedback[]
-  reminders        Reminder[]
-  suppliers        Supplier[]
-  frequentProducts FrequentProduct[]
-  purchaseOrders   PurchaseOrder[]
-  couponUses       CouponUse[]
-  badges           Badge[]
-  qrPosters        QrPoster[]
+  automations         AutomationRule[]
+  referralUses        ReferralUse[]
+  categories          Category[]
+  products            Product[]
+  adicionales         Adicional[]
+  carts               Cart[]
+  orders              Order[]
+  promotions          Promotion[]
+  channelConfigs      ChannelConfig[]
+  messages            Message[]
+  templates           MessageTemplate[]
+  storefront          Storefront?
+  infoLinks           InfoLink[]
+  events              Event[]
+  reviewFeedbacks     ReviewFeedback[]
+  reminders           Reminder[]
+  suppliers           Supplier[]
+  frequentProducts    FrequentProduct[]
+  purchaseOrders      PurchaseOrder[]
+  couponUses          CouponUse[]
+  badges              Badge[]
+  qrPosters           QrPoster[]
   // Cotizaciones que se convirtieron en este tenant (closed-loop signup
   // con qt=<publicToken> en el URL).
-  fromQuotes       Quote[]   @relation("QuoteConvertedToTenant")
+  fromQuotes          Quote[]           @relation("QuoteConvertedToTenant")
 
   @@index([status])
 }
@@ -373,21 +401,31 @@ model User {
   lastLoginAt  DateTime?
   createdAt    DateTime  @default(now())
 
-  stampsOperated Stamp[] @relation("operator")
-  referralCodes  ReferralCode[]
-  auditLogs      AuditLog[]
+  // 2FA TOTP. Habilitado obligatoriamente para SUPER_ADMIN; opcional para
+  // TENANT_OWNER/STAFF. `totpSecret` es el secret base32; `totpEnabledAt`
+  // se setea sólo después de que el usuario confirma con un código válido.
+  totpSecret        String?
+  totpEnabledAt     DateTime?
+  // Timestamp del último cambio de password. Usado para forzar logout
+  // global: cualquier token emitido antes de esta fecha queda inválido.
+  passwordChangedAt DateTime?
+
+  stampsOperated      Stamp[]              @relation("operator")
+  referralCodes       ReferralCode[]
+  auditLogs           AuditLog[]
   passwordResetTokens PasswordResetToken[]
-  reminders      Reminder[] @relation("ReminderEmployee")
-  quotesCreated  Quote[]    @relation("QuoteAdvisor")
+  refreshTokens       RefreshToken[]
+  reminders           Reminder[]           @relation("ReminderEmployee")
+  quotesCreated       Quote[]              @relation("QuoteAdvisor")
 
   @@index([tenantId])
   @@index([role])
 }
 
 model Customer {
-  id         String   @id @default(uuid())
+  id         String    @id @default(uuid())
   tenantId   String
-  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   email      String?
   phone      String?
   fullName   String
@@ -395,34 +433,34 @@ model Customer {
   externalId String?
 
   // Extended for v2
-  firstOrderAt        DateTime?
-  lastOrderAt         DateTime?
-  totalOrdersCount    Int       @default(0)
-  totalOrdersAmount   Decimal   @default(0) @db.Decimal(12, 2)
-  tags                String[]
-  notes               String?   @db.Text
-  marketingOptIn      Boolean   @default(true)
-  whatsappVerified    Boolean   @default(false)
+  firstOrderAt      DateTime?
+  lastOrderAt       DateTime?
+  totalOrdersCount  Int       @default(0)
+  totalOrdersAmount Decimal   @default(0) @db.Decimal(12, 2)
+  tags              String[]
+  notes             String?   @db.Text
+  marketingOptIn    Boolean   @default(true)
+  whatsappVerified  Boolean   @default(false)
 
   // Gamificación. xpPoints acumulan por scan/redención; level se calcula
   // a partir del XP en backend (Bronce 0+, Plata 100+, Oro 300+, Platino
   // 600+, Diamante 1000+ por defecto). currentStreakDays cuenta días
   // consecutivos con al menos 1 scan; lastVisitDay (YYYY-MM-DD) se usa
   // para detectar si el streak se cortó.
-  xpPoints            Int       @default(0)
-  currentLevel        Int       @default(1)
-  currentStreakDays   Int       @default(0)
-  longestStreakDays   Int       @default(0)
-  lastVisitDay        String?
+  xpPoints          Int     @default(0)
+  currentLevel      Int     @default(1)
+  currentStreakDays Int     @default(0)
+  longestStreakDays Int     @default(0)
+  lastVisitDay      String?
 
-  createdAt  DateTime @default(now())
+  createdAt DateTime @default(now())
 
-  passes  Pass[]
-  stamps  Stamp[]
-  carts   Cart[]
-  orders  Order[]
+  passes   Pass[]
+  stamps   Stamp[]
+  carts    Cart[]
+  orders   Order[]
   messages Message[]
-  badges  CustomerBadge[]
+  badges   CustomerBadge[]
 
   @@unique([tenantId, email])
   @@unique([tenantId, phone])
@@ -434,44 +472,44 @@ model Customer {
 // ============================================================
 
 model Card {
-  id                 String   @id @default(uuid())
-  tenantId           String
-  tenant             Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  type               CardType
-  name               String
-  description        String   @default("")
-  terms              String   @default("")
+  id                  String    @id @default(uuid())
+  tenantId            String
+  tenant              Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type                CardType
+  name                String
+  description         String    @default("")
+  terms               String    @default("")
   // Si false, el reverso de la wallet no muestra T&C (el dueño los
   // apagó porque no son obligatorios para su negocio).
-  termsEnabled       Boolean  @default(true)
-  primaryColor       String   @default("#6366F1")
-  secondaryColor     String   @default("#C026D3")
+  termsEnabled        Boolean   @default(true)
+  primaryColor        String    @default("#6366F1")
+  secondaryColor      String    @default("#A855F7")
   // Colores avanzados — opcionales. Si null, el .pkpass cae a primary/secondary.
   // El picker en el wizard los expone bajo "Colores avanzados".
-  stampActiveColor   String?
-  stampInactiveColor String?
-  stampContourColor  String?
-  centerBgColor      String?
-  logoUrl            String?
-  heroImageUrl       String?
-  iconUrl            String?
-  stampsRequired     Int?
-  rewardText         String   @default("")
-  pointsPerCurrency  Decimal? @db.Decimal(10, 2)
-  discountPercent    Int?
+  stampActiveColor    String?
+  stampInactiveColor  String?
+  stampContourColor   String?
+  centerBgColor       String?
+  logoUrl             String?
+  heroImageUrl        String?
+  iconUrl             String?
+  stampsRequired      Int?
+  rewardText          String    @default("")
+  pointsPerCurrency   Decimal?  @db.Decimal(10, 2)
+  discountPercent     Int?
   // CASHBACK: % devuelto por compra. Compra mínima opcional para activar.
-  cashbackPercent    Int?
-  cashbackMinPurchase Decimal? @db.Decimal(12, 2)
+  cashbackPercent     Int?
+  cashbackMinPurchase Decimal?  @db.Decimal(12, 2)
   // VISITS: cuántas visitas para canjear la recompensa (equivalente a
   // stampsRequired pero sin importar el ticket).
-  visitsRequired     Int?
+  visitsRequired      Int?
   // MEMBERSHIP con tiers VIP. Cada tier:
   //   { name:'Silver', threshold:0,  perks:['Acceso premium'], color:'#9CA3AF', icon:'🥈' }
   // tierMetric: spend|visits|stamps — qué métrica decide el tier.
-  tiers              Json     @default("[]")
-  tierMetric         String   @default("spend")
-  validFrom          DateTime? @db.Date
-  validUntil         DateTime? @db.Date
+  tiers               Json      @default("[]")
+  tierMetric          String    @default("spend")
+  validFrom           DateTime? @db.Date
+  validUntil          DateTime? @db.Date
   // Si está seteado, cada Pass de esta tarjeta vence
   // (issuedAt + validDaysAfterIssue) días. Mutuamente excluyente con
   // validUntil: el usuario elige una de las tres modalidades en el
@@ -480,36 +518,36 @@ model Card {
   // Tarjeta asociada a una sede del negocio (multi-sede). Null = aplica a
   // todas las sedes. Permite filtrar customers/passes por origen y saber
   // de qué sede llegó cada cliente.
-  locationId         String?
-  location           Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  locationId          String?
+  location            Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
   // === Información (paso 4 del wizard, va al reverso del .pkpass) ===
-  howToEarnText      String   @default("")
-  businessName       String   @default("")
-  rewardDescText     String   @default("")
+  howToEarnText       String    @default("")
+  businessName        String    @default("")
+  rewardDescText      String    @default("")
   // Templates con [#] = sellos/puntos restantes para la próxima recompensa.
-  stampEarnedMessage  String  @default("")
-  rewardEarnedMessage String  @default("")
+  stampEarnedMessage  String    @default("")
+  rewardEarnedMessage String    @default("")
   // Hitos intermedios. Cada elemento: {at:5, reward:"5% off"}.
   // Si vacío, solo hay recompensa al alcanzar stampsRequired.
-  multiRewards       Json     @default("[]")
+  multiRewards        Json      @default("[]")
   // Enlaces que el cliente puede tocar desde el reverso del pass.
   // Cada elemento: {type:'URL'|'PHONE'|'EMAIL'|'ADDRESS', url:string, label:string}.
-  activeLinks        Json     @default("[]")
-  socialLinks        Json     @default("{}")
-  googleClassId      String?
-  isActive           Boolean  @default(true)
+  activeLinks         Json      @default("[]")
+  socialLinks         Json      @default("{}")
+  googleClassId       String?
+  isActive            Boolean   @default(true)
   // v2: si está activa la integración orders→sello
-  autoStampOnOrder   Boolean  @default(true)
-  autoStampAmount    Int      @default(1)
+  autoStampOnOrder    Boolean   @default(true)
+  autoStampAmount     Int       @default(1)
   // Emoji que se usa para representar cada sello visualmente (☕, 🍕, 🍔, etc).
   // El cliente lo elige al crear la tarjeta.
-  stampIcon          String   @default("☕")
-  createdAt          DateTime @default(now())
+  stampIcon           String    @default("☕")
+  createdAt           DateTime  @default(now())
 
-  passes        Pass[]
-  notifications Notification[]
-  utmLinks      CardUtmLink[]
-  popupForStorefronts Storefront[] @relation("StorefrontPopupCard")
+  passes              Pass[]
+  notifications       Notification[]
+  utmLinks            CardUtmLink[]
+  popupForStorefronts Storefront[]   @relation("StorefrontPopupCard")
 
   @@index([tenantId])
   @@index([locationId])
@@ -519,54 +557,54 @@ model Card {
 // de bienvenida al cliente que se inscribe vía ese link. Permite saber
 // de qué campaña llegó cada pass.
 model CardUtmLink {
-  id                String   @id @default(uuid())
-  cardId            String
-  card              Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  id             String    @id @default(uuid())
+  cardId         String
+  card           Card      @relation(fields: [cardId], references: [id], onDelete: Cascade)
   // Texto libre — "Facebook campaña navideña", "IG influencer X".
-  source            String
+  source         String
   // Slug corto para construir el link público /c/u/{slug}.
-  slug              String   @unique
-  welcomeStamps     Int?
-  welcomePoints     Decimal? @db.Decimal(12, 2)
+  slug           String    @unique
+  welcomeStamps  Int?
+  welcomePoints  Decimal?  @db.Decimal(12, 2)
   // Hasta cuándo el bonus de bienvenida sigue activo (null = sin tope).
-  bonusExpiresAt    DateTime?
-  useCount          Int      @default(0)
-  createdAt         DateTime @default(now())
+  bonusExpiresAt DateTime?
+  useCount       Int       @default(0)
+  createdAt      DateTime  @default(now())
 
   @@index([cardId])
 }
 
 model Pass {
-  id              String     @id @default(uuid())
-  tenantId        String
-  tenant          Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  cardId          String
-  card            Card       @relation(fields: [cardId], references: [id], onDelete: Cascade)
-  customerId      String
-  customer        Customer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  serialNumber    String     @unique
-  qrToken         String     @unique
-  authToken       String
-  stampsCount     Int        @default(0)
-  pointsBalance   Decimal    @default(0) @db.Decimal(12, 2)
+  id                String          @id @default(uuid())
+  tenantId          String
+  tenant            Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cardId            String
+  card              Card            @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  customerId        String
+  customer          Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  serialNumber      String          @unique
+  qrToken           String          @unique
+  authToken         String
+  stampsCount       Int             @default(0)
+  pointsBalance     Decimal         @default(0) @db.Decimal(12, 2)
   // CASHBACK: saldo en moneda acumulado en este pass.
-  cashbackBalance Decimal    @default(0) @db.Decimal(12, 2)
+  cashbackBalance   Decimal         @default(0) @db.Decimal(12, 2)
   // VISITS: contador de visitas registradas (acción VISIT).
-  visitsCount     Int        @default(0)
+  visitsCount       Int             @default(0)
   // MEMBERSHIP con tiers: nombre del tier actual + métrica acumulada
   // sobre la que se calcula el siguiente tier.
-  currentTier     String?
-  tierProgress    Decimal    @default(0) @db.Decimal(12, 2)
-  status          PassStatus @default(ACTIVE)
-  issuedAt        DateTime   @default(now())
-  lastActivityAt  DateTime?
-  googleObjectId  String?
-  applePassUrl    String?
+  currentTier       String?
+  tierProgress      Decimal         @default(0) @db.Decimal(12, 2)
+  status            PassStatus      @default(ACTIVE)
+  issuedAt          DateTime        @default(now())
+  lastActivityAt    DateTime?
+  googleObjectId    String?
+  applePassUrl      String?
   /// Platform wallet que el cliente eligió. Se setea cuando descarga el
   /// .pkpass (APPLE) o pide el save URL de Google (GOOGLE). Sirve para
   /// analytics "cuántos clientes usan Apple vs Google Wallet". Null = el
   /// cliente nunca tocó ningún endpoint de wallet (ej. solo escaneó).
-  walletPlatform  WalletPlatform?
+  walletPlatform    WalletPlatform?
   walletInstalledAt DateTime?
 
   stamps        Stamp[]
@@ -591,21 +629,21 @@ model WalletDevice {
 }
 
 model Stamp {
-  id         String      @id @default(uuid())
-  tenantId   String
-  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  passId     String
-  pass       Pass        @relation(fields: [passId], references: [id], onDelete: Cascade)
-  customerId String
-  customer   Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  locationId String?
-  location   Location?   @relation(fields: [locationId], references: [id])
-  operatorId String?
-  operator   User?       @relation("operator", fields: [operatorId], references: [id])
-  orderId    String?
-  order      Order?      @relation(fields: [orderId], references: [id])
-  action     StampAction
-  amount     Decimal     @default(1) @db.Decimal(10, 2)
+  id             String      @id @default(uuid())
+  tenantId       String
+  tenant         Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  passId         String
+  pass           Pass        @relation(fields: [passId], references: [id], onDelete: Cascade)
+  customerId     String
+  customer       Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  locationId     String?
+  location       Location?   @relation(fields: [locationId], references: [id])
+  operatorId     String?
+  operator       User?       @relation("operator", fields: [operatorId], references: [id])
+  orderId        String?
+  order          Order?      @relation(fields: [orderId], references: [id])
+  action         StampAction
+  amount         Decimal     @default(1) @db.Decimal(10, 2)
   // Monto que el cliente pagó por la compra que motivó este scan.
   // Solo se setea para STAMP/VISIT (cards de sellos/visitas/híbridas) —
   // NO afecta cuántos sellos se otorgan (regla anti-fraude: 1 scan = 1 sello).
@@ -613,29 +651,29 @@ model Stamp {
   // Para CASHBACK_ADD el "amount" YA es el saldo otorgado proporcional al
   // monto pagado, así que purchaseAmount queda null (la fórmula ya está
   // implícita: amount = purchaseAmount * cashbackPercent / 100).
-  purchaseAmount Decimal? @db.Decimal(12, 2)
-  note       String?
-  createdAt  DateTime    @default(now())
+  purchaseAmount Decimal?    @db.Decimal(12, 2)
+  note           String?
+  createdAt      DateTime    @default(now())
 
   @@index([passId, createdAt])
   @@index([tenantId, createdAt])
 }
 
 model Location {
-  id            String   @id @default(uuid())
-  tenantId      String
-  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name          String
-  address       String   @default("")
-  latitude      Decimal  @db.Decimal(10, 7)
-  longitude     Decimal  @db.Decimal(10, 7)
-  radiusMeters  Int      @default(300)
+  id                 String   @id @default(uuid())
+  tenantId           String
+  tenant             Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name               String
+  address            String   @default("")
+  latitude           Decimal  @db.Decimal(10, 7)
+  longitude          Decimal  @db.Decimal(10, 7)
+  radiusMeters       Int      @default(300)
   // Texto que aparece en el lock screen del iPhone cuando el cliente está
   // dentro del radio (Apple Wallet `locations[].relevantText`). Si null,
   // cae al default "Estás cerca de {brandName}".
   walletRelevantText String?
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
 
   stamps Stamp[]
   orders Order[]
@@ -645,21 +683,21 @@ model Location {
 }
 
 model Notification {
-  id           String              @id @default(uuid())
-  tenantId     String
-  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  cardId       String?
-  card         Card?               @relation(fields: [cardId], references: [id])
-  segment      Json?
-  title        String
-  body         String
-  triggerType  NotificationTrigger @default(MANUAL)
+  id          String              @id @default(uuid())
+  tenantId    String
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cardId      String?
+  card        Card?               @relation(fields: [cardId], references: [id])
+  segment     Json?
+  title       String
+  body        String
+  triggerType NotificationTrigger @default(MANUAL)
   // Si scheduledAt es null → envío inmediato. Si tiene fecha futura → el
   // cron lo despacha cuando llega. sentAt queda null hasta el envío real.
-  scheduledAt  DateTime?
-  sentAt       DateTime?
-  stats        Json                @default("{}")
-  createdAt    DateTime            @default(now())
+  scheduledAt DateTime?
+  sentAt      DateTime?
+  stats       Json                @default("{}")
+  createdAt   DateTime            @default(now())
 
   @@index([tenantId, sentAt])
   @@index([scheduledAt])
@@ -724,11 +762,11 @@ model ProductVariant {
   id         String  @id @default(uuid())
   productId  String
   product    Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-  groupName  String   @default("Tamaño")
+  groupName  String  @default("Tamaño")
   name       String
-  priceDelta Decimal  @default(0) @db.Decimal(10, 2)
-  isDefault  Boolean  @default(false)
-  position   Int      @default(0)
+  priceDelta Decimal @default(0) @db.Decimal(10, 2)
+  isDefault  Boolean @default(false)
+  position   Int     @default(0)
 }
 
 model ProductExtra {
@@ -736,9 +774,9 @@ model ProductExtra {
   productId   String
   product     Product @relation(fields: [productId], references: [id], onDelete: Cascade)
   name        String
-  price       Decimal  @db.Decimal(10, 2)
-  maxQty      Int      @default(1)
-  isAvailable Boolean  @default(true)
+  price       Decimal @db.Decimal(10, 2)
+  maxQty      Int     @default(1)
+  isAvailable Boolean @default(true)
 }
 
 /// Biblioteca de adicionales (extras compartidos) por tenant. Permite
@@ -761,68 +799,68 @@ model Adicional {
 // ============================================================
 
 model Cart {
-  id              String     @id @default(uuid())
-  tenantId        String
-  tenant          Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  customerId      String?
-  customer        Customer?  @relation(fields: [customerId], references: [id])
-  sessionId       String
-  items           Json       @default("[]")
-  subtotal        Decimal    @default(0) @db.Decimal(10, 2)
-  discount        Decimal    @default(0) @db.Decimal(10, 2)
-  appliedPromos   Json       @default("[]")
-  total           Decimal    @default(0) @db.Decimal(10, 2)
-  status          CartStatus @default(OPEN)
-  updatedAt       DateTime   @updatedAt
-  createdAt       DateTime   @default(now())
+  id            String     @id @default(uuid())
+  tenantId      String
+  tenant        Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId    String?
+  customer      Customer?  @relation(fields: [customerId], references: [id])
+  sessionId     String
+  items         Json       @default("[]")
+  subtotal      Decimal    @default(0) @db.Decimal(10, 2)
+  discount      Decimal    @default(0) @db.Decimal(10, 2)
+  appliedPromos Json       @default("[]")
+  total         Decimal    @default(0) @db.Decimal(10, 2)
+  status        CartStatus @default(OPEN)
+  updatedAt     DateTime   @updatedAt
+  createdAt     DateTime   @default(now())
 
   @@unique([tenantId, sessionId])
   @@index([tenantId, status])
 }
 
 model Order {
-  id                String       @id @default(uuid())
-  tenantId          String
-  tenant            Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  customerId        String
-  customer          Customer     @relation(fields: [customerId], references: [id])
-  code              String       @unique
-  items             Json
-  subtotal          Decimal      @db.Decimal(10, 2)
-  discount          Decimal      @default(0) @db.Decimal(10, 2)
-  total             Decimal      @db.Decimal(10, 2)
-  status            OrderStatus  @default(PENDING)
-  channel           OrderChannel @default(WHATSAPP_LINK)
-  fulfillment       Fulfillment  @default(PICKUP)
-  tableNumber       String?
-  deliveryAddress   Json?
-  customerNote      String?
-  locationId        String?
-  location          Location?    @relation(fields: [locationId], references: [id])
-  appliedPromos     Json         @default("[]")
-  whatsappLink      String?
+  id              String       @id @default(uuid())
+  tenantId        String
+  tenant          Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId      String
+  customer        Customer     @relation(fields: [customerId], references: [id])
+  code            String       @unique
+  items           Json
+  subtotal        Decimal      @db.Decimal(10, 2)
+  discount        Decimal      @default(0) @db.Decimal(10, 2)
+  total           Decimal      @db.Decimal(10, 2)
+  status          OrderStatus  @default(PENDING)
+  channel         OrderChannel @default(WHATSAPP_LINK)
+  fulfillment     Fulfillment  @default(PICKUP)
+  tableNumber     String?
+  deliveryAddress Json?
+  customerNote    String?
+  locationId      String?
+  location        Location?    @relation(fields: [locationId], references: [id])
+  appliedPromos   Json         @default("[]")
+  whatsappLink    String?
 
   // Pagos online (v3)
-  paymentStatus     PaymentStatus @default(NOT_REQUIRED)
-  paymentMethod     PaymentMethod @default(CASH_ON_DELIVERY)
-  paymentProvider   String?       // p.ej. "stripe", "mercado_pago", "wompi", "stub"
-  paymentRef        String?       // id de la transacción del gateway
-  paymentUrl        String?       // URL/redirect para pagar
-  paidAt            DateTime?
+  paymentStatus   PaymentStatus @default(NOT_REQUIRED)
+  paymentMethod   PaymentMethod @default(CASH_ON_DELIVERY)
+  paymentProvider String? // p.ej. "stripe", "mercado_pago", "wompi", "stub"
+  paymentRef      String? // id de la transacción del gateway
+  paymentUrl      String? // URL/redirect para pagar
+  paidAt          DateTime?
 
-  confirmedAt       DateTime?
-  readyAt           DateTime?
-  deliveredAt       DateTime?
-  cancelledAt       DateTime?
-  createdAt         DateTime     @default(now())
+  confirmedAt DateTime?
+  readyAt     DateTime?
+  deliveredAt DateTime?
+  cancelledAt DateTime?
+  createdAt   DateTime  @default(now())
 
   // Calificación post-entrega (1-5 estrellas + comentario opcional)
-  rating            Int?
-  ratingComment     String?
-  ratedAt           DateTime?
+  rating        Int?
+  ratingComment String?
+  ratedAt       DateTime?
 
-  events   OrderEvent[]
-  stamps   Stamp[]
+  events      OrderEvent[]
+  stamps      Stamp[]
   redemptions PromotionRedemption[]
 
   @@index([tenantId, status, createdAt])
@@ -847,24 +885,24 @@ model OrderEvent {
 // ============================================================
 
 model Promotion {
-  id                          String        @id @default(uuid())
-  tenantId                    String
-  tenant                      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name                        String
-  description                 String        @default("")
-  imageUrl                    String?
-  type                        PromotionType
-  value                       Decimal       @db.Decimal(10, 2)
+  id                        String        @id @default(uuid())
+  tenantId                  String
+  tenant                    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name                      String
+  description               String        @default("")
+  imageUrl                  String?
+  type                      PromotionType
+  value                     Decimal       @db.Decimal(10, 2)
   /// Precio regular del producto antes del descuento. NULL = no se muestra
   /// como producto en oferta. Se renderiza tachado al lado del precio promo.
-  originalPrice               Decimal?      @db.Decimal(10, 2)
-  conditions                  Json          @default("{}")
-  validFrom                   DateTime?
-  validUntil                  DateTime?
-  maxRedemptions              Int?
-  maxRedemptionsPerCustomer   Int?
-  isActive                    Boolean       @default(true)
-  createdAt                   DateTime      @default(now())
+  originalPrice             Decimal?      @db.Decimal(10, 2)
+  conditions                Json          @default("{}")
+  validFrom                 DateTime?
+  validUntil                DateTime?
+  maxRedemptions            Int?
+  maxRedemptionsPerCustomer Int?
+  isActive                  Boolean       @default(true)
+  createdAt                 DateTime      @default(now())
 
   redemptions PromotionRedemption[]
 
@@ -872,14 +910,14 @@ model Promotion {
 }
 
 model PromotionRedemption {
-  id           String    @id @default(uuid())
-  promotionId  String
-  promotion    Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
-  orderId      String
-  order        Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  customerId   String
-  amountSaved  Decimal   @db.Decimal(10, 2)
-  createdAt    DateTime  @default(now())
+  id          String    @id @default(uuid())
+  promotionId String
+  promotion   Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  orderId     String
+  order       Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  customerId  String
+  amountSaved Decimal   @db.Decimal(10, 2)
+  createdAt   DateTime  @default(now())
 
   @@index([promotionId])
 }
@@ -889,17 +927,17 @@ model PromotionRedemption {
 // ============================================================
 
 model AutomationRule {
-  id          String          @id @default(uuid())
+  id          String   @id @default(uuid())
   tenantId    String
-  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name        String
-  description String          @default("")
+  description String   @default("")
   trigger     Json
-  conditions  Json            @default("[]")
+  conditions  Json     @default("[]")
   actions     Json
-  stats       Json            @default("{}")
-  isActive    Boolean         @default(true)
-  createdAt   DateTime        @default(now())
+  stats       Json     @default("{}")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
 
   runs AutomationRun[]
 
@@ -923,51 +961,51 @@ model AutomationRun {
 // ============================================================
 
 model ChannelConfig {
-  id          String      @id @default(uuid())
-  tenantId    String
-  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  type        ChannelType
-  config      Json
-  isActive    Boolean     @default(true)
-  isDefault   Boolean     @default(false)
-  createdAt   DateTime    @default(now())
+  id        String      @id @default(uuid())
+  tenantId  String
+  tenant    Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type      ChannelType
+  config    Json
+  isActive  Boolean     @default(true)
+  isDefault Boolean     @default(false)
+  createdAt DateTime    @default(now())
 
   @@index([tenantId, type])
 }
 
 model Message {
-  id           String           @id @default(uuid())
-  tenantId     String
-  tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  customerId   String?
-  customer     Customer?        @relation(fields: [customerId], references: [id])
-  channel      ChannelType
-  direction    MessageDirection
-  templateId   String?
-  body         String
-  mediaUrl     String?
-  ruleId       String?
-  status       MessageStatus    @default(QUEUED)
-  error        String?
-  externalId   String?
-  metadata     Json             @default("{}")
-  createdAt    DateTime         @default(now())
+  id         String           @id @default(uuid())
+  tenantId   String
+  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId String?
+  customer   Customer?        @relation(fields: [customerId], references: [id])
+  channel    ChannelType
+  direction  MessageDirection
+  templateId String?
+  body       String
+  mediaUrl   String?
+  ruleId     String?
+  status     MessageStatus    @default(QUEUED)
+  error      String?
+  externalId String?
+  metadata   Json             @default("{}")
+  createdAt  DateTime         @default(now())
 
   @@index([tenantId, createdAt])
   @@index([customerId, createdAt])
 }
 
 model MessageTemplate {
-  id              String       @id @default(uuid())
-  tenantId        String
-  tenant          Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name            String
-  channel         ChannelType
-  body            String
-  variables       String[]
-  metaTemplateId  String?
-  isActive        Boolean      @default(true)
-  createdAt       DateTime     @default(now())
+  id             String      @id @default(uuid())
+  tenantId       String
+  tenant         Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name           String
+  channel        ChannelType
+  body           String
+  variables      String[]
+  metaTemplateId String?
+  isActive       Boolean     @default(true)
+  createdAt      DateTime    @default(now())
 
   @@index([tenantId])
 }
@@ -993,21 +1031,21 @@ model Storefront {
   // Popup que aparece a los 10s de abrir el menú público. Si tiene imagen
   // + está enabled + popupCardId, hace click en la imagen y lleva al
   // cliente a /c/{popupCardId} para inscribirse a la tarjeta.
-  popupEnabled    Boolean   @default(false)
-  popupImageUrl   String?
-  popupCardId     String?
-  popupCard       Card?     @relation("StorefrontPopupCard", fields: [popupCardId], references: [id], onDelete: SetNull)
+  popupEnabled  Boolean    @default(false)
+  popupImageUrl String?
+  popupCardId   String?
+  popupCard     Card?      @relation("StorefrontPopupCard", fields: [popupCardId], references: [id], onDelete: SetNull)
   isPublished   Boolean    @default(true)
   createdAt     DateTime   @default(now())
 }
 
 enum MenuLayout {
-  CLASSIC      // foto izq + info der + tabs sticky (Rappi/UberEats)
-  GRID         // 2 columnas, fotos cuadradas grandes (Instagram)
-  CAROUSELS    // hero + scroll horizontal por categoría (Netflix)
-  CLEAN        // lista limpia sin fotos, serif (boutique)
-  COMPACT      // lista compacta + modal sheet (DoorDash)
-  CLUVI        // dark bg + white cards + yellow accents + VER pill (Cluvi/Bananas)
+  CLASSIC // foto izq + info der + tabs sticky (Rappi/UberEats)
+  GRID // 2 columnas, fotos cuadradas grandes (Instagram)
+  CAROUSELS // hero + scroll horizontal por categoría (Netflix)
+  CLEAN // lista limpia sin fotos, serif (boutique)
+  COMPACT // lista compacta + modal sheet (DoorDash)
+  CLUVI // dark bg + white cards + yellow accents + VER pill (Cluvi/Bananas)
 }
 
 // ============================================================
@@ -1015,21 +1053,21 @@ enum MenuLayout {
 // ============================================================
 
 model InfoLink {
-  id            String   @id @default(uuid())
-  tenantId      String
-  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  slug          String
-  title         String
-  subtitle      String?
-  heroImageUrl  String?
-  gallery       Json     @default("[]")
-  sections      Json     @default("[]")
-  buttons       Json     @default("[]")
-  theme         Json     @default("{}")
-  isActive      Boolean  @default(true)
-  views         Int      @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           String   @id @default(uuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  slug         String
+  title        String
+  subtitle     String?
+  heroImageUrl String?
+  gallery      Json     @default("[]")
+  sections     Json     @default("[]")
+  buttons      Json     @default("[]")
+  theme        Json     @default("{}")
+  isActive     Boolean  @default(true)
+  views        Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   events InfoLinkEvent[]
 
@@ -1053,13 +1091,13 @@ model InfoLinkEvent {
 // ============================================================
 
 model Event {
-  id         String    @id @default(uuid())
+  id         String   @id @default(uuid())
   tenantId   String?
-  tenant     Tenant?   @relation(fields: [tenantId], references: [id])
+  tenant     Tenant?  @relation(fields: [tenantId], references: [id])
   customerId String?
   type       String
   payload    Json
-  createdAt  DateTime  @default(now())
+  createdAt  DateTime @default(now())
 
   @@index([tenantId, type, createdAt])
 }
@@ -1087,38 +1125,38 @@ enum CampaignStatus {
 }
 
 model ReferralCode {
-  id                 String        @id @default(uuid())
-  code               String        @unique
-  ownerName          String
-  ownerEmail         String
-  ownerWhatsapp      String
-  ownerUserId        String?
-  ownerUser          User?         @relation(fields: [ownerUserId], references: [id])
-  commissionPercent  Decimal       @default(20) @db.Decimal(5, 2)
-  role               ReferralRole  @default(INFLUENCER)
+  id                String         @id @default(uuid())
+  code              String         @unique
+  ownerName         String
+  ownerEmail        String
+  ownerWhatsapp     String
+  ownerUserId       String?
+  ownerUser         User?          @relation(fields: [ownerUserId], references: [id])
+  commissionPercent Decimal        @default(20) @db.Decimal(5, 2)
+  role              ReferralRole   @default(INFLUENCER)
   // Si role=AMBASSADOR, parentCodeId apunta al ReferralCode del influencer
   // dueño de la campaña. Cuando un cliente usa este código, además de la
   // comisión directa del embajador, generamos una comisión indirecta para
   // el influencer (5% por defecto).
-  parentCodeId       String?
-  parentCode         ReferralCode? @relation("AmbassadorParent", fields: [parentCodeId], references: [id], onDelete: SetNull)
-  ambassadors        ReferralCode[] @relation("AmbassadorParent")
+  parentCodeId      String?
+  parentCode        ReferralCode?  @relation("AmbassadorParent", fields: [parentCodeId], references: [id], onDelete: SetNull)
+  ambassadors       ReferralCode[] @relation("AmbassadorParent")
   // Si pertenece a una campaña (los embajadores siempre, los influencers
   // pueden ser titulares de su propia campaña).
-  campaignId         String?
-  campaign           Campaign?     @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  isActive           Boolean       @default(true)
+  campaignId        String?
+  campaign          Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  isActive          Boolean        @default(true)
   // Cuándo se aprobó el embajador (cuando un INFLUENCER lo crea desde su
   // panel). Si null y la config requiere aprobación, queda invisible al
   // generar comisiones hasta que el admin apruebe. Para códigos creados
   // por el super admin se setea a createdAt automáticamente.
-  approvedAt         DateTime?
+  approvedAt        DateTime?
   // Etiqueta de origen del afiliado (?source=X en /refer). Solo informativa.
-  source             String?
-  createdAt          DateTime      @default(now())
+  source            String?
+  createdAt         DateTime       @default(now())
 
-  uses ReferralUse[]
-  ownerOfCampaign Campaign? @relation("CampaignOwner")
+  uses            ReferralUse[]
+  ownerOfCampaign Campaign?     @relation("CampaignOwner")
   coupons         Coupon[]
 
   @@index([parentCodeId])
@@ -1130,18 +1168,18 @@ model ReferralCode {
 // el campo `ownerCodeId` apunta a él. La relación inversa se usa para
 // listar las campañas de un influencer.
 model Campaign {
-  id              String          @id @default(uuid())
-  name            String
-  ownerCodeId     String          @unique
-  ownerCode       ReferralCode    @relation("CampaignOwner", fields: [ownerCodeId], references: [id], onDelete: Cascade)
-  status          CampaignStatus  @default(ACTIVE)
+  id                 String         @id @default(uuid())
+  name               String
+  ownerCodeId        String         @unique
+  ownerCode          ReferralCode   @relation("CampaignOwner", fields: [ownerCodeId], references: [id], onDelete: Cascade)
+  status             CampaignStatus @default(ACTIVE)
   // Configuración de absorción de descuento (4 modos).
   // ORIGINAL_PRICE: comisiones sobre precio original; descuento sale del bolsillo de la empresa
   // PAID_PRICE: comisiones sobre precio efectivamente pagado
   // EMPRESA_ABSORBS: descuento sale solo de la empresa
   // PROPORTIONAL: socio y empresa comparten el descuento proporcionalmente
-  discountAbsorption String @default("PROPORTIONAL")
-  createdAt       DateTime        @default(now())
+  discountAbsorption String         @default("PROPORTIONAL")
+  createdAt          DateTime       @default(now())
 
   codes   ReferralCode[]
   coupons Coupon[]
@@ -1166,26 +1204,26 @@ enum CouponDuration {
 // al influencer/embajador) o a una Campaign (atribuye al influencer dueño)
 // o ninguno (cupón "global" sin atribución, descuento solo).
 model Coupon {
-  id                  String         @id @default(uuid())
-  code                String         @unique
-  discountPercent     Decimal        @db.Decimal(5, 2)
-  validFrom           DateTime?
-  validUntil          DateTime?
-  maxUses             Int?
-  useCount            Int            @default(0)
+  id              String         @id @default(uuid())
+  code            String         @unique
+  discountPercent Decimal        @db.Decimal(5, 2)
+  validFrom       DateTime?
+  validUntil      DateTime?
+  maxUses         Int?
+  useCount        Int            @default(0)
   // CSV de planNames donde aplica (vacío = todos). Ej: "Elite,Pro"
-  applicablePlans     String         @default("")
-  duration            CouponDuration @default(FIRST_MONTH)
-  status              CouponStatus   @default(ACTIVE)
+  applicablePlans String         @default("")
+  duration        CouponDuration @default(FIRST_MONTH)
+  status          CouponStatus   @default(ACTIVE)
   // Atribución (opcional). Si referralCodeId está, el uso del cupón
   // también genera la comisión del referral. Si campaignId está, atribuye
   // al influencer titular de la campaña. Si ambos null, es global (solo
   // descuento, sin atribución).
-  referralCodeId      String?
-  referralCode        ReferralCode?  @relation(fields: [referralCodeId], references: [id], onDelete: SetNull)
-  campaignId          String?
-  campaign            Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  createdAt           DateTime       @default(now())
+  referralCodeId  String?
+  referralCode    ReferralCode?  @relation(fields: [referralCodeId], references: [id], onDelete: SetNull)
+  campaignId      String?
+  campaign        Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  createdAt       DateTime       @default(now())
 
   uses CouponUse[]
 
@@ -1195,26 +1233,26 @@ model Coupon {
 }
 
 model CouponUse {
-  id          String   @id @default(uuid())
-  couponId    String
-  coupon      Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
-  tenantId    String?
-  tenant      Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
-  createdAt   DateTime @default(now())
+  id        String   @id @default(uuid())
+  couponId  String
+  coupon    Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  tenantId  String?
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
 
   @@index([couponId])
   @@index([tenantId])
 }
 
 model ReferralUse {
-  id              String         @id @default(uuid())
-  referralCodeId  String
-  referralCode    ReferralCode   @relation(fields: [referralCodeId], references: [id], onDelete: Cascade)
-  tenantId        String?
-  tenant          Tenant?        @relation(fields: [tenantId], references: [id])
-  status          ReferralStatus @default(SIGNED_UP)
-  createdAt       DateTime       @default(now())
-  convertedAt     DateTime?
+  id             String         @id @default(uuid())
+  referralCodeId String
+  referralCode   ReferralCode   @relation(fields: [referralCodeId], references: [id], onDelete: Cascade)
+  tenantId       String?
+  tenant         Tenant?        @relation(fields: [tenantId], references: [id])
+  status         ReferralStatus @default(SIGNED_UP)
+  createdAt      DateTime       @default(now())
+  convertedAt    DateTime?
 
   commissions Commission[]
 
@@ -1222,20 +1260,20 @@ model ReferralUse {
 }
 
 model Commission {
-  id            String           @id @default(uuid())
-  referralUseId String
-  referralUse   ReferralUse      @relation(fields: [referralUseId], references: [id], onDelete: Cascade)
-  amount        Decimal          @db.Decimal(10, 2)
-  currency      String           @default("USD")
-  status        CommissionStatus @default(PENDING)
-  paidAt        DateTime?
+  id                String           @id @default(uuid())
+  referralUseId     String
+  referralUse       ReferralUse      @relation(fields: [referralUseId], references: [id], onDelete: Cascade)
+  amount            Decimal          @db.Decimal(10, 2)
+  currency          String           @default("USD")
+  status            CommissionStatus @default(PENDING)
+  paidAt            DateTime?
   // Nota interna del super admin (ej: "Pagado vía Wise", "Cliente
   // contactado el 2026-05-12, prometió pagar"). Visible solo en panel.
-  notes         String?          @db.Text
+  notes             String?          @db.Text
   // Marca de contacto al cliente cuando hubo pago fallido — se setea
   // desde la tab "Pendientes por pagar" para llevar registro.
   clientContactedAt DateTime?
-  createdAt     DateTime         @default(now())
+  createdAt         DateTime         @default(now())
 
   @@index([status])
 }
@@ -1268,19 +1306,19 @@ model KnowledgeEntry {
 // con un comentario opcional, evitando que la mala review llegue a
 // Google. Inspirado en patrón de NudoCowork / similar a Wisely.
 model ReviewFeedback {
-  id           String   @id @default(uuid())
-  tenantId     String
-  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  rating       Int      // 1-5
-  comment      String?  @db.Text
-  customerName String?
-  customerPhone String?
+  id                 String   @id @default(uuid())
+  tenantId           String
+  tenant             Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  rating             Int // 1-5
+  comment            String?  @db.Text
+  customerName       String?
+  customerPhone      String?
   // true = el cliente pulsó "ir a Google" (era ≥4★, lo redirigimos)
   // false (default) = lo capturamos acá privado por <4★
-  redirectedToGoogle Boolean @default(false)
+  redirectedToGoogle Boolean  @default(false)
   // Permite al dueño marcar como leída en el panel
-  isRead       Boolean  @default(false)
-  createdAt    DateTime @default(now())
+  isRead             Boolean  @default(false)
+  createdAt          DateTime @default(now())
 
   @@index([tenantId, createdAt])
   @@index([tenantId, rating])
@@ -1305,18 +1343,18 @@ enum QrPosterType {
 }
 
 model QrPoster {
-  id        String       @id @default(uuid())
-  tenantId  String
-  tenant    Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  type      QrPosterType
-  name      String       @default("")
+  id            String       @id @default(uuid())
+  tenantId      String
+  tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type          QrPosterType
+  name          String       @default("")
   // JSON del editor (capas, posiciones, colores, fuentes, etc).
-  config    Json         @default("{}")
+  config        Json         @default("{}")
   // Último export subido a R2 (PNG/PDF). Se llena en H3 cuando se
   // implementa el export profesional para imprenta.
   lastExportUrl String?
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
   @@unique([tenantId, type])
   @@index([tenantId])
@@ -1335,29 +1373,29 @@ enum ReminderRecurrence {
 }
 
 model Reminder {
-  id           String              @id @default(uuid())
-  tenantId     String
-  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id            String             @id @default(uuid())
+  tenantId      String
+  tenant        Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   // Empleado destinatario. Si el User se elimina, el recordatorio queda
   // huérfano (employeeId = null) — se ignora en el cron y aparece como
   // "Empleado eliminado" en la UI para que el dueño lo borre/reasigne.
-  employeeId   String?
-  employee     User?               @relation("ReminderEmployee", fields: [employeeId], references: [id], onDelete: SetNull)
+  employeeId    String?
+  employee      User?              @relation("ReminderEmployee", fields: [employeeId], references: [id], onDelete: SetNull)
   // Snapshot del nombre+phone al crear, por si el User cambia/se elimina
-  employeeName String
+  employeeName  String
   employeePhone String
-  recurrence   ReminderRecurrence
+  recurrence    ReminderRecurrence
   // Para WEEKLY: 0=Domingo … 6=Sábado. Para MONTHLY: 1-28.
   // Para DAILY: ignorado.
-  dayOfWeek    Int?
-  dayOfMonth   Int?
+  dayOfWeek     Int?
+  dayOfMonth    Int?
   // Hora local (timezone del tenant) en formato "HH:MM" 24h.
-  timeOfDay    String              @default("09:00")
-  message      String              @db.Text
-  isActive     Boolean             @default(true)
-  lastSentAt   DateTime?
-  createdAt    DateTime            @default(now())
-  updatedAt    DateTime            @updatedAt
+  timeOfDay     String             @default("09:00")
+  message       String             @db.Text
+  isActive      Boolean            @default(true)
+  lastSentAt    DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
 
   @@index([tenantId, isActive])
 }
@@ -1384,19 +1422,19 @@ model Supplier {
 // rápido sin re-tipear cantidad/proveedor cada vez. NO confundir con
 // Product (catálogo del MENÚ público); estos son insumos internos.
 model FrequentProduct {
-  id           String   @id @default(uuid())
-  tenantId     String
-  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name         String
-  defaultQty   Decimal  @default(1) @db.Decimal(10, 2)
-  defaultUnit  String   @default("kg")
+  id          String    @id @default(uuid())
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  defaultQty  Decimal   @default(1) @db.Decimal(10, 2)
+  defaultUnit String    @default("kg")
   // Lunes-Domingo del despacho recurrente. Si null, se elige al armar pedido.
-  dispatchDay  String?
-  supplierId   String?
-  supplier     Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  notes        String?  @db.Text
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  dispatchDay String?
+  supplierId  String?
+  supplier    Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  notes       String?   @db.Text
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([tenantId, supplierId])
 }
@@ -1406,30 +1444,30 @@ model FrequentProduct {
 // no se manejan acá — solo cantidades; gasto se traerá del módulo
 // Compras cuando exista (por ahora KPI = count).
 model PurchaseOrder {
-  id          String              @id @default(uuid())
+  id          String   @id @default(uuid())
   tenantId    String
-  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   // Quién lo generó
   createdById String?
-  createdAt   DateTime            @default(now())
+  createdAt   DateTime @default(now())
 
-  items       PurchaseOrderItem[]
+  items PurchaseOrderItem[]
 
   @@index([tenantId, createdAt])
 }
 
 model PurchaseOrderItem {
-  id          String        @id @default(uuid())
-  orderId     String
-  order       PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  productName String
-  qty         Decimal       @db.Decimal(10, 2)
-  unit        String
-  supplierId  String?
-  supplierName String?      // snapshot si el Supplier se borra
+  id            String        @id @default(uuid())
+  orderId       String
+  order         PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productName   String
+  qty           Decimal       @db.Decimal(10, 2)
+  unit          String
+  supplierId    String?
+  supplierName  String? // snapshot si el Supplier se borra
   supplierPhone String?
-  dispatchDay String?
-  notes       String?       @db.Text
+  dispatchDay   String?
+  notes         String?       @db.Text
 
   @@index([orderId])
   @@index([supplierId])
@@ -1478,7 +1516,7 @@ model Badge {
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
 
-  earned      CustomerBadge[]
+  earned CustomerBadge[]
 
   @@index([tenantId])
 }
@@ -1510,62 +1548,62 @@ enum QuotePlan {
 }
 
 model Quote {
-  id            String    @id @default(uuid())
+  id                  String    @id @default(uuid())
   // Token público para compartir vista de cliente — soyclubify.com/q/<token>.
   // Distinto del id para que el id interno no quede expuesto en links que
   // se mandan por WA/email. UUID es suficientemente opaco e impredecible.
-  publicToken   String    @unique @default(uuid())
-  customerName  String
-  businessName  String
-  phone         String?
-  email         String?
-  plan          QuotePlan
+  publicToken         String    @unique @default(uuid())
+  customerName        String
+  businessName        String
+  phone               String?
+  email               String?
+  plan                QuotePlan
   // slug de plantilla aplicada (restaurant, coffee_shop, cowork, gym,
   // barber_shop, other). Opcional para permitir cotización "neutra".
-  templateSlug  String?
+  templateSlug        String?
   // Asesor (SUPER_ADMIN) que generó la cotización. Si el usuario se
   // elimina, mantenemos el snapshot del nombre y el FK queda en NULL
   // — la cotización sigue siendo válida y los PDFs viejos no se rompen.
-  advisorId     String?
-  advisor       User?     @relation("QuoteAdvisor", fields: [advisorId], references: [id], onDelete: SetNull)
-  advisorName   String
+  advisorId           String?
+  advisor             User?     @relation("QuoteAdvisor", fields: [advisorId], references: [id], onDelete: SetNull)
+  advisorName         String
   // Snapshot del precio del plan cotizado en la moneda elegida.
-  priceSnapshot    Decimal @db.Decimal(10, 2)
-  currencySnapshot String  @default("USD")
+  priceSnapshot       Decimal   @db.Decimal(10, 2)
+  currencySnapshot    String    @default("USD")
   // Contador de veces que el PDF fue descargado desde el panel o desde la
   // vista pública /q/<token>. Útil para saber qué cotizaciones el cliente
   // realmente abrió/guardó (proxy de "interés"). Se incrementa via
   // POST /admin/quotes/:id/pdf-downloaded (super admin) o
   // POST /api/public/quote/:token/pdf-downloaded (cliente).
-  pdfDownloadCount Int       @default(0)
-  lastPdfDownloadAt DateTime?
+  pdfDownloadCount    Int       @default(0)
+  lastPdfDownloadAt   DateTime?
   // Engagement de la vista pública /q/<token>. Se incrementa cada vez que
   // el cliente abre el link. firstViewedAt queda fijo (señal de "ya lo
   // abrió al menos una vez"); lastViewedAt es proxy de re-engagement.
   // Útil para que el asesor sepa cuándo hacer follow-up — si la cotización
   // fue vista 5 veces en 3 días, el cliente está caliente.
-  viewCount      Int       @default(0)
-  firstViewedAt  DateTime?
-  lastViewedAt   DateTime?
+  viewCount           Int       @default(0)
+  firstViewedAt       DateTime?
+  lastViewedAt        DateTime?
   // CTA clicks — el cliente apretó "Aceptar plan X" y aterrizó en /signup
   // con qt=<token>. Bumpeado desde el useEffect del signup (no en el
   // onClick del CTA, así medimos clicks que efectivamente llegaron al
   // form en vez de abandonos en la transición). Es el tercer nivel del
   // funnel: vista → click → conversion.
-  ctaClickCount     Int       @default(0)
-  firstCtaClickedAt DateTime?
-  lastCtaClickedAt  DateTime?
+  ctaClickCount       Int       @default(0)
+  firstCtaClickedAt   DateTime?
+  lastCtaClickedAt    DateTime?
   // Conversion tracking. Cuando el cliente click "Aceptar plan X" en
   // /q/<token>, lo mandamos a /signup?plan=X&qt=<publicToken>. El signup
   // detecta qt, busca esta cotización por publicToken y setea convertedAt
   // + convertedToTenantId con el tenant recién creado. Closed-loop entre
   // cotización emitida y customer convertido — alimenta el conversion rate
   // por asesor en el dashboard.
-  convertedAt           DateTime?
-  convertedToTenantId   String?
-  convertedToTenant     Tenant?   @relation("QuoteConvertedToTenant", fields: [convertedToTenantId], references: [id], onDelete: SetNull)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  convertedAt         DateTime?
+  convertedToTenantId String?
+  convertedToTenant   Tenant?   @relation("QuoteConvertedToTenant", fields: [convertedToTenantId], references: [id], onDelete: SetNull)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   @@index([advisorId])
   @@index([plan])
