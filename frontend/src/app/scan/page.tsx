@@ -401,9 +401,9 @@ export default function ScanPage() {
                         className="w-8 h-8 sm:w-9 sm:h-9 rounded-full border-2 flex items-center justify-center text-base shrink-0"
                         style={{
                           background:
-                            i < data.pass.stampsCount ? '#6366F1' : 'transparent',
+                            i < data.pass.stampsCount ? '#22C55E' : 'transparent',
                           borderColor:
-                            i < data.pass.stampsCount ? '#6366F1' : '#E5E7EB',
+                            i < data.pass.stampsCount ? '#22C55E' : '#E5E7EB',
                           color: i < data.pass.stampsCount ? '#fff' : 'transparent',
                         }}
                       >

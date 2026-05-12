@@ -298,8 +298,8 @@ model Tenant {
   // Logo específico para las tarjetas wallet (header de Apple/Google
   // Wallet). Si null, fallback a logoUrl. PNG con alpha recomendado.
   walletLogoUrl               String?
-  primaryColor                String       @default("#6366F1")
-  secondaryColor              String       @default("#A855F7")
+  primaryColor                String       @default("#22C55E")
+  secondaryColor              String       @default("#15803D")
   status                      TenantStatus @default(TRIAL)
   // Categoría del rubro (restaurante, autolavado, barbería, etc.) — define
   // qué módulos del panel ve el dueño. Lista en common/business-categories.ts.
@@ -487,8 +487,8 @@ model Card {
   // Si false, el reverso de la wallet no muestra T&C (el dueño los
   // apagó porque no son obligatorios para su negocio).
   termsEnabled        Boolean   @default(true)
-  primaryColor        String    @default("#6366F1")
-  secondaryColor      String    @default("#A855F7")
+  primaryColor        String    @default("#22C55E")
+  secondaryColor      String    @default("#15803D")
   // Colores avanzados — opcionales. Si null, el .pkpass cae a primary/secondary.
   // El picker en el wizard los expone bajo "Colores avanzados".
   stampActiveColor    String?

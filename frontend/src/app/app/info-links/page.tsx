@@ -44,7 +44,7 @@ export default function InfoLinksList() {
             { type: 'paragraph', text: 'Edita este texto.' },
           ],
           buttons: [],
-          theme: { primaryColor: '#6366F1' },
+          theme: { primaryColor: '#22C55E' },
         }),
       });
       router.push(`/app/info-links/${r.id}`);

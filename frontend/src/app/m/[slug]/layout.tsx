@@ -77,7 +77,7 @@ export async function generateMetadata({
             ],
             apple: [{ url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }],
           },
-      themeColor: t.primaryColor || '#6366F1',
+      themeColor: t.primaryColor || '#22C55E',
       alternates: { canonical: url },
     };
   } catch {

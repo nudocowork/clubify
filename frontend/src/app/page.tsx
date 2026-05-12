@@ -12,7 +12,7 @@ import { Logo } from '@/components/Logo';
 const PILLARS = [
   {
     icon: 'shopping-bag' as const,
-    color: '#6366F1',
+    color: '#22C55E',
     title: 'Pedidos',
     desc: 'Menú digital, carrito y checkout que dispara al WhatsApp del dueño.',
     bullets: ['Sin app · sin contratos', 'Kanban en vivo', 'Tickets cocina + recibo cliente'],

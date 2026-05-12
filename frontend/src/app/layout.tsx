@@ -95,19 +95,19 @@ export async function generateMetadata(): Promise<Metadata> {
         {
           rel: 'mask-icon',
           url: '/icons/safari-pinned-tab.svg',
-          color: '#6366F1',
+          color: '#22C55E',
         },
       ],
     },
     other: {
-      'msapplication-TileColor': '#6366F1',
+      'msapplication-TileColor': '#22C55E',
       'msapplication-TileImage': '/icons/icon-192.png',
     },
   };
 }
 
 export const viewport: Viewport = {
-  themeColor: '#6366F1',
+  themeColor: '#22C55E',
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
