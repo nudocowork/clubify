@@ -169,6 +169,13 @@ export class PassesController {
     if (user.role !== 'SUPER_ADMIN' && pass.tenantId !== user.tenantId) {
       return { sent: 0, skipped: 0, error: 'forbidden' };
     }
+    // Bump lastActivityAt para que Apple Wallet detecte el pase como
+    // modificado (sino el webservice responde 304 con If-Modified-Since y
+    // iOS mantiene el .pkpass cacheado, ignorando los cambios visuales).
+    await this.prisma.pass.update({
+      where: { id: pass.id },
+      data: { lastActivityAt: new Date() },
+    });
     this.logger.log(
       `Admin push-update requested by ${user.id} for pass ${pass.serialNumber}`,
     );
