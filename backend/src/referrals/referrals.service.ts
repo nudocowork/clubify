@@ -318,7 +318,12 @@ export class ReferralsService {
   async adminSummary(user: AuthUser) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
 
-    const [campaigns, codes, uses, commissions, coupons] = await Promise.all([
+    // Agregados de comisiones — los hacemos en SQL (groupBy + aggregate)
+    // en lugar de cargar TODA la tabla a memoria. A 100k+ commissions el
+    // findMany() previo bloqueaba el dashboard.
+    const oneMonthAgo = new Date(Date.now() - 30 * 86400_000);
+    const oneMonthAgoMs = oneMonthAgo.getTime();
+    const [campaigns, codes, uses, commByStatus, mrrAgg, coupons] = await Promise.all([
       this.prisma.campaign.findMany({
         include: {
           ownerCode: { include: { uses: { include: { commissions: true } } } },
@@ -326,37 +331,41 @@ export class ReferralsService {
         },
       }),
       this.prisma.referralCode.findMany({ where: { isActive: true } }),
+      // Incluimos commissions embebidas en el use para evitar un segundo
+      // findMany() sobre toda la tabla — los agregados por code/socio se
+      // calculan en memoria sobre estas listas locales.
       this.prisma.referralUse.findMany({
         include: {
           referralCode: { select: { role: true, ownerName: true, code: true } },
+          commissions: {
+            select: { amount: true, status: true, referralUseId: true },
+          },
         },
       }),
-      this.prisma.commission.findMany(),
+      this.prisma.commission.groupBy({
+        by: ['status'],
+        _sum: { amount: true },
+      }),
+      this.prisma.commission.aggregate({
+        where: {
+          createdAt: { gte: oneMonthAgo },
+          status: { not: 'REJECTED' },
+        },
+        _sum: { amount: true },
+      }),
       this.prisma.coupon.findMany({
         select: { id: true, status: true, useCount: true, discountPercent: true },
       }),
     ]);
 
     const round = (n: number) => Math.round(n * 100) / 100;
-    let mrrUsd = 0;
-    let commPaidUsd = 0;
-    let commPendingUsd = 0;
-    let commApprovedUsd = 0;
-    let commRejectedUsd = 0;
-    for (const c of commissions) {
-      const a = Number(c.amount);
-      if (c.status === 'PAID') commPaidUsd += a;
-      else if (c.status === 'APPROVED') commApprovedUsd += a;
-      else if (c.status === 'PENDING') commPendingUsd += a;
-      else if (c.status === 'REJECTED') commRejectedUsd += a;
-    }
-    // MRR estimado: comisiones del último mes calendárico de uses PAYING/ACTIVE.
-    const oneMonthAgo = Date.now() - 30 * 86400_000;
-    for (const c of commissions) {
-      if (new Date(c.createdAt).getTime() >= oneMonthAgo && c.status !== 'REJECTED') {
-        mrrUsd += Number(c.amount);
-      }
-    }
+    const sumFor = (status: string) =>
+      Number(commByStatus.find((r) => r.status === status)?._sum.amount ?? 0);
+    const commPaidUsd = sumFor('PAID');
+    const commApprovedUsd = sumFor('APPROVED');
+    const commPendingUsd = sumFor('PENDING');
+    const commRejectedUsd = sumFor('REJECTED');
+    const mrrUsd = Number(mrrAgg._sum.amount ?? 0);
 
     const activeUses = uses.filter((u) => u.status === 'PAYING' || u.status === 'ACTIVE');
     const churnedUses = uses.filter((u) => u.status === 'CHURNED');
@@ -383,7 +392,7 @@ export class ReferralsService {
         .filter(
           (c) =>
             c.status !== 'REJECTED' &&
-            new Date(c.createdAt).getTime() >= oneMonthAgo,
+            new Date(c.createdAt).getTime() >= oneMonthAgoMs,
         )
         .reduce((s, c) => s + Number(c.amount), 0);
       return {
@@ -421,8 +430,9 @@ export class ReferralsService {
       };
       row.totalClients += 1;
       if (u.status === 'PAYING' || u.status === 'ACTIVE') row.activeClients += 1;
-      const revenue = commissions
-        .filter((c) => c.referralUseId === u.id && c.status !== 'REJECTED')
+      // Las commissions vienen embebidas en el include de `uses`.
+      const revenue = u.commissions
+        .filter((c) => c.status !== 'REJECTED')
         .reduce((s, c) => s + Number(c.amount), 0);
       row.revenueUsd += revenue;
       codeAggMap.set(key, row);
@@ -444,15 +454,11 @@ export class ReferralsService {
       .slice(0, 5);
 
     // Comisión socio: suma de comisiones del use cuyo code tiene role=SOCIO.
-    const socioCommissions = uses
-      .filter((u) => u.referralCode.role === 'SOCIO')
-      .flatMap(() => []);
     const socioRows = uses.filter((u) => u.referralCode.role === 'SOCIO');
     let socioPaidUsd = 0;
     let socioPendingUsd = 0;
     for (const u of socioRows) {
-      const ucs = commissions.filter((c) => c.referralUseId === u.id);
-      for (const c of ucs) {
+      for (const c of u.commissions) {
         const a = Number(c.amount);
         if (c.status === 'PAID') socioPaidUsd += a;
         else if (c.status === 'PENDING' || c.status === 'APPROVED') socioPendingUsd += a;
@@ -476,7 +482,7 @@ export class ReferralsService {
         socioPaidUsd: round(socioPaidUsd),
         socioPendingUsd: round(socioPendingUsd),
         discountUsedUsd: round(discountUsedUsd),
-        netoEmpresaUsd: round(commissions.length === 0 ? 0 : 0), // placeholder; F5 calcula real
+        netoEmpresaUsd: 0, // placeholder; F5 calcula real
       },
       topCampaigns: campaignRows
         .sort((a, b) => b.mrrUsd - a.mrrUsd)
@@ -896,18 +902,18 @@ export class ReferralsService {
     });
 
     // Agregados sobre TODA la base (no filtrada) para que los KPIs no
-    // dependan del filtro actual del UI.
-    const allRaw = await this.prisma.commission.findMany();
+    // dependan del filtro actual del UI. groupBy en SQL — antes
+    // cargábamos TODA la tabla a memoria para sumar 3 estados.
+    const totalsByStatus = await this.prisma.commission.groupBy({
+      by: ['status'],
+      _sum: { amount: true },
+    });
     const round = (n: number) => Math.round(n * 100) / 100;
-    let availableUsd = 0;
-    let pendingUsd = 0;
-    let paidUsd = 0;
-    for (const c of allRaw) {
-      const amt = Number(c.amount);
-      if (c.status === 'APPROVED') availableUsd += amt;
-      else if (c.status === 'PENDING') pendingUsd += amt;
-      else if (c.status === 'PAID') paidUsd += amt;
-    }
+    const sumByStatus = (s: string) =>
+      Number(totalsByStatus.find((r) => r.status === s)?._sum.amount ?? 0);
+    const availableUsd = sumByStatus('APPROVED');
+    const pendingUsd = sumByStatus('PENDING');
+    const paidUsd = sumByStatus('PAID');
 
     return {
       items,

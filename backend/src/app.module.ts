@@ -5,6 +5,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { AppConfigModule } from './common/config/app-config.module';
 import { validateEnv } from './common/config/env.validation';
 import { TenantModule } from './common/tenant/tenant.module';
+import { RetentionModule } from './common/retention/retention.module';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { TenantsModule } from './tenants/tenants.module';
@@ -57,6 +58,7 @@ import { QuotesModule } from './quotes/quotes.module';
     }),
     AppConfigModule,
     TenantModule,
+    RetentionModule,
     ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
     PrismaModule,

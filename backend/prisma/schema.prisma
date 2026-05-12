@@ -618,6 +618,10 @@ model Pass {
   @@unique([cardId, customerId])
   @@index([tenantId])
   @@index([customerId])
+  // Listados/dashboards filtran por tenant + status (ACTIVE vs COMPLETED) y
+  // ordenan por `issuedAt DESC`. Sin este índice el panel cargaba lento en
+  // tenants con >5k passes.
+  @@index([tenantId, status, issuedAt(sort: Desc)])
 }
 
 model WalletDevice {

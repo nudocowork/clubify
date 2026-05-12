@@ -138,6 +138,22 @@ export function validateEnv(raw: Record<string, unknown>): AppEnv {
     );
   }
 
+  // En prod, advertir si DATABASE_URL no tiene connection pool dimensionado.
+  // Prisma default (10) puede saturarse rápido en multi-tenant a escala.
+  // Recomendado: `?connection_limit=20&pool_timeout=20` o usar PgBouncer.
+  // No tiramos error — solo log, para no romper deploys nuevos.
+  if (isProd) {
+    const hasPoolHint =
+      /[?&](connection_limit|pgbouncer|pool_timeout)=/.test(DATABASE_URL);
+    if (!hasPoolHint) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        '[env] WARN: DATABASE_URL en prod no especifica connection pool. ' +
+          'Agregá `?connection_limit=20&pool_timeout=20` o configurá PgBouncer.',
+      );
+    }
+  }
+
   // En dev permitimos valores razonables como fallback; en prod son strictos.
   const JWT_SECRET =
     assertSecret('JWT_SECRET', readString(raw, 'JWT_SECRET'), isProd) ??
