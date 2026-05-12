@@ -261,18 +261,22 @@ export class GoogleWalletService {
    * Solo corre si el pass tiene googleObjectId seteado (o sea, el cliente
    * ya hizo "Save to Google Wallet" antes). Sino skipea silenciosamente.
    */
-  async pushUpdate(passId: string): Promise<void> {
+  async pushUpdate(
+    passId: string,
+  ): Promise<{ ok: boolean; status: string; error?: string }> {
     const pass = await this.prisma.pass.findUnique({
       where: { id: passId },
       include: { card: true, tenant: true, customer: true },
     });
-    if (!pass || !pass.googleObjectId) return;
+    if (!pass) return { ok: false, status: 'pass_not_found' };
+    if (!pass.googleObjectId)
+      return { ok: false, status: 'not_saved_to_google_wallet' };
 
     const sa = this.loadServiceAccount();
     const ids = this.buildIds(pass);
     if (!sa || !ids) {
       this.logger.warn('Google Wallet PATCH skipped — SA/issuer no configurado');
-      return;
+      return { ok: false, status: 'not_configured' };
     }
 
     try {
@@ -295,19 +299,29 @@ export class GoogleWalletService {
         } as any,
       });
       this.logger.log(`Google Wallet patched: ${pass.googleObjectId}`);
+      return { ok: true, status: 'patched' };
     } catch (e: any) {
-      // 404: el objeto nunca se creó (cliente nunca saveó) o está expirado
-      // → skipea sin alarma. Otros errores se loggean para investigar.
       const code = e?.code || e?.response?.status;
       if (code === 404) {
         this.logger.warn(
           `Google Wallet object ${pass.googleObjectId} not found — cliente no saveó`,
         );
-        return;
+        return { ok: false, status: 'object_not_found' };
+      }
+      if (code === 403) {
+        this.logger.error(
+          `Google Wallet API deshabilitada en el proyecto. Habilitar en console.developers.google.com`,
+        );
+        return {
+          ok: false,
+          status: 'api_disabled',
+          error: 'Habilita la Google Wallet API en Google Cloud',
+        };
       }
       this.logger.error(
         `Google Wallet PATCH failed (${code}): ${e?.message ?? e}`,
       );
+      return { ok: false, status: 'error', error: `${code}: ${e?.message ?? e}` };
     }
   }
 }

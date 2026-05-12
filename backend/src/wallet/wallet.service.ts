@@ -748,9 +748,10 @@ export class WalletService {
    */
   async pushPassUpdate(passId: string) {
     // Google Wallet PATCH — propaga sellos/saldo/visitas/tier a Android.
-    // Fire-and-forget para no bloquear el APNs push.
-    this.googleWallet.pushUpdate(passId).catch((e) => {
+    // En paralelo con APNs para que ambos lleguen lo antes posible.
+    const googlePromise = this.googleWallet.pushUpdate(passId).catch((e) => {
       this.logger.warn(`Google Wallet push failed: ${e?.message ?? e}`);
+      return { ok: false, status: 'error', error: e?.message ?? String(e) };
     });
 
     const devices = await this.prisma.walletDevice.findMany({
@@ -758,7 +759,8 @@ export class WalletService {
     });
     if (devices.length === 0) {
       this.logger.debug(`pushPassUpdate(${passId}): no Apple devices registered`);
-      return { sent: 0, skipped: 0 };
+      const google = await googlePromise;
+      return { sent: 0, skipped: 0, google };
     }
 
     const keyBuf = this.loadApnsKey();
@@ -770,7 +772,8 @@ export class WalletService {
       this.logger.warn(
         `pushPassUpdate(${passId}): APNs no configurado (${devices.length} dispositivos esperando) — skipeando`,
       );
-      return { sent: 0, skipped: devices.length };
+      const google = await googlePromise;
+      return { sent: 0, skipped: devices.length, google };
     }
 
     const apn = await import('apn');
@@ -865,7 +868,11 @@ export class WalletService {
     this.logger.log(
       `pushPassUpdate(${passId}): ${sent} enviados / ${skipped} fallidos (${devices.length} devices)`,
     );
-    return { sent, skipped };
+    const google = await googlePromise;
+    this.logger.log(
+      `pushPassUpdate(${passId}): google=${google?.status ?? 'unknown'}`,
+    );
+    return { sent, skipped, google };
   }
 
   private hexToRgb(hex: string): string {
