@@ -39,6 +39,7 @@ class SignupDto {
   @IsOptional() @IsString() couponCode?: string;
   @IsOptional() @IsString() plan?: string;
   @IsOptional() @IsString() businessCategorySlug?: string;
+  @IsOptional() @IsString() @MinLength(8) @MaxLength(64) quoteToken?: string;
 }
 
 @Controller('auth')

@@ -367,6 +367,11 @@ export class WalletService {
    * Layout: si required ≤ 6 → 1 fila; si > 6 → 2 filas balanceadas (10 = 5+5).
    * Sellos llenos = círculo blanco con el emoji; vacíos = círculo translúcido.
    */
+  /** Proxy del GET del LoyaltyObject de Google Wallet — para diagnóstico. */
+  async getGoogleObjectRaw(objectId: string) {
+    return this.googleWallet.getObjectRaw(objectId);
+  }
+
   /**
    * Genera la imagen del strip de sellos del pase como PNG público.
    * Usado por Google Wallet (imageModulesData) para mostrar la grilla de

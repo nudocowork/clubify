@@ -407,6 +407,9 @@ export class AuthService {
     couponCode?: string;
     plan?: string;
     businessCategorySlug?: string;
+    /** Token público de una Quote — viene del /q/<token> CTA. Si matchea,
+     *  marcamos la cotización como convertida con el tenant recién creado. */
+    quoteToken?: string;
   }, ip?: string) {
     const email = dto.email.toLowerCase().trim();
 
@@ -572,6 +575,23 @@ export class AuthService {
         appUrl: process.env.APP_URL ?? 'https://soyclubify.com',
       }),
     });
+
+    // Atribución a Quote (signup vino vía /q/<token>). Fire-and-forget:
+    // si el token no existe o la cotización ya estaba convertida, el
+    // signup no falla. Idempotencia con `convertedAt: null` en where para
+    // que un cliente que pase 2 veces por el flujo no pise la primera
+    // atribución.
+    if (dto.quoteToken) {
+      const token = dto.quoteToken.trim();
+      if (token.length >= 8 && token.length <= 64) {
+        this.prisma.quote
+          .updateMany({
+            where: { publicToken: token, convertedAt: null },
+            data: { convertedAt: new Date(), convertedToTenantId: tenant.id },
+          })
+          .catch(() => null);
+      }
+    }
 
     const payload = {
       sub: user.id,

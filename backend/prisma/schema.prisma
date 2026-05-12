@@ -353,6 +353,9 @@ model Tenant {
   couponUses       CouponUse[]
   badges           Badge[]
   qrPosters        QrPoster[]
+  // Cotizaciones que se convirtieron en este tenant (closed-loop signup
+  // con qt=<publicToken> en el URL).
+  fromQuotes       Quote[]   @relation("QuoteConvertedToTenant")
 
   @@index([status])
 }
@@ -1538,6 +1541,15 @@ model Quote {
   viewCount      Int       @default(0)
   firstViewedAt  DateTime?
   lastViewedAt   DateTime?
+  // Conversion tracking. Cuando el cliente click "Aceptar plan X" en
+  // /q/<token>, lo mandamos a /signup?plan=X&qt=<publicToken>. El signup
+  // detecta qt, busca esta cotización por publicToken y setea convertedAt
+  // + convertedToTenantId con el tenant recién creado. Closed-loop entre
+  // cotización emitida y customer convertido — alimenta el conversion rate
+  // por asesor en el dashboard.
+  convertedAt           DateTime?
+  convertedToTenantId   String?
+  convertedToTenant     Tenant?   @relation("QuoteConvertedToTenant", fields: [convertedToTenantId], references: [id], onDelete: SetNull)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

@@ -162,6 +162,33 @@ export class PassesController {
   }
 
   /**
+   * Devuelve el LoyaltyObject actual en Google Wallet (vía REST GET).
+   * Solo admin — sirve para diagnosticar qué campos están guardados en
+   * Google después de un patch.
+   */
+  @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
+  @Get(':id/google-object')
+  async googleObject(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        id,
+      );
+    const pass = await this.prisma.pass.findFirst({
+      where: isUuid ? { id } : { serialNumber: id },
+      select: { id: true, tenantId: true, googleObjectId: true },
+    });
+    if (!pass) return { error: 'pass_not_found' };
+    if (user.role !== 'SUPER_ADMIN' && pass.tenantId !== user.tenantId) {
+      return { error: 'forbidden' };
+    }
+    if (!pass.googleObjectId) return { error: 'no_google_object_id' };
+    return this.wallet.getGoogleObjectRaw(pass.googleObjectId);
+  }
+
+  /**
    * Dispara silent APNs push para forzar a Apple Wallet a re-fetchear el
    * .pkpass actualizado (refresca strip, logo, fields). Útil después de
    * deploys que cambian visualmente el pase. Requiere que el dispositivo

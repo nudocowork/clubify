@@ -309,6 +309,29 @@ export class GoogleWalletService {
    * Solo corre si el pass tiene googleObjectId seteado (o sea, el cliente
    * ya hizo "Save to Google Wallet" antes). Sino skipea silenciosamente.
    */
+  /**
+   * GET del LoyaltyObject en Google Wallet — para diagnóstico admin.
+   * Devuelve el objeto crudo o un error.
+   */
+  async getObjectRaw(objectId: string): Promise<any> {
+    const sa = this.loadServiceAccount();
+    if (!sa) return { error: 'not_configured' };
+    try {
+      const { google } = await import('googleapis');
+      const auth = new google.auth.JWT({
+        email: sa.client_email,
+        key: sa.private_key,
+        scopes: ['https://www.googleapis.com/auth/wallet_object.issuer'],
+      });
+      const wallet = google.walletobjects({ version: 'v1', auth });
+      const r = await wallet.loyaltyobject.get({ resourceId: objectId });
+      return r.data;
+    } catch (e: any) {
+      const code = e?.code || e?.response?.status;
+      return { error: `google_api_${code}`, message: e?.message ?? String(e) };
+    }
+  }
+
   async pushUpdate(
     passId: string,
   ): Promise<{ ok: boolean; status: string; error?: string }> {
