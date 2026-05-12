@@ -146,7 +146,10 @@ export class CouponsService {
         : null;
       return {
         type: attribution ? 'mixed' : 'coupon',
-        message: `Código aplicado: ${coupon.code}. Obtienes ${Number(coupon.discountPercent)}% de descuento${
+        // Mensaje limpio sin el prefijo "Código aplicado: X" — el cliente
+        // ya ve el código que tipeó arriba; mostrar el detalle del
+        // beneficio es lo útil. Decisión UI: feedback_no_codigo_aplicado.
+        message: `${Number(coupon.discountPercent)}% de descuento${
           coupon.duration === 'RECURRING' ? ' recurrente.' : ' en el primer mes.'
         }${attribution ? ` Esta compra se atribuye a ${attribution.ownerName}.` : ''}`,
         discountPercent: Number(coupon.discountPercent),
@@ -162,7 +165,7 @@ export class CouponsService {
     if (ref && ref.isActive) {
       return {
         type: 'referral',
-        message: `Código aplicado: ${ref.code}. Esta compra se atribuye a ${ref.ownerName}.`,
+        message: `Esta compra se atribuye a ${ref.ownerName}.`,
         attribution: {
           role: ref.role as 'INFLUENCER' | 'AMBASSADOR' | 'SOCIO',
           ownerName: ref.ownerName,

@@ -231,7 +231,7 @@ export default function CampaignDetailPage() {
         />
       </div>
 
-      {/* Influencer titular */}
+      {/* Influencer titular + link */}
       <div className="card card-pad mb-5 bg-bg2/40">
         <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1">
           Influencer titular
@@ -240,12 +240,15 @@ export default function CampaignDetailPage() {
         <div className="text-xs text-mute">
           {data.ownerCode.ownerEmail} · {data.ownerCode.ownerWhatsapp}
         </div>
-        <div className="mt-3 inline-flex items-center gap-2 bg-white px-3 py-2 rounded-lg">
-          <span className="font-mono font-bold text-lg">{data.ownerCode.code}</span>
-          <span className="text-xs text-mute">
-            · {Number(data.ownerCode.commissionPercent)}% directo
-          </span>
+        <div className="mt-3 flex items-center gap-2 flex-wrap">
+          <div className="inline-flex items-center gap-2 bg-white px-3 py-2 rounded-lg">
+            <span className="font-mono font-bold text-lg">{data.ownerCode.code}</span>
+            <span className="text-xs text-mute">
+              · {Number(data.ownerCode.commissionPercent)}% comisión afiliado
+            </span>
+          </div>
         </div>
+        <CampaignShareLink code={data.ownerCode.code} />
       </div>
 
       {/* Embajadores */}
@@ -366,8 +369,15 @@ export default function CampaignDetailPage() {
       {/* Cupones */}
       <div className="card card-pad mb-5">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="font-semibold m-0">Cupones de la campaña</h2>
-          <button onClick={() => setShowCoupon(!showCoupon)} className="btn-ghost text-sm">
+          <div>
+            <h2 className="font-semibold m-0">Cupones de la campaña</h2>
+            <div className="text-[11px] text-mute mt-0.5">
+              <strong>Cupón = descuento para el cliente</strong>. El{' '}
+              <strong>% de comisión</strong> del afiliado es independiente
+              y se configura en el código del embajador.
+            </div>
+          </div>
+          <button onClick={() => setShowCoupon(!showCoupon)} className="btn-ghost text-sm shrink-0">
             {showCoupon ? 'Cancelar' : '+ Cupón'}
           </button>
         </div>
@@ -428,6 +438,56 @@ export default function CampaignDetailPage() {
           </Link>
           .
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Link directo a /signup?ref=CODE para que el influencer comparta con
+ *  sus seguidores. Incluye botones de copiar + WhatsApp. */
+function CampaignShareLink({ code }: { code: string }) {
+  const link =
+    typeof window !== 'undefined'
+      ? `${window.location.origin}/signup?ref=${code}`
+      : '';
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(link);
+      toast('Link copiado', 'success');
+    } catch {
+      toast('No se pudo copiar', 'error');
+    }
+  }
+  const waText = encodeURIComponent(
+    `Te invito a sumarte a Clubify usando mi código ${code}: ${link}`,
+  );
+  return (
+    <div className="mt-3 pt-3 border-t border-line2">
+      <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1.5">
+        Link de la campaña
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          value={link}
+          readOnly
+          onFocus={(e) => e.currentTarget.select()}
+          className="input flex-1 min-w-[240px] font-mono text-xs"
+        />
+        <button onClick={copy} className="btn-ghost text-xs">
+          Copiar
+        </button>
+        <a
+          href={`https://wa.me/?text=${waText}`}
+          target="_blank"
+          rel="noreferrer"
+          className="btn-ghost text-xs"
+        >
+          💬 WhatsApp
+        </a>
+      </div>
+      <div className="text-[11px] text-mute mt-1.5 leading-relaxed">
+        El cliente que abra este link verá <code>{code}</code> precargado
+        en el form de signup — se atribuye automáticamente a esta campaña.
       </div>
     </div>
   );

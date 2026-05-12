@@ -102,9 +102,12 @@ export default function AffiliatePanel() {
 
   const isInfluencer = me.role === 'AFFILIATE_INFLUENCER';
   const isSocio = me.role === 'AFFILIATE_SOCIO';
+  // Link directo a /signup con el código de referido. Antes apuntaba a
+  // / con ?promo= y dependía de RefCapture + landing, lo que requería
+  // 2 clicks. /signup?ref= va directo al form con el código pre-cargado.
   const shareLink =
     typeof window !== 'undefined' && me.myCode
-      ? `${window.location.origin}/?promo=${me.myCode.code}`
+      ? `${window.location.origin}/signup?ref=${me.myCode.code}`
       : '';
 
   return (
@@ -155,12 +158,19 @@ export default function AffiliatePanel() {
               </div>
               <div className="font-mono font-bold text-2xl">{me.myCode.code}</div>
               <div className="text-xs text-mute">
-                Comisión: {me.myCode.commissionPercent}%{' '}
+                Tu comisión: <strong>{me.myCode.commissionPercent}%</strong>{' '}
+                de cada venta atribuida.
                 {me.myCode.parentCode && (
                   <>
-                    · Reportas a <span className="font-mono">{me.myCode.parentCode}</span>
+                    {' '}· Reportas a{' '}
+                    <span className="font-mono">{me.myCode.parentCode}</span>
                   </>
                 )}
+              </div>
+              <div className="text-[11px] text-mute mt-1 leading-relaxed">
+                <strong>Tip:</strong> tu código es de <em>atribución</em>{' '}
+                — identifica quién te envió. Los cupones de descuento para el
+                cliente los crea Clubify Admin y se asocian a campañas.
               </div>
             </div>
             {!isSocio && (

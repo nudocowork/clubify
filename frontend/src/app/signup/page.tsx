@@ -54,14 +54,29 @@ function SignupInner() {
   const [promoResolved, setPromoResolved] = useState<PromoResolved | null>(null);
   const [validatingPromo, setValidatingPromo] = useState(false);
 
-  // Pre-rellenar promo si vino por URL ?ref=X o ?promo=X
+  // Pre-rellenar promo. Prioridad:
+  //   1. clubify:promo en localStorage (cupón de descuento real — siempre
+  //      gana porque tiene beneficio para el cliente, mientras que un
+  //      ref puro es solo atribución para el afiliado)
+  //   2. URL ?promo=X (cupón llegando ahora)
+  //   3. URL ?ref=X (link de afiliado)
+  //   4. clubify:ref en localStorage (atribución capturada antes)
+  // Decisión UX: si el cliente ya tenía un cupón guardado, NO lo
+  // pisamos cuando llega por un link de referido — el cupón es del
+  // cliente, el ref es del afiliado y se trackea aparte vía clubify:ref.
   useEffect(() => {
-    const fromUrl = params.get('promo') || params.get('ref') || '';
-    if (fromUrl) {
-      setPromoCode(fromUrl.toUpperCase());
-    } else if (typeof window !== 'undefined') {
-      const cached = localStorage.getItem('clubify:ref') || localStorage.getItem('clubify:promo') || '';
-      if (cached) setPromoCode(cached.toUpperCase());
+    if (typeof window === 'undefined') return;
+    const cachedPromo = localStorage.getItem('clubify:promo');
+    const promoUrl = params.get('promo');
+    const refUrl = params.get('ref');
+    const cachedRef = localStorage.getItem('clubify:ref');
+    const winner = cachedPromo || promoUrl || refUrl || cachedRef || '';
+    if (winner) setPromoCode(winner.toUpperCase());
+    // Si llegó un promo nuevo por URL, persistir para próximas visitas
+    if (promoUrl && !cachedPromo) {
+      try {
+        localStorage.setItem('clubify:promo', promoUrl.toUpperCase());
+      } catch {}
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -169,7 +184,11 @@ function SignupInner() {
       });
       setSession(r.accessToken, r.user);
       try {
+        // Limpiamos AMBOS keys post-signup — el código ya quedó atado
+        // a este usuario en el backend, no tiene sentido cargarlo en
+        // futuras visitas de otra cuenta desde el mismo browser.
         localStorage.removeItem('clubify:ref');
+        localStorage.removeItem('clubify:promo');
         sessionStorage.removeItem('clubify:qt');
       } catch {}
 
