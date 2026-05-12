@@ -539,8 +539,19 @@ export class WalletService {
         return { 'logo.png': l1, 'logo@2x.png': l2, 'logo@3x.png': l3 };
       }
       const src = Buffer.from(await res.arrayBuffer());
+
+      // Si el PNG/JPG fuente NO tiene canal alpha (fondo blanco sólido),
+      // hacemos chroma-key automático para que el logo se integre con el
+      // gradient del pase en vez de mostrar un cuadro blanco detrás.
+      // Umbral conservador: RGB todos >= 240 → píxel considerado "blanco
+      // de fondo" y se vuelve transparente. Píxeles más oscuros se
+      // mantienen como están. Logos con detalles blancos legítimos (texto
+      // blanco sobre forma oscura) NO se afectan porque están rodeados de
+      // píxeles oscuros que se preservan.
+      const prepared = await this.prepareLogoForWallet(src);
+
       const make = (w: number, h: number) =>
-        sharp(src)
+        sharp(prepared)
           .resize(w, h, {
             fit: 'contain',
             background: { r: 0, g: 0, b: 0, alpha: 0 },
@@ -557,6 +568,46 @@ export class WalletService {
       this.logger.warn(`generateTenantLogos error: ${(e as Error).message}`);
       return {};
     }
+  }
+
+  /**
+   * Convierte píxeles cercanos al blanco SÓLIDO (alpha=255) en transparentes
+   * para que el logo se integre con el gradient del pase en lugar de mostrar
+   * un cuadro blanco detrás.
+   *
+   * Reglas:
+   *  - Píxeles con alpha < 255 → se respetan tal cual (transparencia
+   *    intencional del diseñador).
+   *  - Píxeles alpha=255 con RGB todos ≥ 240 → tratados como "fondo blanco"
+   *    y vueltos transparentes. Este es el caso de logos PNG/JPG planos
+   *    subidos por el dueño sin pasar por un editor que recorte el fondo.
+   *  - Píxeles más oscuros se preservan, incluyendo blancos parciales
+   *    (intencionales) dentro de formas oscuras.
+   */
+  private async prepareLogoForWallet(src: Buffer): Promise<Buffer> {
+    const sharp = (await import('sharp')).default;
+    const { data, info } = await sharp(src)
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    const THRESHOLD = 240;
+    const out = Buffer.from(data);
+    for (let i = 0; i < out.length; i += 4) {
+      const a = out[i + 3];
+      if (a !== 255) continue; // respeta transparencia/semi del diseñador
+      const r = out[i];
+      const g = out[i + 1];
+      const b = out[i + 2];
+      if (r >= THRESHOLD && g >= THRESHOLD && b >= THRESHOLD) {
+        out[i + 3] = 0;
+      }
+    }
+    return sharp(out, {
+      raw: { width: info.width, height: info.height, channels: 4 },
+    })
+      .png()
+      .toBuffer();
   }
 
   private escapeXml(s: string): string {
