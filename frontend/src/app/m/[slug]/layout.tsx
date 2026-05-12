@@ -33,7 +33,7 @@ export async function generateMetadata({
     const description =
       t.description ||
       `Menú digital de ${t.brandName}. Ordena por WhatsApp y suma sellos en tu tarjeta wallet.`;
-    const image = t.heroImageUrl || t.logoUrl || `${SITE_URL}/og-default.png`;
+    const image = t.heroImageUrl || t.logoUrl || `${SITE_URL}/og-image.png`;
     const url = `${SITE_URL}/m/${params.slug}`;
 
     return {
@@ -61,7 +61,22 @@ export async function generateMetadata({
         description,
         images: [image],
       },
-      icons: t.logoUrl ? { icon: t.logoUrl, apple: t.logoUrl } : undefined,
+      // White-label: si el tenant tiene logoUrl, su logo es el favicon
+      // del storefront. Si no, explícitamente declaramos el cascade Clubify
+      // (Next 14 no hereda metadata.icons del root layout cuando se devuelve
+      // undefined desde un child generateMetadata).
+      icons: t.logoUrl
+        ? { icon: t.logoUrl, apple: t.logoUrl }
+        : {
+            icon: [
+              { url: '/icons/icon.svg', type: 'image/svg+xml' },
+              { url: '/favicon-32.png', sizes: '32x32', type: 'image/png' },
+              { url: '/favicon-96.png', sizes: '96x96', type: 'image/png' },
+              { url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+              { url: '/favicon.ico', sizes: 'any' },
+            ],
+            apple: [{ url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }],
+          },
       themeColor: t.primaryColor || '#6366F1',
       alternates: { canonical: url },
     };

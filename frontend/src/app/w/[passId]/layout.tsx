@@ -37,7 +37,17 @@ export async function generateMetadata({
       description,
       robots: { index: false, follow: false }, // privado por usuario
       themeColor: data?.tenant?.primaryColor || '#6366F1',
-      icons: data?.tenant?.logoUrl ? { icon: data.tenant.logoUrl } : undefined,
+      icons: data?.tenant?.logoUrl
+        ? { icon: data.tenant.logoUrl, apple: data.tenant.logoUrl }
+        : {
+            icon: [
+              { url: '/icons/icon.svg', type: 'image/svg+xml' },
+              { url: '/favicon-32.png', sizes: '32x32', type: 'image/png' },
+              { url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+              { url: '/favicon.ico', sizes: 'any' },
+            ],
+            apple: [{ url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }],
+          },
       openGraph: {
         title,
         description,
