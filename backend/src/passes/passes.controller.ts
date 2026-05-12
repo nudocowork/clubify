@@ -162,6 +162,26 @@ export class PassesController {
   }
 
   /**
+   * Hero image del pase (1032×336 PNG) — título "Acumula sellos..." +
+   * 3 columnas de stats (faltantes, recompensas, premio siguiente).
+   * Lo consume Google Wallet como heroImage / imageModulesData.
+   */
+  @Public()
+  @Get(':id/hero.png')
+  async hero(@Param('id') id: string, @Res() res: Response) {
+    const buf = await this.wallet.generatePassHeroImage(id);
+    if (!buf) {
+      res.status(404).send();
+      return;
+    }
+    res.set({
+      'Content-Type': 'image/png',
+      'Cache-Control': 'public, max-age=60',
+    });
+    res.send(buf);
+  }
+
+  /**
    * Devuelve el LoyaltyObject actual en Google Wallet (vía REST GET).
    * Solo admin — sirve para diagnosticar qué campos están guardados en
    * Google después de un patch.

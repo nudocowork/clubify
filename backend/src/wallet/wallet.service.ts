@@ -373,6 +373,99 @@ export class WalletService {
   }
 
   /**
+   * Genera el hero image del pase para Google Wallet (1032×336 PNG).
+   * Contiene título grande + 3 columnas de stats (sellos faltantes,
+   * recompensas disponibles, premio siguiente). Renderiza por pase para
+   * que las stats reflejen el estado real del cliente.
+   */
+  async generatePassHeroImage(passId: string): Promise<Buffer | null> {
+    const sharp = (await import('sharp')).default;
+    const pass = await this.prisma.pass.findUnique({
+      where: { id: passId },
+      include: { card: true },
+    });
+    if (!pass) return null;
+    const t = pass.card.type;
+    if (t !== 'STAMPS' && t !== 'HYBRID' && t !== 'VISITS') return null;
+    const required =
+      t === 'VISITS'
+        ? pass.card.visitsRequired ?? 10
+        : pass.card.stampsRequired ?? 10;
+    const current = t === 'VISITS' ? pass.visitsCount : pass.stampsCount;
+    const remaining = Math.max(0, required - current);
+    const rewardText = pass.card.rewardText || 'Premio';
+    const primary = pass.card.primaryColor || '#16A34A';
+    const secondary = pass.card.secondaryColor || '#22C55E';
+
+    const W = 1032;
+    const H = 336;
+    const title = 'Acumula sellos y obtén beneficios';
+
+    // Tres columnas equidistantes ocupando 60% del ancho centrado.
+    const colsAreaY = 200;
+    const colsW = W * 0.78;
+    const colsStart = (W - colsW) / 2;
+    const colW = colsW / 3;
+    const colCx = [
+      colsStart + colW * 0.5,
+      colsStart + colW * 1.5,
+      colsStart + colW * 2.5,
+    ];
+
+    const stats = [
+      {
+        icon: '<path d="M-18 -20 h36 v40 h-36 z M-18 -12 h36 M-12 -16 h6 M-2 -16 h6 M10 -16 h6 M-12 -8 h6 M-2 -8 h6 M10 -8 h6 M-12 0 h6 M-2 0 h6 M10 0 h6 M-12 8 h6 M-2 8 h6 M10 8 h6" stroke="white" stroke-width="2.5" fill="none" stroke-linecap="round"/>',
+        label: 'Sellos faltantes',
+        value: `${remaining} ${remaining === 1 ? 'sello' : 'sellos'}`,
+      },
+      {
+        icon: '<path d="M-18 -4 h36 v20 h-36 z M-18 -4 h36 v-6 h-36 z M0 -10 v26 M-12 -10 a6 6 0 1 1 12 0 a6 6 0 1 1 12 0" stroke="white" stroke-width="2.5" fill="none" stroke-linejoin="round"/>',
+        label: 'Recompensas',
+        value: '0 premios',
+      },
+      {
+        icon: '<path d="M-14 -16 h28 v8 a14 14 0 0 1 -14 14 a14 14 0 0 1 -14 -14 z M-14 -10 h-6 v4 a6 6 0 0 0 6 6 M14 -10 h6 v4 a6 6 0 0 1 -6 6 M-6 12 h12 v6 h-12 z" stroke="white" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round"/>',
+        label: 'Premio siguiente',
+        value: rewardText.length > 22 ? rewardText.slice(0, 20) + '…' : rewardText,
+      },
+    ];
+
+    const colSvg = stats
+      .map((s, i) => {
+        const cx = colCx[i];
+        return `
+        <g transform="translate(${cx} ${colsAreaY})">
+          ${s.icon}
+        </g>
+        <text x="${cx}" y="${colsAreaY + 50}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="20" fill="rgba(255,255,255,0.78)" font-weight="500">${this.escapeXml(s.label)}</text>
+        <text x="${cx}" y="${colsAreaY + 80}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="26" fill="white" font-weight="700">${this.escapeXml(s.value)}</text>
+      `;
+      })
+      .join('');
+
+    const svg = `
+<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="${primary}"/>
+      <stop offset="100%" stop-color="${secondary}"/>
+    </linearGradient>
+    <linearGradient id="depth" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.10)"/>
+      <stop offset="50%" stop-color="rgba(255,255,255,0)"/>
+      <stop offset="100%" stop-color="rgba(0,0,0,0.18)"/>
+    </linearGradient>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#bg)"/>
+  <rect width="100%" height="100%" fill="url(#depth)"/>
+  <text x="${W / 2}" y="100" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="48" fill="white" font-weight="800">${this.escapeXml(title)}</text>
+  ${colSvg}
+</svg>`.trim();
+
+    return sharp(Buffer.from(svg, 'utf8')).png().toBuffer();
+  }
+
+  /**
    * Genera la imagen del strip de sellos del pase como PNG público.
    * Usado por Google Wallet (imageModulesData) para mostrar la grilla de
    * sellos similar al strip de Apple Wallet. Devuelve null si el tipo de

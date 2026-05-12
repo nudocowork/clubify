@@ -181,11 +181,24 @@ export class GoogleWalletService {
     }> = [];
     const t = card.type;
     if (t === 'STAMPS' || t === 'HYBRID' || t === 'VISITS') {
-      const apiUrl =
-        process.env.API_URL || 'https://api.soyclubify.com';
+      const apiUrl = process.env.API_URL || 'https://api.soyclubify.com';
       const cacheBust = pass.lastActivityAt
         ? new Date(pass.lastActivityAt).getTime()
         : Date.now();
+      // 1° hero — banner con título + stats (sellos faltantes, recompensas,
+      // premio siguiente). Aparece como primer image module.
+      imageModules.push({
+        id: 'hero',
+        mainImage: {
+          sourceUri: {
+            uri: `${apiUrl}/api/passes/${pass.id}/hero.png?v=${cacheBust}`,
+          },
+          contentDescription: {
+            defaultValue: { language: 'es', value: 'Acumula sellos' },
+          },
+        },
+      });
+      // 2° strip — grilla de sellos con cookies/iconos.
       imageModules.push({
         id: 'strip',
         mainImage: {
@@ -193,7 +206,7 @@ export class GoogleWalletService {
             uri: `${apiUrl}/api/passes/${pass.id}/strip.png?v=${cacheBust}`,
           },
           contentDescription: {
-            defaultValue: { language: 'es', value: 'Sellos' },
+            defaultValue: { language: 'es', value: 'Tus sellos' },
           },
         },
       });
