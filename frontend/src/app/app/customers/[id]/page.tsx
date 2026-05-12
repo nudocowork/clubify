@@ -286,7 +286,7 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
         </div>
       )}
 
-      <div className="mt-3 pt-2.5 border-t border-line2/60">
+      <div className="mt-3 pt-2.5 border-t border-line2/60 flex flex-wrap items-center gap-3">
         <button
           onClick={refreshWallet}
           disabled={busy}
@@ -294,6 +294,24 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
           title="Manda un silent push para forzar a Apple/Google Wallet a actualizar el pase ya instalado"
         >
           🔄 Refrescar Apple/Google Wallet
+        </button>
+        <button
+          onClick={async () => {
+            try {
+              const r = await api(`/passes/${p.id}/google-object`);
+              const blob = new Blob([JSON.stringify(r, null, 2)], {
+                type: 'application/json',
+              });
+              const url = URL.createObjectURL(blob);
+              window.open(url, '_blank');
+            } catch (e: any) {
+              toast(e.message || 'No se pudo obtener', 'error');
+            }
+          }}
+          className="text-[11px] text-mute hover:text-ink inline-flex items-center gap-1"
+          title="Ver el LoyaltyObject crudo guardado en Google Wallet"
+        >
+          🔍 Ver Google Object
         </button>
       </div>
     </div>
