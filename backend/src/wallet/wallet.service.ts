@@ -351,22 +351,22 @@ export class WalletService {
       stampContourColor,
       centerBgColor,
     } = opts;
-    // Defaults legibles si el dueño no configuró colores avanzados.
-    const fillFull = stampActiveColor ?? 'rgba(255,255,255,0.95)';
-    const fillEmpty = stampInactiveColor ?? 'rgba(255,255,255,0.16)';
-    const stroke = stampContourColor ?? 'rgba(255,255,255,0.95)';
-    const strokeEmpty = stampContourColor ?? 'rgba(255,255,255,0.4)';
+    // Defaults estilo Starbucks / Apple Wallet: filled = blanco sólido,
+    // empty = relleno sutil glassmorphism sin borde marcado. El contorno
+    // sólo se dibuja si el tenant lo configuró explícitamente.
+    const fillFull = stampActiveColor ?? '#FFFFFF';
+    const fillEmpty = stampInactiveColor ?? 'rgba(255,255,255,0.13)';
+    const customStroke = stampContourColor ?? null;
 
     const rows = required > 6 ? 2 : 1;
     const perRow = Math.ceil(required / rows);
 
-    // Genera el SVG en escala 2x (640×246) y luego dejamos a sharp resamplear
-    // a las 3 resoluciones con quality alta.
+    // SVG en escala 2x (640×246). Padding/gap generosos para look minimal.
     const W = 640;
     const H = 246;
-    const padX = 24;
-    const padY = 28;
-    const gap = 10;
+    const padX = 32;
+    const padY = rows === 2 ? 26 : 36;
+    const gap = rows === 2 ? 16 : 22;
     const availW = W - padX * 2;
     const availH = H - padY * 2;
     const cellW = (availW - gap * (perRow - 1)) / perRow;
@@ -380,34 +380,42 @@ export class WalletService {
       const cx = padX + col * (cellW + gap) + cellW / 2;
       const cy = padY + row * (cellH + gap) + cellH / 2;
       const filled = i < stamped;
-      // Círculo: filled = activeColor / empty = inactiveColor; contorno
-      // configurable también. Defaults legibles si no hay overrides.
-      circles.push(
-        `<circle cx="${cx}" cy="${cy}" r="${radius - 2}" fill="${
-          filled ? fillFull : fillEmpty
-        }" stroke="${filled ? stroke : strokeEmpty}" stroke-width="2"/>`,
-      );
+
       if (filled) {
-        // Emoji centrado dentro del círculo. font-size un poco mayor que el
-        // radio para que el emoji "llene" visualmente. Usamos `dy=".35em"`
-        // (truco SVG estándar) en vez de dominant-baseline que algunos
-        // renderers (librsvg) ignoran con emojis. Eso garantiza centrado
-        // vertical confiable. font-family ordena por preferencia: Apple
-        // (macOS local), Segoe (Windows), Noto Color Emoji (Linux/Docker).
-        const fontSize = radius * 1.4;
+        // Sombra sutil + círculo blanco sólido para look premium con
+        // profundidad. Stroke sólo si el tenant lo pidió explícitamente.
+        const strokeAttr = customStroke
+          ? ` stroke="${customStroke}" stroke-width="1.5"`
+          : '';
         circles.push(
-          `<text x="${cx}" y="${cy}" text-anchor="middle" dy=".35em" font-size="${fontSize}" font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif">${this.escapeXml(
+          `<circle cx="${cx}" cy="${cy}" r="${radius}" fill="${fillFull}" filter="url(#stampShadow)"${strokeAttr}/>`,
+        );
+        // Emoji centrado más chico (≈45% del diámetro). Usamos dy=".34em"
+        // para centrado vertical confiable en librsvg con emojis.
+        // font-family ordena: Apple (macOS local), Segoe (Windows),
+        // Noto Color Emoji (Linux/Docker container).
+        const fontSize = radius * 1.1;
+        circles.push(
+          `<text x="${cx}" y="${cy}" text-anchor="middle" dy=".34em" font-size="${fontSize}" font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif">${this.escapeXml(
             icon,
           )}</text>`,
+        );
+      } else {
+        // Vacío: glassmorphism sutil sin borde. El borde sólo aparece si
+        // el tenant configuró stampContourColor.
+        const strokeAttr = customStroke
+          ? ` stroke="${customStroke}" stroke-width="1" stroke-opacity="0.32"`
+          : '';
+        circles.push(
+          `<circle cx="${cx}" cy="${cy}" r="${radius}" fill="${fillEmpty}"${strokeAttr}/>`,
         );
       }
     }
 
-    // Si centerBgColor está seteado, lo usamos como fondo sólido en vez
-    // del gradient primary→secondary.
-    const bgFill = centerBgColor
-      ? centerBgColor
-      : 'url(#bg)';
+    // Background del strip: gradiente diagonal de la card + gloss sutil
+    // vertical (highlight blanco arriba que se desvanece, oscurecimiento
+    // mínimo abajo) para dar profundidad sin opacar la marca.
+    const bgFill = centerBgColor ? centerBgColor : 'url(#bg)';
     const svg = `
 <svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
   <defs>
@@ -415,9 +423,25 @@ export class WalletService {
       <stop offset="0%" stop-color="${primary}"/>
       <stop offset="100%" stop-color="${secondary}"/>
     </linearGradient>
+    <linearGradient id="gloss" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.10)"/>
+      <stop offset="55%" stop-color="rgba(255,255,255,0)"/>
+      <stop offset="100%" stop-color="rgba(0,0,0,0.10)"/>
+    </linearGradient>
+    <filter id="stampShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="2.5"/>
+      <feOffset dx="0" dy="3" result="offsetblur"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.32"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
   </defs>
   <rect width="100%" height="100%" fill="${bgFill}"/>
-  <rect width="100%" height="100%" fill="rgba(0,0,0,0.06)"/>
+  <rect width="100%" height="100%" fill="url(#gloss)"/>
   ${circles.join('\n  ')}
 </svg>`.trim();
 
