@@ -16,25 +16,25 @@ export default {
         line: '#E5E7EB',
         line2: '#EEF0F3',
 
-        // Brand verde Clubify (logo gradient: #4FE83F → #00B23A)
+        // Brand indigo→violet Clubify (logo: C squircle gradient #6366F1 → #A855F7)
         brand: {
-          DEFAULT: '#22C55E',
-          700: '#15803D',
-          soft: '#DCFCE7',
-          100: '#BBF7D0',
-          400: '#4ADE80',
-          500: '#22C55E',
-          600: '#16A34A',
+          DEFAULT: '#6366F1',
+          700: '#4F46E5',
+          soft: '#EEF2FF',
+          100: '#E0E7FF',
+          400: '#818CF8',
+          500: '#6366F1',
+          600: '#5B58E8',
         },
 
         sidebar: {
-          bg: '#0B1F14',     // verde muy oscuro casi negro
-          bg2: '#081A11',
+          bg: '#0E1A24',     // dark indigo casi negro (Admin Nudo approved)
+          bg2: '#0A131B',
           ink: '#E5E7EB',
           mute: '#6B7790',
-          section: '#86EFAC', // green-300 para secciones
-          hover: '#143822',
-          active: '#22C55E',
+          section: '#A5B4FC', // indigo-300 para etiquetas de sección
+          hover: '#1A2632',
+          active: '#5B5EEE',
         },
 
         ok: { DEFAULT: '#16A34A', soft: '#DCFCE7', ink: '#166534' },
@@ -60,7 +60,7 @@ export default {
       boxShadow: {
         sm2: '0 1px 2px rgba(15,23,42,.04), 0 1px 1px rgba(15,23,42,.02)',
         md2: '0 6px 18px -8px rgba(15,23,42,.12), 0 2px 6px -2px rgba(15,23,42,.05)',
-        active: '0 6px 18px -8px rgba(34,197,94,.6), inset 0 0 0 1px rgba(255,255,255,.08)',
+        active: '0 6px 18px -8px rgba(99,102,241,.6), inset 0 0 0 1px rgba(255,255,255,.08)',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
@@ -77,8 +77,8 @@ export default {
           '60%': { transform: 'translateY(-3px)' },
         },
         'pulse-once': {
-          '0%, 100%': { boxShadow: '0 0 0 0 rgba(34,197,94,0.0)' },
-          '50%': { boxShadow: '0 0 0 8px rgba(34,197,94,0.25)' },
+          '0%, 100%': { boxShadow: '0 0 0 0 rgba(99,102,241,0.0)' },
+          '50%': { boxShadow: '0 0 0 8px rgba(99,102,241,0.25)' },
         },
         marquee: {
           '0%': { transform: 'translateX(0)' },

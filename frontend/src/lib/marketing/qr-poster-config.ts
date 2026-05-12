@@ -8,9 +8,42 @@
 
 export type QrPosterType = 'MENU' | 'COUNTER' | 'DISCOUNT' | 'REVIEWS';
 
+/** Configuración de fondo. Puede ser sólido, gradiente o imagen.
+ *  Las tres variantes admiten ajustes finos comunes (opacity, overlay,
+ *  blur) para que el dueño componga fondos visualmente ricos. */
 export type BgConfig =
-  | { type: 'solid'; color1: string }
-  | { type: 'gradient'; color1: string; color2: string; angle: number };
+  | {
+      type: 'solid';
+      color1: string;
+      /** 0..1 — opacidad global del fondo (default 1). */
+      opacity?: number;
+    }
+  | {
+      type: 'gradient';
+      color1: string;
+      color2: string;
+      angle: number;
+      opacity?: number;
+    }
+  | {
+      type: 'image';
+      url: string;
+      /** Zoom relativo (1 = cover por defecto). 1.5 = imagen 50% más
+       *  grande, útil para enfocar una parte específica. */
+      zoom?: number;
+      /** Offset relativo al canvas (px). Permite encuadrar la imagen. */
+      offsetX?: number;
+      offsetY?: number;
+      /** Filtro de blur en px (0..40). Útil para que las capas de texto
+       *  encima sean legibles. */
+      blur?: number;
+      /** Color de overlay encima de la imagen (alpha en hex8 o nombre).
+       *  null/undefined = sin overlay. */
+      overlayColor?: string | null;
+      /** Opacidad del overlay (0..1). */
+      overlayOpacity?: number;
+      opacity?: number;
+    };
 
 export type QrConfig = {
   x: number; // px from canvas top-left
@@ -36,6 +69,8 @@ export type TextLayer = {
   align: 'left' | 'center' | 'right';
   /** 0..1 — opacidad del texto (default 1) */
   opacity?: number;
+  /** Grados (0..360). Default 0. */
+  rotation?: number;
 };
 
 /** Layer del logo del negocio (opcional). Se pinta como imagen Konva. */
@@ -45,10 +80,13 @@ export type LogoLayer = {
   y: number;
   size: number; // ancho/alto en px (logo cuadrado)
   opacity?: number;
+  rotation?: number;
 };
 
 /** Formas standalone — rectángulo o círculo decorativos. Cada una con
- *  su id estable para drag-reorder en el panel de capas. */
+ *  su id estable para drag-reorder en el panel de capas.
+ *  DEPRECATED: el editor ya no expone "Formas" en UI. Mantenemos el
+ *  tipo + render para que posters viejos sigan visualizándose. */
 export type ShapeLayer = {
   id: string;
   type: 'rect' | 'circle';
@@ -74,10 +112,59 @@ export type IconLayer = {
   y: number;
   size: number;
   opacity?: number;
+  rotation?: number;
+};
+
+/** Capa de imagen libre subida por el dueño. Reemplaza a "Forma".
+ *  La URL puede ser data URL (base64) o URL externa (R2). Si externa,
+ *  Konva carga con crossOrigin=anonymous para que el export funcione. */
+export type ImageLayer = {
+  id: string;
+  url: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  opacity?: number;
+  rotation?: number;
+  /** Si true, mantenemos el aspecto al redimensionar manualmente. */
+  keepAspect?: boolean;
+};
+
+/** Patrón generado a partir de uno o varios emojis. Se renderiza
+ *  tileado sobre toda la superficie del lienzo (o sobre un área
+ *  delimitada). Pensado para usarse como decoración detrás del QR. */
+export type PatternLayer = {
+  id: string;
+  /** Emojis que componen el patrón. Se intercalan en grid. */
+  emojis: string[];
+  /** Tamaño de cada emoji en px. */
+  size: number;
+  /** Distancia entre celdas en px (gap). 0 = celdas adyacentes. */
+  gap: number;
+  /** 0..1 — opacidad global. */
+  opacity: number;
+  /** Rotación de cada emoji individualmente (grados). */
+  rotation: number;
+  /** Densidad: 0..1 — probabilidad de pintar cada celda. 1 = pintar
+   *  todas, 0.5 = saltear la mitad (efecto disperso). */
+  density: number;
+  /** Si false, el patrón cubre solo un sub-rect. Si true (default),
+   *  cubre todo el canvas. */
+  fullCanvas?: boolean;
+  /** Cuando fullCanvas=false, área a cubrir. */
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+  /** Seed determinístico para que la densidad sub-1 sea estable entre
+   *  renders (sino cada drag re-randomiza el patrón). */
+  seed?: number;
 };
 
 /** ID estable de cada capa para el sistema de z-order. Los texts/qr/bg
- *  son fijos (un solo elemento); shapes/icons usan id dinámico. */
+ *  son fijos (un solo elemento); shapes/icons/images/patterns usan id
+ *  dinámico. */
 export type LayerId =
   | 'bg'
   | 'qr'
@@ -88,13 +175,24 @@ export type LayerId =
   | 'text.brand'
   | 'footer'
   | `shape.${string}`
-  | `icon.${string}`;
+  | `icon.${string}`
+  | `image.${string}`
+  | `pattern.${string}`;
+
+export type CanvasConfig = {
+  /** Ancho/alto del lienzo Konva en px. */
+  w: number;
+  h: number;
+  /** Medida física para imprenta. Si está, se usa al exportar para
+   *  calcular el pixelRatio que alcance el DPI configurado. */
+  mm?: { w: number; h: number };
+  /** DPI de exportación. Default 300. Mayor = archivo más pesado pero
+   *  más nítido al imprimir grande. */
+  dpi?: number;
+};
 
 export type QrPosterConfig = {
-  /** w/h son px internos del lienzo Konva (definen aspecto + precisión
-   *  de layout). mm es la medida física para imprenta — se usa al
-   *  exportar para calcular pixelRatio = 300 DPI. */
-  canvas: { w: number; h: number; mm?: { w: number; h: number } };
+  canvas: CanvasConfig;
   /** Si 'circle', el canvas se clipea a una circunferencia centrada —
    *  útil para imprentar carteles circulares (acrílico, sticker). */
   clipShape?: 'circle';
@@ -104,6 +202,8 @@ export type QrPosterConfig = {
   logo?: LogoLayer | null;
   shapes?: ShapeLayer[];
   icons?: IconLayer[];
+  images?: ImageLayer[];
+  patterns?: PatternLayer[];
   texts: {
     title: TextLayer;
     subtitle: TextLayer;
@@ -123,19 +223,27 @@ export type QrPosterConfig = {
 };
 
 /** Orden default de capas (back → front). Si la config no tiene
- *  layerOrder explícito, se calcula esto. shapes e icons quedan
- *  detrás de los textos por default — el panel de capas permite
- *  reordenar a voluntad. */
+ *  layerOrder explícito, se calcula esto. Los patterns van inmediatamente
+ *  después del bg para que actúen como decoración de fondo. Las imágenes
+ *  libres y formas (deprecated) van detrás de los textos. */
 export function defaultLayerOrder(cfg: QrPosterConfig): LayerId[] {
+  const patternIds: LayerId[] = (cfg.patterns ?? []).map(
+    (p) => `pattern.${p.id}` as LayerId,
+  );
   const shapeIds: LayerId[] = (cfg.shapes ?? []).map(
     (s) => `shape.${s.id}` as LayerId,
+  );
+  const imageIds: LayerId[] = (cfg.images ?? []).map(
+    (i) => `image.${i.id}` as LayerId,
   );
   const iconIds: LayerId[] = (cfg.icons ?? []).map(
     (i) => `icon.${i.id}` as LayerId,
   );
   return [
     'bg',
+    ...patternIds,
     ...shapeIds,
+    ...imageIds,
     'qr',
     'logo',
     'text.brand',
@@ -155,8 +263,6 @@ export function effectiveLayerOrder(cfg: QrPosterConfig): LayerId[] {
   if (!cfg.layerOrder) return defaultOrder;
   const validSet = new Set(defaultOrder);
   const filtered = cfg.layerOrder.filter((id) => validSet.has(id));
-  // Append IDs que aparecen en defaultOrder pero no en filtered (nuevas
-  // capas creadas después de persistir layerOrder)
   const filteredSet = new Set(filtered);
   for (const id of defaultOrder) {
     if (!filteredSet.has(id)) filtered.push(id);
@@ -164,13 +270,95 @@ export function effectiveLayerOrder(cfg: QrPosterConfig): LayerId[] {
   return filtered;
 }
 
-export const FONT_OPTIONS: { label: string; value: string }[] = [
-  { label: 'Inter', value: 'Inter, system-ui, sans-serif' },
-  { label: 'Playfair Display', value: '"Playfair Display", Georgia, serif' },
-  { label: 'Bebas Neue', value: '"Bebas Neue", Impact, sans-serif' },
-  { label: 'Poppins', value: 'Poppins, sans-serif' },
-  { label: 'Montserrat', value: 'Montserrat, sans-serif' },
+export type FontOption = {
+  label: string;
+  value: string;
+  /** Pesos disponibles para esta familia en la URL de Google Fonts. */
+  weights: number[];
+  /** Categoría tipográfica para agrupar en el picker. */
+  category: 'sans' | 'serif' | 'display' | 'handwriting' | 'mono';
+};
+
+/** Biblioteca de tipografías. Cubre los estilos más usados en
+ *  cartelería (sans neutras, serif elegantes, display impactantes,
+ *  handwriting, mono). Se cargan dinámicamente desde Google Fonts —
+ *  ver ensureFontsLoaded() en QrPosterEditor. */
+export const FONT_OPTIONS: FontOption[] = [
+  // Sans-serif (uso general)
+  { label: 'Inter', value: 'Inter, system-ui, sans-serif', weights: [400, 600, 700, 900], category: 'sans' },
+  { label: 'Poppins', value: 'Poppins, sans-serif', weights: [400, 600, 700, 900], category: 'sans' },
+  { label: 'Montserrat', value: 'Montserrat, sans-serif', weights: [400, 600, 700, 900], category: 'sans' },
+  { label: 'Manrope', value: 'Manrope, sans-serif', weights: [400, 600, 700, 800], category: 'sans' },
+  { label: 'DM Sans', value: '"DM Sans", sans-serif', weights: [400, 700, 900], category: 'sans' },
+  { label: 'Plus Jakarta Sans', value: '"Plus Jakarta Sans", sans-serif', weights: [400, 600, 700, 800], category: 'sans' },
+  { label: 'Outfit', value: 'Outfit, sans-serif', weights: [400, 600, 700, 900], category: 'sans' },
+  { label: 'Sora', value: 'Sora, sans-serif', weights: [400, 600, 700, 800], category: 'sans' },
+  { label: 'Work Sans', value: '"Work Sans", sans-serif', weights: [400, 600, 700, 900], category: 'sans' },
+  { label: 'Nunito', value: 'Nunito, sans-serif', weights: [400, 700, 900], category: 'sans' },
+  { label: 'Raleway', value: 'Raleway, sans-serif', weights: [400, 600, 700, 900], category: 'sans' },
+  { label: 'Lato', value: 'Lato, sans-serif', weights: [400, 700, 900], category: 'sans' },
+  { label: 'Oswald', value: 'Oswald, sans-serif', weights: [400, 600, 700], category: 'sans' },
+
+  // Serif (elegancia, lujo)
+  { label: 'Playfair Display', value: '"Playfair Display", Georgia, serif', weights: [400, 700, 900], category: 'serif' },
+  { label: 'Lora', value: 'Lora, serif', weights: [400, 600, 700], category: 'serif' },
+  { label: 'Merriweather', value: 'Merriweather, serif', weights: [400, 700, 900], category: 'serif' },
+  { label: 'Cormorant Garamond', value: '"Cormorant Garamond", serif', weights: [400, 600, 700], category: 'serif' },
+  { label: 'Libre Baskerville', value: '"Libre Baskerville", serif', weights: [400, 700], category: 'serif' },
+  { label: 'EB Garamond', value: '"EB Garamond", serif', weights: [400, 600, 700], category: 'serif' },
+  { label: 'DM Serif Display', value: '"DM Serif Display", serif', weights: [400], category: 'serif' },
+
+  // Display (impactantes, para títulos grandes)
+  { label: 'Bebas Neue', value: '"Bebas Neue", Impact, sans-serif', weights: [400], category: 'display' },
+  { label: 'Anton', value: 'Anton, sans-serif', weights: [400], category: 'display' },
+  { label: 'Archivo Black', value: '"Archivo Black", sans-serif', weights: [400], category: 'display' },
+  { label: 'Russo One', value: '"Russo One", sans-serif', weights: [400], category: 'display' },
+  { label: 'Black Ops One', value: '"Black Ops One", sans-serif', weights: [400], category: 'display' },
+  { label: 'Righteous', value: 'Righteous, sans-serif', weights: [400], category: 'display' },
+  { label: 'Bangers', value: 'Bangers, sans-serif', weights: [400], category: 'display' },
+  { label: 'Fredoka', value: 'Fredoka, sans-serif', weights: [400, 600, 700], category: 'display' },
+  { label: 'Permanent Marker', value: '"Permanent Marker", sans-serif', weights: [400], category: 'display' },
+
+  // Handwriting / script
+  { label: 'Pacifico', value: 'Pacifico, cursive', weights: [400], category: 'handwriting' },
+  { label: 'Caveat', value: 'Caveat, cursive', weights: [400, 700], category: 'handwriting' },
+  { label: 'Dancing Script', value: '"Dancing Script", cursive', weights: [400, 700], category: 'handwriting' },
+  { label: 'Great Vibes', value: '"Great Vibes", cursive', weights: [400], category: 'handwriting' },
+  { label: 'Satisfy', value: 'Satisfy, cursive', weights: [400], category: 'handwriting' },
+  { label: 'Kalam', value: 'Kalam, cursive', weights: [400, 700], category: 'handwriting' },
+  { label: 'Shadows Into Light', value: '"Shadows Into Light", cursive', weights: [400], category: 'handwriting' },
+
+  // Mono
+  { label: 'JetBrains Mono', value: '"JetBrains Mono", monospace', weights: [400, 600, 700], category: 'mono' },
+  { label: 'Fira Code', value: '"Fira Code", monospace', weights: [400, 600, 700], category: 'mono' },
+  { label: 'Space Mono', value: '"Space Mono", monospace', weights: [400, 700], category: 'mono' },
 ];
+
+/** Categorías tipográficas con su label en español. */
+export const FONT_CATEGORY_LABELS: Record<FontOption['category'], string> = {
+  sans: 'Sans-serif',
+  serif: 'Serif',
+  display: 'Display',
+  handwriting: 'Manuscrita',
+  mono: 'Monoespaciada',
+};
+
+/** Construye la URL de Google Fonts para cargar TODAS las fuentes
+ *  declaradas en FONT_OPTIONS con sus pesos. Una sola request al
+ *  CDN, los browsers cachean. */
+export function googleFontsUrl(): string {
+  // Nombres de Google: usar el label pero remover comillas y reemplazar
+  // espacios por '+'. Filtrar Inter porque ya viene system-friendly y
+  // las system fonts (system-ui, monospace, etc).
+  const families = FONT_OPTIONS.map((f) => {
+    const name = f.label;
+    if (f.weights.length === 1 && f.weights[0] === 400) {
+      return `family=${name.replace(/ /g, '+')}`;
+    }
+    return `family=${name.replace(/ /g, '+')}:wght@${f.weights.join(';')}`;
+  }).join('&');
+  return `https://fonts.googleapis.com/css2?${families}&display=swap`;
+}
 
 export type CanvasPreset = {
   label: string;
@@ -192,9 +380,8 @@ export const CANVAS_PRESETS: CanvasPreset[] = [
   { label: 'Circular 15cm', w: 1080, h: 1080, mm: { w: 150, h: 150 } },
 ];
 
-/** Catálogo curado de emojis para usar como "icono" en el editor.
- *  Agrupados por uso típico en cartelería. Cualquier emoji adicional
- *  funciona — esto es solo el quick-pick. */
+/** Catálogo curado de emojis quick-pick. Para búsqueda completa se
+ *  usa la biblioteca extendida en emoji-library.ts. */
 export const ICON_EMOJI_CATALOG: { group: string; emojis: string[] }[] = [
   {
     group: 'Comida & bebida',
@@ -214,13 +401,19 @@ export const ICON_EMOJI_CATALOG: { group: string; emojis: string[] }[] = [
   },
 ];
 
-/** Pixel ratio para que el export a 300 DPI alcance la resolución física
- *  del preset. Si no hay mm definidos, asumimos A4 vertical. */
-export function pixelRatioFor300Dpi(canvas: QrPosterConfig['canvas']): number {
+/** Pixel ratio para que el export alcance el DPI físico requerido. */
+export function pixelRatioForDpi(canvas: CanvasConfig): number {
   const mm = canvas.mm ?? { w: 210, h: 297 };
-  // 300 DPI → 11.811 px/mm
-  const targetW = mm.w * 11.811;
+  const dpi = canvas.dpi ?? 300;
+  // 1 inch = 25.4 mm → factor px/mm = dpi / 25.4
+  const pxPerMm = dpi / 25.4;
+  const targetW = mm.w * pxPerMm;
   return Math.max(1, targetW / canvas.w);
+}
+
+/** Alias backward-compat (algunos call-sites antiguos usaban este nombre). */
+export function pixelRatioFor300Dpi(canvas: CanvasConfig): number {
+  return pixelRatioForDpi({ ...canvas, dpi: 300 });
 }
 
 /** Re-escala todas las posiciones del cfg a un canvas nuevo, manteniendo
@@ -229,7 +422,7 @@ export function pixelRatioFor300Dpi(canvas: QrPosterConfig['canvas']): number {
  *  algún elemento queda fuera del canvas, se clampea al borde. */
 export function rescaleForCanvas(
   cfg: QrPosterConfig,
-  newCanvas: { w: number; h: number; mm?: { w: number; h: number } },
+  newCanvas: { w: number; h: number; mm?: { w: number; h: number }; dpi?: number },
 ): QrPosterConfig {
   const sx = newCanvas.w / cfg.canvas.w;
   const sy = newCanvas.h / cfg.canvas.h;
@@ -240,7 +433,7 @@ export function rescaleForCanvas(
 
   return {
     ...cfg,
-    canvas: newCanvas,
+    canvas: { ...newCanvas, dpi: newCanvas.dpi ?? cfg.canvas.dpi },
     qr: {
       ...cfg.qr,
       x: clampX(Math.round(cfg.qr.x * sx), cfg.qr.size),
@@ -288,6 +481,16 @@ export function rescaleForCanvas(
       x: clampX(Math.round(i.x * sx), i.size),
       y: clampY(Math.round(i.y * sy), i.size),
     })),
+    images: (cfg.images ?? []).map((im) => ({
+      ...im,
+      x: clampX(Math.round(im.x * sx), im.w),
+      y: clampY(Math.round(im.y * sy), im.h),
+    })),
+    patterns: (cfg.patterns ?? []).map((p) => ({
+      ...p,
+      x: p.x !== undefined ? clampX(Math.round(p.x * sx), p.w ?? 0) : p.x,
+      y: p.y !== undefined ? clampY(Math.round(p.y * sy), p.h ?? 0) : p.y,
+    })),
   };
 }
 
@@ -297,7 +500,7 @@ export function defaultConfig(brandName: string): QrPosterConfig {
   const qrSize = 560;
   const qrX = (w - qrSize) / 2;
   return {
-    canvas: { w, h, mm: { w: 210, h: 297 } },
+    canvas: { w, h, mm: { w: 210, h: 297 }, dpi: 300 },
     bg: { type: 'solid', color1: '#FFFFFF' },
     qr: {
       x: qrX,
@@ -370,13 +573,17 @@ export function normalizeConfig(
   const def = defaultConfig(brandName);
   if (!cfg || typeof cfg !== 'object') return def;
   return {
-    canvas: cfg.canvas ?? def.canvas,
+    canvas: cfg.canvas
+      ? { ...cfg.canvas, dpi: cfg.canvas.dpi ?? 300 }
+      : def.canvas,
     clipShape: cfg.clipShape,
     bg: (cfg.bg as BgConfig) ?? def.bg,
     qr: { ...def.qr, ...(cfg.qr ?? {}) },
     logo: cfg.logo ?? null,
     shapes: Array.isArray(cfg.shapes) ? cfg.shapes : [],
     icons: Array.isArray(cfg.icons) ? cfg.icons : [],
+    images: Array.isArray(cfg.images) ? cfg.images : [],
+    patterns: Array.isArray(cfg.patterns) ? cfg.patterns : [],
     texts: {
       title: { ...def.texts.title, ...(cfg.texts?.title ?? {}) },
       subtitle: { ...def.texts.subtitle, ...(cfg.texts?.subtitle ?? {}) },

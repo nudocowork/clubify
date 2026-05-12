@@ -122,8 +122,8 @@ function Sparkline7d({ data }: { data: { date: string; orders: number; revenue: 
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-16" preserveAspectRatio="none">
         <defs>
           <linearGradient id="sparkfill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#22C55E" stopOpacity="0.32" />
-            <stop offset="100%" stopColor="#22C55E" stopOpacity="0" />
+            <stop offset="0%" stopColor="#6366F1" stopOpacity="0.32" />
+            <stop offset="100%" stopColor="#6366F1" stopOpacity="0" />
           </linearGradient>
         </defs>
         <polygon
@@ -134,7 +134,7 @@ function Sparkline7d({ data }: { data: { date: string; orders: number; revenue: 
         <polyline
           points={points}
           fill="none"
-          stroke="#22C55E"
+          stroke="#6366F1"
           strokeWidth="2"
           strokeLinejoin="round"
           strokeLinecap="round"
@@ -142,7 +142,7 @@ function Sparkline7d({ data }: { data: { date: string; orders: number; revenue: 
         {last7.map((d, i) => {
           const x = i * step;
           const y = H - (d.orders / max) * (H - 8) - 4;
-          return <circle key={i} cx={x} cy={y} r="2.5" fill="#22C55E" />;
+          return <circle key={i} cx={x} cy={y} r="2.5" fill="#6366F1" />;
         })}
       </svg>
       <div className="flex justify-between mt-1 text-[10px] text-mute2">
