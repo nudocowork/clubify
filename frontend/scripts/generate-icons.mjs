@@ -27,6 +27,7 @@ try {
 const iconSvg = await readFile(resolve(iconsDir, 'icon.svg'));
 const maskableSvg = await readFile(resolve(iconsDir, 'icon-maskable.svg'));
 const ogSvg = await readFile(resolve(iconsDir, 'og-image.svg'));
+const lockupSvg = await readFile(resolve(publicDir, 'clubify-logo.svg'));
 
 async function rasterize(svgBuffer, size, outPath) {
   await sharp(svgBuffer, { density: 384 })
@@ -66,6 +67,9 @@ await rasterize(maskableSvg, 512, resolve(iconsDir, 'icon-maskable-512.png'));
 
 console.log('→ Generando Open Graph image (1200x630)');
 await rasterizeRect(ogSvg, 1200, 630, resolve(publicDir, 'og-image.png'));
+
+console.log('→ Generando logo lockup (clubify-logo.png 1224×360, ratio 3.4:1)');
+await rasterizeRect(lockupSvg, 1224, 360, resolve(publicDir, 'clubify-logo.png'));
 
 console.log('→ Generando favicon.ico (16+32+48 multi-resolution)');
 const ico16 = await sharp(iconSvg, { density: 384 }).resize(16, 16).png().toBuffer();

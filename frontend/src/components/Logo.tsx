@@ -2,14 +2,14 @@
 import Image from 'next/image';
 
 /**
- * Logo oficial de Clubify (verde gradient).
- * - `variant="full"`  → logo completo (mark + wordmark "CLUBIFY"), para
- *                       headers, footers, signup/login, landing.
- * - `variant="mark"`  → solo el ícono recortado del PNG, para sidebar/avatar.
+ * Logo oficial de Clubify.
+ * - `variant="full"`  → lockup completo (C squircle + "Clubify"), para headers,
+ *                       footers, signup/login, landing.
+ * - `variant="mark"`  → solo el ícono cuadrado, para sidebar/avatar.
  *
- * El archivo fuente es `public/clubify-logo.png` (1080×1080 con padding blanco).
- * Para variant="mark" usamos background-image + position para encuadrar solo
- * el símbolo (~35% izquierdo del PNG).
+ * Cada variante usa su propio asset nativo (sin CSS hacks):
+ *   - lockup: /clubify-logo.png (1224×360, ratio 3.4:1)
+ *   - mark:   /icons/icon-256.png (256×256, mismo PNG que sirve como PWA icon)
  */
 export function Logo({
   variant = 'full',
@@ -23,25 +23,18 @@ export function Logo({
   priority?: boolean;
 }) {
   if (variant === 'mark') {
-    // Recorte CSS del símbolo (triángulo verde del lado izquierdo del PNG).
-    // Posición + size calibrados para el PNG actual de 1080×1080.
     return (
-      <div
-        role="img"
-        aria-label="Clubify"
-        className={`bg-no-repeat ${className}`}
-        style={{
-          width: size,
-          height: size,
-          backgroundImage: 'url(/clubify-logo.png)',
-          backgroundSize: '320% auto',
-          backgroundPosition: '15% center',
-        }}
+      <Image
+        src="/icons/icon-256.png"
+        alt="Clubify"
+        width={size}
+        height={size}
+        priority={priority}
+        className={className}
       />
     );
   }
 
-  // Logo completo (mark + wordmark "CLUBIFY") — proporciones del PNG actual
   const ratio = 3.4;
   return (
     <Image
