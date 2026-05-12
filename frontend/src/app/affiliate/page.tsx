@@ -260,11 +260,28 @@ function Overview({ me }: { me: Me }) {
     (c) => c.status === 'PAYING' || c.status === 'ACTIVE',
   ).length;
 
+  // Breakdown: ventas atribuidas a MI código vs a códigos de mis
+  // embajadores. Útil para que el influencer vea cuánto trae solo
+  // versus apalancado por su equipo (item 19 del spec).
+  const myCode = me.myCode?.code ?? null;
+  const directs = myCode
+    ? clients.filter((c) => c.attribution?.code === myCode).length
+    : 0;
+  const indirects = clients.length - directs;
+  const activeDirects = myCode
+    ? clients.filter(
+        (c) =>
+          c.attribution?.code === myCode &&
+          (c.status === 'PAYING' || c.status === 'ACTIVE'),
+      ).length
+    : 0;
+  const activeIndirects = activeClients - activeDirects;
+
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Stat label="Clientes activos" value={String(activeClients)} tone="ok" />
-        <Stat label="Total clientes" value={String(clients.length)} />
+        <Stat label="Negocios activos" value={String(activeClients)} tone="ok" />
+        <Stat label="Total negocios" value={String(clients.length)} />
         <Stat
           label="Pendiente"
           value={comm ? fmtUsd(comm.totals.pendingUsd + comm.totals.approvedUsd) : '—'}
@@ -272,6 +289,34 @@ function Overview({ me }: { me: Me }) {
         />
         <Stat label="Pagado" value={comm ? fmtUsd(comm.totals.paidUsd) : '—'} tone="brand" />
       </div>
+
+      {me.role === 'AFFILIATE_INFLUENCER' && clients.length > 0 && (
+        <div className="card card-pad">
+          <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-3">
+            Origen de tus negocios
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-bg2/50 rounded-lg p-3">
+              <div className="text-xs text-mute">
+                🎯 Directas (tu código)
+              </div>
+              <div className="text-2xl font-bold mt-1">{directs}</div>
+              <div className="text-[11px] text-mute mt-0.5">
+                {activeDirects} activas
+              </div>
+            </div>
+            <div className="bg-bg2/50 rounded-lg p-3">
+              <div className="text-xs text-mute">
+                👥 De tus embajadores
+              </div>
+              <div className="text-2xl font-bold mt-1">{indirects}</div>
+              <div className="text-[11px] text-mute mt-0.5">
+                {activeIndirects} activas
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {me.role === 'AFFILIATE_INFLUENCER' && (
         <InfluencerAmbassadorsPanel ambassadors={me.ambassadors} />

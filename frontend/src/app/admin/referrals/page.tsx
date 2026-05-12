@@ -95,7 +95,7 @@ export default function AdminReferrals() {
     { id: 'campaigns', label: '🎯 Campañas' },
     { id: 'influencers', label: '🌟 Influencers' },
     { id: 'ambassadors', label: '👥 Embajadores' },
-    { id: 'clients', label: '🏢 Clientes' },
+    { id: 'clients', label: '🏢 Negocios' },
     { id: 'commissions', label: '💵 Comisiones' },
     { id: 'payouts', label: '⏳ Pendientes por pagar' },
     { id: 'coupons', label: '🎟 Cupones' },
@@ -2370,7 +2370,7 @@ function ClientsTab() {
               {visible.length === 0 && (
                 <tr>
                   <td colSpan={7} className="text-center py-12 text-mute">
-                    Sin clientes en este filtro
+                    Sin negocios en este filtro
                   </td>
                 </tr>
               )}
