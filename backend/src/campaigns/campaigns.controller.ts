@@ -8,18 +8,22 @@ import {
   Post,
 } from '@nestjs/common';
 import {
+  IsEmail,
   IsEnum,
   IsIn,
   IsNumber,
   IsOptional,
   IsString,
   Max,
+  MaxLength,
   Min,
+  MinLength,
 } from 'class-validator';
 import { CampaignStatus } from '@prisma/client';
 import { CampaignsService } from './campaigns.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
+import { Public } from '../common/decorators/public.decorator';
 
 const ABSORPTIONS = ['ORIGINAL_PRICE', 'PAID_PRICE', 'EMPRESA_ABSORBS', 'PROPORTIONAL'] as const;
 
@@ -88,5 +92,33 @@ export class CampaignsController {
   @Delete('ambassadors/:id')
   removeAmbassador(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.removeAmbassador(user, id);
+  }
+}
+
+class PublicApplyBody {
+  @IsString() @MinLength(2) @MaxLength(120) fullName!: string;
+  @IsEmail() email!: string;
+  @IsString() @MinLength(8) @MaxLength(30) whatsapp!: string;
+}
+
+/**
+ * Endpoints públicos para la landing /refer/[ownerCode] — cualquier
+ * persona con el link puede ver info de la campaña y postularse como
+ * embajador. Item 18 del spec ("autogeneración de embajadores").
+ */
+@Controller('public/campaigns')
+export class PublicCampaignsController {
+  constructor(private svc: CampaignsService) {}
+
+  @Public()
+  @Get('by-owner-code/:code')
+  byOwnerCode(@Param('code') code: string) {
+    return this.svc.getPublicByOwnerCode(code);
+  }
+
+  @Public()
+  @Post('by-owner-code/:code/apply')
+  apply(@Param('code') code: string, @Body() body: PublicApplyBody) {
+    return this.svc.applyAsAmbassador(code, body);
   }
 }

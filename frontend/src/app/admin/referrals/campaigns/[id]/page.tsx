@@ -99,6 +99,19 @@ export default function CampaignDetailPage() {
     load();
   }
 
+  async function patchCampaign(patch: Partial<{ name: string; discountAbsorption: string }>) {
+    try {
+      await api(`/campaigns/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      });
+      toast('Cambios guardados', 'success');
+      load();
+    } catch (e: any) {
+      toast(e.message ?? 'No se pudo guardar', 'error');
+    }
+  }
+
   async function addAmbassador(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -231,6 +244,9 @@ export default function CampaignDetailPage() {
         />
       </div>
 
+      {/* Configuración editable */}
+      <CampaignSettings data={data} onPatch={patchCampaign} />
+
       {/* Influencer titular + link */}
       <div className="card card-pad mb-5 bg-bg2/40">
         <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1">
@@ -249,6 +265,7 @@ export default function CampaignDetailPage() {
           </div>
         </div>
         <CampaignShareLink code={data.ownerCode.code} />
+        <AmbassadorApplyLink code={data.ownerCode.code} />
       </div>
 
       {/* Embajadores */}
@@ -438,6 +455,158 @@ export default function CampaignDetailPage() {
           </Link>
           .
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Edición rápida de la configuración de la campaña: nombre + regla de
+ *  absorción de descuento. Item 23 — el admin puede ajustar sin
+ *  recrear la campaña. */
+function CampaignSettings({
+  data,
+  onPatch,
+}: {
+  data: { name: string; discountAbsorption: string };
+  onPatch: (patch: Partial<{ name: string; discountAbsorption: string }>) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(data.name);
+  const [absorption, setAbsorption] = useState(data.discountAbsorption);
+
+  useEffect(() => {
+    setName(data.name);
+    setAbsorption(data.discountAbsorption);
+  }, [data.name, data.discountAbsorption]);
+
+  async function save() {
+    const patch: Partial<{ name: string; discountAbsorption: string }> = {};
+    if (name.trim() && name !== data.name) patch.name = name.trim();
+    if (absorption !== data.discountAbsorption) patch.discountAbsorption = absorption;
+    if (Object.keys(patch).length === 0) {
+      setEditing(false);
+      return;
+    }
+    await onPatch(patch);
+    setEditing(false);
+  }
+
+  if (!editing) {
+    return (
+      <div className="card card-pad mb-5 flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1">
+            Configuración
+          </div>
+          <div className="text-sm">
+            Regla de descuento:{' '}
+            <span className="font-mono">{data.discountAbsorption}</span>
+          </div>
+        </div>
+        <button onClick={() => setEditing(true)} className="btn-ghost text-sm">
+          Editar
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card card-pad mb-5 space-y-3">
+      <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
+        Editar configuración
+      </div>
+      <div>
+        <label className="label">Nombre de campaña</label>
+        <input
+          className="input"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+      </div>
+      <div>
+        <label className="label">Regla de absorción del descuento</label>
+        <select
+          className="input"
+          value={absorption}
+          onChange={(e) => setAbsorption(e.target.value)}
+        >
+          <option value="PROPORTIONAL">Proporcional (default)</option>
+          <option value="ORIGINAL_PRICE">Sobre precio original</option>
+          <option value="PAID_PRICE">Sobre precio pagado</option>
+          <option value="EMPRESA_ABSORBS">La empresa absorbe</option>
+        </select>
+        <div className="text-[11px] text-mute mt-1 leading-relaxed">
+          Define cómo se calculan las comisiones cuando hay un cupón de
+          descuento activo. Afecta las próximas ventas, no las históricas.
+        </div>
+      </div>
+      <div className="flex gap-2 justify-end">
+        <button
+          onClick={() => {
+            setEditing(false);
+            setName(data.name);
+            setAbsorption(data.discountAbsorption);
+          }}
+          className="btn-ghost text-sm"
+        >
+          Cancelar
+        </button>
+        <button onClick={save} className="btn-primary text-sm">
+          Guardar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Link de postulación de embajadores. Item 18 — cualquier persona con
+ *  este link puede aplicar como embajador de la campaña vía form
+ *  público en /refer/[code]. */
+function AmbassadorApplyLink({ code }: { code: string }) {
+  const link =
+    typeof window !== 'undefined'
+      ? `${window.location.origin}/refer/${code}`
+      : '';
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(link);
+      toast('Link copiado', 'success');
+    } catch {
+      toast('No se pudo copiar', 'error');
+    }
+  }
+  const waText = encodeURIComponent(
+    `Sumate como embajador de mi campaña en Clubify y gana comisiones por cada negocio que registres: ${link}`,
+  );
+  return (
+    <div className="mt-3 pt-3 border-t border-line2">
+      <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1.5">
+        Link de postulación · embajadores
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          value={link}
+          readOnly
+          onFocus={(e) => e.currentTarget.select()}
+          className="input flex-1 min-w-[240px] font-mono text-xs"
+        />
+        <button onClick={copy} className="btn-ghost text-xs">
+          Copiar
+        </button>
+        <a
+          href={`https://wa.me/?text=${waText}`}
+          target="_blank"
+          rel="noreferrer"
+          className="btn-ghost text-xs"
+        >
+          💬 WhatsApp
+        </a>
+      </div>
+      <div className="text-[11px] text-mute mt-1.5 leading-relaxed">
+        Cualquier persona con este link puede postularse como embajador.
+        Si tenés <code>referrals.requireAmbassadorApproval</code>{' '}
+        activado, aparecerá en la lista de pendientes para revisar antes
+        de activar.
       </div>
     </div>
   );

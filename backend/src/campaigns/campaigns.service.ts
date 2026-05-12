@@ -267,6 +267,136 @@ export class CampaignsService {
     return ambassadorCode;
   }
 
+  /**
+   * Endpoint público — devuelve info mínima de una campaña a partir
+   * del code del influencer titular. Usado por la landing
+   * /refer/[code] que muestra a posibles embajadores con quién se van
+   * a sumar antes de pedir sus datos.
+   */
+  async getPublicByOwnerCode(ownerCode: string) {
+    const clean = ownerCode.trim().toUpperCase();
+    const ref = await this.prisma.referralCode.findUnique({
+      where: { code: clean },
+      include: {
+        ownerOfCampaign: true,
+        ambassadors: { where: { isActive: true }, select: { id: true } },
+      },
+    });
+    if (!ref || !ref.ownerOfCampaign || !ref.isActive) {
+      throw new NotFoundException('Campaña no encontrada o inactiva');
+    }
+    if (ref.ownerOfCampaign.status !== 'ACTIVE') {
+      throw new BadRequestException(
+        'Esta campaña no está aceptando embajadores en este momento',
+      );
+    }
+    return {
+      campaignId: ref.ownerOfCampaign.id,
+      campaignName: ref.ownerOfCampaign.name,
+      influencerName: ref.ownerName,
+      influencerCode: ref.code,
+      ambassadorsCount: ref.ambassadors.length,
+      // Default commission % que recibirá un nuevo embajador. Lo
+      // configura el SUPER_ADMIN al editar la campaña; null = se usa
+      // el default del service (10%).
+      defaultCommissionPercent: 10,
+    };
+  }
+
+  /**
+   * Endpoint público — autogeneración de embajadores. Recibe el code
+   * del influencer titular + datos del aspirante; crea el embajador
+   * con parentCode = ownerCode y status pendiente de aprobación si la
+   * Setting referrals.requireAmbassadorApproval está activa.
+   *
+   * Sin auth: cualquier persona con el link puede aplicar. La validez
+   * la da el Setting + la presencia de un email único.
+   */
+  async applyAsAmbassador(
+    ownerCode: string,
+    dto: { fullName: string; email: string; whatsapp: string },
+  ) {
+    const clean = ownerCode.trim().toUpperCase();
+    const owner = await this.prisma.referralCode.findUnique({
+      where: { code: clean },
+      include: { ownerOfCampaign: true },
+    });
+    if (!owner || !owner.ownerOfCampaign || !owner.isActive) {
+      throw new NotFoundException('Campaña no encontrada o inactiva');
+    }
+    if (owner.ownerOfCampaign.status !== 'ACTIVE') {
+      throw new BadRequestException('La campaña no está activa');
+    }
+
+    const email = dto.email.trim().toLowerCase();
+    if (!email.includes('@')) throw new BadRequestException('Email inválido');
+    if (!dto.fullName.trim()) throw new BadRequestException('Falta el nombre');
+    if (!dto.whatsapp.trim()) throw new BadRequestException('Falta el WhatsApp');
+
+    const dup = await this.prisma.referralCode.findFirst({
+      where: {
+        ownerEmail: email,
+        role: 'AMBASSADOR',
+        parentCodeId: owner.id,
+      },
+    });
+    if (dup) {
+      return {
+        ok: true,
+        alreadyExists: true,
+        code: dup.code,
+        message:
+          'Ya estabas inscripto como embajador de esta campaña. Te re-enviamos las instrucciones por email.',
+      };
+    }
+
+    // Si requireAmbassadorApproval está on, creamos en estado pendiente
+    // (approvedAt=null + isActive=false hasta que admin apruebe).
+    const requireApprovalSetting = await this.prisma.setting.findUnique({
+      where: { key: 'referrals.requireAmbassadorApproval' },
+    });
+    const requireApproval = requireApprovalSetting?.value === 'true';
+
+    const code = await this.resolveCode();
+    const ambassadorCode = await this.prisma.referralCode.create({
+      data: {
+        code,
+        ownerName: dto.fullName.trim(),
+        ownerEmail: email,
+        ownerWhatsapp: dto.whatsapp.trim(),
+        commissionPercent: 10, // default — admin puede ajustar luego
+        role: 'AMBASSADOR',
+        parentCodeId: owner.id,
+        campaignId: owner.ownerOfCampaign.id,
+        isActive: !requireApproval,
+        approvedAt: requireApproval ? null : new Date(),
+      },
+    });
+
+    // Solo invitamos al panel si NO requiere aprobación. Si requiere
+    // aprobación, el admin manda la invitación al aprobar.
+    if (!requireApproval) {
+      await this.auth
+        .inviteAffiliate({
+          email,
+          fullName: dto.fullName,
+          role: 'AFFILIATE_AMBASSADOR',
+          referralCodeId: ambassadorCode.id,
+          phone: dto.whatsapp,
+        })
+        .catch(() => null);
+    }
+
+    return {
+      ok: true,
+      code: ambassadorCode.code,
+      pendingApproval: requireApproval,
+      message: requireApproval
+        ? '¡Listo! Tu solicitud está en revisión. Recibirás un email cuando se apruebe.'
+        : '¡Bienvenido! Te enviamos un email con tu código y el acceso al panel.',
+    };
+  }
+
   async removeAmbassador(user: AuthUser, ambassadorId: string) {
     this.assertAdmin(user);
     const code = await this.prisma.referralCode.findUnique({
