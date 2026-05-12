@@ -160,8 +160,8 @@ export default function WalletStampsPreviewPage() {
               <li>• <code>stampActiveColor</code> custom sigue funcionando</li>
               <li>• <code>stampContourColor</code> sólo se renderiza si el tenant lo configura</li>
               <li>• <code>centerBgColor</code> custom respeta degradado</li>
-              <li>• Tamaño de círculo responsive: 40px (≤8) / 32px (>8)</li>
-              <li>• Ícono responsive: 17px (≤8) / 13px (>8)</li>
+              <li>• Tamaño de círculo responsive: 40px (≤8) / 32px (&gt;8)</li>
+              <li>• Ícono responsive: 17px (≤8) / 13px (&gt;8)</li>
             </ul>
           </div>
         </section>

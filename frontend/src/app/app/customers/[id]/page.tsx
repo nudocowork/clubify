@@ -149,6 +149,33 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
     }
   }
 
+  async function refreshWallet() {
+    setBusy(true);
+    try {
+      const r = await api<{ sent: number; skipped: number; error?: string }>(
+        `/passes/${p.id}/push-update`,
+        { method: 'POST' },
+      );
+      if (r.error === 'pass_not_found') {
+        toast('Pase no encontrado', 'error');
+      } else if (r.sent === 0 && r.skipped === 0) {
+        toast(
+          'El cliente todavía no instaló el pase en Apple Wallet — no hay dispositivos registrados',
+          'info',
+        );
+      } else {
+        toast(
+          `Push enviado · ${r.sent} dispositivo${r.sent === 1 ? '' : 's'} · refrescá Apple Wallet en 5-10 seg`,
+          'success',
+        );
+      }
+    } catch (e: any) {
+      toast(e.message || 'No se pudo refrescar', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="border border-line2 rounded-xl p-3.5">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -245,6 +272,17 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
           <span className="font-bold text-lg">{p.pointsBalance} puntos</span>
         </div>
       )}
+
+      <div className="mt-3 pt-2.5 border-t border-line2/60">
+        <button
+          onClick={refreshWallet}
+          disabled={busy}
+          className="text-[11px] text-mute hover:text-ink disabled:opacity-50 inline-flex items-center gap-1"
+          title="Manda un silent push para forzar a Apple/Google Wallet a actualizar el pase ya instalado"
+        >
+          🔄 Refrescar Apple/Google Wallet
+        </button>
+      </div>
     </div>
   );
 }
