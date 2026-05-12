@@ -13,6 +13,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { PhoneInput } from '@/components/PhoneInput';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -202,12 +203,10 @@ export default function ApplyAmbassadorPage() {
             </div>
             <div>
               <label className="label">WhatsApp</label>
-              <input
-                className="input"
-                placeholder="+57 300 000 0000"
+              <PhoneInput
                 value={form.whatsapp}
-                onChange={(e) => setForm({ ...form, whatsapp: e.target.value })}
-                autoComplete="tel"
+                onChange={(v) => setForm({ ...form, whatsapp: v })}
+                placeholder="300 000 0000"
               />
             </div>
 

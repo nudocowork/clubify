@@ -9,6 +9,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
+import { PhoneInput } from '@/components/PhoneInput';
 
 type Detail = {
   id: string;
@@ -301,14 +302,14 @@ export default function CampaignDetailPage() {
                 onChange={(e) => setAddForm({ ...addForm, email: e.target.value })}
               />
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              <input
-                className="input"
-                placeholder="WhatsApp"
-                required
+            <div>
+              <PhoneInput
                 value={addForm.whatsapp}
-                onChange={(e) => setAddForm({ ...addForm, whatsapp: e.target.value })}
+                onChange={(v) => setAddForm({ ...addForm, whatsapp: v })}
+                placeholder="WhatsApp del embajador"
               />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
               <input
                 className="input"
                 type="number"

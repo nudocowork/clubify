@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { api, clearSession } from '@/lib/api';
 import { Logo } from '@/components/Logo';
 import { toast } from '@/components/Toast';
+import { PhoneInput } from '@/components/PhoneInput';
 
 type Tab = 'overview' | 'clients' | 'commissions' | 'settings';
 
@@ -421,24 +422,22 @@ function InfluencerAmbassadorsPanel({
               onChange={(e) => setForm({ ...form, email: e.target.value })}
             />
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <input
-              className="input"
-              placeholder="WhatsApp"
-              required
+          <div>
+            <PhoneInput
               value={form.whatsapp}
-              onChange={(e) => setForm({ ...form, whatsapp: e.target.value })}
-            />
-            <input
-              type="number"
-              min={0}
-              max={100}
-              className="input"
-              placeholder="% comisión"
-              value={form.commissionPercent}
-              onChange={(e) => setForm({ ...form, commissionPercent: Number(e.target.value) })}
+              onChange={(v) => setForm({ ...form, whatsapp: v })}
+              placeholder="WhatsApp del embajador"
             />
           </div>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            className="input"
+            placeholder="% comisión (ej: 25)"
+            value={form.commissionPercent}
+            onChange={(e) => setForm({ ...form, commissionPercent: Number(e.target.value) })}
+          />
           <button type="submit" disabled={busy} className="btn-primary w-full text-sm">
             {busy ? 'Creando…' : 'Agregar embajador'}
           </button>

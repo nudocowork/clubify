@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
+import { PhoneInput } from '@/components/PhoneInput';
 
 // useSearchParams requiere Suspense boundary en Next 14 para que el build
 // estático no falle (CSR bailout). Wrap del export default.
@@ -104,11 +105,10 @@ function ReferInner() {
               </div>
               <div>
                 <label className="label">WhatsApp</label>
-                <input
-                  className="input"
+                <PhoneInput
                   value={form.whatsapp}
-                  onChange={(e) => setForm({ ...form, whatsapp: e.target.value })}
-                  required
+                  onChange={(v) => setForm({ ...form, whatsapp: v })}
+                  placeholder="300 000 0000"
                 />
               </div>
               <div>
