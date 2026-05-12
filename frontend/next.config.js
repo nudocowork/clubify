@@ -11,6 +11,24 @@ const nextConfig = {
       },
     ];
   },
+  // next/image necesita whitelist de hosts remotos. Permitimos:
+  //   - El public URL de R2 (pub-*.r2.dev por default, o custom CDN
+  //     si se setea NEXT_PUBLIC_S3_PUBLIC_URL).
+  //   - Hostnames comunes (Google avatars, Hotmart product images).
+  // Sin esto, <Image src="https://pub-xxx.r2.dev/..." /> tira error.
+  images: {
+    remotePatterns: [
+      { protocol: 'https', hostname: '**.r2.dev' },
+      { protocol: 'https', hostname: '**.r2.cloudflarestorage.com' },
+      { protocol: 'https', hostname: 'cdn.soyclubify.com' },
+      { protocol: 'https', hostname: 'lh3.googleusercontent.com' }, // Google profile
+      { protocol: 'https', hostname: 'static-media.hotmart.com' },
+      { protocol: 'http', hostname: 'localhost' }, // dev MinIO
+    ],
+    // 1 año de cache CDN para imágenes optimizadas — los IDs son únicos
+    // (nanoid en MediaService), así que el cache es safe.
+    minimumCacheTTL: 31_536_000,
+  },
   // react-konva (QrPosterEditor) intenta resolver 'canvas' (binding nativo
   // de Node). Es client-only via dynamic import, pero webpack igual lo
   // escanea. Marcar como external evita el module-not-found.

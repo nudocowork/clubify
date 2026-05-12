@@ -6,9 +6,17 @@ import {
 } from '@nestjs/common';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { nanoid } from 'nanoid';
+import sharp from 'sharp';
 
 const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const MAX_SIZE = 5 * 1024 * 1024; // 5 MB
+
+// Umbrales de optimización. Imágenes grandes se resize-an a 2000px max y
+// se reencodean a webp (excepto GIF que conserva animation y PNG con alpha
+// que mantenemos para evitar bordes feos).
+const OPT_MAX_DIMENSION = 2000;
+const OPT_SIZE_TRIGGER = 1024 * 1024; // 1 MB
+const OPT_WEBP_QUALITY = 85;
 
 /**
  * Provee storage S3-compatible (Cloudflare R2 en prod, MinIO en dev).
@@ -87,9 +95,13 @@ export class MediaService {
       );
     }
 
-    const ext = opts.file.originalname.split('.').pop()?.toLowerCase() ?? 'jpg';
     const folder = opts.folder ?? 'uploads';
     const tenantPart = opts.tenantId ? `${opts.tenantId}/` : '';
+
+    // Optimización: resize + re-encode si la imagen es grande. Best-effort —
+    // si sharp falla por cualquier razón, subimos el original sin bloquear.
+    const optimized = await this.maybeOptimize(opts.file);
+    const ext = optimized.ext;
     const key = `${tenantPart}${folder}/${nanoid(16)}.${ext}`;
 
     try {
@@ -97,8 +109,8 @@ export class MediaService {
         new PutObjectCommand({
           Bucket: this.bucket,
           Key: key,
-          Body: opts.file.buffer,
-          ContentType: opts.file.mimetype,
+          Body: optimized.buffer,
+          ContentType: optimized.contentType,
           CacheControl: 'public, max-age=31536000, immutable',
         }),
       );
@@ -111,7 +123,81 @@ export class MediaService {
 
     // URL pública servible al cliente (R2 público o CDN custom)
     const url = `${this.publicUrl.replace(/\/$/, '')}/${key}`;
-    this.logger.log(`Uploaded ${key} (${opts.file.size} bytes)`);
-    return { url, key, size: opts.file.size, contentType: opts.file.mimetype };
+    const savings =
+      opts.file.size > optimized.buffer.length
+        ? ` -${Math.round((1 - optimized.buffer.length / opts.file.size) * 100)}%`
+        : '';
+    this.logger.log(
+      `Uploaded ${key} (${optimized.buffer.length} bytes,` +
+        ` was ${opts.file.size}${savings}, ${optimized.contentType})`,
+    );
+    return {
+      url,
+      key,
+      size: optimized.buffer.length,
+      contentType: optimized.contentType,
+    };
+  }
+
+  /**
+   * Si el upload es grande, reduce dimensiones a 2000px max y re-encodea
+   * a webp. PNG con alpha → mantiene PNG (webp pierde transparency en
+   * algunos clients). GIF → no se toca (sharp puede romper animation).
+   */
+  private async maybeOptimize(file: Express.Multer.File): Promise<{
+    buffer: Buffer;
+    contentType: string;
+    ext: string;
+  }> {
+    const fallbackExt =
+      file.originalname.split('.').pop()?.toLowerCase() ?? 'jpg';
+    const fallback = {
+      buffer: file.buffer,
+      contentType: file.mimetype,
+      ext: fallbackExt,
+    };
+
+    // GIF: preservar tal cual (anim).
+    if (file.mimetype === 'image/gif') return fallback;
+    // Pequeñas: no vale la pena el costo CPU.
+    if (file.size < OPT_SIZE_TRIGGER) {
+      // Pero igual chequeamos dimensiones; alguien podría subir un PNG
+      // 4000x4000 que pesa <1MB y rompe layouts del frontend.
+    }
+
+    try {
+      const pipeline = sharp(file.buffer, { failOn: 'none' });
+      const meta = await pipeline.metadata();
+      const needsResize =
+        (meta.width ?? 0) > OPT_MAX_DIMENSION ||
+        (meta.height ?? 0) > OPT_MAX_DIMENSION;
+      const needsReencode = file.size >= OPT_SIZE_TRIGGER;
+
+      if (!needsResize && !needsReencode) return fallback;
+
+      let out = pipeline;
+      if (needsResize) {
+        out = out.resize({
+          width: OPT_MAX_DIMENSION,
+          height: OPT_MAX_DIMENSION,
+          fit: 'inside',
+          withoutEnlargement: true,
+        });
+      }
+
+      // PNG con alpha → mantener PNG con compresión. Sino → webp (mejor ratio).
+      const hasAlpha = meta.hasAlpha === true;
+      if (file.mimetype === 'image/png' && hasAlpha) {
+        const buf = await out.png({ compressionLevel: 9 }).toBuffer();
+        return { buffer: buf, contentType: 'image/png', ext: 'png' };
+      }
+      const buf = await out.webp({ quality: OPT_WEBP_QUALITY }).toBuffer();
+      return { buffer: buf, contentType: 'image/webp', ext: 'webp' };
+    } catch (e: any) {
+      this.logger.warn(
+        `sharp optimize failed (${e?.message ?? e}) — subiendo original`,
+      );
+      return fallback;
+    }
   }
 }
