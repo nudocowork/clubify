@@ -571,18 +571,13 @@ export class WalletService {
   }
 
   /**
-   * Convierte píxeles cercanos al blanco SÓLIDO (alpha=255) en transparentes
-   * para que el logo se integre con el gradient del pase en lugar de mostrar
-   * un cuadro blanco detrás.
-   *
-   * Reglas:
-   *  - Píxeles con alpha < 255 → se respetan tal cual (transparencia
-   *    intencional del diseñador).
-   *  - Píxeles alpha=255 con RGB todos ≥ 240 → tratados como "fondo blanco"
-   *    y vueltos transparentes. Este es el caso de logos PNG/JPG planos
-   *    subidos por el dueño sin pasar por un editor que recorte el fondo.
-   *  - Píxeles más oscuros se preservan, incluyendo blancos parciales
-   *    (intencionales) dentro de formas oscuras.
+   * Si el logo subido tiene fondo blanco SÓLIDO (todos los píxeles opacos),
+   * convierte los píxeles cercanos al blanco en transparentes para que se
+   * integre con el gradient del pase. Si la fuente ya tiene transparencia
+   * REAL (al menos un píxel con alpha != 255), se respeta el diseño
+   * original completo — porque ahí el diseñador ya decidió qué es fondo
+   * vs. qué es contenido, y un blanco intencional en el logo no debería
+   * borrarse.
    */
   private async prepareLogoForWallet(src: Buffer): Promise<Buffer> {
     const sharp = (await import('sharp')).default;
@@ -591,11 +586,26 @@ export class WalletService {
       .raw()
       .toBuffer({ resolveWithObject: true });
 
+    // Detectar transparencia real (variable alpha). Si ya existe → respetar.
+    let hasRealTransparency = false;
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] !== 255) {
+        hasRealTransparency = true;
+        break;
+      }
+    }
+    if (hasRealTransparency) {
+      // El diseñador ya recortó el fondo — no tocar el logo (incluye casos
+      // de logos con elementos blancos legítimos sobre fondo transparente).
+      return src;
+    }
+
+    // Fuente plana sin transparencia → asumimos blanco como fondo y lo
+    // recortamos. Logos con contenido blanco se verían afectados, pero un
+    // diseñador que necesita blanco-sobre-color subiría PNG con alpha.
     const THRESHOLD = 240;
     const out = Buffer.from(data);
     for (let i = 0; i < out.length; i += 4) {
-      const a = out[i + 3];
-      if (a !== 255) continue; // respeta transparencia/semi del diseñador
       const r = out[i];
       const g = out[i + 1];
       const b = out[i + 2];
