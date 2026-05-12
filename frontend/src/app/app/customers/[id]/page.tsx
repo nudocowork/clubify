@@ -165,7 +165,7 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
         );
       } else {
         toast(
-          `Push enviado · ${r.sent} dispositivo${r.sent === 1 ? '' : 's'} · refrescá Apple Wallet en 5-10 seg`,
+          `Push enviado · ${r.sent} dispositivo${r.sent === 1 ? '' : 's'} · Apple Wallet se actualiza en 5-10 segundos`,
           'success',
         );
       }

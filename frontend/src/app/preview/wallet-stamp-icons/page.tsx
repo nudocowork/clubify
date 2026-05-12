@@ -270,7 +270,7 @@ export default function WalletStampIconsPreview() {
             El emoji <strong>🍪</strong> renderiza como silueta negra dentro del
             .pkpass por limitaciones de librsvg. Reemplazándolo por SVG inline
             podemos garantizar look limpio en cualquier dispositivo. Acá
-            comparamos opciones. Elegí una y la implemento server-side.
+            comparamos opciones. Elige una y la implemento server-side.
           </p>
         </header>
 
@@ -356,7 +356,7 @@ export default function WalletStampIconsPreview() {
         <section className="card card-pad bg-white">
           <h2 className="font-bold text-lg">Próximo paso</h2>
           <p className="text-sm text-mute mt-2">
-            Decime el código (ej. <strong>A1</strong>, <strong>A5</strong>,{' '}
+            Dime el código (ej. <strong>A1</strong>, <strong>A5</strong>,{' '}
             <strong>B1</strong>…) y lo cableo al generador del .pkpass
             server-side. El tenant podrá seguir cambiando el ícono por categoría
             (cookie / coffee / fitness / etc.) pero el render usará SVG inline
