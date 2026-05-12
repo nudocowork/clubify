@@ -1,0 +1,122 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancelamos runs antiguos del mismo branch cuando se pushea uno nuevo, así
+# no apilamos jobs viejos en cola si vamos commiteando rápido.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (lint + typecheck + tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: clubify
+          POSTGRES_PASSWORD: clubify
+          POSTGRES_DB: clubify_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U clubify"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://clubify:clubify@localhost:5432/clubify_test
+      REDIS_URL: redis://localhost:6379
+      # Secrets ficticios para que validateEnv pase (>=32 chars, distintos).
+      JWT_SECRET: ci-jwt-secret-must-be-at-least-32-chars-long-pad
+      JWT_REFRESH_SECRET: ci-jwt-refresh-secret-must-be-32-chars-long-pad
+      QR_HMAC_SECRET: ci-qr-hmac-secret-must-be-at-least-32-chars-pad
+      APP_URL: http://localhost:3000
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      - name: Prisma migrate (apply migrations to test DB)
+        run: npx prisma migrate deploy
+
+      - name: Seed DB (tests existentes asumen demo tenant seedeado)
+        run: npm run seed
+
+      - name: Lint
+        run: npx eslint "src/**/*.ts" --max-warnings=999
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Tests (vitest)
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  frontend:
+    name: Frontend (lint + typecheck + build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    env:
+      # Frontend no necesita DB; solo build + types.
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint (non-blocking — plugins legacy aún sin migrar a flat)
+        run: npx eslint "src/**/*.{ts,tsx}" --max-warnings=999 || true
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build

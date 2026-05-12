@@ -1,7 +1,11 @@
-import { NestFactory } from '@nestjs/core';
+// `import './instrument'` DEBE ser la primera línea — Sentry parchea http/pg
+// vía auto-instrumentación, y necesita correr antes de cualquier otro import.
+import './instrument';
+import { NestFactory, HttpAdapterHost } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { SentryExceptionFilter } from './common/sentry/sentry.filter';
 
 /**
  * CORS:
@@ -58,6 +62,11 @@ async function bootstrap() {
       forbidNonWhitelisted: true,
     }),
   );
+
+  // Sentry exception filter global. Solo reporta 5xx + non-HTTP errors;
+  // 4xx (auth/validation/notfound) NO ensucian el dashboard.
+  const httpAdapter = app.get(HttpAdapterHost);
+  app.useGlobalFilters(new SentryExceptionFilter(httpAdapter.httpAdapter));
 
   const port = Number(process.env.PORT ?? 3001);
   await app.listen(port, '0.0.0.0');

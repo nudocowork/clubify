@@ -17,6 +17,7 @@
     "@emoji-mart/react": "^1.1.1",
     "@googlemaps/js-api-loader": "^2.0.2",
     "@react-pdf/renderer": "^4.5.1",
+    "@sentry/nextjs": "^10.52.0",
     "@types/google.maps": "^3.64.0",
     "@types/leaflet": "^1.9.21",
     "emoji-mart": "^5.6.0",
@@ -34,6 +35,7 @@
     "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.5",
     "@types/node": "^20.11.16",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^18.2.55",
@@ -42,6 +44,7 @@
     "postcss": "^8.4.35",
     "tailwindcss": "^3.4.1",
     "tailwindcss-animate": "^1.0.7",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "typescript-eslint": "^8.59.3"
   }
 }

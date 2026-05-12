@@ -400,7 +400,7 @@ export class HotmartService {
       select: { plan: { select: { priceMonthly: true } } },
     });
     const originalPrice = Number(tenant?.plan?.priceMonthly ?? 0);
-    let amountPaid = opts.paidAmount && opts.paidAmount > 0 ? opts.paidAmount : originalPrice;
+    const amountPaid = opts.paidAmount && opts.paidAmount > 0 ? opts.paidAmount : originalPrice;
     if (!originalPrice || originalPrice <= 0) {
       this.logger.warn(`Skip comisión: sin precio para tenant=${opts.tenantId}`);
       return;

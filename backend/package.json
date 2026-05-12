@@ -29,6 +29,7 @@
     "@nestjs/throttler": "^5.1.1",
     "@nestjs/websockets": "^10.4.22",
     "@prisma/client": "^5.10.0",
+    "@sentry/node": "^10.52.0",
     "@types/multer": "^2.1.0",
     "apn": "^2.2.0",
     "argon2": "^0.31.2",
@@ -64,10 +65,12 @@
     "@types/passport-jwt": "^4.0.1",
     "@types/qrcode": "^1.5.5",
     "@types/supertest": "^6.0.3",
+    "eslint": "^9.39.4",
     "prisma": "^5.10.0",
     "supertest": "^6.3.4",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3",
+    "typescript-eslint": "^8.59.3",
     "unplugin-swc": "^1.5.9",
     "vitest": "^1.2.2"
   }
