@@ -39,6 +39,7 @@ type Quote = {
   convertedAt?: string | null;
   convertedToTenantId?: string | null;
   convertedToTenant?: { id: string; slug: string; brandName: string } | null;
+  archivedAt?: string | null;
   createdAt: string;
 };
 
@@ -104,6 +105,20 @@ export default function CotizacionDetallePage() {
     } catch (e: any) {
       toast(e.message || 'No se pudo eliminar', 'error');
       setDeleting(false);
+    }
+  }
+
+  async function toggleArchive() {
+    if (!quote) return;
+    const archived = !!quote.archivedAt;
+    try {
+      await api(`/admin/quotes/${quote.id}/${archived ? 'unarchive' : 'archive'}`, {
+        method: 'PATCH',
+      });
+      toast(archived ? 'Cotización desarchivada' : 'Cotización archivada', 'success');
+      load();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo archivar', 'error');
     }
   }
 
@@ -224,6 +239,13 @@ export default function CotizacionDetallePage() {
             Volver
           </Link>
           <button
+            className="btn-ghost"
+            onClick={toggleArchive}
+            title={quote.archivedAt ? 'Desarchivar' : 'Archivar'}
+          >
+            {quote.archivedAt ? '↩ Desarchivar' : '📦 Archivar'}
+          </button>
+          <button
             className="btn-ghost text-bad"
             onClick={remove}
             disabled={deleting}
@@ -236,6 +258,22 @@ export default function CotizacionDetallePage() {
           </div>
         </div>
       </div>
+
+      {quote.archivedAt && (
+        <div className="mb-4 rounded-card bg-bg2 border border-line px-4 py-3 flex items-center gap-3">
+          <span className="text-2xl" aria-hidden>
+            📦
+          </span>
+          <div className="flex-1 min-w-0">
+            <div className="font-semibold text-ink">Cotización archivada</div>
+            <div className="text-xs text-mute">
+              Archivada el{' '}
+              {new Date(quote.archivedAt).toLocaleString('es-CO')} · no aparece
+              en el listing principal. Click "Desarchivar" para reactivarla.
+            </div>
+          </div>
+        </div>
+      )}
 
       {quote.convertedAt && quote.convertedToTenant && (
         <div className="mb-4 rounded-card bg-ok-soft border border-ok/30 px-4 py-3 flex items-center gap-3">

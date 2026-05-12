@@ -36,6 +36,7 @@ type Quote = {
   lastCtaClickedAt?: string | null;
   convertedAt?: string | null;
   convertedToTenantId?: string | null;
+  archivedAt?: string | null;
   createdAt: string;
 };
 
@@ -152,6 +153,9 @@ export default function CotizacionesPage() {
   // 'ALL' fuerza take=500 al cargar para que la pestaña abarque todo el
   // dataset filtrable, no solo la primera página de 50.
   const [filterStatus, setFilterStatus] = useState<'ALL' | QuoteStatusKind>('ALL');
+  // Vista de archivadas: 'exclude' (default, oculta) | 'only' (solo arch).
+  // Server-side filter — el listing no las trae a menos que la pidamos.
+  const [archivedView, setArchivedView] = useState<'exclude' | 'only'>('exclude');
   const [search, setSearch] = useState('');
   const [exporting, setExporting] = useState(false);
 
@@ -163,6 +167,7 @@ export default function CotizacionesPage() {
     if (filterFrom) p.set('from', filterFrom);
     if (filterTo) p.set('to', filterTo);
     if (search.trim()) p.set('search', search.trim());
+    if (archivedView !== 'exclude') p.set('archived', archivedView);
     return p;
   }
 
@@ -190,7 +195,7 @@ export default function CotizacionesPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterPlan, filterTemplate, filterAdvisor, filterFrom, filterTo, filterStatus]);
+  }, [filterPlan, filterTemplate, filterAdvisor, filterFrom, filterTo, filterStatus, archivedView]);
 
   function clearFilters() {
     setFilterPlan('ALL');
@@ -199,6 +204,7 @@ export default function CotizacionesPage() {
     setFilterFrom('');
     setFilterTo('');
     setFilterStatus('ALL');
+    setArchivedView('exclude');
     setSearch('');
   }
 
@@ -308,6 +314,19 @@ export default function CotizacionesPage() {
       load();
     } catch (e: any) {
       toast(e.message || 'No se pudo eliminar', 'error');
+    }
+  }
+
+  async function toggleArchive(q: Quote) {
+    const archived = !!q.archivedAt;
+    try {
+      await api(`/admin/quotes/${q.id}/${archived ? 'unarchive' : 'archive'}`, {
+        method: 'PATCH',
+      });
+      toast(archived ? 'Cotización desarchivada' : 'Cotización archivada', 'success');
+      load();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo archivar', 'error');
     }
   }
 
@@ -746,6 +765,22 @@ export default function CotizacionesPage() {
               <Icon name="search" />
             </span>
           </div>
+          <button
+            type="button"
+            onClick={() =>
+              setArchivedView((v) => (v === 'exclude' ? 'only' : 'exclude'))
+            }
+            className={`btn-ghost text-xs ${
+              archivedView === 'only' ? 'border-brand text-brand' : ''
+            }`}
+            title={
+              archivedView === 'only'
+                ? 'Volver al listing activo'
+                : 'Ver solo cotizaciones archivadas'
+            }
+          >
+            📦 {archivedView === 'only' ? 'Archivadas' : 'Ver archivadas'}
+          </button>
           {anyFilterActive && (
             <button
               type="button"
@@ -988,6 +1023,13 @@ export default function CotizacionesPage() {
                           date={new Date(q.createdAt)}
                           label="Descargar PDF"
                         />
+                        <button
+                          className="btn-ghost"
+                          onClick={() => toggleArchive(q)}
+                          title={q.archivedAt ? 'Desarchivar' : 'Archivar'}
+                        >
+                          {q.archivedAt ? '↩' : '📦'}
+                        </button>
                         <button
                           className="btn-ghost text-bad"
                           onClick={() => remove(q)}

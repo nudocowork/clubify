@@ -1611,6 +1611,11 @@ model Quote {
   convertedAt         DateTime?
   convertedToTenantId String?
   convertedToTenant   Tenant?   @relation("QuoteConvertedToTenant", fields: [convertedToTenantId], references: [id], onDelete: SetNull)
+  // Archive manual del asesor — saca la cotización del listing principal
+  // sin borrarla. Útil para cotizaciones viejas/perdidas/duplicadas que
+  // contaminan la vista pero queremos preservar para auditoría/stats.
+  // El listing filtra archivedAt: null por defecto; ?archived=1 incluye.
+  archivedAt          DateTime?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
@@ -1618,4 +1623,5 @@ model Quote {
   @@index([plan])
   @@index([templateSlug])
   @@index([createdAt])
+  @@index([archivedAt])
 }

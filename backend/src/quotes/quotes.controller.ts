@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
@@ -11,6 +12,7 @@ import {
   IsDateString,
   IsEmail,
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -46,6 +48,10 @@ class ListQuotesQuery {
   @IsOptional() @IsDateString() to?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(500) take?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) skip?: number;
+  @IsOptional() @IsIn(['include', 'only', 'exclude']) archived?:
+    | 'include'
+    | 'only'
+    | 'exclude';
 }
 
 @Controller('admin/quotes')
@@ -84,5 +90,17 @@ export class QuotesController {
   @Post(':id/pdf-downloaded')
   bumpPdfDownload(@Param('id') id: string) {
     return this.svc.bumpPdfDownload(id);
+  }
+
+  /** Archivar cotización — sale del listing principal sin borrarse. */
+  @Patch(':id/archive')
+  archive(@Param('id') id: string) {
+    return this.svc.archive(id);
+  }
+
+  /** Desarchivar — vuelve al listing principal. */
+  @Patch(':id/unarchive')
+  unarchive(@Param('id') id: string) {
+    return this.svc.unarchive(id);
   }
 }

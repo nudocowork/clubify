@@ -23,6 +23,8 @@ export type ListQuotesFilters = {
   to?: string;
   take?: number;
   skip?: number;
+  /** Si true, incluye archivadas; false/omit = solo activas. 'only' = solo archivadas. */
+  archived?: 'include' | 'only' | 'exclude';
 };
 
 @Injectable()
@@ -66,6 +68,11 @@ export class QuotesService {
     if (filters.plan) where.plan = filters.plan;
     if (filters.templateSlug) where.templateSlug = filters.templateSlug;
     if (filters.advisorId) where.advisorId = filters.advisorId;
+    // Filtro archivadas: por defecto solo activas. 'include' trae las dos,
+    // 'only' solo las archivadas (para vista dedicada).
+    const archivedMode = filters.archived ?? 'exclude';
+    if (archivedMode === 'exclude') where.archivedAt = null;
+    else if (archivedMode === 'only') where.archivedAt = { not: null };
     if (filters.search) {
       const s = filters.search.trim();
       if (s) {
@@ -127,6 +134,34 @@ export class QuotesService {
   async remove(id: string) {
     await this.getById(id);
     await this.prisma.quote.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  /** Archive — saca la cotización del listing principal sin borrarla.
+   *  Idempotente: si ya estaba archivada, no actualiza timestamp. */
+  async archive(id: string) {
+    const q = await this.prisma.quote.findUnique({
+      where: { id },
+      select: { id: true, archivedAt: true },
+    });
+    if (!q) throw new NotFoundException('Cotización no encontrada');
+    if (q.archivedAt) return { ok: true, archivedAt: q.archivedAt };
+    const updated = await this.prisma.quote.update({
+      where: { id },
+      data: { archivedAt: new Date() },
+      select: { id: true, archivedAt: true },
+    });
+    return { ok: true, archivedAt: updated.archivedAt };
+  }
+
+  /** Unarchive — vuelve la cotización al listing activo. */
+  async unarchive(id: string) {
+    await this.getById(id);
+    await this.prisma.quote.update({
+      where: { id },
+      data: { archivedAt: null },
+      select: { id: true },
+    });
     return { ok: true };
   }
 
