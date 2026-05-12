@@ -130,7 +130,7 @@ function ScreenWalletInstalled() {
         </div>
         <div
           className="relative rounded-2xl shadow-2xl text-white p-3 mt-7"
-          style={{ background: 'linear-gradient(135deg,#22C55E,#4ADE80,#15803D)' }}
+          style={{ background: 'linear-gradient(135deg,#6366F1,#818CF8,#4F46E5)' }}
         >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1">
@@ -210,8 +210,8 @@ function ScreenMetrics() {
         <svg viewBox="0 0 140 50" className="w-full h-12">
           <defs>
             <linearGradient id="herotrio-grad" x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor="#22C55E" stopOpacity="0.4" />
-              <stop offset="100%" stopColor="#22C55E" stopOpacity="0" />
+              <stop offset="0%" stopColor="#6366F1" stopOpacity="0.4" />
+              <stop offset="100%" stopColor="#6366F1" stopOpacity="0" />
             </linearGradient>
           </defs>
           <path
@@ -220,12 +220,12 @@ function ScreenMetrics() {
           />
           <polyline
             fill="none"
-            stroke="#22C55E"
+            stroke="#6366F1"
             strokeWidth="2"
             points="0,40 20,32 40,35 60,22 80,28 100,15 120,18 140,8"
           />
           {[40, 32, 35, 22, 28, 15, 18, 8].map((y, i) => (
-            <circle key={i} cx={i * 20} cy={y} r="2" fill="#22C55E" />
+            <circle key={i} cx={i * 20} cy={y} r="2" fill="#6366F1" />
           ))}
         </svg>
         <div className="flex justify-between text-[7px] text-mute mt-1 px-0.5">

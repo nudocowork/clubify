@@ -127,7 +127,7 @@ export default function AnalyticsPage() {
                 : ''
             }`}
             funnel={orderFunnel}
-            color="#22C55E"
+            color="#6366F1"
           />
         )}
         {loyaltyFunnel && (
@@ -269,15 +269,15 @@ function Sparkline({
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[160px] min-w-[600px]">
         <defs>
           <linearGradient id="rev" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="#22C55E" stopOpacity="0.3" />
-            <stop offset="100%" stopColor="#22C55E" stopOpacity="0" />
+            <stop offset="0%" stopColor="#6366F1" stopOpacity="0.3" />
+            <stop offset="100%" stopColor="#6366F1" stopOpacity="0" />
           </linearGradient>
         </defs>
         <path d={areaPath} fill="url(#rev)" />
         <polyline
           points={pointsCount}
           fill="none"
-          stroke="#22C55E"
+          stroke="#6366F1"
           strokeWidth="2"
           strokeLinejoin="round"
           strokeLinecap="round"
@@ -287,7 +287,7 @@ function Sparkline({
           const y = H - PAD - (s.count / max) * (H - PAD * 2);
           return (
             <g key={s.date}>
-              <circle cx={x} cy={y} r={2.5} fill="#22C55E" />
+              <circle cx={x} cy={y} r={2.5} fill="#6366F1" />
               {(i === 0 || i === series.length - 1 || s.count === max) && (
                 <text
                   x={x}

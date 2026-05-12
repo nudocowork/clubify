@@ -261,7 +261,7 @@ export function welcomeOwnerTemplate(args: {
           Tu cuenta de <b>${args.tenant.brandName}</b> en Clubify ya está creada.
           Solo falta completar el pago seguro en Hotmart para activarla.
         </p>
-        <div style="background:linear-gradient(135deg,#22C55E,#15803D);border-radius:14px;padding:18px 20px;color:#fff">
+        <div style="background:linear-gradient(135deg,#6366F1,#A855F7);border-radius:14px;padding:18px 20px;color:#fff">
           <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.85">Activa tu cuenta</div>
           <div style="font-size:22px;font-weight:700;margin-top:4px">Pago en Hotmart · activación inmediata</div>
           <div style="font-size:13px;opacity:.85;margin-top:6px">Apenas se aprueba entras al panel y empiezas a vender</div>

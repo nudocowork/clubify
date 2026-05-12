@@ -394,8 +394,8 @@ export class WalletService {
     const current = t === 'VISITS' ? pass.visitsCount : pass.stampsCount;
     const remaining = Math.max(0, required - current);
     const rewardText = pass.card.rewardText || 'Premio';
-    const primary = pass.card.primaryColor || '#16A34A';
-    const secondary = pass.card.secondaryColor || '#22C55E';
+    const primary = pass.card.primaryColor || '#6366F1';
+    const secondary = pass.card.secondaryColor || '#A855F7';
 
     const W = 1032;
     const H = 336;

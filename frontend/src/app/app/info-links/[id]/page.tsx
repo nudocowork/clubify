@@ -174,7 +174,7 @@ export default function InfoLinkEditor() {
   if (!link || !tenant) return <div className="text-mute">Cargando…</div>;
 
   const publicUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/i/${tenant.slug}/${link.slug}`;
-  const primary = link.theme?.primaryColor ?? tenant.primaryColor ?? '#22C55E';
+  const primary = link.theme?.primaryColor ?? tenant.primaryColor ?? '#6366F1';
 
   return (
     <div>

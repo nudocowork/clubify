@@ -44,7 +44,7 @@ export default function InfoLinksList() {
             { type: 'paragraph', text: 'Edita este texto.' },
           ],
           buttons: [],
-          theme: { primaryColor: '#22C55E' },
+          theme: { primaryColor: '#6366F1' },
         }),
       });
       router.push(`/app/info-links/${r.id}`);
@@ -108,7 +108,7 @@ export default function InfoLinksList() {
                       }
                     : {
                         background:
-                          'linear-gradient(135deg,#22C55E,#15803D)',
+                          'linear-gradient(135deg,#6366F1,#A855F7)',
                       }
                 }
               />
