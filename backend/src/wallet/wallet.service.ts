@@ -226,13 +226,45 @@ export class WalletService {
     // como ausente — el frontend puede mandar '' al borrar y ?? solo cae
     // con null/undefined, lo que dejaba el logo transparente aunque
     // logoUrl existiera.
-    const rawWalletLogo = (pass.tenant as any).walletLogoUrl;
-    const walletLogo =
-      typeof rawWalletLogo === 'string' && rawWalletLogo.trim()
-        ? rawWalletLogo.trim()
-        : pass.tenant.logoUrl;
-    const tenantIcons = await this.generateTenantIcons(walletLogo);
-    const tenantLogos = await this.generateTenantLogos(walletLogo);
+    // Resolución del logo del pase:
+    // 1. walletLogoUrl (logo dedicado para wallet) si existe y procesa bien.
+    // 2. logoUrl (logo general de la marca) como fallback.
+    // String vacío se trata como ausente (?? no cae con '').
+    // Si el primer candidato produce un logo "vacío" (todo blanco tras
+    // chroma-key, típico de uploads viejos que pasaron por el cropper que
+    // exportaba JPG con relleno blanco), automáticamente probamos el
+    // segundo candidato.
+    const normalize = (u: any): string | null =>
+      typeof u === 'string' && u.trim() ? u.trim() : null;
+    const candidates = [
+      normalize((pass.tenant as any).walletLogoUrl),
+      normalize(pass.tenant.logoUrl),
+    ].filter((u): u is string => u !== null);
+
+    let tenantLogos: Record<string, Buffer> = {};
+    let usedLogoUrl: string | null = null;
+    for (const url of candidates) {
+      const attempt = await this.generateTenantLogos(url);
+      const main = attempt['logo.png'];
+      // Un PNG 160×50 totalmente transparente pesa ~130 bytes. Si lo que
+      // generamos es <500 bytes, asumimos que el chroma-key vació la
+      // imagen (probablemente JPG todo-blanco del cropper viejo) y damos
+      // chance al siguiente candidato.
+      if (main && main.length >= 500) {
+        tenantLogos = attempt;
+        usedLogoUrl = url;
+        break;
+      }
+      this.logger.log(
+        `[LOGO] candidato ${url} produjo logo.png de ${main?.length ?? 0}b — intentando siguiente`,
+      );
+    }
+    if (usedLogoUrl) {
+      this.logger.log(`[LOGO] usando ${usedLogoUrl} para pass=${pass.id}`);
+    } else {
+      this.logger.log(`[LOGO] sin logo válido para pass=${pass.id} — pase sin logo`);
+    }
+    const tenantIcons = await this.generateTenantIcons(usedLogoUrl ?? candidates[0] ?? null);
 
     const buffers: Record<string, Buffer> = {
       'pass.json': Buffer.from(JSON.stringify(passJson)),
