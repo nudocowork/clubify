@@ -66,6 +66,27 @@ function SignupInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Capturar qt (quoteToken) del URL — viene del CTA de /q/<token> y se
+  // usa para closed-loop de conversion tracking. Persistimos en
+  // sessionStorage (no localStorage) por si el usuario abre signup desde
+  // otra pestaña entre que ve la cotización y se registra.
+  const [quoteToken, setQuoteToken] = useState<string | null>(null);
+  useEffect(() => {
+    const fromUrl = params.get('qt');
+    if (fromUrl && fromUrl.length >= 8 && fromUrl.length <= 64) {
+      setQuoteToken(fromUrl);
+      try {
+        sessionStorage.setItem('clubify:qt', fromUrl);
+      } catch {}
+    } else if (typeof window !== 'undefined') {
+      try {
+        const cached = sessionStorage.getItem('clubify:qt');
+        if (cached) setQuoteToken(cached);
+      } catch {}
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Validación live del promo (debounced 350ms)
   useEffect(() => {
     if (!promoCode || promoCode.trim().length < 3) {
@@ -129,11 +150,13 @@ function SignupInner() {
           referralCode,
           couponCode,
           plan: isPro ? 'pro' : 'elite',
+          quoteToken: quoteToken || undefined,
         }),
       });
       setSession(r.accessToken, r.user);
       try {
         localStorage.removeItem('clubify:ref');
+        sessionStorage.removeItem('clubify:qt');
       } catch {}
 
       // Tanto Elite como Pro pasan por Hotmart antes de entrar al panel:

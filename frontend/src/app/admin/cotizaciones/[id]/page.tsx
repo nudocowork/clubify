@@ -31,6 +31,9 @@ type Quote = {
   viewCount?: number;
   firstViewedAt?: string | null;
   lastViewedAt?: string | null;
+  convertedAt?: string | null;
+  convertedToTenantId?: string | null;
+  convertedToTenant?: { id: string; slug: string; brandName: string } | null;
   createdAt: string;
 };
 
@@ -128,6 +131,14 @@ export default function CotizacionDetallePage() {
           {quote.businessName}{' '}
           <span className="page-crumb">
             / Cotización · {quote.plan === 'PRO' ? 'Pro' : 'Elite'}
+            {quote.convertedAt && (
+              <span
+                className="ml-2 text-ok-ink bg-ok-soft px-2 py-0.5 rounded font-semibold"
+                title={`Convertido ${new Date(quote.convertedAt).toLocaleString('es-CO')}`}
+              >
+                ✅ Convertido
+              </span>
+            )}
             {viewCount > 0 && (
               <span
                 className="ml-2 text-emerald-700 font-semibold"
@@ -177,6 +188,28 @@ export default function CotizacionDetallePage() {
           </div>
         </div>
       </div>
+
+      {quote.convertedAt && quote.convertedToTenant && (
+        <div className="mb-4 rounded-card bg-ok-soft border border-ok/30 px-4 py-3 flex items-center gap-3">
+          <span className="text-2xl" aria-hidden>
+            ✅
+          </span>
+          <div className="flex-1 min-w-0">
+            <div className="font-semibold text-ok-ink">
+              Esta cotización fue convertida en cuenta
+            </div>
+            <div className="text-xs text-ok-ink/80">
+              {new Date(quote.convertedAt).toLocaleString('es-CO')} ·{' '}
+              <Link
+                href={`/admin/tenants/${quote.convertedToTenant.id}`}
+                className="underline font-medium hover:text-ink"
+              >
+                {quote.convertedToTenant.brandName} ({quote.convertedToTenant.slug})
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
 
       <QuotePreviewPremium
         customerName={quote.customerName}

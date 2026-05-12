@@ -112,7 +112,14 @@ export class QuotesService {
   }
 
   async getById(id: string) {
-    const q = await this.prisma.quote.findUnique({ where: { id } });
+    const q = await this.prisma.quote.findUnique({
+      where: { id },
+      include: {
+        convertedToTenant: {
+          select: { id: true, slug: true, brandName: true },
+        },
+      },
+    });
     if (!q) throw new NotFoundException('Cotización no encontrada');
     return q;
   }
@@ -196,32 +203,55 @@ export class QuotesService {
     since6mo.setDate(1);
     since6mo.setMonth(since6mo.getMonth() - (monthsBack - 1));
 
-    const [total, byPlan, byAdvisor, last30dCount, byTemplate, monthlyRows] =
-      await Promise.all([
-        this.prisma.quote.count(),
-        this.prisma.quote.groupBy({
-          by: ['plan'],
-          _count: { _all: true },
-          _sum: { priceSnapshot: true },
-        }),
-        this.prisma.quote.groupBy({
-          by: ['advisorId', 'advisorName'],
-          _count: { _all: true },
-          orderBy: { _count: { advisorId: 'desc' } },
-          take: 10,
-        }),
-        this.prisma.quote.count({ where: { createdAt: { gte: since30 } } }),
-        this.prisma.quote.groupBy({
-          by: ['templateSlug'],
-          _count: { _all: true },
-          orderBy: { _count: { templateSlug: 'desc' } },
-          take: 10,
-        }),
-        this.prisma.quote.findMany({
-          where: { createdAt: { gte: since6mo } },
-          select: { createdAt: true, plan: true },
-        }),
-      ]);
+    const [
+      total,
+      byPlan,
+      byAdvisor,
+      last30dCount,
+      byTemplate,
+      monthlyRows,
+      totalConverted,
+      convertedByAdvisor,
+    ] = await Promise.all([
+      this.prisma.quote.count(),
+      this.prisma.quote.groupBy({
+        by: ['plan'],
+        _count: { _all: true },
+        _sum: { priceSnapshot: true },
+      }),
+      this.prisma.quote.groupBy({
+        by: ['advisorId', 'advisorName'],
+        _count: { _all: true },
+        orderBy: { _count: { advisorId: 'desc' } },
+        take: 10,
+      }),
+      this.prisma.quote.count({ where: { createdAt: { gte: since30 } } }),
+      this.prisma.quote.groupBy({
+        by: ['templateSlug'],
+        _count: { _all: true },
+        orderBy: { _count: { templateSlug: 'desc' } },
+        take: 10,
+      }),
+      this.prisma.quote.findMany({
+        where: { createdAt: { gte: since6mo } },
+        select: { createdAt: true, plan: true },
+      }),
+      // Total convertido global — para conversion rate del header.
+      this.prisma.quote.count({ where: { convertedAt: { not: null } } }),
+      // Convertidos por asesor — alimenta la conversion rate por asesor.
+      this.prisma.quote.groupBy({
+        by: ['advisorId'],
+        where: { convertedAt: { not: null } },
+        _count: { _all: true },
+      }),
+    ]);
+
+    // Map advisorId → convertedCount para mergear con byAdvisor sin
+    // pegarle al DB de nuevo.
+    const convertedMap = new Map<string | null, number>();
+    for (const row of convertedByAdvisor) {
+      convertedMap.set(row.advisorId, row._count._all);
+    }
 
     // Construcción de buckets mensuales (key YYYY-MM)
     const buckets = new Map<string, { elite: number; pro: number; total: number }>();
@@ -250,17 +280,25 @@ export class QuotesService {
     return {
       total,
       last30dCount,
+      totalConverted,
+      // Conversion rate global — % de cotizaciones que terminaron en signup.
+      conversionRate: total > 0 ? totalConverted / total : 0,
       byPlan: byPlan.map((b) => ({
         plan: b.plan,
         count: b._count._all,
         // priceSnapshot suma como Decimal → string para evitar precisión flotante en transporte.
         sumPrice: b._sum.priceSnapshot ? String(b._sum.priceSnapshot) : '0',
       })),
-      byAdvisor: byAdvisor.map((b) => ({
-        advisorId: b.advisorId,
-        advisorName: b.advisorName,
-        count: b._count._all,
-      })),
+      byAdvisor: byAdvisor.map((b) => {
+        const converted = convertedMap.get(b.advisorId) ?? 0;
+        return {
+          advisorId: b.advisorId,
+          advisorName: b.advisorName,
+          count: b._count._all,
+          convertedCount: converted,
+          conversionRate: b._count._all > 0 ? converted / b._count._all : 0,
+        };
+      }),
       byTemplate: byTemplate.map((b) => ({
         templateSlug: b.templateSlug,
         count: b._count._all,

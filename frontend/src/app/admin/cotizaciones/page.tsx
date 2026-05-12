@@ -31,6 +31,8 @@ type Quote = {
   viewCount?: number;
   firstViewedAt?: string | null;
   lastViewedAt?: string | null;
+  convertedAt?: string | null;
+  convertedToTenantId?: string | null;
   createdAt: string;
 };
 
@@ -39,8 +41,16 @@ type ListResp = { items: Quote[]; total: number; take: number; skip: number };
 type Stats = {
   total: number;
   last30dCount: number;
+  totalConverted: number;
+  conversionRate: number;
   byPlan: { plan: Plan; count: number; sumPrice: string }[];
-  byAdvisor: { advisorId: string | null; advisorName: string; count: number }[];
+  byAdvisor: {
+    advisorId: string | null;
+    advisorName: string;
+    count: number;
+    convertedCount: number;
+    conversionRate: number;
+  }[];
   byTemplate: { templateSlug: string | null; count: number }[];
   byMonth: { key: string; total: number; elite: number; pro: number }[];
 };
@@ -298,7 +308,7 @@ export default function CotizacionesPage() {
       </div>
 
       {/* Stats cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3">
         <StatCard
           label="Total"
           value={stats ? String(stats.total) : null}
@@ -308,6 +318,23 @@ export default function CotizacionesPage() {
           label="Últimos 30 días"
           value={stats ? String(stats.last30dCount) : null}
           loading={loading && !stats}
+        />
+        <StatCard
+          label="Conversión"
+          loading={loading && !stats}
+          render={
+            stats ? (
+              <div className="text-2xl font-bold text-ok">
+                {(stats.conversionRate * 100).toFixed(1)}
+                <span className="text-base text-mute font-normal">%</span>
+              </div>
+            ) : null
+          }
+          sub={
+            stats
+              ? `${stats.totalConverted}/${stats.total} convertidas`
+              : undefined
+          }
         />
         <StatCard
           label="Elite / Pro"
@@ -498,6 +525,14 @@ export default function CotizacionesPage() {
                         >
                           {a.advisorName}
                         </span>
+                        {a.convertedCount > 0 && (
+                          <span
+                            className="text-[10px] font-semibold text-ok-ink bg-ok-soft px-1.5 py-0.5 rounded"
+                            title={`${a.convertedCount} convertidas — ${(a.conversionRate * 100).toFixed(0)}% conversión`}
+                          >
+                            ✅ {a.convertedCount} ({(a.conversionRate * 100).toFixed(0)}%)
+                          </span>
+                        )}
                         <span className="text-mute font-mono tabular-nums text-xs">
                           {a.count}
                         </span>
@@ -711,6 +746,14 @@ export default function CotizacionesPage() {
                       <td className="px-4 py-3.5 text-sm text-mute">
                         {fmtDate(q.createdAt)}
                         <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5 text-[11px] font-semibold">
+                          {q.convertedAt ? (
+                            <span
+                              className="text-ok-ink bg-ok-soft px-1.5 py-0.5 rounded"
+                              title={`Convertido ${fmtRelative(q.convertedAt)}`}
+                            >
+                              ✅ Convertido
+                            </span>
+                          ) : null}
                           {q.viewCount ? (
                             <span
                               className="text-emerald-700"

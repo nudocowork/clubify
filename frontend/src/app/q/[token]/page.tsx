@@ -76,7 +76,10 @@ export default async function PublicQuotePage({
   const accent = template?.accent ?? '#22C55E';
   const planLabel = quote.plan === 'ELITE' ? 'Elite' : 'Pro';
   const priceLabel = fmtMoney(quote.priceSnapshot, quote.currencySnapshot);
-  const signupHref = `/signup?plan=${planLabel.toLowerCase()}&utm=quote-${quote.publicToken.slice(0, 8)}`;
+  // qt = publicToken completo para que el signup pueda atribuir la conversión
+  // a esta cotización exacta (closed-loop). utm es solo el prefijo legible
+  // para los dashboards de analítica del super admin.
+  const signupHref = `/signup?plan=${planLabel.toLowerCase()}&qt=${quote.publicToken}&utm=quote-${quote.publicToken.slice(0, 8)}`;
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-bg via-white to-bg2/30">
