@@ -46,6 +46,25 @@ type Quote = {
 const FALLBACK_TEMPLATE: QuoteTemplate =
   QUOTE_TEMPLATES.find((t) => t.slug === 'other')!;
 
+// Estado derivado — mismo helper que el listing. Mantener sincronizado
+// (si esto crece, mover a frontend/src/lib/quote-status.ts y compartir).
+const STALE_DAYS = 7;
+const STATUS_CONFIG = {
+  converted: { label: 'Convertida', emoji: '✅', cls: 'bg-ok-soft text-ok-ink' },
+  hot:       { label: 'Caliente',   emoji: '🔥', cls: 'bg-orange-100 text-orange-700' },
+  viewed:    { label: 'Vista',      emoji: '👁', cls: 'bg-emerald-100 text-emerald-700' },
+  stale:     { label: 'Estancada',  emoji: '⏰', cls: 'bg-bad-soft text-bad-ink' },
+  sent:      { label: 'Enviada',    emoji: '📨', cls: 'bg-bg2 text-mute' },
+} as const;
+function getQuoteStatus(q: Quote): keyof typeof STATUS_CONFIG {
+  if (q.convertedAt) return 'converted';
+  if ((q.ctaClickCount ?? 0) > 0) return 'hot';
+  if ((q.viewCount ?? 0) > 0) return 'viewed';
+  const ageMs = Date.now() - new Date(q.createdAt).getTime();
+  if (ageMs > STALE_DAYS * 24 * 60 * 60 * 1000) return 'stale';
+  return 'sent';
+}
+
 export default function CotizacionDetallePage() {
   const params = useParams();
   const router = useRouter();
@@ -129,8 +148,20 @@ export default function CotizacionDetallePage() {
     date: new Date(quote.createdAt),
   };
 
+  const status = getQuoteStatus(quote);
+  const statusCfg = STATUS_CONFIG[status];
+
   return (
     <div className="pb-20 lg:pb-0">
+      <div className="mb-2">
+        <span
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-pill text-xs font-semibold ${statusCfg.cls}`}
+          title={`Estado derivado del engagement de la cotización`}
+        >
+          <span aria-hidden>{statusCfg.emoji}</span>
+          {statusCfg.label}
+        </span>
+      </div>
       <div className="page-head">
         <h1 className="page-title">
           {quote.businessName}{' '}

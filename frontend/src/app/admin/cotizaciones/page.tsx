@@ -91,6 +91,29 @@ function fmtRelative(iso: string) {
   return `hace ${mo}mes`;
 }
 
+// Estado derivado de los campos de engagement — sin DB write, sin cron.
+// Prioridad: convertida > caliente > vista > estancada > enviada.
+// "Caliente" = clickeó el CTA pero todavía no completó signup (alta intención).
+// "Estancada" = >7 días sin verla siquiera (oportunidad fría a recuperar).
+const STALE_DAYS = 7;
+const STATUS_CONFIG = {
+  converted: { label: 'Convertida', emoji: '✅', cls: 'bg-ok-soft text-ok-ink' },
+  hot:       { label: 'Caliente',   emoji: '🔥', cls: 'bg-orange-100 text-orange-700' },
+  viewed:    { label: 'Vista',      emoji: '👁', cls: 'bg-emerald-100 text-emerald-700' },
+  stale:     { label: 'Estancada',  emoji: '⏰', cls: 'bg-bad-soft text-bad-ink' },
+  sent:      { label: 'Enviada',    emoji: '📨', cls: 'bg-bg2 text-mute' },
+} as const;
+type QuoteStatusKind = keyof typeof STATUS_CONFIG;
+
+function getQuoteStatus(q: Quote): QuoteStatusKind {
+  if (q.convertedAt) return 'converted';
+  if ((q.ctaClickCount ?? 0) > 0) return 'hot';
+  if ((q.viewCount ?? 0) > 0) return 'viewed';
+  const ageMs = Date.now() - new Date(q.createdAt).getTime();
+  if (ageMs > STALE_DAYS * 24 * 60 * 60 * 1000) return 'stale';
+  return 'sent';
+}
+
 function fmtMoney(amount: string | number, currency: string) {
   const n = typeof amount === 'string' ? Number(amount) : amount;
   if (!Number.isFinite(n)) return `${amount} ${currency}`;
@@ -124,6 +147,10 @@ export default function CotizacionesPage() {
   const [filterAdvisor, setFilterAdvisor] = useState<string>('');
   const [filterFrom, setFilterFrom] = useState<string>('');
   const [filterTo, setFilterTo] = useState<string>('');
+  // Filtro de estado client-side (derivado, no servidor). Cuando NO es
+  // 'ALL' fuerza take=500 al cargar para que la pestaña abarque todo el
+  // dataset filtrable, no solo la primera página de 50.
+  const [filterStatus, setFilterStatus] = useState<'ALL' | QuoteStatusKind>('ALL');
   const [search, setSearch] = useState('');
   const [exporting, setExporting] = useState(false);
 
@@ -141,8 +168,12 @@ export default function CotizacionesPage() {
   async function load() {
     setLoading(true);
     try {
+      const params = buildParams();
+      // Filtro de estado es client-side — pedimos 500 cuando hay tab activa
+      // para que el filtro abarque todo el dataset filtrable.
+      if (filterStatus !== 'ALL') params.set('take', '500');
       const [resp, st] = await Promise.all([
-        api<ListResp>(`/admin/quotes?${buildParams().toString()}`),
+        api<ListResp>(`/admin/quotes?${params.toString()}`),
         api<Stats>('/admin/quotes/stats'),
       ]);
       setList(resp.items);
@@ -158,7 +189,7 @@ export default function CotizacionesPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterPlan, filterTemplate, filterAdvisor, filterFrom, filterTo]);
+  }, [filterPlan, filterTemplate, filterAdvisor, filterFrom, filterTo, filterStatus]);
 
   function clearFilters() {
     setFilterPlan('ALL');
@@ -166,6 +197,7 @@ export default function CotizacionesPage() {
     setFilterAdvisor('');
     setFilterFrom('');
     setFilterTo('');
+    setFilterStatus('ALL');
     setSearch('');
   }
 
@@ -175,7 +207,23 @@ export default function CotizacionesPage() {
     !!filterAdvisor ||
     !!filterFrom ||
     !!filterTo ||
+    filterStatus !== 'ALL' ||
     !!search.trim();
+
+  // Filtro client-side por estado derivado. Conteo por categoría para
+  // renderizar la tab strip con las cantidades reales del dataset cargado.
+  const statusCounts: Record<QuoteStatusKind, number> = {
+    converted: 0,
+    hot: 0,
+    viewed: 0,
+    stale: 0,
+    sent: 0,
+  };
+  for (const q of list) statusCounts[getQuoteStatus(q)]++;
+  const displayedList =
+    filterStatus === 'ALL'
+      ? list
+      : list.filter((q) => getQuoteStatus(q) === filterStatus);
 
   async function exportCSV() {
     setExporting(true);
@@ -551,6 +599,50 @@ export default function CotizacionesPage() {
 
       {/* Filtros */}
       <div className="mb-3.5 space-y-2.5">
+        {/* Tab strip por estado — derivado client-side de los campos de
+            engagement. Cuando hay tab activa el load() pide take=500 para
+            que el filtro abarque todo el dataset filtrable, no solo la
+            primera página. */}
+        <div className="flex flex-wrap gap-1.5 items-center">
+          {(
+            [
+              { k: 'ALL' as const, label: 'Todas', emoji: '📋' },
+              { k: 'sent' as const,      label: STATUS_CONFIG.sent.label,      emoji: STATUS_CONFIG.sent.emoji },
+              { k: 'viewed' as const,    label: STATUS_CONFIG.viewed.label,    emoji: STATUS_CONFIG.viewed.emoji },
+              { k: 'hot' as const,       label: STATUS_CONFIG.hot.label,       emoji: STATUS_CONFIG.hot.emoji },
+              { k: 'converted' as const, label: STATUS_CONFIG.converted.label, emoji: STATUS_CONFIG.converted.emoji },
+              { k: 'stale' as const,     label: STATUS_CONFIG.stale.label,     emoji: STATUS_CONFIG.stale.emoji },
+            ]
+          ).map((opt) => {
+            const active = filterStatus === opt.k;
+            const count =
+              opt.k === 'ALL' ? list.length : statusCounts[opt.k];
+            return (
+              <button
+                key={opt.k}
+                type="button"
+                onClick={() => setFilterStatus(opt.k)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-pill text-xs font-semibold transition border ${
+                  active
+                    ? 'bg-ink text-white border-ink'
+                    : 'bg-white text-ink border-line hover:border-ink/40'
+                }`}
+              >
+                <span aria-hidden>{opt.emoji}</span>
+                {opt.label}
+                {!loading && count > 0 && (
+                  <span
+                    className={`ml-0.5 text-[10px] px-1.5 py-0.5 rounded ${
+                      active ? 'bg-white/20' : 'bg-bg2 text-mute'
+                    }`}
+                  >
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
         <div className="flex flex-wrap gap-3 items-center">
           <div className="tabs">
             {(['ALL', 'ELITE', 'PRO'] as const).map((f) => (
@@ -646,7 +738,7 @@ export default function CotizacionesPage() {
           <table className="w-full text-[13.5px] min-w-[820px]">
             <thead className="bg-bg2">
               <tr>
-                {['Cliente', 'Negocio', 'Plan', 'Plantilla', 'Asesor', 'Fecha', ''].map((h) => (
+                {['Estado', 'Cliente', 'Negocio', 'Plan', 'Plantilla', 'Asesor', 'Fecha', ''].map((h) => (
                   <th
                     key={h}
                     className="text-left px-4 py-3.5 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
@@ -660,7 +752,7 @@ export default function CotizacionesPage() {
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <tr key={`skel-${i}`} className="border-t border-line">
-                    {Array.from({ length: 7 }).map((__, j) => (
+                    {Array.from({ length: 8 }).map((__, j) => (
                       <td key={j} className="px-4 py-4">
                         <div
                           className="h-3 rounded bg-bg2 animate-shimmer"
@@ -675,9 +767,9 @@ export default function CotizacionesPage() {
                     ))}
                   </tr>
                 ))
-              ) : list.length === 0 ? (
+              ) : displayedList.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-16">
+                  <td colSpan={8} className="px-4 py-16">
                     <div className="max-w-md mx-auto text-center">
                       <div className="w-14 h-14 mx-auto rounded-full bg-brand-soft text-brand flex items-center justify-center mb-3">
                         <Icon name="clipboard" size={24} />
@@ -704,14 +796,25 @@ export default function CotizacionesPage() {
                   </td>
                 </tr>
               ) : (
-                list.map((q) => {
+                displayedList.map((q) => {
                   const template =
                     getQuoteTemplateBySlug(q.templateSlug) ?? FALLBACK_TEMPLATE;
+                  const status = getQuoteStatus(q);
+                  const statusCfg = STATUS_CONFIG[status];
                   return (
                     <tr
                       key={q.id}
                       className="border-t border-line hover:bg-bg2/50"
                     >
+                      <td className="px-4 py-3.5">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold ${statusCfg.cls}`}
+                          title={`Estado: ${statusCfg.label}`}
+                        >
+                          <span aria-hidden>{statusCfg.emoji}</span>
+                          {statusCfg.label}
+                        </span>
+                      </td>
                       <td className="px-4 py-3.5">
                         <Link
                           href={`/admin/cotizaciones/${q.id}`}
