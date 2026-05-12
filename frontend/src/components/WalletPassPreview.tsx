@@ -94,11 +94,15 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
   const current = cardType === 'VISITS' ? visitsCount : stampsCount;
   const previewStamps = Math.max(1, Math.min(required, 12));
 
-  // Colores resueltos (avanzados → fallback al primario)
-  const activeBg = stampActiveColor || 'rgba(255,255,255,.92)';
-  const activeFg = stampActiveColor ? '#fff' : primaryColor;
-  const inactiveBg = stampInactiveColor || 'rgba(255,255,255,.18)';
-  const contourCol = stampContourColor || `rgba(255,255,255,.45)`;
+  // Colores resueltos — estilo premium tipo Starbucks/Apple Wallet:
+  // filled = círculo blanco sólido con ícono en color de la marca;
+  // empty = relleno sutil sin borde visible.
+  const activeBg = stampActiveColor || '#FFFFFF';
+  const activeFg = stampActiveColor ? '#FFFFFF' : primaryColor;
+  const inactiveBg = stampInactiveColor || 'rgba(255,255,255,.13)';
+  // Sólo dibujamos contorno si el usuario lo configura explícitamente,
+  // si no, omitimos para evitar el look "marcado".
+  const contourCol = stampContourColor || null;
 
   const sideHeader = (() => {
     switch (cardType) {
@@ -187,31 +191,39 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
       <div className="px-4 pb-3 relative">
         {isProgressType && (
           <div
-            className="rounded-2xl px-3 py-3.5"
+            className="rounded-2xl px-3 py-3 relative overflow-hidden"
             style={{
               background: centerBgColor
-                ? `linear-gradient(135deg, ${centerBgColor}cc, ${centerBgColor}99)`
-                : 'rgba(0,0,0,.18)',
+                ? `linear-gradient(135deg, ${centerBgColor}e6, ${centerBgColor}b3)`
+                : 'linear-gradient(135deg, rgba(0,0,0,.10) 0%, rgba(0,0,0,.22) 100%)',
             }}
           >
+            {/* Gloss interno sutil para look premium */}
             <div
-              className="grid gap-1.5 mx-auto"
+              className="absolute inset-0 pointer-events-none"
               style={{
-                gridTemplateColumns: `repeat(${Math.min(previewStamps, 6)}, minmax(0, 1fr))`,
-                maxWidth: `${Math.min(previewStamps, 6) * 36}px`,
+                background:
+                  'linear-gradient(180deg, rgba(255,255,255,.07) 0%, rgba(255,255,255,0) 55%)',
               }}
-            >
+            />
+            <div className="relative flex items-center justify-between gap-1.5">
               {Array.from({ length: previewStamps }).map((_, i) => {
                 const filled = i < current;
                 return (
                   <div
                     key={i}
-                    className="aspect-square rounded-full flex items-center justify-center font-bold transition"
+                    className="aspect-square rounded-full flex items-center justify-center transition-all flex-1"
                     style={{
+                      maxWidth: previewStamps > 8 ? '32px' : '40px',
                       background: filled ? activeBg : inactiveBg,
-                      border: `1.5px solid ${filled ? activeBg : contourCol}`,
-                      color: filled ? activeFg : 'rgba(255,255,255,.5)',
-                      fontSize: required > 8 ? '13px' : '15px',
+                      color: filled ? activeFg : 'transparent',
+                      fontWeight: 600,
+                      fontSize: previewStamps > 8 ? '13px' : '17px',
+                      lineHeight: 1,
+                      boxShadow: filled
+                        ? '0 4px 10px -2px rgba(0,0,0,.22), inset 0 0 0 1px rgba(255,255,255,.55)'
+                        : 'none',
+                      border: contourCol ? `1px solid ${contourCol}` : 'none',
                     }}
                   >
                     {filled ? stampIcon : ''}
