@@ -120,7 +120,24 @@ export function ImageUploader({
   if (value) {
     return (
       <div className={`relative group ${className}`}>
-        <img src={value} alt="" className="w-full h-40 object-cover rounded-input border border-line" />
+        <div
+          className="w-full h-40 rounded-input border border-line overflow-hidden"
+          style={{
+            // Checkerboard sutil para que logos blancos sobre transparente
+            // sean visibles en la preview (sin esto se ven invisibles
+            // contra el fondo blanco del modal).
+            backgroundImage:
+              'linear-gradient(45deg, #e5e7eb 25%, transparent 25%), linear-gradient(-45deg, #e5e7eb 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #e5e7eb 75%), linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)',
+            backgroundSize: '16px 16px',
+            backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0',
+          }}
+        >
+          <img
+            src={value}
+            alt=""
+            className="w-full h-full object-contain"
+          />
+        </div>
         <div className="absolute inset-0 bg-ink/0 group-hover:bg-ink/40 rounded-input transition flex flex-wrap items-center justify-center gap-1.5 opacity-0 group-hover:opacity-100 p-2">
           {crop && (
             <button
