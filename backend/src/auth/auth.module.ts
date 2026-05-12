@@ -4,6 +4,7 @@ import { PassportModule } from '@nestjs/passport';
 import { APP_GUARD } from '@nestjs/core';
 import { PrismaModule } from '../common/prisma/prisma.module';
 import { EmailModule } from '../email/email.module';
+import { AppConfigService } from '../common/config/app-config.service';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
@@ -17,9 +18,10 @@ import { TenantStatusGuard } from '../common/guards/tenant-status.guard';
     EmailModule,
     PassportModule,
     JwtModule.registerAsync({
-      useFactory: () => ({
-        secret: process.env.JWT_SECRET ?? 'dev-secret',
-        signOptions: { expiresIn: process.env.JWT_EXPIRES ?? '15m' },
+      inject: [AppConfigService],
+      useFactory: (appConfig: AppConfigService) => ({
+        secret: appConfig.JWT_SECRET,
+        signOptions: { expiresIn: appConfig.JWT_EXPIRES },
       }),
     }),
   ],

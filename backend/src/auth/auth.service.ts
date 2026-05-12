@@ -6,6 +6,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { createHash, randomBytes } from 'crypto';
 import { EmailService } from '../email/email.service';
+import { AppConfigService } from '../common/config/app-config.service';
 import {
   welcomeOwnerTemplate,
   passwordResetTemplate,
@@ -56,8 +57,9 @@ export class AuthService {
     private jwt: JwtService,
     private audit: AuditService,
     private email: EmailService,
+    private appConfig: AppConfigService,
   ) {
-    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientId = appConfig.get('GOOGLE_CLIENT_ID');
     this.googleClient = clientId ? new OAuth2Client(clientId) : null;
     if (!clientId) {
       this.logger.warn('GOOGLE_CLIENT_ID no configurado — login con Google deshabilitado');
@@ -118,8 +120,8 @@ export class AuthService {
         ? this.jwt.sign(payload, { expiresIn: '6h' })
         : this.jwt.sign(payload);
     const refreshToken = this.jwt.sign(payload, {
-      secret: process.env.JWT_REFRESH_SECRET ?? 'dev-refresh',
-      expiresIn: process.env.JWT_REFRESH_EXPIRES ?? '30d',
+      secret: this.appConfig.JWT_REFRESH_SECRET,
+      expiresIn: this.appConfig.JWT_REFRESH_EXPIRES,
     });
 
     return {
@@ -143,7 +145,8 @@ export class AuthService {
    * Google — si el email no tiene cuenta, devolvemos 401 con mensaje claro.
    */
   async loginWithGoogle(idToken: string, ip?: string) {
-    if (!this.googleClient || !process.env.GOOGLE_CLIENT_ID) {
+    const googleClientId = this.appConfig.get('GOOGLE_CLIENT_ID');
+    if (!this.googleClient || !googleClientId) {
       throw new BadRequestException(
         'Google login no está configurado en este entorno.',
       );
@@ -154,7 +157,7 @@ export class AuthService {
     try {
       const ticket = await this.googleClient.verifyIdToken({
         idToken,
-        audience: process.env.GOOGLE_CLIENT_ID,
+        audience: googleClientId,
       });
       payload = ticket.getPayload();
     } catch (e: any) {
@@ -201,8 +204,8 @@ export class AuthService {
     };
     const accessToken = this.jwt.sign(tokenPayload);
     const refreshToken = this.jwt.sign(tokenPayload, {
-      secret: process.env.JWT_REFRESH_SECRET ?? 'dev-refresh',
-      expiresIn: process.env.JWT_REFRESH_EXPIRES ?? '30d',
+      secret: this.appConfig.JWT_REFRESH_SECRET,
+      expiresIn: this.appConfig.JWT_REFRESH_EXPIRES,
     });
 
     return {
@@ -221,7 +224,7 @@ export class AuthService {
   async refresh(refreshToken: string) {
     try {
       const payload = this.jwt.verify(refreshToken, {
-        secret: process.env.JWT_REFRESH_SECRET ?? 'dev-refresh',
+        secret: this.appConfig.JWT_REFRESH_SECRET,
       });
       const newPayload = {
         sub: payload.sub,
@@ -256,7 +259,7 @@ export class AuthService {
         data: { userId: user.id, tokenHash, expiresAt },
       });
 
-      const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
+      const appUrl = this.appConfig.APP_URL;
       const resetUrl = `${appUrl}/reset/${rawToken}`;
 
       this.email.send({
@@ -331,7 +334,7 @@ export class AuthService {
       data: { userId: user.id, tokenHash, expiresAt },
     });
 
-    const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
+    const appUrl = this.appConfig.APP_URL;
     const inviteUrl = `${appUrl}/reset/${rawToken}?affiliate=1`;
 
     // Datos del código para el template (commission %, campaña, parent).
@@ -572,7 +575,7 @@ export class AuthService {
         tenant,
         fullName: dto.fullName.trim(),
         trialEndsAt,
-        appUrl: process.env.APP_URL ?? 'https://soyclubify.com',
+        appUrl: this.appConfig.APP_URL,
       }),
     });
 
@@ -601,8 +604,8 @@ export class AuthService {
     };
     const accessToken = this.jwt.sign(payload);
     const refreshToken = this.jwt.sign(payload, {
-      secret: process.env.JWT_REFRESH_SECRET ?? 'dev-refresh',
-      expiresIn: process.env.JWT_REFRESH_EXPIRES ?? '30d',
+      secret: this.appConfig.JWT_REFRESH_SECRET,
+      expiresIn: this.appConfig.JWT_REFRESH_EXPIRES,
     });
 
     return {

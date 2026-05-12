@@ -2,6 +2,9 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
+import { AppConfigModule } from './common/config/app-config.module';
+import { validateEnv } from './common/config/env.validation';
+import { TenantModule } from './common/tenant/tenant.module';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { TenantsModule } from './tenants/tenants.module';
@@ -45,7 +48,15 @@ import { QuotesModule } from './quotes/quotes.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      // Validación estricta de env al boot — si falta un secret crítico en
+      // prod, el proceso NO arranca (en lugar de firmar JWT con un fallback
+      // débil). Ver common/config/env.validation.ts.
+      validate: (raw) => validateEnv(raw),
+    }),
+    AppConfigModule,
+    TenantModule,
     ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
     PrismaModule,

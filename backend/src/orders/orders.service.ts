@@ -12,6 +12,7 @@ import {
 } from '@prisma/client';
 import { customAlphabet } from 'nanoid';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { AppConfigService } from '../common/config/app-config.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { ChannelsService } from '../channels/channels.service';
 import { PromotionsService } from '../promotions/promotions.service';
@@ -61,6 +62,7 @@ export class OrdersService {
     private gateway: OrdersGateway,
     private email: EmailService,
     private wallet: WalletService,
+    private appConfig: AppConfigService,
   ) {}
 
   private async broadcast(orderId: string) {
@@ -815,7 +817,7 @@ export class OrdersService {
       });
       const qrToken = sign(
         { pid: tmp.id, tid: tenantId },
-        process.env.QR_HMAC_SECRET ?? 'dev-qr',
+        this.appConfig.QR_HMAC_SECRET,
         { algorithm: 'HS256' },
       );
       pass = await this.prisma.pass.update({

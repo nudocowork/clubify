@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/commo
 import { sign } from 'jsonwebtoken';
 import { nanoid } from 'nanoid';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { AppConfigService } from '../common/config/app-config.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { AutomationsService } from '../automations/automations.service';
 
@@ -10,6 +11,7 @@ export class PassesService {
   constructor(
     private prisma: PrismaService,
     private automations: AutomationsService,
+    private appConfig: AppConfigService,
   ) {}
 
   private guardTenant(user: AuthUser, tenantId: string) {
@@ -37,7 +39,7 @@ export class PassesService {
     const authToken = nanoid(32);
     const qrToken = sign(
       { pid: '__placeholder__', tid: card.tenantId },
-      process.env.QR_HMAC_SECRET ?? 'dev-qr',
+      this.appConfig.QR_HMAC_SECRET,
       { algorithm: 'HS256' },
     );
 
@@ -54,7 +56,7 @@ export class PassesService {
 
     const finalQr = sign(
       { pid: pass.id, tid: card.tenantId },
-      process.env.QR_HMAC_SECRET ?? 'dev-qr',
+      this.appConfig.QR_HMAC_SECRET,
       { algorithm: 'HS256' },
     );
     const updated = await this.prisma.pass.update({ where: { id: pass.id }, data: { qrToken: finalQr } });
@@ -267,7 +269,7 @@ export class PassesService {
     });
     const finalQr = sign(
       { pid: tmp.id, tid: card.tenantId },
-      process.env.QR_HMAC_SECRET ?? 'dev-qr',
+      this.appConfig.QR_HMAC_SECRET,
       { algorithm: 'HS256' },
     );
     await this.prisma.pass.update({

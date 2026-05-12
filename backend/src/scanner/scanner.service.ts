@@ -1,11 +1,15 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { verify } from 'jsonwebtoken';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { AppConfigService } from '../common/config/app-config.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 
 @Injectable()
 export class ScannerService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private appConfig: AppConfigService,
+  ) {}
 
   async verifyQr(user: AuthUser, qrToken: string) {
     const value = qrToken?.trim();
@@ -41,7 +45,7 @@ export class ScannerService {
     if (!value.includes('.') || value.split('.').length !== 3) return null;
     let payload: { pid: string; tid: string };
     try {
-      payload = verify(value, process.env.QR_HMAC_SECRET ?? 'dev-qr') as any;
+      payload = verify(value, this.appConfig.QR_HMAC_SECRET) as any;
     } catch {
       return null;
     }
