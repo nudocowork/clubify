@@ -112,8 +112,8 @@ export async function browserNotify(
   try {
     const n = new Notification(title, {
       body,
-      icon: '/icon-192.png',
-      badge: '/icon-192.png',
+      icon: '/icons/icon-192.png',
+      badge: '/icons/icon-192.png',
     });
     if (href) {
       n.onclick = () => {

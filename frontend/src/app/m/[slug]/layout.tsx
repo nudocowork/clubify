@@ -62,7 +62,7 @@ export async function generateMetadata({
         images: [image],
       },
       icons: t.logoUrl ? { icon: t.logoUrl, apple: t.logoUrl } : undefined,
-      themeColor: t.primaryColor || '#22C55E',
+      themeColor: t.primaryColor || '#6366F1',
       alternates: { canonical: url },
     };
   } catch {

@@ -36,7 +36,7 @@ export async function generateMetadata({
       title,
       description,
       robots: { index: false, follow: false }, // privado por usuario
-      themeColor: data?.tenant?.primaryColor || '#22C55E',
+      themeColor: data?.tenant?.primaryColor || '#6366F1',
       icons: data?.tenant?.logoUrl ? { icon: data.tenant.logoUrl } : undefined,
       openGraph: {
         title,

@@ -9,16 +9,22 @@
 // importantes que necesitan invalidar TODA la cache de los clientes.
 // Cada vez que cambia, el SW activate purga las caches viejas y los clientes
 // vuelven a descargar todo fresh.
-const VERSION = 'v2-2026-05-11-wallet-stamps-redesign';
+const VERSION = 'v3-2026-05-12-favicon-rebrand';
 const SHELL_CACHE = `clubify-shell-${VERSION}`;
 const ASSET_CACHE = `clubify-assets-${VERSION}`;
 
 const SHELL = [
   '/scan',
   '/manifest.webmanifest',
+  '/icons/icon.svg',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
+  '/icons/icon-maskable-192.png',
+  '/icons/icon-maskable-512.png',
   '/apple-touch-icon.png',
+  '/favicon.ico',
+  '/favicon-16.png',
+  '/favicon-32.png',
 ];
 
 self.addEventListener('install', (event) => {
@@ -85,7 +91,13 @@ self.addEventListener('fetch', (event) => {
     url.pathname.startsWith('/fonts/') ||
     url.pathname === '/manifest.webmanifest' ||
     url.pathname === '/apple-touch-icon.png' ||
-    url.pathname === '/favicon.png'
+    url.pathname === '/favicon.png' ||
+    url.pathname === '/favicon.ico' ||
+    url.pathname === '/favicon-16.png' ||
+    url.pathname === '/favicon-32.png' ||
+    url.pathname === '/favicon-48.png' ||
+    url.pathname === '/favicon-96.png' ||
+    url.pathname === '/og-image.png'
   ) {
     event.respondWith(
       caches.match(req).then((cached) => {
