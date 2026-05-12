@@ -7,6 +7,7 @@ import {
 } from '@/lib/quote-benefits';
 import { QUOTE_TEMPLATES } from '@/lib/quote-templates';
 import { ClubifyBadge } from '@/components/ClubifyBadge';
+import { QuotePublicActions } from '@/components/QuotePublicActions';
 
 const BACKEND =
   process.env.BACKEND_INTERNAL_URL ??
@@ -83,8 +84,9 @@ export default async function PublicQuotePage({
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-bg via-white to-bg2/30">
-      {/* Hero */}
-      <header className="px-5 pt-12 pb-8 max-w-3xl mx-auto">
+      {/* Hero — uso <section> en vez de <header> porque el print rule
+          global de globals.css esconde header/aside/nav (asume AppShell). */}
+      <section className="px-5 pt-12 pb-8 max-w-3xl mx-auto">
         <div className="flex items-center gap-2 mb-8">
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-md"
@@ -106,7 +108,7 @@ export default async function PublicQuotePage({
           Esta propuesta está vigente hasta el{' '}
           <b className="text-ink">{validUntil(quote.createdAt)}</b>.
         </p>
-      </header>
+      </section>
 
       {/* Card precio */}
       <section className="px-5 max-w-3xl mx-auto">
@@ -139,6 +141,16 @@ export default async function PublicQuotePage({
           </Link>
         </div>
       </section>
+
+      {/* Acciones del cliente — share / print / copy. Mobile-friendly,
+          no sticky para no tapar el CTA. Se ocultan al imprimir vía
+          .print-hide del component. */}
+      <QuotePublicActions
+        publicToken={quote.publicToken}
+        businessName={quote.businessName}
+        planLabel={planLabel as 'Elite' | 'Pro'}
+        accent={accent}
+      />
 
       {/* Template-specific (si aplica) */}
       {template && (
