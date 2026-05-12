@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GoogleWalletService } from './google-wallet.service';
+import { renderStampIconSvg } from './stamp-icons';
 
 /**
  * Genera pases para Apple Wallet (.pkpass) y Google Wallet (save link).
@@ -382,27 +383,23 @@ export class WalletService {
       const filled = i < stamped;
 
       if (filled) {
-        // Sombra sutil + círculo blanco sólido para look premium con
-        // profundidad. Stroke sólo si el tenant lo pidió explícitamente.
+        // Sombra sutil + círculo blanco sólido. Stroke sólo si el tenant
+        // lo pidió explícitamente.
         const strokeAttr = customStroke
           ? ` stroke="${customStroke}" stroke-width="1.5"`
           : '';
         circles.push(
           `<circle cx="${cx}" cy="${cy}" r="${radius}" fill="${fillFull}" filter="url(#stampShadow)"${strokeAttr}/>`,
         );
-        // Emoji centrado más chico (≈45% del diámetro). Usamos dy=".34em"
-        // para centrado vertical confiable en librsvg con emojis.
-        // font-family ordena: Apple (macOS local), Segoe (Windows),
-        // Noto Color Emoji (Linux/Docker container).
-        const fontSize = radius * 1.1;
-        circles.push(
-          `<text x="${cx}" y="${cy}" text-anchor="middle" dy=".34em" font-size="${fontSize}" font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif">${this.escapeXml(
-            icon,
-          )}</text>`,
-        );
+        // Ícono inline SVG (librsvg no renderiza color emoji aunque la
+        // fuente esté instalada — sale como silueta monocromática negra).
+        // El renderer mapea emoji → SVG estilo "gourmet" con gradient.
+        // Tamaño ≈55% del diámetro del círculo (radius * 1.1 = 55% de 2r).
+        const iconSize = radius * 1.1;
+        circles.push(renderStampIconSvg(icon, cx, cy, iconSize, `${i}`));
       } else {
-        // Vacío: glassmorphism sutil sin borde. El borde sólo aparece si
-        // el tenant configuró stampContourColor.
+        // Vacío: glassmorphism sutil sin borde. Borde sólo si el tenant
+        // configuró stampContourColor.
         const strokeAttr = customStroke
           ? ` stroke="${customStroke}" stroke-width="1" stroke-opacity="0.32"`
           : '';
