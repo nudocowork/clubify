@@ -145,6 +145,28 @@ export class QuotesService {
     return q;
   }
 
+  /** Bumpeo de CTA click — llamado desde el useEffect del signup cuando
+   * detecta qt=<token>. Idempotencia para firstCtaClickedAt: solo se
+   * setea si era null. Devuelve { ok } sin exponer counts (es público). */
+  async bumpCtaClick(token: string) {
+    const q = await this.prisma.quote.findUnique({
+      where: { publicToken: token },
+      select: { id: true, firstCtaClickedAt: true },
+    });
+    if (!q) return { ok: false as const };
+    const isFirst = q.firstCtaClickedAt === null;
+    await this.prisma.quote.update({
+      where: { id: q.id },
+      data: {
+        ctaClickCount: { increment: 1 },
+        lastCtaClickedAt: new Date(),
+        ...(isFirst ? { firstCtaClickedAt: new Date() } : {}),
+      },
+      select: { id: true },
+    });
+    return { ok: true as const };
+  }
+
   /**
    * Vista pública del cliente — accesible sin auth via /q/<token>.
    * NO expone advisorId, phone ni email del propio cliente; sí el nombre

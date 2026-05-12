@@ -33,6 +33,9 @@ type Quote = {
   viewCount?: number;
   firstViewedAt?: string | null;
   lastViewedAt?: string | null;
+  ctaClickCount?: number;
+  firstCtaClickedAt?: string | null;
+  lastCtaClickedAt?: string | null;
   convertedAt?: string | null;
   convertedToTenantId?: string | null;
   convertedToTenant?: { id: string; slug: string; brandName: string } | null;
@@ -151,6 +154,18 @@ export default function CotizacionDetallePage() {
                 }
               >
                 👁 {viewCount}
+              </span>
+            )}
+            {(quote.ctaClickCount ?? 0) > 0 && (
+              <span
+                className="ml-2 text-orange-600 font-semibold"
+                title={
+                  quote.lastCtaClickedAt
+                    ? `Último click "Aceptar plan": ${new Date(quote.lastCtaClickedAt).toLocaleString('es-CO')}`
+                    : undefined
+                }
+              >
+                🔥 {quote.ctaClickCount}
               </span>
             )}
             {downloadCount > 0 && (

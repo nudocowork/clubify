@@ -1541,6 +1541,14 @@ model Quote {
   viewCount      Int       @default(0)
   firstViewedAt  DateTime?
   lastViewedAt   DateTime?
+  // CTA clicks — el cliente apretó "Aceptar plan X" y aterrizó en /signup
+  // con qt=<token>. Bumpeado desde el useEffect del signup (no en el
+  // onClick del CTA, así medimos clicks que efectivamente llegaron al
+  // form en vez de abandonos en la transición). Es el tercer nivel del
+  // funnel: vista → click → conversion.
+  ctaClickCount     Int       @default(0)
+  firstCtaClickedAt DateTime?
+  lastCtaClickedAt  DateTime?
   // Conversion tracking. Cuando el cliente click "Aceptar plan X" en
   // /q/<token>, lo mandamos a /signup?plan=X&qt=<publicToken>. El signup
   // detecta qt, busca esta cotización por publicToken y setea convertedAt

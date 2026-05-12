@@ -73,7 +73,9 @@ function SignupInner() {
   const [quoteToken, setQuoteToken] = useState<string | null>(null);
   useEffect(() => {
     const fromUrl = params.get('qt');
+    let token: string | null = null;
     if (fromUrl && fromUrl.length >= 8 && fromUrl.length <= 64) {
+      token = fromUrl;
       setQuoteToken(fromUrl);
       try {
         sessionStorage.setItem('clubify:qt', fromUrl);
@@ -81,8 +83,20 @@ function SignupInner() {
     } else if (typeof window !== 'undefined') {
       try {
         const cached = sessionStorage.getItem('clubify:qt');
-        if (cached) setQuoteToken(cached);
+        if (cached) {
+          token = cached;
+          setQuoteToken(cached);
+        }
       } catch {}
+    }
+    // Bump CTA click solo si vino directo del URL (no del cache de sessionStorage),
+    // así no contamos refresh de la página de signup.
+    if (fromUrl && token) {
+      // sendBeacon-style: fire-and-forget, no esperamos response.
+      fetch(`${API}/api/public/quote/${encodeURIComponent(token)}/cta-click`, {
+        method: 'POST',
+        keepalive: true,
+      }).catch(() => null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

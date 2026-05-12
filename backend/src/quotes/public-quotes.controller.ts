@@ -1,4 +1,4 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get, Param, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '../common/decorators/public.decorator';
 import { QuotesService } from './quotes.service';
@@ -18,5 +18,15 @@ export class PublicQuotesController {
   @Get('public/quote/:token')
   byToken(@Param('token') token: string) {
     return this.svc.getPublicByToken(token);
+  }
+
+  /** Bump de CTA click — fire-and-forget desde /signup cuando aterriza
+   *  con qt=<token>. Throttle alto porque cada signup hace una sola
+   *  llamada; mantener bajo para evitar spam de un attacker. */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  @Post('public/quote/:token/cta-click')
+  ctaClick(@Param('token') token: string) {
+    return this.svc.bumpCtaClick(token);
   }
 }

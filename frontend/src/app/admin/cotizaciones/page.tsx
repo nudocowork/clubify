@@ -31,6 +31,9 @@ type Quote = {
   viewCount?: number;
   firstViewedAt?: string | null;
   lastViewedAt?: string | null;
+  ctaClickCount?: number;
+  firstCtaClickedAt?: string | null;
+  lastCtaClickedAt?: string | null;
   convertedAt?: string | null;
   convertedToTenantId?: string | null;
   createdAt: string;
@@ -764,6 +767,18 @@ export default function CotizacionesPage() {
                               }
                             >
                               👁 {q.viewCount}
+                            </span>
+                          ) : null}
+                          {q.ctaClickCount ? (
+                            <span
+                              className="text-orange-600"
+                              title={
+                                q.lastCtaClickedAt
+                                  ? `Último click "Aceptar" ${fmtRelative(q.lastCtaClickedAt)}`
+                                  : 'Veces que el cliente click "Aceptar plan"'
+                              }
+                            >
+                              🔥 {q.ctaClickCount}
                             </span>
                           ) : null}
                           {q.pdfDownloadCount ? (
