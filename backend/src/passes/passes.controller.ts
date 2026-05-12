@@ -146,7 +146,8 @@ export class PassesController {
    * deploys que cambian visualmente el pase. Requiere que el dispositivo
    * esté registrado (i.e. el cliente tiene el pase instalado).
    *
-   * Devuelve { sent, skipped } o 404 si el pase no existe / no es del tenant.
+   * Acepta passId (UUID) o serialNumber en el param `:id`.
+   * Devuelve { sent, skipped } o { error } si no existe / no es del tenant.
    */
   @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
   @Post(':id/push-update')
@@ -154,10 +155,14 @@ export class PassesController {
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
   ) {
-    // Validación de tenancy: el pase tiene que pertenecer al tenant del user
-    // (SUPER_ADMIN puede pushear cualquiera).
-    const pass = await this.prisma.pass.findUnique({
-      where: { id },
+    // Lookup por UUID primero, luego por serialNumber. Permite que el dueño
+    // pase el serial visible en el panel sin buscar el passId interno.
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        id,
+      );
+    const pass = await this.prisma.pass.findFirst({
+      where: isUuid ? { id } : { serialNumber: id },
       select: { id: true, tenantId: true, serialNumber: true },
     });
     if (!pass) return { sent: 0, skipped: 0, error: 'pass_not_found' };
@@ -167,6 +172,6 @@ export class PassesController {
     this.logger.log(
       `Admin push-update requested by ${user.id} for pass ${pass.serialNumber}`,
     );
-    return this.wallet.pushPassUpdate(id);
+    return this.wallet.pushPassUpdate(pass.id);
   }
 }
