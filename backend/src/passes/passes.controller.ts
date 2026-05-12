@@ -139,4 +139,34 @@ export class PassesController {
     const url = await this.wallet.generateGoogleSaveUrl(id);
     return { saveUrl: url };
   }
+
+  /**
+   * Dispara silent APNs push para forzar a Apple Wallet a re-fetchear el
+   * .pkpass actualizado (refresca strip, logo, fields). Útil después de
+   * deploys que cambian visualmente el pase. Requiere que el dispositivo
+   * esté registrado (i.e. el cliente tiene el pase instalado).
+   *
+   * Devuelve { sent, skipped } o 404 si el pase no existe / no es del tenant.
+   */
+  @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
+  @Post(':id/push-update')
+  async pushUpdate(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    // Validación de tenancy: el pase tiene que pertenecer al tenant del user
+    // (SUPER_ADMIN puede pushear cualquiera).
+    const pass = await this.prisma.pass.findUnique({
+      where: { id },
+      select: { id: true, tenantId: true, serialNumber: true },
+    });
+    if (!pass) return { sent: 0, skipped: 0, error: 'pass_not_found' };
+    if (user.role !== 'SUPER_ADMIN' && pass.tenantId !== user.tenantId) {
+      return { sent: 0, skipped: 0, error: 'forbidden' };
+    }
+    this.logger.log(
+      `Admin push-update requested by ${user.id} for pass ${pass.serialNumber}`,
+    );
+    return this.wallet.pushPassUpdate(id);
+  }
 }
