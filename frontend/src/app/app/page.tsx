@@ -13,6 +13,12 @@ type Metrics = {
   customers: number;
   passes: number;
   installed: number;
+  // Breakdown de plataforma wallet — cuántos clientes instalaron en
+  // Apple vs Google. walletNone = los que tienen pase emitido pero no
+  // tocaron el botón de wallet (escanearon QR físicamente).
+  walletApple: number;
+  walletGoogle: number;
+  walletNone: number;
   stamps30: number;
   redemptions30: number;
   ordersToday: number;
@@ -80,6 +86,46 @@ const KPI = ({
     <div className="kpi">{inner}</div>
   );
 };
+
+/** KPI específico para mostrar la división Apple vs Google de los pases
+ *  instalados. Dos columnas con el ícono de cada plataforma. */
+function WalletPlatformKPI({
+  apple,
+  google,
+  none,
+}: {
+  apple: number;
+  google: number;
+  none: number;
+}) {
+  const totalInstalled = apple + google;
+  const appleShare = totalInstalled > 0 ? Math.round((apple / totalInstalled) * 100) : 0;
+  const googleShare = totalInstalled > 0 ? 100 - appleShare : 0;
+  return (
+    <div className="kpi">
+      <div className="kpi-top">
+        <div className="kpi-lbl text-info flex items-center gap-1">
+          <Icon name="card" size={14} /> Apple vs Google
+        </div>
+      </div>
+      <div className="flex items-baseline gap-3 mt-1">
+        <div className="flex items-baseline gap-1">
+          <span className="text-base">🍎</span>
+          <span className="text-xl font-bold text-ink">{apple}</span>
+          <span className="text-[10px] text-mute">({appleShare}%)</span>
+        </div>
+        <div className="flex items-baseline gap-1">
+          <span className="text-base">🤖</span>
+          <span className="text-xl font-bold text-ink">{google}</span>
+          <span className="text-[10px] text-mute">({googleShare}%)</span>
+        </div>
+      </div>
+      {none > 0 && (
+        <div className="kpi-sub">{none} sin instalar</div>
+      )}
+    </div>
+  );
+}
 
 function Sparkline7d({ data }: { data: { date: string; orders: number; revenue: number }[] }) {
   if (!data || data.length === 0) {
@@ -388,6 +434,11 @@ export default function TenantDashboard() {
           sub={`de ${m?.passes ?? 0} emitidos`}
           icon="check"
           tone="ok"
+        />
+        <WalletPlatformKPI
+          apple={m?.walletApple ?? 0}
+          google={m?.walletGoogle ?? 0}
+          none={m?.walletNone ?? 0}
         />
         <KPI
           label="Sellos (30d)"

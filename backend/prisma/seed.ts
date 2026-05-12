@@ -23,23 +23,44 @@ async function main() {
     },
   });
 
+  // Plan Elite ($50): la regla nueva limita a 1 ubicación. Cualquier
+  // negocio que quiera multi-sucursal upgradea a Pro.
+  await prisma.plan.upsert({
+    where: { name: 'Elite' },
+    update: { maxLocations: 1 },
+    create: {
+      name: 'Elite',
+      maxLocations: 1,
+      maxCards: 5,
+      maxCustomers: 2000,
+      maxProducts: 100,
+      maxOrdersMonth: 500,
+      pushIncluded: 2000,
+      whatsappIncluded: 500,
+      priceMonthly: 50,
+    },
+  });
+
   const proPlan = await prisma.plan.upsert({
     where: { name: 'Pro' },
     update: {
+      // Pro ahora es "ilimitado" en locations (100 alcanza para
+      // cualquier negocio realista).
+      maxLocations: 100,
       maxProducts: 100,
       maxOrdersMonth: 500,
       whatsappIncluded: 1000,
     },
     create: {
       name: 'Pro',
-      maxLocations: 5,
+      maxLocations: 100,
       maxCards: 10,
       maxCustomers: 5000,
       maxProducts: 100,
       maxOrdersMonth: 500,
       pushIncluded: 5000,
       whatsappIncluded: 1000,
-      priceMonthly: 29,
+      priceMonthly: 99,
     },
   });
 

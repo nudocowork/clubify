@@ -129,6 +129,9 @@ export class MetricsService {
       customers,
       passes,
       installed,
+      walletApple,
+      walletGoogle,
+      walletNone,
       stamps30,
       redemptions30,
       ordersToday,
@@ -147,6 +150,18 @@ export class MetricsService {
       this.prisma.pass.count({ where: { tenantId: tid } }),
       this.prisma.pass.count({
         where: { tenantId: tid, walletDevices: { some: {} } },
+      }),
+      // Plataformas wallet — cuántos clientes eligieron Apple vs Google al
+      // instalar. Si walletPlatform es null, todavía no instaló (escaneó
+      // el QR pero no llevó la tarjeta al wallet).
+      this.prisma.pass.count({
+        where: { tenantId: tid, walletPlatform: 'APPLE' },
+      }),
+      this.prisma.pass.count({
+        where: { tenantId: tid, walletPlatform: 'GOOGLE' },
+      }),
+      this.prisma.pass.count({
+        where: { tenantId: tid, walletPlatform: null },
       }),
       this.prisma.stamp.count({
         where: { tenantId: tid, action: 'STAMP', createdAt: { gte: since30 } },
@@ -265,6 +280,10 @@ export class MetricsService {
       customers,
       passes,
       installed,
+      // Wallet platform breakdown (Apple vs Google vs sin instalar)
+      walletApple,
+      walletGoogle,
+      walletNone,
       stamps30,
       redemptions30,
       // v2 — comercial
@@ -1188,6 +1207,7 @@ export class MetricsService {
         tierProgress: true,
         issuedAt: true,
         lastActivityAt: true,
+        walletPlatform: true,
         customer: { select: { id: true, fullName: true } },
       },
     });
@@ -1445,9 +1465,20 @@ export class MetricsService {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, count]) => ({ date, count }));
 
+    // Breakdown de plataforma wallet — sobre el total de passes de la card.
+    const walletApple = passes.filter((p) => p.walletPlatform === 'APPLE').length;
+    const walletGoogle = passes.filter((p) => p.walletPlatform === 'GOOGLE').length;
+    const walletNone = passes.filter((p) => p.walletPlatform == null).length;
+
     return {
       cardId: card.id,
       cardType: card.type,
+      walletPlatforms: {
+        apple: walletApple,
+        google: walletGoogle,
+        none: walletNone,
+        total: totalPasses,
+      },
       kpis: {
         totalPasses,
         activePasses,

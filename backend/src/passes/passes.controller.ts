@@ -126,6 +126,11 @@ export class PassesController {
     this.logger.log(`Apple .pkpass download requested: passId=${id}`);
     const buf = await this.wallet.generateApplePass(id);
     this.logger.log(`Apple .pkpass served: passId=${id} size=${buf.length}b`);
+    // Trackeamos plataforma instalada. La primera vez que llega APPLE, marca
+    // installedAt. Si después vuelve por GOOGLE el dueño verá que "cambió"
+    // pero respetamos la última elección (último click = la que tiene en el
+    // wallet activo).
+    this.trackWalletInstall(id, 'APPLE').catch(() => null);
     res.set({
       'Content-Type': 'application/vnd.apple.pkpass',
       'Content-Disposition': `attachment; filename="${id}.pkpass"`,
@@ -137,7 +142,27 @@ export class PassesController {
   @Get(':id/google')
   async google(@Param('id') id: string) {
     const url = await this.wallet.generateGoogleSaveUrl(id);
+    this.trackWalletInstall(id, 'GOOGLE').catch(() => null);
     return { saveUrl: url };
+  }
+
+  /** Marca el pass con la plataforma de wallet elegida por el cliente.
+   *  Fire-and-forget: el error se loguea pero no rompe la descarga del
+   *  .pkpass / save URL. */
+  private async trackWalletInstall(passId: string, platform: 'APPLE' | 'GOOGLE') {
+    try {
+      await this.prisma.pass.update({
+        where: { id: passId },
+        data: {
+          walletPlatform: platform,
+          walletInstalledAt: new Date(),
+        },
+      });
+    } catch (e: any) {
+      this.logger.warn(
+        `walletPlatform track failed: passId=${passId} platform=${platform} ${e?.message ?? e}`,
+      );
+    }
   }
 
   /**

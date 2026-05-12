@@ -15,17 +15,14 @@ import {
   type CardTemplate,
 } from '@/lib/card-templates';
 
-const ALL_TYPES: CardType[] = [
-  'STAMPS',
-  'POINTS',
-  'CASHBACK',
-  'VISITS',
-  'MEMBERSHIP',
-  'HYBRID',
-  'DISCOUNT',
-  'GIFT',
-  'COUPON',
-];
+// Tipos expuestos en el wizard. CASHBACK/VISITS/HYBRID/MEMBERSHIP/
+// DISCOUNT/GIFT/COUPON quedaron ocultos temporalmente per pedido del
+// dueño — solo se ofrecen Sellos y Puntos hasta que cada experiencia
+// funcional esté pulida. El backend sigue soportando los tipos
+// ocultos (cards viejas creadas antes siguen renderizando + escaneando
+// normalmente). Para reactivar uno, agregalo a esta lista — el resto
+// del flujo ya está preparado (ver lib/card-templates → CardType).
+const ALL_TYPES: CardType[] = ['STAMPS', 'POINTS'];
 
 type Step = 1 | 2 | 3 | 4 | 5;
 
@@ -334,10 +331,12 @@ function Step1Templates({
   onScratch: () => void;
 }) {
   const filtered = useMemo(() => {
-    let list = CARD_TEMPLATES;
+    // Filtramos plantillas a tipos expuestos en el wizard. Si un template
+    // usa CASHBACK/VISITS/HYBRID/etc no se muestra hasta que se reactiven.
+    let list = CARD_TEMPLATES.filter((t) => ALL_TYPES.includes(t.type));
     if (filterMode === 'mine' && tenantCategorySlug) {
-      list = list.filter((t) => t.categorySlug === tenantCategorySlug);
-      if (list.length === 0) list = CARD_TEMPLATES; // fallback si no hay match
+      const scoped = list.filter((t) => t.categorySlug === tenantCategorySlug);
+      if (scoped.length > 0) list = scoped;
     }
     if (search.trim()) {
       const q = search.toLowerCase();

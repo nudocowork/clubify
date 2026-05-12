@@ -562,6 +562,12 @@ model Pass {
   lastActivityAt  DateTime?
   googleObjectId  String?
   applePassUrl    String?
+  /// Platform wallet que el cliente eligió. Se setea cuando descarga el
+  /// .pkpass (APPLE) o pide el save URL de Google (GOOGLE). Sirve para
+  /// analytics "cuántos clientes usan Apple vs Google Wallet". Null = el
+  /// cliente nunca tocó ningún endpoint de wallet (ej. solo escaneó).
+  walletPlatform  WalletPlatform?
+  walletInstalledAt DateTime?
 
   stamps        Stamp[]
   walletDevices WalletDevice[]
