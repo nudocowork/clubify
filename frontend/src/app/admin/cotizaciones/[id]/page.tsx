@@ -7,6 +7,7 @@ import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { QuotePreviewPremium } from '@/components/QuotePreviewPremium';
 import { DownloadQuotePDFButton } from '@/components/DownloadQuotePDFButton';
+import { ShareQuoteButtons } from '@/components/ShareQuoteButtons';
 import {
   getQuoteTemplateBySlug,
   QUOTE_TEMPLATES,
@@ -16,6 +17,7 @@ import type { QuotePlan } from '@/lib/quote-benefits';
 
 type Quote = {
   id: string;
+  publicToken: string;
   customerName: string;
   businessName: string;
   phone: string | null;
@@ -210,6 +212,21 @@ export default function CotizacionDetallePage() {
           </div>
         </div>
       )}
+
+      {/* Compartir el link de la vista pública con el cliente. Si todavía
+          no fue convertida es la acción principal post-creación; si ya
+          se convirtió igual queda visible por si quieren reenviarla. */}
+      <div className="mb-4">
+        <ShareQuoteButtons
+          variant="card"
+          publicToken={quote.publicToken}
+          customerName={quote.customerName}
+          businessName={quote.businessName}
+          customerPhone={quote.phone}
+          customerEmail={quote.email}
+          planLabel={quote.plan === 'PRO' ? 'Pro' : 'Elite'}
+        />
+      </div>
 
       <QuotePreviewPremium
         customerName={quote.customerName}
