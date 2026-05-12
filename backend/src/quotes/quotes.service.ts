@@ -234,6 +234,10 @@ export class QuotesService {
       monthlyRows,
       totalConverted,
       convertedByAdvisor,
+      // Funnel cumulativo: cada count es subset del anterior. Ej.
+      // 100 sent → 60 viewed → 15 hot → 5 converted.
+      funnelViewed,
+      funnelHot,
     ] = await Promise.all([
       this.prisma.quote.count(),
       this.prisma.quote.groupBy({
@@ -266,6 +270,8 @@ export class QuotesService {
         where: { convertedAt: { not: null } },
         _count: { _all: true },
       }),
+      this.prisma.quote.count({ where: { viewCount: { gt: 0 } } }),
+      this.prisma.quote.count({ where: { ctaClickCount: { gt: 0 } } }),
     ]);
 
     // Map advisorId → convertedCount para mergear con byAdvisor sin
@@ -305,6 +311,12 @@ export class QuotesService {
       totalConverted,
       // Conversion rate global — % de cotizaciones que terminaron en signup.
       conversionRate: total > 0 ? totalConverted / total : 0,
+      funnel: {
+        sent: total,
+        viewed: funnelViewed,
+        hot: funnelHot,
+        converted: totalConverted,
+      },
       byPlan: byPlan.map((b) => ({
         plan: b.plan,
         count: b._count._all,

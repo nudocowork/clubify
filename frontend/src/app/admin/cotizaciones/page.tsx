@@ -46,6 +46,7 @@ type Stats = {
   last30dCount: number;
   totalConverted: number;
   conversionRate: number;
+  funnel: { sent: number; viewed: number; hot: number; converted: number };
   byPlan: { plan: Plan; count: number; sumPrice: string }[];
   byAdvisor: {
     advisorId: string | null;
@@ -456,7 +457,82 @@ export default function CotizacionesPage() {
             </span>
           </button>
           {insightsOpen && (
-            <div className="border-t border-line p-5 grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="border-t border-line p-5 space-y-6">
+              {/* Funnel del pipeline — derivado de los counters de
+                  engagement. Click en una etapa filtra el listing. */}
+              {(() => {
+                const f = stats.funnel ?? {
+                  sent: stats.total,
+                  viewed: 0,
+                  hot: 0,
+                  converted: stats.totalConverted ?? 0,
+                };
+                const stages = [
+                  { kind: 'ALL' as const,       label: 'Enviadas',   emoji: '📨', count: f.sent,      color: '#9CA3AF' },
+                  { kind: 'viewed' as const,    label: 'Vistas',     emoji: '👁',  count: f.viewed,    color: '#10B981' },
+                  { kind: 'hot' as const,       label: 'Calientes',  emoji: '🔥', count: f.hot,       color: '#F97316' },
+                  { kind: 'converted' as const, label: 'Convertidas', emoji: '✅', count: f.converted, color: '#22C55E' },
+                ];
+                const maxCount = Math.max(1, f.sent);
+                return (
+                  <div>
+                    <div className="text-[11px] uppercase tracking-[0.1em] text-mute font-semibold mb-3">
+                      Funnel — del envío al cierre
+                    </div>
+                    <div className="space-y-2">
+                      {stages.map((s, i) => {
+                        const pct = (s.count / maxCount) * 100;
+                        const prev = i > 0 ? stages[i - 1].count : null;
+                        const dropoff =
+                          prev !== null && prev > 0
+                            ? Math.round((s.count / prev) * 100)
+                            : null;
+                        return (
+                          <button
+                            key={s.kind}
+                            type="button"
+                            onClick={() =>
+                              setFilterStatus(
+                                s.kind === 'ALL' ? 'ALL' : (s.kind as QuoteStatusKind),
+                              )
+                            }
+                            className="w-full text-left flex items-center gap-3 group"
+                            title={`Click para filtrar: ${s.label}`}
+                          >
+                            <div className="w-24 shrink-0 text-xs font-semibold flex items-center gap-1.5">
+                              <span aria-hidden>{s.emoji}</span>
+                              <span>{s.label}</span>
+                            </div>
+                            <div className="flex-1 h-7 bg-bg2/40 rounded-md overflow-hidden relative">
+                              <div
+                                className="h-full transition-all group-hover:opacity-90"
+                                style={{
+                                  width: `${pct}%`,
+                                  background: s.color,
+                                  minWidth: s.count > 0 ? 8 : 0,
+                                }}
+                              />
+                              <div className="absolute inset-0 flex items-center px-2.5 text-xs font-bold text-ink mix-blend-difference">
+                                <span style={{ color: '#fff' }}>{s.count}</span>
+                              </div>
+                            </div>
+                            <div className="w-20 shrink-0 text-right text-xs text-mute tabular-nums">
+                              {dropoff !== null ? `${dropoff}%` : '—'}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="text-[11px] text-mute mt-2 leading-relaxed">
+                      <b>Tip:</b> click en cualquier etapa para filtrar el
+                      listing. La columna derecha muestra el % que pasa de
+                      una etapa a la siguiente.
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 pt-4 border-t border-line2">
               {/* Chart mensual */}
               <div>
                 <div className="text-[11px] uppercase tracking-[0.1em] text-mute font-semibold mb-3">
@@ -591,6 +667,7 @@ export default function CotizacionesPage() {
                     ))}
                   </ol>
                 )}
+              </div>
               </div>
             </div>
           )}
