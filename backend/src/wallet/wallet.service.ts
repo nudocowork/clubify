@@ -222,9 +222,15 @@ export class WalletService {
     //   para que el logo de Clubify default no aparezca (pedido del cliente).
     // Logo del wallet: walletLogoUrl tiene prioridad (logo dedicado con
     // alpha que el dueño sube específicamente para wallet en /app/cards),
-    // sino fallback al logoUrl general del negocio.
+    // sino fallback al logoUrl general del negocio. Tratar string vacío
+    // como ausente — el frontend puede mandar '' al borrar y ?? solo cae
+    // con null/undefined, lo que dejaba el logo transparente aunque
+    // logoUrl existiera.
+    const rawWalletLogo = (pass.tenant as any).walletLogoUrl;
     const walletLogo =
-      (pass.tenant as any).walletLogoUrl ?? pass.tenant.logoUrl;
+      typeof rawWalletLogo === 'string' && rawWalletLogo.trim()
+        ? rawWalletLogo.trim()
+        : pass.tenant.logoUrl;
     const tenantIcons = await this.generateTenantIcons(walletLogo);
     const tenantLogos = await this.generateTenantLogos(walletLogo);
 
