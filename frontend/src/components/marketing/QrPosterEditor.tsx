@@ -37,6 +37,7 @@ import {
   type QrPosterConfig,
   type QrPosterType,
   type TextLayer,
+  type CustomTextLayer,
   type BgConfig,
   type ShapeLayer,
   type IconLayer,
@@ -53,6 +54,7 @@ import {
   effectiveLayerOrder,
   rescaleForCanvas,
   pixelRatioForDpi,
+  estimateTextBox,
 } from '@/lib/marketing/qr-poster-config';
 import { QR_TEMPLATES, applyTemplate } from '@/lib/marketing/qr-templates';
 import {
@@ -156,7 +158,25 @@ function rectFillProps(bg: BgConfig, w: number, h: number) {
     return { fill: bg.color1, opacity: bg.opacity ?? 1 };
   }
   if (bg.type === 'gradient') {
-    const rad = ((bg.angle ?? 135) * Math.PI) / 180;
+    const subtype = bg.subtype ?? 'linear';
+    if (subtype === 'radial') {
+      // Radial gradient: center → outer. Konva acepta
+      // fillRadialGradientStartPoint/EndPoint con radius.
+      const cx = w / 2;
+      const cy = h / 2;
+      const r = Math.max(w, h) / 2;
+      return {
+        fillRadialGradientStartPoint: { x: cx, y: cy },
+        fillRadialGradientStartRadius: 0,
+        fillRadialGradientEndPoint: { x: cx, y: cy },
+        fillRadialGradientEndRadius: r,
+        fillRadialGradientColorStops: [0, bg.color1, 1, bg.color2],
+        opacity: bg.opacity ?? 1,
+      };
+    }
+    // Linear o diagonal (diagonal = linear con ángulo preset)
+    const angle = subtype === 'diagonal' ? 135 : bg.angle ?? 135;
+    const rad = (angle * Math.PI) / 180;
     const cx = w / 2;
     const cy = h / 2;
     const len = Math.max(w, h);
@@ -198,7 +218,15 @@ function bgImageRect(
 
 // ─────────────────────────── Smart guides ─────────────────────────── //
 
-type Guide = { type: 'v' | 'h'; value: number };
+type Guide = {
+  type: 'v' | 'h';
+  value: number;
+  /** Tipo de match para diferenciar visualmente: center del canvas,
+   *  alineación con otro elemento, o equidistancia. */
+  kind?: 'canvasCenter' | 'canvasEdge' | 'elementAlign' | 'spacing';
+  /** Label opcional (ej "120 px" para guides de spacing). */
+  label?: string;
+};
 
 /** Calcula líneas guía visibles + valor de snap para una posición dada.
  *  Compara contra:
@@ -222,32 +250,33 @@ function computeSnap(
   const draggedRight = draggedBox.x + draggedBox.w;
   const draggedBottom = draggedBox.y + draggedBox.h;
 
-  // Targets verticales (líneas | a snapear en X)
-  const vTargets: { value: number; alignBy: 'left' | 'center' | 'right' }[] = [
-    { value: 0, alignBy: 'left' },
-    { value: canvasW / 2, alignBy: 'center' },
-    { value: canvasW, alignBy: 'right' },
+  // Targets verticales (líneas | a snapear en X) con metadata kind
+  type VTarget = { value: number; kind: Guide['kind'] };
+  type HTarget = { value: number; kind: Guide['kind'] };
+  const vTargets: VTarget[] = [
+    { value: 0, kind: 'canvasEdge' },
+    { value: canvasW / 2, kind: 'canvasCenter' },
+    { value: canvasW, kind: 'canvasEdge' },
   ];
-  // Targets horizontales (líneas ─ a snapear en Y)
-  const hTargets: { value: number; alignBy: 'top' | 'center' | 'bottom' }[] = [
-    { value: 0, alignBy: 'top' },
-    { value: canvasH / 2, alignBy: 'center' },
-    { value: canvasH, alignBy: 'bottom' },
+  const hTargets: HTarget[] = [
+    { value: 0, kind: 'canvasEdge' },
+    { value: canvasH / 2, kind: 'canvasCenter' },
+    { value: canvasH, kind: 'canvasEdge' },
   ];
 
   for (const o of others) {
     if (o.id === skipId) continue;
-    vTargets.push({ value: o.x, alignBy: 'left' });
-    vTargets.push({ value: o.x + o.w / 2, alignBy: 'center' });
-    vTargets.push({ value: o.x + o.w, alignBy: 'right' });
-    hTargets.push({ value: o.y, alignBy: 'top' });
-    hTargets.push({ value: o.y + o.h / 2, alignBy: 'center' });
-    hTargets.push({ value: o.y + o.h, alignBy: 'bottom' });
+    vTargets.push({ value: o.x, kind: 'elementAlign' });
+    vTargets.push({ value: o.x + o.w / 2, kind: 'elementAlign' });
+    vTargets.push({ value: o.x + o.w, kind: 'elementAlign' });
+    hTargets.push({ value: o.y, kind: 'elementAlign' });
+    hTargets.push({ value: o.y + o.h / 2, kind: 'elementAlign' });
+    hTargets.push({ value: o.y + o.h, kind: 'elementAlign' });
   }
 
   // Snap X — probar alinear left/center/right del dragged contra cada target
   let bestVDelta = Infinity;
-  let bestV: { newX: number; lineValue: number } | null = null;
+  let bestV: { newX: number; lineValue: number; kind: Guide['kind'] } | null = null;
   for (const t of vTargets) {
     for (const align of [
       { ref: draggedBox.x, delta: t.value - draggedBox.x },
@@ -256,18 +285,22 @@ function computeSnap(
     ]) {
       if (Math.abs(align.delta) < SNAP_THRESHOLD && Math.abs(align.delta) < bestVDelta) {
         bestVDelta = Math.abs(align.delta);
-        bestV = { newX: draggedBox.x + align.delta, lineValue: t.value };
+        bestV = {
+          newX: draggedBox.x + align.delta,
+          lineValue: t.value,
+          kind: t.kind,
+        };
       }
     }
   }
   if (bestV) {
     newX = bestV.newX;
-    guides.push({ type: 'v', value: bestV.lineValue });
+    guides.push({ type: 'v', value: bestV.lineValue, kind: bestV.kind });
   }
 
   // Snap Y
   let bestHDelta = Infinity;
-  let bestH: { newY: number; lineValue: number } | null = null;
+  let bestH: { newY: number; lineValue: number; kind: Guide['kind'] } | null = null;
   for (const t of hTargets) {
     for (const align of [
       { ref: draggedBox.y, delta: t.value - draggedBox.y },
@@ -276,13 +309,56 @@ function computeSnap(
     ]) {
       if (Math.abs(align.delta) < SNAP_THRESHOLD && Math.abs(align.delta) < bestHDelta) {
         bestHDelta = Math.abs(align.delta);
-        bestH = { newY: draggedBox.y + align.delta, lineValue: t.value };
+        bestH = {
+          newY: draggedBox.y + align.delta,
+          lineValue: t.value,
+          kind: t.kind,
+        };
       }
     }
   }
   if (bestH) {
     newY = bestH.newY;
-    guides.push({ type: 'h', value: bestH.lineValue });
+    guides.push({ type: 'h', value: bestH.lineValue, kind: bestH.kind });
+  }
+
+  // Detección de spacing uniforme: si el elemento snappea X o Y a un
+  // target de elemento, buscamos si hay 2+ elementos alineados en la
+  // misma fila/columna y vemos si la distancia es uniforme.
+  // (Heurística simple — Canva implementa esto con un algoritmo más
+  // complejo, esta versión cubre los casos típicos: 3 elementos en
+  // fila o columna equidistantes.)
+  if (newX !== draggedBox.x || newY !== draggedBox.y) {
+    const draggedFinalCx = newX + draggedBox.w / 2;
+    const draggedFinalCy = newY + draggedBox.h / 2;
+    // Buscamos pares de elementos cuyos centros estén alineados con el
+    // dragged + a distancia simétrica. Si encontramos uno, agregamos una
+    // guide de spacing con label.
+    const peersInRow = others.filter(
+      (o) =>
+        o.id !== skipId &&
+        Math.abs(o.y + o.h / 2 - draggedFinalCy) < SNAP_THRESHOLD * 2,
+    );
+    for (let i = 0; i < peersInRow.length; i++) {
+      for (let j = i + 1; j < peersInRow.length; j++) {
+        const a = peersInRow[i];
+        const b = peersInRow[j];
+        const aCx = a.x + a.w / 2;
+        const bCx = b.x + b.w / 2;
+        // Si dragged está entre a y b y es equidistante
+        const distA = Math.abs(draggedFinalCx - aCx);
+        const distB = Math.abs(draggedFinalCx - bCx);
+        if (Math.abs(distA - distB) < SNAP_THRESHOLD && distA > 20) {
+          guides.push({
+            type: 'h',
+            value: draggedFinalCy,
+            kind: 'spacing',
+            label: `${Math.round(distA)} px`,
+          });
+          break;
+        }
+      }
+    }
   }
 
   return { x: newX, y: newY, guides };
@@ -311,23 +387,11 @@ function gatherSnapTargets(cfg: QrPosterConfig) {
   }
   for (const k of ['title', 'subtitle', 'cta', 'brand'] as const) {
     const t = cfg.texts[k];
-    // Estimación del bbox visual real del texto. Para textos full-width
-    // (align center/right), el centro horizontal del texto ES el centro
-    // del canvas — no aporta info nueva al snap porque ya tenemos el
-    // canvas-center como target nativo. Si pusiéramos x:0 w:canvas.w
-    // como hacíamos antes, cada drag verticalmente cercano al medio del
-    // canvas mostraría una guía duplicada visualmente confusa. Mejor:
-    // estimar el ancho real del texto y centrar el bbox.
-    const approxW = Math.max(t.size * (t.text.length * 0.5), t.size);
-    const isFullWidth = t.align === 'center' || t.align === 'right';
-    const bx = isFullWidth ? (cfg.canvas.w - approxW) / 2 : t.x;
-    out.push({
-      x: bx,
-      y: t.y,
-      w: approxW,
-      h: t.size,
-      id: `text.${k}`,
-    });
+    // Usamos estimateTextBox que maneja multilínea + alineación
+    // correctamente — devuelve el bbox VISUAL real del texto (no la caja
+    // contenedora), para que los smart guides snapean al centro óptico.
+    const box = estimateTextBox(t, cfg.canvas.w);
+    out.push({ ...box, id: `text.${k}` });
   }
   for (const s of cfg.shapes ?? []) {
     out.push({ x: s.x, y: s.y, w: s.w, h: s.h, id: `shape.${s.id}` });
@@ -337,6 +401,11 @@ function gatherSnapTargets(cfg: QrPosterConfig) {
   }
   for (const im of cfg.images ?? []) {
     out.push({ x: im.x, y: im.y, w: im.w, h: im.h, id: `image.${im.id}` });
+  }
+  for (const t of cfg.customTexts ?? []) {
+    if (t.hidden) continue;
+    const box = estimateTextBox(t, cfg.canvas.w);
+    out.push({ ...box, id: `customText.${t.id}` });
   }
   return out;
 }
@@ -412,13 +481,45 @@ export default function QrPosterEditor({
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    const key = `clubify:qr-poster-draft:${type}`;
     api<any>(`/qr-posters/by-type/${type}`)
       .then((row) => {
         if (cancelled) return;
-        if (row?.config) {
-          replaceHistory(normalizeConfig(row.config, brandName));
-          setPosterId(row.id);
+        const serverCfg = row?.config
+          ? normalizeConfig(row.config, brandName)
+          : null;
+        const serverJson = serverCfg ? JSON.stringify(serverCfg) : '';
+
+        // Recuperación de backup local: si la última sesión quedó con
+        // cambios sin guardar (refresh / cierre accidental), preguntamos
+        // si restaurar. Si el cliente dice no, descarta el backup.
+        let restored = false;
+        try {
+          const localJson = localStorage.getItem(key);
+          if (localJson && localJson !== serverJson) {
+            const yes = window.confirm(
+              'Tenés cambios sin guardar de la sesión anterior. ¿Restaurar ahora?\n\n(Cancelar = descartar el backup local)',
+            );
+            if (yes) {
+              const localCfg = JSON.parse(localJson);
+              replaceHistory(normalizeConfig(localCfg, brandName));
+              // El backend NO tiene esta versión todavía — queda dirty,
+              // el autosave se va a disparar enseguida.
+              lastSavedJsonRef.current = serverJson;
+              setAutosaveState('dirty');
+              restored = true;
+            } else {
+              localStorage.removeItem(key);
+            }
+          }
+        } catch {}
+
+        if (!restored && serverCfg) {
+          replaceHistory(serverCfg);
+          lastSavedJsonRef.current = serverJson;
+          setAutosaveState('idle');
         }
+        if (row?.id) setPosterId(row.id);
       })
       .catch(() => null)
       .finally(() => {
@@ -472,26 +573,100 @@ export default function QrPosterEditor({
   const logoImage = useImageFromUrl(cfg.logo?.url ?? null);
   const bgImage = useImageFromUrl(cfg.bg.type === 'image' ? cfg.bg.url : null);
 
-  async function save() {
-    setSaving(true);
+  // ───────── Auto-save (item 8 + 11 del spec) ───────── //
+  // Indicador del estado del autosave para mostrar al cliente.
+  const [autosaveState, setAutosaveState] = useState<
+    'idle' | 'dirty' | 'saving' | 'saved' | 'error'
+  >('idle');
+  // Última cfg serializada que efectivamente se persistió en el backend.
+  // Sirve para detectar dirty (cfg actual != lastSavedJson) y evitar
+  // saves redundantes.
+  const lastSavedJsonRef = useRef<string>('');
+  const autosaveTimerRef = useRef<number | null>(null);
+  const localKey = `clubify:qr-poster-draft:${type}`;
+
+  /** Save efectivo al backend. Usado tanto por el botón manual como
+   *  por el autosave debounced. Idempotente — si no hay cambios
+   *  (cfg === lastSavedJson) skipea. */
+  async function save({ silent = false }: { silent?: boolean } = {}) {
+    const json = JSON.stringify(cfg);
+    if (json === lastSavedJsonRef.current && !saveError) {
+      // Nada nuevo que guardar
+      if (!silent) setAutosaveState('saved');
+      return;
+    }
+    if (!silent) setSaving(true);
     setSaveError(null);
+    setAutosaveState('saving');
     try {
       const row = await api<any>(`/qr-posters/by-type/${type}`, {
         method: 'PUT',
         body: JSON.stringify({ name: '', config: cfg }),
       });
       setPosterId(row.id);
+      lastSavedJsonRef.current = json;
       setSavedAt(Date.now());
-      window.setTimeout(() => setSavedAt(null), 2500);
+      setAutosaveState('saved');
+      if (!silent) window.setTimeout(() => setSavedAt(null), 2500);
+      // Limpiar backup local porque el server ya tiene el último
+      try {
+        localStorage.removeItem(localKey);
+      } catch {}
     } catch (e: any) {
       setSaveError(
         e?.message?.toString() ||
           'No se pudo guardar. Revisá tu conexión y volvé a intentar.',
       );
+      setAutosaveState('error');
     } finally {
-      setSaving(false);
+      if (!silent) setSaving(false);
     }
   }
+
+  // Escribir copia local en cada cambio + agendar autosave debounced.
+  useEffect(() => {
+    const json = JSON.stringify(cfg);
+    if (lastSavedJsonRef.current && json === lastSavedJsonRef.current) {
+      // No hay cambios pendientes (post-load o post-save)
+      return;
+    }
+    // Backup local INMEDIATO para recuperación post-refresh
+    try {
+      localStorage.setItem(localKey, json);
+    } catch {}
+    setAutosaveState('dirty');
+    if (autosaveTimerRef.current) {
+      window.clearTimeout(autosaveTimerRef.current);
+    }
+    // Debounce 2.5s — suficiente para que el cliente termine drags +
+    // edits seguidos sin disparar requests por cada movimiento.
+    autosaveTimerRef.current = window.setTimeout(() => {
+      save({ silent: true }).catch(() => null);
+    }, 2500);
+    return () => {
+      if (autosaveTimerRef.current) {
+        window.clearTimeout(autosaveTimerRef.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cfg]);
+
+  // Al desmontar el editor, hacer un save final si quedó algo pending.
+  useEffect(() => {
+    return () => {
+      const json = JSON.stringify(cfg);
+      if (json !== lastSavedJsonRef.current) {
+        // Fire-and-forget; el cliente puede cerrar la pestaña y ya
+        // tenemos backup local de todos modos.
+        api(`/qr-posters/by-type/${type}`, {
+          method: 'PUT',
+          body: JSON.stringify({ name: '', config: cfg }),
+          keepalive: true as any,
+        }).catch(() => null);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function reset() {
     if (!confirm('¿Descartar cambios y volver al diseño por defecto?')) return;
@@ -584,6 +759,61 @@ export default function QrPosterEditor({
       images: (c.images ?? []).map((im) => (im.id === id ? { ...im, ...patch } : im)),
     }));
   }
+  function patchCustomText(id: string, patch: Partial<CustomTextLayer>) {
+    setCfg((c) => ({
+      ...c,
+      customTexts: (c.customTexts ?? []).map((t) =>
+        t.id === id ? { ...t, ...patch } : t,
+      ),
+    }));
+  }
+  function addCustomText(seed?: Partial<CustomTextLayer>) {
+    const id = newId();
+    const cx = cfg.canvas.w / 2;
+    const cy = cfg.canvas.h / 2;
+    const newText: CustomTextLayer = {
+      id,
+      text: seed?.text ?? 'Texto nuevo',
+      x: seed?.x ?? cx - 200,
+      y: seed?.y ?? cy,
+      font: seed?.font ?? 'Inter, system-ui, sans-serif',
+      fontLabel: seed?.fontLabel ?? 'Inter',
+      size: seed?.size ?? 48,
+      color: seed?.color ?? '#0A0A0A',
+      weight: seed?.weight ?? 700,
+      align: seed?.align ?? 'center',
+      opacity: seed?.opacity ?? 1,
+      rotation: seed?.rotation ?? 0,
+      lineHeight: seed?.lineHeight ?? 1.2,
+      letterSpacing: seed?.letterSpacing ?? 0,
+      boxWidth: seed?.boxWidth ?? 400,
+      shadow: seed?.shadow ?? null,
+      locked: false,
+      hidden: false,
+    };
+    setCfg((c) => ({ ...c, customTexts: [...(c.customTexts ?? []), newText] }));
+    return id;
+  }
+  function duplicateCustomText(id: string) {
+    const src = (cfg.customTexts ?? []).find((t) => t.id === id);
+    if (!src) return;
+    const newDup = {
+      ...src,
+      id: newId(),
+      x: src.x + 24,
+      y: src.y + 24,
+      locked: false,
+    };
+    setCfg((c) => ({ ...c, customTexts: [...(c.customTexts ?? []), newDup] }));
+  }
+  function removeCustomText(id: string) {
+    setCfg((c) => ({
+      ...c,
+      customTexts: (c.customTexts ?? []).filter((t) => t.id !== id),
+      layerOrder: c.layerOrder?.filter((lid) => lid !== `customText.${id}`),
+    }));
+  }
+
   function patchPattern(id: string, patch: Partial<PatternLayer>) {
     setCfg((c) => ({
       ...c,
@@ -770,7 +1000,11 @@ export default function QrPosterEditor({
         {/* Acciones */}
         <div className="card card-pad space-y-2">
           <div className="flex gap-2">
-            <button onClick={save} disabled={saving} className="btn-primary flex-1 disabled:opacity-50">
+            <button
+              onClick={() => save()}
+              disabled={saving}
+              className="btn-primary flex-1 disabled:opacity-50"
+            >
               {saving ? 'Guardando…' : 'Guardar diseño'}
             </button>
             <button onClick={reset} className="btn-ghost text-xs" title="Restablecer">
@@ -795,19 +1029,15 @@ export default function QrPosterEditor({
               Rehacer →
             </button>
           </div>
-          {savedAt && !saveError && (
-            <div className="text-[11px] text-emerald-600 font-semibold">
-              ✓ Guardado
-            </div>
-          )}
-          {saveError && (
-            <div className="text-[11px] text-red-600 leading-relaxed bg-red-50 border border-red-200 rounded px-2 py-1.5">
-              ✕ {saveError}
-            </div>
-          )}
+          <AutosaveStatus
+            state={autosaveState}
+            savedAt={savedAt}
+            error={saveError}
+          />
           <div className="text-[11px] text-mute leading-relaxed">
-            Arrastrá cualquier elemento en el canvas — las guías rosa
-            te ayudan a centrar. ⌘Z para deshacer.
+            Arrastrá cualquier elemento en el canvas — guías rosa/verde
+            te ayudan a centrar. Auto-save cada 2.5s + backup local
+            por refresh accidental. ⌘Z para deshacer.
           </div>
         </div>
 
@@ -866,6 +1096,54 @@ export default function QrPosterEditor({
             y={cfg.qr.y}
             onChange={(x, y) => setCfg((c) => ({ ...c, qr: { ...c.qr, x, y } }))}
           />
+          {/* Botones de centrado matemáticamente preciso. Sin esto el
+           *  cliente tiene que calcular x = (canvasW - qrSize) / 2 a
+           *  mano y suele dejarlo aproximado. */}
+          <div className="grid grid-cols-3 gap-1.5">
+            <button
+              type="button"
+              onClick={() =>
+                setCfg((c) => ({
+                  ...c,
+                  qr: { ...c.qr, x: (c.canvas.w - c.qr.size) / 2 },
+                }))
+              }
+              className="btn-ghost text-[10px] py-1.5"
+              title="Centrar horizontalmente"
+            >
+              ↔ Centro H
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setCfg((c) => ({
+                  ...c,
+                  qr: { ...c.qr, y: (c.canvas.h - c.qr.size) / 2 },
+                }))
+              }
+              className="btn-ghost text-[10px] py-1.5"
+              title="Centrar verticalmente"
+            >
+              ↕ Centro V
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setCfg((c) => ({
+                  ...c,
+                  qr: {
+                    ...c.qr,
+                    x: (c.canvas.w - c.qr.size) / 2,
+                    y: (c.canvas.h - c.qr.size) / 2,
+                  },
+                }))
+              }
+              className="btn-ghost text-[10px] py-1.5"
+              title="Centrar en el canvas"
+            >
+              ⊕ Centro
+            </button>
+          </div>
           <ColorRow
             label="Color"
             value={cfg.qr.fg}
@@ -885,11 +1163,9 @@ export default function QrPosterEditor({
         {/* Textos */}
         {(['title', 'subtitle', 'cta', 'brand'] as const).map((key) => (
           <Section key={key} title={LAYER_LABELS[key]} icon="🅣">
-            <input
-              type="text"
-              className="input text-sm"
+            <AutoResizeTextarea
               value={cfg.texts[key].text}
-              onChange={(e) => patchText(key, { text: e.target.value })}
+              onChange={(v) => patchText(key, { text: v })}
               placeholder={LAYER_LABELS[key]}
             />
             <FontPicker
@@ -937,12 +1213,31 @@ export default function QrPosterEditor({
               label="Alineación"
               value={cfg.texts[key].align}
               options={[
-                { label: 'Izq.', value: 'left' },
-                { label: 'Centro', value: 'center' },
-                { label: 'Der.', value: 'right' },
+                { label: '← Izq.', value: 'left' },
+                { label: '↔ Centro', value: 'center' },
+                { label: 'Der. →', value: 'right' },
+                { label: 'Justif.', value: 'justify' },
               ]}
               onChange={(v) => patchText(key, { align: v as any })}
             />
+            <div className="grid grid-cols-2 gap-2">
+              <NumberRow
+                label="Línea"
+                value={cfg.texts[key].lineHeight ?? 1.2}
+                min={0.8}
+                max={3}
+                step={0.1}
+                onChange={(v) => patchText(key, { lineHeight: v })}
+              />
+              <NumberRow
+                label="Letra"
+                value={cfg.texts[key].letterSpacing ?? 0}
+                min={-10}
+                max={50}
+                step={1}
+                onChange={(v) => patchText(key, { letterSpacing: v })}
+              />
+            </div>
             <NumberRow
               label="Rotación"
               value={cfg.texts[key].rotation ?? 0}
@@ -955,8 +1250,21 @@ export default function QrPosterEditor({
               value={cfg.texts[key].opacity ?? 1}
               onChange={(v) => patchText(key, { opacity: v })}
             />
+            <TextShadowEditor
+              shadow={cfg.texts[key].shadow ?? null}
+              onChange={(s) => patchText(key, { shadow: s })}
+            />
           </Section>
         ))}
+
+        {/* Textos libres adicionales */}
+        <CustomTextsSection
+          texts={cfg.customTexts ?? []}
+          onAdd={() => addCustomText()}
+          onPatch={patchCustomText}
+          onDuplicate={duplicateCustomText}
+          onRemove={removeCustomText}
+        />
 
         {/* Tamaño de lienzo + DPI */}
         <CanvasSection cfg={cfg} setCfg={setCfg} />
@@ -1195,36 +1503,57 @@ export default function QrPosterEditor({
                       const key = id.slice(5) as keyof QrPosterConfig['texts'];
                       const t = cfg.texts[key];
                       if (!t) return null;
-                      const isFullWidth =
-                        t.align === 'center' || t.align === 'right';
-                      const approxW = Math.max(t.size * (t.text.length * 0.5), t.size);
+                      // El contenedor de Konva.Text define el área para
+                      // alineación interna. boxWidth seteado = caja propia
+                      // anclada en (x,y); sino, todo el ancho del canvas
+                      // anclado en x=0.
+                      const renderWidth = t.boxWidth ?? cfg.canvas.w;
+                      const renderX = t.boxWidth != null ? t.x : 0;
+                      // Para drag usamos el bbox VISUAL (estimateTextBox)
+                      // no el contenedor — sino los smart guides snapean
+                      // al borde de la caja invisible y no al centro
+                      // óptico del texto.
+                      const visualBox = estimateTextBox(t, cfg.canvas.w);
                       const handlers = makeDragHandlers(
                         `text.${key}`,
-                        {
-                          x: isFullWidth ? 0 : t.x,
-                          y: t.y,
-                          w: isFullWidth ? cfg.canvas.w : approxW,
-                          h: t.size,
-                        },
-                        (x, y) => {
-                          const nx = isFullWidth ? t.x : x;
-                          patchText(key, { x: nx, y });
+                        visualBox,
+                        (newVisualX, newVisualY) => {
+                          // Convertimos delta visual → delta del anclaje
+                          // (t.x). Si la alineación es center/right
+                          // sin boxWidth, el render X queda fijo en 0
+                          // pero el visualX dependía del texto — solo
+                          // movemos Y. Si tiene boxWidth, el render X
+                          // sí cambia con el drag.
+                          const deltaX = newVisualX - visualBox.x;
+                          const deltaY = newVisualY - visualBox.y;
+                          const canMoveX = t.boxWidth != null || t.align === 'left';
+                          patchText(key, {
+                            x: canMoveX ? t.x + deltaX : t.x,
+                            y: t.y + deltaY,
+                          });
                         },
                       );
                       return (
                         <Text
                           key={id}
                           text={t.text}
-                          x={isFullWidth ? 0 : t.x}
+                          x={renderX}
                           y={t.y}
-                          width={isFullWidth ? cfg.canvas.w : undefined}
+                          width={renderWidth}
                           fontFamily={t.font}
                           fontSize={t.size}
                           fontStyle={t.weight >= 700 ? 'bold' : 'normal'}
                           fill={t.color}
                           align={t.align}
+                          lineHeight={t.lineHeight ?? 1.2}
+                          letterSpacing={t.letterSpacing ?? 0}
                           opacity={t.opacity ?? 1}
                           rotation={t.rotation ?? 0}
+                          shadowColor={t.shadow?.color}
+                          shadowBlur={t.shadow?.blur ?? 0}
+                          shadowOffsetX={t.shadow?.offsetX ?? 0}
+                          shadowOffsetY={t.shadow?.offsetY ?? 0}
+                          shadowOpacity={t.shadow?.opacity ?? (t.shadow ? 1 : 0)}
                           draggable
                           {...handlers}
                         />
@@ -1371,16 +1700,75 @@ export default function QrPosterEditor({
                         />
                       );
                     }
+                    if (id.startsWith('customText.')) {
+                      const cid = id.slice('customText.'.length);
+                      const t = cfg.customTexts?.find((x) => x.id === cid);
+                      if (!t || t.hidden) return null;
+                      const renderWidth = t.boxWidth ?? cfg.canvas.w;
+                      const renderX = t.boxWidth != null ? t.x : 0;
+                      const visualBox = estimateTextBox(t, cfg.canvas.w);
+                      const handlers = t.locked
+                        ? { onDragMove: undefined, onDragEnd: undefined }
+                        : makeDragHandlers(
+                            `customText.${cid}`,
+                            visualBox,
+                            (newVx, newVy) => {
+                              const deltaX = newVx - visualBox.x;
+                              const deltaY = newVy - visualBox.y;
+                              const canMoveX =
+                                t.boxWidth != null || t.align === 'left';
+                              patchCustomText(cid, {
+                                x: canMoveX ? t.x + deltaX : t.x,
+                                y: t.y + deltaY,
+                              });
+                            },
+                          );
+                      return (
+                        <Text
+                          key={id}
+                          text={t.text}
+                          x={renderX}
+                          y={t.y}
+                          width={renderWidth}
+                          fontFamily={t.font}
+                          fontSize={t.size}
+                          fontStyle={t.weight >= 700 ? 'bold' : 'normal'}
+                          fill={t.color}
+                          align={t.align}
+                          lineHeight={t.lineHeight ?? 1.2}
+                          letterSpacing={t.letterSpacing ?? 0}
+                          opacity={t.opacity ?? 1}
+                          rotation={t.rotation ?? 0}
+                          shadowColor={t.shadow?.color}
+                          shadowBlur={t.shadow?.blur ?? 0}
+                          shadowOffsetX={t.shadow?.offsetX ?? 0}
+                          shadowOffsetY={t.shadow?.offsetY ?? 0}
+                          shadowOpacity={t.shadow?.opacity ?? (t.shadow ? 1 : 0)}
+                          draggable={!t.locked}
+                          listening={!t.locked}
+                          {...(handlers as any)}
+                        />
+                      );
+                    }
                     return null;
                   })}
                 </Group>
-                {/* Smart guides — siempre encima del contenido. */}
-                {guides.map((g, idx) =>
-                  g.type === 'v' ? (
+                {/* Smart guides v2 — color por tipo de match. Verde
+                 *  para canvas center (más informativo), fucsia para
+                 *  alineación entre elementos, naranja para spacing
+                 *  uniforme. Labels arriba en spacing. */}
+                {guides.map((g, idx) => {
+                  const color =
+                    g.kind === 'canvasCenter'
+                      ? '#10B981' // verde — más visible para center
+                      : g.kind === 'spacing'
+                      ? '#F59E0B' // amber para spacing
+                      : '#EC4899'; // fucsia default
+                  return g.type === 'v' ? (
                     <Line
                       key={`g-${idx}`}
                       points={[g.value, 0, g.value, cfg.canvas.h]}
-                      stroke="#EC4899"
+                      stroke={color}
                       strokeWidth={1.5}
                       dash={[6, 4]}
                       listening={false}
@@ -1389,13 +1777,13 @@ export default function QrPosterEditor({
                     <Line
                       key={`g-${idx}`}
                       points={[0, g.value, cfg.canvas.w, g.value]}
-                      stroke="#EC4899"
+                      stroke={color}
                       strokeWidth={1.5}
                       dash={[6, 4]}
                       listening={false}
                     />
-                  ),
-                )}
+                  );
+                })}
               </Layer>
             </Stage>
           </div>
@@ -1623,6 +2011,12 @@ function SelectRow({
 
 /** FontPicker con optgroups por categoría. Pre-renderiza cada opción
  *  con su propio font-family para que el dueño "vea" el estilo. */
+/** FontPicker visual — dropdown que renderea CADA fuente con su propia
+ *  familia para que el cliente vea cómo se va a ver antes de elegir.
+ *  Búsqueda + categorías + scroll. El <select> nativo solo permitía
+ *  cambiar la familia del <option> via inline style pero muchos
+ *  browsers ignoran el style en options dentro del menu (Safari/iOS),
+ *  asi que reemplazamos por un menu custom controlado. */
 function FontPicker({
   value,
   onChange,
@@ -1630,6 +2024,19 @@ function FontPicker({
   value: string;
   onChange: (v: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (!ref.current) return;
+      if (!ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
   const grouped = useMemo(() => {
     const out: Record<FontOption['category'], FontOption[]> = {
       sans: [],
@@ -1638,26 +2045,231 @@ function FontPicker({
       handwriting: [],
       mono: [],
     };
-    for (const f of FONT_OPTIONS) out[f.category].push(f);
+    const query = q.trim().toLowerCase();
+    for (const f of FONT_OPTIONS) {
+      if (query && !f.label.toLowerCase().includes(query)) continue;
+      out[f.category].push(f);
+    }
     return out;
-  }, []);
+  }, [q]);
+
+  const current = FONT_OPTIONS.find((o) => o.value === value);
+
   return (
-    <select
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="input text-sm w-full flex items-center justify-between gap-2 hover:border-brand/50"
+        style={{ fontFamily: value }}
+      >
+        <span className="truncate">{current?.label ?? 'Fuente…'}</span>
+        <span className="text-xs text-mute ml-auto">▾</span>
+      </button>
+      {open && (
+        <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-line rounded-input shadow-lg max-h-[320px] overflow-hidden flex flex-col">
+          <div className="p-2 border-b border-line2">
+            <input
+              autoFocus
+              type="text"
+              placeholder="Buscar tipografía…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              className="input text-sm"
+            />
+          </div>
+          <div className="overflow-y-auto">
+            {(Object.keys(grouped) as FontOption['category'][]).map((cat) => {
+              if (grouped[cat].length === 0) return null;
+              return (
+                <div key={cat}>
+                  <div className="text-[10px] uppercase tracking-wider text-mute font-semibold px-3 py-1 bg-bg2/50 sticky top-0">
+                    {FONT_CATEGORY_LABELS[cat]}
+                  </div>
+                  {grouped[cat].map((o) => (
+                    <button
+                      key={o.label}
+                      type="button"
+                      onClick={() => {
+                        onChange(o.value);
+                        setOpen(false);
+                        setQ('');
+                      }}
+                      className={`w-full text-left px-3 py-2 hover:bg-bg2/60 border-b border-line2 last:border-b-0 ${
+                        o.value === value ? 'bg-brand-soft/40' : ''
+                      }`}
+                      style={{ fontFamily: o.value }}
+                    >
+                      <div className="text-base leading-none">{o.label}</div>
+                      <div
+                        className="text-[10px] text-mute mt-0.5"
+                        style={{ fontFamily: 'Inter, sans-serif' }}
+                      >
+                        Aa Bb 123 — {o.label}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              );
+            })}
+            {Object.values(grouped).every((g) => g.length === 0) && (
+              <div className="text-sm text-mute text-center py-4">
+                Sin resultados
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Indicador del estado de auto-save. Solo se renderea texto compacto
+ *  (~24px alto) — mensajes claros sin ocupar espacio. */
+function AutosaveStatus({
+  state,
+  savedAt,
+  error,
+}: {
+  state: 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
+  savedAt: number | null;
+  error: string | null;
+}) {
+  if (error) {
+    return (
+      <div className="text-[11px] text-red-600 leading-relaxed bg-red-50 border border-red-200 rounded px-2 py-1.5">
+        ✕ {error}
+      </div>
+    );
+  }
+  if (state === 'saving') {
+    return (
+      <div className="text-[11px] text-mute font-medium flex items-center gap-1.5">
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+        Guardando…
+      </div>
+    );
+  }
+  if (state === 'dirty') {
+    return (
+      <div className="text-[11px] text-mute italic">
+        Cambios pendientes — se guardarán automáticamente
+      </div>
+    );
+  }
+  if (state === 'saved' && savedAt) {
+    const secs = Math.round((Date.now() - savedAt) / 1000);
+    return (
+      <div className="text-[11px] text-emerald-600 font-semibold">
+        ✓ Guardado{secs > 5 ? ` hace ${secs}s` : ''}
+      </div>
+    );
+  }
+  return null;
+}
+
+/** Textarea con auto-resize según el contenido. Reemplaza al <input>
+ *  para que ENTER genere salto de línea (caso de uso típico: títulos
+ *  largos o subtítulos multilínea). El value se persiste con "\n"
+ *  literal y Konva.Text lo renderea como líneas separadas. */
+function AutoResizeTextarea({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = '0px';
+    el.style.height = `${Math.max(32, el.scrollHeight)}px`;
+  }, [value]);
+  return (
+    <textarea
+      ref={ref}
+      className="input text-sm resize-none leading-snug py-1.5"
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="input text-sm"
-      style={{ fontFamily: value }}
-    >
-      {(Object.keys(grouped) as FontOption['category'][]).map((cat) => (
-        <optgroup key={cat} label={FONT_CATEGORY_LABELS[cat]}>
-          {grouped[cat].map((o) => (
-            <option key={o.label} value={o.value} style={{ fontFamily: o.value }}>
-              {o.label}
-            </option>
-          ))}
-        </optgroup>
-      ))}
-    </select>
+      placeholder={placeholder}
+      rows={1}
+    />
+  );
+}
+
+/** Editor compacto de sombra de texto. Toggle on/off + sliders cuando
+ *  está activa. Sirve para textos con fondos complejos (imagen) que
+ *  necesitan contraste extra. */
+function TextShadowEditor({
+  shadow,
+  onChange,
+}: {
+  shadow: TextLayer['shadow'] | null | undefined;
+  onChange: (s: TextLayer['shadow'] | null) => void;
+}) {
+  const active = !!shadow;
+  if (!active) {
+    return (
+      <button
+        type="button"
+        onClick={() =>
+          onChange({
+            color: '#000000',
+            blur: 8,
+            offsetX: 2,
+            offsetY: 2,
+            opacity: 0.5,
+          })
+        }
+        className="w-full text-[11px] text-mute hover:text-ink border border-dashed border-line rounded py-1.5 transition"
+      >
+        + Agregar sombra
+      </button>
+    );
+  }
+  return (
+    <div className="border border-line rounded p-2 bg-bg2/30 space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-semibold">Sombra</span>
+        <button
+          type="button"
+          onClick={() => onChange(null)}
+          className="text-mute hover:text-red-500 text-xs"
+        >
+          ✕
+        </button>
+      </div>
+      <ColorRow
+        label="Color"
+        value={shadow!.color}
+        onChange={(v) => onChange({ ...shadow!, color: v })}
+      />
+      <div className="grid grid-cols-2 gap-1.5">
+        <NumberRow
+          label="Blur"
+          value={shadow!.blur}
+          min={0}
+          max={40}
+          step={1}
+          onChange={(v) => onChange({ ...shadow!, blur: v })}
+        />
+        <NumberRow
+          label="Off"
+          value={shadow!.offsetX}
+          min={-30}
+          max={30}
+          step={1}
+          onChange={(v) => onChange({ ...shadow!, offsetX: v, offsetY: v })}
+        />
+      </div>
+      <OpacityRow
+        value={shadow!.opacity ?? 1}
+        onChange={(v) => onChange({ ...shadow!, opacity: v })}
+      />
+    </div>
   );
 }
 
@@ -1767,6 +2379,12 @@ function layerLabel(id: LayerId, cfg: QrPosterConfig): string | null {
     if (!p) return null;
     return `${p.emojis.join('')} Patrón`;
   }
+  if (id.startsWith('customText.')) {
+    const t = cfg.customTexts?.find((x) => x.id === id.slice('customText.'.length));
+    if (!t) return null;
+    const preview = (t.text || '').split('\n')[0].slice(0, 32);
+    return `🅣 ${preview || 'Texto'}${t.hidden ? ' · oculto' : ''}${t.locked ? ' · 🔒' : ''}`;
+  }
   return null;
 }
 
@@ -1865,13 +2483,55 @@ function BackgroundSection({
             value={bg.color2}
             onChange={(v) => onChange({ color2: v })}
           />
-          <NumberRow
-            label="Ángulo"
-            value={bg.angle}
-            min={0}
-            max={360}
-            step={5}
-            onChange={(v) => onChange({ angle: v })}
+          <div>
+            <label className="text-xs text-mute">Tipo de gradiente</label>
+            <div className="grid grid-cols-3 gap-1.5 mt-1">
+              {(
+                [
+                  { v: 'linear' as const, label: '⟶ Linear' },
+                  { v: 'radial' as const, label: '◯ Radial' },
+                  { v: 'diagonal' as const, label: '⤢ Diagonal' },
+                ] as const
+              ).map((opt) => {
+                const active = (bg.subtype ?? 'linear') === opt.v;
+                return (
+                  <button
+                    key={opt.v}
+                    type="button"
+                    onClick={() => onChange({ subtype: opt.v })}
+                    className={`text-[10px] py-1.5 rounded border-2 transition ${
+                      active
+                        ? 'border-brand bg-brand-soft text-brand-700 font-semibold'
+                        : 'border-line hover:border-mute'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          {(bg.subtype ?? 'linear') === 'linear' && (
+            <NumberRow
+              label="Ángulo"
+              value={bg.angle}
+              min={0}
+              max={360}
+              step={5}
+              onChange={(v) => onChange({ angle: v })}
+            />
+          )}
+          {/* Mini preview del gradiente */}
+          <div
+            className="rounded-lg border border-line h-12 mt-1"
+            style={{
+              background:
+                (bg.subtype ?? 'linear') === 'radial'
+                  ? `radial-gradient(circle, ${bg.color1}, ${bg.color2})`
+                  : `linear-gradient(${
+                      (bg.subtype === 'diagonal' ? 135 : bg.angle) ?? 135
+                    }deg, ${bg.color1}, ${bg.color2})`,
+            }}
           />
         </>
       )}
@@ -2163,6 +2823,16 @@ function ImageLayerView({
       height={layer.h}
       opacity={layer.opacity ?? 1}
       rotation={layer.rotation ?? 0}
+      crop={
+        layer.crop
+          ? {
+              x: layer.crop.x,
+              y: layer.crop.y,
+              width: layer.crop.width,
+              height: layer.crop.height,
+            }
+          : undefined
+      }
       draggable
       {...handlers}
     />
@@ -2341,6 +3011,10 @@ function ImagesSection({
                 value={im.opacity ?? 1}
                 onChange={(v) => onPatch(im.id, { opacity: v })}
               />
+              <CropButton
+                image={im}
+                onApply={(crop) => onPatch(im.id, { crop })}
+              />
             </div>
           ))}
         </div>
@@ -2350,6 +3024,254 @@ function ImagesSection({
 }
 
 /** Generador de patrones con emojis. */
+/** Botón + modal de crop para un ImageLayer. Muestra la imagen original
+ *  con un rect arrastrable que define la región a usar. Aplica al
+ *  cerrar — actualiza ImageLayer.crop con coords en la imagen source. */
+function CropButton({
+  image,
+  onApply,
+}: {
+  image: ImageLayer;
+  onApply: (crop: { x: number; y: number; width: number; height: number } | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
+  const [crop, setCrop] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const [dragging, setDragging] = useState<null | {
+    mode: 'move' | 'resize';
+    corner?: 'tl' | 'tr' | 'bl' | 'br';
+    startX: number;
+    startY: number;
+    cropStart: { x: number; y: number; w: number; h: number };
+  }>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // Cargar dimensiones reales de la imagen + setear crop default
+  useEffect(() => {
+    if (!open) return;
+    const img = new window.Image();
+    img.onload = () => {
+      const w = img.naturalWidth;
+      const h = img.naturalHeight;
+      setNaturalSize({ w, h });
+      if (image.crop) {
+        setCrop({
+          x: image.crop.x,
+          y: image.crop.y,
+          w: image.crop.width,
+          h: image.crop.height,
+        });
+      } else {
+        setCrop({ x: 0, y: 0, w, h });
+      }
+    };
+    img.src = image.url;
+  }, [open, image.url]);
+
+  // Display: imagen escalada a 400px ancho max
+  const displayW = 480;
+  const scale = naturalSize ? displayW / naturalSize.w : 1;
+  const displayH = naturalSize ? naturalSize.h * scale : 0;
+
+  function pointerToImage(e: React.PointerEvent) {
+    const el = containerRef.current;
+    if (!el) return { x: 0, y: 0 };
+    const r = el.getBoundingClientRect();
+    return {
+      x: (e.clientX - r.left) / scale,
+      y: (e.clientY - r.top) / scale,
+    };
+  }
+
+  function onDown(
+    e: React.PointerEvent,
+    mode: 'move' | 'resize',
+    corner?: 'tl' | 'tr' | 'bl' | 'br',
+  ) {
+    if (!crop) return;
+    e.preventDefault();
+    e.stopPropagation();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    const p = pointerToImage(e);
+    setDragging({ mode, corner, startX: p.x, startY: p.y, cropStart: { ...crop } });
+  }
+  function onMove(e: React.PointerEvent) {
+    if (!dragging || !crop || !naturalSize) return;
+    const p = pointerToImage(e);
+    const dx = p.x - dragging.startX;
+    const dy = p.y - dragging.startY;
+    const base = dragging.cropStart;
+    if (dragging.mode === 'move') {
+      const newX = Math.max(0, Math.min(naturalSize.w - base.w, base.x + dx));
+      const newY = Math.max(0, Math.min(naturalSize.h - base.h, base.y + dy));
+      setCrop({ ...base, x: newX, y: newY });
+    } else if (dragging.mode === 'resize') {
+      let { x, y, w, h } = base;
+      const c = dragging.corner!;
+      if (c.includes('l')) {
+        const newX = Math.max(0, Math.min(base.x + base.w - 50, base.x + dx));
+        w = base.w - (newX - base.x);
+        x = newX;
+      }
+      if (c.includes('r')) {
+        w = Math.max(50, Math.min(naturalSize.w - base.x, base.w + dx));
+      }
+      if (c.includes('t')) {
+        const newY = Math.max(0, Math.min(base.y + base.h - 50, base.y + dy));
+        h = base.h - (newY - base.y);
+        y = newY;
+      }
+      if (c.includes('b')) {
+        h = Math.max(50, Math.min(naturalSize.h - base.y, base.h + dy));
+      }
+      setCrop({ x, y, w, h });
+    }
+  }
+  function onUp(e: React.PointerEvent) {
+    if (dragging) {
+      try {
+        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {}
+    }
+    setDragging(null);
+  }
+
+  function apply() {
+    if (!crop) return;
+    onApply({ x: crop.x, y: crop.y, width: crop.w, height: crop.h });
+    setOpen(false);
+  }
+  function reset() {
+    onApply(null);
+    setOpen(false);
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="btn-ghost text-xs w-full"
+      >
+        ✂️ Recortar imagen
+      </button>
+      {open && (
+        <div
+          className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
+          onClick={() => setOpen(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl max-w-2xl w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b border-line flex items-center justify-between">
+              <h3 className="text-sm font-semibold m-0">Recortar imagen</h3>
+              <button
+                onClick={() => setOpen(false)}
+                className="text-mute hover:text-ink"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-4 flex flex-col items-center gap-3">
+              {!naturalSize || !crop ? (
+                <div className="text-sm text-mute py-8">Cargando imagen…</div>
+              ) : (
+                <>
+                  <div
+                    ref={containerRef}
+                    className="relative bg-bg2/40 select-none"
+                    style={{ width: displayW, height: displayH }}
+                    onPointerMove={onMove}
+                    onPointerUp={onUp}
+                  >
+                    <img
+                      src={image.url}
+                      alt=""
+                      className="absolute inset-0 w-full h-full pointer-events-none object-fill"
+                      draggable={false}
+                    />
+                    {/* Overlay oscuro fuera del crop */}
+                    <div
+                      className="absolute inset-0 pointer-events-none"
+                      style={{
+                        boxShadow: `inset 0 0 0 9999px rgba(0,0,0,0.45)`,
+                        clipPath: `polygon(
+                          0% 0%, 0% 100%, ${(crop.x * scale).toFixed(1)}px 100%,
+                          ${(crop.x * scale).toFixed(1)}px ${(crop.y * scale).toFixed(1)}px,
+                          ${((crop.x + crop.w) * scale).toFixed(1)}px ${(crop.y * scale).toFixed(1)}px,
+                          ${((crop.x + crop.w) * scale).toFixed(1)}px ${((crop.y + crop.h) * scale).toFixed(1)}px,
+                          ${(crop.x * scale).toFixed(1)}px ${((crop.y + crop.h) * scale).toFixed(1)}px,
+                          ${(crop.x * scale).toFixed(1)}px 100%, 100% 100%, 100% 0%
+                        )`,
+                      }}
+                    />
+                    {/* Rect del crop con handles */}
+                    <div
+                      className="absolute border-2 border-white shadow-md cursor-move"
+                      style={{
+                        left: crop.x * scale,
+                        top: crop.y * scale,
+                        width: crop.w * scale,
+                        height: crop.h * scale,
+                      }}
+                      onPointerDown={(e) => onDown(e, 'move')}
+                    >
+                      {(['tl', 'tr', 'bl', 'br'] as const).map((c) => (
+                        <div
+                          key={c}
+                          className="absolute w-3 h-3 bg-white border-2 border-brand"
+                          style={{
+                            top: c.includes('t') ? -6 : undefined,
+                            bottom: c.includes('b') ? -6 : undefined,
+                            left: c.includes('l') ? -6 : undefined,
+                            right: c.includes('r') ? -6 : undefined,
+                            cursor:
+                              c === 'tl' || c === 'br'
+                                ? 'nwse-resize'
+                                : 'nesw-resize',
+                          }}
+                          onPointerDown={(e) => onDown(e, 'resize', c)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <div className="text-[11px] text-mute">
+                    {Math.round(crop.w)} × {Math.round(crop.h)} px
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="p-4 border-t border-line flex gap-2 justify-between flex-wrap">
+              <button
+                onClick={reset}
+                className="btn-ghost text-sm"
+              >
+                Quitar recorte
+              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setOpen(false)}
+                  className="btn-ghost text-sm"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={apply}
+                  className="btn-primary text-sm"
+                  disabled={!crop}
+                >
+                  Aplicar recorte
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function PatternsSection({
   patterns,
   onAdd,
@@ -2540,6 +3462,193 @@ function EmojiQuickPick({
 }
 
 /** Sección de iconos/emojis libres — busca, agrega, edita. */
+/** Sección de cajas de texto libres. UI tipo Canva — cada caja con
+ *  controles de duplicar, lock, hide, eliminar + sus props
+ *  individuales colapsadas hasta clickearla. */
+function CustomTextsSection({
+  texts,
+  onAdd,
+  onPatch,
+  onDuplicate,
+  onRemove,
+}: {
+  texts: CustomTextLayer[];
+  onAdd: () => void;
+  onPatch: (id: string, patch: Partial<CustomTextLayer>) => void;
+  onDuplicate: (id: string) => void;
+  onRemove: (id: string) => void;
+}) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  return (
+    <Section title="Textos libres" icon="🅣" defaultOpen={texts.length > 0}>
+      <button
+        type="button"
+        onClick={onAdd}
+        className="w-full text-xs px-2 py-3 rounded-lg border-2 border-dashed border-line hover:border-brand transition"
+      >
+        + Agregar texto
+      </button>
+      {texts.length === 0 && (
+        <div className="text-[11px] text-mute text-center py-2 leading-relaxed">
+          Cajas de texto independientes — tipografía, color, sombra y
+          tamaño propios. Útil para callouts, etiquetas, decoración.
+        </div>
+      )}
+      {texts.map((t) => {
+        const open = expandedId === t.id;
+        const preview = (t.text || '').split('\n')[0].slice(0, 32) || 'Texto';
+        return (
+          <div key={t.id} className="bg-bg2/40 rounded p-2 space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setExpandedId(open ? null : t.id)}
+                className="flex-1 text-left text-xs font-semibold truncate"
+                title="Editar"
+              >
+                <span className="text-mute mr-1">{open ? '▾' : '▸'}</span>
+                {preview}
+              </button>
+              <button
+                onClick={() => onPatch(t.id, { hidden: !t.hidden })}
+                className="text-mute hover:text-ink text-xs px-1"
+                title={t.hidden ? 'Mostrar' : 'Ocultar'}
+              >
+                {t.hidden ? '🙈' : '👁'}
+              </button>
+              <button
+                onClick={() => onPatch(t.id, { locked: !t.locked })}
+                className="text-mute hover:text-ink text-xs px-1"
+                title={t.locked ? 'Desbloquear' : 'Bloquear'}
+              >
+                {t.locked ? '🔒' : '🔓'}
+              </button>
+              <button
+                onClick={() => onDuplicate(t.id)}
+                className="text-mute hover:text-ink text-xs px-1"
+                title="Duplicar"
+              >
+                ⎘
+              </button>
+              <button
+                onClick={() => onRemove(t.id)}
+                className="text-mute hover:text-red-500 text-xs px-1"
+                title="Eliminar"
+              >
+                ✕
+              </button>
+            </div>
+            {open && (
+              <div className="space-y-1.5 pt-1 border-t border-line2">
+                <AutoResizeTextarea
+                  value={t.text}
+                  onChange={(v) => onPatch(t.id, { text: v })}
+                  placeholder="Tu texto…"
+                />
+                <FontPicker
+                  value={t.font}
+                  onChange={(v) => {
+                    const opt = FONT_OPTIONS.find((o) => o.value === v);
+                    onPatch(t.id, {
+                      font: v,
+                      fontLabel: opt?.label ?? t.fontLabel,
+                    });
+                  }}
+                />
+                <div className="grid grid-cols-2 gap-1.5">
+                  <NumberRow
+                    label="Tamaño"
+                    value={t.size}
+                    min={10}
+                    max={300}
+                    step={2}
+                    onChange={(v) => onPatch(t.id, { size: v })}
+                  />
+                  <SelectRow
+                    label="Peso"
+                    value={String(t.weight)}
+                    options={[
+                      { label: 'Regular', value: '400' },
+                      { label: 'Semibold', value: '600' },
+                      { label: 'Bold', value: '700' },
+                      { label: 'Black', value: '900' },
+                    ]}
+                    onChange={(v) => onPatch(t.id, { weight: Number(v) })}
+                  />
+                </div>
+                <ColorRow
+                  label="Color"
+                  value={t.color}
+                  onChange={(v) => onPatch(t.id, { color: v })}
+                />
+                <PositionRow
+                  x={t.x}
+                  y={t.y}
+                  onChange={(x, y) => onPatch(t.id, { x, y })}
+                />
+                <NumberRow
+                  label="Ancho caja"
+                  value={t.boxWidth ?? 0}
+                  min={0}
+                  max={2000}
+                  step={20}
+                  onChange={(v) =>
+                    onPatch(t.id, { boxWidth: v > 0 ? v : null })
+                  }
+                />
+                <SelectRow
+                  label="Alineación"
+                  value={t.align}
+                  options={[
+                    { label: '← Izq.', value: 'left' },
+                    { label: '↔ Centro', value: 'center' },
+                    { label: 'Der. →', value: 'right' },
+                    { label: 'Justif.', value: 'justify' },
+                  ]}
+                  onChange={(v) => onPatch(t.id, { align: v as any })}
+                />
+                <div className="grid grid-cols-2 gap-1.5">
+                  <NumberRow
+                    label="Línea"
+                    value={t.lineHeight ?? 1.2}
+                    min={0.8}
+                    max={3}
+                    step={0.1}
+                    onChange={(v) => onPatch(t.id, { lineHeight: v })}
+                  />
+                  <NumberRow
+                    label="Letra"
+                    value={t.letterSpacing ?? 0}
+                    min={-10}
+                    max={50}
+                    step={1}
+                    onChange={(v) => onPatch(t.id, { letterSpacing: v })}
+                  />
+                </div>
+                <NumberRow
+                  label="Rotación"
+                  value={t.rotation ?? 0}
+                  min={-180}
+                  max={180}
+                  step={5}
+                  onChange={(v) => onPatch(t.id, { rotation: v })}
+                />
+                <OpacityRow
+                  value={t.opacity ?? 1}
+                  onChange={(v) => onPatch(t.id, { opacity: v })}
+                />
+                <TextShadowEditor
+                  shadow={t.shadow ?? null}
+                  onChange={(s) => onPatch(t.id, { shadow: s })}
+                />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </Section>
+  );
+}
+
 function EmojisSection({
   icons,
   onAdd,

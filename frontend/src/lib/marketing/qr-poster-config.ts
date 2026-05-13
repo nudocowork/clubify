@@ -20,6 +20,10 @@ export type BgConfig =
     }
   | {
       type: 'gradient';
+      /** Subtipo del gradiente. 'linear' usa angle (0-360) para
+       *  dirección. 'radial' crece del centro hacia afuera. 'diagonal'
+       *  es un alias preset de linear con angle=135. */
+      subtype?: 'linear' | 'radial' | 'diagonal';
       color1: string;
       color2: string;
       angle: number;
@@ -56,6 +60,8 @@ export type QrConfig = {
 };
 
 export type TextLayer = {
+  /** Soporta saltos de línea con "\n". El UI usa <textarea> para que
+   *  el cliente pueda dar ENTER. Konva.Text renderea cada línea. */
   text: string;
   x: number;
   y: number;
@@ -66,11 +72,42 @@ export type TextLayer = {
   size: number; // px
   color: string;
   weight: number; // 400 | 700 | 900
-  align: 'left' | 'center' | 'right';
+  align: 'left' | 'center' | 'right' | 'justify';
   /** 0..1 — opacidad del texto (default 1) */
   opacity?: number;
-  /** Grados (0..360). Default 0. */
+  /** Grados (-180..180). Default 0. */
   rotation?: number;
+  /** Multiplicador del alto de línea. 1 = lineHeight = size px,
+   *  1.2 = 20% más (default), 1.5 para textos espaciados. */
+  lineHeight?: number;
+  /** Ancho de la caja de texto en px. Si null, usa todo el ancho del
+   *  canvas (para centrar/justificar a página). Si seteado, el texto
+   *  se alinea DENTRO de la caja anclada en (x, y). */
+  boxWidth?: number | null;
+  /** Sombra del texto. */
+  shadow?: {
+    color: string;
+    blur: number; // px
+    offsetX: number;
+    offsetY: number;
+    opacity?: number;
+  } | null;
+  /** Espaciado entre letras en px. Default 0. */
+  letterSpacing?: number;
+};
+
+/** Caja de texto libre que el usuario agrega manualmente. Igual que
+ *  TextLayer pero con id propio + flags de UX (locked/hidden) para que
+ *  el editor permita gestionar muchos sin romper el resto del flujo.
+ *  Los 4 textos fijos (title/subtitle/cta/brand) siguen existiendo
+ *  como antes para backward-compat — esto es ADICIONAL. */
+export type CustomTextLayer = TextLayer & {
+  id: string;
+  /** Si true, no se puede mover/editar desde el canvas (sí desde el
+   *  sidebar). UX típica de Canva/Figma. */
+  locked?: boolean;
+  /** Si true, no se renderea — pero se conserva en el cfg. */
+  hidden?: boolean;
 };
 
 /** Layer del logo del negocio (opcional). Se pinta como imagen Konva. */
@@ -129,6 +166,14 @@ export type ImageLayer = {
   rotation?: number;
   /** Si true, mantenemos el aspecto al redimensionar manualmente. */
   keepAspect?: boolean;
+  /** Rect del source de la imagen a usar (px sobre la imagen original).
+   *  Sirve para crop — Konva.Image acepta `crop` con este shape. Si
+   *  null, se usa toda la imagen. */
+  crop?: { x: number; y: number; width: number; height: number } | null;
+  /** Modo de ajuste cuando el aspect del rect no matchea con el aspect
+   *  del crop (o de la imagen). 'cover' = llena el rect, 'contain' =
+   *  ajusta dentro, 'fill' = estira. Default 'cover'. */
+  fit?: 'cover' | 'contain' | 'fill';
 };
 
 /** Patrón generado a partir de uno o varios emojis. Se renderiza
@@ -177,7 +222,8 @@ export type LayerId =
   | `shape.${string}`
   | `icon.${string}`
   | `image.${string}`
-  | `pattern.${string}`;
+  | `pattern.${string}`
+  | `customText.${string}`;
 
 export type CanvasConfig = {
   /** Ancho/alto del lienzo Konva en px. */
@@ -204,6 +250,9 @@ export type QrPosterConfig = {
   icons?: IconLayer[];
   images?: ImageLayer[];
   patterns?: PatternLayer[];
+  /** Cajas de texto libres agregadas por el usuario (item 4 del spec).
+   *  Independientes de los 4 textos fijos. */
+  customTexts?: CustomTextLayer[];
   texts: {
     title: TextLayer;
     subtitle: TextLayer;
@@ -239,6 +288,9 @@ export function defaultLayerOrder(cfg: QrPosterConfig): LayerId[] {
   const iconIds: LayerId[] = (cfg.icons ?? []).map(
     (i) => `icon.${i.id}` as LayerId,
   );
+  const customTextIds: LayerId[] = (cfg.customTexts ?? []).map(
+    (t) => `customText.${t.id}` as LayerId,
+  );
   return [
     'bg',
     ...patternIds,
@@ -250,6 +302,7 @@ export function defaultLayerOrder(cfg: QrPosterConfig): LayerId[] {
     'text.title',
     'text.subtitle',
     'text.cta',
+    ...customTextIds,
     ...iconIds,
     'footer',
   ];
@@ -402,6 +455,48 @@ export const ICON_EMOJI_CATALOG: { group: string; emojis: string[] }[] = [
 ];
 
 /** Pixel ratio para que el export alcance el DPI físico requerido. */
+/** Estimación del bounding box VISUAL real de un TextLayer, considerando
+ *  multilínea (split por "\n") + lineHeight + alineación. Es heurístico
+ *  (no usa Konva.Text.measureSize) — sirve para smart guides + snap.
+ *  Para la medición precisa al exportar se usa Konva directo.
+ *
+ *  Devuelve la box del CONTENIDO visual del texto, NO el ancho de la
+ *  caja contenedora completa (boxWidth/canvas.w). Esto hace que los
+ *  guides snapean al centro REAL del texto, no a la caja.
+ */
+export function estimateTextBox(
+  t: TextLayer,
+  canvasW: number,
+): { x: number; y: number; w: number; h: number } {
+  const lineHeight = t.lineHeight ?? 1.2;
+  const lines = (t.text || ' ').split('\n');
+  // Width aprox de cada línea: chars * size * 0.5 (heurística genérica
+  // que se queda corta para tipografías mono pero alcanza para guides).
+  const widestLine = lines.reduce((max, line) => {
+    const w = Math.max(t.size, line.length * t.size * 0.5);
+    return Math.max(max, w);
+  }, 0);
+  const totalH = lines.length * t.size * lineHeight;
+
+  // Box X: depende de la alineación. Si el texto está centrado/justificado
+  // dentro de una boxWidth (o full canvas), su X visual se calcula desde
+  // el anclaje y la alineación.
+  const containerW = t.boxWidth ?? canvasW;
+  const containerX = t.boxWidth != null ? t.x : 0;
+  let visualX = containerX;
+  if (t.align === 'center') {
+    visualX = containerX + (containerW - widestLine) / 2;
+  } else if (t.align === 'right') {
+    visualX = containerX + containerW - widestLine;
+  }
+  // Para 'justify' sin width definida, usa todo el ancho del contenedor
+  if (t.align === 'justify') {
+    visualX = containerX;
+    return { x: visualX, y: t.y, w: containerW, h: totalH };
+  }
+  return { x: visualX, y: t.y, w: widestLine, h: totalH };
+}
+
 export function pixelRatioForDpi(canvas: CanvasConfig): number {
   const mm = canvas.mm ?? { w: 210, h: 297 };
   const dpi = canvas.dpi ?? 300;
@@ -490,6 +585,12 @@ export function rescaleForCanvas(
       ...p,
       x: p.x !== undefined ? clampX(Math.round(p.x * sx), p.w ?? 0) : p.x,
       y: p.y !== undefined ? clampY(Math.round(p.y * sy), p.h ?? 0) : p.y,
+    })),
+    customTexts: (cfg.customTexts ?? []).map((t) => ({
+      ...t,
+      x: Math.round(t.x * sx),
+      y: clampY(Math.round(t.y * sy), t.size),
+      ...(t.boxWidth != null ? { boxWidth: Math.round(t.boxWidth * sx) } : {}),
     })),
   };
 }
@@ -584,6 +685,7 @@ export function normalizeConfig(
     icons: Array.isArray(cfg.icons) ? cfg.icons : [],
     images: Array.isArray(cfg.images) ? cfg.images : [],
     patterns: Array.isArray(cfg.patterns) ? cfg.patterns : [],
+    customTexts: Array.isArray(cfg.customTexts) ? cfg.customTexts : [],
     texts: {
       title: { ...def.texts.title, ...(cfg.texts?.title ?? {}) },
       subtitle: { ...def.texts.subtitle, ...(cfg.texts?.subtitle ?? {}) },
