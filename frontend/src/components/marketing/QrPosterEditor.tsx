@@ -3819,53 +3819,43 @@ function ImagesSection({
       alert(`No se pudo cargar el badge ${badge.label}.`);
       return;
     }
-    onAdd(dataUrl, badge.width, badge.height);
+    // Los badges miden 100-240px nativos. En canvas de 1080+ son
+    // invisibles si los agregamos a tamaño nativo (el bug que
+    // reportó el dueño: "no aparece agregado"). Escalamos a ~28%
+    // del ancho del canvas manteniendo aspect — queda como un sello
+    // legible y el usuario lo achica/agranda después.
+    const targetW = canvasW * 0.28;
+    const scale = targetW / badge.width;
+    onAdd(dataUrl, targetW, badge.height * scale);
   }
 
-  const badgeEntries: Array<{ key: string; badge: WalletBadge; available: boolean }> = [
-    { key: 'appleEs', badge: WALLET_BADGES.appleEs, available: true },
-    { key: 'appleEn', badge: WALLET_BADGES.appleEn, available: true },
-    { key: 'googleEs', badge: WALLET_BADGES.googleEs, available: true },
-    { key: 'googleEn', badge: WALLET_BADGES.googleEn, available: true },
+  const badgeEntries: Array<{ key: string; badge: WalletBadge }> = [
+    { key: 'appleEs', badge: WALLET_BADGES.appleEs },
+    { key: 'googleEs', badge: WALLET_BADGES.googleEs },
+    { key: 'applePay', badge: WALLET_BADGES.applePay },
+    { key: 'googlePay', badge: WALLET_BADGES.googlePay },
   ];
 
   return (
     <Section title="Imágenes" icon="🖼️" defaultOpen={images.length > 0}>
       <div className="space-y-1.5">
         <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
-          Badges Wallet (oficiales)
+          Badges Wallet & Pay
         </div>
         <div className="grid grid-cols-2 gap-1.5">
-          {badgeEntries.map(({ key, badge, available }) => (
+          {badgeEntries.map(({ key, badge }) => (
             <button
               key={key}
               type="button"
-              onClick={() => available && addBadge(badge)}
-              disabled={!available}
-              className={`rounded-lg border p-1.5 transition flex items-center justify-center min-h-[40px] ${
-                available
-                  ? 'border-line hover:border-brand bg-black'
-                  : 'border-dashed border-line bg-bg2/40 opacity-50 cursor-not-allowed'
-              }`}
-              title={
-                available
-                  ? `Agregar ${badge.label}`
-                  : `${badge.label} — pendiente: descargar SVG oficial`
-              }
+              onClick={() => addBadge(badge)}
+              className="rounded-lg border border-line hover:border-brand bg-white p-2 transition flex items-center justify-center min-h-[44px]"
+              title={`Agregar ${badge.label}`}
             >
-              {available ? (
-                <img
-                  src={badge.src}
-                  alt={badge.label}
-                  className="w-full h-auto max-h-8 object-contain"
-                />
-              ) : (
-                <span className="text-[9px] text-mute text-center leading-tight">
-                  {badge.label}
-                  <br />
-                  (pendiente)
-                </span>
-              )}
+              <img
+                src={badge.src}
+                alt={badge.label}
+                className="w-full h-auto max-h-7 object-contain"
+              />
             </button>
           ))}
         </div>
