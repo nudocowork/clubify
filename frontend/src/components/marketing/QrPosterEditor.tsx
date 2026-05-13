@@ -68,7 +68,11 @@ import {
   type EmojiCategory,
   type EmojiEntry,
 } from '@/lib/marketing/emoji-library';
-import { WALLET_BADGES } from '@/lib/marketing/wallet-badges';
+import {
+  WALLET_BADGES,
+  loadBadgeAsDataUrl,
+  type WalletBadge,
+} from '@/lib/marketing/wallet-badges';
 
 type Props = {
   type: QrPosterType;
@@ -3809,41 +3813,63 @@ function ImagesSection({
     reader.readAsDataURL(file);
   }
 
-  function addBadge(badge: typeof WALLET_BADGES[keyof typeof WALLET_BADGES]) {
-    onAdd(badge.dataUrl, badge.width, badge.height);
+  async function addBadge(badge: WalletBadge) {
+    const dataUrl = await loadBadgeAsDataUrl(badge);
+    if (!dataUrl) {
+      alert(`No se pudo cargar el badge ${badge.label}.`);
+      return;
+    }
+    onAdd(dataUrl, badge.width, badge.height);
   }
+
+  // Solo mostramos los badges cuyo SVG existe en /public/wallet-badges/.
+  // Google aún no — quedan grises hasta que descargues el ZIP oficial.
+  const badgeEntries: Array<{ key: string; badge: WalletBadge; available: boolean }> = [
+    { key: 'appleEs', badge: WALLET_BADGES.appleEs, available: true },
+    { key: 'appleEn', badge: WALLET_BADGES.appleEn, available: true },
+    { key: 'googleEs', badge: WALLET_BADGES.googleEs, available: false },
+    { key: 'googleEn', badge: WALLET_BADGES.googleEn, available: false },
+  ];
 
   return (
     <Section title="Imágenes" icon="🖼️" defaultOpen={images.length > 0}>
       <div className="space-y-1.5">
         <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
-          Badges Wallet
+          Badges Wallet (oficiales)
         </div>
         <div className="grid grid-cols-2 gap-1.5">
-          <button
-            type="button"
-            onClick={() => addBadge(WALLET_BADGES.apple)}
-            className="rounded-lg border border-line hover:border-brand bg-black p-1.5 transition"
-            title="Agregar badge Apple Wallet"
-          >
-            <img
-              src={WALLET_BADGES.apple.dataUrl}
-              alt="Add to Apple Wallet"
-              className="w-full h-auto"
-            />
-          </button>
-          <button
-            type="button"
-            onClick={() => addBadge(WALLET_BADGES.google)}
-            className="rounded-lg border border-line hover:border-brand bg-black p-1.5 transition"
-            title="Agregar badge Google Wallet"
-          >
-            <img
-              src={WALLET_BADGES.google.dataUrl}
-              alt="Save to Google Wallet"
-              className="w-full h-auto"
-            />
-          </button>
+          {badgeEntries.map(({ key, badge, available }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => available && addBadge(badge)}
+              disabled={!available}
+              className={`rounded-lg border p-1.5 transition flex items-center justify-center min-h-[40px] ${
+                available
+                  ? 'border-line hover:border-brand bg-black'
+                  : 'border-dashed border-line bg-bg2/40 opacity-50 cursor-not-allowed'
+              }`}
+              title={
+                available
+                  ? `Agregar ${badge.label}`
+                  : `${badge.label} — pendiente: descargar SVG oficial`
+              }
+            >
+              {available ? (
+                <img
+                  src={badge.src}
+                  alt={badge.label}
+                  className="w-full h-auto max-h-8 object-contain"
+                />
+              ) : (
+                <span className="text-[9px] text-mute text-center leading-tight">
+                  {badge.label}
+                  <br />
+                  (pendiente)
+                </span>
+              )}
+            </button>
+          ))}
         </div>
       </div>
 
