@@ -1758,6 +1758,8 @@ export default function QrPosterEditor({
           onAdd={addImageFromDataUrl}
           onPatch={patchImage}
           onRemove={removeImage}
+          canvasW={cfg.canvas.w}
+          canvasH={cfg.canvas.h}
         />
 
         {/* Patrones (emojis) */}
@@ -1942,13 +1944,18 @@ export default function QrPosterEditor({
                               shadowOpacity={sh?.opacity ?? (sh ? 1 : 0)}
                             />
                           )}
+                          {/* KonvaImage DEBE escuchar eventos sino el
+                              Group no se puede draggear cuando no hay
+                              marco (Rect del padding renderea solo si
+                              padding/border/shadow/cornerRadius > 0).
+                              Sin un child hittable, el Group queda sin
+                              hit area y el drag no funciona. */}
                           <KonvaImage
                             image={qrImage}
                             x={pad}
                             y={pad}
                             width={cfg.qr.size}
                             height={cfg.qr.size}
-                            listening={false}
                           />
                         </Group>
                       );
@@ -3623,31 +3630,73 @@ function ImageLayerView({
 }) {
   const img = useImageFromUrl(layer.url);
   if (!img) return null;
+  const rotation = layer.rotation ?? 0;
+  const cropProp = layer.crop
+    ? {
+        x: layer.crop.x,
+        y: layer.crop.y,
+        width: layer.crop.width,
+        height: layer.crop.height,
+      }
+    : undefined;
+
+  // Konva.Image acepta offsetX/Y directamente. Cuando rotation=0 el
+  // offset no afecta la posición visual; cuando rotation>0 hace que
+  // pivote desde el centro (estándar Canva/Figma).
+  // x/y representan dónde queda el PIVOTE; el render arranca en
+  // (x - offsetX, y - offsetY) = top-left original (layer.x, layer.y).
   const handlers = makeHandlers(
     { x: layer.x, y: layer.y, w: layer.w, h: layer.h },
     onMove,
   );
+
+  // Drag handlers ajustados: como x/y son centro (cuando hay offset),
+  // convertimos a/desde top-left para mantener compatibilidad con
+  // gatherSnapTargets (que usa top-left).
+  const wrappedHandlers = {
+    onDragMove: (e: any) => {
+      const node = e.target;
+      const tlX = node.x() - layer.w / 2;
+      const tlY = node.y() - layer.h / 2;
+      // Shim que expone x()/y() como top-left para que el handler
+      // original calcule snap correctamente, y aplique el snap al
+      // node real (centro).
+      const shim = {
+        target: {
+          x: (v?: number) => {
+            if (v !== undefined) node.x(v + layer.w / 2);
+            return tlX;
+          },
+          y: (v?: number) => {
+            if (v !== undefined) node.y(v + layer.h / 2);
+            return tlY;
+          },
+        },
+      };
+      handlers.onDragMove(shim as any);
+    },
+    onDragEnd: (e: any) => {
+      onMove(e.target.x() - layer.w / 2, e.target.y() - layer.h / 2);
+      // El handler original llama setGuides([]) — invocamos sin que
+      // necesite leer x()/y() (ya las consumimos arriba).
+      handlers.onDragEnd({ target: { x: () => 0, y: () => 0 } } as any);
+    },
+  };
+
   return (
     <KonvaImage
       image={img}
-      x={layer.x}
-      y={layer.y}
+      x={layer.x + layer.w / 2}
+      y={layer.y + layer.h / 2}
+      offsetX={layer.w / 2}
+      offsetY={layer.h / 2}
       width={layer.w}
       height={layer.h}
       opacity={layer.opacity ?? 1}
-      rotation={layer.rotation ?? 0}
-      crop={
-        layer.crop
-          ? {
-              x: layer.crop.x,
-              y: layer.crop.y,
-              width: layer.crop.width,
-              height: layer.crop.height,
-            }
-          : undefined
-      }
+      rotation={rotation}
+      crop={cropProp}
       draggable
-      {...handlers}
+      {...wrappedHandlers}
     />
   );
 }
@@ -3711,11 +3760,15 @@ function ImagesSection({
   onAdd,
   onPatch,
   onRemove,
+  canvasW,
+  canvasH,
 }: {
   images: ImageLayer[];
   onAdd: (dataUrl: string, w: number, h: number) => void;
   onPatch: (id: string, patch: Partial<ImageLayer>) => void;
   onRemove: (id: string) => void;
+  canvasW: number;
+  canvasH: number;
 }) {
   function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     // Reset siempre — ver comentario en BackgroundSection.handleUpload.
@@ -3812,6 +3865,45 @@ function ImagesSection({
                 />
                 Mantener proporción
               </label>
+              {/* Centrar matemáticamente preciso. Soluciona la queja
+                  de "alineado de imágenes + guía de centro": el cliente
+                  no tiene que tratar de arrastrar al centro exacto a
+                  mano — un click centra al pixel. */}
+              <div className="grid grid-cols-3 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() =>
+                    onPatch(im.id, { x: (canvasW - im.w) / 2 })
+                  }
+                  className="btn-ghost text-[10px] py-1.5"
+                  title="Centrar horizontalmente"
+                >
+                  ↔ H
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onPatch(im.id, { y: (canvasH - im.h) / 2 })
+                  }
+                  className="btn-ghost text-[10px] py-1.5"
+                  title="Centrar verticalmente"
+                >
+                  ↕ V
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onPatch(im.id, {
+                      x: (canvasW - im.w) / 2,
+                      y: (canvasH - im.h) / 2,
+                    })
+                  }
+                  className="btn-ghost text-[10px] py-1.5"
+                  title="Centrar en el canvas"
+                >
+                  ⊕ Todo
+                </button>
+              </div>
               <NumberRow
                 label="Rotación"
                 value={im.rotation ?? 0}
