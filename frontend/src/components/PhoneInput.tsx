@@ -68,7 +68,11 @@ export function PhoneInput({
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    onChange(`${country.dial} ${number.trim()}`.trim());
+    // Si el número está vacío, emitir string vacío — NO solo el dial.
+    // Sin esto, los validators `if (!form.whatsapp.trim())` pasan con
+    // "+57" basura y se persiste data inservible en DB.
+    const trimmedNumber = number.trim();
+    onChange(trimmedNumber ? `${country.dial} ${trimmedNumber}` : '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [country, number]);
 

@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   IsEmail,
   IsEnum,
@@ -110,13 +111,20 @@ class PublicApplyBody {
 export class PublicCampaignsController {
   constructor(private svc: CampaignsService) {}
 
+  /** Lectura — más permisivo (60/min/IP) porque la landing puede ser
+   *  refresheada o linkeada desde distintos lugares. */
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('by-owner-code/:code')
   byOwnerCode(@Param('code') code: string) {
     return this.svc.getPublicByOwnerCode(code);
   }
 
+  /** Escritura — 5/min/IP. Si un atacante quiere crear muchos
+   *  embajadores spam tiene que rotar IPs. Mejor que nada hasta que se
+   *  agregue captcha. */
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @Post('by-owner-code/:code/apply')
   apply(@Param('code') code: string, @Body() body: PublicApplyBody) {
     return this.svc.applyAsAmbassador(code, body);

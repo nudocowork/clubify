@@ -84,13 +84,20 @@ export class SupportService {
         if (title && content) items.push({ title, content });
       }
     } else {
-      // 'paragraphs'
+      // 'paragraphs' — title = primera oración. Para evitar que dos
+      // párrafos con la misma frase inicial colisionen y se pierda uno,
+      // contamos repetidos en memoria y le agregamos sufijo " (N)" al
+      // title de los duplicados.
       const paragraphs = text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+      const titleCounts = new Map<string, number>();
       for (const p of paragraphs) {
-        // Primera oración como title (hasta 200 chars)
+        if (p.length <= 20) continue;
         const firstSentence = p.split(/[.!?\n]/)[0].trim();
-        const title = firstSentence.slice(0, 200) || 'Sin título';
-        if (p.length > 20) items.push({ title, content: p });
+        let title = firstSentence.slice(0, 196) || 'Sin título';
+        const seen = titleCounts.get(title) ?? 0;
+        if (seen > 0) title = `${title} (${seen + 1})`;
+        titleCounts.set(firstSentence.slice(0, 196) || 'Sin título', seen + 1);
+        items.push({ title, content: p });
       }
     }
 
@@ -98,23 +105,26 @@ export class SupportService {
       throw new BadRequestException('Documento no produjo entries válidos');
     }
 
-    // Upsert: si existe un entry con el mismo title, lo actualizamos.
-    const results = await Promise.all(
-      items.map(async (it) => {
-        const existing = await this.prisma.knowledgeEntry.findFirst({
-          where: { title: it.title, category },
-        });
-        if (existing) {
-          return this.prisma.knowledgeEntry.update({
+    // Upsert SERIAL (no Promise.all) — sino dos items con mismo title
+    // ejecutan findFirst en paralelo, no ven el create del otro y dejan
+    // 2 rows. Con el bucle for+await la consistencia se garantiza.
+    const results = [] as Awaited<
+      ReturnType<typeof this.prisma.knowledgeEntry.create>
+    >[];
+    for (const it of items) {
+      const existing = await this.prisma.knowledgeEntry.findFirst({
+        where: { title: it.title, category },
+      });
+      const row = existing
+        ? await this.prisma.knowledgeEntry.update({
             where: { id: existing.id },
             data: { content: it.content, isActive: true },
+          })
+        : await this.prisma.knowledgeEntry.create({
+            data: { title: it.title, content: it.content, category },
           });
-        }
-        return this.prisma.knowledgeEntry.create({
-          data: { title: it.title, content: it.content, category },
-        });
-      }),
-    );
+      results.push(row);
+    }
 
     return { count: results.length, entries: results };
   }

@@ -148,15 +148,26 @@ export class PassesController {
 
   /** Marca el pass con la plataforma de wallet elegida por el cliente.
    *  Fire-and-forget: el error se loguea pero no rompe la descarga del
-   *  .pkpass / save URL. */
+   *  .pkpass / save URL.
+   *
+   *  walletInstalledAt es SET-ONCE — guarda el timestamp de la PRIMERA
+   *  instalación, no se mueve si el cliente refresca el .pkpass varias
+   *  veces (Apple cachea y vuelve a pedir el .pkpass al actualizarlo).
+   *  walletPlatform en cambio se actualiza siempre porque el cliente
+   *  puede cambiar de plataforma (descargar primero Apple, luego Google).
+   */
   private async trackWalletInstall(passId: string, platform: 'APPLE' | 'GOOGLE') {
     try {
+      // updateMany con filtro walletInstalledAt:null actualiza solo si
+      // todavía no se había seteado. Luego un update normal sincroniza
+      // la plataforma actual (independiente del timestamp original).
+      await this.prisma.pass.updateMany({
+        where: { id: passId, walletInstalledAt: null },
+        data: { walletInstalledAt: new Date() },
+      });
       await this.prisma.pass.update({
         where: { id: passId },
-        data: {
-          walletPlatform: platform,
-          walletInstalledAt: new Date(),
-        },
+        data: { walletPlatform: platform },
       });
     } catch (e: any) {
       this.logger.warn(

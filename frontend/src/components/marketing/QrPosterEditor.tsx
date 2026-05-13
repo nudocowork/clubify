@@ -1266,13 +1266,38 @@ export default function QrPosterEditor({
                           y={s.y + s.w / 2}
                           radius={s.w / 2}
                           {...common}
-                          onDragMove={handlers.onDragMove}
-                          onDragEnd={(e) =>
+                          onDragMove={(e) => {
+                            // Konva.Circle expone su CENTRO como x/y, no
+                            // el top-left como Rect. Convertimos a
+                            // top-left antes de computeSnap, sino el
+                            // snap queda desfasado por el radio.
+                            const cx = e.target.x();
+                            const cy = e.target.y();
+                            const newBox = {
+                              x: cx - s.w / 2,
+                              y: cy - s.w / 2,
+                              w: s.w,
+                              h: s.w,
+                            };
+                            const others = gatherSnapTargets(cfg);
+                            const snap = computeSnap(
+                              newBox,
+                              others,
+                              cfg.canvas.w,
+                              cfg.canvas.h,
+                              `shape.${sid}`,
+                            );
+                            if (snap.x !== newBox.x) e.target.x(snap.x + s.w / 2);
+                            if (snap.y !== newBox.y) e.target.y(snap.y + s.w / 2);
+                            setGuides(snap.guides);
+                          }}
+                          onDragEnd={(e) => {
                             patchShape(sid, {
                               x: e.target.x() - s.w / 2,
                               y: e.target.y() - s.w / 2,
-                            })
-                          }
+                            });
+                            setGuides([]); // sin esto las guías quedan visibles
+                          }}
                         />
                       ) : (
                         <Rect

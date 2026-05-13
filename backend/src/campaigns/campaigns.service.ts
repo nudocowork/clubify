@@ -341,12 +341,29 @@ export class CampaignsService {
       },
     });
     if (dup) {
+      // Diferenciar entre dup-pending y dup-active. Si está pending
+      // (isActive=false + approvedAt=null), no enviamos email; le decimos
+      // que sigue en revisión. Si está activo, re-enviamos la invitación.
+      const isPending = !dup.isActive && !dup.approvedAt;
+      if (!isPending) {
+        await this.auth
+          .inviteAffiliate({
+            email,
+            fullName: dup.ownerName,
+            role: 'AFFILIATE_AMBASSADOR',
+            referralCodeId: dup.id,
+            phone: dup.ownerWhatsapp,
+          })
+          .catch(() => null);
+      }
       return {
         ok: true,
         alreadyExists: true,
         code: dup.code,
-        message:
-          'Ya estabas inscripto como embajador de esta campaña. Te re-enviamos las instrucciones por email.',
+        pendingApproval: isPending,
+        message: isPending
+          ? 'Tu solicitud sigue en revisión por el admin. Te avisaremos por email cuando se apruebe.'
+          : 'Ya estabas inscripto como embajador de esta campaña. Te re-enviamos las instrucciones por email.',
       };
     }
 
@@ -357,21 +374,49 @@ export class CampaignsService {
     });
     const requireApproval = requireApprovalSetting?.value === 'true';
 
+    // Race protection: dos requests concurrentes con el mismo email
+    // pueden pasar el findFirst de arriba simultáneamente y crear 2
+    // ReferralCode duplicados. Lo manejamos catching el P2002 que tira
+    // Prisma cuando colisiona el `code` único (resolveCode genera uno
+    // distinto cada vez, pero el código duplicado real lo detectamos
+    // re-leyendo el row existente y devolviendo alreadyExists).
     const code = await this.resolveCode();
-    const ambassadorCode = await this.prisma.referralCode.create({
-      data: {
-        code,
-        ownerName: dto.fullName.trim(),
-        ownerEmail: email,
-        ownerWhatsapp: dto.whatsapp.trim(),
-        commissionPercent: 10, // default — admin puede ajustar luego
-        role: 'AMBASSADOR',
-        parentCodeId: owner.id,
-        campaignId: owner.ownerOfCampaign.id,
-        isActive: !requireApproval,
-        approvedAt: requireApproval ? null : new Date(),
-      },
-    });
+    let ambassadorCode;
+    try {
+      ambassadorCode = await this.prisma.referralCode.create({
+        data: {
+          code,
+          ownerName: dto.fullName.trim(),
+          ownerEmail: email,
+          ownerWhatsapp: dto.whatsapp.trim(),
+          commissionPercent: 10, // default — admin puede ajustar luego
+          role: 'AMBASSADOR',
+          parentCodeId: owner.id,
+          campaignId: owner.ownerOfCampaign.id,
+          isActive: !requireApproval,
+          approvedAt: requireApproval ? null : new Date(),
+        },
+      });
+    } catch (e: any) {
+      // P2002 = unique constraint violation. Re-leemos para devolver el
+      // que ya existe (creado por la otra request concurrente).
+      if (e?.code === 'P2002') {
+        const existing = await this.prisma.referralCode.findFirst({
+          where: { ownerEmail: email, role: 'AMBASSADOR', parentCodeId: owner.id },
+        });
+        if (existing) {
+          return {
+            ok: true,
+            alreadyExists: true,
+            code: existing.code,
+            pendingApproval: !existing.isActive && !existing.approvedAt,
+            message:
+              'Tu solicitud ya fue registrada. Te enviamos las instrucciones por email.',
+          };
+        }
+      }
+      throw e;
+    }
 
     // Solo invitamos al panel si NO requiere aprobación. Si requiere
     // aprobación, el admin manda la invitación al aprobar.

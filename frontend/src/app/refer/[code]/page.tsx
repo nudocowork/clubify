@@ -76,9 +76,15 @@ export default function ApplyAmbassadorPage() {
           body: JSON.stringify(form),
         },
       );
-      const data: ApplyResponse = await r.json();
+      // r.json() crashea con "Unexpected token <" si el response es HTML
+      // (502/504 de un proxy o CDN). Hacemos catch para devolver mensaje
+      // útil en vez de un SyntaxError opaco.
+      const data: ApplyResponse = await r.json().catch(() => ({ ok: false } as any));
       if (!r.ok) {
-        throw new Error((data as any)?.message ?? 'Error al enviar');
+        throw new Error(
+          (data as any)?.message ??
+            `Error ${r.status}. Intentá de nuevo en unos minutos.`,
+        );
       }
       setResult(data);
     } catch (e: any) {

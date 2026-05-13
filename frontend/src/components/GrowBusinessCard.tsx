@@ -57,8 +57,20 @@ export function GrowBusinessCard({
       return;
     }
     const sn = switchNumber.trim();
-    const parsedSwitch = sn ? Number(sn) : undefined;
-    if (parsedSwitch !== undefined && (!Number.isInteger(parsedSwitch) || parsedSwitch < 1)) {
+    // Si el admin dejó el campo vacío Y antes tenía un switch, quiere
+    // LIMPIARLO. Mandamos null explícito al backend para que se borre,
+    // en lugar de undefined que preservaría el valor anterior.
+    const hadSwitchBefore = status?.switchNumber != null;
+    const parsedSwitch = sn
+      ? Number(sn)
+      : hadSwitchBefore
+      ? null
+      : undefined;
+    if (
+      parsedSwitch !== undefined &&
+      parsedSwitch !== null &&
+      (!Number.isInteger(parsedSwitch) || parsedSwitch < 1)
+    ) {
       toast('El switch debe ser un entero ≥ 1 (o vacío)', 'error');
       return;
     }

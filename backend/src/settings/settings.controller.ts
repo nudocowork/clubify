@@ -1,5 +1,5 @@
 import { Body, Controller, ForbiddenException, Get, Patch, Post } from '@nestjs/common';
-import { IsBoolean, IsNumber, IsOptional, IsString, Length, Min } from 'class-validator';
+import { IsBoolean, IsNumber, IsOptional, IsString, Length, MaxLength, Min } from 'class-validator';
 import { SettingsService } from './settings.service';
 import { Public } from '../common/decorators/public.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -25,6 +25,13 @@ class PricingDto {
   @IsOptional() @IsNumber() @Min(0) eliteCost?: number;
   @IsOptional() @IsNumber() @Min(0) proCost?: number;
   @IsOptional() @IsString() @Length(3, 3) currency?: string;
+}
+
+class HotmartCouponDto {
+  // null/string vacío para limpiar. Si no es string ni null, ValidationPipe
+  // rechaza con 400 antes de llegar al service (sin esta clase el endpoint
+  // aceptaba { foo: 'bar' } y crasheaba en .trim()).
+  @IsOptional() @IsString() @MaxLength(200) couponCode?: string | null;
 }
 
 const WELCOME_POPUP_MESSAGE =
@@ -84,7 +91,7 @@ export class SettingsController {
 
   @Patch('admin/billing/hotmart-coupon')
   @Roles('SUPER_ADMIN')
-  setHotmartCoupon(@Body() body: { couponCode?: string | null }) {
+  setHotmartCoupon(@Body() body: HotmartCouponDto) {
     return this.svc.setHotmartCoupon(body.couponCode ?? null);
   }
 
