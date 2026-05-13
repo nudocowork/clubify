@@ -68,6 +68,7 @@ import {
   type EmojiCategory,
   type EmojiEntry,
 } from '@/lib/marketing/emoji-library';
+import { WALLET_BADGES } from '@/lib/marketing/wallet-badges';
 
 type Props = {
   type: QrPosterType;
@@ -3808,11 +3809,47 @@ function ImagesSection({
     reader.readAsDataURL(file);
   }
 
+  function addBadge(badge: typeof WALLET_BADGES[keyof typeof WALLET_BADGES]) {
+    onAdd(badge.dataUrl, badge.width, badge.height);
+  }
+
   return (
     <Section title="Imágenes" icon="🖼️" defaultOpen={images.length > 0}>
+      <div className="space-y-1.5">
+        <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
+          Badges Wallet
+        </div>
+        <div className="grid grid-cols-2 gap-1.5">
+          <button
+            type="button"
+            onClick={() => addBadge(WALLET_BADGES.apple)}
+            className="rounded-lg border border-line hover:border-brand bg-black p-1.5 transition"
+            title="Agregar badge Apple Wallet"
+          >
+            <img
+              src={WALLET_BADGES.apple.dataUrl}
+              alt="Add to Apple Wallet"
+              className="w-full h-auto"
+            />
+          </button>
+          <button
+            type="button"
+            onClick={() => addBadge(WALLET_BADGES.google)}
+            className="rounded-lg border border-line hover:border-brand bg-black p-1.5 transition"
+            title="Agregar badge Google Wallet"
+          >
+            <img
+              src={WALLET_BADGES.google.dataUrl}
+              alt="Save to Google Wallet"
+              className="w-full h-auto"
+            />
+          </button>
+        </div>
+      </div>
+
       <label
         htmlFor="image-layer-upload"
-        className="w-full block text-center cursor-pointer text-xs px-2 py-3 rounded-lg border-2 border-dashed border-line hover:border-brand transition"
+        className="w-full block text-center cursor-pointer text-xs px-2 py-3 rounded-lg border-2 border-dashed border-line hover:border-brand transition mt-2"
       >
         + Subir imagen (PNG, JPG, WebP, SVG)
       </label>
