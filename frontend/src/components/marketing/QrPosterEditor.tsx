@@ -660,6 +660,26 @@ export default function QrPosterEditor({
   // default si la red está lenta (>2.5s al cargar). Se setea a true
   // en el finally del load effect.
   const hasLoadedRef = useRef(false);
+  // Counter monotónico para offset escalonado al agregar shapes.
+  // No usar shapes.length porque decrementa al borrar (shape nueva
+  // colisiona con otra existente).
+  const addShapeCounterRef = useRef(0);
+
+  // Auto-clamp del padding QR si el cliente agranda el QR y deja el
+  // padding actual fuera de lo que cabe en el canvas. Sin esto, el
+  // slider muestra max=0 mientras value=20 sigue persistido → input
+  // bloqueado y el cliente cree que "el padding está bugeado".
+  useEffect(() => {
+    const maxPad = Math.max(
+      0,
+      Math.floor((Math.min(cfg.canvas.w, cfg.canvas.h) - cfg.qr.size) / 2),
+    );
+    const cur = cfg.qr.padding ?? 0;
+    if (cur > maxPad) {
+      setCfg((c) => ({ ...c, qr: { ...c.qr, padding: maxPad } }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cfg.canvas.w, cfg.canvas.h, cfg.qr.size]);
   // Ref del último cfg para el cleanup de unmount + el save closure.
   // Sin esto, el save dentro del setTimeout captura el cfg del render
   // que lo agendó — puede estar desactualizado.
@@ -845,14 +865,22 @@ export default function QrPosterEditor({
    *  con seed random, una capsule con aspect 3:1, etc). */
   function addShape(type: ShapeType, seed?: Partial<ShapeLayer>) {
     const id = newId();
-    // Offset escalonado para evitar que múltiples shapes nuevas queden
-    // exactamente superpuestas en el centro (el cliente clickea N veces
-    // creyendo que no funcionó). Cada nueva se corre +24px en diagonal
-    // desde el centro, cycle de 8 posiciones distintas.
-    const count = (cfg.shapes ?? []).length;
-    const stackOffset = (count % 8) * 24;
-    const cx = cfg.canvas.w / 2 + stackOffset;
-    const cy = cfg.canvas.h / 2 + stackOffset;
+    // Offset escalonado: usamos un counter MONOTÓNICO (ref) que no
+    // decrementa al borrar shapes. Sino el cliente borra una shape y
+    // la próxima vuelve a la posición previa, encimándose con otra.
+    // El counter se resetea solo cuando el editor se desmonta.
+    const idx = addShapeCounterRef.current++;
+    const stackOffset = (idx % 8) * 24;
+    // Clamp para canvas chicos: el offset no debe sacar la shape del
+    // canvas. Caso edge: canvas 480 + shape 300 + offset 168 → x=258,
+    // se sale. Recortamos el offset al espacio disponible menos 20px.
+    const maxOffset = Math.max(
+      0,
+      cfg.canvas.w / 2 - (seed?.w ?? 200) / 2 - 20,
+    );
+    const safeOffset = Math.min(stackOffset, maxOffset);
+    const cx = cfg.canvas.w / 2 + safeOffset;
+    const cy = cfg.canvas.h / 2 + safeOffset;
     const presets: Record<ShapeType, Partial<ShapeLayer>> = {
       rect: { w: 300, h: 200 },
       circle: { w: 240, h: 240 },
@@ -910,16 +938,25 @@ export default function QrPosterEditor({
   function duplicateShape(id: string) {
     const src = (cfg.shapes ?? []).find((s) => s.id === id);
     if (!src) return;
-    // Si +24 saca la copia del canvas, intentamos -24 (lado izq/arriba).
-    // Sino el clamp Math.min hace que la copia quede CASI encima del
-    // original con offset insuficiente — el cliente no la ve.
+    // Lógica de offset escalonada:
+    // 1. +24 a la derecha + abajo si entra
+    // 2. -24 a la izq/arriba si no
+    // 3. Si NINGUNO da offset visible (caso: shape ocupa casi todo el
+    //    canvas), achicar la copia 5% para que sea distinguible visualmente
     const wouldFitRight = src.x + 24 + src.w <= cfg.canvas.w;
     const wouldFitBelow = src.y + 24 + src.h <= cfg.canvas.h;
+    const nx = wouldFitRight ? src.x + 24 : Math.max(8, src.x - 24);
+    const ny = wouldFitBelow ? src.y + 24 : Math.max(8, src.y - 24);
+    const offsetTooSmall =
+      Math.abs(nx - src.x) < 12 && Math.abs(ny - src.y) < 12;
+    const scale = offsetTooSmall ? 0.92 : 1;
     const newDup: ShapeLayer = {
       ...src,
       id: newId(),
-      x: wouldFitRight ? src.x + 24 : Math.max(8, src.x - 24),
-      y: wouldFitBelow ? src.y + 24 : Math.max(8, src.y - 24),
+      x: nx,
+      y: ny,
+      w: Math.round(src.w * scale),
+      h: Math.round(src.h * scale),
       innerText: src.innerText ? { ...src.innerText } : null,
       gradientFill: src.gradientFill ? { ...src.gradientFill } : null,
     };
@@ -1259,17 +1296,29 @@ export default function QrPosterEditor({
                 key={tpl.id}
                 onClick={() => {
                   // Confirmar antes de pisar trabajo custom (shapes
-                  // libres + textos libres del cliente). Sin esto un
-                  // click curioso destruye horas de edición. Si está
-                  // limpio, aplica sin confirm.
+                  // libres + textos libres del cliente) o cambiar el
+                  // canvas. Si AMBOS aplican, el mensaje los menciona
+                  // juntos para que el cliente entienda completo.
                   const hasCustomWork =
                     (cfg.shapes?.length ?? 0) > 0 ||
                     (cfg.customTexts?.length ?? 0) > 0;
-                  const willChangeCanvas = !!tpl.overrides.canvas;
+                  const willChangeCanvas =
+                    !!tpl.overrides.canvas &&
+                    (tpl.overrides.canvas.w !== cfg.canvas.w ||
+                      tpl.overrides.canvas.h !== cfg.canvas.h);
                   if (hasCustomWork || willChangeCanvas) {
-                    const msg = hasCustomWork
-                      ? `Aplicar "${tpl.name}" reemplazará tus formas y textos libres. ¿Continuar?`
-                      : `"${tpl.name}" cambia el tamaño del lienzo a ${tpl.overrides.canvas?.w}×${tpl.overrides.canvas?.h}. ¿Continuar?`;
+                    const parts: string[] = [];
+                    if (hasCustomWork) {
+                      parts.push('reemplazará tus formas y textos libres');
+                    }
+                    if (willChangeCanvas) {
+                      parts.push(
+                        `cambiará el lienzo a ${tpl.overrides.canvas!.w}×${tpl.overrides.canvas!.h}`,
+                      );
+                    }
+                    const msg = `Aplicar "${tpl.name}" ${parts.join(
+                      ' y ',
+                    )}. ¿Continuar?`;
                     if (!confirm(msg)) return;
                   }
                   setCfg((c) => applyTemplate(c, tpl));
@@ -1855,11 +1904,13 @@ export default function QrPosterEditor({
                           setCfg((c) => ({ ...c, qr: { ...c.qr, x, y } })),
                       );
                       const cornerR = cfg.qr.cornerRadius ?? 0;
-                      // Default a blanco (NO al bg del QR) para que el
-                      // marco sea VISIBLE cuando el cliente activa
-                      // padding sobre un fondo de color. El cliente
-                      // puede sobrescribir con el ColorRow del sidebar.
-                      const padColor = cfg.qr.paddingColor ?? '#FFFFFF';
+                      // Default al BG del QR para preservar el render
+                      // de posters viejos (donde el "marco" era una
+                      // extensión visual del fondo del QR). Si el cliente
+                      // quiere un marco diferente, lo cambia desde
+                      // ColorRow "Color marco" (visible cuando padding>0).
+                      const padColor =
+                        cfg.qr.paddingColor ?? cfg.qr.bg ?? '#FFFFFF';
                       const borderW = cfg.qr.borderWidth ?? 0;
                       const borderColor = cfg.qr.borderColor ?? '#000000';
                       const sh = cfg.qr.shadow;
@@ -3054,28 +3105,69 @@ function CanvasSection({
    *  reescalado existente para que TODOS los elementos se ajusten
    *  proporcionalmente. Soluciona el caso "diseñé vertical y ahora
    *  necesito horizontal" sin tener que recrear todo. */
-  /** Swap orientación: SOLO cambia w↔h del canvas, sin deformar
-   *  ningún elemento. Las posiciones se preservan tal cual; los
-   *  elementos que queden fuera del nuevo canvas el cliente los
-   *  reposiciona manualmente (o usa undo si fue accidental).
+  /** Swap orientación: cambia w↔h del canvas + CLAMPEA posiciones de
+   *  todos los elementos al nuevo bbox. Sizes preservados (no deforma).
    *
-   *  Antes usábamos rescaleForCanvas que escalaba anisotrópicamente
-   *  (sx para w, sy para h) → una shape cuadrada 200×200 al rotar el
-   *  canvas pasaba a 283×141, perdiendo el aspect. Para "rotar el
-   *  lienzo" la semántica correcta es preservar tamaños tal cual. */
+   *  Sin clamp un texto en y=1400 (canvas vertical 1080×1528) quedaba
+   *  invisible al swap a 1528×1080 porque y=1400 > newH=1080. El
+   *  cliente clickea "Horizontal" y "pierde" elementos.
+   *
+   *  Antes con rescaleForCanvas se escalaba anisotrópicamente (sx≠sy)
+   *  y deformaba aspect (200×200 → 283×141). Ahora preservamos tamaños
+   *  pero garantizamos visibilidad. */
   function swapOrientation() {
-    setCfg((c) => ({
-      ...c,
-      canvas: {
-        ...c.canvas,
-        w: c.canvas.h,
-        h: c.canvas.w,
-        mm: c.canvas.mm
-          ? { w: c.canvas.mm.h, h: c.canvas.mm.w }
-          : c.canvas.mm,
-      },
-      clipShape: c.clipShape,
-    }));
+    setCfg((c) => {
+      const newW = c.canvas.h;
+      const newH = c.canvas.w;
+      const cx = (x: number, w = 0) => Math.max(0, Math.min(newW - w, x));
+      const cy = (y: number, h = 0) => Math.max(0, Math.min(newH - h, y));
+      return {
+        ...c,
+        canvas: {
+          ...c.canvas,
+          w: newW,
+          h: newH,
+          mm: c.canvas.mm
+            ? { w: c.canvas.mm.h, h: c.canvas.mm.w }
+            : c.canvas.mm,
+        },
+        qr: {
+          ...c.qr,
+          x: cx(c.qr.x, c.qr.size),
+          y: cy(c.qr.y, c.qr.size),
+        },
+        logo: c.logo
+          ? { ...c.logo, x: cx(c.logo.x, c.logo.size), y: cy(c.logo.y, c.logo.size) }
+          : c.logo,
+        texts: {
+          title: { ...c.texts.title, x: cx(c.texts.title.x), y: cy(c.texts.title.y, c.texts.title.size) },
+          subtitle: { ...c.texts.subtitle, x: cx(c.texts.subtitle.x), y: cy(c.texts.subtitle.y, c.texts.subtitle.size) },
+          cta: { ...c.texts.cta, x: cx(c.texts.cta.x), y: cy(c.texts.cta.y, c.texts.cta.size) },
+          brand: { ...c.texts.brand, x: cx(c.texts.brand.x), y: cy(c.texts.brand.y, c.texts.brand.size) },
+        },
+        shapes: (c.shapes ?? []).map((s) => ({
+          ...s,
+          x: cx(s.x, s.w),
+          y: cy(s.y, s.h),
+        })),
+        icons: (c.icons ?? []).map((i) => ({
+          ...i,
+          x: cx(i.x, i.size),
+          y: cy(i.y, i.size),
+        })),
+        images: (c.images ?? []).map((im) => ({
+          ...im,
+          x: cx(im.x, im.w),
+          y: cy(im.y, im.h),
+        })),
+        customTexts: (c.customTexts ?? []).map((t) => ({
+          ...t,
+          x: cx(t.x, t.boxWidth ?? 0),
+          y: cy(t.y, t.size),
+        })),
+        clipShape: c.clipShape,
+      };
+    });
   }
 
   const isLandscape = cfg.canvas.w > cfg.canvas.h;
@@ -4288,17 +4380,29 @@ function ShapesSection({
                     {/* Para shapes "radiales" (circle/star/burst) el
                      *  ancho y alto siempre coinciden — Konva.Circle/
                      *  Star usan UN radio, así que mostrar 2 inputs
-                     *  confunde y desfasa el snap. Un solo input "Tamaño". */}
+                     *  confunde y desfasa el snap. Un solo input "Tamaño".
+                     *  Mostramos min(w,h) para que posters viejos con
+                     *  asimetría se vean coherentes con el render. Al
+                     *  cambiar, preservamos el centro visual (sino la
+                     *  shape salta si h era distinto de w). */}
                     {s.type === 'circle' ||
                     s.type === 'star' ||
                     s.type === 'burst' ? (
                       <NumberRow
                         label="Tamaño"
-                        value={s.w}
+                        value={Math.min(s.w, s.h)}
                         min={20}
                         max={2000}
                         step={10}
-                        onChange={(v) => onPatch(s.id, { w: v, h: v })}
+                        onChange={(v) =>
+                          onPatch(s.id, {
+                            w: v,
+                            h: v,
+                            // Preservar el centro visual al re-igualar w/h
+                            x: s.x + (s.w - v) / 2,
+                            y: s.y + (s.h - v) / 2,
+                          })
+                        }
                       />
                     ) : (
                       <div className="grid grid-cols-2 gap-1.5">
@@ -4415,6 +4519,18 @@ function ShapeGradientEditor({
   gradient: ShapeLayer['gradientFill'] | null;
   onChange: (g: ShapeLayer['gradientFill'] | null) => void;
 }) {
+  // Cachear el último ángulo numérico para que el toggle linear → radial
+  // → linear no pierda el ángulo custom (default era reset a 135 cada
+  // vez). Persiste mientras el componente está montado.
+  const lastLinearAngleRef = useRef<number>(
+    gradient && typeof gradient.angle === 'number' ? gradient.angle : 135,
+  );
+  useEffect(() => {
+    if (gradient && typeof gradient.angle === 'number') {
+      lastLinearAngleRef.current = gradient.angle;
+    }
+  }, [gradient]);
+
   if (!gradient) {
     return (
       <button
@@ -4454,7 +4570,7 @@ function ShapeGradientEditor({
       <div className="grid grid-cols-2 gap-1.5">
         <button
           type="button"
-          onClick={() => onChange({ ...gradient, angle: 135 })}
+          onClick={() => onChange({ ...gradient, angle: lastLinearAngleRef.current })}
           className={`text-[10px] py-1.5 rounded border-2 ${
             !isRadial
               ? 'border-brand bg-brand-soft text-brand-700 font-semibold'
@@ -4485,11 +4601,14 @@ function ShapeGradientEditor({
           onChange={(v) => onChange({ ...gradient, angle: v })}
         />
       )}
+      {/* Preview: para radial usamos `ellipse farthest-corner` para que
+       *  matchee el render Konva (radius = diagonal/2). Sin esto, el
+       *  preview se ve como un círculo pero el export sale elipse. */}
       <div
         className="rounded h-8 mt-1 border border-line"
         style={{
           background: isRadial
-            ? `radial-gradient(circle, ${gradient.color1}, ${gradient.color2})`
+            ? `radial-gradient(ellipse farthest-corner at center, ${gradient.color1}, ${gradient.color2})`
             : `linear-gradient(${gradient.angle}deg, ${gradient.color1}, ${gradient.color2})`,
         }}
       />

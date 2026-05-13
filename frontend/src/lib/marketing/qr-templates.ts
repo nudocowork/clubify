@@ -417,14 +417,32 @@ export function applyTemplate(
   // reposicionen al nuevo tamaño. DESPUÉS las shapes/customTexts del
   // template se inyectan SIN re-escalar (sus coords ya están en el
   // sistema de coords del nuevo canvas).
+  //
+  // Para evitar reescalar "en vano" los campos que el template va a
+  // pisar (shapes/customTexts si están en overrides), los vaciamos
+  // ANTES del rescale. Sino sus coords se transforman aniso-tropicamente
+  // y se descartan inmediatamente, costo CPU + dependencias raras.
   let base = current;
   if (tpl.overrides.canvas) {
-    base = rescaleForCanvas(current, {
+    const preRescale: QrPosterConfig = {
+      ...current,
+      // Vaciamos lo que el template va a pisar — evita rescaleForCanvas
+      // anisotrópico sobre data que se descarta.
+      ...(tpl.overrides.shapes ? { shapes: [] } : {}),
+      ...(tpl.overrides.customTexts ? { customTexts: [] } : {}),
+    };
+    base = rescaleForCanvas(preRescale, {
       w: tpl.overrides.canvas.w,
       h: tpl.overrides.canvas.h,
       mm: tpl.overrides.canvas.mm,
       dpi: tpl.overrides.canvas.dpi,
     });
+    // Si el cliente venía de un canvas circular y aplicamos un template
+    // con canvas rectangular, hay que sacar el clipShape='circle' sino
+    // el rectángulo queda con máscara circular forzada (óvalo aplastado).
+    if (tpl.overrides.canvas.w !== tpl.overrides.canvas.h) {
+      base = { ...base, clipShape: undefined };
+    }
   }
   return {
     ...base,
