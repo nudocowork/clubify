@@ -48,8 +48,8 @@ export const WALLET_BADGES: Record<string, WalletBadge> = {
     id: 'apple-pay',
     label: 'Apple Pay',
     src: '/wallet-badges/apple-pay.svg',
-    width: 140,
-    height: 60,
+    width: 124,
+    height: 44,
   },
   googlePay: {
     id: 'google-pay',
