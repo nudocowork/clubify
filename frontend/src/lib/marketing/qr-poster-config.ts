@@ -317,8 +317,26 @@ export function effectiveLayerOrder(cfg: QrPosterConfig): LayerId[] {
   const validSet = new Set(defaultOrder);
   const filtered = cfg.layerOrder.filter((id) => validSet.has(id));
   const filteredSet = new Set(filtered);
-  for (const id of defaultOrder) {
-    if (!filteredSet.has(id)) filtered.push(id);
+  // Insertamos los IDs nuevos (no presentes en el persisted layerOrder)
+  // EN SU POSICIÓN RELATIVA del defaultOrder, no al final. Sino el
+  // footer "Powered by Clubify" termina detrás de customTexts/iconos
+  // nuevos — viola el lock de branding (siempre visible al frente).
+  for (let i = 0; i < defaultOrder.length; i++) {
+    const id = defaultOrder[i];
+    if (filteredSet.has(id)) continue;
+    // Buscar el ID anterior del default que SÍ está en filtered, y
+    // insertar después de él. Si no hay anterior conocido, va al inicio.
+    let insertAt = 0;
+    for (let j = i - 1; j >= 0; j--) {
+      const prevId = defaultOrder[j];
+      const pos = filtered.indexOf(prevId);
+      if (pos >= 0) {
+        insertAt = pos + 1;
+        break;
+      }
+    }
+    filtered.splice(insertAt, 0, id);
+    filteredSet.add(id);
   }
   return filtered;
 }
@@ -470,17 +488,34 @@ export function estimateTextBox(
 ): { x: number; y: number; w: number; h: number } {
   const lineHeight = t.lineHeight ?? 1.2;
   const lines = (t.text || ' ').split('\n');
-  // Width aprox de cada línea: chars * size * 0.5 (heurística genérica
-  // que se queda corta para tipografías mono pero alcanza para guides).
+  // Width factor por familia tipográfica — las display (Bebas, Anton)
+  // son más estrechas que las serif clásicas. Estos números vienen de
+  // medir glyph advance promedio en cada categoría.
+  const family = t.fontLabel?.toLowerCase() ?? '';
+  let factor = 0.5;
+  if (family.includes('bebas') || family.includes('anton') || family.includes('oswald')) {
+    factor = 0.38; // ultra-condensed displays
+  } else if (family.includes('playfair') || family.includes('cormorant')) {
+    factor = 0.58; // serif anchos
+  } else if (family.includes('pacifico') || family.includes('dancing') || family.includes('caveat')) {
+    factor = 0.45; // handwriting
+  } else if (family.includes('mono') || family.includes('jetbrains') || family.includes('fira')) {
+    factor = 0.6; // mono espaciado
+  }
+  // Bold/black agrega ~10% al ancho
+  if (t.weight >= 700) factor *= 1.1;
+  // letterSpacing también suma al ancho final
+  const letterSpacing = t.letterSpacing ?? 0;
+
   const widestLine = lines.reduce((max, line) => {
-    const w = Math.max(t.size, line.length * t.size * 0.5);
+    const w = Math.max(
+      t.size,
+      line.length * t.size * factor + Math.max(0, line.length - 1) * letterSpacing,
+    );
     return Math.max(max, w);
   }, 0);
   const totalH = lines.length * t.size * lineHeight;
 
-  // Box X: depende de la alineación. Si el texto está centrado/justificado
-  // dentro de una boxWidth (o full canvas), su X visual se calcula desde
-  // el anclaje y la alineación.
   const containerW = t.boxWidth ?? canvasW;
   const containerX = t.boxWidth != null ? t.x : 0;
   let visualX = containerX;
@@ -488,11 +523,12 @@ export function estimateTextBox(
     visualX = containerX + (containerW - widestLine) / 2;
   } else if (t.align === 'right') {
     visualX = containerX + containerW - widestLine;
-  }
-  // Para 'justify' sin width definida, usa todo el ancho del contenedor
-  if (t.align === 'justify') {
-    visualX = containerX;
-    return { x: visualX, y: t.y, w: containerW, h: totalH };
+  } else if (t.align === 'justify') {
+    // justify: el texto se estira al ancho del contenedor PERO la
+    // última línea no se justifica. Para snap, tratamos el bbox como
+    // si fuera left-aligned con el contenedor entero — captura el
+    // ancho real renderizado y el snap funciona bien.
+    return { x: containerX, y: t.y, w: containerW, h: totalH };
   }
   return { x: visualX, y: t.y, w: widestLine, h: totalH };
 }
@@ -525,6 +561,9 @@ export function rescaleForCanvas(
     Math.max(0, Math.min(newCanvas.w - elemW, x));
   const clampY = (y: number, elemH = 0) =>
     Math.max(0, Math.min(newCanvas.h - elemH, y));
+  // Factor isotrópico para tamaños cuadrados (icons, font size) —
+  // promedio para no deformar al cambiar de portrait a landscape.
+  const sIso = (sx + sy) / 2;
 
   return {
     ...cfg,
@@ -566,30 +605,53 @@ export function rescaleForCanvas(
         y: clampY(Math.round(cfg.texts.brand.y * sy), cfg.texts.brand.size),
       },
     },
+    // CONVENCIÓN: re-escalamos también W/H/SIZE de los elementos para
+    // que el diseño completo se ajuste proporcionalmente al canvas
+    // nuevo. Sin esto, las imágenes/shapes/iconos conservaban tamaño
+    // absoluto y al cambiar a un canvas distinto quedaban con tamaño
+    // relativo muy distinto (ej un círculo de 200px que ocupaba 20% del
+    // canvas pasaba a ocupar 40% si el canvas se hacía la mitad).
+    // Para mantener proporciones isotrópicas usamos sx para ancho y
+    // sy para alto cuando aplica; para "size" (cuadrado) tomamos el
+    // promedio (sIso) para no deformar.
     shapes: (cfg.shapes ?? []).map((s) => ({
       ...s,
-      x: clampX(Math.round(s.x * sx), s.w),
-      y: clampY(Math.round(s.y * sy), s.h),
+      x: clampX(Math.round(s.x * sx), s.w * sx),
+      y: clampY(Math.round(s.y * sy), s.h * sy),
+      w: Math.max(10, Math.round(s.w * sx)),
+      h: Math.max(10, Math.round(s.h * sy)),
     })),
     icons: (cfg.icons ?? []).map((i) => ({
       ...i,
-      x: clampX(Math.round(i.x * sx), i.size),
-      y: clampY(Math.round(i.y * sy), i.size),
+      x: clampX(Math.round(i.x * sx), i.size * sIso),
+      y: clampY(Math.round(i.y * sy), i.size * sIso),
+      size: Math.max(16, Math.round(i.size * sIso)),
     })),
     images: (cfg.images ?? []).map((im) => ({
       ...im,
-      x: clampX(Math.round(im.x * sx), im.w),
-      y: clampY(Math.round(im.y * sy), im.h),
+      x: clampX(Math.round(im.x * sx), im.w * sx),
+      y: clampY(Math.round(im.y * sy), im.h * sy),
+      w: Math.max(20, Math.round(im.w * sx)),
+      h: Math.max(20, Math.round(im.h * sy)),
+      // crop está en coords de la IMAGEN ORIGINAL, no del canvas —
+      // NO se re-escala con sx/sy.
     })),
     patterns: (cfg.patterns ?? []).map((p) => ({
       ...p,
-      x: p.x !== undefined ? clampX(Math.round(p.x * sx), p.w ?? 0) : p.x,
-      y: p.y !== undefined ? clampY(Math.round(p.y * sy), p.h ?? 0) : p.y,
+      // size del emoji + gap también escalan isotrópicamente
+      size: Math.max(12, Math.round(p.size * sIso)),
+      gap: Math.max(0, Math.round(p.gap * sIso)),
+      x: p.x !== undefined ? clampX(Math.round(p.x * sx), (p.w ?? 0) * sx) : p.x,
+      y: p.y !== undefined ? clampY(Math.round(p.y * sy), (p.h ?? 0) * sy) : p.y,
+      w: p.w !== undefined ? Math.round(p.w * sx) : p.w,
+      h: p.h !== undefined ? Math.round(p.h * sy) : p.h,
     })),
     customTexts: (cfg.customTexts ?? []).map((t) => ({
       ...t,
       x: Math.round(t.x * sx),
       y: clampY(Math.round(t.y * sy), t.size),
+      // Mantener tamaño de la tipografía proporcional al canvas también
+      size: Math.max(10, Math.round(t.size * sIso)),
       ...(t.boxWidth != null ? { boxWidth: Math.round(t.boxWidth * sx) } : {}),
     })),
   };
@@ -673,27 +735,45 @@ export function normalizeConfig(
 ): QrPosterConfig {
   const def = defaultConfig(brandName);
   if (!cfg || typeof cfg !== 'object') return def;
+  // Helper para mergear un TextLayer con defaults + clonar nested
+  // (shadow) — sino el undo/redo comparte references del shadow y
+  // editar un snapshot muta otros.
+  const mergeText = <T extends TextLayer>(d: T, src: Partial<T> | undefined): T => {
+    const merged = { ...d, ...(src ?? {}) } as T;
+    if (merged.shadow) merged.shadow = { ...merged.shadow };
+    return merged;
+  };
   return {
     canvas: cfg.canvas
       ? { ...cfg.canvas, dpi: cfg.canvas.dpi ?? 300 }
-      : def.canvas,
+      : { ...def.canvas },
     clipShape: cfg.clipShape,
-    bg: (cfg.bg as BgConfig) ?? def.bg,
+    // Clonado superficial — sino mutar cfg.bg.color1 muta el normalized
+    bg: cfg.bg ? ({ ...cfg.bg } as BgConfig) : { ...def.bg },
     qr: { ...def.qr, ...(cfg.qr ?? {}) },
-    logo: cfg.logo ?? null,
-    shapes: Array.isArray(cfg.shapes) ? cfg.shapes : [],
-    icons: Array.isArray(cfg.icons) ? cfg.icons : [],
-    images: Array.isArray(cfg.images) ? cfg.images : [],
-    patterns: Array.isArray(cfg.patterns) ? cfg.patterns : [],
-    customTexts: Array.isArray(cfg.customTexts) ? cfg.customTexts : [],
+    logo: cfg.logo ? { ...cfg.logo } : null,
+    shapes: Array.isArray(cfg.shapes) ? cfg.shapes.map((s) => ({ ...s })) : [],
+    icons: Array.isArray(cfg.icons) ? cfg.icons.map((i) => ({ ...i })) : [],
+    images: Array.isArray(cfg.images)
+      ? cfg.images.map((im) => ({ ...im, crop: im.crop ? { ...im.crop } : null }))
+      : [],
+    patterns: Array.isArray(cfg.patterns)
+      ? cfg.patterns.map((p) => ({ ...p, emojis: [...p.emojis] }))
+      : [],
+    customTexts: Array.isArray(cfg.customTexts)
+      ? cfg.customTexts.map((t) => ({
+          ...t,
+          shadow: t.shadow ? { ...t.shadow } : null,
+        }))
+      : [],
     texts: {
-      title: { ...def.texts.title, ...(cfg.texts?.title ?? {}) },
-      subtitle: { ...def.texts.subtitle, ...(cfg.texts?.subtitle ?? {}) },
-      cta: { ...def.texts.cta, ...(cfg.texts?.cta ?? {}) },
-      brand: { ...def.texts.brand, ...(cfg.texts?.brand ?? {}) },
+      title: mergeText(def.texts.title, cfg.texts?.title),
+      subtitle: mergeText(def.texts.subtitle, cfg.texts?.subtitle),
+      cta: mergeText(def.texts.cta, cfg.texts?.cta),
+      brand: mergeText(def.texts.brand, cfg.texts?.brand) as typeof def.texts.brand,
     },
-    layerOrder: Array.isArray(cfg.layerOrder) ? cfg.layerOrder : undefined,
+    layerOrder: Array.isArray(cfg.layerOrder) ? [...cfg.layerOrder] : undefined,
     showClubifyFooter: true,
-    meta: cfg.meta ?? {},
+    meta: cfg.meta ? { ...cfg.meta } : {},
   };
 }

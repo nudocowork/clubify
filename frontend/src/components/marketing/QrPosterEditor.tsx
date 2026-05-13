@@ -162,9 +162,13 @@ function rectFillProps(bg: BgConfig, w: number, h: number) {
     if (subtype === 'radial') {
       // Radial gradient: center → outer. Konva acepta
       // fillRadialGradientStartPoint/EndPoint con radius.
+      // Radio = diagonal/2 para garantizar que el gradiente cubre HASTA
+      // las esquinas del rect. Si usamos max(w,h)/2 (radio del lado
+      // mayor), en canvas no cuadrados quedan esquinas del color2
+      // visibles porque el gradiente no llega a la diagonal.
       const cx = w / 2;
       const cy = h / 2;
-      const r = Math.max(w, h) / 2;
+      const r = Math.sqrt(w * w + h * h) / 2;
       return {
         fillRadialGradientStartPoint: { x: cx, y: cy },
         fillRadialGradientStartRadius: 0,
@@ -322,41 +326,77 @@ function computeSnap(
     guides.push({ type: 'h', value: bestH.lineValue, kind: bestH.kind });
   }
 
-  // Detección de spacing uniforme: si el elemento snappea X o Y a un
-  // target de elemento, buscamos si hay 2+ elementos alineados en la
-  // misma fila/columna y vemos si la distancia es uniforme.
-  // (Heurística simple — Canva implementa esto con un algoritmo más
-  // complejo, esta versión cubre los casos típicos: 3 elementos en
-  // fila o columna equidistantes.)
-  if (newX !== draggedBox.x || newY !== draggedBox.y) {
-    const draggedFinalCx = newX + draggedBox.w / 2;
-    const draggedFinalCy = newY + draggedBox.h / 2;
-    // Buscamos pares de elementos cuyos centros estén alineados con el
-    // dragged + a distancia simétrica. Si encontramos uno, agregamos una
-    // guide de spacing con label.
-    const peersInRow = others.filter(
-      (o) =>
-        o.id !== skipId &&
-        Math.abs(o.y + o.h / 2 - draggedFinalCy) < SNAP_THRESHOLD * 2,
-    );
-    for (let i = 0; i < peersInRow.length; i++) {
-      for (let j = i + 1; j < peersInRow.length; j++) {
-        const a = peersInRow[i];
-        const b = peersInRow[j];
-        const aCx = a.x + a.w / 2;
-        const bCx = b.x + b.w / 2;
-        // Si dragged está entre a y b y es equidistante
-        const distA = Math.abs(draggedFinalCx - aCx);
-        const distB = Math.abs(draggedFinalCx - bCx);
-        if (Math.abs(distA - distB) < SNAP_THRESHOLD && distA > 20) {
-          guides.push({
-            type: 'h',
-            value: draggedFinalCy,
-            kind: 'spacing',
-            label: `${Math.round(distA)} px`,
-          });
-          break;
-        }
+  // Detección de spacing uniforme. La heurística busca pares de
+  // elementos en la misma fila (horizontalmente alineados → snap de
+  // espaciado horizontal) o en la misma columna (verticalmente
+  // alineados → snap de espaciado vertical). Cuando el dragged está
+  // cerca del punto equidistante entre 2 peers, mueve newX/newY al
+  // punto exacto Y muestra una guía visual.
+  const draggedFinalCx = newX + draggedBox.w / 2;
+  const draggedFinalCy = newY + draggedBox.h / 2;
+
+  // Horizontal spacing: elementos en la misma fila (Y similar)
+  const peersInRow = others.filter(
+    (o) =>
+      o.id !== skipId &&
+      Math.abs(o.y + o.h / 2 - draggedFinalCy) < SNAP_THRESHOLD * 4,
+  );
+  for (let i = 0; i < peersInRow.length; i++) {
+    for (let j = i + 1; j < peersInRow.length; j++) {
+      const a = peersInRow[i];
+      const b = peersInRow[j];
+      const aCx = a.x + a.w / 2;
+      const bCx = b.x + b.w / 2;
+      const midX = (aCx + bCx) / 2;
+      // Si dragged está cerca del punto medio (centro equidistante)
+      if (
+        Math.abs(draggedFinalCx - midX) < SNAP_THRESHOLD * 2 &&
+        Math.abs(aCx - bCx) > 60
+      ) {
+        // SNAP — mueve el elemento al centro equidistante
+        newX = midX - draggedBox.w / 2;
+        const dist = Math.abs(midX - aCx);
+        // Guía VERTICAL (línea | que cruza por draggedFinalCx) para
+        // indicar "alineado al centro entre A y B"
+        guides.push({
+          type: 'v',
+          value: midX,
+          kind: 'spacing',
+          label: `${Math.round(dist)} px`,
+        });
+        i = peersInRow.length;
+        break;
+      }
+    }
+  }
+
+  // Vertical spacing: elementos en la misma columna (X similar)
+  const peersInCol = others.filter(
+    (o) =>
+      o.id !== skipId &&
+      Math.abs(o.x + o.w / 2 - draggedFinalCx) < SNAP_THRESHOLD * 4,
+  );
+  for (let i = 0; i < peersInCol.length; i++) {
+    for (let j = i + 1; j < peersInCol.length; j++) {
+      const a = peersInCol[i];
+      const b = peersInCol[j];
+      const aCy = a.y + a.h / 2;
+      const bCy = b.y + b.h / 2;
+      const midY = (aCy + bCy) / 2;
+      if (
+        Math.abs(draggedFinalCy - midY) < SNAP_THRESHOLD * 2 &&
+        Math.abs(aCy - bCy) > 60
+      ) {
+        newY = midY - draggedBox.h / 2;
+        const dist = Math.abs(midY - aCy);
+        guides.push({
+          type: 'h',
+          value: midY,
+          kind: 'spacing',
+          label: `${Math.round(dist)} px`,
+        });
+        i = peersInCol.length;
+        break;
       }
     }
   }
@@ -523,7 +563,12 @@ export default function QrPosterEditor({
       })
       .catch(() => null)
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          // Recién acá habilitamos el autosave — antes podía pisar
+          // el server con un defaultConfig si la red tardaba.
+          hasLoadedRef.current = true;
+        }
       });
     return () => {
       cancelled = true;
@@ -578,20 +623,35 @@ export default function QrPosterEditor({
   const [autosaveState, setAutosaveState] = useState<
     'idle' | 'dirty' | 'saving' | 'saved' | 'error'
   >('idle');
+  // Banner cuando el backup local falla por quota (típico con imágenes
+  // grandes en data URL). El autosave server sigue funcionando.
+  const [localBackupFailed, setLocalBackupFailed] = useState(false);
   // Última cfg serializada que efectivamente se persistió en el backend.
   // Sirve para detectar dirty (cfg actual != lastSavedJson) y evitar
   // saves redundantes.
   const lastSavedJsonRef = useRef<string>('');
   const autosaveTimerRef = useRef<number | null>(null);
+  // Flag para evitar que el autosave dispare ANTES de que el load
+  // server-side termine — sino podría pisar el server con un cfg
+  // default si la red está lenta (>2.5s al cargar). Se setea a true
+  // en el finally del load effect.
+  const hasLoadedRef = useRef(false);
+  // Ref del último cfg para el cleanup de unmount + el save closure.
+  // Sin esto, el save dentro del setTimeout captura el cfg del render
+  // que lo agendó — puede estar desactualizado.
+  const cfgRef = useRef(cfg);
+  useEffect(() => {
+    cfgRef.current = cfg;
+  }, [cfg]);
   const localKey = `clubify:qr-poster-draft:${type}`;
 
-  /** Save efectivo al backend. Usado tanto por el botón manual como
-   *  por el autosave debounced. Idempotente — si no hay cambios
+  /** Save efectivo al backend. Lee siempre el cfg ACTUAL via cfgRef
+   *  (no del closure del render). Idempotente — si no hay cambios
    *  (cfg === lastSavedJson) skipea. */
   async function save({ silent = false }: { silent?: boolean } = {}) {
-    const json = JSON.stringify(cfg);
+    const currentCfg = cfgRef.current;
+    const json = JSON.stringify(currentCfg);
     if (json === lastSavedJsonRef.current && !saveError) {
-      // Nada nuevo que guardar
       if (!silent) setAutosaveState('saved');
       return;
     }
@@ -601,14 +661,13 @@ export default function QrPosterEditor({
     try {
       const row = await api<any>(`/qr-posters/by-type/${type}`, {
         method: 'PUT',
-        body: JSON.stringify({ name: '', config: cfg }),
+        body: JSON.stringify({ name: '', config: currentCfg }),
       });
       setPosterId(row.id);
       lastSavedJsonRef.current = json;
       setSavedAt(Date.now());
       setAutosaveState('saved');
       if (!silent) window.setTimeout(() => setSavedAt(null), 2500);
-      // Limpiar backup local porque el server ya tiene el último
       try {
         localStorage.removeItem(localKey);
       } catch {}
@@ -624,22 +683,32 @@ export default function QrPosterEditor({
   }
 
   // Escribir copia local en cada cambio + agendar autosave debounced.
+  // CRÍTICO: no hacer nada hasta que hasLoadedRef sea true. Sino el
+  // primer render dispara el effect con cfg=defaultConfig y si el
+  // load tarda >2.5s el autosave PISA el server con el default.
   useEffect(() => {
+    if (!hasLoadedRef.current) return;
     const json = JSON.stringify(cfg);
     if (lastSavedJsonRef.current && json === lastSavedJsonRef.current) {
-      // No hay cambios pendientes (post-load o post-save)
       return;
     }
-    // Backup local INMEDIATO para recuperación post-refresh
     try {
       localStorage.setItem(localKey, json);
-    } catch {}
+    } catch (e: any) {
+      // QuotaExceeded — típico con varias imágenes en dataURL (~5MB
+      // cap por origin). Aviso visible para que el cliente sepa que NO
+      // hay backup local. El autosave al server sigue funcionando.
+      if (e?.name === 'QuotaExceededError' || e?.code === 22) {
+        console.warn('localStorage lleno — backup local desactivado');
+        // Marcar dirty igual para que el autosave server-side dispare,
+        // y avisar via banner que no hay backup local.
+        setLocalBackupFailed(true);
+      }
+    }
     setAutosaveState('dirty');
     if (autosaveTimerRef.current) {
       window.clearTimeout(autosaveTimerRef.current);
     }
-    // Debounce 2.5s — suficiente para que el cliente termine drags +
-    // edits seguidos sin disparar requests por cada movimiento.
     autosaveTimerRef.current = window.setTimeout(() => {
       save({ silent: true }).catch(() => null);
     }, 2500);
@@ -652,15 +721,15 @@ export default function QrPosterEditor({
   }, [cfg]);
 
   // Al desmontar el editor, hacer un save final si quedó algo pending.
+  // Usa cfgRef (no cfg del closure inicial) para leer el cfg ACTUAL.
   useEffect(() => {
     return () => {
-      const json = JSON.stringify(cfg);
+      const currentCfg = cfgRef.current;
+      const json = JSON.stringify(currentCfg);
       if (json !== lastSavedJsonRef.current) {
-        // Fire-and-forget; el cliente puede cerrar la pestaña y ya
-        // tenemos backup local de todos modos.
         api(`/qr-posters/by-type/${type}`, {
           method: 'PUT',
-          body: JSON.stringify({ name: '', config: cfg }),
+          body: JSON.stringify({ name: '', config: currentCfg }),
           keepalive: true as any,
         }).catch(() => null);
       }
@@ -769,12 +838,17 @@ export default function QrPosterEditor({
   }
   function addCustomText(seed?: Partial<CustomTextLayer>) {
     const id = newId();
+    // Safe boxWidth: clamp para que el texto quepa SIEMPRE dentro del
+    // canvas — incluso en lienzos chicos (stickers, circulares
+    // 1080×1080). Sin esto, addCustomText con boxWidth=400 en un canvas
+    // de 320px dejaba la caja desbordada o invisible.
+    const targetBoxW = seed?.boxWidth ?? Math.min(400, cfg.canvas.w - 40);
     const cx = cfg.canvas.w / 2;
     const cy = cfg.canvas.h / 2;
     const newText: CustomTextLayer = {
       id,
       text: seed?.text ?? 'Texto nuevo',
-      x: seed?.x ?? cx - 200,
+      x: seed?.x ?? Math.max(20, cx - targetBoxW / 2),
       y: seed?.y ?? cy,
       font: seed?.font ?? 'Inter, system-ui, sans-serif',
       fontLabel: seed?.fontLabel ?? 'Inter',
@@ -786,7 +860,7 @@ export default function QrPosterEditor({
       rotation: seed?.rotation ?? 0,
       lineHeight: seed?.lineHeight ?? 1.2,
       letterSpacing: seed?.letterSpacing ?? 0,
-      boxWidth: seed?.boxWidth ?? 400,
+      boxWidth: targetBoxW,
       shadow: seed?.shadow ?? null,
       locked: false,
       hidden: false,
@@ -797,11 +871,22 @@ export default function QrPosterEditor({
   function duplicateCustomText(id: string) {
     const src = (cfg.customTexts ?? []).find((t) => t.id === id);
     if (!src) return;
+    // Offset diagonal pero clampeado al canvas — si la caja original
+    // estaba en el borde, +24 la sacaba afuera y el cliente "no veía"
+    // la copia.
+    const boxW = src.boxWidth ?? cfg.canvas.w;
+    const maxX = Math.max(0, cfg.canvas.w - boxW - 8);
+    const maxY = Math.max(0, cfg.canvas.h - src.size - 8);
+    const nx = Math.min(src.x + 24, maxX);
+    const ny = Math.min(src.y + 24, maxY);
     const newDup = {
       ...src,
+      // Clonado profundo del shadow (sino la copia y el original
+      // comparten el objeto shadow y editar uno muta el otro).
+      shadow: src.shadow ? { ...src.shadow } : null,
       id: newId(),
-      x: src.x + 24,
-      y: src.y + 24,
+      x: nx,
+      y: ny,
       locked: false,
     };
     setCfg((c) => ({ ...c, customTexts: [...(c.customTexts ?? []), newDup] }));
@@ -1034,6 +1119,14 @@ export default function QrPosterEditor({
             savedAt={savedAt}
             error={saveError}
           />
+          {localBackupFailed && (
+            <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 leading-relaxed">
+              ⚠ El backup local está lleno (imágenes grandes). Tu auto-save
+              al servidor sigue funcionando pero <strong>no</strong> hay
+              respaldo local — si refrescás antes del próximo guardado,
+              podrías perder cambios. Subí imágenes más livianas.
+            </div>
+          )}
           <div className="text-[11px] text-mute leading-relaxed">
             Arrastrá cualquier elemento en el canvas — guías rosa/verde
             te ayudan a centrar. Auto-save cada 2.5s + backup local
@@ -1764,24 +1857,35 @@ export default function QrPosterEditor({
                       : g.kind === 'spacing'
                       ? '#F59E0B' // amber para spacing
                       : '#EC4899'; // fucsia default
-                  return g.type === 'v' ? (
-                    <Line
-                      key={`g-${idx}`}
-                      points={[g.value, 0, g.value, cfg.canvas.h]}
-                      stroke={color}
-                      strokeWidth={1.5}
-                      dash={[6, 4]}
-                      listening={false}
-                    />
-                  ) : (
-                    <Line
-                      key={`g-${idx}`}
-                      points={[0, g.value, cfg.canvas.w, g.value]}
-                      stroke={color}
-                      strokeWidth={1.5}
-                      dash={[6, 4]}
-                      listening={false}
-                    />
+                  return (
+                    <Group key={`g-${idx}`} listening={false}>
+                      {g.type === 'v' ? (
+                        <Line
+                          points={[g.value, 0, g.value, cfg.canvas.h]}
+                          stroke={color}
+                          strokeWidth={1.5}
+                          dash={[6, 4]}
+                        />
+                      ) : (
+                        <Line
+                          points={[0, g.value, cfg.canvas.w, g.value]}
+                          stroke={color}
+                          strokeWidth={1.5}
+                          dash={[6, 4]}
+                        />
+                      )}
+                      {g.label && (
+                        <Text
+                          text={g.label}
+                          x={g.type === 'v' ? g.value + 8 : 8}
+                          y={g.type === 'h' ? g.value - 18 : 8}
+                          fontSize={14}
+                          fontStyle="bold"
+                          fill={color}
+                          fontFamily="Inter, system-ui, sans-serif"
+                        />
+                      )}
+                    </Group>
                   );
                 })}
               </Layer>
@@ -2186,7 +2290,11 @@ function AutoResizeTextarea({
     const el = ref.current;
     if (!el) return;
     el.style.height = '0px';
-    el.style.height = `${Math.max(32, el.scrollHeight)}px`;
+    // Cap a 320px de alto. Si el cliente pega un texto enorme el
+    // textarea no rompe el layout del sidebar — entra scroll interno.
+    const target = Math.min(320, Math.max(32, el.scrollHeight));
+    el.style.height = `${target}px`;
+    el.style.overflowY = el.scrollHeight > 320 ? 'auto' : 'hidden';
   }, [value]);
   return (
     <textarea
@@ -2247,22 +2355,30 @@ function TextShadowEditor({
         value={shadow!.color}
         onChange={(v) => onChange({ ...shadow!, color: v })}
       />
+      <NumberRow
+        label="Blur"
+        value={shadow!.blur}
+        min={0}
+        max={40}
+        step={1}
+        onChange={(v) => onChange({ ...shadow!, blur: v })}
+      />
       <div className="grid grid-cols-2 gap-1.5">
         <NumberRow
-          label="Blur"
-          value={shadow!.blur}
-          min={0}
-          max={40}
-          step={1}
-          onChange={(v) => onChange({ ...shadow!, blur: v })}
-        />
-        <NumberRow
-          label="Off"
+          label="Off X"
           value={shadow!.offsetX}
           min={-30}
           max={30}
           step={1}
-          onChange={(v) => onChange({ ...shadow!, offsetX: v, offsetY: v })}
+          onChange={(v) => onChange({ ...shadow!, offsetX: v })}
+        />
+        <NumberRow
+          label="Off Y"
+          value={shadow!.offsetY}
+          min={-30}
+          max={30}
+          step={1}
+          onChange={(v) => onChange({ ...shadow!, offsetY: v })}
         />
       </div>
       <OpacityRow
@@ -2521,13 +2637,17 @@ function BackgroundSection({
               onChange={(v) => onChange({ angle: v })}
             />
           )}
-          {/* Mini preview del gradiente */}
+          {/* Mini preview del gradiente. Para radial usamos ellipse
+              farthest-corner para que el preview matchee al export
+              Konva (que usa radio = diagonal/2 — cubre hasta las
+              esquinas). El `circle` antes daba un look muy distinto
+              cuando el canvas no era cuadrado. */}
           <div
             className="rounded-lg border border-line h-12 mt-1"
             style={{
               background:
                 (bg.subtype ?? 'linear') === 'radial'
-                  ? `radial-gradient(circle, ${bg.color1}, ${bg.color2})`
+                  ? `radial-gradient(ellipse farthest-corner at center, ${bg.color1}, ${bg.color2})`
                   : `linear-gradient(${
                       (bg.subtype === 'diagonal' ? 135 : bg.angle) ?? 135
                     }deg, ${bg.color1}, ${bg.color2})`,
@@ -3013,7 +3133,18 @@ function ImagesSection({
               />
               <CropButton
                 image={im}
-                onApply={(crop) => onPatch(im.id, { crop })}
+                onApply={(crop) => {
+                  if (crop) {
+                    // Ajustar altura del rect render para que matchee
+                    // el aspect del crop — sino la imagen sale estirada
+                    // al hacer crop de aspect distinto al rect viejo.
+                    const aspect = crop.width / crop.height;
+                    const newH = Math.max(20, Math.round(im.w / aspect));
+                    onPatch(im.id, { crop, h: newH });
+                  } else {
+                    onPatch(im.id, { crop: null });
+                  }
+                }}
               />
             </div>
           ))}
