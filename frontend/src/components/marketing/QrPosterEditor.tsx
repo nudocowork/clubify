@@ -3822,13 +3822,11 @@ function ImagesSection({
     onAdd(dataUrl, badge.width, badge.height);
   }
 
-  // Solo mostramos los badges cuyo SVG existe en /public/wallet-badges/.
-  // Google aún no — quedan grises hasta que descargues el ZIP oficial.
   const badgeEntries: Array<{ key: string; badge: WalletBadge; available: boolean }> = [
     { key: 'appleEs', badge: WALLET_BADGES.appleEs, available: true },
     { key: 'appleEn', badge: WALLET_BADGES.appleEn, available: true },
-    { key: 'googleEs', badge: WALLET_BADGES.googleEs, available: false },
-    { key: 'googleEn', badge: WALLET_BADGES.googleEn, available: false },
+    { key: 'googleEs', badge: WALLET_BADGES.googleEs, available: true },
+    { key: 'googleEn', badge: WALLET_BADGES.googleEn, available: true },
   ];
 
   return (

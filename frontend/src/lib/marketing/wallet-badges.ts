@@ -40,16 +40,16 @@ export const WALLET_BADGES: Record<string, WalletBadge> = {
   googleEs: {
     id: 'google-es',
     label: 'Google Wallet (ES)',
-    src: '/wallet-badges/google-es.svg',
-    width: 188,
-    height: 47,
+    src: '/wallet-badges/google-es.png',
+    width: 239,
+    height: 55,
   },
   googleEn: {
     id: 'google-en',
     label: 'Google Wallet (EN)',
-    src: '/wallet-badges/google-en.svg',
-    width: 188,
-    height: 47,
+    src: '/wallet-badges/google-en.png',
+    width: 239,
+    height: 55,
   },
 };
 
