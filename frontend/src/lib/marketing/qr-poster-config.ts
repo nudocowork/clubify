@@ -251,15 +251,22 @@ export type ImageLayer = {
  *  delimitada). Pensado para usarse como decoración detrás del QR. */
 export type PatternLayer = {
   id: string;
-  /** Emojis que componen el patrón. Se intercalan en grid. */
+  /** Emojis que componen el patrón. Se intercalan en grid. Si
+   *  `imageUrl` está seteado, se ignora — el tile es la imagen. */
   emojis: string[];
-  /** Tamaño de cada emoji en px. */
+  /** URL de imagen (PNG/SVG/JPG) a usar como tile en lugar de emojis.
+   *  Útil para branding (logo del negocio repetido como fondo) o
+   *  iconos custom. Data URL o URL externa con CORS habilitado. */
+  imageUrl?: string | null;
+  /** Tamaño de cada tile (emoji o imagen) en px. Para imágenes,
+   *  se renderea como cuadrado size×size manteniendo aspect via
+   *  Konva.Image scaling. */
   size: number;
   /** Distancia entre celdas en px (gap). 0 = celdas adyacentes. */
   gap: number;
   /** 0..1 — opacidad global. */
   opacity: number;
-  /** Rotación de cada emoji individualmente (grados). */
+  /** Rotación de cada tile individualmente (grados). */
   rotation: number;
   /** Densidad: 0..1 — probabilidad de pintar cada celda. 1 = pintar
    *  todas, 0.5 = saltear la mitad (efecto disperso). */

@@ -6,6 +6,7 @@ import { Icon } from '@/components/Icon';
 import { StampIconPicker } from '@/components/StampIconPicker';
 import { CardExpiryPicker } from '@/components/CardExpiryPicker';
 import { WalletPassPreview } from '@/components/WalletPassPreview';
+import { WalletStylesGallery } from '@/components/WalletStylesGallery';
 import {
   CARD_TEMPLATES,
   TYPE_LABEL,
@@ -854,6 +855,35 @@ function Step4Design({
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-7">
       <div className="card card-pad space-y-4">
         <div>
+          <h3 className="font-semibold text-base m-0">✨ Estilos pre-armados</h3>
+          <p className="text-xs text-mute mt-1">
+            Elige un estilo y aplicamos los 6 colores del wallet pass de una
+            vez. Después puedes ajustar cualquiera abajo.
+          </p>
+        </div>
+        <WalletStylesGallery
+          current={{
+            primaryColor: form.primaryColor,
+            secondaryColor: form.secondaryColor,
+            stampActiveColor: form.stampActiveColor,
+            stampInactiveColor: form.stampInactiveColor,
+            stampContourColor: form.stampContourColor,
+            centerBgColor: form.centerBgColor,
+          }}
+          onApply={(style) => {
+            setForm({
+              ...form,
+              primaryColor: style.colors.primaryColor,
+              secondaryColor: style.colors.secondaryColor,
+              stampActiveColor: style.colors.stampActiveColor,
+              stampInactiveColor: style.colors.stampInactiveColor,
+              stampContourColor: style.colors.stampContourColor,
+              centerBgColor: style.colors.centerBgColor,
+            });
+          }}
+        />
+
+        <div className="pt-2 border-t border-line">
           <h3 className="font-semibold text-base m-0">🎨 Colores de marca</h3>
           <p className="text-xs text-mute mt-1">
             Estos colores aplican al fondo del wallet pass del cliente.

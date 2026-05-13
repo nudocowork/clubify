@@ -92,15 +92,11 @@ const SNAP_THRESHOLD = 8; // px en coords de canvas — distancia para snapear
 const HISTORY_MAX = 50;
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB
 
-let fontsLoaded = false;
-function ensureFontsLoaded() {
-  if (typeof document === 'undefined' || fontsLoaded) return;
-  fontsLoaded = true;
-  const link = document.createElement('link');
-  link.rel = 'stylesheet';
-  link.href = googleFontsUrl();
-  document.head.appendChild(link);
-}
+// Las fuentes ahora vienen cargadas globalmente desde el root layout
+// (frontend/src/app/layout.tsx) — esta función queda como no-op de
+// retrocompatibilidad. Se puede eliminar cuando todos los callers se
+// actualicen.
+function ensureFontsLoaded() {}
 
 function useImageFromDataUrl(dataUrl: string | null) {
   const [img, setImg] = useState<HTMLImageElement | null>(null);
@@ -1105,11 +1101,12 @@ export default function QrPosterEditor({
       layerOrder: c.layerOrder?.filter((lid) => lid !== `image.${id}`),
     }));
   }
-  function addPattern(emojis: string[]) {
+  function addPattern(opts: { emojis?: string[]; imageUrl?: string }) {
     const id = newId();
     const newPat: PatternLayer = {
       id,
-      emojis: emojis.length ? emojis : ['✨'],
+      emojis: opts.emojis && opts.emojis.length ? opts.emojis : ['✨'],
+      imageUrl: opts.imageUrl ?? null,
       size: 64,
       gap: 32,
       opacity: 0.5,
@@ -2840,7 +2837,7 @@ function layerLabel(id: LayerId, cfg: QrPosterConfig): string | null {
   if (id.startsWith('pattern.')) {
     const p = cfg.patterns?.find((x) => x.id === id.slice(8));
     if (!p) return null;
-    return `${p.emojis.join('')} Patrón`;
+    return p.imageUrl ? '🖼️ Patrón (imagen)' : `${p.emojis.join('')} Patrón`;
   }
   if (id.startsWith('customText.')) {
     const t = cfg.customTexts?.find((x) => x.id === id.slice('customText.'.length));
@@ -3713,6 +3710,11 @@ function PatternLayerView({
   canvasW: number;
   canvasH: number;
 }) {
+  // Si el patrón usa una imagen como tile (PNG/SVG subido), cargamos
+  // la imagen aquí. Si no, queda null y caemos al render con emojis.
+  const tileImg = useImageFromUrl(layer.imageUrl ?? null);
+  const useImage = !!layer.imageUrl && !!tileImg;
+
   const cells = useMemo(() => {
     const fullCanvas = layer.fullCanvas !== false;
     const areaX = fullCanvas ? 0 : layer.x ?? 0;
@@ -3730,7 +3732,7 @@ function PatternLayerView({
           i++;
           continue;
         }
-        const emoji = layer.emojis[i % layer.emojis.length];
+        const emoji = layer.emojis[i % Math.max(1, layer.emojis.length)] ?? '';
         out.push({ x, y, emoji, rot: layer.rotation });
         i++;
       }
@@ -3740,16 +3742,32 @@ function PatternLayerView({
 
   return (
     <Group opacity={layer.opacity} listening={false}>
-      {cells.map((c, idx) => (
-        <Text
-          key={idx}
-          text={c.emoji}
-          x={c.x}
-          y={c.y}
-          fontSize={layer.size}
-          rotation={c.rot}
-        />
-      ))}
+      {cells.map((c, idx) =>
+        useImage ? (
+          // Tile = imagen subida. Pivote desde centro para que la
+          // rotación se vea natural (igual que emojis con offsetX/Y).
+          <KonvaImage
+            key={idx}
+            image={tileImg as HTMLImageElement}
+            x={c.x + layer.size / 2}
+            y={c.y + layer.size / 2}
+            offsetX={layer.size / 2}
+            offsetY={layer.size / 2}
+            width={layer.size}
+            height={layer.size}
+            rotation={c.rot}
+          />
+        ) : (
+          <Text
+            key={idx}
+            text={c.emoji}
+            x={c.x}
+            y={c.y}
+            fontSize={layer.size}
+            rotation={c.rot}
+          />
+        ),
+      )}
     </Group>
   );
 }
@@ -4195,7 +4213,7 @@ function PatternsSection({
   onRemove,
 }: {
   patterns: PatternLayer[];
-  onAdd: (emojis: string[]) => void;
+  onAdd: (opts: { emojis?: string[]; imageUrl?: string }) => void;
   onPatch: (id: string, patch: Partial<PatternLayer>) => void;
   onRemove: (id: string) => void;
 }) {
@@ -4203,21 +4221,55 @@ function PatternsSection({
   const [draftEmojis, setDraftEmojis] = useState<string[]>(['🍪', '☕']);
 
   function commit() {
-    onAdd(draftEmojis);
+    onAdd({ emojis: draftEmojis });
     setDraftEmojis(['🍪', '☕']);
     setPicking(false);
+  }
+
+  /** Subir un PNG/SVG/JPG y crear un patrón usando esa imagen como
+   *  tile. El cliente puede entonces ajustar tamaño/gap/rotación/
+   *  densidad como cualquier patrón. */
+  function handlePngUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > MAX_UPLOAD_BYTES) {
+      alert(`La imagen es muy pesada. Máx ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result);
+      onAdd({ imageUrl: dataUrl });
+    };
+    reader.readAsDataURL(file);
   }
 
   return (
     <Section title="Patrones" icon="✨" defaultOpen={patterns.length > 0}>
       {!picking ? (
-        <button
-          type="button"
-          onClick={() => setPicking(true)}
-          className="w-full text-xs px-2 py-3 rounded-lg border-2 border-dashed border-line hover:border-brand transition"
-        >
-          + Generar patrón con emojis
-        </button>
+        <div className="space-y-1.5">
+          <button
+            type="button"
+            onClick={() => setPicking(true)}
+            className="w-full text-xs px-2 py-3 rounded-lg border-2 border-dashed border-line hover:border-brand transition"
+          >
+            + Generar patrón con emojis
+          </button>
+          <label
+            htmlFor="pattern-png-upload"
+            className="w-full block text-center cursor-pointer text-xs px-2 py-3 rounded-lg border-2 border-dashed border-line hover:border-brand transition"
+          >
+            + Patrón con imagen (PNG/SVG)
+          </label>
+          <input
+            id="pattern-png-upload"
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/svg+xml"
+            onChange={handlePngUpload}
+            className="hidden"
+          />
+        </div>
       ) : (
         <div className="space-y-2 border border-line rounded p-2 bg-bg2/30">
           <div className="flex items-center justify-between">
@@ -4283,8 +4335,18 @@ function PatternsSection({
           {patterns.map((p) => (
             <div key={p.id} className="bg-bg2/40 rounded p-2 space-y-1.5">
               <div className="flex items-center gap-2">
-                <span className="text-base">{p.emojis.join('')}</span>
-                <span className="text-xs flex-1">Patrón</span>
+                {p.imageUrl ? (
+                  <img
+                    src={p.imageUrl}
+                    alt=""
+                    className="w-7 h-7 object-cover rounded border border-line shrink-0"
+                  />
+                ) : (
+                  <span className="text-base">{p.emojis.join('')}</span>
+                )}
+                <span className="text-xs flex-1">
+                  Patrón {p.imageUrl ? '(imagen)' : '(emojis)'}
+                </span>
                 <button
                   onClick={() => onRemove(p.id)}
                   className="text-mute hover:text-red-500 text-xs"

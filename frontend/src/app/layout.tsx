@@ -3,6 +3,7 @@ import './globals.css';
 import { PWARegister } from '@/components/PWARegister';
 import { ToastProvider } from '@/components/Toast';
 import { DynamicFavicon } from '@/components/DynamicFavicon';
+import { googleFontsUrl } from '@/lib/marketing/qr-poster-config';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
@@ -119,8 +120,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+        {/* TODAS las fuentes de FONT_OPTIONS cargadas globalmente —
+            disponibles en cualquier página (panel admin, billing,
+            cotizaciones, editor QR, wallet pass preview). Una sola
+            request al CDN de Google, browsers cachean agresivamente.
+            Antes solo Inter estaba global y el resto cargaba on-demand
+            cuando montaba QrPosterEditor — quedaban inutilizables en
+            otras vistas. */}
         <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+          href={googleFontsUrl()}
           rel="stylesheet"
         />
       </head>
