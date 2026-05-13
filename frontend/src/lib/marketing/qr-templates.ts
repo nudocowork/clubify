@@ -11,8 +11,10 @@
  */
 import type {
   BgConfig,
+  CustomTextLayer,
   QrConfig,
   QrPosterConfig,
+  ShapeLayer,
   TextLayer,
 } from './qr-poster-config';
 
@@ -38,6 +40,13 @@ export type QrTemplate = {
       cta?: Partial<TextLayer>;
       brand?: Partial<TextLayer>;
     };
+    /** Shapes a inyectar EN BLOQUE — reemplazan las shapes actuales.
+     *  Útil para templates con layouts pre-armados (sticker promo,
+     *  fondo curvo, etc). El template los inyecta con IDs propios. */
+    shapes?: ShapeLayer[];
+    /** Cajas de texto extra que vienen con el template — además de
+     *  los 4 fijos (title/subtitle/cta/brand). */
+    customTexts?: CustomTextLayer[];
   };
 };
 
@@ -245,6 +254,142 @@ export const QR_TEMPLATES: QrTemplate[] = [
       },
     },
   },
+  // ─────────────────────────────────────────────────────────────
+  // Nudo Cookie — promo descuento con sticker tipo cafetería boutique.
+  // Replica el diseño marrón curvo + cream square + burst 10% off del
+  // input visual de referencia. Layout horizontal premium.
+  // ─────────────────────────────────────────────────────────────
+  {
+    id: 'nudo-cookie',
+    name: 'Nudo Cookie',
+    category: 'food',
+    swatch: { from: '#4A2C20', to: '#A78A6C', text: '#F5EBDC' },
+    overrides: {
+      bg: { type: 'solid', color1: '#FFFFFF' },
+      qr: {
+        x: 230,
+        y: 400,
+        size: 360,
+        fg: '#3D2418',
+        bg: '#F5EBDC',
+        padding: 20,
+        paddingColor: '#F5EBDC',
+        cornerRadius: 12,
+      },
+      texts: {
+        // Marca arriba a la izquierda. El cliente debería sustituir el
+        // brandName del tenant; queda como anchor.
+        brand: {
+          color: '#F5EBDC',
+          font: '"Bebas Neue", Impact, sans-serif',
+          fontLabel: 'Bebas Neue',
+          weight: 700,
+          size: 56,
+          x: 140,
+          y: 80,
+          align: 'left',
+        },
+        // "Escanea" — handwritten grande
+        title: {
+          color: '#F5EBDC',
+          font: 'Pacifico, cursive',
+          fontLabel: 'Pacifico',
+          weight: 400,
+          size: 120,
+          text: 'Escanea',
+          x: 720,
+          y: 280,
+          align: 'left',
+        },
+        // "y obten un" — bajada del título
+        subtitle: {
+          color: '#F5EBDC',
+          font: INTER,
+          fontLabel: 'Inter',
+          weight: 400,
+          size: 48,
+          text: 'y obten un',
+          x: 740,
+          y: 420,
+          align: 'left',
+        },
+        // "En tu primera compra"
+        cta: {
+          color: '#F5EBDC',
+          font: INTER,
+          fontLabel: 'Inter',
+          weight: 700,
+          size: 56,
+          text: 'En tu primera\ncompra',
+          x: 700,
+          y: 620,
+          align: 'left',
+          lineHeight: 1.1,
+        },
+      },
+      // Layout pre-armado: fondo marrón curvo (rounded rect grande) +
+      // círculo grande a la izq (la "bump") + cream square para el QR
+      // + burst sticker "10% OFF" a la derecha.
+      shapes: [
+        // 1. Background curvo principal — rounded rect marrón grande
+        {
+          id: 'nudo-bg-main',
+          type: 'roundedRect',
+          x: 280,
+          y: 60,
+          w: 1520,
+          h: 880,
+          fill: '#4A2C20',
+          borderRadius: 80,
+          opacity: 1,
+        },
+        // 2. Círculo grande a la izquierda — la "bump" del diseño
+        {
+          id: 'nudo-circle-bump',
+          type: 'circle',
+          x: 60,
+          y: 60,
+          w: 880,
+          h: 880,
+          fill: '#4A2C20',
+          opacity: 1,
+        },
+        // 3. Cream square para el QR — fondo claro del bloque QR
+        {
+          id: 'nudo-qr-bg',
+          type: 'roundedRect',
+          x: 200,
+          y: 370,
+          w: 420,
+          h: 420,
+          fill: '#F5EBDC',
+          borderRadius: 16,
+          opacity: 1,
+        },
+        // 4. Burst sticker promocional — "10% OFF"
+        {
+          id: 'nudo-burst-10-off',
+          type: 'burst',
+          x: 1480,
+          y: 200,
+          w: 360,
+          h: 360,
+          fill: '#A78A6C',
+          points: 18,
+          innerRadiusFactor: 0.84,
+          rotation: -8,
+          innerText: {
+            text: '10%\noff',
+            color: '#F5EBDC',
+            size: 76,
+            font: INTER,
+            weight: 900,
+            lineHeight: 0.95,
+          },
+        },
+      ],
+    },
+  },
 ];
 
 export function applyTemplate(
@@ -264,5 +409,13 @@ export function applyTemplate(
       cta: { ...current.texts.cta, ...(tpl.overrides.texts.cta ?? {}) },
       brand: { ...current.texts.brand, ...(tpl.overrides.texts.brand ?? {}) },
     },
+    // Templates con shapes/customTexts (ej "Nudo Cookie") REEMPLAZAN
+    // los existentes para que el layout pre-armado se vea bien. Si el
+    // cliente ya tenía customizado y NO quiere perderlo, debe duplicar
+    // el poster antes de aplicar.
+    ...(tpl.overrides.shapes ? { shapes: tpl.overrides.shapes } : {}),
+    ...(tpl.overrides.customTexts
+      ? { customTexts: tpl.overrides.customTexts }
+      : {}),
   };
 }

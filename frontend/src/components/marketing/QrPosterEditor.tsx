@@ -29,6 +29,8 @@ import {
   Text,
   Image as KonvaImage,
   Line,
+  Star,
+  Path,
 } from 'react-konva';
 import QRCode from 'qrcode';
 import jsPDF from 'jspdf';
@@ -40,6 +42,7 @@ import {
   type CustomTextLayer,
   type BgConfig,
   type ShapeLayer,
+  type ShapeType,
   type IconLayer,
   type ImageLayer,
   type PatternLayer,
@@ -816,6 +819,80 @@ export default function QrPosterEditor({
       shapes: (c.shapes ?? []).map((s) => (s.id === id ? { ...s, ...patch } : s)),
     }));
   }
+  /** Crea una shape nueva del tipo elegido con defaults sensatos
+   *  según el tipo (un burst arranca con "10% OFF" innerText, un blob
+   *  con seed random, una capsule con aspect 3:1, etc). */
+  function addShape(type: ShapeType, seed?: Partial<ShapeLayer>) {
+    const id = newId();
+    const cx = cfg.canvas.w / 2;
+    const cy = cfg.canvas.h / 2;
+    const presets: Record<ShapeType, Partial<ShapeLayer>> = {
+      rect: { w: 300, h: 200 },
+      circle: { w: 240, h: 240 },
+      roundedRect: { w: 360, h: 200, borderRadius: 32 },
+      capsule: { w: 360, h: 120 },
+      star: { w: 240, h: 240, points: 5, innerRadiusFactor: 0.5 },
+      burst: {
+        w: 280,
+        h: 280,
+        points: 16,
+        innerRadiusFactor: 0.85,
+        fill: '#A78A6C',
+        innerText: {
+          text: '10%\noff',
+          color: '#FFFFFF',
+          size: 56,
+          font: 'Inter, system-ui, sans-serif',
+          weight: 900,
+          lineHeight: 1,
+        },
+      },
+      blob: { w: 280, h: 280, seed: Math.floor(Math.random() * 100000) },
+    };
+    const preset = presets[type] ?? {};
+    const newShape: ShapeLayer = {
+      id,
+      type,
+      x: preset.x ?? cx - (preset.w ?? 200) / 2,
+      y: preset.y ?? cy - (preset.h ?? 200) / 2,
+      w: preset.w ?? 200,
+      h: preset.h ?? 200,
+      fill: preset.fill ?? '#6366F1',
+      opacity: 1,
+      borderRadius: preset.borderRadius,
+      stroke: undefined,
+      strokeWidth: 0,
+      rotation: 0,
+      innerText: preset.innerText ?? null,
+      points: preset.points,
+      innerRadiusFactor: preset.innerRadiusFactor,
+      seed: preset.seed,
+      gradientFill: null,
+      ...seed,
+    };
+    setCfg((c) => ({ ...c, shapes: [...(c.shapes ?? []), newShape] }));
+    return id;
+  }
+  function removeShape(id: string) {
+    setCfg((c) => ({
+      ...c,
+      shapes: (c.shapes ?? []).filter((s) => s.id !== id),
+      layerOrder: c.layerOrder?.filter((lid) => lid !== `shape.${id}`),
+    }));
+  }
+  function duplicateShape(id: string) {
+    const src = (cfg.shapes ?? []).find((s) => s.id === id);
+    if (!src) return;
+    const newDup: ShapeLayer = {
+      ...src,
+      id: newId(),
+      x: Math.min(src.x + 24, cfg.canvas.w - src.w - 8),
+      y: Math.min(src.y + 24, cfg.canvas.h - src.h - 8),
+      innerText: src.innerText ? { ...src.innerText } : null,
+      gradientFill: src.gradientFill ? { ...src.gradientFill } : null,
+    };
+    setCfg((c) => ({ ...c, shapes: [...(c.shapes ?? []), newDup] }));
+  }
   function patchIcon(id: string, patch: Partial<IconLayer>) {
     setCfg((c) => ({
       ...c,
@@ -1251,6 +1328,51 @@ export default function QrPosterEditor({
             value={cfg.qr.opacity ?? 1}
             onChange={(v) => setCfg((c) => ({ ...c, qr: { ...c.qr, opacity: v } }))}
           />
+          {/* Marco/padding/sombra del bloque QR — útil para layouts
+              donde el QR está sobre un fondo de color y se quiere un
+              "papel" con borde redondeado tipo sticker. */}
+          <div className="pt-2 border-t border-line2 space-y-1.5">
+            <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
+              Marco del QR
+            </div>
+            <NumberRow
+              label="Padding"
+              value={cfg.qr.padding ?? 0}
+              min={0}
+              max={80}
+              step={2}
+              onChange={(v) => setCfg((c) => ({ ...c, qr: { ...c.qr, padding: v } }))}
+            />
+            <NumberRow
+              label="Esquinas"
+              value={cfg.qr.cornerRadius ?? 0}
+              min={0}
+              max={80}
+              step={2}
+              onChange={(v) =>
+                setCfg((c) => ({ ...c, qr: { ...c.qr, cornerRadius: v } }))
+              }
+            />
+            <NumberRow
+              label="Borde px"
+              value={cfg.qr.borderWidth ?? 0}
+              min={0}
+              max={20}
+              step={1}
+              onChange={(v) =>
+                setCfg((c) => ({ ...c, qr: { ...c.qr, borderWidth: v } }))
+              }
+            />
+            {(cfg.qr.borderWidth ?? 0) > 0 && (
+              <ColorRow
+                label="Color borde"
+                value={cfg.qr.borderColor ?? '#000000'}
+                onChange={(v) =>
+                  setCfg((c) => ({ ...c, qr: { ...c.qr, borderColor: v } }))
+                }
+              />
+            )}
+          </div>
         </Section>
 
         {/* Textos */}
@@ -1409,7 +1531,18 @@ export default function QrPosterEditor({
           )}
         </Section>
 
-        {/* Imágenes (reemplaza Formas) */}
+        {/* Formas — re-introducida con tipos extendidos (roundedRect,
+            capsule, star, burst, blob) + sticker promocional con texto
+            adentro. Útil para composiciones tipo Canva/Adobe Express. */}
+        <ShapesSection
+          shapes={cfg.shapes ?? []}
+          onAdd={addShape}
+          onPatch={patchShape}
+          onDuplicate={duplicateShape}
+          onRemove={removeShape}
+        />
+
+        {/* Imágenes (PNG/SVG/JPG/WebP libres) */}
         <ImagesSection
           images={cfg.images ?? []}
           onAdd={addImageFromDataUrl}
@@ -1550,24 +1683,58 @@ export default function QrPosterEditor({
                     }
                     if (id === 'qr') {
                       if (!qrImage) return null;
+                      // Bounding box del QR INCLUYE el padding — sirve
+                      // para drag + snap. El QR puro se dibuja adentro.
+                      const pad = cfg.qr.padding ?? 0;
+                      const totalW = cfg.qr.size + pad * 2;
                       const handlers = makeDragHandlers(
                         'qr',
-                        { x: cfg.qr.x, y: cfg.qr.y, w: cfg.qr.size, h: cfg.qr.size },
+                        { x: cfg.qr.x, y: cfg.qr.y, w: totalW, h: totalW },
                         (x, y) =>
                           setCfg((c) => ({ ...c, qr: { ...c.qr, x, y } })),
                       );
+                      const cornerR = cfg.qr.cornerRadius ?? 0;
+                      const padColor = cfg.qr.paddingColor ?? cfg.qr.bg;
+                      const borderW = cfg.qr.borderWidth ?? 0;
+                      const borderColor = cfg.qr.borderColor ?? '#000000';
+                      const sh = cfg.qr.shadow;
                       return (
-                        <KonvaImage
+                        <Group
                           key="qr"
-                          image={qrImage}
                           x={cfg.qr.x}
                           y={cfg.qr.y}
-                          width={cfg.qr.size}
-                          height={cfg.qr.size}
                           opacity={cfg.qr.opacity ?? 1}
                           draggable
                           {...handlers}
-                        />
+                        >
+                          {/* Padding/marco + sombra + borde + cornerRadius
+                              renderizados como Rect detrás del QR */}
+                          {(pad > 0 || cornerR > 0 || borderW > 0 || sh) && (
+                            <Rect
+                              x={0}
+                              y={0}
+                              width={totalW}
+                              height={totalW}
+                              fill={padColor}
+                              cornerRadius={cornerR}
+                              stroke={borderW > 0 ? borderColor : undefined}
+                              strokeWidth={borderW}
+                              shadowColor={sh?.color}
+                              shadowBlur={sh?.blur ?? 0}
+                              shadowOffsetX={sh?.offsetX ?? 0}
+                              shadowOffsetY={sh?.offsetY ?? 0}
+                              shadowOpacity={sh?.opacity ?? (sh ? 1 : 0)}
+                            />
+                          )}
+                          <KonvaImage
+                            image={qrImage}
+                            x={pad}
+                            y={pad}
+                            width={cfg.qr.size}
+                            height={cfg.qr.size}
+                            listening={false}
+                          />
+                        </Group>
                       );
                     }
                     if (id === 'logo') {
@@ -1672,73 +1839,18 @@ export default function QrPosterEditor({
                       );
                     }
                     if (id.startsWith('shape.')) {
-                      // Deprecated pero seguimos renderizando para que
-                      // posters viejos sigan funcionando.
                       const sid = id.slice(6);
                       const s = cfg.shapes?.find((sh) => sh.id === sid);
                       if (!s) return null;
-                      const handlers = makeDragHandlers(
-                        `shape.${sid}`,
-                        { x: s.x, y: s.y, w: s.w, h: s.h },
-                        (x, y) => patchShape(sid, { x, y }),
-                      );
-                      const common = {
-                        fill: s.fill,
-                        opacity: s.opacity ?? 1,
-                        stroke: s.stroke,
-                        strokeWidth: s.strokeWidth ?? 0,
-                        draggable: true,
-                      };
-                      return s.type === 'circle' ? (
-                        <Circle
+                      return (
+                        <ShapeView
                           key={id}
-                          x={s.x + s.w / 2}
-                          y={s.y + s.w / 2}
-                          radius={s.w / 2}
-                          {...common}
-                          onDragMove={(e) => {
-                            // Konva.Circle expone su CENTRO como x/y, no
-                            // el top-left como Rect. Convertimos a
-                            // top-left antes de computeSnap, sino el
-                            // snap queda desfasado por el radio.
-                            const cx = e.target.x();
-                            const cy = e.target.y();
-                            const newBox = {
-                              x: cx - s.w / 2,
-                              y: cy - s.w / 2,
-                              w: s.w,
-                              h: s.w,
-                            };
-                            const others = gatherSnapTargets(cfg);
-                            const snap = computeSnap(
-                              newBox,
-                              others,
-                              cfg.canvas.w,
-                              cfg.canvas.h,
-                              `shape.${sid}`,
-                            );
-                            if (snap.x !== newBox.x) e.target.x(snap.x + s.w / 2);
-                            if (snap.y !== newBox.y) e.target.y(snap.y + s.w / 2);
-                            setGuides(snap.guides);
-                          }}
-                          onDragEnd={(e) => {
-                            patchShape(sid, {
-                              x: e.target.x() - s.w / 2,
-                              y: e.target.y() - s.w / 2,
-                            });
-                            setGuides([]); // sin esto las guías quedan visibles
-                          }}
-                        />
-                      ) : (
-                        <Rect
-                          key={id}
-                          x={s.x}
-                          y={s.y}
-                          width={s.w}
-                          height={s.h}
-                          cornerRadius={s.borderRadius ?? 0}
-                          {...common}
-                          {...handlers}
+                          shape={s}
+                          cfg={cfg}
+                          onPatch={(patch) => patchShape(sid, patch)}
+                          setGuides={setGuides}
+                          gatherSnapTargets={gatherSnapTargets}
+                          computeSnap={computeSnap}
                         />
                       );
                     }
@@ -2478,7 +2590,19 @@ function layerLabel(id: LayerId, cfg: QrPosterConfig): string | null {
   if (id.startsWith('shape.')) {
     const s = cfg.shapes?.find((sh) => sh.id === id.slice(6));
     if (!s) return null;
-    return s.type === 'rect' ? '▭ Rectángulo' : '◯ Círculo';
+    const icon = {
+      rect: '▭',
+      circle: '●',
+      roundedRect: '▢',
+      capsule: '⬭',
+      star: '★',
+      burst: '✺',
+      blob: '🜲',
+    }[s.type];
+    const preview = s.innerText?.text
+      ? ` · "${s.innerText.text.split('\n')[0]}"`
+      : '';
+    return `${icon} ${s.type}${preview}`;
   }
   if (id.startsWith('icon.')) {
     const i = cfg.icons?.find((ic) => ic.id === id.slice(5));
@@ -2761,8 +2885,60 @@ function CanvasSection({
     setCustomMode(false);
   }
 
+  /** Toggle orientación: swap w↔h del canvas (px y mm) y reusar el
+   *  reescalado existente para que TODOS los elementos se ajusten
+   *  proporcionalmente. Soluciona el caso "diseñé vertical y ahora
+   *  necesito horizontal" sin tener que recrear todo. */
+  function swapOrientation() {
+    setCfg((c) => ({
+      ...rescaleForCanvas(c, {
+        w: c.canvas.h,
+        h: c.canvas.w,
+        mm: c.canvas.mm
+          ? { w: c.canvas.mm.h, h: c.canvas.mm.w }
+          : c.canvas.mm,
+        dpi: c.canvas.dpi,
+      }),
+      clipShape: c.clipShape, // circular sigue siendo circular
+    }));
+  }
+
+  const isLandscape = cfg.canvas.w > cfg.canvas.h;
+
   return (
     <Section title="Tamaño y resolución" icon="📐">
+      {/* Toggle Horizontal / Vertical — rota el lienzo 90° + reescala
+          todos los elementos manteniendo proporciones. */}
+      <div className="flex gap-1.5">
+        <button
+          type="button"
+          onClick={() => {
+            if (isLandscape) swapOrientation();
+          }}
+          className={`flex-1 text-xs py-2 rounded-lg border-2 transition ${
+            !isLandscape
+              ? 'border-brand bg-brand-soft text-brand-700 font-semibold'
+              : 'border-line hover:border-mute'
+          }`}
+          title="Lienzo vertical (portrait)"
+        >
+          ▯ Vertical
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (!isLandscape) swapOrientation();
+          }}
+          className={`flex-1 text-xs py-2 rounded-lg border-2 transition ${
+            isLandscape
+              ? 'border-brand bg-brand-soft text-brand-700 font-semibold'
+              : 'border-line hover:border-mute'
+          }`}
+          title="Lienzo horizontal (landscape)"
+        >
+          ▭ Horizontal
+        </button>
+      </div>
       <div className="grid grid-cols-2 gap-2">
         {CANVAS_PRESETS.map((p) => {
           const isCircular = p.label.startsWith('Circular');
@@ -2857,6 +3033,229 @@ function CanvasSection({
  *  opcional aplicado via Konva.Filters.Blur. cache() debe llamarse
  *  cada vez que cambian width/height/blur/image para que el filtro
  *  se aplique correctamente. */
+/** Genera un Konva SVG path string para un blob orgánico. Usa
+ *  Catmull-Rom approximation con N puntos en círculo, cada uno con
+ *  jitter radial determinístico (mulberry32 con seed). Resultado:
+ *  forma "burbuja" suave que parece dibujada a mano. */
+function generateBlobPath(
+  w: number,
+  h: number,
+  seed: number,
+): string {
+  const rand = mulberry32(seed);
+  const cx = w / 2;
+  const cy = h / 2;
+  const n = 8;
+  const baseR = Math.min(w, h) / 2;
+  const points: { x: number; y: number }[] = [];
+  for (let i = 0; i < n; i++) {
+    const angle = (i / n) * Math.PI * 2;
+    const r = baseR * (0.75 + rand() * 0.45);
+    points.push({
+      x: cx + Math.cos(angle) * r,
+      y: cy + Math.sin(angle) * r,
+    });
+  }
+  // Bezier quadratic conectando los puntos para que las curvas sean
+  // suaves — el control point es el midpoint del siguiente segmento.
+  let d = `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
+  for (let i = 0; i < n; i++) {
+    const cur = points[i];
+    const next = points[(i + 1) % n];
+    const midX = (cur.x + next.x) / 2;
+    const midY = (cur.y + next.y) / 2;
+    d += ` Q ${cur.x.toFixed(1)} ${cur.y.toFixed(1)} ${midX.toFixed(1)} ${midY.toFixed(1)}`;
+  }
+  d += ' Z';
+  return d;
+}
+
+/** Render unificado de TODAS las formas (rect/circle/roundedRect/
+ *  capsule/star/burst/blob) + innerText opcional centrado. Maneja
+ *  drag con snap + gradiente alternativo al fill sólido. */
+function ShapeView({
+  shape: s,
+  cfg,
+  onPatch,
+  setGuides,
+  gatherSnapTargets,
+  computeSnap,
+}: {
+  shape: ShapeLayer;
+  cfg: QrPosterConfig;
+  onPatch: (patch: Partial<ShapeLayer>) => void;
+  setGuides: (g: Guide[]) => void;
+  gatherSnapTargets: (cfg: QrPosterConfig) => any[];
+  computeSnap: any;
+}) {
+  // Gradient props si gradientFill está activo, sino fill sólido.
+  const fillProps = useMemo(() => {
+    if (!s.gradientFill) return { fill: s.fill };
+    const g = s.gradientFill;
+    if (g.angle === 'radial') {
+      return {
+        fillRadialGradientStartPoint: { x: s.w / 2, y: s.h / 2 },
+        fillRadialGradientStartRadius: 0,
+        fillRadialGradientEndPoint: { x: s.w / 2, y: s.h / 2 },
+        fillRadialGradientEndRadius: Math.sqrt(s.w * s.w + s.h * s.h) / 2,
+        fillRadialGradientColorStops: [0, g.color1, 1, g.color2],
+      };
+    }
+    const rad = ((g.angle as number) * Math.PI) / 180;
+    const len = Math.max(s.w, s.h);
+    return {
+      fillLinearGradientStartPoint: {
+        x: s.w / 2 - (Math.cos(rad) * len) / 2,
+        y: s.h / 2 - (Math.sin(rad) * len) / 2,
+      },
+      fillLinearGradientEndPoint: {
+        x: s.w / 2 + (Math.cos(rad) * len) / 2,
+        y: s.h / 2 + (Math.sin(rad) * len) / 2,
+      },
+      fillLinearGradientColorStops: [0, g.color1, 1, g.color2],
+    };
+  }, [s.gradientFill, s.fill, s.w, s.h]);
+
+  const common = {
+    opacity: s.opacity ?? 1,
+    stroke: s.stroke,
+    strokeWidth: s.strokeWidth ?? 0,
+    rotation: s.rotation ?? 0,
+    ...fillProps,
+  };
+
+  // Para todas las formas usamos un Konva.Group anclado en (s.x, s.y)
+  // que contiene el shape primitive + opcionalmente el innerText
+  // centrado. Esto facilita: snap usa top-left del grupo, drag mueve
+  // todo junto, y gradient coords son locales al grupo.
+  const onDragMove = (e: any) => {
+    const node = e.target;
+    const newBox = { x: node.x(), y: node.y(), w: s.w, h: s.h };
+    const others = gatherSnapTargets(cfg);
+    const snap = computeSnap(newBox, others, cfg.canvas.w, cfg.canvas.h, `shape.${s.id}`);
+    if (snap.x !== newBox.x) node.x(snap.x);
+    if (snap.y !== newBox.y) node.y(snap.y);
+    setGuides(snap.guides);
+  };
+  const onDragEnd = (e: any) => {
+    onPatch({ x: e.target.x(), y: e.target.y() });
+    setGuides([]);
+  };
+
+  let shapeNode: React.ReactNode = null;
+  if (s.type === 'rect') {
+    shapeNode = (
+      <Rect
+        x={0}
+        y={0}
+        width={s.w}
+        height={s.h}
+        cornerRadius={s.borderRadius ?? 0}
+        {...common}
+      />
+    );
+  } else if (s.type === 'roundedRect') {
+    shapeNode = (
+      <Rect
+        x={0}
+        y={0}
+        width={s.w}
+        height={s.h}
+        cornerRadius={s.borderRadius ?? 24}
+        {...common}
+      />
+    );
+  } else if (s.type === 'capsule') {
+    // Pill: cornerRadius = min(w,h) / 2 → totalmente redondeada en el
+    // lado corto. Si w === h, queda círculo perfecto.
+    shapeNode = (
+      <Rect
+        x={0}
+        y={0}
+        width={s.w}
+        height={s.h}
+        cornerRadius={Math.min(s.w, s.h) / 2}
+        {...common}
+      />
+    );
+  } else if (s.type === 'circle') {
+    shapeNode = (
+      <Circle
+        x={s.w / 2}
+        y={s.w / 2}
+        radius={s.w / 2}
+        {...common}
+      />
+    );
+  } else if (s.type === 'star') {
+    const numPoints = s.points ?? 5;
+    const outerR = Math.min(s.w, s.h) / 2;
+    const innerR = outerR * (s.innerRadiusFactor ?? 0.5);
+    shapeNode = (
+      <Star
+        x={s.w / 2}
+        y={s.h / 2}
+        numPoints={numPoints}
+        innerRadius={innerR}
+        outerRadius={outerR}
+        {...common}
+      />
+    );
+  } else if (s.type === 'burst') {
+    // Burst = sun/star de muchas puntas finas. Default 16 puntas con
+    // innerRadius alto (0.85 del outer) → puntas cortitas tipo
+    // explosión promocional como el sticker "10% off" de Nudo Cookie.
+    const numPoints = s.points ?? 16;
+    const outerR = Math.min(s.w, s.h) / 2;
+    const innerR = outerR * (s.innerRadiusFactor ?? 0.85);
+    shapeNode = (
+      <Star
+        x={s.w / 2}
+        y={s.h / 2}
+        numPoints={numPoints}
+        innerRadius={innerR}
+        outerRadius={outerR}
+        {...common}
+      />
+    );
+  } else if (s.type === 'blob') {
+    const path = generateBlobPath(s.w, s.h, s.seed ?? 12345);
+    shapeNode = <Path data={path} {...common} />;
+  }
+
+  // Inner text — centrado en el bbox de la forma. Para burst stickers
+  // típicamente "10% off", para badges "NUEVO", etc.
+  const textNode = s.innerText ? (
+    <Text
+      text={s.innerText.text}
+      x={0}
+      y={s.h / 2 - (s.innerText.size * (s.innerText.lineHeight ?? 1)) / 2}
+      width={s.w}
+      align="center"
+      fontFamily={s.innerText.font ?? 'Inter, system-ui, sans-serif'}
+      fontSize={s.innerText.size}
+      fontStyle={(s.innerText.weight ?? 700) >= 700 ? 'bold' : 'normal'}
+      fill={s.innerText.color}
+      lineHeight={s.innerText.lineHeight ?? 1}
+      listening={false}
+      opacity={s.opacity ?? 1}
+    />
+  ) : null;
+
+  return (
+    <Group
+      x={s.x}
+      y={s.y}
+      draggable
+      onDragMove={onDragMove}
+      onDragEnd={onDragEnd}
+    >
+      {shapeNode}
+      {textNode}
+    </Group>
+  );
+}
+
 function BgImageView({
   image,
   x,
@@ -3596,6 +3995,268 @@ function EmojiQuickPick({
 /** Sección de cajas de texto libres. UI tipo Canva — cada caja con
  *  controles de duplicar, lock, hide, eliminar + sus props
  *  individuales colapsadas hasta clickearla. */
+/** Sección "Formas" — agregar shapes de los 7 tipos + listado de
+ *  shapes existentes con color/tamaño/rotation/innerText editables.
+ *  Pensada para composiciones tipo Canva (stickers, badges, fondos
+ *  curvos, blobs decorativos). */
+function ShapesSection({
+  shapes,
+  onAdd,
+  onPatch,
+  onDuplicate,
+  onRemove,
+}: {
+  shapes: ShapeLayer[];
+  onAdd: (type: ShapeType) => void;
+  onPatch: (id: string, patch: Partial<ShapeLayer>) => void;
+  onDuplicate: (id: string) => void;
+  onRemove: (id: string) => void;
+}) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const SHAPE_BUTTONS: { type: ShapeType; icon: string; label: string }[] = [
+    { type: 'rect', icon: '▭', label: 'Rect' },
+    { type: 'roundedRect', icon: '▢', label: 'Redondo' },
+    { type: 'capsule', icon: '⬭', label: 'Pill' },
+    { type: 'circle', icon: '●', label: 'Círculo' },
+    { type: 'star', icon: '★', label: 'Estrella' },
+    { type: 'burst', icon: '✺', label: 'Sticker' },
+    { type: 'blob', icon: '🜲', label: 'Blob' },
+  ];
+  return (
+    <Section title="Formas" icon="⬡" defaultOpen={shapes.length > 0}>
+      <div className="grid grid-cols-4 gap-1.5">
+        {SHAPE_BUTTONS.map((b) => (
+          <button
+            key={b.type}
+            type="button"
+            onClick={() => onAdd(b.type)}
+            className="flex flex-col items-center gap-0.5 px-1 py-1.5 rounded-lg border-2 border-line hover:border-brand transition text-[10px]"
+            title={`Agregar ${b.label}`}
+          >
+            <span className="text-lg leading-none">{b.icon}</span>
+            <span>{b.label}</span>
+          </button>
+        ))}
+      </div>
+      {shapes.length === 0 && (
+        <div className="text-[11px] text-mute leading-relaxed text-center py-2">
+          Tocá un tipo para agregar. El{' '}
+          <strong>Sticker</strong> trae "10% off" precargado — útil para
+          carteles promocionales.
+        </div>
+      )}
+      {shapes.length > 0 && (
+        <div className="space-y-1.5 pt-1">
+          {shapes.map((s) => {
+            const open = expandedId === s.id;
+            const label =
+              SHAPE_BUTTONS.find((b) => b.type === s.type)?.label ?? s.type;
+            return (
+              <div key={s.id} className="bg-bg2/40 rounded p-2 space-y-1.5">
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setExpandedId(open ? null : s.id)}
+                    className="flex-1 text-left text-xs font-semibold truncate"
+                  >
+                    <span className="text-mute mr-1">{open ? '▾' : '▸'}</span>
+                    {label} {s.innerText?.text ? `· "${s.innerText.text.split('\n')[0]}"` : ''}
+                  </button>
+                  <button
+                    onClick={() => onDuplicate(s.id)}
+                    className="text-mute hover:text-ink text-xs px-1"
+                    title="Duplicar"
+                  >
+                    ⎘
+                  </button>
+                  <button
+                    onClick={() => onRemove(s.id)}
+                    className="text-mute hover:text-red-500 text-xs px-1"
+                    title="Eliminar"
+                  >
+                    ✕
+                  </button>
+                </div>
+                {open && (
+                  <div className="space-y-1.5 pt-1 border-t border-line2">
+                    <ColorRow
+                      label="Color"
+                      value={s.fill}
+                      onChange={(v) => onPatch(s.id, { fill: v })}
+                    />
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <NumberRow
+                        label="Ancho"
+                        value={s.w}
+                        min={20}
+                        max={2000}
+                        step={10}
+                        onChange={(v) => onPatch(s.id, { w: v })}
+                      />
+                      <NumberRow
+                        label="Alto"
+                        value={s.h}
+                        min={20}
+                        max={2000}
+                        step={10}
+                        onChange={(v) => onPatch(s.id, { h: v })}
+                      />
+                    </div>
+                    {(s.type === 'rect' || s.type === 'roundedRect') && (
+                      <NumberRow
+                        label="Esquinas"
+                        value={s.borderRadius ?? 0}
+                        min={0}
+                        max={200}
+                        step={4}
+                        onChange={(v) => onPatch(s.id, { borderRadius: v })}
+                      />
+                    )}
+                    {(s.type === 'star' || s.type === 'burst') && (
+                      <>
+                        <NumberRow
+                          label="Puntas"
+                          value={s.points ?? (s.type === 'burst' ? 16 : 5)}
+                          min={3}
+                          max={32}
+                          step={1}
+                          onChange={(v) => onPatch(s.id, { points: v })}
+                        />
+                        <NumberRow
+                          label="Profundidad"
+                          value={Math.round((s.innerRadiusFactor ?? 0.5) * 100)}
+                          min={20}
+                          max={95}
+                          step={5}
+                          onChange={(v) =>
+                            onPatch(s.id, { innerRadiusFactor: v / 100 })
+                          }
+                        />
+                      </>
+                    )}
+                    {s.type === 'blob' && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onPatch(s.id, {
+                            seed: Math.floor(Math.random() * 100000),
+                          })
+                        }
+                        className="btn-ghost text-xs w-full"
+                      >
+                        🎲 Regenerar blob
+                      </button>
+                    )}
+                    <PositionRow
+                      x={s.x}
+                      y={s.y}
+                      onChange={(x, y) => onPatch(s.id, { x, y })}
+                    />
+                    <NumberRow
+                      label="Rotación"
+                      value={s.rotation ?? 0}
+                      min={-180}
+                      max={180}
+                      step={5}
+                      onChange={(v) => onPatch(s.id, { rotation: v })}
+                    />
+                    <OpacityRow
+                      value={s.opacity ?? 1}
+                      onChange={(v) => onPatch(s.id, { opacity: v })}
+                    />
+                    {/* Sticker / badge: innerText opcional */}
+                    <ShapeInnerTextEditor
+                      innerText={s.innerText ?? null}
+                      onChange={(it) => onPatch(s.id, { innerText: it })}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Section>
+  );
+}
+
+/** Editor del texto centrado adentro de una shape (para sticker
+ *  promocional tipo "10% OFF" en un burst, badge "NUEVO" en un círculo,
+ *  etc). Toggle on/off + controles. */
+function ShapeInnerTextEditor({
+  innerText,
+  onChange,
+}: {
+  innerText: ShapeLayer['innerText'] | null;
+  onChange: (it: ShapeLayer['innerText'] | null) => void;
+}) {
+  if (!innerText) {
+    return (
+      <button
+        type="button"
+        onClick={() =>
+          onChange({
+            text: 'TEXTO',
+            color: '#FFFFFF',
+            size: 32,
+            font: 'Inter, system-ui, sans-serif',
+            weight: 900,
+            lineHeight: 1.1,
+          })
+        }
+        className="w-full text-[11px] text-mute hover:text-ink border border-dashed border-line rounded py-1.5 transition"
+      >
+        + Texto adentro (sticker)
+      </button>
+    );
+  }
+  return (
+    <div className="border border-line rounded p-2 bg-bg2/30 space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-semibold">Texto adentro</span>
+        <button
+          type="button"
+          onClick={() => onChange(null)}
+          className="text-mute hover:text-red-500 text-xs"
+        >
+          ✕
+        </button>
+      </div>
+      <AutoResizeTextarea
+        value={innerText.text}
+        onChange={(v) => onChange({ ...innerText, text: v })}
+        placeholder="10% off"
+      />
+      <ColorRow
+        label="Color"
+        value={innerText.color}
+        onChange={(v) => onChange({ ...innerText, color: v })}
+      />
+      <div className="grid grid-cols-2 gap-1.5">
+        <NumberRow
+          label="Tamaño"
+          value={innerText.size}
+          min={10}
+          max={200}
+          step={2}
+          onChange={(v) => onChange({ ...innerText, size: v })}
+        />
+        <SelectRow
+          label="Peso"
+          value={String(innerText.weight ?? 700)}
+          options={[
+            { label: 'Regular', value: '400' },
+            { label: 'Bold', value: '700' },
+            { label: 'Black', value: '900' },
+          ]}
+          onChange={(v) =>
+            onChange({ ...innerText, weight: Number(v) })
+          }
+        />
+      </div>
+    </div>
+  );
+}
+
 function CustomTextsSection({
   texts,
   onAdd,

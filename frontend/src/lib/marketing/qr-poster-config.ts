@@ -57,6 +57,25 @@ export type QrConfig = {
   bg: string; // QR background (paper)
   /** 0..1 — opacidad del QR (default 1) */
   opacity?: number;
+  /** Padding blanco alrededor del QR (px). Útil cuando el QR está
+   *  sobre un fondo de color y querés un borde para que escanee
+   *  mejor. Default 0. */
+  padding?: number;
+  /** Color del padding/marco (default = bg del QR). */
+  paddingColor?: string;
+  /** Esquinas redondeadas del bloque QR (incluyendo padding). px. */
+  cornerRadius?: number;
+  /** Borde alrededor del bloque QR (incluyendo padding). */
+  borderColor?: string;
+  borderWidth?: number;
+  /** Sombra del bloque QR. */
+  shadow?: {
+    color: string;
+    blur: number;
+    offsetX: number;
+    offsetY: number;
+    opacity?: number;
+  } | null;
 };
 
 export type TextLayer = {
@@ -120,24 +139,75 @@ export type LogoLayer = {
   rotation?: number;
 };
 
-/** Formas standalone — rectángulo o círculo decorativos. Cada una con
- *  su id estable para drag-reorder en el panel de capas.
- *  DEPRECATED: el editor ya no expone "Formas" en UI. Mantenemos el
- *  tipo + render para que posters viejos sigan visualizándose. */
+/** Formas standalone — primitiva geométrica editable. Cada una con
+ *  su id estable para drag-reorder en el panel de capas. Tipos
+ *  soportados:
+ *  - rect: rectángulo. Usa w/h.
+ *  - circle: círculo. Usa w como diámetro (h ignorado).
+ *  - roundedRect: rect con esquinas redondeadas. w/h + borderRadius.
+ *  - capsule: pill totalmente redondeada (cornerRadius = h/2). w/h.
+ *  - star: estrella de 5 puntas. w como bbox.
+ *  - burst: "explosión" / sun-burst tipo sticker promocional. w como
+ *    bbox. Soporta innerText opcional ("10% off").
+ *  - blob: forma orgánica con curvas Bezier aleatorias. w/h + seed.
+ *
+ *  Adicional:
+ *  - innerText: texto centrado adentro de la forma (útil para burst
+ *    stickers, badges, etiquetas).
+ *  - rotation: rotación libre en grados.
+ *  - gradientFill: opcional, usa gradiente lineal en lugar de fill
+ *    sólido. Si presente, sobrescribe fill.
+ */
+export type ShapeType =
+  | 'rect'
+  | 'circle'
+  | 'roundedRect'
+  | 'capsule'
+  | 'star'
+  | 'burst'
+  | 'blob';
+
 export type ShapeLayer = {
   id: string;
-  type: 'rect' | 'circle';
+  type: ShapeType;
   x: number;
   y: number;
-  /** Ancho (rect) o diámetro (circle). h se usa solo en rect. */
   w: number;
   h: number;
   fill: string;
   opacity?: number;
-  /** Solo rect — radio de esquinas. */
-  borderRadius?: number;
+  borderRadius?: number; // roundedRect
   stroke?: string;
   strokeWidth?: number;
+  rotation?: number;
+  /** Texto centrado dentro de la forma — para badges/stickers. Se
+   *  renderea con Konva.Text auto-centrado dentro del bbox de la
+   *  shape. Sin esto, la shape es puramente decorativa. */
+  innerText?: {
+    text: string;
+    color: string;
+    size: number;
+    /** CSS font-family. Default Inter. */
+    font?: string;
+    /** Default 700 (bold). */
+    weight?: number;
+    lineHeight?: number;
+  } | null;
+  /** Star/burst: número de puntas. Default 5 para star, 16 para burst. */
+  points?: number;
+  /** Star/burst: radio interno como fracción del outer (0..1). Default
+   *  0.5 para star, 0.85 para burst (puntas finas). */
+  innerRadiusFactor?: number;
+  /** Blob: seed determinístico para que la forma orgánica sea estable
+   *  entre renders (sino se regenera random cada drag). */
+  seed?: number;
+  /** Gradiente alternativo al fill. Aplica al render de la forma. */
+  gradientFill?: {
+    color1: string;
+    color2: string;
+    /** Linear angle (0..360) o 'radial' para gradiente radial. */
+    angle: number | 'radial';
+  } | null;
 };
 
 /** Capa de "icono" — emoji renderizado como Konva.Text (sin
