@@ -9,6 +9,7 @@ import { toast } from '@/components/Toast';
 import { StampIconPicker } from '@/components/StampIconPicker';
 import { CardExpiryPicker } from '@/components/CardExpiryPicker';
 import { WalletPassPreview } from '@/components/WalletPassPreview';
+import { WalletStylesGallery } from '@/components/WalletStylesGallery';
 
 type CardType =
   | 'STAMPS'
@@ -965,6 +966,33 @@ function EditCardModal({
               />
             </div>
           )}
+
+          <div className="pt-1">
+            <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-2">
+              ✨ Estilos pre-armados
+            </div>
+            <WalletStylesGallery
+              current={{
+                primaryColor: form.primaryColor,
+                secondaryColor: form.secondaryColor,
+                stampActiveColor: form.stampActiveColor,
+                stampInactiveColor: form.stampInactiveColor,
+                stampContourColor: form.stampContourColor,
+                centerBgColor: form.centerBgColor,
+              }}
+              onApply={(style) => {
+                setForm({
+                  ...form,
+                  primaryColor: style.colors.primaryColor,
+                  secondaryColor: style.colors.secondaryColor,
+                  stampActiveColor: style.colors.stampActiveColor,
+                  stampInactiveColor: style.colors.stampInactiveColor,
+                  stampContourColor: style.colors.stampContourColor,
+                  centerBgColor: style.colors.centerBgColor,
+                });
+              }}
+            />
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
