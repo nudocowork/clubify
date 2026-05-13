@@ -11,12 +11,14 @@
  */
 import type {
   BgConfig,
+  CanvasConfig,
   CustomTextLayer,
   QrConfig,
   QrPosterConfig,
   ShapeLayer,
   TextLayer,
 } from './qr-poster-config';
+import { rescaleForCanvas } from './qr-poster-config';
 
 export type QrTemplateCategory =
   | 'food'
@@ -47,6 +49,11 @@ export type QrTemplate = {
     /** Cajas de texto extra que vienen con el template — además de
      *  los 4 fijos (title/subtitle/cta/brand). */
     customTexts?: CustomTextLayer[];
+    /** Canvas ideal del template — si está definido, applyTemplate
+     *  cambia el canvas Y reescala todos los elementos del current.
+     *  Sin esto los templates con shapes coordeadas a 1900×1000
+     *  quedan desbordados al aplicarse sobre un canvas distinto. */
+    canvas?: CanvasConfig;
   };
 };
 
@@ -265,6 +272,15 @@ export const QR_TEMPLATES: QrTemplate[] = [
     category: 'food',
     swatch: { from: '#4A2C20', to: '#A78A6C', text: '#F5EBDC' },
     overrides: {
+      // Canvas horizontal 1920×1080 — coords del template dimensionadas
+      // a este tamaño. applyTemplate cambia el canvas + reescala los
+      // elementos del cliente para que todo entre cuando se aplica.
+      canvas: {
+        w: 1920,
+        h: 1080,
+        mm: { w: 297, h: 167 },
+        dpi: 300,
+      },
       bg: { type: 'solid', color1: '#FFFFFF' },
       qr: {
         x: 230,
@@ -396,23 +412,35 @@ export function applyTemplate(
   current: QrPosterConfig,
   tpl: QrTemplate,
 ): QrPosterConfig {
+  // Si el template trae canvas, cambiamos el canvas primero. Aplicamos
+  // rescaleForCanvas para que elementos EXISTENTES (logo, etc) se
+  // reposicionen al nuevo tamaño. DESPUÉS las shapes/customTexts del
+  // template se inyectan SIN re-escalar (sus coords ya están en el
+  // sistema de coords del nuevo canvas).
+  let base = current;
+  if (tpl.overrides.canvas) {
+    base = rescaleForCanvas(current, {
+      w: tpl.overrides.canvas.w,
+      h: tpl.overrides.canvas.h,
+      mm: tpl.overrides.canvas.mm,
+      dpi: tpl.overrides.canvas.dpi,
+    });
+  }
   return {
-    ...current,
+    ...base,
     bg: tpl.overrides.bg,
-    qr: { ...current.qr, ...tpl.overrides.qr },
+    qr: { ...base.qr, ...tpl.overrides.qr },
     texts: {
-      title: { ...current.texts.title, ...(tpl.overrides.texts.title ?? {}) },
+      title: { ...base.texts.title, ...(tpl.overrides.texts.title ?? {}) },
       subtitle: {
-        ...current.texts.subtitle,
+        ...base.texts.subtitle,
         ...(tpl.overrides.texts.subtitle ?? {}),
       },
-      cta: { ...current.texts.cta, ...(tpl.overrides.texts.cta ?? {}) },
-      brand: { ...current.texts.brand, ...(tpl.overrides.texts.brand ?? {}) },
+      cta: { ...base.texts.cta, ...(tpl.overrides.texts.cta ?? {}) },
+      brand: { ...base.texts.brand, ...(tpl.overrides.texts.brand ?? {}) },
     },
     // Templates con shapes/customTexts (ej "Nudo Cookie") REEMPLAZAN
-    // los existentes para que el layout pre-armado se vea bien. Si el
-    // cliente ya tenía customizado y NO quiere perderlo, debe duplicar
-    // el poster antes de aplicar.
+    // los existentes para que el layout pre-armado se vea bien.
     ...(tpl.overrides.shapes ? { shapes: tpl.overrides.shapes } : {}),
     ...(tpl.overrides.customTexts
       ? { customTexts: tpl.overrides.customTexts }

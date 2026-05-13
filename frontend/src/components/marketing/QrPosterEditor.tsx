@@ -412,11 +412,17 @@ function computeSnap(
  *  ('text.title', 'qr', 'shape.<id>', etc). */
 function gatherSnapTargets(cfg: QrPosterConfig) {
   const out: { x: number; y: number; w: number; h: number; id: string }[] = [];
+  // QR bbox INCLUYE el padding del marco — sino el snap del QR (que
+  // usa totalW = size + 2*pad en su drag handler) queda desfasado vs
+  // los smart guides de los otros elementos que apuntan al QR como
+  // target.
+  const qrPad = cfg.qr.padding ?? 0;
+  const qrTotal = cfg.qr.size + qrPad * 2;
   out.push({
     x: cfg.qr.x,
     y: cfg.qr.y,
-    w: cfg.qr.size,
-    h: cfg.qr.size,
+    w: qrTotal,
+    h: qrTotal,
     id: 'qr',
   });
   if (cfg.logo) {
@@ -437,7 +443,22 @@ function gatherSnapTargets(cfg: QrPosterConfig) {
     out.push({ ...box, id: `text.${k}` });
   }
   for (const s of cfg.shapes ?? []) {
-    out.push({ x: s.x, y: s.y, w: s.w, h: s.h, id: `shape.${s.id}` });
+    // Para circle/star/burst, el bbox VISUAL real es cuadrado de
+    // min(w,h) (porque outerRadius = min/2). Si el cliente cambió uno
+    // solo de los lados, el snap apuntaría al rect lógico (s.w × s.h)
+    // pero la forma dibujada es más chica → guides desfasadas.
+    if (s.type === 'circle' || s.type === 'star' || s.type === 'burst') {
+      const d = Math.min(s.w, s.h);
+      out.push({
+        x: s.x + (s.w - d) / 2,
+        y: s.y + (s.h - d) / 2,
+        w: d,
+        h: d,
+        id: `shape.${s.id}`,
+      });
+    } else {
+      out.push({ x: s.x, y: s.y, w: s.w, h: s.h, id: `shape.${s.id}` });
+    }
   }
   for (const i of cfg.icons ?? []) {
     out.push({ x: i.x, y: i.y, w: i.size, h: i.size, id: `icon.${i.id}` });
@@ -824,8 +845,14 @@ export default function QrPosterEditor({
    *  con seed random, una capsule con aspect 3:1, etc). */
   function addShape(type: ShapeType, seed?: Partial<ShapeLayer>) {
     const id = newId();
-    const cx = cfg.canvas.w / 2;
-    const cy = cfg.canvas.h / 2;
+    // Offset escalonado para evitar que múltiples shapes nuevas queden
+    // exactamente superpuestas en el centro (el cliente clickea N veces
+    // creyendo que no funcionó). Cada nueva se corre +24px en diagonal
+    // desde el centro, cycle de 8 posiciones distintas.
+    const count = (cfg.shapes ?? []).length;
+    const stackOffset = (count % 8) * 24;
+    const cx = cfg.canvas.w / 2 + stackOffset;
+    const cy = cfg.canvas.h / 2 + stackOffset;
     const presets: Record<ShapeType, Partial<ShapeLayer>> = {
       rect: { w: 300, h: 200 },
       circle: { w: 240, h: 240 },
@@ -883,11 +910,16 @@ export default function QrPosterEditor({
   function duplicateShape(id: string) {
     const src = (cfg.shapes ?? []).find((s) => s.id === id);
     if (!src) return;
+    // Si +24 saca la copia del canvas, intentamos -24 (lado izq/arriba).
+    // Sino el clamp Math.min hace que la copia quede CASI encima del
+    // original con offset insuficiente — el cliente no la ve.
+    const wouldFitRight = src.x + 24 + src.w <= cfg.canvas.w;
+    const wouldFitBelow = src.y + 24 + src.h <= cfg.canvas.h;
     const newDup: ShapeLayer = {
       ...src,
       id: newId(),
-      x: Math.min(src.x + 24, cfg.canvas.w - src.w - 8),
-      y: Math.min(src.y + 24, cfg.canvas.h - src.h - 8),
+      x: wouldFitRight ? src.x + 24 : Math.max(8, src.x - 24),
+      y: wouldFitBelow ? src.y + 24 : Math.max(8, src.y - 24),
       innerText: src.innerText ? { ...src.innerText } : null,
       gradientFill: src.gradientFill ? { ...src.gradientFill } : null,
     };
@@ -1225,7 +1257,23 @@ export default function QrPosterEditor({
             {QR_TEMPLATES.map((tpl) => (
               <button
                 key={tpl.id}
-                onClick={() => setCfg((c) => applyTemplate(c, tpl))}
+                onClick={() => {
+                  // Confirmar antes de pisar trabajo custom (shapes
+                  // libres + textos libres del cliente). Sin esto un
+                  // click curioso destruye horas de edición. Si está
+                  // limpio, aplica sin confirm.
+                  const hasCustomWork =
+                    (cfg.shapes?.length ?? 0) > 0 ||
+                    (cfg.customTexts?.length ?? 0) > 0;
+                  const willChangeCanvas = !!tpl.overrides.canvas;
+                  if (hasCustomWork || willChangeCanvas) {
+                    const msg = hasCustomWork
+                      ? `Aplicar "${tpl.name}" reemplazará tus formas y textos libres. ¿Continuar?`
+                      : `"${tpl.name}" cambia el tamaño del lienzo a ${tpl.overrides.canvas?.w}×${tpl.overrides.canvas?.h}. ¿Continuar?`;
+                    if (!confirm(msg)) return;
+                  }
+                  setCfg((c) => applyTemplate(c, tpl));
+                }}
                 className="text-left rounded-lg overflow-hidden border-2 border-line hover:border-brand transition group"
                 title={`Aplicar template ${tpl.name}`}
               >
@@ -1339,7 +1387,12 @@ export default function QrPosterEditor({
               label="Padding"
               value={cfg.qr.padding ?? 0}
               min={0}
-              max={80}
+              // Cap dinámico: el padding + el QR no debe exceder el
+              // canvas. Sino el sticker entero se sale visualmente.
+              max={Math.max(
+                0,
+                Math.floor((Math.min(cfg.canvas.w, cfg.canvas.h) - cfg.qr.size) / 2),
+              )}
               step={2}
               onChange={(v) => setCfg((c) => ({ ...c, qr: { ...c.qr, padding: v } }))}
             />
@@ -1371,6 +1424,114 @@ export default function QrPosterEditor({
                   setCfg((c) => ({ ...c, qr: { ...c.qr, borderColor: v } }))
                 }
               />
+            )}
+            {(cfg.qr.padding ?? 0) > 0 && (
+              <ColorRow
+                label="Color marco"
+                value={cfg.qr.paddingColor ?? cfg.qr.bg ?? '#FFFFFF'}
+                onChange={(v) =>
+                  setCfg((c) => ({ ...c, qr: { ...c.qr, paddingColor: v } }))
+                }
+              />
+            )}
+            {/* Sombra del bloque QR — útil para look "sticker" elevado */}
+            {!cfg.qr.shadow ? (
+              <button
+                type="button"
+                onClick={() =>
+                  setCfg((c) => ({
+                    ...c,
+                    qr: {
+                      ...c.qr,
+                      shadow: {
+                        color: '#000000',
+                        blur: 12,
+                        offsetX: 4,
+                        offsetY: 6,
+                        opacity: 0.3,
+                      },
+                    },
+                  }))
+                }
+                className="w-full text-[11px] text-mute hover:text-ink border border-dashed border-line rounded py-1.5"
+              >
+                + Agregar sombra
+              </button>
+            ) : (
+              <div className="border border-line rounded p-2 bg-bg2/30 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold">Sombra</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCfg((c) => ({ ...c, qr: { ...c.qr, shadow: null } }))
+                    }
+                    className="text-mute hover:text-red-500 text-xs"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <ColorRow
+                  label="Color"
+                  value={cfg.qr.shadow.color}
+                  onChange={(v) =>
+                    setCfg((c) => ({
+                      ...c,
+                      qr: { ...c.qr, shadow: { ...c.qr.shadow!, color: v } },
+                    }))
+                  }
+                />
+                <NumberRow
+                  label="Blur"
+                  value={cfg.qr.shadow.blur}
+                  min={0}
+                  max={50}
+                  step={1}
+                  onChange={(v) =>
+                    setCfg((c) => ({
+                      ...c,
+                      qr: { ...c.qr, shadow: { ...c.qr.shadow!, blur: v } },
+                    }))
+                  }
+                />
+                <div className="grid grid-cols-2 gap-1.5">
+                  <NumberRow
+                    label="Off X"
+                    value={cfg.qr.shadow.offsetX}
+                    min={-30}
+                    max={30}
+                    step={1}
+                    onChange={(v) =>
+                      setCfg((c) => ({
+                        ...c,
+                        qr: { ...c.qr, shadow: { ...c.qr.shadow!, offsetX: v } },
+                      }))
+                    }
+                  />
+                  <NumberRow
+                    label="Off Y"
+                    value={cfg.qr.shadow.offsetY}
+                    min={-30}
+                    max={30}
+                    step={1}
+                    onChange={(v) =>
+                      setCfg((c) => ({
+                        ...c,
+                        qr: { ...c.qr, shadow: { ...c.qr.shadow!, offsetY: v } },
+                      }))
+                    }
+                  />
+                </div>
+                <OpacityRow
+                  value={cfg.qr.shadow.opacity ?? 1}
+                  onChange={(v) =>
+                    setCfg((c) => ({
+                      ...c,
+                      qr: { ...c.qr, shadow: { ...c.qr.shadow!, opacity: v } },
+                    }))
+                  }
+                />
+              </div>
             )}
           </div>
         </Section>
@@ -1694,7 +1855,11 @@ export default function QrPosterEditor({
                           setCfg((c) => ({ ...c, qr: { ...c.qr, x, y } })),
                       );
                       const cornerR = cfg.qr.cornerRadius ?? 0;
-                      const padColor = cfg.qr.paddingColor ?? cfg.qr.bg;
+                      // Default a blanco (NO al bg del QR) para que el
+                      // marco sea VISIBLE cuando el cliente activa
+                      // padding sobre un fondo de color. El cliente
+                      // puede sobrescribir con el ColorRow del sidebar.
+                      const padColor = cfg.qr.paddingColor ?? '#FFFFFF';
                       const borderW = cfg.qr.borderWidth ?? 0;
                       const borderColor = cfg.qr.borderColor ?? '#000000';
                       const sh = cfg.qr.shadow;
@@ -2590,19 +2755,19 @@ function layerLabel(id: LayerId, cfg: QrPosterConfig): string | null {
   if (id.startsWith('shape.')) {
     const s = cfg.shapes?.find((sh) => sh.id === id.slice(6));
     if (!s) return null;
-    const icon = {
-      rect: '▭',
-      circle: '●',
-      roundedRect: '▢',
-      capsule: '⬭',
-      star: '★',
-      burst: '✺',
-      blob: '🜲',
+    const meta = {
+      rect: { icon: '▭', label: 'Rectángulo' },
+      circle: { icon: '●', label: 'Círculo' },
+      roundedRect: { icon: '▢', label: 'Rect redondo' },
+      capsule: { icon: '⬭', label: 'Pill' },
+      star: { icon: '★', label: 'Estrella' },
+      burst: { icon: '✺', label: 'Sticker' },
+      blob: { icon: '🜲', label: 'Blob' },
     }[s.type];
     const preview = s.innerText?.text
       ? ` · "${s.innerText.text.split('\n')[0]}"`
       : '';
-    return `${icon} ${s.type}${preview}`;
+    return `${meta.icon} ${meta.label}${preview}`;
   }
   if (id.startsWith('icon.')) {
     const i = cfg.icons?.find((ic) => ic.id === id.slice(5));
@@ -2889,56 +3054,70 @@ function CanvasSection({
    *  reescalado existente para que TODOS los elementos se ajusten
    *  proporcionalmente. Soluciona el caso "diseñé vertical y ahora
    *  necesito horizontal" sin tener que recrear todo. */
+  /** Swap orientación: SOLO cambia w↔h del canvas, sin deformar
+   *  ningún elemento. Las posiciones se preservan tal cual; los
+   *  elementos que queden fuera del nuevo canvas el cliente los
+   *  reposiciona manualmente (o usa undo si fue accidental).
+   *
+   *  Antes usábamos rescaleForCanvas que escalaba anisotrópicamente
+   *  (sx para w, sy para h) → una shape cuadrada 200×200 al rotar el
+   *  canvas pasaba a 283×141, perdiendo el aspect. Para "rotar el
+   *  lienzo" la semántica correcta es preservar tamaños tal cual. */
   function swapOrientation() {
     setCfg((c) => ({
-      ...rescaleForCanvas(c, {
+      ...c,
+      canvas: {
+        ...c.canvas,
         w: c.canvas.h,
         h: c.canvas.w,
         mm: c.canvas.mm
           ? { w: c.canvas.mm.h, h: c.canvas.mm.w }
           : c.canvas.mm,
-        dpi: c.canvas.dpi,
-      }),
-      clipShape: c.clipShape, // circular sigue siendo circular
+      },
+      clipShape: c.clipShape,
     }));
   }
 
   const isLandscape = cfg.canvas.w > cfg.canvas.h;
+  const isSquare = cfg.canvas.w === cfg.canvas.h;
 
   return (
     <Section title="Tamaño y resolución" icon="📐">
-      {/* Toggle Horizontal / Vertical — rota el lienzo 90° + reescala
-          todos los elementos manteniendo proporciones. */}
-      <div className="flex gap-1.5">
-        <button
-          type="button"
-          onClick={() => {
-            if (isLandscape) swapOrientation();
-          }}
-          className={`flex-1 text-xs py-2 rounded-lg border-2 transition ${
-            !isLandscape
-              ? 'border-brand bg-brand-soft text-brand-700 font-semibold'
-              : 'border-line hover:border-mute'
-          }`}
-          title="Lienzo vertical (portrait)"
-        >
-          ▯ Vertical
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            if (!isLandscape) swapOrientation();
-          }}
-          className={`flex-1 text-xs py-2 rounded-lg border-2 transition ${
-            isLandscape
-              ? 'border-brand bg-brand-soft text-brand-700 font-semibold'
-              : 'border-line hover:border-mute'
-          }`}
-          title="Lienzo horizontal (landscape)"
-        >
-          ▭ Horizontal
-        </button>
-      </div>
+      {/* Toggle Horizontal / Vertical — solo aplica si el canvas no
+          es cuadrado/circular. Para esos casos w === h y el swap no
+          hace nada, así que ocultamos para no confundir. */}
+      {!isSquare && (
+        <div className="flex gap-1.5">
+          <button
+            type="button"
+            onClick={() => {
+              if (isLandscape) swapOrientation();
+            }}
+            className={`flex-1 text-xs py-2 rounded-lg border-2 transition ${
+              !isLandscape
+                ? 'border-brand bg-brand-soft text-brand-700 font-semibold'
+                : 'border-line hover:border-mute'
+            }`}
+            title="Lienzo vertical (portrait)"
+          >
+            ▯ Vertical
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (!isLandscape) swapOrientation();
+            }}
+            className={`flex-1 text-xs py-2 rounded-lg border-2 transition ${
+              isLandscape
+                ? 'border-brand bg-brand-soft text-brand-700 font-semibold'
+                : 'border-line hover:border-mute'
+            }`}
+            title="Lienzo horizontal (landscape)"
+          >
+            ▭ Horizontal
+          </button>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-2">
         {CANVAS_PRESETS.map((p) => {
           const isCircular = p.label.startsWith('Circular');
@@ -3116,29 +3295,37 @@ function ShapeView({
     };
   }, [s.gradientFill, s.fill, s.w, s.h]);
 
+  // Rotation se aplica al <Group> wrapper (no a cada shape individual)
+  // para que el innerText rote JUNTO con la forma. Sino el burst con
+  // rotation=-8 dejaba la estrella inclinada y el "10% off" recto.
   const common = {
     opacity: s.opacity ?? 1,
     stroke: s.stroke,
     strokeWidth: s.strokeWidth ?? 0,
-    rotation: s.rotation ?? 0,
     ...fillProps,
   };
 
-  // Para todas las formas usamos un Konva.Group anclado en (s.x, s.y)
-  // que contiene el shape primitive + opcionalmente el innerText
-  // centrado. Esto facilita: snap usa top-left del grupo, drag mueve
-  // todo junto, y gradient coords son locales al grupo.
+  // Group anclado en el CENTRO (cx, cy) con offset = (w/2, h/2). Esto
+  // permite que rotation pivote desde el centro de la forma (como en
+  // Canva/Figma) en vez del top-left. El drag se ajusta para convertir
+  // de center a top-left al persistir s.x/s.y.
   const onDragMove = (e: any) => {
     const node = e.target;
-    const newBox = { x: node.x(), y: node.y(), w: s.w, h: s.h };
+    // node.x()/y() es el CENTRO. Convertimos a top-left para snap.
+    const tlX = node.x() - s.w / 2;
+    const tlY = node.y() - s.h / 2;
+    const newBox = { x: tlX, y: tlY, w: s.w, h: s.h };
     const others = gatherSnapTargets(cfg);
     const snap = computeSnap(newBox, others, cfg.canvas.w, cfg.canvas.h, `shape.${s.id}`);
-    if (snap.x !== newBox.x) node.x(snap.x);
-    if (snap.y !== newBox.y) node.y(snap.y);
+    if (snap.x !== newBox.x) node.x(snap.x + s.w / 2);
+    if (snap.y !== newBox.y) node.y(snap.y + s.h / 2);
     setGuides(snap.guides);
   };
   const onDragEnd = (e: any) => {
-    onPatch({ x: e.target.x(), y: e.target.y() });
+    onPatch({
+      x: e.target.x() - s.w / 2,
+      y: e.target.y() - s.h / 2,
+    });
     setGuides([]);
   };
 
@@ -3223,29 +3410,44 @@ function ShapeView({
     shapeNode = <Path data={path} {...common} />;
   }
 
-  // Inner text — centrado en el bbox de la forma. Para burst stickers
-  // típicamente "10% off", para badges "NUEVO", etc.
-  const textNode = s.innerText ? (
-    <Text
-      text={s.innerText.text}
-      x={0}
-      y={s.h / 2 - (s.innerText.size * (s.innerText.lineHeight ?? 1)) / 2}
-      width={s.w}
-      align="center"
-      fontFamily={s.innerText.font ?? 'Inter, system-ui, sans-serif'}
-      fontSize={s.innerText.size}
-      fontStyle={(s.innerText.weight ?? 700) >= 700 ? 'bold' : 'normal'}
-      fill={s.innerText.color}
-      lineHeight={s.innerText.lineHeight ?? 1}
-      listening={false}
-      opacity={s.opacity ?? 1}
-    />
-  ) : null;
+  // Inner text — centrado VERTICAL real en el bbox de la forma.
+  // Calculamos la altura total considerando líneas (split por \n) +
+  // lineHeight. Sin esto el "10%\noff" del Nudo burst queda corrido
+  // hacia arriba porque solo se restaba la altura de 1 línea.
+  let textNode: React.ReactNode = null;
+  if (s.innerText) {
+    const lines = s.innerText.text.split('\n').length;
+    const lh = s.innerText.lineHeight ?? 1;
+    const totalTextH = lines * s.innerText.size * lh;
+    textNode = (
+      <Text
+        text={s.innerText.text}
+        x={0}
+        y={s.h / 2 - totalTextH / 2}
+        width={s.w}
+        align="center"
+        fontFamily={s.innerText.font ?? 'Inter, system-ui, sans-serif'}
+        fontSize={s.innerText.size}
+        fontStyle={(s.innerText.weight ?? 700) >= 700 ? 'bold' : 'normal'}
+        fill={s.innerText.color}
+        lineHeight={lh}
+        listening={false}
+        opacity={s.opacity ?? 1}
+      />
+    );
+  }
 
+  // Pivote desde el centro: Group posicionado en (cx, cy) con
+  // offsetX/Y = (w/2, h/2). Las coords internas siguen siendo top-left
+  // (shape draws at 0,0 to w,h). Rotation aplicada al Group rota TODO
+  // (shape + innerText juntos) pivoteando desde el centro visual.
   return (
     <Group
-      x={s.x}
-      y={s.y}
+      x={s.x + s.w / 2}
+      y={s.y + s.h / 2}
+      offsetX={s.w / 2}
+      offsetY={s.h / 2}
+      rotation={s.rotation ?? 0}
       draggable
       onDragMove={onDragMove}
       onDragEnd={onDragEnd}
@@ -4024,7 +4226,7 @@ function ShapesSection({
   ];
   return (
     <Section title="Formas" icon="⬡" defaultOpen={shapes.length > 0}>
-      <div className="grid grid-cols-4 gap-1.5">
+      <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
         {SHAPE_BUTTONS.map((b) => (
           <button
             key={b.type}
@@ -4083,24 +4285,41 @@ function ShapesSection({
                       value={s.fill}
                       onChange={(v) => onPatch(s.id, { fill: v })}
                     />
-                    <div className="grid grid-cols-2 gap-1.5">
+                    {/* Para shapes "radiales" (circle/star/burst) el
+                     *  ancho y alto siempre coinciden — Konva.Circle/
+                     *  Star usan UN radio, así que mostrar 2 inputs
+                     *  confunde y desfasa el snap. Un solo input "Tamaño". */}
+                    {s.type === 'circle' ||
+                    s.type === 'star' ||
+                    s.type === 'burst' ? (
                       <NumberRow
-                        label="Ancho"
+                        label="Tamaño"
                         value={s.w}
                         min={20}
                         max={2000}
                         step={10}
-                        onChange={(v) => onPatch(s.id, { w: v })}
+                        onChange={(v) => onPatch(s.id, { w: v, h: v })}
                       />
-                      <NumberRow
-                        label="Alto"
-                        value={s.h}
-                        min={20}
-                        max={2000}
-                        step={10}
-                        onChange={(v) => onPatch(s.id, { h: v })}
-                      />
-                    </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <NumberRow
+                          label="Ancho"
+                          value={s.w}
+                          min={20}
+                          max={2000}
+                          step={10}
+                          onChange={(v) => onPatch(s.id, { w: v })}
+                        />
+                        <NumberRow
+                          label="Alto"
+                          value={s.h}
+                          min={20}
+                          max={2000}
+                          step={10}
+                          onChange={(v) => onPatch(s.id, { h: v })}
+                        />
+                      </div>
+                    )}
                     {(s.type === 'rect' || s.type === 'roundedRect') && (
                       <NumberRow
                         label="Esquinas"
@@ -4164,6 +4383,10 @@ function ShapesSection({
                       onChange={(v) => onPatch(s.id, { opacity: v })}
                     />
                     {/* Sticker / badge: innerText opcional */}
+                    <ShapeGradientEditor
+                      gradient={s.gradientFill ?? null}
+                      onChange={(g) => onPatch(s.id, { gradientFill: g })}
+                    />
                     <ShapeInnerTextEditor
                       innerText={s.innerText ?? null}
                       onChange={(it) => onPatch(s.id, { innerText: it })}
@@ -4182,6 +4405,98 @@ function ShapesSection({
 /** Editor del texto centrado adentro de una shape (para sticker
  *  promocional tipo "10% OFF" en un burst, badge "NUEVO" en un círculo,
  *  etc). Toggle on/off + controles. */
+/** Editor de gradient para shapes — toggle on/off + 2 colores +
+ *  selector de tipo (linear angle preset / radial). Si está off, la
+ *  shape usa fill sólido normal. Cuando está on, sobrescribe fill. */
+function ShapeGradientEditor({
+  gradient,
+  onChange,
+}: {
+  gradient: ShapeLayer['gradientFill'] | null;
+  onChange: (g: ShapeLayer['gradientFill'] | null) => void;
+}) {
+  if (!gradient) {
+    return (
+      <button
+        type="button"
+        onClick={() =>
+          onChange({ color1: '#6366F1', color2: '#A855F7', angle: 135 })
+        }
+        className="w-full text-[11px] text-mute hover:text-ink border border-dashed border-line rounded py-1.5 transition"
+      >
+        + Aplicar gradiente
+      </button>
+    );
+  }
+  const isRadial = gradient.angle === 'radial';
+  return (
+    <div className="border border-line rounded p-2 bg-bg2/30 space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-semibold">Gradiente</span>
+        <button
+          type="button"
+          onClick={() => onChange(null)}
+          className="text-mute hover:text-red-500 text-xs"
+        >
+          ✕
+        </button>
+      </div>
+      <ColorRow
+        label="Color 1"
+        value={gradient.color1}
+        onChange={(v) => onChange({ ...gradient, color1: v })}
+      />
+      <ColorRow
+        label="Color 2"
+        value={gradient.color2}
+        onChange={(v) => onChange({ ...gradient, color2: v })}
+      />
+      <div className="grid grid-cols-2 gap-1.5">
+        <button
+          type="button"
+          onClick={() => onChange({ ...gradient, angle: 135 })}
+          className={`text-[10px] py-1.5 rounded border-2 ${
+            !isRadial
+              ? 'border-brand bg-brand-soft text-brand-700 font-semibold'
+              : 'border-line'
+          }`}
+        >
+          ⟶ Linear
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange({ ...gradient, angle: 'radial' })}
+          className={`text-[10px] py-1.5 rounded border-2 ${
+            isRadial
+              ? 'border-brand bg-brand-soft text-brand-700 font-semibold'
+              : 'border-line'
+          }`}
+        >
+          ◯ Radial
+        </button>
+      </div>
+      {!isRadial && (
+        <NumberRow
+          label="Ángulo"
+          value={typeof gradient.angle === 'number' ? gradient.angle : 135}
+          min={0}
+          max={360}
+          step={5}
+          onChange={(v) => onChange({ ...gradient, angle: v })}
+        />
+      )}
+      <div
+        className="rounded h-8 mt-1 border border-line"
+        style={{
+          background: isRadial
+            ? `radial-gradient(circle, ${gradient.color1}, ${gradient.color2})`
+            : `linear-gradient(${gradient.angle}deg, ${gradient.color1}, ${gradient.color2})`,
+        }}
+      />
+    </div>
+  );
+}
+
 function ShapeInnerTextEditor({
   innerText,
   onChange,
@@ -4189,19 +4504,29 @@ function ShapeInnerTextEditor({
   innerText: ShapeLayer['innerText'] | null;
   onChange: (it: ShapeLayer['innerText'] | null) => void;
 }) {
+  // Cachear el último innerText conocido para preservar customizaciones
+  // al toggle off→on. Sin esto el ✕ destruía text/color/size y al
+  // re-abrirlo arrancaba con defaults — el cliente perdía el trabajo.
+  const lastValueRef = useRef<NonNullable<ShapeLayer['innerText']> | null>(null);
+  useEffect(() => {
+    if (innerText) lastValueRef.current = innerText;
+  }, [innerText]);
+
   if (!innerText) {
     return (
       <button
         type="button"
         onClick={() =>
-          onChange({
-            text: 'TEXTO',
-            color: '#FFFFFF',
-            size: 32,
-            font: 'Inter, system-ui, sans-serif',
-            weight: 900,
-            lineHeight: 1.1,
-          })
+          onChange(
+            lastValueRef.current ?? {
+              text: 'TEXTO',
+              color: '#FFFFFF',
+              size: 32,
+              font: 'Inter, system-ui, sans-serif',
+              weight: 900,
+              lineHeight: 1.1,
+            },
+          )
         }
         className="w-full text-[11px] text-mute hover:text-ink border border-dashed border-line rounded py-1.5 transition"
       >
