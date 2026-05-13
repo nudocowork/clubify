@@ -169,8 +169,11 @@ export class GrowBusinessService {
     // Si el tenant tiene un switchNumber configurado, lo preponemos al
     // body para que el workflow de GHL pueda enrutar a su sub-canal.
     // Formato: "#Switch{N}\n\n{cuerpo}". Si está null, va sin prefijo.
+    // Defensive: si el caller ya armó el mensaje con #SwitchN, NO lo
+    // duplicamos (evita "#Switch1\n\n#Switch1\n\nHola").
+    const alreadyHasPrefix = /^#Switch\d+\s*\n/i.test(body);
     const messageBody =
-      creds.growBusinessSwitchNumber != null
+      creds.growBusinessSwitchNumber != null && !alreadyHasPrefix
         ? `#Switch${creds.growBusinessSwitchNumber}\n\n${body}`
         : body;
     try {

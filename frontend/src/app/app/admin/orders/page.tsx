@@ -672,6 +672,10 @@ function SupplierMessageCard({
       if (r.ok) {
         setSending('sent');
         toast(`SMS enviado a ${m.supplier.name}`, 'success');
+        // Volver a 'idle' tras 8s para permitir re-enviar si el dueño
+        // necesita reforzar el pedido (ej. el proveedor no respondió).
+        // El check visual ✓ desaparece pero el toast ya confirmó el envío.
+        window.setTimeout(() => setSending('idle'), 8000);
       } else {
         setSending('error');
         setErrMsg(r.message ?? 'No se pudo enviar');

@@ -55,25 +55,28 @@ function SignupInner() {
   const [validatingPromo, setValidatingPromo] = useState(false);
 
   // Pre-rellenar promo. Prioridad:
-  //   1. clubify:promo en localStorage (cupón de descuento real — siempre
-  //      gana porque tiene beneficio para el cliente, mientras que un
-  //      ref puro es solo atribución para el afiliado)
-  //   2. URL ?promo=X (cupón llegando ahora)
-  //   3. URL ?ref=X (link de afiliado)
+  //   1. URL ?promo=X (intención explícita — el cliente llegó por un
+  //      link nuevo, gana sobre el cache)
+  //   2. clubify:promo en localStorage (cupón de descuento cached)
+  //   3. URL ?ref=X (link de afiliado, solo atribución)
   //   4. clubify:ref en localStorage (atribución capturada antes)
-  // Decisión UX: si el cliente ya tenía un cupón guardado, NO lo
-  // pisamos cuando llega por un link de referido — el cupón es del
-  // cliente, el ref es del afiliado y se trackea aparte vía clubify:ref.
+  // Decisión UX: el cupón en URL gana sobre el cached porque es la
+  // intención explícita del usuario que está abriendo el link AHORA.
+  // El ref puro (sin promo en URL) NO pisa el cupón cached — el cupón
+  // tiene beneficio para el cliente, el ref es solo atribución para
+  // el afiliado y se trackea aparte.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const cachedPromo = localStorage.getItem('clubify:promo');
     const promoUrl = params.get('promo');
     const refUrl = params.get('ref');
     const cachedRef = localStorage.getItem('clubify:ref');
-    const winner = cachedPromo || promoUrl || refUrl || cachedRef || '';
+    const winner = promoUrl || cachedPromo || refUrl || cachedRef || '';
     if (winner) setPromoCode(winner.toUpperCase());
-    // Si llegó un promo nuevo por URL, persistir para próximas visitas
-    if (promoUrl && !cachedPromo) {
+    // Si llegó un promo nuevo por URL, persistir (puede ser el mismo
+    // que el cached — siempre escribir es idempotente y deja el último
+    // promo visto disponible para próximas visitas).
+    if (promoUrl) {
       try {
         localStorage.setItem('clubify:promo', promoUrl.toUpperCase());
       } catch {}

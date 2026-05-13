@@ -311,12 +311,20 @@ function gatherSnapTargets(cfg: QrPosterConfig) {
   }
   for (const k of ['title', 'subtitle', 'cta', 'brand'] as const) {
     const t = cfg.texts[k];
-    // Estimación grosera del bbox: ancho según largo del texto, alto = size
+    // Estimación del bbox visual real del texto. Para textos full-width
+    // (align center/right), el centro horizontal del texto ES el centro
+    // del canvas — no aporta info nueva al snap porque ya tenemos el
+    // canvas-center como target nativo. Si pusiéramos x:0 w:canvas.w
+    // como hacíamos antes, cada drag verticalmente cercano al medio del
+    // canvas mostraría una guía duplicada visualmente confusa. Mejor:
+    // estimar el ancho real del texto y centrar el bbox.
     const approxW = Math.max(t.size * (t.text.length * 0.5), t.size);
+    const isFullWidth = t.align === 'center' || t.align === 'right';
+    const bx = isFullWidth ? (cfg.canvas.w - approxW) / 2 : t.x;
     out.push({
-      x: t.align === 'center' || t.align === 'right' ? 0 : t.x,
+      x: bx,
       y: t.y,
-      w: t.align === 'center' || t.align === 'right' ? cfg.canvas.w : approxW,
+      w: approxW,
       h: t.size,
       id: `text.${k}`,
     });
@@ -1776,7 +1784,11 @@ function BackgroundSection({
   setCfg: (updater: (c: QrPosterConfig) => QrPosterConfig) => void;
 }) {
   function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    // Reset input siempre — sin esto, si el usuario rechaza una imagen
+    // grande y vuelve a elegir EL MISMO archivo, el onChange no dispara
+    // porque el value no cambió. Limpiando primero garantizamos retry.
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
     if (file.size > MAX_UPLOAD_BYTES) {
       alert(`La imagen es muy pesada. Máx ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`);
@@ -1801,7 +1813,6 @@ function BackgroundSection({
       }));
     };
     reader.readAsDataURL(file);
-    e.target.value = '';
   }
 
   return (
@@ -2088,14 +2099,27 @@ function BgImageView({
     const node = nodeRef.current;
     if (!node) return;
     if (blur > 0) {
-      node.cache();
-      node.filters([Konva.Filters.Blur]);
-      node.blurRadius(blur);
+      // Esperar a que la imagen tenga dimensiones cargadas (image.complete)
+      // antes de cachear. Sino el cache captura un frame vacío y el blur
+      // queda aplicado a "nada" hasta que el siguiente re-render lo
+      // corrija. Si todavía no cargó, defer al onload.
+      const applyBlur = () => {
+        node.cache();
+        node.filters([Konva.Filters.Blur]);
+        node.blurRadius(blur);
+        node.getLayer()?.batchDraw();
+      };
+      if (image.complete && image.naturalWidth > 0) {
+        applyBlur();
+      } else {
+        image.addEventListener('load', applyBlur, { once: true });
+        return () => image.removeEventListener('load', applyBlur);
+      }
     } else {
       node.clearCache();
       node.filters([]);
+      node.getLayer()?.batchDraw();
     }
-    node.getLayer()?.batchDraw();
   }, [blur, w, h, image]);
   return (
     <KonvaImage
@@ -2211,7 +2235,9 @@ function ImagesSection({
   onRemove: (id: string) => void;
 }) {
   function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    // Reset siempre — ver comentario en BackgroundSection.handleUpload.
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
     if (file.size > MAX_UPLOAD_BYTES) {
       alert(`La imagen es muy pesada. Máx ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`);
@@ -2226,7 +2252,6 @@ function ImagesSection({
       img.src = dataUrl;
     };
     reader.readAsDataURL(file);
-    e.target.value = '';
   }
 
   return (
@@ -2357,7 +2382,18 @@ function PatternsSection({
         </button>
       ) : (
         <div className="space-y-2 border border-line rounded p-2 bg-bg2/30">
-          <div className="text-[11px] font-semibold">Elegí emojis para el patrón</div>
+          <div className="flex items-center justify-between">
+            <div className="text-[11px] font-semibold">Elegí emojis para el patrón</div>
+            <div
+              className={`text-[10px] tabular-nums ${
+                draftEmojis.length >= 8
+                  ? 'text-amber-600 font-semibold'
+                  : 'text-mute'
+              }`}
+            >
+              {draftEmojis.length}/8
+            </div>
+          </div>
           <div className="flex flex-wrap gap-1 min-h-[28px] p-1.5 bg-white rounded border border-line">
             {draftEmojis.length === 0 ? (
               <span className="text-[10px] text-mute">(Vacío)</span>
@@ -2375,8 +2411,15 @@ function PatternsSection({
             )}
           </div>
           <EmojiQuickPick
+            disabled={draftEmojis.length >= 8}
             onPick={(e) => setDraftEmojis((d) => (d.length < 8 ? [...d, e] : d))}
           />
+          {draftEmojis.length >= 8 && (
+            <div className="text-[10px] text-amber-700 leading-relaxed">
+              Llegaste al máximo de 8 emojis por patrón. Quitá uno para
+              agregar otro.
+            </div>
+          )}
           <div className="flex gap-2">
             <button
               type="button"
@@ -2457,27 +2500,35 @@ function PatternsSection({
 
 /** Quick emoji pick: usado dentro del generador de patrones. Muestra
  *  un mini buscador + grid. */
-function EmojiQuickPick({ onPick }: { onPick: (e: string) => void }) {
+function EmojiQuickPick({
+  onPick,
+  disabled = false,
+}: {
+  onPick: (e: string) => void;
+  disabled?: boolean;
+}) {
   const [q, setQ] = useState('');
   const results = useMemo(
     () => (q.trim() ? searchEmojis(q, 24) : EMOJI_DATA.slice(0, 24)),
     [q],
   );
   return (
-    <div className="space-y-1.5">
+    <div className={`space-y-1.5 ${disabled ? 'opacity-40 pointer-events-none' : ''}`}>
       <input
         type="text"
         value={q}
         onChange={(e) => setQ(e.target.value)}
         placeholder="Buscar emoji…"
         className="input text-xs"
+        disabled={disabled}
       />
       <div className="grid grid-cols-8 gap-0.5 max-h-[120px] overflow-y-auto">
         {results.map((r) => (
           <button
             key={r.e}
             onClick={() => onPick(r.e)}
-            className="text-lg hover:bg-bg2 rounded p-1 transition"
+            disabled={disabled}
+            className="text-lg hover:bg-bg2 rounded p-1 transition disabled:cursor-not-allowed"
             title={r.n}
           >
             {r.e}

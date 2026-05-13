@@ -67,6 +67,21 @@ export function PhoneInput({
   const [search, setSearch] = useState('');
   const ref = useRef<HTMLDivElement>(null);
 
+  // Sync con cambios EXTERNOS del value (modo controlado). Si el padre
+  // resetea form.whatsapp = '' tras submit, el input también se limpia.
+  // Para no entrar en loop infinito, solo aplicamos cuando el value
+  // resultante difiere del current (composedValue !== value).
+  useEffect(() => {
+    const composedValue = number.trim()
+      ? `${country.dial} ${number.trim()}`
+      : '';
+    if (composedValue === value) return;
+    const parsed = parseValue(value);
+    setCountry(parsed.country);
+    setNumber(parsed.rest);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
   useEffect(() => {
     // Si el número está vacío, emitir string vacío — NO solo el dial.
     // Sin esto, los validators `if (!form.whatsapp.trim())` pasan con
@@ -75,6 +90,24 @@ export function PhoneInput({
     onChange(trimmedNumber ? `${country.dial} ${trimmedNumber}` : '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [country, number]);
+
+  /** Cuando el usuario pega un texto que empieza con un dial code
+   *  conocido (ej "+57 300 123 4567"), auto-cambiamos el país y dejamos
+   *  solo los dígitos locales en el input. Sin esto, el "+57" pegado se
+   *  strip-ea silenciosamente y queda doble prefijo. */
+  function handlePaste(e: React.ClipboardEvent<HTMLInputElement>) {
+    const pasted = e.clipboardData.getData('text');
+    if (!pasted.trim().startsWith('+')) return; // sigue camino normal
+    const cleaned = pasted.replace(/[^\d+]/g, '');
+    const matched = [...COUNTRIES]
+      .sort((a, b) => b.dial.length - a.dial.length)
+      .find((c) => cleaned.startsWith(c.dial));
+    if (matched) {
+      e.preventDefault();
+      setCountry(matched);
+      setNumber(cleaned.slice(matched.dial.length));
+    }
+  }
 
   // Click fuera para cerrar dropdown
   useEffect(() => {
@@ -116,6 +149,7 @@ export function PhoneInput({
           placeholder={placeholder}
           value={number}
           onChange={(e) => setNumber(e.target.value.replace(/[^\d\s-]/g, ''))}
+          onPaste={handlePaste}
           disabled={disabled}
         />
       </div>

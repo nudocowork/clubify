@@ -1403,6 +1403,21 @@ function AccordionSection({
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(true);
+
+  // Si el cliente clickea un tab del LayoutCompact (anchor #cat-X) y la
+  // categoría está colapsada, el browser scrollea pero ve solo el
+  // header. Auto-expandimos cuando el hash matchea nuestro id.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const target = `#cat-${catId}`;
+    function maybeOpen() {
+      if (window.location.hash === target && !open) setOpen(true);
+    }
+    maybeOpen();
+    window.addEventListener('hashchange', maybeOpen);
+    return () => window.removeEventListener('hashchange', maybeOpen);
+  }, [catId, open]);
+
   return (
     <section id={`cat-${catId}`} className={className}>
       <button
@@ -1421,12 +1436,17 @@ function AccordionSection({
           ▾
         </span>
       </button>
+      {/* Grid-rows 1fr/0fr es el trick standard para animar altura
+       *  auto sin clamp arbitrario. Funciona en menús con cualquier
+       *  cantidad de productos (antes max-h-[10000px] truncaba a 12k+px).
+       *  El inner wrapper con overflow:hidden + min-h:0 es necesario
+       *  para que el grid colapse correctamente. */}
       <div
-        className={`overflow-hidden transition-all duration-300 ease-out ${
-          open ? 'max-h-[10000px] opacity-100' : 'max-h-0 opacity-0'
+        className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${
+          open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
         }`}
       >
-        {children}
+        <div className="overflow-hidden min-h-0">{children}</div>
       </div>
     </section>
   );

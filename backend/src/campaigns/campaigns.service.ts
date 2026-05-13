@@ -296,11 +296,26 @@ export class CampaignsService {
       influencerName: ref.ownerName,
       influencerCode: ref.code,
       ambassadorsCount: ref.ambassadors.length,
-      // Default commission % que recibirá un nuevo embajador. Lo
-      // configura el SUPER_ADMIN al editar la campaña; null = se usa
-      // el default del service (10%).
-      defaultCommissionPercent: 10,
+      // Default commission % que recibirá un nuevo embajador. Se lee
+      // del Setting `referrals.defaultAmbassadorPercent` que el
+      // super admin edita desde /admin/referrals → Configuración (mismo
+      // key que usa el panel de admin para crear embajadores).
+      // Fallback a 10 si no está seteado o es inválido.
+      defaultCommissionPercent: await this.resolveDefaultAmbassadorCommission(),
     };
+  }
+
+  /** Lee el % de comisión por defecto para embajadores autogenerados.
+   *  Reusa la misma key que usa ReferralsService para el flujo
+   *  admin-creates-ambassador: `referrals.defaultAmbassadorPercent`.
+   *  Valor entero entre 0 y 100. Si está vacío/inválido, retorna 10. */
+  private async resolveDefaultAmbassadorCommission(): Promise<number> {
+    const s = await this.prisma.setting.findUnique({
+      where: { key: 'referrals.defaultAmbassadorPercent' },
+    });
+    const n = Number(s?.value?.trim() ?? '');
+    if (Number.isFinite(n) && n >= 0 && n <= 100) return n;
+    return 10;
   }
 
   /**
@@ -381,6 +396,7 @@ export class CampaignsService {
     // distinto cada vez, pero el código duplicado real lo detectamos
     // re-leyendo el row existente y devolviendo alreadyExists).
     const code = await this.resolveCode();
+    const defaultCommission = await this.resolveDefaultAmbassadorCommission();
     let ambassadorCode;
     try {
       ambassadorCode = await this.prisma.referralCode.create({
@@ -389,7 +405,7 @@ export class CampaignsService {
           ownerName: dto.fullName.trim(),
           ownerEmail: email,
           ownerWhatsapp: dto.whatsapp.trim(),
-          commissionPercent: 10, // default — admin puede ajustar luego
+          commissionPercent: defaultCommission,
           role: 'AMBASSADOR',
           parentCodeId: owner.id,
           campaignId: owner.ownerOfCampaign.id,

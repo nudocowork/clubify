@@ -70,14 +70,25 @@ export class SupportService {
         content: text,
       });
     } else if (opts.mode === 'sections') {
-      // Splittea por "## " al inicio de línea. La primera parte (antes
-      // del primer ##) se ignora si está vacía, o se incluye como
-      // "Intro" si tiene contenido.
-      const parts = text.split(/^##\s+/m).map((p) => p.trim()).filter(Boolean);
-      if (parts.length === 0) {
+      // Splittea por "## " al inicio de línea. El contenido ANTES del
+      // primer "## " (si existe) se incluye como entry "Intro" porque
+      // suele ser contexto importante del documento (descripción del
+      // brief, instrucciones generales, etc.). Si está vacío se ignora.
+      const hasLeadingH2 = /^##\s+/m.test(text.split('\n')[0]?.trim() ?? '');
+      const parts = text.split(/^##\s+/m).map((p) => p.trim());
+      // Si el primer split NO empieza con ##, parts[0] es el intro.
+      const intro = !hasLeadingH2 ? parts.shift() ?? '' : '';
+      const realParts = parts.filter(Boolean);
+      if (intro && intro.length > 20) {
+        // Sacar el primer # H1 si existe, usarlo como title, sino fallback.
+        const firstLine = intro.split('\n')[0]?.replace(/^#+\s*/, '').trim();
+        const titleFromH1 = firstLine && firstLine.length < 200 ? firstLine : 'Introducción';
+        items.push({ title: titleFromH1, content: intro });
+      }
+      if (realParts.length === 0 && items.length === 0) {
         throw new BadRequestException('No se encontró ningún "## Título"');
       }
-      for (const part of parts) {
+      for (const part of realParts) {
         const [firstLine, ...rest] = part.split('\n');
         const title = firstLine.replace(/^#+\s*/, '').trim().slice(0, 200);
         const content = rest.join('\n').trim();
