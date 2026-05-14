@@ -93,6 +93,18 @@ export class ReferralsController {
     return this.svc.createOrInviteSocio(user, body);
   }
 
+  // "Embajador Directo Empresa" — AMBASSADOR sin influencer parent.
+  // Reporta directo a la empresa, no a un influencer. Mismo % de comisión
+  // que un embajador normal, pero el 5% indirecto no va a nadie.
+  @Roles('SUPER_ADMIN')
+  @Post('ambassadors/company-direct')
+  createCompanyDirectAmbassador(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { fullName: string; email: string; whatsapp: string; commissionPercent?: number; customCode?: string },
+  ) {
+    return this.svc.createCompanyDirectAmbassador(user, body);
+  }
+
   @Roles('SUPER_ADMIN')
   @Get('leaderboard')
   leaderboard(@CurrentUser() user: AuthUser) {

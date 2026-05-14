@@ -671,17 +671,25 @@ export class ReferralsService {
       const pending = allComm
         .filter((x) => x.status === 'PENDING' || x.status === 'APPROVED')
         .reduce((s, x) => s + Number(x.amount), 0);
+      // Si AMBASSADOR no tiene parentCode (parentCodeId=null) → es un
+      // "Embajador Directo Empresa" — reporta a la empresa, no a un
+      // influencer. Mismo % de comisión que un embajador normal pero el
+      // 5% indirecto no va a nadie (queda en la empresa).
+      const isCompanyDirect = c.parentCodeId == null;
       return {
         id: c.id,
         code: c.code,
+        slug: c.slug ?? c.code.toLowerCase(),
         ownerName: c.ownerName,
         ownerEmail: c.ownerEmail,
         ownerWhatsapp: c.ownerWhatsapp,
         commissionPercent: Number(c.commissionPercent),
         isActive: c.isActive,
+        approvedAt: c.approvedAt,
         parentCode: c.parentCode?.code ?? null,
         parentName: c.parentCode?.ownerName ?? null,
         campaignName: c.campaign?.name ?? null,
+        isCompanyDirect,
         clients: c.uses.length,
         activeClients: c.uses.filter((u) => u.status === 'PAYING' || u.status === 'ACTIVE').length,
         paidUsd: Math.round(paid * 100) / 100,
@@ -689,6 +697,108 @@ export class ReferralsService {
         createdAt: c.createdAt,
       };
     });
+  }
+
+  /**
+   * Crea o invita un "Embajador Directo Empresa" — un AMBASSADOR sin
+   * influencer parent (parentCodeId=null, campaignId=null). Gana
+   * comisión sobre sus propios referidos (igual que un embajador normal),
+   * pero el 5% indirecto no va a nadie porque no tiene parent — queda
+   * en la empresa.
+   *
+   * Diferencia con SOCIO: el SOCIO gana 10% sobre TODA venta del sistema
+   * sin importar qué código se use. El Embajador Directo Empresa solo
+   * gana sobre los clientes que él mismo refirió.
+   */
+  async createCompanyDirectAmbassador(
+    user: AuthUser,
+    dto: {
+      fullName: string;
+      email: string;
+      whatsapp: string;
+      commissionPercent?: number;
+      customCode?: string;
+    },
+  ) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    if (!dto.fullName?.trim() || !dto.email?.trim() || !dto.whatsapp?.trim()) {
+      throw new BadRequestException('fullName, email y whatsapp son requeridos');
+    }
+    const email = dto.email.trim().toLowerCase();
+
+    // No permitir duplicado: si ya existe un Embajador Directo Empresa
+    // con ese email, error claro (no crear segundo).
+    const dup = await this.prisma.referralCode.findFirst({
+      where: {
+        ownerEmail: email,
+        role: 'AMBASSADOR',
+        parentCodeId: null,
+      },
+    });
+    if (dup) {
+      throw new BadRequestException(
+        'Ya existe un Embajador Directo Empresa con este email',
+      );
+    }
+
+    // Generar código único + slug a partir del nombre
+    let code = dto.customCode?.trim().toUpperCase();
+    if (code) {
+      if (!/^[A-Z0-9]{4,16}$/.test(code)) {
+        throw new BadRequestException(
+          'customCode debe tener 4-16 caracteres A-Z 0-9',
+        );
+      }
+      const codeDup = await this.prisma.referralCode.findUnique({
+        where: { code },
+      });
+      if (codeDup) throw new BadRequestException(`Código "${code}" ya está en uso`);
+    } else {
+      code = codeGen();
+      while (await this.prisma.referralCode.findUnique({ where: { code } })) {
+        code = codeGen();
+      }
+    }
+
+    const slug = await this.allocateSlug(dto.fullName, code);
+    const created = await this.prisma.referralCode.create({
+      data: {
+        code,
+        slug,
+        ownerName: dto.fullName.trim(),
+        ownerEmail: email,
+        ownerWhatsapp: dto.whatsapp.trim(),
+        commissionPercent: dto.commissionPercent ?? 25,
+        role: 'AMBASSADOR',
+        parentCodeId: null,
+        campaignId: null,
+        approvedAt: new Date(), // pre-aprobado (no requiere flow de approval)
+        source: 'company_direct',
+      },
+    });
+
+    // Invitar al embajador con su panel propio (mismo flujo que un embajador
+    // normal, pero scoped a sus propios datos sin parent influencer).
+    await this.auth
+      .inviteAffiliate({
+        email,
+        fullName: dto.fullName.trim(),
+        role: 'AFFILIATE_AMBASSADOR',
+        referralCodeId: created.id,
+        phone: dto.whatsapp.trim(),
+      })
+      .catch((err) => {
+        this.logger.warn(
+          `inviteAffiliate falló para ${email}: ${(err as Error).message}`,
+        );
+      });
+
+    const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
+    return {
+      ...created,
+      shareLink: `${appUrl}/ref/${slug}`,
+      isCompanyDirect: true,
+    };
   }
 
   async listClients(user: AuthUser) {

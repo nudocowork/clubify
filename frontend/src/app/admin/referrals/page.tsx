@@ -2226,69 +2226,268 @@ function InfluencersTab() {
 function AmbassadorsTab() {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  useEffect(() => {
+  const [showCreate, setShowCreate] = useState(false);
+
+  function reload() {
+    setLoading(true);
     api<any[]>('/referrals/ambassadors')
       .then((r) => setRows(r ?? []))
       .finally(() => setLoading(false));
+  }
+  useEffect(() => {
+    reload();
   }, []);
 
   if (loading) return <div className="card card-pad h-32 animate-shimmer" />;
 
+  // Particionamos: directos de empresa vs vinculados a influencer.
+  const companyDirect = rows.filter((r) => r.isCompanyDirect);
+  const linked = rows.filter((r) => !r.isCompanyDirect);
+
   return (
-    <div className="card overflow-hidden p-0">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[920px]">
-          <thead className="bg-bg2">
-            <tr>
-              {['Embajador', 'Código', '%', 'Influencer parent', 'Campaña', 'Activos', 'Total', 'Pagado', 'Pendiente'].map(
-                (h) => (
-                  <th
-                    key={h}
-                    className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
-                  >
-                    {h}
-                  </th>
-                ),
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={9} className="text-center py-12 text-mute">
-                  Aún no hay embajadores
-                </td>
-              </tr>
-            )}
-            {rows.map((r) => (
-              <tr
-                key={r.id}
-                className={`border-t border-line2 hover:bg-[#FAFAFB] ${r.isActive ? '' : 'opacity-50'}`}
-              >
-                <td className="px-4 py-3">
-                  <div className="font-medium">{r.ownerName}</div>
-                  <div className="text-xs text-mute">{r.ownerEmail}</div>
-                </td>
-                <td className="px-4 py-3 font-mono font-bold">{r.code}</td>
-                <td className="px-4 py-3">{r.commissionPercent}%</td>
-                <td className="px-4 py-3 text-xs">
-                  {r.parentName && (
-                    <>
-                      {r.parentName}
-                      <div className="text-mute font-mono">{r.parentCode}</div>
-                    </>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-xs">{r.campaignName ?? '—'}</td>
-                <td className="px-4 py-3 text-center">{r.activeClients}</td>
-                <td className="px-4 py-3 text-center">{r.clients}</td>
-                <td className="px-4 py-3 text-ok font-medium">{fmtUsd(r.paidUsd)}</td>
-                <td className="px-4 py-3 text-amber-700 font-medium">{fmtUsd(r.pendingUsd)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div className="space-y-5">
+      <div className="card card-pad flex items-center gap-3 flex-wrap">
+        <div className="flex-1 min-w-[260px]">
+          <div className="font-semibold">Embajadores ({rows.length})</div>
+          <div className="text-xs text-mute leading-relaxed mt-1">
+            <strong>{companyDirect.length}</strong> directos de empresa ·{' '}
+            <strong>{linked.length}</strong> vinculados a influencer.
+            <br />
+            Los <strong>directos de empresa</strong> no reportan a un
+            influencer — reportan directo a Clubify. Mismo % de comisión,
+            sin 5% indirecto.
+          </div>
+        </div>
+        <button
+          onClick={() => setShowCreate(true)}
+          className="btn-primary text-sm whitespace-nowrap"
+        >
+          + Embajador Directo Empresa
+        </button>
       </div>
+
+      {showCreate && (
+        <CompanyDirectAmbassadorModal
+          onClose={() => setShowCreate(false)}
+          onCreated={() => {
+            setShowCreate(false);
+            reload();
+          }}
+        />
+      )}
+
+      <div className="card overflow-hidden p-0">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[960px]">
+            <thead className="bg-bg2">
+              <tr>
+                {['Embajador', 'Código', '%', 'Reporta a', 'Campaña', 'Activos', 'Total', 'Pagado', 'Pendiente'].map(
+                  (h) => (
+                    <th
+                      key={h}
+                      className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
+                    >
+                      {h}
+                    </th>
+                  ),
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="text-center py-12 text-mute">
+                    Aún no hay embajadores
+                  </td>
+                </tr>
+              )}
+              {rows.map((r) => (
+                <tr
+                  key={r.id}
+                  className={`border-t border-line2 hover:bg-[#FAFAFB] ${r.isActive ? '' : 'opacity-50'}`}
+                >
+                  <td className="px-4 py-3">
+                    <div className="font-medium flex items-center gap-1.5">
+                      {r.ownerName}
+                      {r.isCompanyDirect && (
+                        <span className="inline-flex items-center text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 whitespace-nowrap">
+                          🏢 Directo Empresa
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-mute">{r.ownerEmail}</div>
+                  </td>
+                  <td className="px-4 py-3 font-mono font-bold">{r.code}</td>
+                  <td className="px-4 py-3">{r.commissionPercent}%</td>
+                  <td className="px-4 py-3 text-xs">
+                    {r.isCompanyDirect ? (
+                      <span className="text-violet-700 font-medium">Empresa</span>
+                    ) : r.parentName ? (
+                      <>
+                        {r.parentName}
+                        <div className="text-mute font-mono">{r.parentCode}</div>
+                      </>
+                    ) : (
+                      <span className="text-mute">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-xs">{r.campaignName ?? '—'}</td>
+                  <td className="px-4 py-3 text-center">{r.activeClients}</td>
+                  <td className="px-4 py-3 text-center">{r.clients}</td>
+                  <td className="px-4 py-3 text-ok font-medium">{fmtUsd(r.paidUsd)}</td>
+                  <td className="px-4 py-3 text-amber-700 font-medium">{fmtUsd(r.pendingUsd)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CompanyDirectAmbassadorModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [form, setForm] = useState({
+    fullName: '',
+    email: '',
+    whatsapp: '',
+    commissionPercent: 25,
+    customCode: '',
+  });
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const payload: any = {
+        fullName: form.fullName.trim(),
+        email: form.email.trim(),
+        whatsapp: form.whatsapp.trim(),
+        commissionPercent: Number(form.commissionPercent),
+      };
+      if (form.customCode.trim()) payload.customCode = form.customCode.trim().toUpperCase();
+      await api('/referrals/ambassadors/company-direct', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      toast(
+        'Embajador Directo Empresa creado · invitación enviada por email',
+        'success',
+      );
+      onCreated();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo crear', 'error');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <form
+        onSubmit={submit}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl"
+      >
+        <div className="flex items-start justify-between mb-1">
+          <h3 className="text-lg font-bold">🏢 Embajador Directo Empresa</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-mute hover:text-ink text-xl leading-none"
+          >
+            ×
+          </button>
+        </div>
+        <p className="text-xs text-mute leading-relaxed mb-4">
+          Reporta directo a Clubify (sin influencer parent). Mismo % de comisión
+          que un embajador normal; el 5% indirecto se queda con la empresa.
+          Recibe invitación por email y panel propio en <code>/affiliate</code>.
+        </p>
+
+        <label className="label">Nombre completo</label>
+        <input
+          className="input"
+          value={form.fullName}
+          onChange={(e) => setForm({ ...form, fullName: e.target.value })}
+          required
+          minLength={2}
+        />
+
+        <label className="label mt-3">Email</label>
+        <input
+          className="input"
+          type="email"
+          value={form.email}
+          onChange={(e) => setForm({ ...form, email: e.target.value })}
+          required
+        />
+
+        <label className="label mt-3">WhatsApp (con código país)</label>
+        <input
+          className="input"
+          value={form.whatsapp}
+          onChange={(e) => setForm({ ...form, whatsapp: e.target.value })}
+          placeholder="+57 300 000 0000"
+          required
+        />
+
+        <div className="grid grid-cols-2 gap-3 mt-3">
+          <div>
+            <label className="label">Comisión %</label>
+            <input
+              className="input"
+              type="number"
+              min={0}
+              max={100}
+              step={1}
+              value={form.commissionPercent}
+              onChange={(e) =>
+                setForm({ ...form, commissionPercent: Number(e.target.value) })
+              }
+            />
+          </div>
+          <div>
+            <label className="label">Código custom (opcional)</label>
+            <input
+              className="input font-mono uppercase"
+              value={form.customCode}
+              onChange={(e) =>
+                setForm({ ...form, customCode: e.target.value.toUpperCase() })
+              }
+              placeholder="JUAN2026"
+              maxLength={16}
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 mt-5">
+          <button
+            type="button"
+            onClick={onClose}
+            className="btn-ghost text-sm"
+            disabled={busy}
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            disabled={busy}
+            className="btn-primary text-sm disabled:opacity-50"
+          >
+            {busy ? 'Creando…' : 'Crear y enviar invitación'}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
