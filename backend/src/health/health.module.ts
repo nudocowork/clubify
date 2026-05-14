@@ -17,6 +17,10 @@ class HealthController {
       ts: new Date().toISOString(),
       uptimeSec: Math.round((Date.now() - STARTED_AT) / 1000),
       version: process.env.npm_package_version ?? 'dev',
+      // Railway inyecta automáticamente RAILWAY_GIT_COMMIT_SHA en cada
+      // deploy. Lo exponemos en /health para confirmar de un curl qué
+      // commit está corriendo (sin abrir el dashboard).
+      commit: (process.env.RAILWAY_GIT_COMMIT_SHA ?? 'dev').slice(0, 7),
       env: process.env.NODE_ENV ?? 'development',
     };
   }
