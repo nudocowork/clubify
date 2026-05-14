@@ -3813,20 +3813,28 @@ function ImagesSection({
     reader.readAsDataURL(file);
   }
 
+  const [loadingBadgeId, setLoadingBadgeId] = useState<string | null>(null);
+
   async function addBadge(badge: WalletBadge) {
-    const dataUrl = await loadBadgeAsDataUrl(badge);
-    if (!dataUrl) {
-      alert(`No se pudo cargar el badge ${badge.label}.`);
-      return;
+    // Bloquea doble-click: si ya hay un badge cargando (cualquiera),
+    // ignoramos clicks subsecuentes. Sin esto, el await deja una
+    // ventana donde el usuario clickeó dos veces rápido se agregan 2.
+    if (loadingBadgeId) return;
+    setLoadingBadgeId(badge.id);
+    try {
+      const dataUrl = await loadBadgeAsDataUrl(badge);
+      if (!dataUrl) {
+        alert(`No se pudo cargar el badge ${badge.label}.`);
+        return;
+      }
+      // Escalamos a 28% del ancho del canvas — los badges nativos
+      // (100-240px) son invisibles en un canvas de 1080+.
+      const targetW = canvasW * 0.28;
+      const scale = targetW / badge.width;
+      onAdd(dataUrl, targetW, badge.height * scale);
+    } finally {
+      setLoadingBadgeId(null);
     }
-    // Los badges miden 100-240px nativos. En canvas de 1080+ son
-    // invisibles si los agregamos a tamaño nativo (el bug que
-    // reportó el dueño: "no aparece agregado"). Escalamos a ~28%
-    // del ancho del canvas manteniendo aspect — queda como un sello
-    // legible y el usuario lo achica/agranda después.
-    const targetW = canvasW * 0.28;
-    const scale = targetW / badge.width;
-    onAdd(dataUrl, targetW, badge.height * scale);
   }
 
   const badgeEntries: Array<{ key: string; badge: WalletBadge }> = [
@@ -3843,21 +3851,34 @@ function ImagesSection({
           Badges Wallet & Pay
         </div>
         <div className="grid grid-cols-2 gap-1.5">
-          {badgeEntries.map(({ key, badge }) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => addBadge(badge)}
-              className="rounded-lg border border-line hover:border-brand bg-white p-2 transition flex items-center justify-center min-h-[44px]"
-              title={`Agregar ${badge.label}`}
-            >
-              <img
-                src={badge.src}
-                alt={badge.label}
-                className="w-full h-auto max-h-7 object-contain"
-              />
-            </button>
-          ))}
+          {badgeEntries.map(({ key, badge }) => {
+            const isLoading = loadingBadgeId === badge.id;
+            const isDisabled = loadingBadgeId !== null;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => addBadge(badge)}
+                disabled={isDisabled}
+                className={`rounded-lg border bg-white p-2 transition flex items-center justify-center min-h-[44px] ${
+                  isDisabled
+                    ? 'border-line opacity-50 cursor-wait'
+                    : 'border-line hover:border-brand'
+                }`}
+                title={`Agregar ${badge.label}`}
+              >
+                {isLoading ? (
+                  <span className="text-[10px] text-mute">cargando…</span>
+                ) : (
+                  <img
+                    src={badge.src}
+                    alt={badge.label}
+                    className="w-full h-auto max-h-7 object-contain"
+                  />
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -4031,9 +4052,12 @@ function CropButton({
   }>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
+  const [loadError, setLoadError] = useState(false);
+
   // Cargar dimensiones reales de la imagen + setear crop default
   useEffect(() => {
     if (!open) return;
+    setLoadError(false);
     const img = new window.Image();
     img.onload = () => {
       const w = img.naturalWidth;
@@ -4049,6 +4073,10 @@ function CropButton({
       } else {
         setCrop({ x: 0, y: 0, w, h });
       }
+    };
+    img.onerror = () => {
+      setLoadError(true);
+      setNaturalSize(null);
     };
     img.src = image.url;
   }, [open, image.url]);
@@ -4159,7 +4187,11 @@ function CropButton({
               </button>
             </div>
             <div className="p-4 flex flex-col items-center gap-3">
-              {!naturalSize || !crop ? (
+              {loadError ? (
+                <div className="text-sm text-bad py-8">
+                  No se pudo cargar la imagen para recortar. Probá eliminarla y subirla de nuevo.
+                </div>
+              ) : !naturalSize || !crop ? (
                 <div className="text-sm text-mute py-8">Cargando imagen…</div>
               ) : (
                 <>

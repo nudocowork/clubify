@@ -45,21 +45,23 @@ export function WalletStylesGallery({
   );
 
   const activeId = useMemo(() => {
+    // Match solo si los 6 colores actuales matchean exactamente con
+    // los del template. Si algún color del current es null (auto),
+    // ese slot no puede matchear porque los templates siempre tienen
+    // los 6 hex strings. Esto es intencional: el badge "activo" solo
+    // aparece cuando el usuario aplicó un template y NO modificó
+    // colores avanzados a "auto" después.
+    const eq = (a: string | null | undefined, b: string) =>
+      typeof a === 'string' && a.toLowerCase() === b.toLowerCase();
     return (
       WALLET_STYLES.find(
         (s) =>
-          s.colors.primaryColor.toLowerCase() ===
-            current.primaryColor.toLowerCase() &&
-          s.colors.secondaryColor.toLowerCase() ===
-            current.secondaryColor.toLowerCase() &&
-          s.colors.stampActiveColor.toLowerCase() ===
-            (current.stampActiveColor ?? '').toLowerCase() &&
-          s.colors.stampInactiveColor.toLowerCase() ===
-            (current.stampInactiveColor ?? '').toLowerCase() &&
-          s.colors.stampContourColor.toLowerCase() ===
-            (current.stampContourColor ?? '').toLowerCase() &&
-          s.colors.centerBgColor.toLowerCase() ===
-            (current.centerBgColor ?? '').toLowerCase(),
+          eq(current.primaryColor, s.colors.primaryColor) &&
+          eq(current.secondaryColor, s.colors.secondaryColor) &&
+          eq(current.stampActiveColor, s.colors.stampActiveColor) &&
+          eq(current.stampInactiveColor, s.colors.stampInactiveColor) &&
+          eq(current.stampContourColor, s.colors.stampContourColor) &&
+          eq(current.centerBgColor, s.colors.centerBgColor),
       )?.id ?? null
     );
   }, [current]);
