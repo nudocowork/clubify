@@ -18,6 +18,12 @@ export type CategoryDto = {
   description?: string;
   imageUrl?: string;
   position?: number;
+  /** Subtítulo corto debajo del nombre en la portada (~80 char). */
+  tagline?: string | null;
+  /** Config del banner editable (drag/drop, overlay, fuente, etc).
+   *  Estructura libre — la valida el frontend. Backend persiste como
+   *  JSONB. Null = fallback legacy. */
+  coverConfig?: Record<string, any> | null;
 };
 
 @Injectable()
@@ -60,6 +66,8 @@ export class CategoriesService {
         slug,
         description: dto.description,
         imageUrl: dto.imageUrl,
+        tagline: dto.tagline ?? null,
+        coverConfig: dto.coverConfig ?? undefined,
         position: dto.position ?? (last?.position ?? -1) + 1,
       },
     });
@@ -76,6 +84,13 @@ export class CategoriesService {
       data: {
         ...dto,
         parentId: dto.parentId === undefined ? undefined : dto.parentId,
+        // Prisma JSON: undefined = no-op, null = set NULL en DB. Mapear
+        // explícito para que el cliente pueda "limpiar" el coverConfig
+        // mandando null (vuelve al fallback legacy).
+        coverConfig:
+          dto.coverConfig === undefined
+            ? undefined
+            : (dto.coverConfig as any),
       },
     });
   }

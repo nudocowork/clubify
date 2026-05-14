@@ -85,6 +85,11 @@ export class PublicMenuController {
     if (!t || t.status === 'SUSPENDED')
       throw new NotFoundException('Negocio no disponible');
 
+    // Trae categorías raíz con hijos (subsecciones) y productos en
+    // ambos niveles. El front decide cómo renderizar — el nuevo layout
+    // SECTIONS muestra el banner por sección y agrupa por subsección
+    // dentro. El layout viejo (CLASSIC/GRID/etc) ignora subsections y
+    // hace flatten.
     const categories = await this.prisma.category.findMany({
       where: { tenantId: t.id, isActive: true, parentId: null },
       orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
@@ -92,6 +97,16 @@ export class PublicMenuController {
         children: {
           where: { isActive: true },
           orderBy: { position: 'asc' },
+          include: {
+            products: {
+              where: { isAvailable: true },
+              orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+              include: {
+                variants: { orderBy: { position: 'asc' } },
+                extras: { where: { isAvailable: true } },
+              },
+            },
+          },
         },
         products: {
           where: { isAvailable: true },
@@ -132,14 +147,30 @@ export class PublicMenuController {
       name: c.name,
       slug: c.slug,
       description: c.description,
+      imageUrl: c.imageUrl,
+      tagline: c.tagline,
+      coverConfig: c.coverConfig,
       products: c.products.map(mapProduct),
+      subsections: (c.children ?? []).map((sub: any) => ({
+        id: sub.id,
+        name: sub.name,
+        slug: sub.slug,
+        description: sub.description,
+        imageUrl: sub.imageUrl,
+        tagline: sub.tagline,
+        coverConfig: sub.coverConfig,
+        products: (sub.products ?? []).map(mapProduct),
+      })),
     }));
 
     // Sección virtual "Recomendados" arriba de todo. Recoge productos
-    // marcados como isRecommended de TODAS las categorías (manteniendo el
-    // orden por posición). Si no hay ninguno, no se incluye la sección.
-    const recommended = categories
-      .flatMap((c) => c.products)
+    // isRecommended de TODAS las categorías (raíz + hijas). Si no hay
+    // ninguno, no se incluye la sección.
+    const allProducts = categories.flatMap((c) => [
+      ...c.products,
+      ...(c.children ?? []).flatMap((sub: any) => sub.products ?? []),
+    ]);
+    const recommended = allProducts
       .filter((p: any) => p.isRecommended)
       .map(mapProduct);
 
@@ -150,7 +181,11 @@ export class PublicMenuController {
           name: 'Recomendados',
           slug: 'recomendados',
           description: 'Lo más pedido por nuestros clientes.',
+          imageUrl: null,
+          tagline: null,
+          coverConfig: null,
           products: recommended,
+          subsections: [],
         },
         ...mapped,
       ];

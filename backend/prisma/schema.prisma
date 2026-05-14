@@ -727,6 +727,15 @@ model Category {
   slug        String
   description String?
   imageUrl    String?
+  /// Subtitulo opcional (~80 char) que aparece debajo del nombre en la
+  /// portada de la sección. Ej: "Cortes premium importados".
+  tagline     String?
+  /// Config visual de la portada de la sección (banner editable tipo
+  /// editor QR). Estructura: { bgImageUrl, overlay: { color, opacity },
+  /// title: { color, font, weight, size, align, position }, tagline:
+  /// {...}, height, template }. Si null, render usa fallback (imageUrl
+  /// como bg + nombre centrado, estilo legacy).
+  coverConfig Json?
   position    Int        @default(0)
   isActive    Boolean    @default(true)
   createdAt   DateTime   @default(now())

@@ -8,7 +8,15 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { IsArray, IsOptional, IsString, IsUUID } from 'class-validator';
+import {
+  IsArray,
+  IsObject,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  ValidateIf,
+} from 'class-validator';
 import { CategoriesService } from './categories.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -18,6 +26,19 @@ class CategoryBody {
   @IsOptional() @IsUUID() parentId?: string;
   @IsOptional() @IsString() description?: string;
   @IsOptional() @IsString() imageUrl?: string;
+  // tagline acepta string o null (null para limpiar). MaxLength 200
+  // por si el dueño se entusiasma — UI debería avisarle ~80.
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsString()
+  @MaxLength(200)
+  tagline?: string | null;
+  // coverConfig acepta cualquier objeto o null. Validación estructural
+  // la hace el frontend (es una config visual flexible).
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsObject()
+  coverConfig?: Record<string, any> | null;
 }
 
 class ReorderBody {
