@@ -21,7 +21,14 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
-type MenuLayout = 'CLASSIC' | 'GRID' | 'CAROUSELS' | 'CLEAN' | 'COMPACT' | 'CLUVI';
+type MenuLayout =
+  | 'CLASSIC'
+  | 'GRID'
+  | 'CAROUSELS'
+  | 'CLEAN'
+  | 'COMPACT'
+  | 'CLUVI'
+  | 'SECTIONS';
 
 type Storefront = {
   id: string;
@@ -44,6 +51,7 @@ const MENU_LAYOUTS: { id: MenuLayout; emoji: string; label: string; sub: string 
   { id: 'CLEAN', emoji: '✒️', label: 'Limpio', sub: 'Sin fotos, serif elegante (boutique)' },
   { id: 'COMPACT', emoji: '📱', label: 'Compacto', sub: 'Lista + modal con variantes (DoorDash)' },
   { id: 'CLUVI', emoji: '🌙', label: 'Fondo oscuro', sub: 'Fondo negro + cards blancas + acentos color de marca' },
+  { id: 'SECTIONS', emoji: '✨', label: 'Secciones premium', sub: 'Banners grandes por sección con portada editable (Apps premium)' },
 ];
 
 export default function StorefrontEditor() {

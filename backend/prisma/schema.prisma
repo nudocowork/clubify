@@ -1064,6 +1064,7 @@ enum MenuLayout {
   CLEAN // lista limpia sin fotos, serif (boutique)
   COMPACT // lista compacta + modal sheet (DoorDash)
   CLUVI // dark bg + white cards + yellow accents + VER pill (Cluvi/Bananas)
+  SECTIONS // banners grandes por sección con portada editable (premium)
 }
 
 // ============================================================

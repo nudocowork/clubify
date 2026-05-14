@@ -15,10 +15,18 @@ import { ClubifyBadge } from '@/components/ClubifyBadge';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { CO_LOCATIONS, OTRO_MUNICIPIO } from '@/lib/co-locations';
 import { useT } from '@/lib/i18n';
+import { SectionCoverPreview } from '@/components/menu/SectionCoverPreview';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
-type MenuLayout = 'CLASSIC' | 'GRID' | 'CAROUSELS' | 'CLEAN' | 'COMPACT' | 'CLUVI';
+type MenuLayout =
+  | 'CLASSIC'
+  | 'GRID'
+  | 'CAROUSELS'
+  | 'CLEAN'
+  | 'COMPACT'
+  | 'CLUVI'
+  | 'SECTIONS';
 
 type Storefront = {
   id: string;
@@ -54,7 +62,13 @@ type Product = {
 type Category = {
   id: string;
   name: string;
+  slug?: string;
+  description?: string | null;
+  imageUrl?: string | null;
+  tagline?: string | null;
+  coverConfig?: any | null;
   products: Product[];
+  subsections?: Category[];
 };
 
 function fmt(n: number, currency = 'COP') {
@@ -1382,6 +1396,8 @@ function MenuRenderer({ layout, menu, primary, currency, onPick }: RenderProps) 
     return <LayoutCompact menu={menu} primary={primary} currency={currency} onPick={onPick} />;
   if (layout === 'CLUVI')
     return <LayoutCluvi menu={menu} primary={primary} currency={currency} onPick={onPick} />;
+  if (layout === 'SECTIONS')
+    return <LayoutSections menu={menu} primary={primary} currency={currency} onPick={onPick} />;
   return <LayoutClassic menu={menu} primary={primary} currency={currency} onPick={onPick} />;
 }
 
@@ -1803,6 +1819,238 @@ function LayoutCluvi({ menu, primary, currency, onPick }: LP) {
         </AccordionSection>
       ))}
     </>
+  );
+}
+
+// =====================================================
+// SECTIONS — banners grandes por sección con portada editable
+// =====================================================
+//
+// Mobile-first. Cada sección renderea su portada (coverConfig) en
+// hero. Si tiene subsecciones, se muestran como chips horizontales
+// scrolleables que filtran los productos. Los productos vienen en
+// grid 2 columnas con foto + precio + tap para abrir bottom sheet.
+//
+// El coverConfig viene del backend (Fase 1). Si está null, fallback
+// = imagen + nombre. Para no inflar el JS, importamos el preview
+// dinámicamente — solo se baja cuando el layout SECTIONS está activo.
+
+function LayoutSections({ menu, primary, currency, onPick }: LP) {
+  const [activeSection, setActiveSection] = useState<string | null>(null);
+  const [activeSub, setActiveSub] = useState<string | null>(null);
+
+  // Si el cliente eligió una sección, mostramos detalle. Sino, grilla.
+  const section = activeSection
+    ? menu.find((m) => m.id === activeSection)
+    : null;
+
+  if (!section) {
+    // Vista 1: lista de banners de secciones
+    return (
+      <div className="space-y-3">
+        {menu.map((m) => (
+          <button
+            key={m.id}
+            type="button"
+            onClick={() => {
+              setActiveSection(m.id);
+              setActiveSub(null);
+            }}
+            className="block w-full text-left active:scale-[0.99] transition-transform"
+          >
+            <SectionBanner cat={m} primary={primary} />
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  // Vista 2: detalle de sección. Subsecciones como chips si hay.
+  const subs = section.subsections ?? [];
+  const hasSubs = subs.length > 0;
+
+  // Productos visibles: si hay subsection activa, los de esa sub.
+  // Sino, los de la sección raíz (no de las subs).
+  const visibleProducts = activeSub
+    ? subs.find((s) => s.id === activeSub)?.products ?? []
+    : section.products;
+
+  return (
+    <div className="space-y-4">
+      {/* Header con back + banner reducido */}
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => {
+            setActiveSection(null);
+            setActiveSub(null);
+          }}
+          className="absolute top-3 left-3 z-10 w-10 h-10 rounded-full bg-black/40 backdrop-blur-md text-white flex items-center justify-center active:scale-95 transition-transform"
+          aria-label="Volver"
+        >
+          ←
+        </button>
+        <SectionBanner cat={section} primary={primary} />
+      </div>
+
+      {/* Subsection chips */}
+      {hasSubs && (
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-none">
+          <SubChip
+            label="Todo"
+            active={!activeSub}
+            onClick={() => setActiveSub(null)}
+            primary={primary}
+          />
+          {subs.map((s) => (
+            <SubChip
+              key={s.id}
+              label={s.name}
+              count={s.products.length}
+              active={activeSub === s.id}
+              onClick={() => setActiveSub(s.id)}
+              primary={primary}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Productos */}
+      {visibleProducts.length === 0 ? (
+        <div className="text-center text-mute py-12 text-sm">
+          {activeSub
+            ? 'Sin productos en esta subsección'
+            : 'Sin productos en esta sección'}
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          {visibleProducts.map((p) => (
+            <SectionProductCard
+              key={p.id}
+              product={p}
+              currency={currency}
+              onPick={() => onPick(p)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SectionBanner({
+  cat,
+  primary,
+}: {
+  cat: Category;
+  primary: string;
+}) {
+  // Si tiene coverConfig, usamos el preview. Sino fallback simple:
+  // imageUrl como bg + nombre centrado.
+  if (cat.coverConfig) {
+    return (
+      <SectionCoverPreview
+        config={cat.coverConfig}
+        title={cat.name}
+        tagline={cat.tagline}
+      />
+    );
+  }
+  // Fallback legacy
+  return (
+    <div
+      className="relative h-44 rounded-2xl overflow-hidden flex items-end p-5"
+      style={{
+        backgroundImage: cat.imageUrl
+          ? `linear-gradient(180deg, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.7) 100%), url(${cat.imageUrl})`
+          : `linear-gradient(135deg, ${primary}, ${primary}aa)`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+      }}
+    >
+      <div className="text-white">
+        <h2 className="text-2xl font-bold leading-tight m-0">{cat.name}</h2>
+        {cat.tagline && (
+          <p className="text-sm opacity-90 mt-1 m-0">{cat.tagline}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SubChip({
+  label,
+  count,
+  active,
+  onClick,
+  primary,
+}: {
+  label: string;
+  count?: number;
+  active: boolean;
+  onClick: () => void;
+  primary: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`whitespace-nowrap text-sm font-semibold px-4 py-2 rounded-full border transition active:scale-95 ${
+        active ? 'text-white border-transparent' : 'text-ink border-line bg-bg'
+      }`}
+      style={
+        active
+          ? { backgroundColor: primary, boxShadow: `0 4px 12px ${primary}40` }
+          : undefined
+      }
+    >
+      {label}
+      {count !== undefined && (
+        <span className={`ml-1.5 text-[11px] opacity-70`}>· {count}</span>
+      )}
+    </button>
+  );
+}
+
+function SectionProductCard({
+  product,
+  currency,
+  onPick,
+}: {
+  product: Product;
+  currency: string;
+  onPick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onPick}
+      className="block text-left rounded-xl overflow-hidden bg-white shadow-sm border border-line2 active:scale-[0.98] transition-transform"
+    >
+      <div className="aspect-square bg-bg2 relative overflow-hidden">
+        {product.imageUrl ? (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={product.imageUrl}
+            alt={product.name}
+            loading="lazy"
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-3xl">
+            🍽
+          </div>
+        )}
+      </div>
+      <div className="p-2.5">
+        <div className="font-semibold text-sm leading-tight line-clamp-2 min-h-[2.5rem]">
+          {product.name}
+        </div>
+        <div className="font-bold text-sm mt-1.5 text-ink">
+          {fmt(product.basePrice, currency)}
+        </div>
+      </div>
+    </button>
   );
 }
 
