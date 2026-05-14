@@ -18,6 +18,8 @@ type Category = {
   imageUrl?: string | null;
   tagline?: string | null;
   coverConfig?: SectionCoverConfig | null;
+  parentId?: string | null;
+  children?: Category[];
 };
 type Variant = { id?: string; name: string; priceDelta: number; isDefault?: boolean; groupName?: string };
 type Extra = { id?: string; name: string; price: number };
@@ -140,6 +142,21 @@ export default function MenuEditor() {
       load();
     } catch (e: any) {
       toast(e.message || 'No se pudo crear la categoría', 'error');
+    }
+  }
+
+  async function createSubsection(parentId: string) {
+    const name = prompt('Nombre de la subsección:');
+    if (!name?.trim()) return;
+    try {
+      await api('/catalog/categories', {
+        method: 'POST',
+        body: JSON.stringify({ name: name.trim(), parentId }),
+      });
+      load();
+      toast('Subsección creada', 'success');
+    } catch (e: any) {
+      toast(e.message || 'No se pudo crear', 'error');
     }
   }
 
@@ -352,8 +369,18 @@ export default function MenuEditor() {
               Sin categorías
             </div>
           )}
-          <SortableList items={cats} onReorder={reorderCategories}>
-            {(c, { dragHandleProps }) => (
+          {/* Filtramos a roots para el sortable. Las hijas se renderean
+              dentro de cada root como sub-lista no-sortable (drag/drop
+              de hijas se puede agregar después si hace falta — por
+              ahora orden por createdAt). */}
+          <SortableList
+            items={cats.filter((c) => !c.parentId)}
+            onReorder={reorderCategories}
+          >
+            {(c, { dragHandleProps }) => {
+              const subs = cats.filter((s) => s.parentId === c.id);
+              return (
+              <div>
               <div
                 onClick={() => setActiveCat(c.id)}
                 className={`flex items-center gap-2 px-2.5 py-2.5 rounded-lg cursor-pointer transition ${
@@ -388,10 +415,21 @@ export default function MenuEditor() {
                       <div className="font-medium text-sm truncate">{c.name}</div>
                       <div className="text-xs text-mute">
                         {c._count?.products ?? 0} productos
+                        {subs.length > 0 && ` · ${subs.length} sub`}
                       </div>
                     </>
                   )}
                 </div>
+                <button
+                  className="text-mute hover:text-brand p-1"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    createSubsection(c.id);
+                  }}
+                  title="Agregar subsección"
+                >
+                  ＋
+                </button>
                 <button
                   className="text-mute hover:text-brand p-1"
                   onClick={(e) => {
@@ -424,7 +462,83 @@ export default function MenuEditor() {
                   <Icon name="trash" size={14} />
                 </button>
               </div>
-            )}
+
+              {/* Subsecciones (hijas) — indentadas, no sortable.
+                  Cada una es clickeable como cualquier categoría:
+                  selecciona y muestra sus productos en el panel
+                  derecho. Botones de editar nombre, portada y
+                  eliminar funcionan idénticos. */}
+              {subs.length > 0 && (
+                <div className="ml-5 mt-1 border-l-2 border-line2 pl-2 space-y-1">
+                  {subs.map((s) => (
+                    <div
+                      key={s.id}
+                      onClick={() => setActiveCat(s.id)}
+                      className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer transition text-xs ${
+                        activeCat === s.id
+                          ? 'bg-brand-soft text-brand-700'
+                          : 'hover:bg-bg2'
+                      }`}
+                    >
+                      <span className="text-mute">↳</span>
+                      <div className="flex-1 min-w-0">
+                        {editingCatId === s.id ? (
+                          <input
+                            autoFocus
+                            className="input py-0.5 text-xs"
+                            value={editingCatName}
+                            onChange={(e) => setEditingCatName(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            onBlur={() => {
+                              renameCategory(s.id, editingCatName);
+                              setEditingCatId(null);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                              else if (e.key === 'Escape') setEditingCatId(null);
+                            }}
+                          />
+                        ) : (
+                          <>
+                            <div className="font-medium truncate">{s.name}</div>
+                            <div className="text-[10px] text-mute">
+                              {s._count?.products ?? 0} productos
+                            </div>
+                          </>
+                        )}
+                      </div>
+                      <button
+                        className="text-mute hover:text-brand p-0.5"
+                        onClick={(e) => { e.stopPropagation(); setCoverCat(s); }}
+                        title="Diseñar portada"
+                      >
+                        🎨
+                      </button>
+                      <button
+                        className="text-mute hover:text-brand p-0.5"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingCatId(s.id);
+                          setEditingCatName(s.name);
+                        }}
+                        title="Renombrar"
+                      >
+                        <Icon name="edit" size={12} />
+                      </button>
+                      <button
+                        className="text-mute hover:text-bad p-0.5"
+                        onClick={(e) => { e.stopPropagation(); deleteCategory(s.id); }}
+                        title="Eliminar"
+                      >
+                        <Icon name="trash" size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              </div>
+              );
+            }}
           </SortableList>
         </div>
 
