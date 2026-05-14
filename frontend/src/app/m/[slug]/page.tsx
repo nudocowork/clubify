@@ -1838,29 +1838,62 @@ function LayoutCluvi({ menu, primary, currency, onPick }: LP) {
 function LayoutSections({ menu, primary, currency, onPick }: LP) {
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [activeSub, setActiveSub] = useState<string | null>(null);
+  const [transitioning, setTransitioning] = useState(false);
 
   // Si el cliente eligió una sección, mostramos detalle. Sino, grilla.
   const section = activeSection
     ? menu.find((m) => m.id === activeSection)
     : null;
 
-  if (!section) {
-    // Vista 1: lista de banners de secciones
+  // Skeleton state — mientras carga el menú o no hay secciones aún.
+  if (menu.length === 0) {
     return (
       <div className="space-y-3">
-        {menu.map((m) => (
+        {[1, 2, 3, 4].map((i) => (
+          <div
+            key={i}
+            className="h-44 rounded-2xl bg-bg2 animate-pulse"
+          />
+        ))}
+      </div>
+    );
+  }
+
+  if (!section) {
+    // Vista 1: lista de banners de secciones (con stagger entrance)
+    return (
+      <div className="space-y-3 animate-in fade-in duration-300">
+        {menu.map((m, idx) => (
           <button
             key={m.id}
             type="button"
             onClick={() => {
+              setTransitioning(true);
               setActiveSection(m.id);
               setActiveSub(null);
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+              window.setTimeout(() => setTransitioning(false), 50);
             }}
-            className="block w-full text-left active:scale-[0.99] transition-transform"
+            className="block w-full text-left active:scale-[0.98] hover:scale-[1.005] transition-transform duration-150"
+            style={{
+              animation: `slideUp 0.35s ease-out ${idx * 60}ms both`,
+            }}
           >
             <SectionBanner cat={m} primary={primary} />
           </button>
         ))}
+        <style jsx>{`
+          @keyframes slideUp {
+            from {
+              opacity: 0;
+              transform: translateY(12px);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0);
+            }
+          }
+        `}</style>
       </div>
     );
   }
@@ -1876,7 +1909,11 @@ function LayoutSections({ menu, primary, currency, onPick }: LP) {
     : section.products;
 
   return (
-    <div className="space-y-4">
+    <div
+      key={section.id}
+      className="space-y-4"
+      style={{ animation: 'slideInRight 0.3s ease-out' }}
+    >
       {/* Header con back + banner reducido */}
       <div className="relative">
         <button
@@ -1884,8 +1921,9 @@ function LayoutSections({ menu, primary, currency, onPick }: LP) {
           onClick={() => {
             setActiveSection(null);
             setActiveSub(null);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
-          className="absolute top-3 left-3 z-10 w-10 h-10 rounded-full bg-black/40 backdrop-blur-md text-white flex items-center justify-center active:scale-95 transition-transform"
+          className="absolute top-3 left-3 z-10 w-10 h-10 rounded-full bg-black/40 backdrop-blur-md text-white flex items-center justify-center active:scale-95 transition-transform shadow-md"
           aria-label="Volver"
         >
           ←
@@ -1895,7 +1933,7 @@ function LayoutSections({ menu, primary, currency, onPick }: LP) {
 
       {/* Subsection chips */}
       {hasSubs && (
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-none">
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-none sticky top-0 z-20 bg-bg/95 backdrop-blur-md py-2 -mt-2">
           <SubChip
             label="Todo"
             active={!activeSub}
@@ -1917,23 +1955,56 @@ function LayoutSections({ menu, primary, currency, onPick }: LP) {
 
       {/* Productos */}
       {visibleProducts.length === 0 ? (
-        <div className="text-center text-mute py-12 text-sm">
+        <div className="text-center text-mute py-12 text-sm animate-in fade-in">
+          <div className="text-4xl mb-2 opacity-50">🍽</div>
           {activeSub
             ? 'Sin productos en esta subsección'
             : 'Sin productos en esta sección'}
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3">
-          {visibleProducts.map((p) => (
-            <SectionProductCard
+        <div
+          key={activeSub ?? 'all'}
+          className="grid grid-cols-2 gap-3 animate-in fade-in duration-200"
+        >
+          {visibleProducts.map((p, idx) => (
+            <div
               key={p.id}
-              product={p}
-              currency={currency}
-              onPick={() => onPick(p)}
-            />
+              style={{
+                animation: `cardIn 0.3s ease-out ${idx * 30}ms both`,
+              }}
+            >
+              <SectionProductCard
+                product={p}
+                currency={currency}
+                onPick={() => onPick(p)}
+              />
+            </div>
           ))}
         </div>
       )}
+
+      <style jsx>{`
+        @keyframes slideInRight {
+          from {
+            opacity: 0;
+            transform: translateX(20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0);
+          }
+        }
+        @keyframes cardIn {
+          from {
+            opacity: 0;
+            transform: translateY(8px) scale(0.98);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+      `}</style>
     </div>
   );
 }
@@ -2021,23 +2092,32 @@ function SectionProductCard({
   currency: string;
   onPick: () => void;
 }) {
+  const [imgLoaded, setImgLoaded] = useState(false);
   return (
     <button
       type="button"
       onClick={onPick}
-      className="block text-left rounded-xl overflow-hidden bg-white shadow-sm border border-line2 active:scale-[0.98] transition-transform"
+      className="block text-left rounded-xl overflow-hidden bg-white shadow-sm hover:shadow-md border border-line2 active:scale-[0.97] transition-all duration-200 w-full"
     >
-      <div className="aspect-square bg-bg2 relative overflow-hidden">
+      <div className="aspect-square bg-gradient-to-br from-bg2 to-bg2/60 relative overflow-hidden">
         {product.imageUrl ? (
-          /* eslint-disable-next-line @next/next/no-img-element */
-          <img
-            src={product.imageUrl}
-            alt={product.name}
-            loading="lazy"
-            className="w-full h-full object-cover"
-          />
+          <>
+            {!imgLoaded && (
+              <div className="absolute inset-0 animate-pulse bg-bg2/80" />
+            )}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={product.imageUrl}
+              alt={product.name}
+              loading="lazy"
+              onLoad={() => setImgLoaded(true)}
+              className={`w-full h-full object-cover transition-opacity duration-300 ${
+                imgLoaded ? 'opacity-100' : 'opacity-0'
+              }`}
+            />
+          </>
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-3xl">
+          <div className="w-full h-full flex items-center justify-center text-4xl opacity-40">
             🍽
           </div>
         )}
