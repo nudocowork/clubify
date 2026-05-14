@@ -3,50 +3,107 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 
 type Msg = { role: 'user' | 'assistant'; content: string };
+export type SupportAudience = 'tenant' | 'affiliate';
 
-const STORAGE_KEY = 'clubify:support:history';
 const HISTORY_LIMIT = 20;
-const WELCOME: Msg = {
-  role: 'assistant',
-  content:
-    '¡Hola! 👋 Soy el asistente de Clubify. Pregúntame lo que necesites: cómo crear una tarjeta, cómo funcionan los pedidos, cómo enviar push, etc.',
+
+type AudienceConfig = {
+  storageKey: string;
+  triggerEmoji: string;
+  triggerTitle: string;
+  triggerBg: string;
+  headerBg: string;
+  headerName: string;
+  welcome: Msg;
+  suggestions: string[];
+};
+
+const AUDIENCE_CFG: Record<SupportAudience, AudienceConfig> = {
+  tenant: {
+    storageKey: 'clubify:support:history',
+    triggerEmoji: '💬',
+    triggerTitle: 'Asistente IA · Resolver dudas',
+    triggerBg: '#25D366',
+    headerBg: '#075E54',
+    headerName: 'Asistente Clubify',
+    welcome: {
+      role: 'assistant',
+      content:
+        '¡Hola! 👋 Soy el asistente de Clubify. Pregúntame lo que necesites: cómo crear una tarjeta, cómo funcionan los pedidos, cómo enviar push, etc.',
+    },
+    suggestions: [
+      '¿Cómo creo una tarjeta de fidelización?',
+      '¿Cómo envío push notifications?',
+      '¿Cómo funciona el kanban de pedidos?',
+      '¿Cómo configuro un dominio propio?',
+    ],
+  },
+  affiliate: {
+    storageKey: 'clubify:support:history:affiliate',
+    triggerEmoji: '🚀',
+    triggerTitle: 'Mentor de ventas · Te ayudo a vender Clubify',
+    triggerBg: '#7c3aed',
+    headerBg: '#4c1d95',
+    headerName: 'Mentor de ventas',
+    welcome: {
+      role: 'assistant',
+      content:
+        '¡Hola! 🚀 Soy tu mentor de ventas. Te ayudo a prospectar, manejar objeciones, escribir mensajes que convierten, cerrar más clientes y armar contenido para Instagram/WhatsApp. ¿En qué arrancamos?',
+    },
+    suggestions: [
+      'Dame un script para primera llamada',
+      'El cliente dice que está caro, ¿cómo respondo?',
+      'Generame un mensaje WhatsApp frío',
+      'Copy para Instagram Stories vendiendo Clubify',
+      '¿Cómo prospectar dueños de cafeterías?',
+      '¿Cómo conseguir referidos de mis clientes?',
+    ],
+  },
 };
 
 /**
- * Widget de soporte con IA — botón flotante estilo WhatsApp + ventana de
- * chat. Usa Anthropic vía /support/ask. La base de conocimiento la edita
- * el super admin desde /admin/ai-knowledge.
+ * Widget de soporte con IA — botón flotante + ventana de chat.
+ * - audience="tenant" (default): soporte producto para dueños de negocio
+ *   y staff. Tema verde WhatsApp.
+ * - audience="affiliate": mentor de ventas para afiliados (influencers,
+ *   embajadores). Tema violeta. Prompts pre-cargados de ventas.
+ *
+ * Cada audience tiene su propio localStorage key (no se mezcla historial).
+ * El backend (support.service) usa `audience` para escoger system prompt
+ * + filtro de knowledge entries.
  */
-export function SupportWidget() {
+export function SupportWidget({
+  audience = 'tenant',
+}: {
+  audience?: SupportAudience;
+}) {
+  const cfg = AUDIENCE_CFG[audience];
   const [open, setOpen] = useState(false);
-  const [messages, setMessages] = useState<Msg[]>([WELCOME]);
+  const [messages, setMessages] = useState<Msg[]>([cfg.welcome]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Carga historial cacheado al abrir por primera vez
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(cfg.storageKey);
       if (raw) {
         const arr = JSON.parse(raw);
         if (Array.isArray(arr) && arr.length > 0) setMessages(arr);
       }
     } catch {}
-  }, []);
+  }, [cfg.storageKey]);
 
-  // Persistir
   useEffect(() => {
     try {
       localStorage.setItem(
-        STORAGE_KEY,
+        cfg.storageKey,
         JSON.stringify(messages.slice(-HISTORY_LIMIT)),
       );
     } catch {}
-  }, [messages]);
+  }, [messages, cfg.storageKey]);
 
-  // Auto-scroll al fondo cuando llega un mensaje nuevo
   useEffect(() => {
     if (!open) return;
     scrollRef.current?.scrollTo({
@@ -55,28 +112,28 @@ export function SupportWidget() {
     });
   }, [messages, open, sending]);
 
-  // Foco al abrir
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 200);
   }, [open]);
 
-  async function send() {
-    const q = input.trim();
+  async function sendText(text: string) {
+    const q = text.trim();
     if (!q || sending) return;
-    // Truncamos también en memoria (no solo en localStorage) para que un chat
-    // largo no degrade el render. Mantenemos siempre el WELCOME en posición 0.
-    const truncated = messages.length > HISTORY_LIMIT * 2
-      ? [WELCOME, ...messages.slice(-HISTORY_LIMIT)]
-      : messages;
+    const truncated =
+      messages.length > HISTORY_LIMIT * 2
+        ? [cfg.welcome, ...messages.slice(-HISTORY_LIMIT)]
+        : messages;
     const next: Msg[] = [...truncated, { role: 'user', content: q }];
     setMessages(next);
     setInput('');
     setSending(true);
     try {
-      const history = next.filter((m) => m !== WELCOME).slice(-HISTORY_LIMIT - 1, -1);
+      const history = next
+        .filter((m) => m !== cfg.welcome)
+        .slice(-HISTORY_LIMIT - 1, -1);
       const r = await api<{ reply: string }>('/support/ask', {
         method: 'POST',
-        body: JSON.stringify({ question: q, history }),
+        body: JSON.stringify({ question: q, history, audience }),
       });
       setMessages((cur) => [...cur, { role: 'assistant', content: r.reply }]);
     } catch (e: any) {
@@ -94,44 +151,51 @@ export function SupportWidget() {
     }
   }
 
+  async function send() {
+    sendText(input);
+  }
+
   function clear() {
-    setMessages([WELCOME]);
+    setMessages([cfg.welcome]);
     try {
-      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(cfg.storageKey);
     } catch {}
   }
 
+  // Mostramos sugerencias mientras el chat esté "vacío" (solo el welcome
+  // o un único intercambio inicial). Después desaparecen para no estorbar.
+  const showSuggestions = messages.length <= 1;
+
   return (
     <>
-      {/* Trigger flotante */}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="fixed bottom-5 right-5 z-40 w-14 h-14 rounded-full shadow-2xl flex items-center justify-center text-2xl text-white transition hover:scale-105"
-        style={{ background: '#25D366' }}
-        title={open ? 'Cerrar asistente' : 'Asistente IA · Resolver dudas'}
-        aria-label="Asistente de soporte"
+        style={{ background: cfg.triggerBg }}
+        title={open ? 'Cerrar asistente' : cfg.triggerTitle}
+        aria-label="Asistente"
       >
-        {open ? '✕' : '💬'}
+        {open ? '✕' : cfg.triggerEmoji}
       </button>
 
-      {/* Ventana de chat — estilo WhatsApp */}
       {open && (
         <div
           className="fixed bottom-24 right-5 z-40 w-[360px] sm:w-[380px] max-h-[78vh] flex flex-col rounded-2xl shadow-2xl overflow-hidden border border-line"
-          style={{ background: '#ECE5DD' }}
+          style={{
+            background: audience === 'affiliate' ? '#f5f3ff' : '#ECE5DD',
+          }}
         >
-          {/* Header WhatsApp */}
           <div
             className="flex items-center gap-3 px-4 py-3 text-white"
-            style={{ background: '#075E54' }}
+            style={{ background: cfg.headerBg }}
           >
             <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-lg">
-              🤖
+              {audience === 'affiliate' ? '🚀' : '🤖'}
             </div>
             <div className="flex-1 min-w-0">
               <div className="font-semibold text-sm leading-tight">
-                Asistente Clubify
+                {cfg.headerName}
               </div>
               <div className="text-[11px] opacity-80">
                 {sending ? 'Escribiendo…' : 'En línea · IA'}
@@ -153,17 +217,18 @@ export function SupportWidget() {
             </button>
           </div>
 
-          {/* Mensajes */}
           <div
             ref={scrollRef}
             className="flex-1 overflow-y-auto px-3 py-3 space-y-2"
             style={{
               backgroundImage:
-                'url("data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'80\' height=\'80\' viewBox=\'0 0 80 80\'><circle cx=\'10\' cy=\'10\' r=\'1\' fill=\'%23d4cdbf\' /></svg>")',
+                audience === 'affiliate'
+                  ? undefined
+                  : 'url("data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'80\' height=\'80\' viewBox=\'0 0 80 80\'><circle cx=\'10\' cy=\'10\' r=\'1\' fill=\'%23d4cdbf\' /></svg>")',
             }}
           >
             {messages.map((m, i) => (
-              <Bubble key={i} msg={m} />
+              <Bubble key={i} msg={m} audience={audience} />
             ))}
             {sending && (
               <div className="flex">
@@ -172,10 +237,27 @@ export function SupportWidget() {
                 </div>
               </div>
             )}
+            {showSuggestions && !sending && (
+              <div className="pt-2 flex flex-wrap gap-1.5">
+                {cfg.suggestions.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => sendText(s)}
+                    className="text-[11px] px-2.5 py-1 rounded-full bg-white border border-line hover:border-mute text-ink/80 hover:text-ink transition"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Input */}
-          <div className="px-3 py-2.5 bg-[#F0F0F0] border-t border-line">
+          <div
+            className="px-3 py-2.5 border-t border-line"
+            style={{
+              background: audience === 'affiliate' ? '#ede9fe' : '#F0F0F0',
+            }}
+          >
             <div className="flex items-end gap-2">
               <textarea
                 ref={inputRef}
@@ -187,19 +269,26 @@ export function SupportWidget() {
                     send();
                   }
                 }}
-                placeholder="Escribe tu duda…"
+                placeholder={
+                  audience === 'affiliate'
+                    ? 'Preguntá sobre ventas, scripts, objeciones…'
+                    : 'Escribe tu duda…'
+                }
                 rows={1}
                 maxLength={1000}
                 disabled={sending}
-                className="flex-1 resize-none rounded-2xl px-4 py-2 text-sm bg-white border-0 outline-none focus:ring-2 focus:ring-[#25D366] max-h-32"
-                style={{ minHeight: 38 }}
+                className="flex-1 resize-none rounded-2xl px-4 py-2 text-sm bg-white border-0 outline-none max-h-32"
+                style={{
+                  minHeight: 38,
+                  boxShadow: `0 0 0 2px transparent`,
+                }}
               />
               <button
                 type="button"
                 onClick={send}
                 disabled={sending || !input.trim()}
                 className="w-10 h-10 rounded-full flex items-center justify-center text-white shadow disabled:opacity-50 transition"
-                style={{ background: '#25D366' }}
+                style={{ background: cfg.triggerBg }}
                 title="Enviar"
               >
                 ➤
@@ -215,12 +304,9 @@ export function SupportWidget() {
   );
 }
 
-// =============================================================
-//                       Sub-componentes
-// =============================================================
-
-function Bubble({ msg }: { msg: Msg }) {
+function Bubble({ msg, audience }: { msg: Msg; audience: SupportAudience }) {
   const isUser = msg.role === 'user';
+  const userBg = audience === 'affiliate' ? '#ddd6fe' : '#DCF8C6';
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div
@@ -229,7 +315,7 @@ function Bubble({ msg }: { msg: Msg }) {
             ? 'rounded-2xl rounded-tr-sm text-ink'
             : 'rounded-2xl rounded-tl-sm bg-white text-ink'
         }`}
-        style={isUser ? { background: '#DCF8C6' } : undefined}
+        style={isUser ? { background: userBg } : undefined}
       >
         {msg.content}
       </div>

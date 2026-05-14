@@ -11,6 +11,7 @@ import { api, clearSession } from '@/lib/api';
 import { Logo } from '@/components/Logo';
 import { toast } from '@/components/Toast';
 import { PhoneInput } from '@/components/PhoneInput';
+import { SupportWidget } from '@/components/SupportWidget';
 
 type Tab = 'overview' | 'clients' | 'commissions' | 'settings';
 
@@ -247,6 +248,10 @@ export default function AffiliatePanel() {
           />
         )}
       </main>
+
+      {/* Mentor de ventas IA flotante — visible para todos los afiliados.
+          Prompts pre-cargados de prospección, objeciones, scripts WA/IG. */}
+      <SupportWidget audience="affiliate" />
     </div>
   );
 }

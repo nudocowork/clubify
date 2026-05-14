@@ -179,6 +179,7 @@ export class SupportService {
   async ask(
     question: string,
     history: ChatMessage[] = [],
+    audience: 'tenant' | 'affiliate' = 'tenant',
   ): Promise<{ reply: string }> {
     const q = question?.trim();
     if (!q) throw new BadRequestException('Pregunta vacía');
@@ -192,15 +193,23 @@ export class SupportService {
       };
     }
 
-    const [entries, masterPromptSetting] = await Promise.all([
-      this.prisma.knowledgeEntry.findMany({
-        where: { isActive: true },
-        orderBy: { category: 'asc' },
-      }),
-      this.prisma.setting.findUnique({
-        where: { key: 'support.masterPrompt' },
-      }),
-    ]);
+    // El master prompt es por audience: cada panel (tenant vs affiliate)
+    // puede tener un texto distinto editable por el admin. Fallback al
+    // default `support.masterPrompt` para retro-compat con el flujo legacy.
+    const masterKey = `support.masterPrompt.${audience}`;
+    const [entries, masterPromptSetting, masterPromptLegacy] =
+      await Promise.all([
+        this.prisma.knowledgeEntry.findMany({
+          where: { isActive: true },
+          orderBy: { category: 'asc' },
+        }),
+        this.prisma.setting.findUnique({ where: { key: masterKey } }),
+        audience === 'tenant'
+          ? this.prisma.setting.findUnique({
+              where: { key: 'support.masterPrompt' },
+            })
+          : Promise.resolve(null),
+      ]);
 
     const knowledgeBlock =
       entries.length === 0
@@ -212,15 +221,37 @@ export class SupportService {
             )
             .join('\n\n');
 
-    // Master prompt opcional editado por el admin desde /admin/ai-knowledge.
-    // Se prepone al system prompt default para que pueda override tono,
-    // estilo o agregar instrucciones específicas sin tocar código.
-    const masterPrompt = masterPromptSetting?.value?.trim();
+    const masterPrompt = (
+      masterPromptSetting?.value?.trim() ||
+      masterPromptLegacy?.value?.trim() ||
+      ''
+    );
     const masterPromptBlock = masterPrompt
       ? `${masterPrompt}\n\n---\n\n`
       : '';
 
-    const systemPrompt = `${masterPromptBlock}Eres el asistente virtual de Clubify (clubify.app), un SaaS para negocios locales en LATAM que ofrece:
+    const systemPrompt =
+      audience === 'affiliate'
+        ? `${masterPromptBlock}Eres el MENTOR DE VENTAS para afiliados de Clubify (influencers y embajadores) — un SaaS LATAM para negocios locales (cafeterías, restaurantes, barberías, gimnasios, autolavados, etc.) que ofrece pedidos por WhatsApp, fidelización en Apple/Google Wallet, automatizaciones, CRM y analítica.
+
+Tu misión: ayudar a los afiliados a VENDER MÁS Clubify. Específicamente:
+- Generar scripts de venta personalizados (primera llamada, mensaje frío, follow-up)
+- Manejar objeciones (precio, tiempo, "ya tengo algo similar", "no es para mi negocio")
+- Generar copies para WhatsApp e Instagram (Stories, posts, reels)
+- Estrategias de prospección por rubro
+- Cómo cerrar clientes y pedir referidos
+- Cómo mostrar el ROI de Clubify (un cliente que vuelve más cubre 6 meses de Clubify)
+
+Tono: motivador, directo, español neutro LATAM (no acento argentino/español). Respuestas accionables: si te piden un script, dáselo listo para copiar — no expliques abstractamente. Si te piden manejo de objeción, decí la frase exacta. Usa ejemplos concretos.
+
+Cuando generes mensajes para WhatsApp/IG, incluí el link del afiliado donde corresponda (placeholder: [TU_LINK]).
+
+Esta es la base de conocimiento del producto (úsala para detalles técnicos cuando el afiliado necesita info concreta para vender):
+
+${knowledgeBlock}
+
+Si la pregunta es totalmente off-topic (cocinar pasta, etc.), redirigí amablemente al objetivo: vender Clubify.`
+        : `${masterPromptBlock}Eres el asistente virtual de Clubify (clubify.app), un SaaS para negocios locales en LATAM que ofrece:
 - Tarjetas de fidelización digitales (Apple Wallet + Google Wallet)
 - Menú digital, pedidos online y delivery
 - WhatsApp y push notifications

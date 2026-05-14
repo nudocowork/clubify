@@ -35,6 +35,9 @@ class AskDto {
   @ValidateNested({ each: true })
   @Type(() => ChatMessageDto)
   history?: ChatMessageDto[];
+  // tenant = soporte producto (dueño / staff); affiliate = mentor de ventas
+  // para afiliados (influencers / embajadores). Switchea system prompt.
+  @IsOptional() @IsIn(['tenant', 'affiliate']) audience?: 'tenant' | 'affiliate';
 }
 
 class KnowledgeBody {
@@ -73,11 +76,18 @@ export class SupportController {
    * el panel (TENANT_OWNER, STAFF, SUPER_ADMIN). Throttled para evitar
    * abuso del Anthropic API.
    */
-  @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
+  @Roles(
+    'TENANT_OWNER',
+    'TENANT_STAFF',
+    'SUPER_ADMIN',
+    'AFFILIATE_INFLUENCER',
+    'AFFILIATE_AMBASSADOR',
+    'AFFILIATE_SOCIO',
+  )
   @Throttle({ default: { ttl: 60_000, limit: 20 } })
   @Post('support/ask')
   ask(@Body() body: AskDto) {
-    return this.svc.ask(body.question, body.history ?? []);
+    return this.svc.ask(body.question, body.history ?? [], body.audience ?? 'tenant');
   }
 
   // ----- Admin CRUD del knowledge base ----- //
