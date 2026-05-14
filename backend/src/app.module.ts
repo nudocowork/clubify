@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AppConfigModule } from './common/config/app-config.module';
 import { validateEnv } from './common/config/env.validation';
@@ -101,6 +102,13 @@ import { QuotesModule } from './quotes/quotes.module';
     AdminModule,
     OnboardingModule,
     QuotesModule,
+  ],
+  providers: [
+    // Sin esto, `ThrottlerModule.forRoot()` y los `@Throttle({...})` por
+    // endpoint son NO-OP. NestJS Throttler 5+ requiere registrar el guard
+    // como APP_GUARD para que la verificación de rate limit corra en cada
+    // request.
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })
 export class AppModule {}
