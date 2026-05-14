@@ -111,6 +111,18 @@ export class ReferralsController {
     return this.svc.leaderboard(user);
   }
 
+  // Visit summary: visitas + clicks únicos por slug (últimos N días).
+  // Útil para que el admin vea cuáles links están corriendo y cuáles no.
+  @Roles('SUPER_ADMIN')
+  @Get('visits-summary')
+  visitsSummary(
+    @CurrentUser() user: AuthUser,
+    @Query('days') days?: string,
+  ) {
+    const n = Math.max(1, Math.min(90, Number(days ?? '30') || 30));
+    return this.svc.visitsSummary(user, n);
+  }
+
   @Roles('SUPER_ADMIN')
   @Get('payouts')
   payouts(

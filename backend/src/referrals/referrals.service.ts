@@ -654,6 +654,79 @@ export class ReferralsService {
     });
   }
 
+  /**
+   * Summary de visitas en /ref/<slug> (últimos N días). Agrega por slug
+   * (matcheado o no a un ReferralCode) con conteos de visitas y unique
+   * UAs aproximadas (proxy de "clicks únicos"). El conversion rate se
+   * calcula contra ReferralUses cuyo viaSlug coincide.
+   */
+  async visitsSummary(user: AuthUser, days = 30) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    const since = new Date(Date.now() - days * 86400_000);
+
+    const [visits, uses] = await Promise.all([
+      this.prisma.referralVisit.findMany({
+        where: { createdAt: { gte: since } },
+        include: {
+          referralCode: { select: { code: true, ownerName: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.referralUse.findMany({
+        where: { createdAt: { gte: since }, viaSlug: { not: null } },
+        select: { viaSlug: true, status: true },
+      }),
+    ]);
+
+    type Row = {
+      slug: string;
+      code: string | null;
+      ownerName: string | null;
+      visits: number;
+      uniqueUAs: number;
+      signups: number;
+      conversions: number;
+    };
+    const map = new Map<string, Row & { uaSet: Set<string> }>();
+    for (const v of visits) {
+      const row =
+        map.get(v.slug) ??
+        ({
+          slug: v.slug,
+          code: v.referralCode?.code ?? null,
+          ownerName: v.referralCode?.ownerName ?? null,
+          visits: 0,
+          uniqueUAs: 0,
+          signups: 0,
+          conversions: 0,
+          uaSet: new Set<string>(),
+        } satisfies Row & { uaSet: Set<string> });
+      row.visits += 1;
+      if (v.userAgent) row.uaSet.add(v.userAgent.slice(0, 100));
+      map.set(v.slug, row);
+    }
+    for (const u of uses) {
+      if (!u.viaSlug) continue;
+      const row = map.get(u.viaSlug);
+      if (!row) continue;
+      row.signups += 1;
+      if (u.status === 'PAYING' || u.status === 'ACTIVE') row.conversions += 1;
+    }
+    const rows = Array.from(map.values())
+      .map(({ uaSet, ...rest }) => ({ ...rest, uniqueUAs: uaSet.size }))
+      .sort((a, b) => b.visits - a.visits);
+
+    return {
+      days,
+      totals: {
+        visits: rows.reduce((s, r) => s + r.visits, 0),
+        signups: rows.reduce((s, r) => s + r.signups, 0),
+        conversions: rows.reduce((s, r) => s + r.conversions, 0),
+      },
+      rows,
+    };
+  }
+
   async listAmbassadors(user: AuthUser) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     const codes = await this.prisma.referralCode.findMany({

@@ -149,6 +149,14 @@ export class SupportController {
     return this.settings.setSupportMasterPrompt(body.prompt ?? null);
   }
 
+  // ─── Health / métricas (Fase 6) ──────────────────────────────────── //
+
+  @Roles('SUPER_ADMIN')
+  @Get('admin/knowledge/health')
+  health() {
+    return this.svc.health();
+  }
+
   // ─── Documentos (Fase 5: RAG) ────────────────────────────────────── //
 
   @Roles('SUPER_ADMIN')

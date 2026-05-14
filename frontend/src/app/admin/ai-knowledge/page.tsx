@@ -147,6 +147,8 @@ export default function AIKnowledgePage() {
         </div>
       </div>
 
+      <AIHealthCard />
+
       <DocumentsSection onChunksChanged={load} />
 
       <div className="card card-pad mb-5">
@@ -599,6 +601,102 @@ function MasterPromptButton() {
         </div>
       )}
     </>
+  );
+}
+
+// ─── Health card (Fase 6) ──────────────────────────────────────────────
+
+type HealthResp = {
+  anthropic: { configured: boolean; model: string };
+  voyage: { configured: boolean; model: string };
+  knowledge: {
+    totalDocs: number;
+    docsReady: number;
+    totalEntries: number;
+    activeEntries: number;
+    withEmbedding: number;
+    embeddingCoverage: number;
+    byAudience: Record<string, number>;
+  };
+};
+
+function AIHealthCard() {
+  const [h, setH] = useState<HealthResp | null>(null);
+  useEffect(() => {
+    api<HealthResp>('/admin/knowledge/health').then(setH).catch(() => {});
+  }, []);
+  if (!h) return null;
+  const k = h.knowledge;
+  return (
+    <div className="card card-pad mb-5">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <HealthStat
+          label="LLM"
+          value={h.anthropic.configured ? 'Activo' : 'Sin key'}
+          hint={h.anthropic.model}
+          ok={h.anthropic.configured}
+        />
+        <HealthStat
+          label="Embeddings"
+          value={h.voyage.configured ? 'Activo' : 'Lexical'}
+          hint={h.voyage.configured ? h.voyage.model : 'Sin Voyage'}
+          ok={h.voyage.configured}
+        />
+        <HealthStat
+          label="Documentos"
+          value={`${k.docsReady} / ${k.totalDocs}`}
+          hint="listos / totales"
+        />
+        <HealthStat
+          label="Chunks"
+          value={`${k.activeEntries}`}
+          hint={
+            h.voyage.configured
+              ? `${k.embeddingCoverage}% con embedding`
+              : `${k.totalEntries} totales`
+          }
+        />
+      </div>
+      <div className="mt-3 text-[11px] text-mute flex items-center gap-3 flex-wrap">
+        <span>
+          🏪 {k.byAudience.TENANT ?? 0} solo dueños · 🚀{' '}
+          {k.byAudience.AFFILIATE ?? 0} solo afiliados · 🌐{' '}
+          {k.byAudience.BOTH ?? 0} ambos
+        </span>
+        {!h.voyage.configured && (
+          <span className="text-amber-700">
+            ⚠ Activá VOYAGE_API_KEY en Railway para retrieval semántico
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function HealthStat({
+  label,
+  value,
+  hint,
+  ok,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  ok?: boolean;
+}) {
+  return (
+    <div className="bg-bg2/50 rounded-lg p-3">
+      <div className="text-[10px] uppercase tracking-wider text-mute font-semibold flex items-center gap-1">
+        {ok !== undefined && (
+          <span
+            className={`inline-block w-1.5 h-1.5 rounded-full ${ok ? 'bg-ok' : 'bg-amber-500'}`}
+          />
+        )}
+        {label}
+      </div>
+      <div className="text-xl font-bold mt-1">{value}</div>
+      {hint && <div className="text-[10px] text-mute mt-0.5">{hint}</div>}
+    </div>
   );
 }
 

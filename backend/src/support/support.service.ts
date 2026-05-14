@@ -5,6 +5,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { VoyageService } from './voyage.service';
 
@@ -29,6 +30,63 @@ export class SupportService {
         'ANTHROPIC_API_KEY no configurado — el widget de IA responderá con un fallback estático',
       );
     }
+  }
+
+  // ---------------- Health / métricas ---------------- //
+
+  /**
+   * Estado del subsistema IA — usado por /admin/ai-knowledge header.
+   * Incluye:
+   *   - anthropic: si el modelo está configurado (key set)
+   *   - voyage: si los embeddings están activos (key set)
+   *   - counts: docs, entries, chunks, % con embedding por audience
+   */
+  async health() {
+    const [
+      totalDocs,
+      docsReady,
+      totalEntries,
+      activeEntries,
+      withEmbedding,
+      byAudienceRaw,
+    ] = await Promise.all([
+      this.prisma.knowledgeDocument.count(),
+      this.prisma.knowledgeDocument.count({ where: { status: 'READY' } }),
+      this.prisma.knowledgeEntry.count(),
+      this.prisma.knowledgeEntry.count({ where: { isActive: true } }),
+      this.prisma.knowledgeEntry.count({
+        where: { embedding: { not: Prisma.DbNull as any } },
+      }),
+      this.prisma.knowledgeEntry.groupBy({
+        by: ['audience'],
+        _count: { _all: true },
+      }),
+    ]);
+
+    const byAudience: Record<string, number> = {};
+    for (const row of byAudienceRaw) {
+      byAudience[row.audience] = row._count._all;
+    }
+
+    return {
+      anthropic: { configured: !!this.client, model: MODEL },
+      voyage: {
+        configured: this.voyage.isEnabled(),
+        model: this.voyage.getModel(),
+      },
+      knowledge: {
+        totalDocs,
+        docsReady,
+        totalEntries,
+        activeEntries,
+        withEmbedding,
+        embeddingCoverage:
+          totalEntries > 0
+            ? Math.round((withEmbedding / totalEntries) * 100)
+            : 0,
+        byAudience,
+      },
+    };
   }
 
   // ---------------- Knowledge CRUD (admin) ---------------- //
