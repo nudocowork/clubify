@@ -23,6 +23,124 @@ export class ReferralsService {
   constructor(private prisma: PrismaService, private auth: AuthService) {}
 
   /**
+   * Slugify del nombre del afiliado para link corto `/ref/<slug>`.
+   * Cae al `code` lowercase si el slug ideal está tomado o queda vacío.
+   */
+  private slugify(input: string): string {
+    return input
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40);
+  }
+
+  private async allocateSlug(ownerName: string, fallbackCode: string): Promise<string> {
+    const base = this.slugify(ownerName) || fallbackCode.toLowerCase();
+    let candidate = base;
+    let suffix = 2;
+    // Probamos hasta 50 variantes: nombre, nombre-2, nombre-3, ...
+    // Si todas chocan, caemos al lowercase del código (siempre único).
+    while (await this.prisma.referralCode.findUnique({ where: { slug: candidate } })) {
+      candidate = `${base}-${suffix++}`;
+      if (suffix > 50) {
+        candidate = fallbackCode.toLowerCase();
+        if (!(await this.prisma.referralCode.findUnique({ where: { slug: candidate } }))) {
+          return candidate;
+        }
+        candidate = `${fallbackCode.toLowerCase()}-${Date.now().toString(36).slice(-4)}`;
+        break;
+      }
+    }
+    return candidate;
+  }
+
+  /**
+   * Resuelve `/ref/<slug>` → ReferralCode + loguea visita (UTM, referer,
+   * país, IP). Si el slug no matchea, igual loguea con referralCodeId=null
+   * para análisis de slugs rotos / phishing-like.
+   */
+  async resolveBySlug(
+    slug: string,
+    ctx: {
+      utmSource?: string;
+      utmMedium?: string;
+      utmCampaign?: string;
+      userAgent?: string;
+      referer?: string;
+      country?: string;
+      ip?: string;
+    },
+  ) {
+    const clean = (slug || '').toLowerCase().trim().slice(0, 80);
+    if (!clean) throw new BadRequestException('slug required');
+
+    const code = await this.prisma.referralCode.findUnique({
+      where: { slug: clean },
+      select: {
+        id: true,
+        code: true,
+        slug: true,
+        ownerName: true,
+        isActive: true,
+        approvedAt: true,
+        role: true,
+        campaign: { select: { id: true, name: true, status: true } },
+      },
+    });
+
+    // Loguear visita siempre (incluso si slug no existe) — fire-and-forget.
+    this.prisma.referralVisit
+      .create({
+        data: {
+          slug: clean,
+          referralCodeId: code?.id ?? null,
+          ip: ctx.ip?.slice(0, 60) ?? null,
+          userAgent: ctx.userAgent?.slice(0, 500) ?? null,
+          country: ctx.country?.slice(0, 8) ?? null,
+          referer: ctx.referer?.slice(0, 1000) ?? null,
+          utmSource: ctx.utmSource?.slice(0, 80) ?? null,
+          utmMedium: ctx.utmMedium?.slice(0, 80) ?? null,
+          utmCampaign: ctx.utmCampaign?.slice(0, 80) ?? null,
+        },
+      })
+      .catch((err) => {
+        this.logger.warn(`Failed to log ReferralVisit for slug=${clean}: ${err.message}`);
+      });
+
+    if (!code) throw new NotFoundException('slug not found');
+    return code;
+  }
+
+  /**
+   * Setea o limpia el slug custom del código. SUPER_ADMIN only.
+   * Si slug = null, vuelve a lowercase(code) para mantener invariante
+   * "todo código tiene slug usable".
+   */
+  async setSlug(id: string, newSlug: string | null) {
+    const target = await this.prisma.referralCode.findUnique({ where: { id } });
+    if (!target) throw new NotFoundException('code not found');
+
+    const clean = (newSlug ?? '').toLowerCase().trim();
+    const finalSlug = clean
+      ? this.slugify(clean) || target.code.toLowerCase()
+      : target.code.toLowerCase();
+
+    if (finalSlug === target.slug) return target;
+
+    const taken = await this.prisma.referralCode.findUnique({ where: { slug: finalSlug } });
+    if (taken && taken.id !== id) {
+      throw new BadRequestException(`slug "${finalSlug}" ya está en uso`);
+    }
+
+    return this.prisma.referralCode.update({
+      where: { id },
+      data: { slug: finalSlug },
+    });
+  }
+
+  /**
    * Cron diario que reconcilia comisiones recurrentes. Defensa en
    * profundidad por si el webhook Hotmart no llegó en algún ciclo
    * (problemas de red, payload distinto, etc).
@@ -83,9 +201,11 @@ export class ReferralsService {
       code = codeGen();
     }
     const cleanSource = dto.source?.trim().slice(0, 60) || null;
+    const slug = await this.allocateSlug(dto.fullName, code);
     const referral = await this.prisma.referralCode.create({
       data: {
         code,
+        slug,
         ownerName: dto.fullName,
         ownerEmail: dto.email,
         ownerWhatsapp: dto.whatsapp,
@@ -94,9 +214,11 @@ export class ReferralsService {
       },
     });
 
+    const appUrl = process.env.APP_URL ?? 'http://localhost:3000';
     return {
       ...referral,
-      shareLink: `${process.env.APP_URL ?? 'http://localhost:3000'}/?ref=${code}`,
+      shareLink: `${appUrl}/ref/${slug}`,
+      legacyShareLink: `${appUrl}/?ref=${code}`,
     };
   }
 

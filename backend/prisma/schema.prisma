@@ -1146,6 +1146,9 @@ enum CampaignStatus {
 model ReferralCode {
   id                String         @id @default(uuid())
   code              String         @unique
+  // Slug corto y human-friendly para links `/ref/<slug>`. Único, opcional.
+  // Default: lowercase(code) backfill en migration. Customizable desde admin.
+  slug              String?        @unique
   ownerName         String
   ownerEmail        String
   ownerWhatsapp     String
@@ -1175,11 +1178,34 @@ model ReferralCode {
   createdAt         DateTime       @default(now())
 
   uses            ReferralUse[]
+  visits          ReferralVisit[]
   ownerOfCampaign Campaign?     @relation("CampaignOwner")
   coupons         Coupon[]
 
   @@index([parentCodeId])
   @@index([campaignId])
+}
+
+// Visita registrada al link corto `/ref/<slug>`. Sirve para medir
+// rendimiento por afiliado/embajador antes de la conversión a signup
+// (CTR del link → tasa de conversión). Atribuida a ReferralCode si el
+// slug matchea uno existente.
+model ReferralVisit {
+  id             String        @id @default(uuid())
+  slug           String
+  referralCodeId String?
+  referralCode   ReferralCode? @relation(fields: [referralCodeId], references: [id], onDelete: SetNull)
+  ip             String?
+  userAgent      String?       @db.Text
+  country        String?
+  referer        String?       @db.Text
+  utmSource      String?
+  utmMedium      String?
+  utmCampaign    String?
+  createdAt      DateTime      @default(now())
+
+  @@index([slug])
+  @@index([referralCodeId, createdAt])
 }
 
 // Campaña — agrupa un influencer principal y sus embajadores.
@@ -1270,6 +1296,13 @@ model ReferralUse {
   tenantId       String?
   tenant         Tenant?        @relation(fields: [tenantId], references: [id])
   status         ReferralStatus @default(SIGNED_UP)
+  // Atribución: si el cliente llegó vía `/ref/<slug>` guardamos el slug y
+  // los UTM parameters que capturamos para análisis de fuente.
+  viaSlug        String?
+  utmSource      String?
+  utmMedium      String?
+  utmCampaign    String?
+  referer        String?        @db.Text
   createdAt      DateTime       @default(now())
   convertedAt    DateTime?
 

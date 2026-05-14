@@ -20,6 +20,7 @@ type Me = {
   myCode: {
     id: string;
     code: string;
+    slug: string;
     commissionPercent: number;
     role: string;
     parentCode: string | null;
@@ -29,6 +30,7 @@ type Me = {
   ambassadors: Array<{
     id: string;
     code: string;
+    slug: string;
     ownerName: string;
     commissionPercent: number;
     isActive: boolean;
@@ -103,12 +105,12 @@ export default function AffiliatePanel() {
 
   const isInfluencer = me.role === 'AFFILIATE_INFLUENCER';
   const isSocio = me.role === 'AFFILIATE_SOCIO';
-  // Link directo a /signup con el código de referido. Antes apuntaba a
-  // / con ?promo= y dependía de RefCapture + landing, lo que requería
-  // 2 clicks. /signup?ref= va directo al form con el código pre-cargado.
+  // Link corto público `/ref/<slug>`. El backend loguea visita (UTM +
+  // referer + país + IP) y redirige a /signup?ref=CODE&via=slug.
+  // Compartible en redes, mucho más memorable que /signup?ref=XYZ123.
   const shareLink =
     typeof window !== 'undefined' && me.myCode
-      ? `${window.location.origin}/signup?ref=${me.myCode.code}`
+      ? `${window.location.origin}/ref/${me.myCode.slug}`
       : '';
 
   return (
@@ -358,6 +360,7 @@ function InfluencerAmbassadorsPanel({
         {
           id: created.id,
           code: created.code,
+          slug: created.slug ?? String(created.code).toLowerCase(),
           ownerName: created.ownerName,
           commissionPercent: Number(created.commissionPercent),
           isActive: true,

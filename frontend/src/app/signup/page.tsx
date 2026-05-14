@@ -166,6 +166,28 @@ function SignupInner() {
     } else if (trimmedPromo) {
       referralCode = trimmedPromo;
     }
+    // Atribución capturada por RefCapture (slug `/ref/<slug>` + UTMs + referer).
+    let attribution: {
+      viaSlug?: string;
+      utmSource?: string;
+      utmMedium?: string;
+      utmCampaign?: string;
+      referer?: string;
+    } = {};
+    try {
+      const via = localStorage.getItem('clubify:via');
+      if (via) attribution.viaSlug = via;
+      const utmRaw = localStorage.getItem('clubify:utm');
+      if (utmRaw) {
+        const parsed = JSON.parse(utmRaw) as { source?: string; medium?: string; campaign?: string };
+        if (parsed.source) attribution.utmSource = parsed.source;
+        if (parsed.medium) attribution.utmMedium = parsed.medium;
+        if (parsed.campaign) attribution.utmCampaign = parsed.campaign;
+      }
+      const ref = localStorage.getItem('clubify:referer');
+      if (ref) attribution.referer = ref;
+    } catch {}
+
     try {
       const r = await api<{
         accessToken: string;
@@ -183,6 +205,7 @@ function SignupInner() {
           couponCode,
           plan: isPro ? 'pro' : 'elite',
           quoteToken: quoteToken || undefined,
+          attribution: Object.keys(attribution).length ? attribution : undefined,
         }),
       });
       setSession(r.accessToken, r.user);
@@ -192,6 +215,9 @@ function SignupInner() {
         // futuras visitas de otra cuenta desde el mismo browser.
         localStorage.removeItem('clubify:ref');
         localStorage.removeItem('clubify:promo');
+        localStorage.removeItem('clubify:via');
+        localStorage.removeItem('clubify:utm');
+        localStorage.removeItem('clubify:referer');
         sessionStorage.removeItem('clubify:qt');
       } catch {}
 

@@ -57,6 +57,7 @@ export class AffiliateService {
         ? {
             id: myCode.id,
             code: myCode.code,
+            slug: myCode.slug ?? myCode.code.toLowerCase(),
             commissionPercent: Number(myCode.commissionPercent),
             role: myCode.role,
             parentCode: myCode.parentCode?.code ?? null,
@@ -71,6 +72,7 @@ export class AffiliateService {
               .map((c) => ({
                 id: c.id,
                 code: c.code,
+                slug: c.slug ?? c.code.toLowerCase(),
                 ownerName: c.ownerName,
                 commissionPercent: Number(c.commissionPercent),
                 isActive: c.isActive,

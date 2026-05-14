@@ -505,6 +505,15 @@ export class AuthService {
     /** Token público de una Quote — viene del /q/<token> CTA. Si matchea,
      *  marcamos la cotización como convertida con el tenant recién creado. */
     quoteToken?: string;
+    /** Atribución captada por RefCapture (slug `/ref/<slug>` + UTMs + referer
+     *  externo). Se guarda en ReferralUse para análisis de fuente. */
+    attribution?: {
+      viaSlug?: string;
+      utmSource?: string;
+      utmMedium?: string;
+      utmCampaign?: string;
+      referer?: string;
+    };
   }, ip?: string) {
     const email = dto.email.toLowerCase().trim();
 
@@ -648,11 +657,17 @@ export class AuthService {
 
     if (attributedReferralCodeId) {
       try {
+        const attr = dto.attribution ?? {};
         await this.prisma.referralUse.create({
           data: {
             referralCodeId: attributedReferralCodeId,
             tenantId: tenant.id,
             status: 'SIGNED_UP',
+            viaSlug: attr.viaSlug?.toLowerCase().slice(0, 80) || null,
+            utmSource: attr.utmSource?.slice(0, 80) || null,
+            utmMedium: attr.utmMedium?.slice(0, 80) || null,
+            utmCampaign: attr.utmCampaign?.slice(0, 80) || null,
+            referer: attr.referer?.slice(0, 1000) || null,
           },
         });
       } catch {

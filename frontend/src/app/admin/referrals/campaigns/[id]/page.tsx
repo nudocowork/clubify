@@ -20,6 +20,7 @@ type Detail = {
   ownerCode: {
     id: string;
     code: string;
+    slug?: string | null;
     ownerName: string;
     ownerEmail: string;
     ownerWhatsapp: string;
@@ -29,6 +30,7 @@ type Detail = {
   codes: Array<{
     id: string;
     code: string;
+    slug?: string | null;
     ownerName: string;
     ownerEmail: string;
     commissionPercent: any;
@@ -265,7 +267,7 @@ export default function CampaignDetailPage() {
             </span>
           </div>
         </div>
-        <CampaignShareLink code={data.ownerCode.code} />
+        <CampaignShareLink code={data.ownerCode.code} slug={data.ownerCode.slug ?? null} />
         <AmbassadorApplyLink code={data.ownerCode.code} />
       </div>
 
@@ -613,12 +615,15 @@ function AmbassadorApplyLink({ code }: { code: string }) {
   );
 }
 
-/** Link directo a /signup?ref=CODE para que el influencer comparta con
- *  sus seguidores. Incluye botones de copiar + WhatsApp. */
-function CampaignShareLink({ code }: { code: string }) {
+/** Link corto público para que el influencer comparta con sus seguidores.
+ *  Usa `/ref/<slug>` si hay slug definido (más memorable), fallback a
+ *  `/signup?ref=CODE`. El backend loguea visita en ReferralVisit. */
+function CampaignShareLink({ code, slug }: { code: string; slug: string | null }) {
   const link =
     typeof window !== 'undefined'
-      ? `${window.location.origin}/signup?ref=${code}`
+      ? slug
+        ? `${window.location.origin}/ref/${slug}`
+        : `${window.location.origin}/signup?ref=${code}`
       : '';
   async function copy() {
     try {

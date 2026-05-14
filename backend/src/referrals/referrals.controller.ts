@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Ip, Param, Patch, Post, Query } from '@nestjs/common';
 import { IsEmail, IsNumber, IsOptional, IsString } from 'class-validator';
 import { CommissionStatus } from '@prisma/client';
 import { ReferralsService } from './referrals.service';
@@ -126,6 +126,40 @@ export class ReferralsController {
   @Get('codes/:code')
   getByCode(@Param('code') code: string) {
     return this.svc.getByCode(code);
+  }
+
+  // Resolución pública de `slug` → ReferralCode. Usado por la route
+  // Next `/ref/<slug>`. Loguea visita en ReferralVisit con UTM + referer.
+  @Public()
+  @Get('by-slug/:slug')
+  resolveSlug(
+    @Param('slug') slug: string,
+    @Query('utm_source') utmSource?: string,
+    @Query('utm_medium') utmMedium?: string,
+    @Query('utm_campaign') utmCampaign?: string,
+    @Headers('user-agent') userAgent?: string,
+    @Headers('referer') referer?: string,
+    @Headers('cf-ipcountry') country?: string,
+    @Ip() ip?: string,
+  ) {
+    return this.svc.resolveBySlug(slug, {
+      utmSource,
+      utmMedium,
+      utmCampaign,
+      userAgent,
+      referer,
+      country,
+      ip,
+    });
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Patch('codes/:id/slug')
+  setSlug(
+    @Param('id') id: string,
+    @Body() body: { slug: string | null },
+  ) {
+    return this.svc.setSlug(id, body.slug);
   }
 
   @Roles('SUPER_ADMIN')

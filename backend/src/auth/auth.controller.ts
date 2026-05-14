@@ -43,6 +43,14 @@ class ResetPasswordDto {
   @IsString() @MinLength(8) newPassword!: string;
 }
 
+class SignupAttributionDto {
+  @IsOptional() @IsString() @MaxLength(80) viaSlug?: string;
+  @IsOptional() @IsString() @MaxLength(80) utmSource?: string;
+  @IsOptional() @IsString() @MaxLength(80) utmMedium?: string;
+  @IsOptional() @IsString() @MaxLength(80) utmCampaign?: string;
+  @IsOptional() @IsString() @MaxLength(1000) referer?: string;
+}
+
 class SignupDto {
   @IsEmail() email!: string;
   @IsString() @MinLength(8) password!: string;
@@ -54,6 +62,7 @@ class SignupDto {
   @IsOptional() @IsString() plan?: string;
   @IsOptional() @IsString() businessCategorySlug?: string;
   @IsOptional() @IsString() @MinLength(8) @MaxLength(64) quoteToken?: string;
+  @IsOptional() attribution?: SignupAttributionDto;
 }
 
 class TotpCodeDto {
