@@ -983,12 +983,32 @@ function ProductDrawer({
               value={form.categoryId ?? ''}
               onChange={(e) => update('categoryId', e.target.value)}
             >
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
+              {/* Renderea roots primero, e indenta sus hijas con "↳ <padre> / <hijo>"
+                  para que el dueño pueda asignar productos a subsecciones sin
+                  ambigüedad. El backend acepta cualquier categoryId del tenant. */}
+              {categories
+                .filter((c) => !c.parentId)
+                .flatMap((root) => {
+                  const subs = categories.filter((s) => s.parentId === root.id);
+                  return [
+                    <option key={root.id} value={root.id}>
+                      {root.name}
+                    </option>,
+                    ...subs.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        ↳ {root.name} / {s.name}
+                      </option>
+                    )),
+                  ];
+                })}
             </select>
+            {form.categoryId &&
+              categories.find((c) => c.id === form.categoryId)?.parentId && (
+                <div className="text-[11px] text-mute mt-1">
+                  Producto asignado a una subsección — aparece dentro del chip
+                  correspondiente en el layout SECTIONS del storefront.
+                </div>
+              )}
           </div>
           <div>
             <label className="label">Precio base</label>
