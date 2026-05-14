@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -6,7 +7,11 @@ import {
   Param,
   Patch,
   Post,
+  Query,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
 import {
   IsArray,
@@ -18,7 +23,9 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { KnowledgeAudience } from '@prisma/client';
 import { SupportService } from './support.service';
+import { KnowledgeDocumentService } from './knowledge-document.service';
 import { SettingsService } from '../settings/settings.service';
 import { Roles } from '../common/decorators/roles.decorator';
 
@@ -68,6 +75,7 @@ class MasterPromptBody {
 export class SupportController {
   constructor(
     private svc: SupportService,
+    private docs: KnowledgeDocumentService,
     private settings: SettingsService,
   ) {}
 
@@ -140,4 +148,52 @@ export class SupportController {
   setMasterPrompt(@Body() body: MasterPromptBody) {
     return this.settings.setSupportMasterPrompt(body.prompt ?? null);
   }
+
+  // ─── Documentos (Fase 5: RAG) ────────────────────────────────────── //
+
+  @Roles('SUPER_ADMIN')
+  @Get('admin/knowledge/documents')
+  listDocs(@Query('audience') audience?: string) {
+    return this.docs.list({
+      audience: parseAudience(audience),
+    });
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Post('admin/knowledge/documents')
+  @UseInterceptors(FileInterceptor('file'))
+  uploadDoc(
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: { title?: string; audience?: string; category?: string },
+  ) {
+    if (!file) throw new BadRequestException('Adjuntá un archivo');
+    const aud = parseAudience(body.audience) ?? 'BOTH';
+    return this.docs.uploadAndProcess({
+      title: body.title || file.originalname.replace(/\.[^.]+$/, ''),
+      audience: aud as KnowledgeAudience,
+      category: body.category,
+      file,
+    });
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Delete('admin/knowledge/documents/:id')
+  removeDoc(@Param('id') id: string) {
+    return this.docs.remove(id);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Patch('admin/knowledge/documents/:id/active')
+  setDocActive(@Param('id') id: string, @Body() body: { isActive: boolean }) {
+    return this.docs.setActive(id, !!body.isActive);
+  }
+}
+
+function parseAudience(v?: string): KnowledgeAudience | undefined {
+  if (!v) return undefined;
+  const up = v.toUpperCase();
+  if (up === 'TENANT' || up === 'AFFILIATE' || up === 'BOTH') {
+    return up as KnowledgeAudience;
+  }
+  return undefined;
 }

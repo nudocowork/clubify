@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { VoyageService } from './voyage.service';
 
 export type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
@@ -17,7 +18,10 @@ export class SupportService {
   private logger = new Logger(SupportService.name);
   private client: Anthropic | null;
 
-  constructor(private prisma: PrismaService) {
+  constructor(
+    private prisma: PrismaService,
+    private voyage: VoyageService,
+  ) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     this.client = apiKey ? new Anthropic({ apiKey }) : null;
     if (!apiKey) {
@@ -193,6 +197,13 @@ export class SupportService {
       };
     }
 
+    // Filtrar knowledge por audience: TENANT/AFFILIATE/BOTH. La audience
+    // del request pide la propia + BOTH (knowledge "compartida").
+    const audienceFilter: ('TENANT' | 'AFFILIATE' | 'BOTH')[] =
+      audience === 'affiliate'
+        ? ['AFFILIATE', 'BOTH']
+        : ['TENANT', 'BOTH'];
+
     // El master prompt es por audience: cada panel (tenant vs affiliate)
     // puede tener un texto distinto editable por el admin. Fallback al
     // default `support.masterPrompt` para retro-compat con el flujo legacy.
@@ -200,7 +211,10 @@ export class SupportService {
     const [entries, masterPromptSetting, masterPromptLegacy] =
       await Promise.all([
         this.prisma.knowledgeEntry.findMany({
-          where: { isActive: true },
+          where: {
+            isActive: true,
+            audience: { in: audienceFilter as any },
+          },
           orderBy: { category: 'asc' },
         }),
         this.prisma.setting.findUnique({ where: { key: masterKey } }),
@@ -211,10 +225,35 @@ export class SupportService {
           : Promise.resolve(null),
       ]);
 
+    // Retrieval semántico top-K cuando hay embeddings disponibles:
+    //   1. Embebemos la pregunta con Voyage (input_type=query)
+    //   2. Cosine similarity contra cada chunk con embedding
+    //   3. Top 8 chunks (con threshold mínimo para evitar ruido)
+    // Si no hay Voyage o ninguna entry tiene embedding, usamos las entries
+    // tal cual concatenadas (modo lexical, retro-compat con sistema viejo).
+    let activeEntries = entries;
+    if (this.voyage.isEnabled() && entries.some((e) => e.embedding)) {
+      const qVec = await this.voyage.embedOne(q, 'query');
+      if (qVec) {
+        const scored = entries
+          .map((e) => {
+            const vec = e.embedding as unknown as number[] | null;
+            if (!vec || !Array.isArray(vec)) return { e, score: -1 };
+            return { e, score: VoyageService.cosineSimilarity(qVec, vec) };
+          })
+          .filter((x) => x.score > 0.18)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 8);
+        if (scored.length > 0) {
+          activeEntries = scored.map((s) => s.e);
+        }
+      }
+    }
+
     const knowledgeBlock =
-      entries.length === 0
+      activeEntries.length === 0
         ? '(El admin todavía no agregó knowledge — responde con info general de Clubify y aclara que pueden contactar al soporte.)'
-        : entries
+        : activeEntries
             .map(
               (e) =>
                 `### ${e.category} — ${e.title}\n${e.content}`,

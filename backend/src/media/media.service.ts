@@ -140,6 +140,54 @@ export class MediaService {
   }
 
   /**
+   * Upload genérico para archivos NO-imagen (PDFs, DOCX, etc.). Sin
+   * validación de MIME por whitelist — el caller decide. Sin optimización.
+   * Tope 25MB (vs 5MB de imágenes).
+   *
+   * Devuelve URL pública del bucket.
+   */
+  async uploadRaw(opts: {
+    folder: string;
+    fileName: string;
+    buffer: Buffer;
+    contentType: string;
+  }): Promise<{ url: string; key: string; size: number }> {
+    const RAW_MAX = 25 * 1024 * 1024; // 25 MB
+    if (opts.buffer.length > RAW_MAX) {
+      throw new BadRequestException(
+        `Archivo muy grande (max ${RAW_MAX / 1024 / 1024}MB)`,
+      );
+    }
+    if (!this.configured && process.env.NODE_ENV === 'production') {
+      throw new ServiceUnavailableException('Storage no configurado.');
+    }
+    // Sanitize filename → derive safe extension + slug.
+    const ext = (opts.fileName.split('.').pop() ?? 'bin')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '')
+      .slice(0, 8);
+    const key = `${opts.folder}/${nanoid(16)}.${ext || 'bin'}`;
+    try {
+      await this.s3.send(
+        new PutObjectCommand({
+          Bucket: this.bucket,
+          Key: key,
+          Body: opts.buffer,
+          ContentType: opts.contentType,
+          CacheControl: 'public, max-age=2592000',
+        }),
+      );
+    } catch (e: any) {
+      this.logger.error(`Raw upload failed: ${e?.name} ${e?.message}`);
+      throw new ServiceUnavailableException(
+        `Storage error: ${e?.name ?? 'unknown'}`,
+      );
+    }
+    const url = `${this.publicUrl.replace(/\/$/, '')}/${key}`;
+    return { url, key, size: opts.buffer.length };
+  }
+
+  /**
    * Si el upload es grande, reduce dimensiones a 2000px max y re-encodea
    * a webp. PNG con alpha → mantiene PNG (webp pierde transparency en
    * algunos clients). GIF → no se toca (sharp puede romper animation).

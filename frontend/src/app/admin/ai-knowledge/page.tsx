@@ -147,6 +147,8 @@ export default function AIKnowledgePage() {
         </div>
       </div>
 
+      <DocumentsSection onChunksChanged={load} />
+
       <div className="card card-pad mb-5">
         <h3 className="text-base font-semibold m-0 flex items-center gap-2">
           🤖 ¿Cómo funciona?
@@ -597,5 +599,367 @@ function MasterPromptButton() {
         </div>
       )}
     </>
+  );
+}
+
+// ─── Documentos ────────────────────────────────────────────────────────
+
+type KnowledgeDoc = {
+  id: string;
+  title: string;
+  fileUrl: string | null;
+  fileType: string;
+  fileSize: number | null;
+  audience: 'TENANT' | 'AFFILIATE' | 'BOTH';
+  category: string;
+  status: 'UPLOADED' | 'PROCESSING' | 'READY' | 'FAILED';
+  totalChars: number;
+  chunkCount: number;
+  errorMessage: string | null;
+  isActive: boolean;
+  uploadedAt: string;
+  processedAt: string | null;
+};
+
+const AUDIENCE_LABEL: Record<KnowledgeDoc['audience'], { text: string; cls: string }> = {
+  TENANT: { text: '🏪 Dueños', cls: 'bg-emerald-100 text-emerald-800' },
+  AFFILIATE: { text: '🚀 Afiliados', cls: 'bg-violet-100 text-violet-800' },
+  BOTH: { text: '🌐 Ambos', cls: 'bg-sky-100 text-sky-800' },
+};
+
+const STATUS_LABEL: Record<KnowledgeDoc['status'], { text: string; cls: string }> = {
+  UPLOADED: { text: 'Pendiente', cls: 'bg-bg2 text-mute' },
+  PROCESSING: { text: 'Procesando…', cls: 'bg-amber-100 text-amber-800' },
+  READY: { text: 'Listo', cls: 'bg-ok-soft text-ok' },
+  FAILED: { text: 'Falló', cls: 'bg-red-100 text-red-700' },
+};
+
+function fmtBytes(n: number | null | undefined): string {
+  if (!n) return '—';
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function DocumentsSection({ onChunksChanged }: { onChunksChanged: () => void }) {
+  const [docs, setDocs] = useState<KnowledgeDoc[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showUpload, setShowUpload] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    try {
+      setDocs(await api<KnowledgeDoc[]>('/admin/knowledge/documents'));
+    } catch (e: any) {
+      toast(e.message || 'Error cargando documentos', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function remove(id: string) {
+    if (!confirm('¿Eliminar este documento y sus chunks indexados?')) return;
+    try {
+      await api(`/admin/knowledge/documents/${id}`, { method: 'DELETE' });
+      toast('Documento eliminado', 'success');
+      load();
+      onChunksChanged();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo eliminar', 'error');
+    }
+  }
+
+  async function toggleActive(d: KnowledgeDoc) {
+    try {
+      await api(`/admin/knowledge/documents/${d.id}/active`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive: !d.isActive }),
+      });
+      load();
+      onChunksChanged();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo actualizar', 'error');
+    }
+  }
+
+  return (
+    <div className="card card-pad mb-5">
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+        <div>
+          <h3 className="text-base font-semibold m-0 flex items-center gap-2">
+            📂 Base de Conocimiento IA
+          </h3>
+          <p className="text-xs text-mute mt-1 leading-relaxed max-w-2xl">
+            Subí PDF, DOCX, TXT o MD. El sistema los parsea, los corta en
+            chunks (~1500 chars con overlap), los embebe con Voyage AI (si
+            <code className="px-1">VOYAGE_API_KEY</code> está set) y los
+            consulta semánticamente. Sin Voyage, el retrieval es lexical.
+            Cada chunk hereda la audiencia del doc — tenant ve docs TENANT
+            + BOTH; afiliados ven AFFILIATE + BOTH.
+          </p>
+        </div>
+        <button onClick={() => setShowUpload(true)} className="btn-primary">
+          <Icon name="plus" /> Subir documento
+        </button>
+      </div>
+
+      {showUpload && (
+        <UploadDocumentModal
+          onClose={() => setShowUpload(false)}
+          onUploaded={() => {
+            setShowUpload(false);
+            load();
+            onChunksChanged();
+          }}
+        />
+      )}
+
+      {loading ? (
+        <div className="h-16 bg-bg2 rounded animate-shimmer" />
+      ) : docs.length === 0 ? (
+        <div className="text-center py-8 text-sm text-mute">
+          Sin documentos todavía. Subí el primero para entrenar a la IA con
+          info de tu negocio (manuales, scripts, plan de compensación, etc).
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-bg2/50">
+              <tr>
+                {['Documento', 'Tipo', 'Audiencia', 'Chunks', 'Tamaño', 'Estado', ''].map((h) => (
+                  <th
+                    key={h}
+                    className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.1em] text-mute font-semibold"
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {docs.map((d) => (
+                <tr
+                  key={d.id}
+                  className={`border-t border-line2 ${d.isActive ? '' : 'opacity-50'}`}
+                >
+                  <td className="px-3 py-2.5">
+                    <div className="font-medium">{d.title}</div>
+                    <div className="text-[11px] text-mute">
+                      {d.category}
+                      {d.errorMessage && (
+                        <span className="text-red-600"> · {d.errorMessage}</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5 uppercase text-xs font-mono text-mute">
+                    {d.fileType}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <span
+                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${AUDIENCE_LABEL[d.audience].cls}`}
+                    >
+                      {AUDIENCE_LABEL[d.audience].text}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5 text-center">{d.chunkCount}</td>
+                  <td className="px-3 py-2.5 text-xs text-mute">
+                    {fmtBytes(d.fileSize)}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <span
+                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${STATUS_LABEL[d.status].cls}`}
+                    >
+                      {STATUS_LABEL[d.status].text}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5 text-right">
+                    <button
+                      onClick={() => toggleActive(d)}
+                      className="text-xs text-mute hover:text-ink mr-3"
+                      title={d.isActive ? 'Desactivar' : 'Activar'}
+                    >
+                      {d.isActive ? '👁' : '🚫'}
+                    </button>
+                    <button
+                      onClick={() => remove(d.id)}
+                      className="text-xs text-red-600 hover:underline"
+                    >
+                      Eliminar
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function UploadDocumentModal({
+  onClose,
+  onUploaded,
+}: {
+  onClose: () => void;
+  onUploaded: () => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [title, setTitle] = useState('');
+  const [audience, setAudience] = useState<'TENANT' | 'AFFILIATE' | 'BOTH'>('BOTH');
+  const [category, setCategory] = useState('General');
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!file) {
+      toast('Seleccioná un archivo', 'error');
+      return;
+    }
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append(
+        'title',
+        (title.trim() || file.name.replace(/\.[^.]+$/, '')).slice(0, 200),
+      );
+      fd.append('audience', audience);
+      fd.append('category', category || 'General');
+      // Usamos fetch directo porque api() asume JSON. Pero compartimos la
+      // misma url base + auth header (clubify:session).
+      const base =
+        process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
+      const session = (() => {
+        try {
+          return JSON.parse(localStorage.getItem('clubify:session') ?? 'null');
+        } catch {
+          return null;
+        }
+      })();
+      const res = await fetch(`${base}/api/admin/knowledge/documents`, {
+        method: 'POST',
+        headers: session?.accessToken
+          ? { authorization: `Bearer ${session.accessToken}` }
+          : {},
+        body: fd,
+      });
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`Upload falló (${res.status}): ${txt.slice(0, 200)}`);
+      }
+      const doc = (await res.json()) as KnowledgeDoc;
+      toast(
+        doc.status === 'READY'
+          ? `Procesado: ${doc.chunkCount} chunks indexados`
+          : doc.status === 'FAILED'
+          ? `Falló: ${doc.errorMessage}`
+          : 'Procesando…',
+        doc.status === 'FAILED' ? 'error' : 'success',
+      );
+      onUploaded();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo subir', 'error');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <form
+        onSubmit={submit}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl"
+      >
+        <div className="flex items-start justify-between mb-1">
+          <h3 className="text-lg font-bold">📂 Subir documento</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-mute hover:text-ink text-xl leading-none"
+          >
+            ×
+          </button>
+        </div>
+        <p className="text-xs text-mute leading-relaxed mb-4">
+          PDF, DOCX, TXT o MD. Max 25MB. Se parsea + chunkea + embebe
+          (si Voyage AI configurado).
+        </p>
+
+        <label className="label">Archivo</label>
+        <input
+          type="file"
+          accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
+          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          required
+          className="input"
+        />
+        {file && (
+          <div className="text-[11px] text-mute mt-1">
+            {file.name} · {fmtBytes(file.size)}
+          </div>
+        )}
+
+        <label className="label mt-3">Título (opcional)</label>
+        <input
+          type="text"
+          className="input"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder={file?.name?.replace(/\.[^.]+$/, '') ?? '(usa nombre del archivo)'}
+        />
+
+        <div className="grid grid-cols-2 gap-3 mt-3">
+          <div>
+            <label className="label">Audiencia</label>
+            <select
+              className="input"
+              value={audience}
+              onChange={(e) =>
+                setAudience(e.target.value as 'TENANT' | 'AFFILIATE' | 'BOTH')
+              }
+            >
+              <option value="BOTH">🌐 Ambos (tenant + afiliado)</option>
+              <option value="TENANT">🏪 Solo dueños de negocio</option>
+              <option value="AFFILIATE">🚀 Solo afiliados</option>
+            </select>
+          </div>
+          <div>
+            <label className="label">Categoría</label>
+            <input
+              type="text"
+              className="input"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              maxLength={80}
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 mt-5">
+          <button
+            type="button"
+            onClick={onClose}
+            className="btn-ghost text-sm"
+            disabled={busy}
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            disabled={busy || !file}
+            className="btn-primary text-sm disabled:opacity-50"
+          >
+            {busy ? 'Procesando…' : 'Subir y procesar'}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }

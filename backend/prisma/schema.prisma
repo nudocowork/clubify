@@ -1337,16 +1337,73 @@ model Commission {
 // Entradas de conocimiento que entrenan al asistente IA del widget de
 // soporte. El super admin las crea/edita desde /admin/ai-knowledge y se
 // inyectan en el system prompt cuando un tenant abre el chat.
+//
+// Cada entrada tiene una audience (TENANT, AFFILIATE, BOTH) que filtra
+// qué knowledge se inyecta según quién pregunta — el panel tenant ve
+// info de producto, el panel afiliado ve info de ventas, BOTH se ve
+// en ambos.
+//
+// Si la entrada viene de un documento (KnowledgeDocument), documentId
+// apunta a él y chunkIndex indica su posición (0-based). El embedding
+// (vector de floats serializado como JSON) se genera con Voyage AI al
+// procesar el documento — usado para retrieval semántico top-K en vez
+// de inyectar TODAS las entries en el prompt.
 model KnowledgeEntry {
-  id        String   @id @default(uuid())
-  title     String
-  content   String   @db.Text
-  category  String   @default("General")
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String              @id @default(uuid())
+  title       String
+  content     String              @db.Text
+  category    String              @default("General")
+  audience    KnowledgeAudience   @default(BOTH)
+  isActive    Boolean             @default(true)
+  documentId  String?
+  document    KnowledgeDocument?  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  chunkIndex  Int?
+  embedding   Json?
+  embeddingModel String?
+  tokenCount  Int?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
 
-  @@index([isActive])
+  @@index([isActive, audience])
+  @@index([documentId])
+}
+
+enum KnowledgeAudience {
+  TENANT
+  AFFILIATE
+  BOTH
+}
+
+enum KnowledgeDocumentStatus {
+  UPLOADED
+  PROCESSING
+  READY
+  FAILED
+}
+
+// Documento original subido por el admin (PDF/DOCX/TXT/MD). Se parsea,
+// se chunkea y cada chunk se guarda como KnowledgeEntry asociado. Si el
+// documento se elimina, sus chunks caen en cascada.
+model KnowledgeDocument {
+  id          String                  @id @default(uuid())
+  title       String
+  fileUrl     String?                 // URL pública R2 del archivo original
+  fileType    String                  // pdf, docx, txt, md
+  fileSize    Int?                    // bytes
+  audience    KnowledgeAudience       @default(BOTH)
+  category    String                  @default("General")
+  status      KnowledgeDocumentStatus @default(UPLOADED)
+  totalChars  Int                     @default(0)
+  chunkCount  Int                     @default(0)
+  errorMessage String?                @db.Text
+  isActive    Boolean                 @default(true)
+  uploadedAt  DateTime                @default(now())
+  processedAt DateTime?
+
+  entries     KnowledgeEntry[]
+
+  @@index([status])
+  @@index([audience])
 }
 
 // ============================================================
