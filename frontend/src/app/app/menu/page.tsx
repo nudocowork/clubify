@@ -6,8 +6,19 @@ import { Icon } from '@/components/Icon';
 import { ImageUploader } from '@/components/ImageUploader';
 import { SortableList, DragHandle } from '@/components/Sortable';
 import { toast } from '@/components/Toast';
+import { SectionCoverEditor } from '@/components/menu/SectionCoverEditor';
+import { SectionCoverPreview } from '@/components/menu/SectionCoverPreview';
+import type { SectionCoverConfig } from '@/lib/menu/section-cover-config';
+import { uploadCoverImage } from '@/lib/menu/upload-cover-image';
 
-type Category = { id: string; name: string; _count?: { products: number } };
+type Category = {
+  id: string;
+  name: string;
+  _count?: { products: number };
+  imageUrl?: string | null;
+  tagline?: string | null;
+  coverConfig?: SectionCoverConfig | null;
+};
 type Variant = { id?: string; name: string; priceDelta: number; isDefault?: boolean; groupName?: string };
 type Extra = { id?: string; name: string; price: number };
 type Adicional = { id: string; name: string; price: number; isActive: boolean };
@@ -46,6 +57,7 @@ export default function MenuEditor() {
   const [showAdicionales, setShowAdicionales] = useState(false);
   const [editingCatId, setEditingCatId] = useState<string | null>(null);
   const [editingCatName, setEditingCatName] = useState('');
+  const [coverCat, setCoverCat] = useState<Category | null>(null);
   const [ordersEnabled, setOrdersEnabled] = useState<boolean | null>(null);
   const [togglingOrders, setTogglingOrders] = useState(false);
   const [tenantSlug, setTenantSlug] = useState<string | null>(null);
@@ -384,6 +396,16 @@ export default function MenuEditor() {
                   className="text-mute hover:text-brand p-1"
                   onClick={(e) => {
                     e.stopPropagation();
+                    setCoverCat(c);
+                  }}
+                  title="Diseñar portada"
+                >
+                  🎨
+                </button>
+                <button
+                  className="text-mute hover:text-brand p-1"
+                  onClick={(e) => {
+                    e.stopPropagation();
                     setEditingCatId(c.id);
                     setEditingCatName(c.name);
                   }}
@@ -522,6 +544,130 @@ export default function MenuEditor() {
           onChange={loadAdicionales}
         />
       )}
+
+      {coverCat && (
+        <CoverEditorModal
+          category={coverCat}
+          onClose={() => setCoverCat(null)}
+          onSaved={() => {
+            setCoverCat(null);
+            load();
+            toast('Portada guardada', 'success');
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function CoverEditorModal({
+  category,
+  onClose,
+  onSaved,
+}: {
+  category: Category;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [config, setConfig] = useState<SectionCoverConfig | null>(
+    category.coverConfig ?? null,
+  );
+  const [tagline, setTagline] = useState(category.tagline ?? '');
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await api(`/catalog/categories/${category.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          coverConfig: config,
+          tagline: tagline.trim() || null,
+        }),
+      });
+      onSaved();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo guardar', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-start justify-center overflow-y-auto p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-bg w-full max-w-5xl rounded-2xl shadow-xl my-8"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-3 border-b border-line">
+          <div>
+            <div className="text-xs text-mute">Portada de sección</div>
+            <h2 className="font-semibold text-lg m-0">{category.name}</h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-mute hover:text-ink p-1"
+            aria-label="Cerrar"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="label">Subtítulo (tagline) — opcional</label>
+            <input
+              type="text"
+              className="input"
+              placeholder="Ej: Cortes premium importados"
+              value={tagline}
+              onChange={(e) => setTagline(e.target.value)}
+              maxLength={200}
+            />
+            <p className="text-[11px] text-mute mt-1">
+              Aparece debajo del nombre en la portada. Vacío = sin subtítulo.
+            </p>
+          </div>
+
+          <SectionCoverEditor
+            title={category.name}
+            tagline={tagline || null}
+            value={config}
+            onChange={setConfig}
+            onUpload={uploadCoverImage}
+          />
+        </div>
+
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-line">
+          <button
+            type="button"
+            onClick={() => setConfig(null)}
+            className="btn-ghost text-xs"
+            title="Vuelve al fallback legacy (imagen + nombre centrado)"
+          >
+            Reset a default
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="btn-secondary"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={save}
+            disabled={saving}
+            className="btn-primary"
+          >
+            {saving ? 'Guardando…' : 'Guardar portada'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
