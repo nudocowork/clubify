@@ -251,79 +251,416 @@ export default function AffiliatePanel() {
   );
 }
 
+type DashboardResp = {
+  kpis: { referrals: number; conversions: number; revenueUsd: number; pendingUsd: number; paidUsd: number };
+  directs: { referrals: number; conversions: number; revenueUsd: number; pendingUsd: number; paidUsd: number };
+  indirects: { referrals: number; conversions: number; revenueUsd: number; pendingUsd: number; paidUsd: number };
+  ambassadors: Array<{
+    id: string;
+    code: string;
+    slug: string;
+    ownerName: string;
+    commissionPercent: number;
+    isActive: boolean;
+    referrals: number;
+    conversions: number;
+    revenueUsd: number;
+  }>;
+  timeline: Array<{ date: string; signups: number; conversions: number }>;
+  sources: Array<{ source: string; referrals: number; conversions: number }>;
+};
+
 function Overview({ me }: { me: Me }) {
-  const [comm, setComm] = useState<CommissionResp | null>(null);
-  const [clients, setClients] = useState<Client[]>([]);
+  const [data, setData] = useState<DashboardResp | null>(null);
   useEffect(() => {
-    api<CommissionResp>('/affiliate/commissions').then(setComm).catch(() => {});
-    api<Client[]>('/affiliate/clients').then(setClients).catch(() => {});
+    api<DashboardResp>('/affiliate/dashboard').then(setData).catch(() => {});
   }, []);
 
-  const activeClients = clients.filter(
-    (c) => c.status === 'PAYING' || c.status === 'ACTIVE',
-  ).length;
-
-  // Breakdown: ventas atribuidas a MI código vs a códigos de mis
-  // embajadores. Útil para que el influencer vea cuánto trae solo
-  // versus apalancado por su equipo (item 19 del spec).
-  const myCode = me.myCode?.code ?? null;
-  const directs = myCode
-    ? clients.filter((c) => c.attribution?.code === myCode).length
-    : 0;
-  const indirects = clients.length - directs;
-  const activeDirects = myCode
-    ? clients.filter(
-        (c) =>
-          c.attribution?.code === myCode &&
-          (c.status === 'PAYING' || c.status === 'ACTIVE'),
-      ).length
-    : 0;
-  const activeIndirects = activeClients - activeDirects;
+  const isInfluencer = me.role === 'AFFILIATE_INFLUENCER';
+  const isSocio = me.role === 'AFFILIATE_SOCIO';
 
   return (
     <div className="space-y-5">
+      {/* KPIs globales — siempre visibles */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Stat label="Negocios activos" value={String(activeClients)} tone="ok" />
-        <Stat label="Total negocios" value={String(clients.length)} />
+        <Stat label="Total referidos" value={data ? String(data.kpis.referrals) : '—'} />
+        <Stat
+          label="Conversiones"
+          value={data ? String(data.kpis.conversions) : '—'}
+          tone="ok"
+        />
         <Stat
           label="Pendiente"
-          value={comm ? fmtUsd(comm.totals.pendingUsd + comm.totals.approvedUsd) : '—'}
+          value={data ? fmtUsd(data.kpis.pendingUsd) : '—'}
           tone="amber"
         />
-        <Stat label="Pagado" value={comm ? fmtUsd(comm.totals.paidUsd) : '—'} tone="brand" />
+        <Stat
+          label="Pagado"
+          value={data ? fmtUsd(data.kpis.paidUsd) : '—'}
+          tone="brand"
+        />
       </div>
 
-      {me.role === 'AFFILIATE_INFLUENCER' && clients.length > 0 && (
+      {/* Separación visual exigida por el spec: directos vs vía embajadores.
+          Solo para INFLUENCER — AMBASSADOR/SOCIO no tienen indirectos. */}
+      {isInfluencer && data && (
         <div className="card card-pad">
-          <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-3">
-            Origen de tus negocios
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <div className="font-semibold">Origen de tus referidos</div>
+              <div className="text-[11px] text-mute">
+                Lo que traés vos directo vs. lo que traen tus embajadores.
+              </div>
+            </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-bg2/50 rounded-lg p-3">
-              <div className="text-xs text-mute">
-                🎯 Directas (tu código)
-              </div>
-              <div className="text-2xl font-bold mt-1">{directs}</div>
-              <div className="text-[11px] text-mute mt-0.5">
-                {activeDirects} activas
-              </div>
-            </div>
-            <div className="bg-bg2/50 rounded-lg p-3">
-              <div className="text-xs text-mute">
-                👥 De tus embajadores
-              </div>
-              <div className="text-2xl font-bold mt-1">{indirects}</div>
-              <div className="text-[11px] text-mute mt-0.5">
-                {activeIndirects} activas
-              </div>
-            </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <BreakdownCard
+              title="🎯 Tus referidos directos"
+              accent="bg-emerald-50 border-emerald-200"
+              accentText="text-emerald-700"
+              kpis={data.directs}
+            />
+            <BreakdownCard
+              title="👥 Vía tus embajadores"
+              accent="bg-violet-50 border-violet-200"
+              accentText="text-violet-700"
+              kpis={data.indirects}
+              hint="Te pagamos 5% indirecto sobre estas ventas."
+            />
           </div>
         </div>
       )}
 
-      {me.role === 'AFFILIATE_INFLUENCER' && (
+      {/* Timeline 30 días — barra simple inline (sin lib externa) */}
+      {data && <ActivitySparkline timeline={data.timeline} />}
+
+      {/* Ranking embajadores estilo Pedro: 5 · Laura: 9 · Camila: 2 */}
+      {isInfluencer && data && data.ambassadors.length > 0 && (
+        <AmbassadorsRanking rows={data.ambassadors} />
+      )}
+
+      {/* Sources (UTM) — solo si hay datos no-triviales */}
+      {data && data.sources.length > 1 && <SourcesPanel rows={data.sources} />}
+
+      {/* Crear embajador (solo INFLUENCER + toggle on) */}
+      {isInfluencer && (
         <InfluencerAmbassadorsPanel ambassadors={me.ambassadors} />
       )}
+
+      {/* Material de apoyo: scripts WA + copies IG + tips. Siempre visible
+          excepto para SOCIO (que no necesita "vender" su código). */}
+      {!isSocio && <ResourcesPanel me={me} />}
+    </div>
+  );
+}
+
+function BreakdownCard({
+  title,
+  accent,
+  accentText,
+  kpis,
+  hint,
+}: {
+  title: string;
+  accent: string;
+  accentText: string;
+  kpis: DashboardResp['directs'];
+  hint?: string;
+}) {
+  return (
+    <div className={`rounded-xl border p-4 ${accent}`}>
+      <div className={`text-xs font-semibold uppercase tracking-wider ${accentText}`}>
+        {title}
+      </div>
+      <div className="grid grid-cols-3 gap-2 mt-3">
+        <div>
+          <div className="text-[11px] text-mute">Referidos</div>
+          <div className="text-xl font-bold">{kpis.referrals}</div>
+        </div>
+        <div>
+          <div className="text-[11px] text-mute">Conversiones</div>
+          <div className="text-xl font-bold">{kpis.conversions}</div>
+        </div>
+        <div>
+          <div className="text-[11px] text-mute">Revenue</div>
+          <div className="text-xl font-bold">{fmtUsd(kpis.revenueUsd)}</div>
+        </div>
+      </div>
+      {hint && (
+        <div className={`text-[11px] mt-2 ${accentText} opacity-80`}>{hint}</div>
+      )}
+    </div>
+  );
+}
+
+function ActivitySparkline({
+  timeline,
+}: {
+  timeline: DashboardResp['timeline'];
+}) {
+  if (!timeline.length) return null;
+  const max = Math.max(1, ...timeline.map((t) => t.signups));
+  const totalSignups = timeline.reduce((s, t) => s + t.signups, 0);
+  const totalConversions = timeline.reduce((s, t) => s + t.conversions, 0);
+
+  return (
+    <div className="card card-pad">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div>
+          <div className="font-semibold text-sm">Actividad últimos 30 días</div>
+          <div className="text-[11px] text-mute">
+            {totalSignups} signups · {totalConversions} conversiones
+          </div>
+        </div>
+      </div>
+      <div className="flex items-end gap-[2px] h-20">
+        {timeline.map((t) => {
+          const h = (t.signups / max) * 100;
+          return (
+            <div
+              key={t.date}
+              className="flex-1 relative group"
+              title={`${t.date}: ${t.signups} signups · ${t.conversions} conversiones`}
+            >
+              <div
+                className="absolute bottom-0 left-0 right-0 bg-brand/30 rounded-t"
+                style={{ height: `${Math.max(h, t.signups > 0 ? 6 : 0)}%` }}
+              />
+              <div
+                className="absolute bottom-0 left-0 right-0 bg-brand rounded-t"
+                style={{
+                  height: `${Math.max(
+                    (t.conversions / max) * 100,
+                    t.conversions > 0 ? 6 : 0,
+                  )}%`,
+                }}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex items-center gap-4 mt-2 text-[10px] text-mute">
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-2 h-2 rounded-sm bg-brand/30" /> Signups
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-2 h-2 rounded-sm bg-brand" /> Conversiones
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function AmbassadorsRanking({
+  rows,
+}: {
+  rows: DashboardResp['ambassadors'];
+}) {
+  const max = Math.max(1, ...rows.map((r) => r.referrals));
+  return (
+    <div className="card overflow-hidden p-0">
+      <div className="px-4 py-3 border-b border-line2 flex items-center justify-between">
+        <div>
+          <div className="font-semibold text-sm">🏆 Ranking de tus embajadores</div>
+          <div className="text-[11px] text-mute">Ordenado por revenue generado.</div>
+        </div>
+        <div className="text-[11px] text-mute">{rows.length} en total</div>
+      </div>
+      <div className="divide-y divide-line2">
+        {rows.map((r, i) => {
+          const pct = (r.referrals / max) * 100;
+          return (
+            <div key={r.id} className="px-4 py-3 flex items-center gap-3">
+              <div className="w-6 text-center font-bold text-mute">{i + 1}</div>
+              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-100 to-violet-200 text-violet-700 flex items-center justify-center font-bold text-sm flex-none">
+                {initials(r.ownerName)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-medium truncate">{r.ownerName}</div>
+                <div className="text-[11px] text-mute font-mono">
+                  {r.code} · {r.commissionPercent}%
+                </div>
+                <div className="mt-1 h-1.5 bg-bg2 rounded overflow-hidden">
+                  <div
+                    className="h-full bg-violet-500"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </div>
+              <div className="text-right text-xs flex-none w-32">
+                <div className="font-bold text-base">{r.referrals} <span className="text-mute font-normal">referidos</span></div>
+                <div className="text-mute">
+                  {r.conversions} conv · {fmtUsd(r.revenueUsd)}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function SourcesPanel({ rows }: { rows: DashboardResp['sources'] }) {
+  const total = rows.reduce((s, r) => s + r.referrals, 0);
+  return (
+    <div className="card card-pad">
+      <div className="font-semibold text-sm mb-3">📡 Por fuente</div>
+      <div className="space-y-2">
+        {rows.slice(0, 6).map((r) => {
+          const pct = total ? Math.round((r.referrals / total) * 100) : 0;
+          return (
+            <div key={r.source} className="flex items-center gap-3">
+              <div className="text-xs font-mono w-24 truncate text-mute">
+                {r.source}
+              </div>
+              <div className="flex-1 h-2 bg-bg2 rounded overflow-hidden">
+                <div
+                  className="h-full bg-brand"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+              <div className="text-xs w-24 text-right">
+                {r.referrals} · {r.conversions} conv
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function initials(name: string): string {
+  return (
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((p) => p[0]?.toUpperCase() ?? '')
+      .join('') || '?'
+  );
+}
+
+function ResourcesPanel({ me }: { me: Me }) {
+  const link =
+    typeof window !== 'undefined' && me.myCode
+      ? `${window.location.origin}/ref/${me.myCode.slug}`
+      : '';
+  const role = me.role;
+
+  const waTemplates = [
+    {
+      title: 'Mensaje frío (primer contacto)',
+      text: `Hola 👋 vi tu negocio y se me ocurrió compartirte Clubify: una plataforma que combina pedidos por WhatsApp, tarjetas de fidelización en Apple/Google Wallet y automatizaciones — todo en una sola cuenta. Si te interesa probarlo, te dejo mi link: ${link}`,
+    },
+    {
+      title: 'Mensaje cálido (alguien que ya te conoce)',
+      text: `Hola! Te quería compartir Clubify, lo estoy usando con varios negocios locales y los resultados son muy buenos: más pedidos por WhatsApp y clientes que vuelven más seguido. Te dejo mi link para que lo veas: ${link}`,
+    },
+    {
+      title: 'Mensaje seguimiento (no me contestaron)',
+      text: `Hola! ¿Pudiste mirar Clubify? Si querés te muestro una demo de 5 min sin compromiso — me decís y coordinamos. Acá el link por si lo quisieras explorar primero: ${link}`,
+    },
+  ];
+
+  const igCopies = [
+    {
+      title: 'Story bloque 1: gancho',
+      text: '¿Sabías que tus clientes pueden tener tu tarjeta de fidelización en su Apple Wallet sin descargar nada? 👀',
+    },
+    {
+      title: 'Story bloque 2: solución',
+      text: 'Con Clubify vendés por WhatsApp, premiás clientes recurrentes y todo automático. Sin apps, sin tarjetas físicas. 💳',
+    },
+    {
+      title: 'CTA final',
+      text: `Activá tu cuenta hoy 👇 ${link}`,
+    },
+  ];
+
+  const tips =
+    role === 'AFFILIATE_AMBASSADOR'
+      ? [
+          'Tu cuota mensual es realista: 2-3 negocios al mes con seguimiento.',
+          'Foco: pedile referidos a los dueños que ya cerraste. Es el canal #1.',
+          'Cuando alguien diga "está caro", llevá la conversación al ROI: 1 cliente que vuelve más seguido cubre 6 meses de Clubify.',
+        ]
+      : [
+          'Tu link corto /ref/<tu-slug> tiene tracking de visitas — vas a ver el click-through en este panel.',
+          'Compartilo en Stories de Instagram con sticker de link — funciona mejor que en posts.',
+          'Para tu equipo de embajadores: armá un grupo de WhatsApp y compartí resultados semanales — incentivá la competencia sana.',
+        ];
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <div className="font-semibold text-base mb-1">📚 Material de apoyo</div>
+        <div className="text-xs text-mute">
+          Scripts, copies y tips para vender Clubify. Copialos y editalos a tu estilo.
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="card card-pad">
+          <div className="font-semibold text-sm mb-2 flex items-center gap-2">
+            💬 Templates WhatsApp
+          </div>
+          <div className="space-y-3">
+            {waTemplates.map((t) => (
+              <CopyableSnippet key={t.title} title={t.title} text={t.text} />
+            ))}
+          </div>
+        </div>
+
+        <div className="card card-pad">
+          <div className="font-semibold text-sm mb-2 flex items-center gap-2">
+            📸 Copies Instagram
+          </div>
+          <div className="space-y-3">
+            {igCopies.map((t) => (
+              <CopyableSnippet key={t.title} title={t.title} text={t.text} />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="card card-pad">
+        <div className="font-semibold text-sm mb-2">💡 Tips para vender</div>
+        <ul className="text-sm text-ink/85 space-y-1.5 leading-relaxed list-disc pl-5">
+          {tips.map((t) => (
+            <li key={t}>{t}</li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+function CopyableSnippet({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="bg-bg2/50 rounded-lg p-3 border border-line2">
+      <div className="flex items-start justify-between gap-2 mb-1">
+        <div className="text-[11px] uppercase tracking-wider text-mute font-semibold flex-1">
+          {title}
+        </div>
+        <button
+          className="text-[11px] text-brand hover:underline whitespace-nowrap"
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(text);
+              toast('Copiado', 'success');
+            } catch {
+              toast('No se pudo copiar', 'error');
+            }
+          }}
+        >
+          Copiar
+        </button>
+      </div>
+      <div className="text-xs text-ink/85 leading-relaxed whitespace-pre-wrap">
+        {text}
+      </div>
     </div>
   );
 }

@@ -112,6 +112,98 @@ export class AffiliateService {
     }));
   }
 
+  /**
+   * Dashboard agregado del afiliado. Devuelve:
+   *   - kpis: totales globales (directos + indirectos vía embajadores)
+   *   - directs: KPIs solo de su propio código (separación visual exigida)
+   *   - indirects: KPIs de uses generados por sus embajadores (si es INFLUENCER)
+   *   - ambassadors: ranking ordenado desc por revenue (solo INFLUENCER)
+   *   - timeline: serie 30 días de signups + conversiones (todos los códigos)
+   *   - sources: breakdown por utmSource del usuario (atribución de fuente)
+   *
+   * Scoped: nunca expone datos de otros afiliados.
+   */
+  async dashboard(user: AuthUser) {
+    this.assertAffiliate(user);
+    const codes = await this.myCodes(user.id);
+    if (!codes.length) {
+      return {
+        kpis: emptyKpis(),
+        directs: emptyKpis(),
+        indirects: emptyKpis(),
+        ambassadors: [] as AmbassadorRow[],
+        timeline: emptyTimeline(),
+        sources: [] as SourceRow[],
+      };
+    }
+    const myCodeId = codes.find((c) => c.ownerUserId === user.id)?.id ?? null;
+    const ambassadorCodeIds = codes
+      .filter((c) => c.ownerUserId !== user.id)
+      .map((c) => c.id);
+    const allCodeIds = codes.map((c) => c.id);
+
+    const uses = await this.prisma.referralUse.findMany({
+      where: { referralCodeId: { in: allCodeIds } },
+      include: {
+        referralCode: { select: { id: true, code: true, ownerName: true, slug: true } },
+        commissions: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Particionamos en directos (mi propio código) vs indirectos (códigos de
+    // mis embajadores). Para AMBASSADOR/SOCIO no hay indirectos.
+    const directsUses = myCodeId ? uses.filter((u) => u.referralCodeId === myCodeId) : [];
+    const indirectsUses = uses.filter((u) => ambassadorCodeIds.includes(u.referralCodeId));
+
+    const directs = aggregateKpis(directsUses);
+    const indirects = aggregateKpis(indirectsUses);
+    const totalKpis = aggregateKpis(uses);
+
+    // Ranking embajadores: solo aplica a INFLUENCER que tiene embajadores.
+    const ambassadors: AmbassadorRow[] = codes
+      .filter((c) => c.ownerUserId !== user.id)
+      .map((c) => {
+        const myUses = uses.filter((u) => u.referralCodeId === c.id);
+        const kpi = aggregateKpis(myUses);
+        return {
+          id: c.id,
+          code: c.code,
+          slug: c.slug ?? c.code.toLowerCase(),
+          ownerName: c.ownerName,
+          commissionPercent: Number(c.commissionPercent),
+          isActive: c.isActive,
+          referrals: kpi.referrals,
+          conversions: kpi.conversions,
+          revenueUsd: kpi.revenueUsd,
+        };
+      })
+      .sort((a, b) => b.revenueUsd - a.revenueUsd || b.referrals - a.referrals);
+
+    // Timeline 30 días: buckets diarios de signups + conversiones (PAYING/ACTIVE).
+    const timeline = buildTimeline(uses, 30);
+
+    // Sources: agregamos por utmSource del use (signup atribuido).
+    const sourceMap = new Map<string, { source: string; referrals: number; conversions: number }>();
+    for (const u of uses) {
+      const src = (u.utmSource ?? u.viaSlug ?? 'directo').toLowerCase();
+      const row = sourceMap.get(src) ?? { source: src, referrals: 0, conversions: 0 };
+      row.referrals += 1;
+      if (u.status === 'PAYING' || u.status === 'ACTIVE') row.conversions += 1;
+      sourceMap.set(src, row);
+    }
+    const sources = Array.from(sourceMap.values()).sort((a, b) => b.referrals - a.referrals);
+
+    return {
+      kpis: totalKpis,
+      directs,
+      indirects,
+      ambassadors,
+      timeline,
+      sources,
+    };
+  }
+
   async updateProfile(
     user: AuthUser,
     patch: { fullName?: string; phone?: string },
@@ -264,4 +356,92 @@ export class AffiliateService {
       }),
     };
   }
+}
+
+// ─── Helpers para dashboard() ──────────────────────────────────────────
+
+type Kpis = {
+  referrals: number;
+  conversions: number;
+  revenueUsd: number;
+  pendingUsd: number;
+  paidUsd: number;
+};
+
+type AmbassadorRow = {
+  id: string;
+  code: string;
+  slug: string;
+  ownerName: string;
+  commissionPercent: number;
+  isActive: boolean;
+  referrals: number;
+  conversions: number;
+  revenueUsd: number;
+};
+
+type SourceRow = { source: string; referrals: number; conversions: number };
+
+type UseWithCommissions = {
+  status: string;
+  createdAt: Date;
+  commissions: Array<{ amount: any; status: string }>;
+};
+
+function emptyKpis(): Kpis {
+  return { referrals: 0, conversions: 0, revenueUsd: 0, pendingUsd: 0, paidUsd: 0 };
+}
+
+function emptyTimeline() {
+  const days: Array<{ date: string; signups: number; conversions: number }> = [];
+  const now = new Date();
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(now);
+    d.setUTCDate(d.getUTCDate() - i);
+    days.push({ date: d.toISOString().slice(0, 10), signups: 0, conversions: 0 });
+  }
+  return days;
+}
+
+function aggregateKpis(uses: UseWithCommissions[]): Kpis {
+  const k = emptyKpis();
+  k.referrals = uses.length;
+  for (const u of uses) {
+    if (u.status === 'PAYING' || u.status === 'ACTIVE') k.conversions += 1;
+    for (const c of u.commissions ?? []) {
+      const amt = Number(c.amount);
+      k.revenueUsd += amt;
+      if (c.status === 'PAID') k.paidUsd += amt;
+      else if (c.status === 'PENDING' || c.status === 'APPROVED') k.pendingUsd += amt;
+    }
+  }
+  const round = (n: number) => Math.round(n * 100) / 100;
+  k.revenueUsd = round(k.revenueUsd);
+  k.pendingUsd = round(k.pendingUsd);
+  k.paidUsd = round(k.paidUsd);
+  return k;
+}
+
+function buildTimeline(
+  uses: Array<{ createdAt: Date; convertedAt?: Date | null }>,
+  days: number,
+) {
+  const buckets = new Map<string, { signups: number; conversions: number }>();
+  const now = new Date();
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(now);
+    d.setUTCDate(d.getUTCDate() - i);
+    buckets.set(d.toISOString().slice(0, 10), { signups: 0, conversions: 0 });
+  }
+  for (const u of uses) {
+    const key = u.createdAt.toISOString().slice(0, 10);
+    const b = buckets.get(key);
+    if (b) b.signups += 1;
+    if (u.convertedAt) {
+      const ck = u.convertedAt.toISOString().slice(0, 10);
+      const cb = buckets.get(ck);
+      if (cb) cb.conversions += 1;
+    }
+  }
+  return Array.from(buckets.entries()).map(([date, v]) => ({ date, ...v }));
 }

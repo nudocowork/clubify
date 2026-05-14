@@ -13,6 +13,14 @@ export class AffiliateController {
     return this.svc.me(user);
   }
 
+  // Dashboard con KPIs agregados, timeline 30d, ranking embajadores
+  // (cuando aplica) y atribución por fuente (UTM). Reemplaza el "Resumen"
+  // genérico con vista granular tipo CRM premium.
+  @Get('dashboard')
+  dashboard(@CurrentUser() user: AuthUser) {
+    return this.svc.dashboard(user);
+  }
+
   @Get('clients')
   clients(@CurrentUser() user: AuthUser) {
     return this.svc.clients(user);
