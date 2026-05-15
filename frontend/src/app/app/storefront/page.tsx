@@ -45,6 +45,17 @@ type Storefront = {
   popupDelaySeconds?: number;
   whatsappButtonEnabled?: boolean;
   pageBackgroundColor?: string | null;
+  backButtonConfig?: BackButtonCfg | null;
+};
+
+type BackButtonCfg = {
+  bgColor?: string;
+  iconColor?: string;
+  opacity?: number;
+  borderColor?: string;
+  borderWidth?: number;
+  shadow?: 'none' | 'sm' | 'md' | 'lg';
+  size?: number;
 };
 
 /** Lista curada de países (LATAM-first) con dial code y longitud típica
@@ -181,6 +192,7 @@ export default function StorefrontEditor() {
           popupDelaySeconds: sf.popupDelaySeconds ?? 10,
           whatsappButtonEnabled: sf.whatsappButtonEnabled ?? true,
           pageBackgroundColor: sf.pageBackgroundColor ?? null,
+          backButtonConfig: sf.backButtonConfig ?? null,
         }),
       });
       // Tenant fields (logo + whatsappPhone + primaryColor) van en una
@@ -377,6 +389,27 @@ export default function StorefrontEditor() {
             isCluvi={(sf.menuLayout ?? 'CLASSIC') === 'CLUVI'}
             onChange={(v) => setSf({ ...sf, pageBackgroundColor: v })}
           />
+
+          {/* Solo aparece para SECTIONS — es el único layout que muestra
+              el botón "Volver" sobre la portada de cada sección. Para los
+              demás layouts no hay botón a personalizar. */}
+          {(sf.menuLayout ?? 'CLASSIC') === 'SECTIONS' && (
+            <>
+              <h3 className="text-base font-semibold mt-6 mb-3">
+                ← Botón "Volver" (Secciones premium)
+              </h3>
+              <p className="text-mute text-xs mb-3 leading-relaxed">
+                El botón redondo que aparece sobre la portada de cada
+                sección para volver al listado. Personalizá el contraste
+                para que se distinga sobre cualquier portada (clara,
+                oscura o con foto compleja).
+              </p>
+              <BackButtonEditor
+                config={sf.backButtonConfig ?? null}
+                onChange={(c) => setSf({ ...sf, backButtonConfig: c })}
+              />
+            </>
+          )}
 
           <h3 className="text-base font-semibold mt-6 mb-3">🎨 Color principal</h3>
           <p className="text-mute text-xs mb-3 leading-relaxed">
@@ -904,6 +937,253 @@ function PopupConfig({
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+// =============================================================
+//                Back button editor (SECTIONS layout)
+// =============================================================
+
+const BACK_BTN_PRESETS: { label: string; emoji: string; cfg: BackButtonCfg }[] = [
+  {
+    label: 'Negro translúcido',
+    emoji: '◼️',
+    cfg: { bgColor: 'rgba(0,0,0,0.4)', iconColor: '#ffffff', shadow: 'md', size: 40 },
+  },
+  {
+    label: 'Blanco translúcido',
+    emoji: '⬜',
+    cfg: { bgColor: 'rgba(255,255,255,0.85)', iconColor: '#0a0a0a', shadow: 'md', size: 40 },
+  },
+  {
+    label: 'Negro sólido',
+    emoji: '⚫',
+    cfg: { bgColor: '#0a0a0a', iconColor: '#ffffff', shadow: 'md', size: 40 },
+  },
+  {
+    label: 'Blanco sólido',
+    emoji: '⚪',
+    cfg: { bgColor: '#ffffff', iconColor: '#0a0a0a', shadow: 'md', size: 40 },
+  },
+  {
+    label: 'Cristal',
+    emoji: '💎',
+    cfg: {
+      bgColor: 'rgba(255,255,255,0.2)',
+      iconColor: '#ffffff',
+      borderColor: 'rgba(255,255,255,0.6)',
+      borderWidth: 1,
+      shadow: 'lg',
+      size: 40,
+    },
+  },
+];
+
+const DEFAULT_BACK_CFG: Required<BackButtonCfg> = {
+  bgColor: 'rgba(0,0,0,0.4)',
+  iconColor: '#ffffff',
+  opacity: 1,
+  borderColor: 'transparent',
+  borderWidth: 0,
+  shadow: 'md',
+  size: 40,
+};
+
+function BackButtonEditor({
+  config,
+  onChange,
+}: {
+  config: BackButtonCfg | null;
+  onChange: (c: BackButtonCfg | null) => void;
+}) {
+  // Merge con defaults para tener valores siempre definidos en los inputs
+  const cfg: Required<BackButtonCfg> = {
+    ...DEFAULT_BACK_CFG,
+    ...(config ?? {}),
+  };
+
+  function patch(part: Partial<BackButtonCfg>) {
+    onChange({ ...cfg, ...part });
+  }
+
+  // Vista previa: rect oscuro de fondo + el botón como se vería real
+  const shadowMap: Record<string, string> = {
+    none: 'none',
+    sm: '0 1px 2px rgba(0,0,0,0.1)',
+    md: '0 4px 6px -1px rgba(0,0,0,0.1)',
+    lg: '0 10px 15px -3px rgba(0,0,0,0.1)',
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* Presets rápidos */}
+      <div>
+        <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1.5">
+          Estilos rápidos
+        </div>
+        <div className="grid grid-cols-5 gap-1.5">
+          {BACK_BTN_PRESETS.map((p) => (
+            <button
+              key={p.label}
+              type="button"
+              onClick={() => onChange(p.cfg)}
+              className="flex flex-col items-center gap-1 px-1 py-2 rounded-lg border-2 border-line hover:border-brand text-[10px] transition"
+              title={p.label}
+            >
+              <span className="text-base">{p.emoji}</span>
+              <span className="leading-tight text-center">{p.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Vista previa: simulamos una portada con foto + el botón encima */}
+      <div className="relative h-32 rounded-xl overflow-hidden border border-line">
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              'linear-gradient(135deg, #6366F1 0%, #EC4899 50%, #F59E0B 100%)',
+          }}
+        />
+        <button
+          type="button"
+          className="absolute top-3 left-3 rounded-full backdrop-blur-md flex items-center justify-center transition-all hover:opacity-90"
+          style={{
+            width: cfg.size,
+            height: cfg.size,
+            background: cfg.bgColor,
+            color: cfg.iconColor,
+            opacity: cfg.opacity,
+            border: cfg.borderWidth
+              ? `${cfg.borderWidth}px solid ${cfg.borderColor}`
+              : undefined,
+            boxShadow: shadowMap[cfg.shadow] ?? shadowMap.md,
+            fontSize: Math.round(cfg.size * 0.5),
+          }}
+          aria-label="Vista previa botón volver"
+        >
+          ←
+        </button>
+        <span className="absolute bottom-2 right-3 text-[10px] text-white/80 uppercase tracking-wider font-semibold">
+          Vista previa
+        </span>
+      </div>
+
+      {/* Controles individuales */}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="label text-[11px]">Color de fondo</label>
+          <input
+            type="text"
+            className="input font-mono text-xs"
+            value={cfg.bgColor}
+            onChange={(e) => patch({ bgColor: e.target.value })}
+            placeholder="rgba(0,0,0,0.4)"
+            spellCheck={false}
+          />
+        </div>
+        <div>
+          <label className="label text-[11px]">Color de la flecha</label>
+          <input
+            type="text"
+            className="input font-mono text-xs"
+            value={cfg.iconColor}
+            onChange={(e) => patch({ iconColor: e.target.value })}
+            placeholder="#ffffff"
+            spellCheck={false}
+          />
+        </div>
+      </div>
+
+      <div>
+        <div className="flex justify-between text-[11px] mb-0.5">
+          <span className="uppercase tracking-wider text-mute font-semibold">
+            Opacidad
+          </span>
+          <span className="text-mute">{Math.round(cfg.opacity * 100)}%</span>
+        </div>
+        <input
+          type="range"
+          min={0.1}
+          max={1}
+          step={0.05}
+          value={cfg.opacity}
+          onChange={(e) => patch({ opacity: Number(e.target.value) })}
+          className="w-full accent-brand"
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="label text-[11px]">Tamaño (px)</label>
+          <input
+            type="number"
+            className="input"
+            min={24}
+            max={80}
+            step={2}
+            value={cfg.size}
+            onChange={(e) => {
+              const v = Math.max(24, Math.min(80, Number(e.target.value) || 40));
+              patch({ size: v });
+            }}
+          />
+        </div>
+        <div>
+          <label className="label text-[11px]">Sombra</label>
+          <select
+            className="input"
+            value={cfg.shadow}
+            onChange={(e) => patch({ shadow: e.target.value as any })}
+          >
+            <option value="none">Sin sombra</option>
+            <option value="sm">Suave</option>
+            <option value="md">Media</option>
+            <option value="lg">Fuerte</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="label text-[11px]">Borde — color</label>
+          <input
+            type="text"
+            className="input font-mono text-xs"
+            value={cfg.borderColor}
+            onChange={(e) => patch({ borderColor: e.target.value })}
+            placeholder="transparent"
+            spellCheck={false}
+          />
+        </div>
+        <div>
+          <label className="label text-[11px]">Borde — grosor (px)</label>
+          <input
+            type="number"
+            className="input"
+            min={0}
+            max={6}
+            step={1}
+            value={cfg.borderWidth}
+            onChange={(e) => {
+              const v = Math.max(0, Math.min(6, Number(e.target.value) || 0));
+              patch({ borderWidth: v });
+            }}
+          />
+        </div>
+      </div>
+
+      {config && (
+        <button
+          type="button"
+          onClick={() => onChange(null)}
+          className="text-xs text-mute hover:text-brand underline"
+        >
+          ↺ Restablecer al estilo por defecto
+        </button>
+      )}
     </div>
   );
 }

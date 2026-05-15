@@ -28,6 +28,18 @@ type MenuLayout =
   | 'CLUVI'
   | 'SECTIONS';
 
+// Estilo configurable del botón "Volver" en SECTIONS. Cualquier campo
+// puede ser undefined → el render usa el default histórico.
+type BackButtonConfig = {
+  bgColor?: string;       // default: rgba(0,0,0,0.4)
+  iconColor?: string;     // default: #fff
+  opacity?: number;       // 0..1, multiplica al alpha del bg final
+  borderColor?: string;   // default: ninguno
+  borderWidth?: number;   // px, default 0
+  shadow?: 'none' | 'sm' | 'md' | 'lg'; // default 'md'
+  size?: number;          // px, default 40
+};
+
 type Storefront = {
   id: string;
   brandName: string;
@@ -43,6 +55,7 @@ type Storefront = {
   menuLayout?: MenuLayout;
   ordersEnabled?: boolean;
   pageBackgroundColor?: string | null;
+  backButtonConfig?: BackButtonConfig | null;
   popup?: { imageUrl: string; cardId: string | null; delaySeconds?: number } | null;
   planName?: string | null;
   promotions: any[];
@@ -339,6 +352,7 @@ export default function StorefrontPublic() {
             primary={primary}
             currency={s.currency}
             onPick={setOpenProduct}
+            backButtonConfig={s.backButtonConfig}
           />
         </div>
       )}
@@ -1389,9 +1403,11 @@ type RenderProps = {
   primary: string;
   currency: string;
   onPick: (p: Product) => void;
+  /** Solo SECTIONS lo usa por ahora — estilo del botón Volver. */
+  backButtonConfig?: BackButtonConfig | null;
 };
 
-function MenuRenderer({ layout, menu, primary, currency, onPick }: RenderProps) {
+function MenuRenderer({ layout, menu, primary, currency, onPick, backButtonConfig }: RenderProps) {
   if (layout === 'GRID')
     return <LayoutGrid menu={menu} primary={primary} currency={currency} onPick={onPick} />;
   if (layout === 'CAROUSELS')
@@ -1403,7 +1419,15 @@ function MenuRenderer({ layout, menu, primary, currency, onPick }: RenderProps) 
   if (layout === 'CLUVI')
     return <LayoutCluvi menu={menu} primary={primary} currency={currency} onPick={onPick} />;
   if (layout === 'SECTIONS')
-    return <LayoutSections menu={menu} primary={primary} currency={currency} onPick={onPick} />;
+    return (
+      <LayoutSections
+        menu={menu}
+        primary={primary}
+        currency={currency}
+        onPick={onPick}
+        backButtonConfig={backButtonConfig}
+      />
+    );
   return <LayoutClassic menu={menu} primary={primary} currency={currency} onPick={onPick} />;
 }
 
@@ -1841,10 +1865,46 @@ function LayoutCluvi({ menu, primary, currency, onPick }: LP) {
 // = imagen + nombre. Para no inflar el JS, importamos el preview
 // dinámicamente — solo se baja cuando el layout SECTIONS está activo.
 
-function LayoutSections({ menu, primary, currency, onPick }: LP) {
+function LayoutSections({
+  menu,
+  primary,
+  currency,
+  onPick,
+  backButtonConfig,
+}: LP & { backButtonConfig?: BackButtonConfig | null }) {
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [activeSub, setActiveSub] = useState<string | null>(null);
   const [transitioning, setTransitioning] = useState(false);
+
+  // Estilo aplicado al botón "Volver". Defaults reproducen el estilo
+  // histórico (negro a 40% + flecha blanca + sombra md + 40px) si el
+  // tenant no configuró nada.
+  const backStyle = (() => {
+    const c = backButtonConfig ?? {};
+    const size = c.size ?? 40;
+    const shadowMap: Record<string, string> = {
+      none: 'none',
+      sm: '0 1px 2px rgba(0,0,0,0.1)',
+      md: '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)',
+      lg: '0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05)',
+    };
+    const shadow = shadowMap[c.shadow ?? 'md'] ?? shadowMap.md;
+    return {
+      width: size,
+      height: size,
+      background: c.bgColor ?? 'rgba(0,0,0,0.4)',
+      color: c.iconColor ?? '#fff',
+      opacity: c.opacity ?? 1,
+      border: c.borderWidth
+        ? `${c.borderWidth}px solid ${c.borderColor ?? 'transparent'}`
+        : undefined,
+      boxShadow: shadow,
+      // backdrop-blur queda como tailwind class — se aplica siempre
+      // porque ayuda a la legibilidad sobre fotos. El tenant que quiera
+      // sin blur usa bg sólido.
+      fontSize: Math.round(size * 0.5),
+    };
+  })();
 
   // Si el cliente eligió una sección, mostramos detalle. Sino, grilla.
   const section = activeSection
@@ -1929,7 +1989,12 @@ function LayoutSections({ menu, primary, currency, onPick }: LP) {
             setActiveSub(null);
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
-          className="absolute top-3 left-3 z-10 w-10 h-10 rounded-full bg-black/40 backdrop-blur-md text-white flex items-center justify-center active:scale-95 transition-transform shadow-md"
+          // Class fija: posición + backdrop-blur (mejora legibilidad
+          // sobre cualquier portada) + interacciones. Tamaño/colores/
+          // sombra/opacidad/borde se aplican vía style según
+          // backButtonConfig.
+          className="absolute top-3 left-3 z-10 rounded-full backdrop-blur-md flex items-center justify-center active:scale-95 hover:opacity-90 transition-all"
+          style={backStyle}
           aria-label="Volver"
         >
           ←

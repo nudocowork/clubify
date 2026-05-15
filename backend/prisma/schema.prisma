@@ -1069,6 +1069,13 @@ model Storefront {
   // dueño quiere matchear el fondo con su brand. Cualquier color CSS
   // válido (#hex, rgb(), nombre).
   pageBackgroundColor   String?
+  // Estilo del botón "Volver" que aparece sobre la portada de cada
+  // sección en el layout SECTIONS. JSON con bgColor/iconColor/opacity/
+  // borderColor/borderWidth/shadow/size. NULL = usar default
+  // (negro semitransparente con flecha blanca). Configurable desde
+  // /app/storefront cuando el contraste no funciona contra portadas
+  // claras u oscuras.
+  backButtonConfig      Json?
   // Cover banner para la sección virtual "Recomendados" del menú público
   // (la que junta los productos isRecommended). Hasta acá se renderizaba
   // sin banner; ahora se puede editar igual que las categorías normales.

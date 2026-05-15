@@ -34,6 +34,8 @@ class StorefrontBody {
   // Color CSS válido (#hex, rgb(), nombre). null = usar default del layout.
   @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(40)
   pageBackgroundColor?: string | null;
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsObject()
+  backButtonConfig?: Record<string, any> | null;
   // Cover de la sección virtual "Recomendados". null = limpiar.
   @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(200)
   recommendedTagline?: string | null;
