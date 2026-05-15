@@ -52,6 +52,7 @@ export class PublicMenuController {
           ? {
               imageUrl: t.storefront.popupImageUrl,
               cardId: t.storefront.popupCardId ?? null,
+              delaySeconds: t.storefront.popupDelaySeconds ?? 10,
             }
           : null,
       planName: t.plan?.name ?? null,
@@ -80,7 +81,16 @@ export class PublicMenuController {
   async menu(@Param('slug') slug: string) {
     const t = await this.prisma.tenant.findUnique({
       where: { slug },
-      select: { id: true, status: true },
+      select: {
+        id: true,
+        status: true,
+        storefront: {
+          select: {
+            recommendedTagline: true,
+            recommendedCoverConfig: true,
+          },
+        },
+      },
     });
     if (!t || t.status === 'SUSPENDED')
       throw new NotFoundException('Negocio no disponible');
@@ -182,8 +192,11 @@ export class PublicMenuController {
           slug: 'recomendados',
           description: 'Lo más pedido por nuestros clientes.',
           imageUrl: null,
-          tagline: null,
-          coverConfig: null,
+          // Cover editable desde /app/menu (botón 🎨 en la entrada
+          // virtual "Recomendados"). Si el tenant no editó, queda null
+          // y el frontend usa el header default minimal.
+          tagline: t.storefront?.recommendedTagline ?? null,
+          coverConfig: t.storefront?.recommendedCoverConfig ?? null,
           products: recommended,
           subsections: [],
         },

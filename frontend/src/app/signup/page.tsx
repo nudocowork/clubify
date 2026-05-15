@@ -191,6 +191,7 @@ function SignupInner() {
     try {
       const r = await api<{
         accessToken: string;
+        refreshToken?: string;
         user: any;
       }>('/auth/signup', {
         method: 'POST',
@@ -208,7 +209,7 @@ function SignupInner() {
           attribution: Object.keys(attribution).length ? attribution : undefined,
         }),
       });
-      setSession(r.accessToken, r.user);
+      setSession(r.accessToken, r.user, { refreshToken: r.refreshToken });
       try {
         // Limpiamos AMBOS keys post-signup — el código ya quedó atado
         // a este usuario en el backend, no tiene sentido cargarlo en

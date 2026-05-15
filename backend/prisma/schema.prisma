@@ -1046,13 +1046,21 @@ model Storefront {
   // sin botones "Agregar al carrito" ni dock de carrito ni "Notificar
   // pedido". Útil para negocios que solo quieren mostrar precios.
   ordersEnabled Boolean    @default(true)
-  // Popup que aparece a los 10s de abrir el menú público. Si tiene imagen
-  // + está enabled + popupCardId, hace click en la imagen y lleva al
-  // cliente a /c/{popupCardId} para inscribirse a la tarjeta.
-  popupEnabled  Boolean    @default(false)
-  popupImageUrl String?
-  popupCardId   String?
-  popupCard     Card?      @relation("StorefrontPopupCard", fields: [popupCardId], references: [id], onDelete: SetNull)
+  // Popup que aparece después de N segundos de abrir el menú público. Si
+  // tiene imagen + está enabled + popupCardId, hace click en la imagen y
+  // lleva al cliente a /c/{popupCardId} para inscribirse a la tarjeta.
+  // popupDelaySeconds: segundos antes de mostrar el popup. Default 10s.
+  popupEnabled        Boolean    @default(false)
+  popupImageUrl       String?
+  popupCardId         String?
+  popupCard           Card?      @relation("StorefrontPopupCard", fields: [popupCardId], references: [id], onDelete: SetNull)
+  popupDelaySeconds   Int        @default(10)
+  // Cover banner para la sección virtual "Recomendados" del menú público
+  // (la que junta los productos isRecommended). Hasta acá se renderizaba
+  // sin banner; ahora se puede editar igual que las categorías normales.
+  // null = sin banner custom (se muestra un default minimal).
+  recommendedTagline      String?
+  recommendedCoverConfig  Json?
   isPublished   Boolean    @default(true)
   createdAt     DateTime   @default(now())
 }
@@ -1465,8 +1473,10 @@ model QrPoster {
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
-  @@unique([tenantId, type])
-  @@index([tenantId])
+  // Antes era @@unique([tenantId, type]) — limitaba a 1 cartel por tipo
+  // por tenant. Ahora se permite N variantes (cada tenant puede tener
+  // varios MENU/COUNTER/DISCOUNT/REVIEWS con diseños distintos).
+  @@index([tenantId, type])
 }
 
 // ============================================================

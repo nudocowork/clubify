@@ -45,7 +45,7 @@ export default function DevLoginPage() {
         if (!r.ok || !d.accessToken) {
           throw new Error(d.message || `HTTP ${r.status}`);
         }
-        setSession(d.accessToken, d.user);
+        setSession(d.accessToken, d.user, { refreshToken: d.refreshToken });
         setStatus(`✓ Sesión iniciada — redirigiendo a ${target}`);
         window.location.href = target;
       })

@@ -60,6 +60,7 @@ export default function MenuEditor() {
   const [editingCatId, setEditingCatId] = useState<string | null>(null);
   const [editingCatName, setEditingCatName] = useState('');
   const [coverCat, setCoverCat] = useState<Category | null>(null);
+  const [coverRecommendedOpen, setCoverRecommendedOpen] = useState(false);
   const [ordersEnabled, setOrdersEnabled] = useState<boolean | null>(null);
   const [togglingOrders, setTogglingOrders] = useState(false);
   const [tenantSlug, setTenantSlug] = useState<string | null>(null);
@@ -248,16 +249,47 @@ export default function MenuEditor() {
   }
 
   async function saveProduct(p: Partial<Product>) {
+    // El backend usa ValidationPipe con forbidNonWhitelisted=true — manda
+    // solo los campos del DTO. Sino el GET trae `id`, `tenantId`,
+    // `createdAt`, `timesOrdered`, relación `category`, etc., que el
+    // PATCH rechaza con 400.
+    const payload = {
+      categoryId: p.categoryId,
+      name: p.name,
+      description: p.description ?? '',
+      basePrice: Number(p.basePrice ?? 0),
+      imageUrl: p.imageUrl || undefined,
+      tags: p.tags ?? [],
+      isAvailable: p.isAvailable ?? true,
+      isRecommended: p.isRecommended ?? false,
+      stock: p.stock ?? null,
+      stockAlert: p.stockAlert ?? null,
+      // Variants/extras: limpiar también — el GET devuelve cada uno con
+      // `id`, `productId`, `position`, `isDefault`, etc. El DTO acepta
+      // any[] pero el service hace deleteMany+createMany, así que solo
+      // necesita los campos editables. Evitamos mandar IDs que se
+      // re-generan de todos modos.
+      variants: (p.variants ?? []).map((v) => ({
+        name: v.name,
+        priceDelta: Number(v.priceDelta ?? 0),
+        groupName: v.groupName,
+        isDefault: v.isDefault ?? false,
+      })),
+      extras: (p.extras ?? []).map((e) => ({
+        name: e.name,
+        price: Number(e.price ?? 0),
+      })),
+    };
     try {
       if (p.id) {
         await api(`/catalog/products/${p.id}`, {
           method: 'PATCH',
-          body: JSON.stringify(p),
+          body: JSON.stringify(payload),
         });
       } else {
         await api('/catalog/products', {
           method: 'POST',
-          body: JSON.stringify(p),
+          body: JSON.stringify(payload),
         });
       }
       setEditing(null);
@@ -367,6 +399,30 @@ export default function MenuEditor() {
           {cats.length === 0 && (
             <div className="text-mute text-sm text-center py-6">
               Sin categorías
+            </div>
+          )}
+          {/* Sección virtual "Recomendados" — solo aparece si hay al
+              menos un producto marcado como isRecommended. No se puede
+              renombrar/eliminar/asignar productos directamente; se
+              alimenta automáticamente del flag de cada producto. Solo
+              expone el editor de portada (vive en Storefront, no en
+              Category). */}
+          {products.some((p) => p.isRecommended) && (
+            <div className="mb-1 flex items-center gap-2 px-2.5 py-2.5 rounded-lg bg-amber-50 border border-amber-200">
+              <span className="text-base">⭐</span>
+              <div className="flex-1 min-w-0">
+                <div className="font-medium text-sm truncate">Recomendados</div>
+                <div className="text-xs text-mute">
+                  {products.filter((p) => p.isRecommended).length} productos
+                </div>
+              </div>
+              <button
+                className="text-mute hover:text-brand p-1"
+                onClick={() => setCoverRecommendedOpen(true)}
+                title="Diseñar portada de Recomendados"
+              >
+                🎨
+              </button>
             </div>
           )}
           {/* Filtramos a roots para el sortable. Las hijas se renderean
@@ -661,7 +717,12 @@ export default function MenuEditor() {
 
       {coverCat && (
         <CoverEditorModal
-          category={coverCat}
+          target={{
+            title: coverCat.name,
+            endpoint: `/catalog/categories/${coverCat.id}`,
+            initialConfig: coverCat.coverConfig ?? null,
+            initialTagline: coverCat.tagline ?? '',
+          }}
           onClose={() => setCoverCat(null)}
           onSaved={() => {
             setCoverCat(null);
@@ -670,34 +731,60 @@ export default function MenuEditor() {
           }}
         />
       )}
+
+      {coverRecommendedOpen && (
+        <RecommendedCoverModal
+          onClose={() => setCoverRecommendedOpen(false)}
+          onSaved={() => {
+            setCoverRecommendedOpen(false);
+            toast('Portada de Recomendados guardada', 'success');
+          }}
+        />
+      )}
     </div>
   );
 }
 
+/** CoverEditorModal genérico — sirve para categorías reales y para la
+ *  sección virtual "Recomendados". El caller pasa el target con su
+ *  endpoint y los valores iniciales; el modal maneja la edición y el
+ *  PATCH. Antes era hard-coded a /catalog/categories/:id. */
+type CoverTarget = {
+  /** Display title en el header del modal. */
+  title: string;
+  /** Endpoint que recibe el PATCH con `{ coverConfig, tagline }` o el
+   *  shape custom resuelto por `payloadShape`. */
+  endpoint: string;
+  /** Si está, mapea (config, tagline) → body. Default: { coverConfig, tagline }. */
+  payloadShape?: (config: SectionCoverConfig | null, tagline: string | null) => any;
+  initialConfig: SectionCoverConfig | null;
+  initialTagline: string;
+};
+
 function CoverEditorModal({
-  category,
+  target,
   onClose,
   onSaved,
 }: {
-  category: Category;
+  target: CoverTarget;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [config, setConfig] = useState<SectionCoverConfig | null>(
-    category.coverConfig ?? null,
+    target.initialConfig,
   );
-  const [tagline, setTagline] = useState(category.tagline ?? '');
+  const [tagline, setTagline] = useState(target.initialTagline);
   const [saving, setSaving] = useState(false);
 
   async function save() {
     setSaving(true);
     try {
-      await api(`/catalog/categories/${category.id}`, {
+      const body = target.payloadShape
+        ? target.payloadShape(config, tagline.trim() || null)
+        : { coverConfig: config, tagline: tagline.trim() || null };
+      await api(target.endpoint, {
         method: 'PATCH',
-        body: JSON.stringify({
-          coverConfig: config,
-          tagline: tagline.trim() || null,
-        }),
+        body: JSON.stringify(body),
       });
       onSaved();
     } catch (e: any) {
@@ -719,7 +806,7 @@ function CoverEditorModal({
         <div className="flex items-center justify-between px-5 py-3 border-b border-line">
           <div>
             <div className="text-xs text-mute">Portada de sección</div>
-            <h2 className="font-semibold text-lg m-0">{category.name}</h2>
+            <h2 className="font-semibold text-lg m-0">{target.title}</h2>
           </div>
           <button
             type="button"
@@ -748,7 +835,7 @@ function CoverEditorModal({
           </div>
 
           <SectionCoverEditor
-            title={category.name}
+            title={target.title}
             tagline={tagline || null}
             value={config}
             onChange={setConfig}
@@ -783,6 +870,87 @@ function CoverEditorModal({
         </div>
       </div>
     </div>
+  );
+}
+
+/** Wrapper que carga el storefront actual para obtener la config inicial
+ *  de la sección Recomendados y guarda los cambios contra el endpoint
+ *  /storefront (no /catalog/categories). Reutiliza CoverEditorModal vía
+ *  su prop `target` genérica. */
+function RecommendedCoverModal({
+  onClose,
+  onSaved,
+}: {
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [initial, setInitial] = useState<{
+    config: SectionCoverConfig | null;
+    tagline: string;
+  } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const sf = await api<{
+          recommendedCoverConfig?: SectionCoverConfig | null;
+          recommendedTagline?: string | null;
+        }>('/storefront');
+        setInitial({
+          config: sf.recommendedCoverConfig ?? null,
+          tagline: sf.recommendedTagline ?? '',
+        });
+      } catch (e: any) {
+        setErr(e?.message || 'No se pudo cargar la configuración');
+      }
+    })();
+  }, []);
+
+  if (err) {
+    return (
+      <div
+        className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+        onClick={onClose}
+      >
+        <div
+          className="bg-bg rounded-2xl p-6 max-w-sm text-center space-y-3"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="text-2xl">⚠️</div>
+          <div className="text-sm">{err}</div>
+          <button onClick={onClose} className="btn-primary">
+            Cerrar
+          </button>
+        </div>
+      </div>
+    );
+  }
+  if (!initial) {
+    return (
+      <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center">
+        <div className="text-white text-sm">Cargando…</div>
+      </div>
+    );
+  }
+  return (
+    <CoverEditorModal
+      target={{
+        title: 'Recomendados',
+        endpoint: '/storefront',
+        // El endpoint /storefront acepta nombres específicos
+        // (recommendedCoverConfig + recommendedTagline) en lugar del
+        // shape default (coverConfig + tagline). Mapeamos acá.
+        payloadShape: (config, tagline) => ({
+          recommendedCoverConfig: config,
+          recommendedTagline: tagline,
+        }),
+        initialConfig: initial.config,
+        initialTagline: initial.tagline,
+      }}
+      onClose={onClose}
+      onSaved={onSaved}
+    />
   );
 }
 

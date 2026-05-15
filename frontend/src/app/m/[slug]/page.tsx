@@ -42,7 +42,7 @@ type Storefront = {
   heroImageUrl: string | null;
   menuLayout?: MenuLayout;
   ordersEnabled?: boolean;
-  popup?: { imageUrl: string; cardId: string | null } | null;
+  popup?: { imageUrl: string; cardId: string | null; delaySeconds?: number } | null;
   planName?: string | null;
   promotions: any[];
 };
@@ -2146,7 +2146,7 @@ function StorefrontPopup({
   popup,
   slug,
 }: {
-  popup: { imageUrl: string; cardId: string | null };
+  popup: { imageUrl: string; cardId: string | null; delaySeconds?: number };
   slug: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -2155,12 +2155,16 @@ function StorefrontPopup({
     if (typeof window === 'undefined') return;
     const key = `clubify:popup-shown:${slug}`;
     if (sessionStorage.getItem(key)) return;
+    // Default 10s para configs viejas o tenants que aún no tienen el
+    // campo seteado. El backend ya devuelve `popup.delaySeconds` cuando
+    // está disponible.
+    const delayMs = Math.max(1, popup.delaySeconds ?? 10) * 1000;
     const t = window.setTimeout(() => {
       setOpen(true);
       sessionStorage.setItem(key, '1');
-    }, 10_000);
+    }, delayMs);
     return () => window.clearTimeout(t);
-  }, [slug]);
+  }, [slug, popup.delaySeconds]);
 
   if (!open) return null;
 

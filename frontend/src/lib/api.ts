@@ -2,21 +2,52 @@
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
+// Backend default: JWT_EXPIRES=15m, JWT_REFRESH_EXPIRES=30d.
+// Cookie del access vence con la del JWT (15m) — pero puede vencer ANTES si
+// el refresh ya tiene 30d. La cookie del refresh dura más para que el user
+// no tenga que re-loguearse cada hora.
+const REFRESH_MAX_AGE = 30 * 24 * 60 * 60; // 30d, igual al backend
+
 function getToken() {
   if (typeof document === 'undefined') return null;
   const m = document.cookie.match(/(^|;\s*)clubify_token=([^;]+)/);
   return m ? decodeURIComponent(m[2]) : null;
 }
 
-export function setSession(token: string, user: any, opts?: { maxAgeSeconds?: number }) {
-  // Default 1 hora. Para sesión scanner pasamos maxAgeSeconds: 6 * 3600.
+function getRefreshToken() {
+  if (typeof document === 'undefined') return null;
+  const m = document.cookie.match(/(^|;\s*)clubify_refresh=([^;]+)/);
+  return m ? decodeURIComponent(m[2]) : null;
+}
+
+function writeAccessCookie(token: string, maxAgeSeconds: number) {
+  document.cookie = `clubify_token=${encodeURIComponent(token)}; path=/; max-age=${maxAgeSeconds}; samesite=lax`;
+}
+
+function writeRefreshCookie(token: string) {
+  document.cookie = `clubify_refresh=${encodeURIComponent(token)}; path=/; max-age=${REFRESH_MAX_AGE}; samesite=lax`;
+}
+
+export function setSession(
+  token: string,
+  user: any,
+  opts?: { maxAgeSeconds?: number; refreshToken?: string },
+) {
+  // Default 1 hora para la cookie del access (el JWT por dentro vive 15m,
+  // pero mantener la cookie un poco más permite que el wrapper detecte
+  // hadSession=true para disparar el refresh en lugar de mandar al login).
+  // Para sesión scanner pasamos maxAgeSeconds: 6 * 3600.
   const maxAge = opts?.maxAgeSeconds ?? 60 * 60;
-  document.cookie = `clubify_token=${encodeURIComponent(token)}; path=/; max-age=${maxAge}; samesite=lax`;
+  writeAccessCookie(token, maxAge);
+  if (opts?.refreshToken) {
+    writeRefreshCookie(opts.refreshToken);
+  }
   localStorage.setItem('clubify_user', JSON.stringify(user));
 }
 
 export function clearSession() {
   document.cookie = 'clubify_token=; path=/; max-age=0';
+  document.cookie = 'clubify_refresh=; path=/; max-age=0';
   localStorage.removeItem('clubify_user');
   localStorage.removeItem('clubify_admin_backup');
 }
@@ -46,22 +77,34 @@ export function startImpersonation(opts: {
 }) {
   const currentToken = getToken();
   const currentUser = getUser();
+  const currentRefresh = getRefreshToken();
   if (currentToken && currentUser) {
     localStorage.setItem(
       'clubify_admin_backup',
       JSON.stringify({
         token: currentToken,
+        refreshToken: currentRefresh,
         user: currentUser,
         tenant: opts.tenant,
         startedAt: new Date().toISOString(),
       }),
     );
   }
+  // Borrar refresh actual: el access que recibimos de impersonate NO viene
+  // con un refresh propio del owner impersonado, así que dejar el del super
+  // admin haría que el refresh-on-401 cambie el contexto al super admin.
+  document.cookie = 'clubify_refresh=; path=/; max-age=0';
   setSession(opts.accessToken, opts.user);
 }
 
 export function getImpersonationBackup():
-  | { token: string; user: any; tenant: { id: string; brandName: string }; startedAt: string }
+  | {
+      token: string;
+      refreshToken?: string | null;
+      user: any;
+      tenant: { id: string; brandName: string };
+      startedAt: string;
+    }
   | null {
   if (typeof window === 'undefined') return null;
   const raw = localStorage.getItem('clubify_admin_backup');
@@ -78,12 +121,60 @@ export function getImpersonationBackup():
 export function stopImpersonation() {
   const backup = getImpersonationBackup();
   if (!backup) return false;
-  setSession(backup.token, backup.user);
+  setSession(backup.token, backup.user, {
+    refreshToken: backup.refreshToken ?? undefined,
+  });
   localStorage.removeItem('clubify_admin_backup');
   return true;
 }
 
+/** Promesa de refresh en curso — si dos requests fallan con 401 al mismo
+ *  tiempo, ambos esperan al MISMO refresh en lugar de disparar dos. */
+let refreshInFlight: Promise<string | null> | null = null;
+
+/**
+ * Intenta cambiar el refreshToken por un accessToken nuevo. Retorna el
+ * access nuevo o null si el refresh es inválido/ausente. Single-flight para
+ * evitar tormenta de refreshes ante un burst de 401s.
+ */
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshInFlight) return refreshInFlight;
+  const refresh = getRefreshToken();
+  if (!refresh) return null;
+  refreshInFlight = (async () => {
+    try {
+      const res = await fetch(`${API}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: refresh }),
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as {
+        accessToken?: string;
+        refreshToken?: string;
+      };
+      if (!data?.accessToken) return null;
+      writeAccessCookie(data.accessToken, 60 * 60);
+      if (data.refreshToken) writeRefreshCookie(data.refreshToken);
+      return data.accessToken;
+    } catch {
+      return null;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+  return refreshInFlight;
+}
+
 export async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
+  return apiWithRefresh<T>(path, init, true);
+}
+
+async function apiWithRefresh<T>(
+  path: string,
+  init: RequestInit,
+  allowRetry: boolean,
+): Promise<T> {
   const token = getToken();
   const res = await fetch(`${API}/api${path}`, {
     ...init,
@@ -108,13 +199,25 @@ export async function api<T = any>(path: string, init: RequestInit = {}): Promis
         window.location.href = '/app/billing?suspended=1';
       }
     }
-    // 401: sesión vencida o cookie expirada (token=null pero user
-    // todavía en localStorage) → forzar login. Antes solo redirigía
-    // si había token, dejando al usuario stuck con "Unauthorized" si
-    // la cookie max-age=1h expiraba mientras navegaba.
-    if (res.status === 401 && typeof window !== 'undefined') {
-      const hadSession = !!token || !!localStorage.getItem('clubify_user');
+    // 401: el JWT default expira a los 15min y la cookie a los 60min.
+    // Antes el wrapper limpiaba la sesión y mandaba al login a la primera
+    // 401 — sacando al user cada cuarto de hora aunque el refresh siguiera
+    // vivo (30d). Ahora intentamos UN refresh y reintentamos el request
+    // original. Si el refresh falla (refresh ausente/expirado/revocado)
+    // recién ahí limpiamos la sesión.
+    if (
+      res.status === 401 &&
+      typeof window !== 'undefined' &&
+      allowRetry &&
+      !path.startsWith('/auth/refresh') &&
+      !path.startsWith('/auth/login')
+    ) {
+      const refreshed = await refreshAccessToken();
+      if (refreshed) {
+        return apiWithRefresh<T>(path, init, false);
+      }
       const onLogin = window.location.pathname.startsWith('/login');
+      const hadSession = !!token || !!localStorage.getItem('clubify_user');
       if (hadSession && !onLogin) {
         clearSession();
         window.location.href = '/login?expired=1';

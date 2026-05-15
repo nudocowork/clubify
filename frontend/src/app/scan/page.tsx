@@ -144,6 +144,7 @@ export default function ScanPage() {
       if (!res.ok) throw new Error(body?.message || 'Credenciales inválidas');
       setSession(body.accessToken, body.user, {
         maxAgeSeconds: SCANNER_SESSION_HOURS * 3600,
+        refreshToken: body.refreshToken,
       });
       setUser(body.user);
       setLoginForm({ email: '', password: '' });

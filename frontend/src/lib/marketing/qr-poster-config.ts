@@ -113,6 +113,10 @@ export type TextLayer = {
   } | null;
   /** Espaciado entre letras en px. Default 0. */
   letterSpacing?: number;
+  /** Si true, no se puede arrastrar/seleccionar desde el canvas (sí
+   *  desde el sidebar). UX típica de Canva/Figma. Aplica a los 4 textos
+   *  fijos (title/subtitle/cta/brand) por igual. */
+  locked?: boolean;
 };
 
 /** Caja de texto libre que el usuario agrega manualmente. Igual que
@@ -137,6 +141,8 @@ export type LogoLayer = {
   size: number; // ancho/alto en px (logo cuadrado)
   opacity?: number;
   rotation?: number;
+  /** Si true, no se puede arrastrar desde el canvas. */
+  locked?: boolean;
 };
 
 /** Formas standalone — primitiva geométrica editable. Cada una con
@@ -208,6 +214,8 @@ export type ShapeLayer = {
     /** Linear angle (0..360) o 'radial' para gradiente radial. */
     angle: number | 'radial';
   } | null;
+  /** Si true, no se puede arrastrar desde el canvas. */
+  locked?: boolean;
 };
 
 /** Capa de "icono" — emoji renderizado como Konva.Text (sin
@@ -220,6 +228,8 @@ export type IconLayer = {
   size: number;
   opacity?: number;
   rotation?: number;
+  /** Si true, no se puede arrastrar desde el canvas. */
+  locked?: boolean;
 };
 
 /** Capa de imagen libre subida por el dueño. Reemplaza a "Forma".
@@ -244,6 +254,11 @@ export type ImageLayer = {
    *  del crop (o de la imagen). 'cover' = llena el rect, 'contain' =
    *  ajusta dentro, 'fill' = estira. Default 'cover'. */
   fit?: 'cover' | 'contain' | 'fill';
+  /** Si true, no se puede arrastrar/redimensionar desde el canvas. La
+   *  imagen queda fija en su posición — el cliente puede subir varias y
+   *  bloquearlas para que no se muevan accidentalmente al editar el
+   *  resto del cartel. */
+  locked?: boolean;
 };
 
 /** Patrón generado a partir de uno o varios emojis. Se renderiza

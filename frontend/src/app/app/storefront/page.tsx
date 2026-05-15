@@ -42,6 +42,7 @@ type Storefront = {
   popupEnabled?: boolean;
   popupImageUrl?: string | null;
   popupCardId?: string | null;
+  popupDelaySeconds?: number;
 };
 
 const MENU_LAYOUTS: { id: MenuLayout; emoji: string; label: string; sub: string }[] = [
@@ -56,6 +57,7 @@ const MENU_LAYOUTS: { id: MenuLayout; emoji: string; label: string; sub: string 
 
 export default function StorefrontEditor() {
   const [sf, setSf] = useState<Storefront | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [tenantSlug, setTenantSlug] = useState<string>('');
@@ -68,19 +70,28 @@ export default function StorefrontEditor() {
   const publicHref = tenantSlug ? `/m/${tenantSlug}` : '#';
 
   async function load() {
-    const [data, me] = await Promise.all([
-      api<Storefront>('/storefront'),
-      api<any>('/tenants/me').catch(() => null),
-    ]);
-    // Filtra el bloque 'cards' (deprecado): la tarjeta de fidelización ya no
-    // se promociona en el storefront. El cliente la accede vía la pestaña
-    // "Mi tarjeta" o por su link wallet directo.
-    const blocks = (data.blocks ?? []).filter((b: any) => b?.type !== 'cards');
-    setSf({ ...data, blocks });
-    if (me?.slug) setTenantSlug(me.slug);
-    if (me?.brandName) setBrandName(me.brandName);
-    if (me?.logoUrl !== undefined) setLogoUrl(me.logoUrl ?? null);
-    setLogoDirty(false);
+    setLoadErr(null);
+    try {
+      const [data, me] = await Promise.all([
+        api<Storefront>('/storefront'),
+        api<any>('/tenants/me').catch(() => null),
+      ]);
+      // Filtra el bloque 'cards' (deprecado): la tarjeta de fidelización ya no
+      // se promociona en el storefront. El cliente la accede vía la pestaña
+      // "Mi tarjeta" o por su link wallet directo.
+      const blocks = (data.blocks ?? []).filter((b: any) => b?.type !== 'cards');
+      setSf({ ...data, blocks });
+      if (me?.slug) setTenantSlug(me.slug);
+      if (me?.brandName) setBrandName(me.brandName);
+      if (me?.logoUrl !== undefined) setLogoUrl(me.logoUrl ?? null);
+      setLogoDirty(false);
+    } catch (e: any) {
+      // Antes el catch faltaba — si /storefront fallaba (403 staff,
+      // 500, network), sf quedaba null y la página se quedaba en
+      // "Cargando..." para siempre sin pista. Ahora mostramos el
+      // mensaje del backend y dejamos un botón para reintentar.
+      setLoadErr(e?.message || 'No se pudo cargar la configuración');
+    }
   }
   useEffect(() => {
     load();
@@ -103,6 +114,7 @@ export default function StorefrontEditor() {
           popupEnabled: sf.popupEnabled ?? false,
           popupImageUrl: sf.popupImageUrl ?? null,
           popupCardId: sf.popupCardId ?? null,
+          popupDelaySeconds: sf.popupDelaySeconds ?? 10,
         }),
       });
       if (logoDirty) {
@@ -118,6 +130,18 @@ export default function StorefrontEditor() {
     }
   }
 
+  if (loadErr) {
+    return (
+      <div className="card card-pad max-w-lg mx-auto mt-8 text-center space-y-3">
+        <div className="text-3xl">⚠️</div>
+        <div className="font-semibold">No se pudo cargar la configuración del menú</div>
+        <div className="text-sm text-mute break-words">{loadErr}</div>
+        <button type="button" onClick={load} className="btn-primary">
+          Reintentar
+        </button>
+      </div>
+    );
+  }
   if (!sf) return <div className="text-mute">Cargando…</div>;
 
   return (
@@ -271,6 +295,7 @@ export default function StorefrontEditor() {
             enabled={sf.popupEnabled ?? false}
             imageUrl={sf.popupImageUrl ?? null}
             cardId={sf.popupCardId ?? null}
+            delaySeconds={sf.popupDelaySeconds ?? 10}
             onChange={(patch) => setSf({ ...sf, ...patch })}
           />
 
@@ -653,15 +678,18 @@ function PopupConfig({
   enabled,
   imageUrl,
   cardId,
+  delaySeconds,
   onChange,
 }: {
   enabled: boolean;
   imageUrl: string | null;
   cardId: string | null;
+  delaySeconds: number;
   onChange: (patch: {
     popupEnabled?: boolean;
     popupImageUrl?: string | null;
     popupCardId?: string | null;
+    popupDelaySeconds?: number;
   }) => void;
 }) {
   const [cards, setCards] = useState<{ id: string; name: string; isActive: boolean }[]>([]);
@@ -722,6 +750,32 @@ function PopupConfig({
           />
           <p className="text-[11px] text-mute mt-1.5">
             Vertical funciona mejor (~600×800).
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-[1fr_220px] gap-4 pt-1">
+        <div>
+          <label className="label">¿Cuándo aparece?</label>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              className="input w-24"
+              min={1}
+              max={120}
+              step={1}
+              value={delaySeconds}
+              onChange={(e) => {
+                const v = Math.max(1, Math.min(120, Number(e.target.value) || 10));
+                onChange({ popupDelaySeconds: v });
+              }}
+              disabled={!enabled}
+            />
+            <span className="text-sm text-mute">segundos después de abrir el menú</span>
+          </div>
+          <p className="text-[11px] text-mute mt-1.5 leading-relaxed">
+            Recomendado: 8–15s para dar tiempo a que el cliente vea la
+            primera categoría antes de la interrupción. Mín 1s, máx 120s.
           </p>
         </div>
       </div>

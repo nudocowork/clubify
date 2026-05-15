@@ -30,11 +30,14 @@ function LoginInner() {
     setErr(null);
     setLoading(true);
     try {
-      const data = await api<{ accessToken: string; user: any }>('/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({ email, password }),
-      });
-      setSession(data.accessToken, data.user);
+      const data = await api<{ accessToken: string; refreshToken?: string; user: any }>(
+        '/auth/login',
+        {
+          method: 'POST',
+          body: JSON.stringify({ email, password }),
+        },
+      );
+      setSession(data.accessToken, data.user, { refreshToken: data.refreshToken });
       router.push(
         data.user.role === 'SUPER_ADMIN'
           ? '/admin'
@@ -53,11 +56,11 @@ function LoginInner() {
     setErr(null);
     setLoading(true);
     try {
-      const data = await api<{ accessToken: string; user: any }>(
+      const data = await api<{ accessToken: string; refreshToken?: string; user: any }>(
         '/auth/google',
         { method: 'POST', body: JSON.stringify({ idToken }) },
       );
-      setSession(data.accessToken, data.user);
+      setSession(data.accessToken, data.user, { refreshToken: data.refreshToken });
       router.push(
         data.user.role === 'SUPER_ADMIN'
           ? '/admin'

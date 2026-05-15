@@ -3,9 +3,13 @@ import {
   IsArray,
   IsBoolean,
   IsEnum,
+  IsInt,
   IsObject,
   IsOptional,
   IsString,
+  Max,
+  MaxLength,
+  Min,
   ValidateIf,
 } from 'class-validator';
 import { MenuLayout } from '@prisma/client';
@@ -24,6 +28,13 @@ class StorefrontBody {
   @IsOptional() @IsBoolean() popupEnabled?: boolean;
   @IsOptional() @IsString() popupImageUrl?: string | null;
   @IsOptional() @IsString() popupCardId?: string | null;
+  // Segundos antes de que aparezca el popup. Min 1s, max 120s (2min).
+  @IsOptional() @IsInt() @Min(1) @Max(120) popupDelaySeconds?: number;
+  // Cover de la sección virtual "Recomendados". null = limpiar.
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(200)
+  recommendedTagline?: string | null;
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsObject()
+  recommendedCoverConfig?: Record<string, any> | null;
   @IsOptional() @IsEnum(MenuLayout) menuLayout?: MenuLayout;
   @ValidateIf((_, v) => v !== null) @IsOptional() @IsString()
   customDomain?: string | null;

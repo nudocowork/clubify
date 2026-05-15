@@ -76,6 +76,12 @@ import {
 
 type Props = {
   type: QrPosterType;
+  /** Si está presente, el editor opera en modo "id" — carga/guarda
+   *  contra `/qr-posters/:id` en lugar de `/qr-posters/by-type/:type`.
+   *  Permite tener múltiples carteles del mismo tipo (cada uno con su
+   *  propio diseño). El modo legacy "by-type" sigue existiendo para
+   *  los flows /app/marketing/qr-* y para compat hacia atrás. */
+  posterId?: string;
   /** URL destino del QR. String fijo o función que recibe el `meta`
    *  type-specific (cardId, promoCode, etc) y construye la URL. */
   qrUrl: string | ((meta: Record<string, any>) => string);
@@ -481,11 +487,15 @@ type HistoryState = { history: QrPosterConfig[]; idx: number };
 
 export default function QrPosterEditor({
   type,
+  posterId: posterIdProp,
   qrUrl,
   brandName,
   logoUrl,
   metaSlot,
 }: Props) {
+  // Si hay posterIdProp, el editor opera contra /qr-posters/:id (modo
+  // multi-QR). Sino, contra /qr-posters/by-type/:type (modo legacy).
+  const idMode = !!posterIdProp;
   const [{ history, idx }, setHist] = useState<HistoryState>(() => ({
     history: [defaultConfig(brandName)],
     idx: 0,
@@ -546,8 +556,16 @@ export default function QrPosterEditor({
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    const key = `clubify:qr-poster-draft:${type}`;
-    api<any>(`/qr-posters/by-type/${type}`)
+    // En modo id, el draft local se indexa por id (no por type) para que
+    // editar dos variantes del mismo type no sobrescriba mutuamente sus
+    // backups locales.
+    const key = idMode
+      ? `clubify:qr-poster-draft:id:${posterIdProp}`
+      : `clubify:qr-poster-draft:${type}`;
+    const loadUrl = idMode
+      ? `/qr-posters/${posterIdProp}`
+      : `/qr-posters/by-type/${type}`;
+    api<any>(loadUrl)
       .then((row) => {
         if (cancelled) return;
         const serverCfg = row?.config
@@ -688,7 +706,9 @@ export default function QrPosterEditor({
   useEffect(() => {
     cfgRef.current = cfg;
   }, [cfg]);
-  const localKey = `clubify:qr-poster-draft:${type}`;
+  const localKey = idMode
+    ? `clubify:qr-poster-draft:id:${posterIdProp}`
+    : `clubify:qr-poster-draft:${type}`;
 
   /** Save efectivo al backend. Lee siempre el cfg ACTUAL via cfgRef
    *  (no del closure del render). Idempotente — si no hay cambios
@@ -704,10 +724,15 @@ export default function QrPosterEditor({
     setSaveError(null);
     setAutosaveState('saving');
     try {
-      const row = await api<any>(`/qr-posters/by-type/${type}`, {
-        method: 'PUT',
-        body: JSON.stringify({ name: '', config: currentCfg }),
-      });
+      const row = idMode
+        ? await api<any>(`/qr-posters/${posterIdProp}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ config: currentCfg }),
+          })
+        : await api<any>(`/qr-posters/by-type/${type}`, {
+            method: 'PUT',
+            body: JSON.stringify({ name: '', config: currentCfg }),
+          });
       setPosterId(row.id);
       lastSavedJsonRef.current = json;
       setSavedAt(Date.now());
@@ -772,11 +797,19 @@ export default function QrPosterEditor({
       const currentCfg = cfgRef.current;
       const json = JSON.stringify(currentCfg);
       if (json !== lastSavedJsonRef.current) {
-        api(`/qr-posters/by-type/${type}`, {
-          method: 'PUT',
-          body: JSON.stringify({ name: '', config: currentCfg }),
-          keepalive: true as any,
-        }).catch(() => null);
+        if (idMode) {
+          api(`/qr-posters/${posterIdProp}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ config: currentCfg }),
+            keepalive: true as any,
+          }).catch(() => null);
+        } else {
+          api(`/qr-posters/by-type/${type}`, {
+            method: 'PUT',
+            body: JSON.stringify({ name: '', config: currentCfg }),
+            keepalive: true as any,
+          }).catch(() => null);
+        }
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -784,13 +817,17 @@ export default function QrPosterEditor({
 
   async function reset() {
     if (!confirm('¿Descartar cambios y volver al diseño por defecto?')) return;
-    if (posterId) {
+    // En modo id NO borramos el cartel del backend (sería destructivo
+    // sin warning explícito) — solo reseteamos el config en memoria. La
+    // próxima edición vuelve a guardarlo. Para borrar realmente la
+    // variante, el usuario usa el botón "Eliminar" en /app/marketing.
+    if (!idMode && posterId) {
       try {
         await api(`/qr-posters/by-type/${type}`, { method: 'DELETE' });
       } catch {}
     }
     replaceHistory(defaultConfig(brandName));
-    setPosterId(null);
+    if (!idMode) setPosterId(null);
   }
 
   useEffect(() => {
@@ -1590,6 +1627,12 @@ export default function QrPosterEditor({
         {/* Textos */}
         {(['title', 'subtitle', 'cta', 'brand'] as const).map((key) => (
           <Section key={key} title={LAYER_LABELS[key]} icon="🅣">
+            <LockRow
+              locked={cfg.texts[key].locked === true}
+              onToggle={() =>
+                patchText(key, { locked: !cfg.texts[key].locked })
+              }
+            />
             <AutoResizeTextarea
               value={cfg.texts[key].text}
               onChange={(v) => patchText(key, { text: v })}
@@ -1636,16 +1679,15 @@ export default function QrPosterEditor({
               y={cfg.texts[key].y}
               onChange={(x, y) => patchText(key, { x, y })}
             />
-            <SelectRow
-              label="Alineación"
+            <TextAlignButtons
               value={cfg.texts[key].align}
-              options={[
-                { label: '← Izq.', value: 'left' },
-                { label: '↔ Centro', value: 'center' },
-                { label: 'Der. →', value: 'right' },
-                { label: 'Justif.', value: 'justify' },
-              ]}
-              onChange={(v) => patchText(key, { align: v as any })}
+              onChange={(v) => patchText(key, { align: v })}
+            />
+            <PageAlignButtons
+              layer={cfg.texts[key]}
+              canvasW={cfg.canvas.w}
+              canvasH={cfg.canvas.h}
+              onPatch={(p) => patchText(key, p)}
             />
             <div className="grid grid-cols-2 gap-2">
               <NumberRow
@@ -1687,6 +1729,8 @@ export default function QrPosterEditor({
         {/* Textos libres adicionales */}
         <CustomTextsSection
           texts={cfg.customTexts ?? []}
+          canvasW={cfg.canvas.w}
+          canvasH={cfg.canvas.h}
           onAdd={() => addCustomText()}
           onPatch={patchCustomText}
           onDuplicate={duplicateCustomText}
@@ -1696,52 +1740,11 @@ export default function QrPosterEditor({
         {/* Tamaño de lienzo + DPI */}
         <CanvasSection cfg={cfg} setCfg={setCfg} />
 
-        {/* Logo */}
-        <Section title="Logo del negocio" icon="🏷️">
-          {!logoUrl ? (
-            <div className="text-[11px] text-mute leading-relaxed">
-              Cargá tu logo en{' '}
-              <a href="/app/settings" className="text-brand underline">
-                Configuraciones
-              </a>{' '}
-              para poder usarlo como capa.
-            </div>
-          ) : (
-            <>
-              <button
-                onClick={toggleLogo}
-                className={`w-full text-xs px-2 py-2 rounded-lg border-2 transition ${
-                  cfg.logo
-                    ? 'border-brand bg-brand-soft text-brand-700 font-semibold'
-                    : 'border-line hover:border-mute'
-                }`}
-              >
-                {cfg.logo ? '✓ Logo activo (tocá para quitar)' : '+ Agregar logo'}
-              </button>
-              {cfg.logo && (
-                <>
-                  <NumberRow
-                    label="Tamaño"
-                    value={cfg.logo.size}
-                    min={60}
-                    max={600}
-                    step={10}
-                    onChange={(v) => patchLogo({ size: v })}
-                  />
-                  <PositionRow
-                    x={cfg.logo.x}
-                    y={cfg.logo.y}
-                    onChange={(x, y) => patchLogo({ x, y })}
-                  />
-                  <OpacityRow
-                    value={cfg.logo.opacity ?? 1}
-                    onChange={(v) => patchLogo({ opacity: v })}
-                  />
-                </>
-              )}
-            </>
-          )}
-        </Section>
+        {/* Sección "Logo del negocio" removida — la imagen del logo se
+         *  sube ahora vía la sección "Imágenes" (Section ImagesSection)
+         *  con todos los controles de tamaño/rotación/opacidad/lock.
+         *  El renderer todavía dibuja `cfg.logo` si está seteado en una
+         *  config antigua, manteniendo compat hacia atrás. */}
 
         {/* Formas — re-introducida con tipos extendidos (roundedRect,
             capsule, star, burst, blob) + sticker promocional con texto
@@ -1964,11 +1967,14 @@ export default function QrPosterEditor({
                     }
                     if (id === 'logo') {
                       if (!cfg.logo || !logoImage) return null;
-                      const handlers = makeDragHandlers(
-                        'logo',
-                        { x: cfg.logo.x, y: cfg.logo.y, w: cfg.logo.size, h: cfg.logo.size },
-                        (x, y) => patchLogo({ x, y }),
-                      );
+                      const locked = cfg.logo.locked === true;
+                      const handlers = locked
+                        ? { onDragMove: undefined, onDragEnd: undefined }
+                        : makeDragHandlers(
+                            'logo',
+                            { x: cfg.logo.x, y: cfg.logo.y, w: cfg.logo.size, h: cfg.logo.size },
+                            (x, y) => patchLogo({ x, y }),
+                          );
                       return (
                         <KonvaImage
                           key="logo"
@@ -1979,8 +1985,9 @@ export default function QrPosterEditor({
                           height={cfg.logo.size}
                           opacity={cfg.logo.opacity ?? 1}
                           rotation={cfg.logo.rotation ?? 0}
-                          draggable
-                          {...handlers}
+                          draggable={!locked}
+                          listening={!locked}
+                          {...(handlers as any)}
                         />
                       );
                     }
@@ -1999,25 +2006,28 @@ export default function QrPosterEditor({
                       // al borde de la caja invisible y no al centro
                       // óptico del texto.
                       const visualBox = estimateTextBox(t, cfg.canvas.w);
-                      const handlers = makeDragHandlers(
-                        `text.${key}`,
-                        visualBox,
-                        (newVisualX, newVisualY) => {
-                          // Convertimos delta visual → delta del anclaje
-                          // (t.x). Si la alineación es center/right
-                          // sin boxWidth, el render X queda fijo en 0
-                          // pero el visualX dependía del texto — solo
-                          // movemos Y. Si tiene boxWidth, el render X
-                          // sí cambia con el drag.
-                          const deltaX = newVisualX - visualBox.x;
-                          const deltaY = newVisualY - visualBox.y;
-                          const canMoveX = t.boxWidth != null || t.align === 'left';
-                          patchText(key, {
-                            x: canMoveX ? t.x + deltaX : t.x,
-                            y: t.y + deltaY,
-                          });
-                        },
-                      );
+                      const handlers = t.locked
+                        ? { onDragMove: undefined, onDragEnd: undefined }
+                        : makeDragHandlers(
+                            `text.${key}`,
+                            visualBox,
+                            (newVisualX, newVisualY) => {
+                              // Convertimos delta visual → delta del anclaje
+                              // (t.x). Si la alineación es center/right
+                              // sin boxWidth, el render X queda fijo en 0
+                              // pero el visualX dependía del texto — solo
+                              // movemos Y. Si tiene boxWidth, el render X
+                              // sí cambia con el drag.
+                              const deltaX = newVisualX - visualBox.x;
+                              const deltaY = newVisualY - visualBox.y;
+                              const canMoveX =
+                                t.boxWidth != null || t.align === 'left';
+                              patchText(key, {
+                                x: canMoveX ? t.x + deltaX : t.x,
+                                y: t.y + deltaY,
+                              });
+                            },
+                          );
                       return (
                         <Text
                           key={id}
@@ -2039,8 +2049,9 @@ export default function QrPosterEditor({
                           shadowOffsetX={t.shadow?.offsetX ?? 0}
                           shadowOffsetY={t.shadow?.offsetY ?? 0}
                           shadowOpacity={t.shadow?.opacity ?? (t.shadow ? 1 : 0)}
-                          draggable
-                          {...handlers}
+                          draggable={!t.locked}
+                          listening={!t.locked}
+                          {...(handlers as any)}
                         />
                       );
                     }
@@ -2111,11 +2122,14 @@ export default function QrPosterEditor({
                       const iid = id.slice(5);
                       const i = cfg.icons?.find((ic) => ic.id === iid);
                       if (!i) return null;
-                      const handlers = makeDragHandlers(
-                        `icon.${iid}`,
-                        { x: i.x, y: i.y, w: i.size, h: i.size },
-                        (x, y) => patchIcon(iid, { x, y }),
-                      );
+                      const locked = i.locked === true;
+                      const handlers = locked
+                        ? { onDragMove: undefined, onDragEnd: undefined }
+                        : makeDragHandlers(
+                            `icon.${iid}`,
+                            { x: i.x, y: i.y, w: i.size, h: i.size },
+                            (x, y) => patchIcon(iid, { x, y }),
+                          );
                       return (
                         <Text
                           key={id}
@@ -2125,8 +2139,9 @@ export default function QrPosterEditor({
                           fontSize={i.size}
                           opacity={i.opacity ?? 1}
                           rotation={i.rotation ?? 0}
-                          draggable
-                          {...handlers}
+                          draggable={!locked}
+                          listening={!locked}
+                          {...(handlers as any)}
                         />
                       );
                     }
@@ -2240,6 +2255,198 @@ export default function QrPosterEditor({
 }
 
 // ────────── helpers UI ────────── //
+
+/** Botón candado reutilizable. Cuando una capa está bloqueada, el editor
+ *  desactiva drag/listening en el canvas — el cliente sigue editándola
+ *  desde el sidebar pero ya no se mueve por accidente. */
+function LockButton({
+  locked,
+  onToggle,
+  className = '',
+}: {
+  locked: boolean;
+  onToggle: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={`text-mute hover:text-ink text-xs px-1 ${className}`}
+      title={locked ? 'Desbloquear (permitir mover)' : 'Bloquear (fijar posición)'}
+      aria-label={locked ? 'Desbloquear' : 'Bloquear'}
+    >
+      {locked ? '🔒' : '🔓'}
+    </button>
+  );
+}
+
+/** Fila inline para bloquear/desbloquear una capa singleton (logo, texto
+ *  fijo). Se renderiza adentro del Section content. */
+function LockRow({
+  locked,
+  onToggle,
+}: {
+  locked: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2 bg-bg2/40 rounded px-2 py-1.5">
+      <span className="text-[11px] text-mute">
+        {locked ? 'Bloqueado: no se mueve al arrastrar' : 'Editable: se puede mover'}
+      </span>
+      <button
+        type="button"
+        onClick={onToggle}
+        className={`text-xs px-2 py-1 rounded-lg border-2 transition ${
+          locked
+            ? 'border-brand bg-brand-soft text-brand-700 font-semibold'
+            : 'border-line hover:border-mute'
+        }`}
+        title={locked ? 'Tocá para permitir mover' : 'Tocá para fijar posición'}
+      >
+        {locked ? '🔒 Bloqueado' : '🔓 Bloquear'}
+      </button>
+    </div>
+  );
+}
+
+/** Botones visibles para alinear el TEXTO dentro de su caja. Reemplaza
+ *  el dropdown — más obvio y consistente con Canva/Figma. Maneja
+ *  TextLayer y CustomTextLayer (mismos campos relevantes). */
+function TextAlignButtons({
+  value,
+  onChange,
+}: {
+  value: TextLayer['align'];
+  onChange: (v: TextLayer['align']) => void;
+}) {
+  const opts: { v: TextLayer['align']; icon: string; title: string }[] = [
+    { v: 'left', icon: '⯇', title: 'Alinear texto a la izquierda' },
+    { v: 'center', icon: '≡', title: 'Centrar texto' },
+    { v: 'right', icon: '⯈', title: 'Alinear texto a la derecha' },
+    { v: 'justify', icon: '☰', title: 'Justificar texto' },
+  ];
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1">
+        Alineación del texto
+      </div>
+      <div className="grid grid-cols-4 gap-1">
+        {opts.map((o) => (
+          <button
+            key={o.v}
+            type="button"
+            onClick={() => onChange(o.v)}
+            className={`text-sm py-1.5 rounded-lg border-2 transition ${
+              value === o.v
+                ? 'border-brand bg-brand-soft text-brand-700 font-semibold'
+                : 'border-line hover:border-mute'
+            }`}
+            title={o.title}
+          >
+            {o.icon}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Botones que alinean la posición de un texto al lienzo (página). Pega
+ *  el texto a borde izq/der/sup/inf o lo centra exactamente. Para textos
+ *  sin boxWidth, hori se mapea al `align` (la caja ocupa todo el ancho
+ *  del canvas, así que mover x no cambia nada — lo que sí cambia es la
+ *  alineación interna). */
+function PageAlignButtons<T extends TextLayer>({
+  layer,
+  canvasW,
+  canvasH,
+  onPatch,
+}: {
+  layer: T;
+  canvasW: number;
+  canvasH: number;
+  onPatch: (patch: Partial<T>) => void;
+}) {
+  const PAD = 40;
+  function alignH(side: 'left' | 'center' | 'right'): Partial<T> {
+    if (layer.boxWidth != null) {
+      const bw = layer.boxWidth;
+      if (side === 'left') return { x: PAD } as Partial<T>;
+      if (side === 'right') return { x: Math.max(PAD, canvasW - bw - PAD) } as Partial<T>;
+      return { x: Math.round((canvasW - bw) / 2) } as Partial<T>;
+    }
+    return { align: side } as Partial<T>;
+  }
+  function alignV(side: 'top' | 'middle' | 'bottom'): Partial<T> {
+    const lines = (layer.text || ' ').split('\n').length;
+    const totalH = Math.round(lines * layer.size * (layer.lineHeight ?? 1.2));
+    if (side === 'top') return { y: PAD } as Partial<T>;
+    if (side === 'bottom')
+      return { y: Math.max(PAD, canvasH - totalH - PAD) } as Partial<T>;
+    return { y: Math.max(0, Math.round((canvasH - totalH) / 2)) } as Partial<T>;
+  }
+  return (
+    <div className="space-y-1.5">
+      <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
+        Alinear en la página
+      </div>
+      <div className="grid grid-cols-3 gap-1.5">
+        <button
+          type="button"
+          onClick={() => onPatch(alignH('left'))}
+          className="btn-ghost text-[10px] py-1.5"
+          title="Pegar al borde izquierdo del lienzo"
+        >
+          ⇤ Izq.
+        </button>
+        <button
+          type="button"
+          onClick={() => onPatch(alignH('center'))}
+          className="btn-ghost text-[10px] py-1.5"
+          title="Centrar horizontalmente en el lienzo"
+        >
+          ↔ Centro
+        </button>
+        <button
+          type="button"
+          onClick={() => onPatch(alignH('right'))}
+          className="btn-ghost text-[10px] py-1.5"
+          title="Pegar al borde derecho del lienzo"
+        >
+          Der. ⇥
+        </button>
+      </div>
+      <div className="grid grid-cols-3 gap-1.5">
+        <button
+          type="button"
+          onClick={() => onPatch(alignV('top'))}
+          className="btn-ghost text-[10px] py-1.5"
+          title="Pegar al borde superior del lienzo"
+        >
+          ⇡ Arriba
+        </button>
+        <button
+          type="button"
+          onClick={() => onPatch(alignV('middle'))}
+          className="btn-ghost text-[10px] py-1.5"
+          title="Centrar verticalmente en el lienzo"
+        >
+          ↕ Medio
+        </button>
+        <button
+          type="button"
+          onClick={() => onPatch(alignV('bottom'))}
+          className="btn-ghost text-[10px] py-1.5"
+          title="Pegar al borde inferior del lienzo"
+        >
+          ⇣ Abajo
+        </button>
+      </div>
+    </div>
+  );
+}
 
 const LAYER_LABELS: Record<keyof QrPosterConfig['texts'], string> = {
   title: 'Título',
@@ -3542,6 +3749,7 @@ function ShapeView({
   // offsetX/Y = (w/2, h/2). Las coords internas siguen siendo top-left
   // (shape draws at 0,0 to w,h). Rotation aplicada al Group rota TODO
   // (shape + innerText juntos) pivoteando desde el centro visual.
+  const locked = s.locked === true;
   return (
     <Group
       x={s.x + s.w / 2}
@@ -3549,9 +3757,10 @@ function ShapeView({
       offsetX={s.w / 2}
       offsetY={s.h / 2}
       rotation={s.rotation ?? 0}
-      draggable
-      onDragMove={onDragMove}
-      onDragEnd={onDragEnd}
+      draggable={!locked}
+      listening={!locked}
+      onDragMove={locked ? undefined : onDragMove}
+      onDragEnd={locked ? undefined : onDragEnd}
     >
       {shapeNode}
       {textNode}
@@ -3633,6 +3842,7 @@ function ImageLayerView({
   const img = useImageFromUrl(layer.url);
   if (!img) return null;
   const rotation = layer.rotation ?? 0;
+  const locked = layer.locked === true;
   const cropProp = layer.crop
     ? {
         x: layer.crop.x,
@@ -3647,43 +3857,49 @@ function ImageLayerView({
   // pivote desde el centro (estándar Canva/Figma).
   // x/y representan dónde queda el PIVOTE; el render arranca en
   // (x - offsetX, y - offsetY) = top-left original (layer.x, layer.y).
-  const handlers = makeHandlers(
-    { x: layer.x, y: layer.y, w: layer.w, h: layer.h },
-    onMove,
-  );
+  const handlers = locked
+    ? { onDragMove: undefined as any, onDragEnd: undefined as any }
+    : makeHandlers(
+        { x: layer.x, y: layer.y, w: layer.w, h: layer.h },
+        onMove,
+      );
 
   // Drag handlers ajustados: como x/y son centro (cuando hay offset),
   // convertimos a/desde top-left para mantener compatibilidad con
   // gatherSnapTargets (que usa top-left).
-  const wrappedHandlers = {
-    onDragMove: (e: any) => {
-      const node = e.target;
-      const tlX = node.x() - layer.w / 2;
-      const tlY = node.y() - layer.h / 2;
-      // Shim que expone x()/y() como top-left para que el handler
-      // original calcule snap correctamente, y aplique el snap al
-      // node real (centro).
-      const shim = {
-        target: {
-          x: (v?: number) => {
-            if (v !== undefined) node.x(v + layer.w / 2);
-            return tlX;
-          },
-          y: (v?: number) => {
-            if (v !== undefined) node.y(v + layer.h / 2);
-            return tlY;
-          },
+  const wrappedHandlers = locked
+    ? { onDragMove: undefined, onDragEnd: undefined }
+    : {
+        onDragMove: (e: any) => {
+          const node = e.target;
+          const tlX = node.x() - layer.w / 2;
+          const tlY = node.y() - layer.h / 2;
+          const shim = {
+            target: {
+              x: (v?: number) => {
+                if (v !== undefined) node.x(v + layer.w / 2);
+                return tlX;
+              },
+              y: (v?: number) => {
+                if (v !== undefined) node.y(v + layer.h / 2);
+                return tlY;
+              },
+            },
+          };
+          handlers.onDragMove(shim as any);
+        },
+        onDragEnd: (e: any) => {
+          // El node.x()/y() es el CENTRO (por offsetX/Y); convertimos a
+          // top-left para persistir y para que el handler original llame
+          // onUpdate(tlX, tlY) en vez de onUpdate(0,0) — bug histórico
+          // que tiraba la imagen a la esquina al soltar el drag.
+          const tlX = e.target.x() - layer.w / 2;
+          const tlY = e.target.y() - layer.h / 2;
+          handlers.onDragEnd({
+            target: { x: () => tlX, y: () => tlY },
+          } as any);
         },
       };
-      handlers.onDragMove(shim as any);
-    },
-    onDragEnd: (e: any) => {
-      onMove(e.target.x() - layer.w / 2, e.target.y() - layer.h / 2);
-      // El handler original llama setGuides([]) — invocamos sin que
-      // necesite leer x()/y() (ya las consumimos arriba).
-      handlers.onDragEnd({ target: { x: () => 0, y: () => 0 } } as any);
-    },
-  };
 
   return (
     <KonvaImage
@@ -3697,8 +3913,9 @@ function ImageLayerView({
       opacity={layer.opacity ?? 1}
       rotation={rotation}
       crop={cropProp}
-      draggable
-      {...wrappedHandlers}
+      draggable={!locked}
+      listening={!locked}
+      {...(wrappedHandlers as any)}
     />
   );
 }
@@ -3905,7 +4122,14 @@ function ImagesSection({
                   alt=""
                   className="w-8 h-8 object-cover rounded border border-line"
                 />
-                <span className="text-xs flex-1 truncate">Imagen</span>
+                <span className="text-xs flex-1 truncate">
+                  Imagen
+                  {im.locked ? <span className="text-mute"> · 🔒</span> : null}
+                </span>
+                <LockButton
+                  locked={im.locked === true}
+                  onToggle={() => onPatch(im.id, { locked: !im.locked })}
+                />
                 <button
                   onClick={() => onRemove(im.id)}
                   className="text-mute hover:text-red-500 text-xs"
@@ -4590,8 +4814,16 @@ function ShapesSection({
                     className="flex-1 text-left text-xs font-semibold truncate"
                   >
                     <span className="text-mute mr-1">{open ? '▾' : '▸'}</span>
-                    {label} {s.innerText?.text ? `· "${s.innerText.text.split('\n')[0]}"` : ''}
+                    {label}
+                    {s.innerText?.text
+                      ? ` · "${s.innerText.text.split('\n')[0]}"`
+                      : ''}
+                    {s.locked ? <span className="text-mute"> · 🔒</span> : null}
                   </button>
+                  <LockButton
+                    locked={s.locked === true}
+                    onToggle={() => onPatch(s.id, { locked: !s.locked })}
+                  />
                   <button
                     onClick={() => onDuplicate(s.id)}
                     className="text-mute hover:text-ink text-xs px-1"
@@ -4940,12 +5172,16 @@ function ShapeInnerTextEditor({
 
 function CustomTextsSection({
   texts,
+  canvasW,
+  canvasH,
   onAdd,
   onPatch,
   onDuplicate,
   onRemove,
 }: {
   texts: CustomTextLayer[];
+  canvasW: number;
+  canvasH: number;
   onAdd: () => void;
   onPatch: (id: string, patch: Partial<CustomTextLayer>) => void;
   onDuplicate: (id: string) => void;
@@ -5068,16 +5304,15 @@ function CustomTextsSection({
                     onPatch(t.id, { boxWidth: v > 0 ? v : null })
                   }
                 />
-                <SelectRow
-                  label="Alineación"
+                <TextAlignButtons
                   value={t.align}
-                  options={[
-                    { label: '← Izq.', value: 'left' },
-                    { label: '↔ Centro', value: 'center' },
-                    { label: 'Der. →', value: 'right' },
-                    { label: 'Justif.', value: 'justify' },
-                  ]}
-                  onChange={(v) => onPatch(t.id, { align: v as any })}
+                  onChange={(v) => onPatch(t.id, { align: v })}
+                />
+                <PageAlignButtons
+                  layer={t}
+                  canvasW={canvasW}
+                  canvasH={canvasH}
+                  onPatch={(p) => onPatch(t.id, p)}
                 />
                 <div className="grid grid-cols-2 gap-1.5">
                   <NumberRow
@@ -5219,6 +5454,10 @@ function EmojisSection({
                 onChange={(e) => onPatch(i.id, { opacity: Number(e.target.value) })}
                 className="flex-1 accent-brand"
                 title="Opacidad"
+              />
+              <LockButton
+                locked={i.locked === true}
+                onToggle={() => onPatch(i.id, { locked: !i.locked })}
               />
               <button
                 onClick={() => onRemove(i.id)}

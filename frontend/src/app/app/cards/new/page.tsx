@@ -17,13 +17,13 @@ import {
 } from '@/lib/card-templates';
 
 // Tipos expuestos en el wizard. CASHBACK/VISITS/HYBRID/MEMBERSHIP/
-// DISCOUNT/GIFT/COUPON quedaron ocultos temporalmente per pedido del
-// dueño — solo se ofrecen Sellos y Puntos hasta que cada experiencia
-// funcional esté pulida. El backend sigue soportando los tipos
-// ocultos (cards viejas creadas antes siguen renderizando + escaneando
-// normalmente). Para reactivar uno, agregalo a esta lista — el resto
-// del flujo ya está preparado (ver lib/card-templates → CardType).
-const ALL_TYPES: CardType[] = ['STAMPS', 'POINTS'];
+// POINTS/GIFT quedaron ocultos temporalmente per pedido del dueño —
+// solo se ofrecen Sellos, Descuento y Cupón hasta que cada experiencia
+// esté pulida. El backend sigue soportando los tipos ocultos (cards
+// viejas creadas antes siguen renderizando + escaneando normalmente).
+// Para reactivar uno, agregalo a esta lista — el resto del flujo ya
+// está preparado (ver lib/card-templates → CardType).
+const ALL_TYPES: CardType[] = ['STAMPS', 'DISCOUNT', 'COUPON'];
 
 type Step = 1 | 2 | 3 | 4 | 5;
 

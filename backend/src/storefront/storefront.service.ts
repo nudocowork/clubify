@@ -13,6 +13,9 @@ export type StorefrontDto = {
   popupEnabled?: boolean;
   popupImageUrl?: string | null;
   popupCardId?: string | null;
+  popupDelaySeconds?: number;
+  recommendedTagline?: string | null;
+  recommendedCoverConfig?: Record<string, any> | null;
   menuLayout?: MenuLayout;
   customDomain?: string | null;
 };
@@ -75,6 +78,13 @@ export class StorefrontService {
         popupEnabled: dto.popupEnabled ?? undefined,
         popupImageUrl: dto.popupImageUrl !== undefined ? dto.popupImageUrl : undefined,
         popupCardId: dto.popupCardId !== undefined ? dto.popupCardId : undefined,
+        popupDelaySeconds: dto.popupDelaySeconds ?? undefined,
+        recommendedTagline:
+          dto.recommendedTagline === undefined ? undefined : dto.recommendedTagline,
+        recommendedCoverConfig:
+          dto.recommendedCoverConfig === undefined
+            ? undefined
+            : (dto.recommendedCoverConfig as any),
         menuLayout: dto.menuLayout ?? undefined,
         customDomain: dto.customDomain === undefined ? undefined : customDomain,
       },
