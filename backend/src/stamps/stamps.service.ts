@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma, StampAction } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
@@ -7,6 +7,7 @@ import { QueueService } from '../jobs/queue.service';
 import { computePassExpiry } from '../cards/expiry.util';
 import { GamificationService } from '../badges/gamification.service';
 import { AutomationsService } from '../automations/automations.service';
+import { PassesService } from '../passes/passes.service';
 
 export type StampDto = {
   passId: string;
@@ -28,12 +29,15 @@ const MIN_SECONDS_BETWEEN_STAMPS = 30;
 
 @Injectable()
 export class StampsService {
+  private readonly logger = new Logger(StampsService.name);
+
   constructor(
     private prisma: PrismaService,
     private wallet: WalletService,
     private jobs: QueueService,
     private gamification: GamificationService,
     private automations: AutomationsService,
+    private passes: PassesService,
   ) {}
 
   async record(user: AuthUser, dto: StampDto) {
@@ -152,6 +156,15 @@ export class StampsService {
           const required = pass.card.visitsRequired ?? 10;
           if (pass.visitsCount < required) throw new BadRequestException('Not enough visits to redeem');
           newVisits = pass.visitsCount - required;
+        } else if (pass.card.type === 'COUPON') {
+          // COUPON es single-use: al redimir, el pass queda COMPLETED y
+          // no se vuelve a poder redimir. La transformación a stamps
+          // card se hace después de la transacción (auto-promote).
+          if (pass.status === 'COMPLETED') {
+            throw new BadRequestException(
+              'Este cupón ya fue redimido. No se puede usar de nuevo.',
+            );
+          }
         }
         break;
       case 'REFUND':
@@ -206,7 +219,9 @@ export class StampsService {
     const visitsReq = pass.card.visitsRequired ?? Number.MAX_SAFE_INTEGER;
     const completed =
       (pass.card.type === 'STAMPS' && newStamps >= required) ||
-      (pass.card.type === 'VISITS' && newVisits >= visitsReq);
+      (pass.card.type === 'VISITS' && newVisits >= visitsReq) ||
+      // COUPON al REDEEM queda COMPLETED inmediatamente (single-use).
+      (pass.card.type === 'COUPON' && dto.action === 'REDEEM');
 
     const [stamp, updatedPass] = await this.prisma.$transaction([
       this.prisma.stamp.create({
@@ -361,7 +376,64 @@ export class StampsService {
         .catch(() => null);
     }
 
-    return { stamp, pass: updatedPass };
+    // Auto-promote: si se redimió un COUPON, el cliente arranca su
+    // fidelización automáticamente — le creamos una stamps card pass.
+    // No bloqueamos la respuesta del scanner: si la promoción falla
+    // (no hay stamps card configurada, error de Prisma, etc), el
+    // REDEEM del cupón ya quedó persistido y devolvemos el resultado.
+    let promotedPass: any = null;
+    if (dto.action === 'REDEEM' && pass.card.type === 'COUPON') {
+      promotedPass = await this.autoPromoteCouponToStamps(
+        user,
+        pass.tenantId,
+        pass.customerId,
+        pass.cardId,
+      ).catch((e) => {
+        this.logger.warn(
+          `Auto-promote falló para pass ${pass.id}: ${e?.message ?? e}`,
+        );
+        return null;
+      });
+    }
+
+    return { stamp, pass: updatedPass, promotedPass };
+  }
+
+  /** Busca la stamps card "principal" del tenant y emite una nueva
+   *  Pass para el cliente. Si no hay stamps card activa, devuelve
+   *  null sin error (el frontend lo maneja con un mensaje neutro).
+   *
+   *  Estrategia de selección:
+   *  - Si la card COUPON tiene `autoPromoteToCardId` seteado (futuro
+   *    campo) → usar esa. Por ahora no existe → fallback a auto.
+   *  - Auto: primera card STAMPS activa del tenant ordenada por
+   *    createdAt ascendente (la más vieja, asumida como "principal").
+   */
+  private async autoPromoteCouponToStamps(
+    user: AuthUser,
+    tenantId: string,
+    customerId: string,
+    sourceCouponCardId: string,
+  ): Promise<any> {
+    const stampsCard = await this.prisma.card.findFirst({
+      where: { tenantId, type: 'STAMPS', isActive: true },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+    if (!stampsCard) {
+      this.logger.log(
+        `Tenant ${tenantId} no tiene stamps card activa — skip auto-promote del cupón ${sourceCouponCardId}`,
+      );
+      return null;
+    }
+    // passes.issue() es idempotente: si el customer ya tiene un pass
+    // en esa card (porque ya estaba fidelizado antes del cupón),
+    // devuelve el existente sin duplicar.
+    const newPass = await this.passes.issue(user, stampsCard.id, customerId);
+    this.logger.log(
+      `Auto-promote OK: customer ${customerId} → stamps pass ${newPass.id}`,
+    );
+    return newPass;
   }
 
   history(user: AuthUser, passId: string) {
