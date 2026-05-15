@@ -349,7 +349,20 @@ export class WalletService {
         changeMessage: 'Nuevo nivel: %@',
       };
     }
-    // STAMPS / HYBRID / DISCOUNT / GIFT / COUPON / MULTI: comportamiento clásico de sellos.
+    // COUPON: single-use. El header muestra el estado del cupón, no
+    // sellos. DISPONIBLE = todavía no se redimió; REDIMIDO = ya se usó
+    // (status COMPLETED). El operador escanea el QR → REDEEM → auto-
+    // promote a stamps card.
+    if (t === 'COUPON') {
+      const redeemed = pass.status === 'COMPLETED';
+      return {
+        key: 'coupon',
+        label: 'CUPÓN',
+        value: redeemed ? 'REDIMIDO' : 'DISPONIBLE',
+        changeMessage: 'Cupón: %@',
+      };
+    }
+    // STAMPS / HYBRID / DISCOUNT / GIFT / MULTI: comportamiento clásico de sellos.
     return {
       key: 'stamps',
       label: 'SELLOS',

@@ -84,6 +84,15 @@ export class GoogleWalletService {
         label: 'Descuento',
       };
     }
+    // COUPON single-use: balance es el estado del cupón.
+    // DISPONIBLE antes del REDEEM, REDIMIDO después.
+    if (t === 'COUPON') {
+      const redeemed = pass.status === 'COMPLETED';
+      return {
+        balance: { string: redeemed ? 'REDIMIDO' : 'DISPONIBLE' },
+        label: 'Cupón',
+      };
+    }
     return {
       balance: { string: `${pass.stampsCount}/${pass.card.stampsRequired ?? 10}` },
       label: 'Sellos',
