@@ -4,20 +4,12 @@
 
 const CARDS = [
   { type: 'STAMPS', label: 'Sellos', name: 'Café del Día · 10 sellos', reward: '1 café gratis', stamped: 3, total: 10, passes: 248, color: '#22C55E', accent: '#4ADE80' },
-  { type: 'POINTS', label: 'Puntos', name: 'NudoCowork Points', reward: '500 pts = $20.000', balance: 320, passes: 87, color: '#0EA5E9', accent: '#06B6D4' },
-  { type: 'DISCOUNT', label: 'Descuento', name: 'VIP Verano', reward: '15% en todo', passes: 42, color: '#F59E0B', accent: '#EC4899' },
-  { type: 'MEMBERSHIP', label: 'Membresía', name: 'Black Card Anual', reward: 'Acceso ilimitado', passes: 18, color: '#0F172A', accent: '#475569' },
   { type: 'COUPON', label: 'Cupón', name: 'Bienvenida 2x1', reward: 'Al primer pedido', passes: 156, color: '#10B981', accent: '#22C55E' },
-  { type: 'GIFT', label: 'Regalo', name: 'Cumpleañeros', reward: 'Postre del mes', passes: 73, color: '#EC4899', accent: '#F97316' },
 ];
 
 const TYPE_EMOJI: Record<string, string> = {
   STAMPS: '☕',
-  POINTS: '⭐',
-  DISCOUNT: '%',
-  MEMBERSHIP: '👑',
   COUPON: '🎟',
-  GIFT: '🎁',
 };
 
 function Section({

@@ -67,20 +67,6 @@ export const CARD_TEMPLATES: CardTemplate[] = [
       stampsRequired: 8,
     },
   },
-  {
-    id: 'cafe-discount-vip',
-    categorySlug: 'coffee_shop',
-    type: 'DISCOUNT',
-    displayName: 'Cafetería VIP — 10% descuento',
-    defaults: {
-      name: 'Club VIP cafetería',
-      rewardText: '10% en toda la barra',
-      primaryColor: '#A0522D',
-      secondaryColor: '#5D2E0E',
-      discountPercent: 10,
-    },
-  },
-
   // ─── Restaurante ───
   {
     id: 'restaurant-10-platos',
@@ -173,20 +159,6 @@ export const CARD_TEMPLATES: CardTemplate[] = [
       stampsRequired: 8,
     },
   },
-  {
-    id: 'bar-happy-hour',
-    categorySlug: 'bar',
-    type: 'DISCOUNT',
-    displayName: 'Happy Hour — 20% off bebidas',
-    defaults: {
-      name: 'Happy Hour 20%',
-      rewardText: '20% en bebidas hasta las 8pm',
-      primaryColor: '#7C3AED',
-      secondaryColor: '#4C1D95',
-      discountPercent: 20,
-    },
-  },
-
   // ─── Barbería ───
   {
     id: 'barber-5-cortes',
@@ -218,20 +190,6 @@ export const CARD_TEMPLATES: CardTemplate[] = [
   },
 
   // ─── Belleza ───
-  {
-    id: 'beauty-discount',
-    categorySlug: 'beauty_salon',
-    type: 'DISCOUNT',
-    displayName: 'Belleza — 10% en manicure',
-    defaults: {
-      name: 'Cliente VIP belleza',
-      rewardText: '10% en manicure y pedicure',
-      primaryColor: '#F472B6',
-      secondaryColor: '#BE185D',
-      discountPercent: 10,
-    },
-  },
-
   // ─── Spa ───
   {
     id: 'spa-5-sesiones',
@@ -326,21 +284,6 @@ export const CARD_TEMPLATES: CardTemplate[] = [
     },
   },
 
-  // ─── Tienda de ropa ───
-  {
-    id: 'clothing-discount-vip',
-    categorySlug: 'clothing_store',
-    type: 'DISCOUNT',
-    displayName: 'Tienda — Cliente VIP 15%',
-    defaults: {
-      name: 'Cliente VIP — 15% descuento',
-      rewardText: '15% en toda la tienda',
-      primaryColor: '#7C3AED',
-      secondaryColor: '#4C1D95',
-      discountPercent: 15,
-    },
-  },
-
   // ─── Zapatería ───
   {
     id: 'shoe-5-stamps',
@@ -401,21 +344,6 @@ export const CARD_TEMPLATES: CardTemplate[] = [
     },
   },
 
-  // ─── Clínica dental ───
-  {
-    id: 'dental-discount',
-    categorySlug: 'dental_clinic',
-    type: 'DISCOUNT',
-    displayName: 'Clínica dental — 10% limpieza',
-    defaults: {
-      name: '10% en limpieza dental',
-      rewardText: '10% descuento en limpieza',
-      primaryColor: '#06B6D4',
-      secondaryColor: '#155E75',
-      discountPercent: 10,
-    },
-  },
-
   // ─── Mecánica ───
   {
     id: 'mechanic-coupon',
@@ -458,20 +386,6 @@ export const CARD_TEMPLATES: CardTemplate[] = [
       pointsPerCurrency: 0.01,
     },
   },
-  {
-    id: 'generic-discount',
-    categorySlug: 'other',
-    type: 'DISCOUNT',
-    displayName: 'Genérica — 10% off cliente VIP',
-    defaults: {
-      name: 'Cliente VIP — 10% off',
-      rewardText: '10% en toda la tienda',
-      primaryColor: '#F59E0B',
-      secondaryColor: '#B45309',
-      discountPercent: 10,
-    },
-  },
-
   // ─── Cashback (genéricas) ───
   {
     id: 'generic-cashback-5',

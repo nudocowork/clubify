@@ -16,14 +16,17 @@ import {
   type CardTemplate,
 } from '@/lib/card-templates';
 
-// Tipos expuestos en el wizard. CASHBACK/VISITS/HYBRID/MEMBERSHIP/
-// POINTS/GIFT quedaron ocultos temporalmente per pedido del dueño —
-// solo se ofrecen Sellos, Descuento y Cupón hasta que cada experiencia
-// esté pulida. El backend sigue soportando los tipos ocultos (cards
-// viejas creadas antes siguen renderizando + escaneando normalmente).
-// Para reactivar uno, agregalo a esta lista — el resto del flujo ya
-// está preparado (ver lib/card-templates → CardType).
-const ALL_TYPES: CardType[] = ['STAMPS', 'DISCOUNT', 'COUPON'];
+// Sistema oficial Clubify: SOLO 2 tipos de tarjetas — STAMPS (fidelización
+// por sellos) + COUPON (beneficio de bienvenida, single-use). El resto de
+// tipos (DISCOUNT, CASHBACK, VISITS, HYBRID, MEMBERSHIP, POINTS, GIFT) están
+// deprecados pero el backend los sigue soportando para cards existentes
+// (legacy passes siguen renderizando + escaneando). Para reactivar alguno
+// el resto del flujo ya está preparado (ver lib/card-templates → CardType).
+//
+// DISCOUNT: eliminado del wizard porque generaba inconsistencias (el wallet
+// lo mostraba como sellos pero el REDEEM era no-op). El flow correcto ahora
+// es COUPON → al redimirse, auto-genera una stamps card (ver Fase 2-4).
+const ALL_TYPES: CardType[] = ['STAMPS', 'COUPON'];
 
 type Step = 1 | 2 | 3 | 4 | 5;
 
@@ -636,19 +639,8 @@ function Step3Configure({
             </div>
           </>
         )}
-        {form.type === 'DISCOUNT' && (
-          <div className="mt-3">
-            <label className="label">% descuento</label>
-            <input
-              type="number"
-              className="input"
-              min={1}
-              max={100}
-              value={form.discountPercent}
-              onChange={(e) => set('discountPercent', Number(e.target.value))}
-            />
-          </div>
-        )}
+        {/* DISCOUNT branch removido — el wizard ya no ofrece DISCOUNT.
+            Cards DISCOUNT existentes se editan desde /app/cards/[id]. */}
         {form.type === 'POINTS' && (
           <div className="mt-3">
             <label className="label">Puntos por cada $1.000 de compra</label>
