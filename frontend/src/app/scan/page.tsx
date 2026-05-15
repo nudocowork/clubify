@@ -433,15 +433,51 @@ export default function ScanPage() {
                 </div>
 
                 {/* Mensaje post-redención: aparece cuando el backend acaba de
-                    auto-crear la stamps card (promotedPass). */}
+                    auto-crear la stamps card (promotedPass). Mostramos el link
+                    al nuevo pass de sellos + botones de compartir para que el
+                    operador se lo pueda pasar al cliente al toque. */}
                 {data.promotedPass && (
-                  <div className="mt-3 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-sm leading-relaxed">
-                    <div className="font-semibold mb-1">
-                      ✓ Cupón redimido correctamente
+                  <div className="mt-3 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-sm leading-relaxed">
+                    <div className="font-semibold mb-1 text-base">
+                      ✓ Cupón redimido — Tarjeta de sellos creada
                     </div>
-                    <div className="text-xs text-emerald-800/80">
-                      Se creó automáticamente la tarjeta de sellos del
-                      cliente para que arranque su fidelización.
+                    <div className="text-xs text-emerald-800/80 mb-3">
+                      Pasale este link al cliente para que la agregue a
+                      su wallet y empiece a sumar sellos:
+                    </div>
+                    <div className="bg-white rounded-lg p-2.5 mb-3 font-mono text-[11px] break-all text-emerald-900 border border-emerald-200">
+                      {`https://soyclubify.com/p/${data.promotedPass.id}`}
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const url = `https://soyclubify.com/p/${data.promotedPass.id}`;
+                          navigator.clipboard?.writeText(url);
+                          alert('Link copiado');
+                        }}
+                        className="btn-ghost justify-center py-2 text-xs"
+                      >
+                        📋 Copiar
+                      </button>
+                      <a
+                        href={`https://wa.me/?text=${encodeURIComponent(
+                          `Hola ${data.pass.customer.fullName.split(' ')[0]}, tu cupón fue redimido. Agregá tu nueva tarjeta de sellos a la wallet acá: https://soyclubify.com/p/${data.promotedPass.id}`,
+                        )}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="btn-ghost justify-center py-2 text-xs"
+                      >
+                        💬 WhatsApp
+                      </a>
+                      <a
+                        href={`https://soyclubify.com/p/${data.promotedPass.id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="btn-ghost justify-center py-2 text-xs"
+                      >
+                        🔗 Abrir
+                      </a>
                     </div>
                   </div>
                 )}

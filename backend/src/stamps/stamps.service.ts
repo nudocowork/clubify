@@ -451,17 +451,44 @@ export class StampsService {
     customerId: string,
     sourceCouponCardId: string,
   ): Promise<any> {
-    const stampsCard = await this.prisma.card.findFirst({
+    let stampsCard = await this.prisma.card.findFirst({
       where: { tenantId, type: 'STAMPS', isActive: true },
       orderBy: { createdAt: 'asc' },
       select: { id: true },
     });
+
+    // Si el tenant no tiene stamps card activa, la auto-creamos con
+    // defaults sensatos. Regla de negocio: el cupón debe SIEMPRE
+    // promocionar al cliente al sistema de fidelización por sellos,
+    // no quedarse sin opción. El dueño puede luego editar los detalles
+    // visuales y la recompensa desde /app/cards.
     if (!stampsCard) {
+      const tenant = await this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { brandName: true, primaryColor: true, logoUrl: true },
+      });
+      const created = await this.prisma.card.create({
+        data: {
+          tenantId,
+          type: 'STAMPS',
+          name: 'Tarjeta de Fidelización',
+          description: 'Acumulá sellos en cada compra y canjeá la recompensa.',
+          stampsRequired: 10,
+          rewardText: 'Recompensa especial',
+          primaryColor: tenant?.primaryColor ?? '#22C55E',
+          secondaryColor: '#15803D',
+          businessName: tenant?.brandName ?? '',
+          logoUrl: tenant?.logoUrl ?? null,
+          isActive: true,
+        },
+        select: { id: true },
+      });
+      stampsCard = created;
       this.logger.log(
-        `Tenant ${tenantId} no tiene stamps card activa — skip auto-promote del cupón ${sourceCouponCardId}`,
+        `Auto-created default STAMPS card ${created.id} for tenant ${tenantId} (no existing stamps card) — triggered by COUPON redeem of ${sourceCouponCardId}`,
       );
-      return null;
     }
+
     // passes.issue() es idempotente: si el customer ya tiene un pass
     // en esa card (porque ya estaba fidelizado antes del cupón),
     // devuelve el existente sin duplicar.
