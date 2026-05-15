@@ -907,6 +907,55 @@ export default function QrPosterEditor({
 
   // ───────── Patches & ops ───────── //
 
+  /** Helper: agrega un id nuevo al layerOrder en su posición default
+   *  esperada (antes de footer + iconos + customTexts según el grupo).
+   *  Si layerOrder no existía, lo construye desde defaultLayerOrder + el
+   *  id nuevo. Esto persiste el orden visual de la capa nueva en cfg —
+   *  sin esto, addX dejaba layerOrder sin el id nuevo y el guardado/
+   *  recarga podía mostrar la capa en una posición distinta a la que el
+   *  usuario veía mientras editaba. */
+  function appendToLayerOrder(c: QrPosterConfig, newId: LayerId): LayerId[] {
+    // Computar el cfg post-add hipotético para que defaultLayerOrder
+    // incluya al newId. Inyectamos un placeholder en el array correcto
+    // según el prefijo del id.
+    const cWithNew: QrPosterConfig = (() => {
+      if (newId.startsWith('shape.')) {
+        const sid = newId.slice(6);
+        return {
+          ...c,
+          shapes: [...(c.shapes ?? []), { id: sid } as any],
+        };
+      }
+      if (newId.startsWith('icon.')) {
+        const iid = newId.slice(5);
+        return { ...c, icons: [...(c.icons ?? []), { id: iid } as any] };
+      }
+      if (newId.startsWith('image.')) {
+        const iid = newId.slice(6);
+        return { ...c, images: [...(c.images ?? []), { id: iid } as any] };
+      }
+      if (newId.startsWith('pattern.')) {
+        const pid = newId.slice(8);
+        return {
+          ...c,
+          patterns: [...(c.patterns ?? []), { id: pid } as any],
+        };
+      }
+      if (newId.startsWith('customText.')) {
+        const tid = newId.slice('customText.'.length);
+        return {
+          ...c,
+          customTexts: [...(c.customTexts ?? []), { id: tid } as any],
+        };
+      }
+      return c;
+    })();
+    // effectiveLayerOrder ya hace el trabajo de mergear el layerOrder
+    // existente con los ids nuevos respetando posición default. Lo
+    // reusamos para no duplicar lógica.
+    return effectiveLayerOrder(cWithNew);
+  }
+
   function patchText(layer: keyof QrPosterConfig['texts'], patch: Partial<TextLayer>) {
     setCfg((c) => ({
       ...c,
@@ -984,7 +1033,15 @@ export default function QrPosterEditor({
       gradientFill: null,
       ...seed,
     };
-    setCfg((c) => ({ ...c, shapes: [...(c.shapes ?? []), newShape] }));
+    setCfg((c) => ({
+      ...c,
+      shapes: [...(c.shapes ?? []), newShape],
+      // Persistir el ID en layerOrder ya en el momento de creación. Si
+      // no, queda a merced de la auto-inserción de effectiveLayerOrder
+      // y al guardar+refrescar puede quedar en una posición distinta a
+      // la que el usuario veía mientras editaba.
+      layerOrder: appendToLayerOrder(c, `shape.${id}` as LayerId),
+    }));
     return id;
   }
   function removeShape(id: string) {
@@ -1019,7 +1076,11 @@ export default function QrPosterEditor({
       innerText: src.innerText ? { ...src.innerText } : null,
       gradientFill: src.gradientFill ? { ...src.gradientFill } : null,
     };
-    setCfg((c) => ({ ...c, shapes: [...(c.shapes ?? []), newDup] }));
+    setCfg((c) => ({
+      ...c,
+      shapes: [...(c.shapes ?? []), newDup],
+      layerOrder: appendToLayerOrder(c, `shape.${newDup.id}` as LayerId),
+    }));
   }
   function patchIcon(id: string, patch: Partial<IconLayer>) {
     setCfg((c) => ({
@@ -1070,7 +1131,11 @@ export default function QrPosterEditor({
       locked: false,
       hidden: false,
     };
-    setCfg((c) => ({ ...c, customTexts: [...(c.customTexts ?? []), newText] }));
+    setCfg((c) => ({
+      ...c,
+      customTexts: [...(c.customTexts ?? []), newText],
+      layerOrder: appendToLayerOrder(c, `customText.${id}` as LayerId),
+    }));
     return id;
   }
   function duplicateCustomText(id: string) {
@@ -1094,7 +1159,11 @@ export default function QrPosterEditor({
       y: ny,
       locked: false,
     };
-    setCfg((c) => ({ ...c, customTexts: [...(c.customTexts ?? []), newDup] }));
+    setCfg((c) => ({
+      ...c,
+      customTexts: [...(c.customTexts ?? []), newDup],
+      layerOrder: appendToLayerOrder(c, `customText.${newDup.id}` as LayerId),
+    }));
   }
   function removeCustomText(id: string) {
     setCfg((c) => ({
@@ -1129,7 +1198,11 @@ export default function QrPosterEditor({
       size: 100,
       opacity: 1,
     };
-    setCfg((c) => ({ ...c, icons: [...(c.icons ?? []), newIcon] }));
+    setCfg((c) => ({
+      ...c,
+      icons: [...(c.icons ?? []), newIcon],
+      layerOrder: appendToLayerOrder(c, `icon.${id}` as LayerId),
+    }));
   }
   function removeIcon(id: string) {
     setCfg((c) => ({
@@ -1155,7 +1228,11 @@ export default function QrPosterEditor({
       rotation: 0,
       keepAspect: true,
     };
-    setCfg((c) => ({ ...c, images: [...(c.images ?? []), newImg] }));
+    setCfg((c) => ({
+      ...c,
+      images: [...(c.images ?? []), newImg],
+      layerOrder: appendToLayerOrder(c, `image.${id}` as LayerId),
+    }));
   }
   function removeImage(id: string) {
     setCfg((c) => ({
@@ -1178,7 +1255,11 @@ export default function QrPosterEditor({
       fullCanvas: true,
       seed: Math.floor(Math.random() * 100000),
     };
-    setCfg((c) => ({ ...c, patterns: [...(c.patterns ?? []), newPat] }));
+    setCfg((c) => ({
+      ...c,
+      patterns: [...(c.patterns ?? []), newPat],
+      layerOrder: appendToLayerOrder(c, `pattern.${id}` as LayerId),
+    }));
   }
   function removePattern(id: string) {
     setCfg((c) => ({
