@@ -1055,6 +1055,10 @@ model Storefront {
   popupCardId         String?
   popupCard           Card?      @relation("StorefrontPopupCard", fields: [popupCardId], references: [id], onDelete: SetNull)
   popupDelaySeconds   Int        @default(10)
+  // Si false, el botón de WhatsApp NO se muestra en el menú público aunque
+  // el tenant tenga whatsappPhone seteado. Permite que el dueño "apague"
+  // el botón sin perder el número configurado en /app/settings.
+  whatsappButtonEnabled Boolean  @default(true)
   // Cover banner para la sección virtual "Recomendados" del menú público
   // (la que junta los productos isRecommended). Hasta acá se renderizaba
   // sin banner; ahora se puede editar igual que las categorías normales.

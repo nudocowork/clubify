@@ -30,6 +30,7 @@ class StorefrontBody {
   @IsOptional() @IsString() popupCardId?: string | null;
   // Segundos antes de que aparezca el popup. Min 1s, max 120s (2min).
   @IsOptional() @IsInt() @Min(1) @Max(120) popupDelaySeconds?: number;
+  @IsOptional() @IsBoolean() whatsappButtonEnabled?: boolean;
   // Cover de la sección virtual "Recomendados". null = limpiar.
   @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(200)
   recommendedTagline?: string | null;

@@ -37,7 +37,15 @@ export class PublicMenuController {
       logoUrl: t.logoUrl,
       primaryColor: t.primaryColor,
       secondaryColor: t.secondaryColor,
-      whatsappPhone: t.whatsappPhone,
+      // Si el dueño desactivó el botón en /app/storefront, no mandamos
+      // el número al frontend → la sección que renderiza el botón hace
+      // un check `if (s.whatsappPhone)` y queda oculto sin tener que
+      // tocar la lógica del front. El número sigue guardado en tenant
+      // por si se reactiva más tarde.
+      whatsappPhone:
+        t.storefront?.whatsappButtonEnabled === false
+          ? null
+          : t.whatsappPhone,
       instagramUrl: t.instagramUrl,
       mapsUrl: t.mapsUrl,
       currency: t.currency,

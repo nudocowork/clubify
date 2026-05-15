@@ -43,7 +43,62 @@ type Storefront = {
   popupImageUrl?: string | null;
   popupCardId?: string | null;
   popupDelaySeconds?: number;
+  whatsappButtonEnabled?: boolean;
 };
+
+/** Lista curada de países (LATAM-first) con dial code y longitud típica
+ *  del número local. Si necesitamos más, sumarlos acá — el formato es
+ *  estable. dial sin "+" para que `+${dial}${local}` sea trivial. */
+const COUNTRY_CODES: {
+  code: string;
+  flag: string;
+  name: string;
+  dial: string;
+  maxLen: number;
+}[] = [
+  { code: 'CO', flag: '🇨🇴', name: 'Colombia', dial: '57', maxLen: 10 },
+  { code: 'MX', flag: '🇲🇽', name: 'México', dial: '52', maxLen: 10 },
+  { code: 'AR', flag: '🇦🇷', name: 'Argentina', dial: '54', maxLen: 10 },
+  { code: 'CL', flag: '🇨🇱', name: 'Chile', dial: '56', maxLen: 9 },
+  { code: 'PE', flag: '🇵🇪', name: 'Perú', dial: '51', maxLen: 9 },
+  { code: 'EC', flag: '🇪🇨', name: 'Ecuador', dial: '593', maxLen: 9 },
+  { code: 'VE', flag: '🇻🇪', name: 'Venezuela', dial: '58', maxLen: 10 },
+  { code: 'UY', flag: '🇺🇾', name: 'Uruguay', dial: '598', maxLen: 9 },
+  { code: 'PY', flag: '🇵🇾', name: 'Paraguay', dial: '595', maxLen: 9 },
+  { code: 'BO', flag: '🇧🇴', name: 'Bolivia', dial: '591', maxLen: 8 },
+  { code: 'BR', flag: '🇧🇷', name: 'Brasil', dial: '55', maxLen: 11 },
+  { code: 'PA', flag: '🇵🇦', name: 'Panamá', dial: '507', maxLen: 8 },
+  { code: 'CR', flag: '🇨🇷', name: 'Costa Rica', dial: '506', maxLen: 8 },
+  { code: 'GT', flag: '🇬🇹', name: 'Guatemala', dial: '502', maxLen: 8 },
+  { code: 'SV', flag: '🇸🇻', name: 'El Salvador', dial: '503', maxLen: 8 },
+  { code: 'HN', flag: '🇭🇳', name: 'Honduras', dial: '504', maxLen: 8 },
+  { code: 'NI', flag: '🇳🇮', name: 'Nicaragua', dial: '505', maxLen: 8 },
+  { code: 'DO', flag: '🇩🇴', name: 'Rep. Dominicana', dial: '1', maxLen: 10 },
+  { code: 'US', flag: '🇺🇸', name: 'EE.UU.', dial: '1', maxLen: 10 },
+  { code: 'ES', flag: '🇪🇸', name: 'España', dial: '34', maxLen: 9 },
+];
+
+/** Parsea un whatsappPhone (con o sin "+", con cualquier separador) en
+ *  { dial, local }. Si no matchea ningún país conocido, asume CO + el
+ *  número entero como local — el dueño puede corregir desde el selector. */
+function parsePhone(raw: string | null | undefined): {
+  dial: string;
+  local: string;
+} {
+  const digits = (raw ?? '').replace(/\D/g, '');
+  if (!digits) return { dial: '57', local: '' };
+  // Probamos los dial codes de mayor a menor longitud para evitar que
+  // "1" matchee "13xxx" (Brasil) antes que "57" / "593".
+  const sorted = [...COUNTRY_CODES].sort(
+    (a, b) => b.dial.length - a.dial.length,
+  );
+  for (const c of sorted) {
+    if (digits.startsWith(c.dial)) {
+      return { dial: c.dial, local: digits.slice(c.dial.length) };
+    }
+  }
+  return { dial: '57', local: digits };
+}
 
 const MENU_LAYOUTS: { id: MenuLayout; emoji: string; label: string; sub: string }[] = [
   { id: 'CLASSIC', emoji: '📋', label: 'Clásico', sub: 'Foto + info, estilo Rappi/UberEats' },
@@ -64,6 +119,11 @@ export default function StorefrontEditor() {
   const [brandName, setBrandName] = useState<string>('Mi negocio');
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [logoDirty, setLogoDirty] = useState(false);
+  // Campos del tenant editables desde acá. Se persisten contra
+  // PATCH /tenants/me en save() — separados del PATCH a /storefront.
+  const [whatsappPhone, setWhatsappPhone] = useState<string>('');
+  const [primaryColor, setPrimaryColor] = useState<string>('#22C55E');
+  const [tenantDirty, setTenantDirty] = useState(false);
   const publicUrl =
     (typeof window !== 'undefined' ? window.location.host : 'clubify.app') +
     (tenantSlug ? `/m/${tenantSlug}` : '');
@@ -84,7 +144,10 @@ export default function StorefrontEditor() {
       if (me?.slug) setTenantSlug(me.slug);
       if (me?.brandName) setBrandName(me.brandName);
       if (me?.logoUrl !== undefined) setLogoUrl(me.logoUrl ?? null);
+      if (me?.whatsappPhone !== undefined) setWhatsappPhone(me.whatsappPhone ?? '');
+      if (me?.primaryColor !== undefined) setPrimaryColor(me.primaryColor ?? '#22C55E');
       setLogoDirty(false);
+      setTenantDirty(false);
     } catch (e: any) {
       // Antes el catch faltaba — si /storefront fallaba (403 staff,
       // 500, network), sf quedaba null y la página se quedaba en
@@ -115,14 +178,25 @@ export default function StorefrontEditor() {
           popupImageUrl: sf.popupImageUrl ?? null,
           popupCardId: sf.popupCardId ?? null,
           popupDelaySeconds: sf.popupDelaySeconds ?? 10,
+          whatsappButtonEnabled: sf.whatsappButtonEnabled ?? true,
         }),
       });
-      if (logoDirty) {
+      // Tenant fields (logo + whatsappPhone + primaryColor) van en una
+      // sola PATCH si alguno cambió. Sino se skipea para no pegarle al
+      // server gratis.
+      if (logoDirty || tenantDirty) {
+        const tenantPatch: Record<string, any> = {};
+        if (logoDirty) tenantPatch.logoUrl = logoUrl ?? '';
+        if (tenantDirty) {
+          tenantPatch.whatsappPhone = whatsappPhone;
+          tenantPatch.primaryColor = primaryColor;
+        }
         await api('/tenants/me', {
           method: 'PATCH',
-          body: JSON.stringify({ logoUrl: logoUrl ?? '' }),
+          body: JSON.stringify(tenantPatch),
         });
         setLogoDirty(false);
+        setTenantDirty(false);
       }
       setSavedAt(new Date());
     } finally {
@@ -284,6 +358,38 @@ export default function StorefrontEditor() {
               );
             })}
           </div>
+
+          <h3 className="text-base font-semibold mt-6 mb-3">🎨 Color principal</h3>
+          <p className="text-mute text-xs mb-3 leading-relaxed">
+            Define el color de marca que se usa en el botón "Menú" activo,
+            estados seleccionados, bordes activos y acentos del menú
+            público. Cambialo por tu color de marca.
+          </p>
+          <PrimaryColorPicker
+            value={primaryColor}
+            onChange={(v) => {
+              setPrimaryColor(v);
+              setTenantDirty(true);
+            }}
+          />
+
+          <h3 className="text-base font-semibold mt-6 mb-3">💬 Botón de WhatsApp</h3>
+          <p className="text-mute text-xs mb-3 leading-relaxed">
+            Mostrá u ocultá el botón que aparece arriba del menú público y
+            redirige a tu WhatsApp. El número se guarda en la cuenta del
+            negocio aunque desactives el botón.
+          </p>
+          <WhatsAppConfig
+            enabled={sf.whatsappButtonEnabled ?? true}
+            phone={whatsappPhone}
+            onToggle={(v) =>
+              setSf({ ...sf, whatsappButtonEnabled: v })
+            }
+            onPhoneChange={(v) => {
+              setWhatsappPhone(v);
+              setTenantDirty(true);
+            }}
+          />
 
           <h3 className="text-base font-semibold mt-6 mb-3">📣 Configura tu popup</h3>
           <p className="text-mute text-xs mb-3 leading-relaxed">
@@ -778,6 +884,221 @@ function PopupConfig({
             primera categoría antes de la interrupción. Mín 1s, máx 120s.
           </p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// =============================================================
+//                Primary color picker
+// =============================================================
+
+/** Color picker simple: input nativo type=color + texto HEX editable.
+ *  El nativo abre el sistema de color del OS; el HEX permite pegar/escribir
+ *  códigos exactos de marca. Valida que el HEX sea válido antes de
+ *  notificar onChange para no ensuciar el color del tenant con strings
+ *  parciales mientras el cliente tipea. */
+function PrimaryColorPicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (hex: string) => void;
+}) {
+  const [hexDraft, setHexDraft] = useState(value);
+
+  useEffect(() => {
+    setHexDraft(value);
+  }, [value]);
+
+  function commitHex(v: string) {
+    const trimmed = v.trim();
+    // Acepta #abc, #aabbcc, abc, aabbcc — normalizamos a #aabbcc.
+    const m = trimmed.match(/^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/);
+    if (!m) return;
+    let hex = m[1];
+    if (hex.length === 3) {
+      hex = hex
+        .split('')
+        .map((c) => c + c)
+        .join('');
+    }
+    onChange('#' + hex.toLowerCase());
+  }
+
+  const PRESETS = [
+    '#22C55E',
+    '#0EA5E9',
+    '#6366F1',
+    '#A855F7',
+    '#EC4899',
+    '#F59E0B',
+    '#EF4444',
+    '#0F172A',
+  ];
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3">
+        <input
+          type="color"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-12 h-12 rounded-lg border border-line cursor-pointer"
+          aria-label="Selector de color"
+        />
+        <div className="flex-1">
+          <label className="label">Código HEX</label>
+          <input
+            type="text"
+            className="input font-mono uppercase"
+            value={hexDraft}
+            onChange={(e) => setHexDraft(e.target.value)}
+            onBlur={(e) => commitHex(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+            }}
+            placeholder="#22C55E"
+            maxLength={7}
+          />
+        </div>
+        <div
+          className="w-12 h-12 rounded-lg border border-line"
+          style={{ background: value }}
+          title={`Vista previa: ${value}`}
+        />
+      </div>
+      <div className="flex gap-1.5 flex-wrap">
+        <span className="text-[10px] uppercase tracking-wider text-mute font-semibold self-center mr-1">
+          Sugeridos:
+        </span>
+        {PRESETS.map((p) => (
+          <button
+            key={p}
+            type="button"
+            onClick={() => onChange(p)}
+            className={`w-6 h-6 rounded-full border-2 transition ${
+              value.toLowerCase() === p.toLowerCase()
+                ? 'border-ink scale-110'
+                : 'border-white hover:scale-105'
+            }`}
+            style={{ background: p, boxShadow: '0 0 0 1px rgba(0,0,0,0.08)' }}
+            title={p}
+            aria-label={`Color ${p}`}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// =============================================================
+//                WhatsApp config (toggle + country + number)
+// =============================================================
+
+function WhatsAppConfig({
+  enabled,
+  phone,
+  onToggle,
+  onPhoneChange,
+}: {
+  enabled: boolean;
+  phone: string;
+  onToggle: (v: boolean) => void;
+  onPhoneChange: (fullPhone: string) => void;
+}) {
+  const { dial, local } = parsePhone(phone);
+  const currentCountry =
+    COUNTRY_CODES.find((c) => c.dial === dial) ?? COUNTRY_CODES[0];
+
+  function update(nextDial: string, nextLocal: string) {
+    const clean = nextLocal.replace(/\D/g, '');
+    if (!clean) {
+      onPhoneChange('');
+      return;
+    }
+    onPhoneChange(`+${nextDial}${clean}`);
+  }
+
+  const finalNumber = phone.replace(/\D/g, '');
+  const waLink = finalNumber ? `https://wa.me/${finalNumber}` : null;
+
+  return (
+    <div className="space-y-3">
+      <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+        <input
+          type="checkbox"
+          className="w-4 h-4"
+          checked={enabled}
+          onChange={(e) => onToggle(e.target.checked)}
+        />
+        Mostrar botón de WhatsApp en el menú
+      </label>
+
+      <div className="grid grid-cols-[1fr_2fr] gap-2">
+        <div>
+          <label className="label">País</label>
+          <select
+            className="input"
+            value={currentCountry.code}
+            onChange={(e) => {
+              const next = COUNTRY_CODES.find((c) => c.code === e.target.value);
+              if (!next) return;
+              update(next.dial, local);
+            }}
+          >
+            {COUNTRY_CODES.map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.flag} {c.name} +{c.dial}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label">Número</label>
+          <input
+            type="tel"
+            inputMode="numeric"
+            className="input"
+            value={local}
+            onChange={(e) => update(currentCountry.dial, e.target.value)}
+            placeholder={`${currentCountry.maxLen} dígitos`}
+            maxLength={currentCountry.maxLen + 4}
+          />
+        </div>
+      </div>
+
+      {/* Vista previa del número final + link wa.me. Se actualiza en
+          tiempo real y le confirma al cliente cómo va a quedar. */}
+      <div className="text-[11px] text-mute leading-relaxed">
+        {finalNumber ? (
+          <>
+            Redirección final:{' '}
+            <span className="font-mono text-ink">
+              +{currentCountry.dial} {local}
+            </span>
+            {waLink && (
+              <>
+                {' · '}
+                <a
+                  href={waLink}
+                  target="_blank"
+                  className="text-brand underline"
+                >
+                  probar link
+                </a>
+              </>
+            )}
+          </>
+        ) : (
+          'Ingresá el número para previsualizar la redirección.'
+        )}
+        {local && local.length < currentCountry.maxLen && (
+          <div className="text-amber-700 mt-1">
+            ⚠️ {currentCountry.name} usa {currentCountry.maxLen} dígitos —
+            te faltan {currentCountry.maxLen - local.length}.
+          </div>
+        )}
       </div>
     </div>
   );
