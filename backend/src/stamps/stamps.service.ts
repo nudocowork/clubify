@@ -156,10 +156,16 @@ export class StampsService {
           const required = pass.card.visitsRequired ?? 10;
           if (pass.visitsCount < required) throw new BadRequestException('Not enough visits to redeem');
           newVisits = pass.visitsCount - required;
-        } else if (pass.card.type === 'COUPON') {
-          // COUPON es single-use: al redimir, el pass queda COMPLETED y
-          // no se vuelve a poder redimir. La transformación a stamps
-          // card se hace después de la transacción (auto-promote).
+        } else if (
+          pass.card.type === 'COUPON' ||
+          pass.card.type === 'DISCOUNT' ||
+          pass.card.type === 'GIFT'
+        ) {
+          // Single-use legacy: COUPON (oficial) + DISCOUNT/GIFT (legacy
+          // antes de la simplificación 2026-05-15). Al redimir, el pass
+          // queda COMPLETED y no se vuelve a poder redimir. La
+          // transformación a stamps card se hace después de la
+          // transacción (auto-promote).
           if (pass.status === 'COMPLETED') {
             throw new BadRequestException(
               'Este cupón ya fue redimido. No se puede usar de nuevo.',
@@ -220,8 +226,12 @@ export class StampsService {
     const completed =
       (pass.card.type === 'STAMPS' && newStamps >= required) ||
       (pass.card.type === 'VISITS' && newVisits >= visitsReq) ||
-      // COUPON al REDEEM queda COMPLETED inmediatamente (single-use).
-      (pass.card.type === 'COUPON' && dto.action === 'REDEEM');
+      // COUPON/DISCOUNT/GIFT al REDEEM quedan COMPLETED inmediatamente
+      // (single-use). DISCOUNT y GIFT son legacy pre-2026-05-15.
+      ((pass.card.type === 'COUPON' ||
+        pass.card.type === 'DISCOUNT' ||
+        pass.card.type === 'GIFT') &&
+        dto.action === 'REDEEM');
 
     const [stamp, updatedPass] = await this.prisma.$transaction([
       this.prisma.stamp.create({
@@ -382,7 +392,12 @@ export class StampsService {
     // (no hay stamps card configurada, error de Prisma, etc), el
     // REDEEM del cupón ya quedó persistido y devolvemos el resultado.
     let promotedPass: any = null;
-    if (dto.action === 'REDEEM' && pass.card.type === 'COUPON') {
+    if (
+      dto.action === 'REDEEM' &&
+      (pass.card.type === 'COUPON' ||
+        pass.card.type === 'DISCOUNT' ||
+        pass.card.type === 'GIFT')
+    ) {
       promotedPass = await this.autoPromoteCouponToStamps(
         user,
         pass.tenantId,

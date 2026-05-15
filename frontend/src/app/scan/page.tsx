@@ -9,6 +9,14 @@ import { playScanSuccess, playScanError } from '@/lib/notify';
 const SCANNER_SESSION_HOURS = 6;
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
+// Cards single-use: COUPON (oficial post 2026-05-15) + DISCOUNT/GIFT
+// (legacy creados antes de la simplificación del wizard). Todos comparten
+// la misma UX en el scanner: botón "Redimir cupón" + auto-promote a
+// stamps card al redimir.
+function isCouponLike(type: string | null | undefined): boolean {
+  return type === 'COUPON' || type === 'DISCOUNT' || type === 'GIFT';
+}
+
 function avatarClass(seed: string) {
   const sum = seed.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
   return `avatar-${(sum % 7) + 1}`;
@@ -395,7 +403,7 @@ export default function ScanPage() {
               <span className="badge badge-info shrink-0">✓</span>
             </div>
 
-            {data.pass.card.type === 'COUPON' && (
+            {isCouponLike(data.pass.card.type) && (
               <>
                 {/* Display central del cupón: estado + recompensa + descuento */}
                 <div className="mt-4 p-4 rounded-xl bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 text-center">
@@ -518,7 +526,7 @@ export default function ScanPage() {
             )}
 
             {/* Acciones según el tipo de tarjeta */}
-            {data.pass.card.type === 'COUPON' && (
+            {isCouponLike(data.pass.card.type) && (
               <>
                 {data.pass.status === 'COMPLETED' ? (
                   <button
