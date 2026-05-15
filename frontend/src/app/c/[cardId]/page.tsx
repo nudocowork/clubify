@@ -168,60 +168,63 @@ export default function EnrollPage() {
   const primary = card.primaryColor || card.tenant.primaryColor || '#22C55E';
 
   return (
-    <main className="min-h-screen bg-bg pb-12">
+    <main className="min-h-screen bg-bg pb-8 sm:pb-12">
       <div
-        className="px-5 pt-10 pb-16 text-white"
+        className="px-4 sm:px-5 pt-8 sm:pt-10 pb-14 sm:pb-16 text-white"
         style={{
           background: `linear-gradient(135deg, ${primary}, ${card.secondaryColor || '#15803D'})`,
         }}
       >
         <div className="max-w-md mx-auto">
-          <div className="flex items-center gap-3 mb-5">
+          <div className="flex items-center gap-2.5 sm:gap-3 mb-4 sm:mb-5">
             {card.tenant.logoUrl ? (
               <img
                 src={card.tenant.logoUrl}
                 alt=""
-                className="w-12 h-12 rounded-xl object-cover bg-white p-1"
+                className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl object-cover bg-white p-1 flex-none"
               />
             ) : (
-              <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center font-bold text-xl">
+              <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-white/20 flex items-center justify-center font-bold text-lg sm:text-xl flex-none">
                 {card.tenant.brandName.charAt(0)}
               </div>
             )}
             <div className="flex-1 min-w-0">
-              <div className="text-xs uppercase tracking-wider opacity-80">
+              <div className="text-[10px] sm:text-xs uppercase tracking-wider opacity-80">
                 {TYPE_LABEL[card.type] || 'Tarjeta'}
               </div>
-              <div className="font-bold text-lg leading-tight truncate">
+              <div className="font-bold text-base sm:text-lg leading-tight truncate">
                 {card.tenant.brandName}
               </div>
             </div>
           </div>
-          <h1 className="text-3xl font-bold tracking-tight">{card.name}</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight leading-tight break-words">
+            {card.name}
+          </h1>
           {card.description && (
-            <p className="text-white/85 mt-2 leading-relaxed">
+            <p className="text-white/85 mt-2 leading-relaxed text-sm sm:text-base break-words">
               {card.description}
             </p>
           )}
           {card.rewardText && (
-            <div className="mt-5 inline-block bg-white/15 backdrop-blur rounded-pill px-4 py-2 text-sm font-medium">
-              🎁 {card.rewardText}
+            <div className="mt-4 sm:mt-5 inline-flex max-w-full items-center bg-white/15 backdrop-blur rounded-pill px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-medium">
+              <span className="mr-1.5 flex-none">🎁</span>
+              <span className="break-words">{card.rewardText}</span>
             </div>
           )}
         </div>
       </div>
 
-      <div className="max-w-md mx-auto px-5 -mt-10">
+      <div className="max-w-md mx-auto px-4 sm:px-5 -mt-10">
         <form
           onSubmit={submit}
-          className="card card-pad shadow-xl"
+          className="card shadow-xl p-4 sm:p-6"
         >
-          <h2 className="text-lg font-bold">{tt('card.join_title')}</h2>
+          <h2 className="text-base sm:text-lg font-bold">{tt('card.join_title')}</h2>
           <p className="text-xs text-mute mt-1">
             {tt('card.join_sub')}
           </p>
 
-          <div className="mt-5 space-y-3">
+          <div className="mt-4 sm:mt-5 space-y-3">
             <div>
               <label className="label">{tt('card.full_name')}</label>
               <input
@@ -238,7 +241,7 @@ export default function EnrollPage() {
               <label className="label">{tt('card.phone')}</label>
               <div className="flex gap-2">
                 <select
-                  className="input w-32"
+                  className="input w-24 sm:w-32 flex-none"
                   value={country}
                   onChange={(e) => setCountry(e.target.value)}
                 >
@@ -249,7 +252,7 @@ export default function EnrollPage() {
                   ))}
                 </select>
                 <input
-                  className="input flex-1"
+                  className="input flex-1 min-w-0"
                   type="tel"
                   inputMode="numeric"
                   placeholder="3001234567"
@@ -259,7 +262,7 @@ export default function EnrollPage() {
                   autoComplete="tel"
                 />
               </div>
-              <div className="text-[11px] text-mute mt-1">
+              <div className="text-[11px] text-mute mt-1 truncate">
                 {COUNTRIES.find((c) => c.code === country)?.name} ·{' '}
                 {COUNTRIES.find((c) => c.code === country)?.flag} código +
                 {COUNTRIES.find((c) => c.code === country)?.dial}
@@ -345,7 +348,7 @@ export default function EnrollPage() {
             <button
               type="submit"
               disabled={submitting || !fullName || !phone || !accept}
-              className="w-full justify-center text-base py-3.5 rounded-pill font-semibold text-white shadow-md transition disabled:opacity-50 hover:opacity-95 active:scale-[0.98]"
+              className="w-full justify-center text-sm sm:text-base py-3.5 rounded-pill font-semibold text-white shadow-md transition disabled:opacity-50 hover:opacity-95 active:scale-[0.98] mt-1"
               style={{ background: primary }}
             >
               {submitting ? tt('card.submitting') : tt('card.submit') + ' →'}
