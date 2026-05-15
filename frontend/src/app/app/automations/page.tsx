@@ -37,6 +37,7 @@ const TRIGGERS = [
   { type: 'STAMP_ADDED', label: 'Sello agregado' },
   { type: 'NEAR_REWARD', label: 'Cliente cerca de la recompensa (1-2 sellos)' },
   { type: 'REWARD_REDEEMED', label: 'Premio canjeado' },
+  { type: 'COUPON_REDEEMED', label: 'Cupón de bienvenida redimido (empieza fidelización)' },
   { type: 'INACTIVITY', label: 'Cliente inactivo X días' },
   { type: 'BIRTHDAY', label: 'Cumpleaños del cliente' },
   { type: 'GEO_ENTER', label: 'Cliente cerca del local' },

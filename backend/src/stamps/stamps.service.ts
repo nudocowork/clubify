@@ -394,6 +394,27 @@ export class StampsService {
         );
         return null;
       });
+
+      // Automation event: el dueño puede engancharle una regla SEND_PUSH
+      // o SEND_WHATSAPP_LINK para mensajear al cliente "tu cupón fue
+      // usado, agregá tu nueva tarjeta de sellos: <link>".
+      this.automations
+        .emit('COUPON_REDEEMED', {
+          tenantId: pass.tenantId,
+          customerId: pass.customerId,
+          couponCardId: pass.cardId,
+          couponPassId: pass.id,
+          couponName: pass.card.name,
+          rewardText: pass.card.rewardText || '',
+          // Datos del stamps pass auto-creado (puede ser null si el
+          // tenant no tiene stamps card configurada).
+          stampsPassId: promotedPass?.id ?? null,
+          stampsCardId: promotedPass?.cardId ?? null,
+          stampsPassUrl: promotedPass
+            ? `https://soyclubify.com/p/${promotedPass.id}`
+            : null,
+        })
+        .catch(() => null);
     }
 
     return { stamp, pass: updatedPass, promotedPass };

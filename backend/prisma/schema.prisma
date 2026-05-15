@@ -99,6 +99,10 @@ enum AutomationEvent {
   // canjear su recompensa (lo empuja a volver pronto). Disparado desde
   // stamps.service tras cada STAMP/VISIT.
   NEAR_REWARD
+  // COUPON_REDEEMED: el cliente usó un cupón de bienvenida. Trigger
+  // ideal para mandar push "🎉 tu cupón fue usado, ahora empieza tu
+  // fidelización" con link a la stamps card que se auto-creó.
+  COUPON_REDEEMED
 }
 
 enum ReferralStatus {

@@ -25,7 +25,8 @@ export type AutomationEvent =
   | 'ORDER_DELIVERED'
   | 'ORDER_RATED'
   | 'BIRTHDAY'
-  | 'NEAR_REWARD';
+  | 'NEAR_REWARD'
+  | 'COUPON_REDEEMED';
 
 export type Trigger = { type: AutomationEvent; days?: number };
 export type Condition = { field: string; op: 'eq' | 'gt' | 'lt' | 'in' | 'contains'; value: any };
