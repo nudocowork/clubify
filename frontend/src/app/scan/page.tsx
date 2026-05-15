@@ -217,6 +217,8 @@ export default function ScanPage() {
       // El backend devuelve `pass` sin includes (solo campos del Pass).
       // Conservamos card/customer/tenant del state previo, solo
       // sobreescribimos los campos numéricos que cambiaron.
+      // Para REDEEM en COUPON, el backend además devuelve `promotedPass`
+      // con info del nuevo stamps pass auto-creado para el cliente.
       setData({
         ...data,
         pass: {
@@ -230,6 +232,7 @@ export default function ScanPage() {
           status: res.pass.status,
           lastActivityAt: res.pass.lastActivityAt,
         },
+        promotedPass: res.promotedPass ?? null,
       });
       playScanSuccess();
     } catch (e: any) {
@@ -392,6 +395,51 @@ export default function ScanPage() {
               <span className="badge badge-info shrink-0">✓</span>
             </div>
 
+            {data.pass.card.type === 'COUPON' && (
+              <>
+                {/* Display central del cupón: estado + recompensa + descuento */}
+                <div className="mt-4 p-4 rounded-xl bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 text-center">
+                  <div className="text-3xl mb-1">🎟</div>
+                  <div className="text-[10px] uppercase tracking-wider text-amber-700/70 font-semibold">
+                    Cupón
+                  </div>
+                  <div className="text-lg font-bold text-amber-900 mt-1 leading-tight">
+                    {data.pass.card.rewardText || 'Beneficio especial'}
+                  </div>
+                  {data.pass.card.discountPercent ? (
+                    <div className="text-2xl font-extrabold text-amber-700 mt-1">
+                      {data.pass.card.discountPercent}% OFF
+                    </div>
+                  ) : null}
+                  <div
+                    className={`inline-block mt-3 px-3 py-1 rounded-full text-xs font-semibold ${
+                      data.pass.status === 'COMPLETED'
+                        ? 'bg-mute/20 text-mute'
+                        : 'bg-emerald-100 text-emerald-800'
+                    }`}
+                  >
+                    {data.pass.status === 'COMPLETED'
+                      ? '✓ Redimido'
+                      : '● Disponible'}
+                  </div>
+                </div>
+
+                {/* Mensaje post-redención: aparece cuando el backend acaba de
+                    auto-crear la stamps card (promotedPass). */}
+                {data.promotedPass && (
+                  <div className="mt-3 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-sm leading-relaxed">
+                    <div className="font-semibold mb-1">
+                      ✓ Cupón redimido correctamente
+                    </div>
+                    <div className="text-xs text-emerald-800/80">
+                      Se creó automáticamente la tarjeta de sellos del
+                      cliente para que arranque su fidelización.
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
             {(data.pass.card.type === 'STAMPS' || data.pass.card.type === 'HYBRID') && (
               <>
                 <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-4 justify-center">
@@ -470,6 +518,28 @@ export default function ScanPage() {
             )}
 
             {/* Acciones según el tipo de tarjeta */}
+            {data.pass.card.type === 'COUPON' && (
+              <>
+                {data.pass.status === 'COMPLETED' ? (
+                  <button
+                    className="w-full justify-center py-5 text-lg mt-5 rounded-lg bg-mute/10 text-mute font-semibold cursor-not-allowed flex items-center gap-2"
+                    disabled
+                    title="Este cupón ya fue redimido y no se puede usar de nuevo"
+                  >
+                    🚫 Cupón ya redimido
+                  </button>
+                ) : (
+                  <button
+                    className="btn-primary w-full justify-center py-5 text-lg mt-5"
+                    disabled={busy}
+                    onClick={() => act('REDEEM')}
+                  >
+                    <Icon name="gift" /> Redimir cupón
+                  </button>
+                )}
+              </>
+            )}
+
             {(data.pass.card.type === 'STAMPS' || data.pass.card.type === 'HYBRID') && (
               <>
                 <button
