@@ -280,13 +280,13 @@ export default function StorefrontPublic() {
             <span className="text-2xl">🎁</span>
             <div className="flex-1 min-w-0">
               <div className="text-[11px] uppercase tracking-wider font-semibold text-emerald-700">
-                Cupón capturado
+                {tt('storefront.promo_captured')}
               </div>
               <div className="font-bold text-emerald-900 text-lg tracking-wider font-mono">
                 {capturedPromo}
               </div>
               <div className="text-[11px] text-emerald-800/80 leading-tight">
-                Presentalo al pagar para activar el descuento.
+                {tt('storefront.promo_captured_sub')}
               </div>
             </div>
             <button
@@ -297,7 +297,7 @@ export default function StorefrontPublic() {
                 setCapturedPromo(null);
               }}
               className="text-emerald-700/60 hover:text-emerald-900 text-sm px-1"
-              title="Descartar cupón"
+              title={tt('storefront.promo_discard')}
             >
               ✕
             </button>
@@ -1198,6 +1198,7 @@ type LookedUpPass = {
 };
 
 function CardLookup({ slug, primary }: { slug: string; primary: string }) {
+  const tt = useT();
   const STORAGE_KEY = `clubify:lastPhone:${slug}`;
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
@@ -1262,9 +1263,9 @@ function CardLookup({ slug, primary }: { slug: string; primary: string }) {
           >
             <Icon name="card" size={28} />
           </div>
-          <h2 className="text-lg font-bold mb-1">Mi tarjeta de fidelización</h2>
+          <h2 className="text-lg font-bold mb-1">{tt('storefront.lookup_title')}</h2>
           <p className="text-sm text-mute mb-4">
-            Ingresa tu WhatsApp para ver tu progreso y sellos acumulados.
+            {tt('storefront.lookup_sub')}
           </p>
           <input
             className="input mb-3 text-center"
@@ -1280,27 +1281,26 @@ function CardLookup({ slug, primary }: { slug: string; primary: string }) {
             className="btn-primary w-full justify-center disabled:opacity-50"
             style={{ background: primary, borderColor: primary }}
           >
-            <Icon name="search" /> {loading ? 'Buscando…' : 'Ver mi tarjeta'}
+            <Icon name="search" />{' '}
+            {loading ? tt('storefront.lookup_searching') : tt('storefront.lookup_submit')}
           </button>
           {err && (
             <div className="text-sm text-bad mt-3">{err}</div>
           )}
           {searched && passes.length === 0 && !loading && !err && (
             <div className="rounded-xl bg-bg2 mt-4 p-4 text-sm text-mute">
-              No encontramos tarjetas asociadas a ese número. Si todavía no
-              tienes una, te llegará automáticamente con tu primer pedido.
+              {tt('storefront.lookup_empty')}
             </div>
           )}
           <p className="text-xs text-mute mt-3">
-            Tu información solo se usa para localizar tu tarjeta. No la
-            compartimos.
+            {tt('storefront.lookup_privacy')}
           </p>
         </form>
       ) : (
         <div>
           <div className="flex items-center justify-between mb-3">
             <div className="text-xs text-mute">
-              Hola{' '}
+              {tt('storefront.lookup_hello')}{' '}
               <span className="font-semibold text-ink">
                 {passes[0].customer.fullName}
               </span>
@@ -1309,7 +1309,7 @@ function CardLookup({ slug, primary }: { slug: string; primary: string }) {
               onClick={changePhone}
               className="text-xs text-brand hover:underline"
             >
-              Cambiar número
+              {tt('storefront.lookup_change_phone')}
             </button>
           </div>
           <div className="space-y-3">
@@ -1318,7 +1318,7 @@ function CardLookup({ slug, primary }: { slug: string; primary: string }) {
             ))}
           </div>
           <p className="text-xs text-mute mt-4 text-center">
-            Muestra el código en caja para acumular sellos.
+            {tt('storefront.lookup_show_code')}
           </p>
         </div>
       )}
@@ -1333,6 +1333,7 @@ function PassCard({
   pass: LookedUpPass;
   fallbackPrimary: string;
 }) {
+  const tt = useT();
   const color = pass.card.primaryColor || fallbackPrimary;
   const required = pass.card.stampsRequired ?? 10;
   const dots = Array.from({ length: required });
@@ -1344,14 +1345,14 @@ function PassCard({
       >
         <div>
           <div className="text-[11px] uppercase tracking-wider opacity-80">
-            Tarjeta
+            {tt('storefront.pass_card')}
           </div>
           <div className="font-semibold text-sm">{pass.card.name}</div>
         </div>
         {pass.card.type === 'STAMPS' && (
           <div className="text-right">
             <div className="text-[11px] uppercase tracking-wider opacity-80">
-              Sellos
+              {tt('storefront.pass_stamps')}
             </div>
             <div className="font-bold text-lg">
               {pass.stampsCount}/{required}
@@ -1361,7 +1362,7 @@ function PassCard({
         {pass.card.type === 'POINTS' && (
           <div className="text-right">
             <div className="text-[11px] uppercase tracking-wider opacity-80">
-              Puntos
+              {tt('storefront.pass_points')}
             </div>
             <div className="font-bold text-lg">{pass.pointsBalance}</div>
           </div>
@@ -1872,6 +1873,7 @@ function LayoutSections({
   onPick,
   backButtonConfig,
 }: LP & { backButtonConfig?: BackButtonConfig | null }) {
+  const tt = useT();
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [activeSub, setActiveSub] = useState<string | null>(null);
   const [transitioning, setTransitioning] = useState(false);
@@ -2029,8 +2031,8 @@ function LayoutSections({
         <div className="text-center text-mute py-12 text-sm animate-in fade-in">
           <div className="text-4xl mb-2 opacity-50">🍽</div>
           {activeSub
-            ? 'Sin productos en esta subsección'
-            : 'Sin productos en esta sección'}
+            ? tt('storefront.sections_empty_sub')
+            : tt('storefront.sections_empty_main')}
         </div>
       ) : (
         <div
