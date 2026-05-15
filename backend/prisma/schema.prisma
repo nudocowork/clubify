@@ -1063,6 +1063,12 @@ model Storefront {
   // el tenant tenga whatsappPhone seteado. Permite que el dueño "apague"
   // el botón sin perder el número configurado en /app/settings.
   whatsappButtonEnabled Boolean  @default(true)
+  // Color de fondo de la página pública del menú. NULL = usar el default
+  // del layout (#FAFBFC para layouts claros, #0a0a0a para CLUVI). El
+  // editor lo expone principalmente para el layout SECTIONS donde el
+  // dueño quiere matchear el fondo con su brand. Cualquier color CSS
+  // válido (#hex, rgb(), nombre).
+  pageBackgroundColor   String?
   // Cover banner para la sección virtual "Recomendados" del menú público
   // (la que junta los productos isRecommended). Hasta acá se renderizaba
   // sin banner; ahora se puede editar igual que las categorías normales.

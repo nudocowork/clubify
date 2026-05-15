@@ -15,6 +15,7 @@ export type StorefrontDto = {
   popupCardId?: string | null;
   popupDelaySeconds?: number;
   whatsappButtonEnabled?: boolean;
+  pageBackgroundColor?: string | null;
   recommendedTagline?: string | null;
   recommendedCoverConfig?: Record<string, any> | null;
   menuLayout?: MenuLayout;
@@ -81,6 +82,10 @@ export class StorefrontService {
         popupCardId: dto.popupCardId !== undefined ? dto.popupCardId : undefined,
         popupDelaySeconds: dto.popupDelaySeconds ?? undefined,
         whatsappButtonEnabled: dto.whatsappButtonEnabled ?? undefined,
+        pageBackgroundColor:
+          dto.pageBackgroundColor === undefined
+            ? undefined
+            : dto.pageBackgroundColor,
         recommendedTagline:
           dto.recommendedTagline === undefined ? undefined : dto.recommendedTagline,
         recommendedCoverConfig:

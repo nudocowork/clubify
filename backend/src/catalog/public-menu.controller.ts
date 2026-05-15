@@ -55,6 +55,7 @@ export class PublicMenuController {
       theme: t.storefront?.theme ?? {},
       menuLayout: t.storefront?.menuLayout ?? 'CLASSIC',
       ordersEnabled: t.storefront?.ordersEnabled ?? true,
+      pageBackgroundColor: t.storefront?.pageBackgroundColor ?? null,
       popup:
         t.storefront?.popupEnabled && t.storefront?.popupImageUrl
           ? {

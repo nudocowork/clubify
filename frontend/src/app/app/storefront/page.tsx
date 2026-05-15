@@ -44,6 +44,7 @@ type Storefront = {
   popupCardId?: string | null;
   popupDelaySeconds?: number;
   whatsappButtonEnabled?: boolean;
+  pageBackgroundColor?: string | null;
 };
 
 /** Lista curada de países (LATAM-first) con dial code y longitud típica
@@ -179,6 +180,7 @@ export default function StorefrontEditor() {
           popupCardId: sf.popupCardId ?? null,
           popupDelaySeconds: sf.popupDelaySeconds ?? 10,
           whatsappButtonEnabled: sf.whatsappButtonEnabled ?? true,
+          pageBackgroundColor: sf.pageBackgroundColor ?? null,
         }),
       });
       // Tenant fields (logo + whatsappPhone + primaryColor) van en una
@@ -358,6 +360,23 @@ export default function StorefrontEditor() {
               );
             })}
           </div>
+
+          {/* Color de fondo de la página pública. Configurable para todos
+              los layouts pero especialmente útil en SECTIONS donde el
+              cliente quiere matchear el fondo con su brand. NULL = usar
+              default del layout. */}
+          <h3 className="text-base font-semibold mt-6 mb-3">🖌 Color de fondo de la página</h3>
+          <p className="text-mute text-xs mb-3 leading-relaxed">
+            Color de fondo del menú público. Por defecto se usa un gris muy
+            claro (o negro en el layout Fondo oscuro). Cambialo si querés
+            que el fondo combine con tu marca — útil sobre todo en{' '}
+            <strong>Secciones premium</strong>.
+          </p>
+          <PageBgColorPicker
+            value={sf.pageBackgroundColor ?? ''}
+            isCluvi={(sf.menuLayout ?? 'CLASSIC') === 'CLUVI'}
+            onChange={(v) => setSf({ ...sf, pageBackgroundColor: v })}
+          />
 
           <h3 className="text-base font-semibold mt-6 mb-3">🎨 Color principal</h3>
           <p className="text-mute text-xs mb-3 leading-relaxed">
@@ -885,6 +904,122 @@ function PopupConfig({
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+// =============================================================
+//                Page background color picker
+// =============================================================
+
+/** Selector del color de fondo de la página pública. value vacío = usar
+ *  default del layout. Ofrece swatches con los defaults conocidos +
+ *  selector libre + botón "usar default" para limpiar. */
+function PageBgColorPicker({
+  value,
+  isCluvi,
+  onChange,
+}: {
+  value: string;
+  isCluvi: boolean;
+  onChange: (v: string | null) => void;
+}) {
+  const isUsingDefault = !value;
+  const defaultBg = isCluvi ? '#0a0a0a' : '#FAFBFC';
+  const effective = value || defaultBg;
+
+  // Presets pensados para SECTIONS premium — fondos suaves que no
+  // compiten con los banners de cada categoría.
+  const PRESETS = [
+    { color: '#FAFBFC', label: 'Gris claro (default)' },
+    { color: '#FFFFFF', label: 'Blanco puro' },
+    { color: '#F5F1EA', label: 'Crema' },
+    { color: '#FFF7ED', label: 'Beige cálido' },
+    { color: '#F0F9FF', label: 'Celeste suave' },
+    { color: '#F0FDF4', label: 'Verde menta' },
+    { color: '#FDF2F8', label: 'Rosa pálido' },
+    { color: '#1F2937', label: 'Gris oscuro' },
+    { color: '#0a0a0a', label: 'Negro' },
+  ];
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3">
+        <input
+          type="color"
+          value={effective}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-12 h-12 rounded-lg border border-line cursor-pointer"
+          aria-label="Selector de color de fondo"
+        />
+        <div className="flex-1">
+          <label className="label">Código HEX</label>
+          <input
+            type="text"
+            className="input font-mono uppercase"
+            value={value}
+            placeholder={`Default: ${defaultBg}`}
+            onChange={(e) => {
+              const v = e.target.value.trim();
+              if (!v) {
+                onChange(null);
+                return;
+              }
+              const m = v.match(/^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/);
+              if (m) {
+                let hex = m[1];
+                if (hex.length === 3)
+                  hex = hex
+                    .split('')
+                    .map((c) => c + c)
+                    .join('');
+                onChange('#' + hex.toLowerCase());
+              } else {
+                // Permitir cualquier color CSS no-hex (rgb, nombre)
+                onChange(v);
+              }
+            }}
+            maxLength={40}
+          />
+        </div>
+        <div
+          className="w-12 h-12 rounded-lg border border-line"
+          style={{ background: effective }}
+          title={`Vista previa: ${effective}`}
+        />
+      </div>
+      <div className="flex gap-1.5 flex-wrap items-center">
+        <span className="text-[10px] uppercase tracking-wider text-mute font-semibold mr-1">
+          Sugeridos:
+        </span>
+        {PRESETS.map((p) => (
+          <button
+            key={p.color}
+            type="button"
+            onClick={() => onChange(p.color)}
+            className={`w-7 h-7 rounded-md border-2 transition ${
+              value.toLowerCase() === p.color.toLowerCase()
+                ? 'border-ink scale-110'
+                : 'border-white hover:scale-105'
+            }`}
+            style={{
+              background: p.color,
+              boxShadow: '0 0 0 1px rgba(0,0,0,0.1)',
+            }}
+            title={p.label}
+            aria-label={p.label}
+          />
+        ))}
+      </div>
+      {!isUsingDefault && (
+        <button
+          type="button"
+          onClick={() => onChange(null)}
+          className="text-xs text-mute hover:text-brand underline"
+        >
+          ↺ Usar fondo por defecto del layout ({defaultBg})
+        </button>
+      )}
     </div>
   );
 }

@@ -42,6 +42,7 @@ type Storefront = {
   heroImageUrl: string | null;
   menuLayout?: MenuLayout;
   ordersEnabled?: boolean;
+  pageBackgroundColor?: string | null;
   popup?: { imageUrl: string; cardId: string | null; delaySeconds?: number } | null;
   planName?: string | null;
   promotions: any[];
@@ -169,11 +170,16 @@ export default function StorefrontPublic() {
   const primary = s.primaryColor;
 
   const isCluvi = (s.menuLayout ?? 'CLASSIC') === 'CLUVI';
+  // pageBackgroundColor (configurable desde /app/storefront) pisa el
+  // default del layout. Útil sobre todo para SECTIONS donde el dueño
+  // quiere matchear el fondo con su brand. Para CLUVI también se respeta
+  // si el dueño decide cambiarlo (por ej a un negro más claro).
+  const pageBg = s.pageBackgroundColor || (isCluvi ? '#0a0a0a' : '#FAFBFC');
   return (
     <div
       className={`min-h-screen pb-32 ${isCluvi ? 'text-white' : ''}`}
       style={{
-        background: isCluvi ? '#0a0a0a' : '#FAFBFC',
+        background: pageBg,
       }}
     >
       {/* Hero */}
