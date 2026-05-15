@@ -426,7 +426,7 @@ export class StampsService {
           stampsPassId: promotedPass?.id ?? null,
           stampsCardId: promotedPass?.cardId ?? null,
           stampsPassUrl: promotedPass
-            ? `https://soyclubify.com/p/${promotedPass.id}`
+            ? `https://soyclubify.com/w/${promotedPass.id}`
             : null,
         })
         .catch(() => null);

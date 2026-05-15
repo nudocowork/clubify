@@ -446,13 +446,13 @@ export default function ScanPage() {
                       su wallet y empiece a sumar sellos:
                     </div>
                     <div className="bg-white rounded-lg p-2.5 mb-3 font-mono text-[11px] break-all text-emerald-900 border border-emerald-200">
-                      {`https://soyclubify.com/p/${data.promotedPass.id}`}
+                      {`https://soyclubify.com/w/${data.promotedPass.id}`}
                     </div>
                     <div className="grid grid-cols-3 gap-2">
                       <button
                         type="button"
                         onClick={() => {
-                          const url = `https://soyclubify.com/p/${data.promotedPass.id}`;
+                          const url = `https://soyclubify.com/w/${data.promotedPass.id}`;
                           navigator.clipboard?.writeText(url);
                           alert('Link copiado');
                         }}
@@ -462,7 +462,7 @@ export default function ScanPage() {
                       </button>
                       <a
                         href={`https://wa.me/?text=${encodeURIComponent(
-                          `Hola ${data.pass.customer.fullName.split(' ')[0]}, tu cupón fue redimido. Agregá tu nueva tarjeta de sellos a la wallet acá: https://soyclubify.com/p/${data.promotedPass.id}`,
+                          `Hola ${data.pass.customer.fullName.split(' ')[0]}, tu cupón fue redimido. Agregá tu nueva tarjeta de sellos a la wallet acá: https://soyclubify.com/w/${data.promotedPass.id}`,
                         )}`}
                         target="_blank"
                         rel="noreferrer"
@@ -471,7 +471,7 @@ export default function ScanPage() {
                         💬 WhatsApp
                       </a>
                       <a
-                        href={`https://soyclubify.com/p/${data.promotedPass.id}`}
+                        href={`https://soyclubify.com/w/${data.promotedPass.id}`}
                         target="_blank"
                         rel="noreferrer"
                         className="btn-ghost justify-center py-2 text-xs"
