@@ -327,6 +327,132 @@ export default function TenantDetail() {
         <BillingNotificationsCard tenant={t} />
 
         <BillingCard tenant={t} onChange={load} />
+
+        <HotmartSimulatorCard tenant={t} onChange={load} />
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+//        SIMULADOR HOTMART — testing sin tarjetas reales
+// ============================================================
+
+const SIMULATOR_EVENTS: {
+  event: string;
+  label: string;
+  emoji: string;
+  hint: string;
+  variant: 'ok' | 'warn' | 'danger' | 'neutral';
+}[] = [
+  { event: 'PURCHASE_APPROVED', label: 'Pago aprobado', emoji: '✅', hint: 'Activa tenant + setea próximo cobro', variant: 'ok' },
+  { event: 'PURCHASE_DELAYED', label: 'Pago demorado', emoji: '🕓', hint: 'failedPaymentCount++ → PAST_DUE', variant: 'warn' },
+  { event: 'PURCHASE_PROTEST', label: 'Pago en disputa', emoji: '⚠️', hint: 'Como demorado pero más severo', variant: 'warn' },
+  { event: 'PURCHASE_REFUNDED', label: 'Reembolso', emoji: '💸', hint: 'Suspende + revierte comisión', variant: 'danger' },
+  { event: 'PURCHASE_CHARGEBACK', label: 'Chargeback', emoji: '🚫', hint: 'Suspende + revierte comisión', variant: 'danger' },
+  { event: 'SUBSCRIPTION_CANCELLATION', label: 'Cancelación', emoji: '🛑', hint: 'Suspende suavemente (sin revertir)', variant: 'danger' },
+  { event: 'UPDATE_SUBSCRIPTION_CHARGE_DATE', label: 'Mover próximo cobro', emoji: '📅', hint: '+30 días desde ahora', variant: 'neutral' },
+  { event: 'SWITCH_PLAN', label: 'Cambiar plan', emoji: '🔄', hint: 'Requiere indicar plan destino', variant: 'neutral' },
+];
+
+function HotmartSimulatorCard({
+  tenant,
+  onChange,
+}: {
+  tenant: any;
+  onChange: () => void;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [switchToPlan, setSwitchToPlan] = useState<'Elite' | 'Pro'>(
+    tenant?.plan?.name === 'Pro' ? 'Elite' : 'Pro',
+  );
+
+  async function fire(event: string) {
+    if (!confirm(`¿Disparar ${event} en este tenant? Esto NO involucra Hotmart real.`)) return;
+    setBusy(event);
+    try {
+      const body: any = { tenantId: tenant.id, event };
+      if (event === 'SWITCH_PLAN') body.switchToPlan = switchToPlan;
+      const r = await api<any>('/admin/billing/hotmart/simulate-webhook', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      const action = r?.handlerResult?.action ?? 'sin acción';
+      toast(`${event} → ${action}`, 'success');
+      onChange();
+    } catch (e: any) {
+      toast(e.message || 'Error simulando webhook', 'error');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="card card-pad md:col-span-2">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-base font-semibold m-0">
+            🧪 Simulador Hotmart (QA)
+          </h2>
+          <p className="text-xs text-mute mt-1">
+            Dispara eventos del webhook contra este tenant{' '}
+            <strong>sin involucrar Hotmart ni cobrar nada</strong>. Pasa por el
+            mismo handler que un pago real.
+          </p>
+        </div>
+        <span className="text-[10px] px-2 py-1 rounded-full bg-amber-100 text-amber-900 font-semibold uppercase tracking-wide">
+          solo super admin
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2 mt-4">
+        {SIMULATOR_EVENTS.map((e) => {
+          const ring =
+            e.variant === 'ok'
+              ? 'border-ok/40 hover:border-ok bg-ok-soft/30'
+              : e.variant === 'warn'
+              ? 'border-amber-300 hover:border-amber-500 bg-amber-50/50'
+              : e.variant === 'danger'
+              ? 'border-red-300 hover:border-red-500 bg-red-50/40'
+              : 'border-line hover:border-brand bg-bg2';
+          return (
+            <button
+              key={e.event}
+              type="button"
+              disabled={busy !== null}
+              onClick={() => fire(e.event)}
+              className={`text-left rounded-input border-2 p-3 transition disabled:opacity-50 ${ring}`}
+            >
+              <div className="text-xl mb-1">{e.emoji}</div>
+              <div className="text-sm font-semibold">
+                {busy === e.event ? 'Disparando…' : e.label}
+              </div>
+              <div className="text-[11px] text-mute mt-0.5">{e.hint}</div>
+              <div className="text-[10px] text-mute font-mono mt-1.5">
+                {e.event}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-4 rounded-input bg-bg2 px-3 py-2.5 flex items-center gap-3 flex-wrap">
+        <label className="text-xs text-mute">Plan destino para SWITCH_PLAN:</label>
+        <select
+          className="input py-1 text-sm max-w-[140px]"
+          value={switchToPlan}
+          onChange={(ev) => setSwitchToPlan(ev.target.value as 'Elite' | 'Pro')}
+        >
+          <option value="Elite">Elite</option>
+          <option value="Pro">Pro</option>
+        </select>
+      </div>
+
+      <div className="mt-3 text-[11px] text-mute leading-relaxed">
+        Las simulaciones marcan al tenant con <code>subscriberCode = sim-...</code>{' '}
+        para distinguir de cobros reales. Si querés simular múltiples renovaciones,
+        usá <strong>UPDATE_SUBSCRIPTION_CHARGE_DATE</strong> y después{' '}
+        <strong>PURCHASE_APPROVED</strong> de nuevo.
       </div>
     </div>
   );

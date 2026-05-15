@@ -6,6 +6,7 @@ import {
   HotmartWebhookController,
   HotmartCheckoutController,
 } from './hotmart.controller';
+import { HotmartSimulatorController } from './hotmart-simulator.controller';
 import { IntegrationsModule } from '../integrations/integrations.module';
 import { EmailModule } from '../email/email.module';
 
@@ -15,6 +16,7 @@ import { EmailModule } from '../email/email.module';
     BillingController,
     HotmartWebhookController,
     HotmartCheckoutController,
+    HotmartSimulatorController,
   ],
   providers: [BillingService, HotmartService],
   exports: [BillingService, HotmartService],

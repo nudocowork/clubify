@@ -279,10 +279,40 @@ export class HotmartService {
       if (t) return t;
     }
     if (buyerEmail) {
-      const user = await this.prisma.user.findFirst({
+      let user = await this.prisma.user.findFirst({
         where: { email: buyerEmail, role: 'TENANT_OWNER', tenantId: { not: null } },
         select: { tenantId: true },
       });
+      // Fallback: Hotmart a veces strippea el sufijo `+alias` del email del
+      // comprador (ej. signup con `juan+test1@gmail.com` → buyer queda como
+      // `juantest1@gmail.com`). Si no hubo match exacto y el buyer no tiene
+      // `+`, buscamos un owner cuya parte local sin `+...` coincida.
+      if (!user && !buyerEmail.includes('+')) {
+        const at = buyerEmail.indexOf('@');
+        if (at > 0) {
+          const local = buyerEmail.slice(0, at);
+          const domain = buyerEmail.slice(at);
+          // Match `<algo>+<algo>@dominio` donde <algo>+<algo> sin `+` sea local
+          const candidates = await this.prisma.user.findMany({
+            where: {
+              role: 'TENANT_OWNER',
+              tenantId: { not: null },
+              email: { endsWith: domain, contains: '+', mode: 'insensitive' },
+            },
+            select: { email: true, tenantId: true },
+            take: 50,
+          });
+          const stripPlus = (e: string) =>
+            e.replace(/\+[^@]*@/, '@').toLowerCase();
+          const match = candidates.find((c) => stripPlus(c.email) === buyerEmail);
+          if (match) {
+            this.logger.log(
+              `Hotmart email match via +alias strip: buyer=${buyerEmail} matched user=${match.email}`,
+            );
+            user = { tenantId: match.tenantId };
+          }
+        }
+      }
       if (user?.tenantId) {
         return this.prisma.tenant.findUnique({
           where: { id: user.tenantId },

@@ -40,3 +40,4 @@ backend/migrations/.snapshot
 # Compiled test outputs (generated from .ts source)
 backend/test/*.js
 backend/test/*.js.map
+.env*.local
