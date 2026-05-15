@@ -122,6 +122,21 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
         };
       case 'DISCOUNT':
         return { lbl: 'OFF', val: `${discountPercent ?? 10}%` };
+      case 'COUPON':
+        // CUPÓN no muestra conteo de sellos. Si tiene discountPercent
+        // configurado, lo mostramos como valor; sino, "DISPONIBLE"
+        // (matchea la lógica del .pkpass real en wallet.service.ts).
+        return {
+          lbl: 'CUPÓN',
+          val:
+            discountPercent && discountPercent > 0
+              ? `${discountPercent}%`
+              : 'DISPONIBLE',
+        };
+      case 'GIFT':
+        // Gift tampoco es de progreso — mostramos label genérico para
+        // que no caiga al default y muestre "SELLOS x/y".
+        return { lbl: 'REGALO', val: 'DISPONIBLE' };
       default:
         return { lbl: 'SELLOS', val: `${stampsCount}/${required}` };
     }
