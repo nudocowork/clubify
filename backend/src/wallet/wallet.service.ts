@@ -146,7 +146,11 @@ export class WalletService {
       storeCard: {
         // Header field principal — varía por tipo de tarjeta. Apple Wallet
         // muestra banner "Tu pase de X cambió: Y…" cuando este field cambia.
-        headerFields: [this.buildHeaderField(pass)],
+        // Para COUPON: array vacío. El estado DISPONIBLE/REDIMIDO va
+        // pintado dentro del strip image como badge — así no hay overlap
+        // visual con el logoText (brand name) que ocupa el mismo row.
+        headerFields:
+          pass.card.type === 'COUPON' ? [] : [this.buildHeaderField(pass)],
         // primaryFields vacío → el strip image actúa de hero principal sin
         // texto encima.
         primaryFields: [],
@@ -211,6 +215,14 @@ export class WalletService {
         stampInactiveColor: c.stampInactiveColor ?? null,
         stampContourColor: c.stampContourColor ?? null,
         centerBgColor: c.centerBgColor ?? null,
+      });
+    } else if (pass.card.type === 'COUPON') {
+      dynamicStrips = await this.generateCouponStrip({
+        primary: pass.card.primaryColor,
+        secondary: pass.card.secondaryColor,
+        rewardText: pass.card.rewardText || '',
+        heroImageUrl: pass.card.heroImageUrl || null,
+        redeemed: pass.status === 'COMPLETED',
       });
     }
 
@@ -637,6 +649,156 @@ export class WalletService {
       'strip@2x.png': s2,
       'strip@3x.png': s3,
     };
+  }
+
+  /**
+   * Genera strip*.png para tarjetas COUPON. Layout:
+   * - Background: heroImageUrl si existe (recortada a 640×246), sino
+   *   gradient primary→secondary.
+   * - Si heroImageUrl: overlay oscuro 30% para legibilidad del texto.
+   * - Centro: texto grande "REWARD" (rewardText de la card).
+   * - Badge esquina superior derecha: "DISPONIBLE" verde o "REDIMIDO"
+   *   gris, según el estado del pass.
+   * - Si REDIMIDO: overlay extra 50% gris + stamp diagonal "USADO"
+   *   para feedback visual claro.
+   *
+   * Apple Wallet strip dimensions: 320×123 / 640×246 / 960×369. Devolvemos
+   * los 3 tamaños via sharp resize (renderizamos en 640×246 source).
+   */
+  private async generateCouponStrip(opts: {
+    primary: string;
+    secondary: string;
+    rewardText: string;
+    heroImageUrl: string | null;
+    redeemed: boolean;
+  }): Promise<Record<string, Buffer>> {
+    const sharp = (await import('sharp')).default;
+    const { primary, secondary, rewardText, heroImageUrl, redeemed } = opts;
+
+    const W = 640;
+    const H = 246;
+
+    // Texto del centro: rewardText. Si vacío, "BENEFICIO". Trunca a ~32
+    // chars para que no se monte. Wrap en 2 líneas si > 18 chars.
+    const fullText = (rewardText || 'BENEFICIO').toUpperCase();
+    const lines = this.splitLines(fullText, 18, 2);
+    const textY = lines.length === 1 ? H / 2 + 14 : H / 2 - 4;
+
+    const badgeText = redeemed ? 'REDIMIDO' : 'DISPONIBLE';
+    const badgeFill = redeemed ? '#4B5563' : '#16A34A';
+    const badgeStroke = redeemed
+      ? 'rgba(255,255,255,0.5)'
+      : 'rgba(255,255,255,0.7)';
+    const badgeW = redeemed ? 130 : 150;
+
+    // Si redimido: overlay oscuro full + stamp diagonal "USADO" central
+    // para deshabilitar visualmente. Sino: solo overlay sutil para dar
+    // profundidad al texto.
+    const redeemedOverlay = redeemed
+      ? `<rect width="${W}" height="${H}" fill="rgba(0,0,0,0.45)"/>
+         <g transform="translate(${W / 2} ${H / 2}) rotate(-12)" opacity="0.9">
+           <rect x="-130" y="-22" width="260" height="44" fill="none" stroke="rgba(255,255,255,0.9)" stroke-width="3" rx="6"/>
+           <text x="0" y="9" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="28" font-weight="800" fill="rgba(255,255,255,0.95)" letter-spacing="0.1em">USADO</text>
+         </g>`
+      : '';
+
+    const bgRect = heroImageUrl
+      ? ''
+      : `<rect width="${W}" height="${H}" fill="url(#bg)"/>`;
+
+    const svg = `
+<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="${this.escapeXml(primary)}"/>
+      <stop offset="100%" stop-color="${this.escapeXml(secondary)}"/>
+    </linearGradient>
+    <linearGradient id="overlay" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="rgba(0,0,0,0.25)"/>
+      <stop offset="100%" stop-color="rgba(0,0,0,0.45)"/>
+    </linearGradient>
+  </defs>
+  ${bgRect}
+  ${heroImageUrl ? `<rect width="${W}" height="${H}" fill="url(#overlay)"/>` : ''}
+  ${lines
+    .map(
+      (line, i) => `
+  <text x="${W / 2}" y="${textY + i * 42}" text-anchor="middle"
+        font-family="Inter, system-ui, sans-serif" font-size="${lines.length === 1 ? 44 : 36}" font-weight="800"
+        fill="white" letter-spacing="-0.01em" style="filter: drop-shadow(0 2px 6px rgba(0,0,0,0.35));">${this.escapeXml(line)}</text>`,
+    )
+    .join('')}
+  <g transform="translate(${W - badgeW - 18} 18)">
+    <rect width="${badgeW}" height="32" rx="16" fill="${badgeFill}" stroke="${badgeStroke}" stroke-width="1.5"/>
+    <text x="${badgeW / 2}" y="22" text-anchor="middle"
+          font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="700"
+          fill="white" letter-spacing="0.08em">${badgeText}</text>
+  </g>
+  ${redeemedOverlay}
+</svg>`.trim();
+
+    // Si hay heroImageUrl: bajar la imagen, recortar a 640×246 cover y
+    // componer SVG encima. Si falla la red, fallback al SVG-only.
+    let baseImage: Buffer | null = null;
+    if (heroImageUrl) {
+      try {
+        const res = await fetch(heroImageUrl);
+        if (res.ok) {
+          const buf = Buffer.from(await res.arrayBuffer());
+          baseImage = await sharp(buf)
+            .resize(W, H, { fit: 'cover', position: 'center' })
+            .png()
+            .toBuffer();
+        }
+      } catch (e: any) {
+        this.logger.warn(
+          `[COUPON STRIP] heroImageUrl fetch falló: ${e?.message ?? e} — fallback a gradient`,
+        );
+      }
+    }
+
+    const compositeBase = baseImage
+      ? sharp(baseImage).composite([{ input: Buffer.from(svg, 'utf8') }])
+      : sharp(Buffer.from(svg, 'utf8'));
+
+    const baseBuf = await compositeBase.png().toBuffer();
+    const [s1, s2, s3] = await Promise.all([
+      sharp(baseBuf).resize(320, 123).png().toBuffer(),
+      sharp(baseBuf).resize(640, 246).png().toBuffer(),
+      sharp(baseBuf).resize(960, 369).png().toBuffer(),
+    ]);
+    return {
+      'strip.png': s1,
+      'strip@2x.png': s2,
+      'strip@3x.png': s3,
+    };
+  }
+
+  /** Wrap helper — divide texto largo en N líneas (cada una ≤ maxCharsPerLine).
+   *  Si no se puede dividir en maxLines, trunca con "…" en la última. */
+  private splitLines(text: string, maxCharsPerLine: number, maxLines: number): string[] {
+    if (text.length <= maxCharsPerLine) return [text];
+    const words = text.split(/\s+/);
+    const lines: string[] = [];
+    let current = '';
+    for (const w of words) {
+      const cand = current ? `${current} ${w}` : w;
+      if (cand.length <= maxCharsPerLine) {
+        current = cand;
+      } else {
+        if (current) lines.push(current);
+        current = w;
+        if (lines.length >= maxLines - 1) break;
+      }
+    }
+    if (current) lines.push(current);
+    if (lines.length > maxLines) {
+      const truncated = lines.slice(0, maxLines);
+      const last = truncated[maxLines - 1];
+      truncated[maxLines - 1] = last.slice(0, maxCharsPerLine - 1) + '…';
+      return truncated;
+    }
+    return lines;
   }
 
   /**
