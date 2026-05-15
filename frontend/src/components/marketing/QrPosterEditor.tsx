@@ -849,7 +849,24 @@ export default function QrPosterEditor({
     if (!stage) return;
     setExporting(kind);
     await new Promise((r) => requestAnimationFrame(() => r(null)));
+
+    // PNG → transparente: oculta el grupo "bg" durante el export para que
+    // el alpha channel del PNG quede limpio (sin la hoja blanca/color/imagen
+    // de fondo). El cliente lo pidió explícitamente para usarlo en flyers /
+    // mockups / RRSS sin tener que recortar el fondo a mano. JPG y PDF NO
+    // hacen esto — ahí sí se conserva el fondo (JPG no soporta alpha; PDF
+    // típicamente se imprime, conviene fondo). Restauramos visibilidad en
+    // el finally por las dudas (si algo crashea queda visible igual).
+    const bgNode =
+      kind === 'png' ? (stage.findOne('.bg') as any) : null;
+    const bgWasVisible = bgNode?.visible() ?? true;
+
     try {
+      if (bgNode) {
+        bgNode.visible(false);
+        stage.batchDraw();
+      }
+
       const pixelRatio = pixelRatioForDpi(cfg.canvas);
       const mm = cfg.canvas.mm ?? { w: 210, h: 297 };
 
@@ -880,6 +897,10 @@ export default function QrPosterEditor({
         document.body.removeChild(a);
       }
     } finally {
+      if (bgNode) {
+        bgNode.visible(bgWasVisible);
+        stage.batchDraw();
+      }
       setExporting(null);
     }
   }
@@ -1864,7 +1885,11 @@ export default function QrPosterEditor({
                   {layerOrder.map((id) => {
                     if (id === 'bg') {
                       return (
-                        <Group key="bg" listening={false}>
+                        // name="bg" → permite que doExport lo encuentre
+                        // por findOne('.bg') y lo oculte cuando el cliente
+                        // exporta como PNG (transparente). En JPG/PDF se
+                        // queda visible normalmente.
+                        <Group key="bg" name="bg" listening={false}>
                           {/* Base color/gradient. Para imagen, deja blanco
                               que luego se cubre con el KonvaImage. */}
                           <Rect
@@ -3826,7 +3851,8 @@ function BgImageView({
   );
 }
 
-/** Render de un ImageLayer libre. Maneja carga async de la URL. */
+/** Render de un ImageLayer libre. Maneja carga async de la URL +
+ *  los 3 modos de ajuste (fit): cover/contain/fill. */
 function ImageLayerView({
   layer,
   makeHandlers,
@@ -3851,6 +3877,43 @@ function ImageLayerView({
         height: layer.crop.height,
       }
     : undefined;
+
+  // Fit mode → calcula dims internas + offset dentro del bounding rect
+  // (layer.w × layer.h). El RECT externo NO cambia (sigue siendo la
+  // hitbox para drag/snap/transform); solo cambia cómo se dibuja la
+  // imagen ADENTRO. Para 'cover' usamos clipFunc para recortar el
+  // overflow; para 'contain' la imagen entera entra dejando bandas; para
+  // 'fill' (default actual) la imagen se estira al rect.
+  const fit = layer.fit ?? 'fill';
+  const sourceW = layer.crop ? layer.crop.width : img.naturalWidth || layer.w;
+  const sourceH = layer.crop ? layer.crop.height : img.naturalHeight || layer.h;
+  const sourceAspect = sourceW / sourceH;
+  const rectAspect = layer.w / layer.h;
+  let innerW = layer.w;
+  let innerH = layer.h;
+  let innerX = 0;
+  let innerY = 0;
+  if (fit === 'cover') {
+    if (sourceAspect > rectAspect) {
+      innerH = layer.h;
+      innerW = innerH * sourceAspect;
+      innerX = -(innerW - layer.w) / 2;
+    } else {
+      innerW = layer.w;
+      innerH = innerW / sourceAspect;
+      innerY = -(innerH - layer.h) / 2;
+    }
+  } else if (fit === 'contain') {
+    if (sourceAspect > rectAspect) {
+      innerW = layer.w;
+      innerH = innerW / sourceAspect;
+      innerY = (layer.h - innerH) / 2;
+    } else {
+      innerH = layer.h;
+      innerW = innerH * sourceAspect;
+      innerX = (layer.w - innerW) / 2;
+    }
+  }
 
   // Konva.Image acepta offsetX/Y directamente. Cuando rotation=0 el
   // offset no afecta la posición visual; cuando rotation>0 hace que
@@ -3901,22 +3964,64 @@ function ImageLayerView({
         },
       };
 
+  // Si fit === 'fill' (default histórico), render directo sin wrapper —
+  // mantiene compat con configs viejas + minimiza overhead. Para
+  // cover/contain envolvemos en Group con clipFunc (cover) o sin él
+  // (contain), y dibujamos la imagen con dims internas calculadas.
+  if (fit === 'fill') {
+    return (
+      <KonvaImage
+        image={img}
+        x={layer.x + layer.w / 2}
+        y={layer.y + layer.h / 2}
+        offsetX={layer.w / 2}
+        offsetY={layer.h / 2}
+        width={layer.w}
+        height={layer.h}
+        opacity={layer.opacity ?? 1}
+        rotation={rotation}
+        crop={cropProp}
+        draggable={!locked}
+        listening={!locked}
+        {...(wrappedHandlers as any)}
+      />
+    );
+  }
+
   return (
-    <KonvaImage
-      image={img}
+    <Group
       x={layer.x + layer.w / 2}
       y={layer.y + layer.h / 2}
       offsetX={layer.w / 2}
       offsetY={layer.h / 2}
-      width={layer.w}
-      height={layer.h}
-      opacity={layer.opacity ?? 1}
       rotation={rotation}
-      crop={cropProp}
+      opacity={layer.opacity ?? 1}
       draggable={!locked}
       listening={!locked}
+      // En cover, recortamos al rect lógico para que la imagen "más
+      // grande" no desborde. En contain no clipeamos — la imagen ya entra
+      // entera por construcción y dejar bandas es el resultado deseado.
+      clipFunc={
+        fit === 'cover'
+          ? (ctx) => {
+              ctx.beginPath();
+              ctx.rect(0, 0, layer.w, layer.h);
+              ctx.closePath();
+            }
+          : undefined
+      }
       {...(wrappedHandlers as any)}
-    />
+    >
+      <KonvaImage
+        image={img}
+        x={innerX}
+        y={innerY}
+        width={innerW}
+        height={innerH}
+        crop={cropProp}
+        listening={false}
+      />
+    </Group>
   );
 }
 
@@ -4179,6 +4284,157 @@ function ImagesSection({
                 />
                 Mantener proporción
               </label>
+              {/* Ajuste visual: cómo se acomoda la imagen DENTRO del rect
+                  W×H. Cover llena el rect recortando el sobrante; Contain
+                  entra entera con bandas; Estirar deforma para llenar.
+                  Útil cuando la imagen no matchea el aspect del rect. */}
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1">
+                  Ajuste de imagen
+                </div>
+                <div className="grid grid-cols-3 gap-1">
+                  {(['cover', 'contain', 'fill'] as const).map((f) => {
+                    const active = (im.fit ?? 'fill') === f;
+                    const labels = {
+                      cover: { icon: '🟦', label: 'Cubrir' },
+                      contain: { icon: '🔲', label: 'Contener' },
+                      fill: { icon: '🔳', label: 'Estirar' },
+                    } as const;
+                    return (
+                      <button
+                        key={f}
+                        type="button"
+                        onClick={() => onPatch(im.id, { fit: f })}
+                        className={`text-[10px] py-1.5 rounded-lg border-2 transition ${
+                          active
+                            ? 'border-brand bg-brand-soft text-brand-700 font-semibold'
+                            : 'border-line hover:border-mute'
+                        }`}
+                        title={
+                          f === 'cover'
+                            ? 'Llena el rect recortando lo que sobra (drag para reposicionar)'
+                            : f === 'contain'
+                              ? 'Imagen entera adentro, deja bandas si es necesario'
+                              : 'Estira la imagen al rect (puede deformarla)'
+                        }
+                      >
+                        {labels[f].icon} {labels[f].label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              {/* Zoom: multiplica W×H manteniendo el centro visual. Útil
+                  para agrandar o achicar rápido sin tocar W/H a mano. */}
+              <div>
+                <div className="flex items-center justify-between text-[10px] mb-0.5">
+                  <span className="uppercase tracking-wider text-mute font-semibold">
+                    Zoom
+                  </span>
+                  <span className="text-mute">
+                    {Math.round((im.w / Math.max(1, im.h)) * 100) / 100 ===
+                    Math.round((im.w / Math.max(1, im.h)) * 100) / 100
+                      ? `${Math.round((im.w / 100) * 10) / 10}×`
+                      : ''}
+                    {Math.round(im.w)}×{Math.round(im.h)}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={20}
+                  max={300}
+                  step={5}
+                  defaultValue={100}
+                  onChange={(e) => {
+                    const factor = Number(e.target.value) / 100;
+                    const cx = im.x + im.w / 2;
+                    const cy = im.y + im.h / 2;
+                    const baseW = im.w;
+                    const baseH = im.h;
+                    const newW = Math.max(20, Math.round(baseW * factor));
+                    const newH = Math.max(20, Math.round(baseH * factor));
+                    onPatch(im.id, {
+                      w: newW,
+                      h: newH,
+                      x: Math.round(cx - newW / 2),
+                      y: Math.round(cy - newH / 2),
+                    });
+                    e.target.value = '100';
+                  }}
+                  className="w-full accent-brand"
+                  title="Arrastrá para escalar; el centro de la imagen se mantiene en su lugar"
+                />
+                <div className="flex gap-1 mt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Ajustar al lienzo: ocupa el canvas completo
+                      // manteniendo aspect (si keepAspect ON) o estirado.
+                      const cw = canvasW;
+                      const ch = canvasH;
+                      if (im.keepAspect ?? true) {
+                        const aspect = im.w / im.h;
+                        const canvasAspect = cw / ch;
+                        let nw, nh;
+                        if (aspect > canvasAspect) {
+                          nw = cw;
+                          nh = Math.round(cw / aspect);
+                        } else {
+                          nh = ch;
+                          nw = Math.round(ch * aspect);
+                        }
+                        onPatch(im.id, {
+                          w: nw,
+                          h: nh,
+                          x: Math.round((cw - nw) / 2),
+                          y: Math.round((ch - nh) / 2),
+                        });
+                      } else {
+                        onPatch(im.id, { w: cw, h: ch, x: 0, y: 0 });
+                      }
+                    }}
+                    className="btn-ghost text-[10px] py-1.5 flex-1"
+                    title="Ocupa el lienzo entero"
+                  >
+                    ⛶ Lienzo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Tamaño original: lleva W×H a las dimensiones
+                      // naturales de la imagen subida (read-only, conocido
+                      // al cargar). Si la imagen no cargó todavía, no-op.
+                      const i = new window.Image();
+                      i.onload = () => {
+                        const cw = canvasW;
+                        const ch = canvasH;
+                        const nw = i.naturalWidth;
+                        const nh = i.naturalHeight;
+                        const cx = im.x + im.w / 2;
+                        const cy = im.y + im.h / 2;
+                        // Clampear al canvas para que no quede fuera de
+                        // pantalla si la natural es enorme.
+                        const maxW = cw * 0.9;
+                        const maxH = ch * 0.9;
+                        const scale = Math.min(maxW / nw, maxH / nh, 1);
+                        const finalW = Math.round(nw * scale);
+                        const finalH = Math.round(nh * scale);
+                        onPatch(im.id, {
+                          w: finalW,
+                          h: finalH,
+                          x: Math.round(cx - finalW / 2),
+                          y: Math.round(cy - finalH / 2),
+                        });
+                      };
+                      i.src = im.url;
+                    }}
+                    className="btn-ghost text-[10px] py-1.5 flex-1"
+                    title="Vuelve a las dimensiones naturales de la imagen"
+                  >
+                    ↺ Original
+                  </button>
+                </div>
+              </div>
               {/* Centrar matemáticamente preciso. Soluciona la queja
                   de "alineado de imágenes + guía de centro": el cliente
                   no tiene que tratar de arrastrar al centro exacto a
