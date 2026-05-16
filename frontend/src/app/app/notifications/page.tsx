@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { EmojiPicker } from '@/components/EmojiPicker';
+import { ImageUploader } from '@/components/ImageUploader';
 
 // =============================================================
 //                    Plantillas predefinidas
@@ -118,6 +119,11 @@ export default function NotificationsPage() {
   const [brandName, setBrandName] = useState<string>('Tu negocio');
   const [brandColor, setBrandColor] = useState<string | null>(null);
   const [brandLogoUrl, setBrandLogoUrl] = useState<string | null>(null);
+  // Logo dedicado al banner de notificaciones push (icon.png del .pkpass).
+  // Fallback en preview: pushLogo → walletLogo → logoUrl → inicial.
+  const [pushLogoUrl, setPushLogoUrl] = useState<string | null>(null);
+  const [walletLogoFallback, setWalletLogoFallback] = useState<string | null>(null);
+  const [savingPushLogo, setSavingPushLogo] = useState(false);
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
   // Default: 1h en el futuro, redondeado al próximo cuarto de hora
   const [scheduledAt, setScheduledAt] = useState<string>(() => {
@@ -141,8 +147,13 @@ export default function NotificationsPage() {
       setCards(c as any[]);
       if ((me as any)?.brandName) setBrandName((me as any).brandName);
       if ((me as any)?.primaryColor) setBrandColor((me as any).primaryColor);
-      if ((me as any)?.walletLogoUrl) setBrandLogoUrl((me as any).walletLogoUrl);
-      else if ((me as any)?.logoUrl) setBrandLogoUrl((me as any).logoUrl);
+      const pushLogo = (me as any)?.pushLogoUrl ?? null;
+      const walletLogo = (me as any)?.walletLogoUrl ?? null;
+      const generalLogo = (me as any)?.logoUrl ?? null;
+      setPushLogoUrl(pushLogo);
+      setWalletLogoFallback(walletLogo ?? generalLogo);
+      // Preview prioriza pushLogo → wallet → general (mismo fallback que .pkpass icon.png).
+      setBrandLogoUrl(pushLogo ?? walletLogo ?? generalLogo);
     } catch (e: any) {
       toast(e.message || 'Error cargando notificaciones', 'error');
     }
@@ -192,6 +203,28 @@ export default function NotificationsPage() {
     }
   }
 
+  async function savePushLogo(url: string | null) {
+    setSavingPushLogo(true);
+    try {
+      await api('/tenants/me', {
+        method: 'PATCH',
+        body: JSON.stringify({ pushLogoUrl: url ?? '' }),
+      });
+      setPushLogoUrl(url);
+      setBrandLogoUrl(url ?? walletLogoFallback);
+      toast(
+        url
+          ? 'Logo de push guardado · aplica al próximo envío'
+          : 'Logo de push eliminado · vuelve al logo general',
+        'success',
+      );
+    } catch (e: any) {
+      toast(e.message || 'No se pudo guardar el logo', 'error');
+    } finally {
+      setSavingPushLogo(false);
+    }
+  }
+
   function applyTemplate(t: Template) {
     setForm((f) => ({ ...f, title: t.title, body: t.body }));
     if (typeof window !== 'undefined')
@@ -214,6 +247,15 @@ export default function NotificationsPage() {
           📍 Ubicación
         </Link>
       </div>
+
+      <PushLogoCard
+        pushLogoUrl={pushLogoUrl}
+        fallbackUrl={walletLogoFallback}
+        brandName={brandName}
+        brandColor={brandColor}
+        saving={savingPushLogo}
+        onChange={savePushLogo}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px_1.2fr] gap-5">
         {/* Composer */}
@@ -483,6 +525,206 @@ export default function NotificationsPage() {
           )}
         </div>
       </details>
+    </div>
+  );
+}
+
+// =============================================================
+//             Logo dedicado para push (icon.png del pase)
+// =============================================================
+
+function PushLogoCard({
+  pushLogoUrl,
+  fallbackUrl,
+  brandName,
+  brandColor,
+  saving,
+  onChange,
+}: {
+  pushLogoUrl: string | null;
+  fallbackUrl: string | null;
+  brandName: string;
+  brandColor: string | null;
+  saving: boolean;
+  onChange: (url: string | null) => void | Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const effective = pushLogoUrl ?? fallbackUrl;
+  const initial = (brandName?.[0] || 'C').toUpperCase();
+  const usingFallback = !pushLogoUrl && !!fallbackUrl;
+  const noLogo = !effective;
+
+  return (
+    <div className="card card-pad mb-5">
+      <div className="flex items-start gap-4">
+        <div
+          className="w-14 h-14 rounded-[14px] shrink-0 flex items-center justify-center text-white text-xl font-bold overflow-hidden border border-line"
+          style={{
+            background:
+              brandColor || 'linear-gradient(135deg, #6366F1, #A855F7)',
+          }}
+        >
+          {effective ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={effective}
+              alt=""
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            initial
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="text-base font-semibold m-0">
+              🔔 Logo para notificaciones push
+            </h2>
+            {pushLogoUrl ? (
+              <span className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-pill bg-ok/10 text-ok">
+                Personalizado
+              </span>
+            ) : usingFallback ? (
+              <span className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-pill bg-amber-100 text-amber-800">
+                Usando logo del negocio
+              </span>
+            ) : (
+              <span className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-pill bg-bg2 text-mute">
+                Sin logo
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-mute mt-1.5 leading-relaxed">
+            Aparece en el banner de la pantalla de bloqueo del iPhone cuando
+            mandes una push y en la lista de la app Wallet. <b className="text-ink">No</b> cambia el diseño visual del pase abierto — eso sigue usando tu logo wallet.
+          </p>
+          <div className="flex items-center gap-2 mt-3 flex-wrap">
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => setOpen(true)}
+            >
+              <Icon name="edit" />{' '}
+              {pushLogoUrl ? 'Cambiar logo' : 'Subir logo'}
+            </button>
+            {pushLogoUrl && (
+              <button
+                type="button"
+                className="btn-ghost text-danger"
+                onClick={() => onChange(null)}
+                disabled={saving}
+              >
+                Eliminar
+              </button>
+            )}
+            {noLogo && (
+              <span className="text-[11px] text-amber-700">
+                Sin logo el banner muestra la inicial — sube uno cuadrado para mejor resultado.
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {open && (
+        <div
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+          onClick={() => setOpen(false)}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-md w-full p-5 max-h-[90vh] overflow-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <h3 className="text-base font-semibold m-0">
+                  Logo para push
+                </h3>
+                <p className="text-xs text-mute mt-1">
+                  PNG, JPG o WEBP · cuadrado · fondo transparente recomendado.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="text-mute hover:text-ink text-xl leading-none"
+                aria-label="Cerrar"
+              >
+                ×
+              </button>
+            </div>
+            <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-900 leading-relaxed mb-3">
+              💡 Sube una imagen <b>cuadrada</b> con tu marca. iOS la recorta a
+              29×29 / 58×58 / 87×87 px. Si tiene fondo blanco va a quedar un
+              cuadrado blanco detrás del logo en el banner.
+            </div>
+            <ImageUploader
+              value={pushLogoUrl}
+              onChange={async (url) => {
+                await onChange(url);
+              }}
+              folder="push-logos"
+              crop={false}
+            />
+            {saving && (
+              <div className="text-[11px] text-mute mt-2 text-center">
+                Guardando…
+              </div>
+            )}
+
+            <div className="mt-4 pt-3 border-t border-line">
+              <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-2 text-center">
+                Vista previa
+              </div>
+              <div
+                className="mx-auto rounded-[20px] p-3 shadow-xl border border-white/10"
+                style={{
+                  background:
+                    'linear-gradient(160deg, #1f1f3a 0%, #2c2554 50%, #5b3b8e 100%)',
+                  maxWidth: 280,
+                }}
+              >
+                <div className="bg-white/15 backdrop-blur-xl rounded-[16px] p-3">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="w-8 h-8 rounded-[8px] shrink-0 flex items-center justify-center text-white text-sm font-bold overflow-hidden"
+                      style={{
+                        background:
+                          brandColor || 'linear-gradient(135deg, #6366F1, #A855F7)',
+                      }}
+                    >
+                      {effective ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={effective}
+                          alt=""
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        initial
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[10px] uppercase tracking-wider font-semibold text-white truncate">
+                        {brandName}
+                      </div>
+                    </div>
+                    <div className="text-[10px] text-white/70">ahora</div>
+                  </div>
+                  <div className="mt-1.5 text-white">
+                    <div className="text-[12px] font-semibold leading-snug">
+                      🎂 ¡Feliz cumpleaños!
+                    </div>
+                    <div className="text-[11px] mt-0.5 leading-snug opacity-90">
+                      Hoy te invitamos algo especial de la casa.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

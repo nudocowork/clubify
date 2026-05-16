@@ -302,6 +302,12 @@ model Tenant {
   // Logo específico para las tarjetas wallet (header de Apple/Google
   // Wallet). Si null, fallback a logoUrl. PNG con alpha recomendado.
   walletLogoUrl               String?
+  // Logo dedicado para el banner de notificaciones push (lockscreen iPhone +
+  // ícono en la lista de la app Wallet). Se usa SOLO para el icon.png del
+  // .pkpass — el logo.png del header del pase abierto sigue usando
+  // walletLogoUrl/logoUrl, así que el diseño visual del pase no cambia.
+  // Fallback: pushLogoUrl → walletLogoUrl → logoUrl. Cuadrado recomendado.
+  pushLogoUrl                 String?
   primaryColor                String       @default("#22C55E")
   secondaryColor              String       @default("#15803D")
   status                      TenantStatus @default(TRIAL)

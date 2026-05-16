@@ -73,6 +73,7 @@ export type UpdateMyTenantDto = Partial<{
   mapsUrl: string;
   googleReviewUrl: string;
   walletLogoUrl: string;
+  pushLogoUrl: string;
 }>;
 
 @Injectable()

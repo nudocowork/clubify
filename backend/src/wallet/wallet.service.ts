@@ -276,7 +276,19 @@ export class WalletService {
     } else {
       this.logger.log(`[LOGO] sin logo válido para pass=${pass.id} — pase sin logo`);
     }
-    const tenantIcons = await this.generateTenantIcons(usedLogoUrl ?? candidates[0] ?? null);
+
+    // icon.png usa pushLogoUrl con prioridad sobre walletLogoUrl/logoUrl.
+    // Apple Wallet usa icon.png exclusivamente para:
+    //  - banner de notificación push en lockscreen
+    //  - ícono del pase en la lista de la app Wallet
+    // El logo.png (header del pase abierto) sigue usando el candidate
+    // resuelto arriba — así el diseño visual del pase NO cambia.
+    const pushLogoUrl =
+      normalize((pass.tenant as any).pushLogoUrl) ??
+      usedLogoUrl ??
+      candidates[0] ??
+      null;
+    const tenantIcons = await this.generateTenantIcons(pushLogoUrl);
 
     const buffers: Record<string, Buffer> = {
       'pass.json': Buffer.from(JSON.stringify(passJson)),
