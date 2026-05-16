@@ -499,6 +499,77 @@ export class StampsService {
     return newPass;
   }
 
+  /**
+   * Backfill: para coupon passes COMPLETED pre-fix del 2026-05-15
+   * (commit 158d7c0) que no auto-crearon stamps card, dispara el
+   * auto-promote retroactivamente. Idempotente — passes existentes no
+   * se duplican.
+   */
+  async backfillCouponPromotion(user: AuthUser, tenantSlug?: string) {
+    const where: any = {
+      status: 'COMPLETED',
+      card: { type: { in: ['COUPON', 'DISCOUNT', 'GIFT'] } },
+    };
+    if (tenantSlug) {
+      const t = await this.prisma.tenant.findUnique({
+        where: { slug: tenantSlug },
+        select: { id: true },
+      });
+      if (!t) throw new BadRequestException(`Tenant slug "${tenantSlug}" no existe`);
+      where.tenantId = t.id;
+    }
+
+    const couponPasses = await this.prisma.pass.findMany({
+      where,
+      include: {
+        card: { select: { id: true, name: true, type: true } },
+        customer: { select: { id: true, fullName: true } },
+        tenant: { select: { id: true, slug: true, brandName: true } },
+      },
+    });
+
+    const results: Array<{
+      customer: string;
+      tenant: string;
+      coupon: string;
+      stampsPassId: string;
+      stampsPassUrl: string;
+      created: boolean;
+    }> = [];
+
+    for (const p of couponPasses) {
+      const promoted = await this.autoPromoteCouponToStamps(
+        user,
+        p.tenantId,
+        p.customerId,
+        p.cardId,
+      ).catch((e) => {
+        this.logger.warn(
+          `Backfill: auto-promote falló para pass ${p.id}: ${e?.message ?? e}`,
+        );
+        return null;
+      });
+
+      if (promoted) {
+        results.push({
+          customer: p.customer.fullName,
+          tenant: p.tenant.brandName,
+          coupon: p.card.name,
+          stampsPassId: promoted.id,
+          stampsPassUrl: `https://soyclubify.com/w/${promoted.id}`,
+          created: true,
+        });
+      }
+    }
+
+    return {
+      scanned: couponPasses.length,
+      promoted: results.length,
+      tenantSlug: tenantSlug ?? '(all)',
+      results,
+    };
+  }
+
   history(user: AuthUser, passId: string) {
     return this.prisma.stamp.findMany({
       where: {

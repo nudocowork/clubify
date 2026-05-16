@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
 import { StampAction } from '@prisma/client';
 import { StampsService } from './stamps.service';
@@ -33,5 +33,17 @@ export class StampsController {
   @Get('history/:passId')
   history(@CurrentUser() user: AuthUser, @Param('passId') passId: string) {
     return this.svc.history(user, passId);
+  }
+
+  // Backfill admin: para coupon passes COMPLETED pre-fix del 2026-05-15
+  // que no auto-crearon stamps card. Idempotente: ya existentes no se
+  // duplican. Gated a SUPER_ADMIN para evitar abuso.
+  @Post('backfill-coupon-promotion')
+  @Roles('SUPER_ADMIN')
+  backfillCouponPromotion(
+    @CurrentUser() user: AuthUser,
+    @Query('tenantSlug') tenantSlug?: string,
+  ) {
+    return this.svc.backfillCouponPromotion(user, tenantSlug);
   }
 }
