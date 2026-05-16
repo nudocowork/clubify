@@ -225,19 +225,17 @@ export default function ScanPage() {
       // El backend devuelve `pass` sin includes (solo campos del Pass).
       // Conservamos card/customer/tenant del state previo, solo
       // sobreescribimos los campos numéricos que cambiaron.
-      // Para REDEEM en COUPON, el backend además devuelve `promotedPass`
-      // con info del nuevo stamps pass auto-creado para el cliente.
       // Si el cupón fue transformado in-place a stamps card, el
-      // pass.cardId cambió en el backend. Re-fetchear el pass entero
-      // para que el scanner muestre la nueva UI de sellos en vez del
-      // panel de cupón ya redimido.
+      // backend devuelve el pass completo (incluido el card nuevo
+      // tipo STAMPS). Pisamos el state con el response — el spread
+      // de `res.pass` SOBREESCRIBE el card viejo con el nuevo;
+      // `data.pass.tenant` se conserva porque no viene en res.pass.
       if (res.transformedToStamps) {
         setData({
           ...data,
           pass: {
             ...data.pass,
             ...res.pass,
-            card: { ...data.pass.card, type: 'STAMPS' },
           },
           justTransformedFromCoupon: true,
         });

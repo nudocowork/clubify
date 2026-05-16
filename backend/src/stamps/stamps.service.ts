@@ -161,11 +161,14 @@ export class StampsService {
           pass.card.type === 'DISCOUNT' ||
           pass.card.type === 'GIFT'
         ) {
-          // Single-use legacy: COUPON (oficial) + DISCOUNT/GIFT (legacy
-          // antes de la simplificación 2026-05-15). Al redimir, el pass
-          // queda COMPLETED y no se vuelve a poder redimir. La
-          // transformación a stamps card se hace después de la
-          // transacción (auto-promote).
+          // Single-use: COUPON oficial + DISCOUNT/GIFT legacy. El pass
+          // se transforma in-place a stamps card debajo (cambio de
+          // cardId + stampsCount=0 + status='ACTIVE'). El guard
+          // `pass.status === 'COMPLETED'` previene re-redención de
+          // cupones legacy que quedaron en estado COMPLETED por la
+          // versión pre-transform del flow (antes del commit 4ce5cbf).
+          // En el flow nuevo, post-transform el pass es STAMPS → cae
+          // al case STAMPS arriba, no a este.
           if (pass.status === 'COMPLETED') {
             throw new BadRequestException(
               'Este cupón ya fue redimido. No se puede usar de nuevo.',
@@ -427,14 +430,20 @@ export class StampsService {
         .emit('COUPON_REDEEMED', {
           tenantId: pass.tenantId,
           customerId: pass.customerId,
+          // pass.cardId aquí todavía es el del cupón ORIGINAL (no
+          // refetcheamos antes de emit) — informativo histórico
           couponCardId: pass.cardId,
           couponPassId: pass.id,
           couponName: pass.card.name,
           rewardText: pass.card.rewardText || '',
-          // El pass ahora apunta al stamps card del tenant. No hay
-          // link nuevo — la misma wallet pass del cliente se
-          // actualizó automáticamente vía push.
+          // El pass se transformó in-place — apunta a la stamps card
+          // del tenant pero mantiene su passId. Los templates que
+          // usaban {{stampsPassUrl}} y {{stampsPassId}} siguen
+          // funcionando: apuntan al MISMO pass, que ahora muestra
+          // la tarjeta de sellos. backwards compat con automations.
           stampsCardId: stampsCardForTransform?.id ?? null,
+          stampsPassId: pass.id,
+          stampsPassUrl: `https://soyclubify.com/w/${pass.id}`,
           transformedInPlace: true,
         })
         .catch(() => null);
@@ -502,11 +511,17 @@ export class StampsService {
 
   /**
    * Antes de transformar un pass cupón → stamps card target, hay que
-   * liberar la unique constraint (cardId, customerId). Si el customer
-   * ya tiene un pass huérfano en esa stamps card (creado por el
-   * backfill anterior o por una versión previa del auto-promote, sin
-   * sellos acumulados aún), lo eliminamos. Si el pass huérfano tiene
-   * sellos = customer ya estaba fidelizado pre-cupón, NO tocamos.
+   * liberar la unique constraint (cardId, customerId). Reglas:
+   *
+   * - Si el customer NO tiene un pass en esa stamps card → nada que
+   *   limpiar, return.
+   * - Si tiene un pass pero tiene sellos > 0 → fidelización legítima
+   *   previa al cupón. Tirar error (no perder progreso).
+   * - Si tiene devices walletDevice registrados → ya lo agregó al
+   *   wallet. Tirar error (no romper su wallet pass).
+   * - Si tiene Stamp records → tuvo actividad histórica. Tirar error.
+   * - Solo si es 0/0/0 totalmente vacío → safe to delete (huérfano
+   *   real del backfill v1).
    */
   private async cleanupOrphanStampsPass(
     customerId: string,
@@ -517,28 +532,33 @@ export class StampsService {
       select: { id: true, stampsCount: true },
     });
     if (!existingStampsPass) return;
+
     if (existingStampsPass.stampsCount > 0) {
       this.logger.warn(
-        `Customer ${customerId} ya tiene stamps pass ${existingStampsPass.id} con sellos — skip transform para no perder progreso`,
+        `Customer ${customerId} ya tiene stamps pass ${existingStampsPass.id} con ${existingStampsPass.stampsCount} sellos — abort transform para no perder progreso`,
       );
-      // Throw para que el caller decida — alternativa: dejar el coupon
-      // como COMPLETED sin transformar. Por ahora, lo dejamos sin
-      // transformar tirando un error de constraint en el caller.
       throw new BadRequestException(
-        'El cliente ya tiene una tarjeta de sellos con progreso. No se puede transformar el cupón sin perder los sellos acumulados. Redimí el cupón manualmente y eliminalo desde el panel.',
+        'El cliente ya tiene una tarjeta de sellos con sellos acumulados. No se puede transformar el cupón sin perder su progreso.',
       );
     }
-    // Pass huérfano sin sellos — seguro eliminar (no tiene historia
-    // de stamps records, no fue agregado al wallet aún en general).
-    await this.prisma.stamp.deleteMany({
-      where: { passId: existingStampsPass.id },
-    });
-    await this.prisma.walletDevice.deleteMany({
-      where: { passId: existingStampsPass.id },
-    });
+
+    const [walletDevices, stampHistory] = await Promise.all([
+      this.prisma.walletDevice.count({ where: { passId: existingStampsPass.id } }),
+      this.prisma.stamp.count({ where: { passId: existingStampsPass.id } }),
+    ]);
+
+    if (walletDevices > 0 || stampHistory > 0) {
+      this.logger.warn(
+        `Stamps pass ${existingStampsPass.id} no es huérfano (devices=${walletDevices}, stampHistory=${stampHistory}) — abort transform`,
+      );
+      throw new BadRequestException(
+        'El cliente ya tiene una tarjeta de sellos activa con historial o agregada al wallet. No se puede transformar el cupón.',
+      );
+    }
+
     await this.prisma.pass.delete({ where: { id: existingStampsPass.id } });
     this.logger.log(
-      `Eliminé pass huérfano ${existingStampsPass.id} (customer ${customerId}, stamps card ${stampsCardId}) antes de transformar cupón in-place`,
+      `Eliminé pass huérfano ${existingStampsPass.id} (customer ${customerId}, stamps card ${stampsCardId}, 0 devices, 0 stamps) antes de transformar cupón`,
     );
   }
 
