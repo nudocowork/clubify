@@ -227,21 +227,36 @@ export default function ScanPage() {
       // sobreescribimos los campos numéricos que cambiaron.
       // Para REDEEM en COUPON, el backend además devuelve `promotedPass`
       // con info del nuevo stamps pass auto-creado para el cliente.
-      setData({
-        ...data,
-        pass: {
-          ...data.pass,
-          stampsCount: res.pass.stampsCount,
-          pointsBalance: res.pass.pointsBalance,
-          cashbackBalance: res.pass.cashbackBalance,
-          visitsCount: res.pass.visitsCount,
-          currentTier: res.pass.currentTier,
-          tierProgress: res.pass.tierProgress,
-          status: res.pass.status,
-          lastActivityAt: res.pass.lastActivityAt,
-        },
-        promotedPass: res.promotedPass ?? null,
-      });
+      // Si el cupón fue transformado in-place a stamps card, el
+      // pass.cardId cambió en el backend. Re-fetchear el pass entero
+      // para que el scanner muestre la nueva UI de sellos en vez del
+      // panel de cupón ya redimido.
+      if (res.transformedToStamps) {
+        setData({
+          ...data,
+          pass: {
+            ...data.pass,
+            ...res.pass,
+            card: { ...data.pass.card, type: 'STAMPS' },
+          },
+          justTransformedFromCoupon: true,
+        });
+      } else {
+        setData({
+          ...data,
+          pass: {
+            ...data.pass,
+            stampsCount: res.pass.stampsCount,
+            pointsBalance: res.pass.pointsBalance,
+            cashbackBalance: res.pass.cashbackBalance,
+            visitsCount: res.pass.visitsCount,
+            currentTier: res.pass.currentTier,
+            tierProgress: res.pass.tierProgress,
+            status: res.pass.status,
+            lastActivityAt: res.pass.lastActivityAt,
+          },
+        });
+      }
       playScanSuccess();
     } catch (e: any) {
       setErr(e.message);
@@ -403,6 +418,22 @@ export default function ScanPage() {
               <span className="badge badge-info shrink-0">✓</span>
             </div>
 
+            {/* Mensaje post-transformación: aparece cuando el cupón se acaba
+                de redimir y se transformó in-place a stamps card. El
+                pass.card.type ya cambió a 'STAMPS' a este punto. */}
+            {data.justTransformedFromCoupon && (
+              <div className="mt-3 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-sm leading-relaxed text-center">
+                <div className="text-2xl mb-1">🎉</div>
+                <div className="font-semibold text-base mb-1">
+                  Cupón redimido correctamente
+                </div>
+                <div className="text-xs text-emerald-800/80">
+                  La tarjeta del cliente se actualizó automáticamente
+                  a sellos. Ya puede empezar a acumular.
+                </div>
+              </div>
+            )}
+
             {isCouponLike(data.pass.card.type) && (
               <>
                 {/* Display central del cupón: estado + recompensa + descuento */}
@@ -432,55 +463,6 @@ export default function ScanPage() {
                   </div>
                 </div>
 
-                {/* Mensaje post-redención: aparece cuando el backend acaba de
-                    auto-crear la stamps card (promotedPass). Mostramos el link
-                    al nuevo pass de sellos + botones de compartir para que el
-                    operador se lo pueda pasar al cliente al toque. */}
-                {data.promotedPass && (
-                  <div className="mt-3 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-sm leading-relaxed">
-                    <div className="font-semibold mb-1 text-base">
-                      ✓ Cupón redimido — Tarjeta de sellos creada
-                    </div>
-                    <div className="text-xs text-emerald-800/80 mb-3">
-                      Pasale este link al cliente para que la agregue a
-                      su wallet y empiece a sumar sellos:
-                    </div>
-                    <div className="bg-white rounded-lg p-2.5 mb-3 font-mono text-[11px] break-all text-emerald-900 border border-emerald-200">
-                      {`https://soyclubify.com/w/${data.promotedPass.id}`}
-                    </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const url = `https://soyclubify.com/w/${data.promotedPass.id}`;
-                          navigator.clipboard?.writeText(url);
-                          alert('Link copiado');
-                        }}
-                        className="btn-ghost justify-center py-2 text-xs"
-                      >
-                        📋 Copiar
-                      </button>
-                      <a
-                        href={`https://wa.me/?text=${encodeURIComponent(
-                          `Hola ${data.pass.customer.fullName.split(' ')[0]}, tu cupón fue redimido. Agregá tu nueva tarjeta de sellos a la wallet acá: https://soyclubify.com/w/${data.promotedPass.id}`,
-                        )}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="btn-ghost justify-center py-2 text-xs"
-                      >
-                        💬 WhatsApp
-                      </a>
-                      <a
-                        href={`https://soyclubify.com/w/${data.promotedPass.id}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="btn-ghost justify-center py-2 text-xs"
-                      >
-                        🔗 Abrir
-                      </a>
-                    </div>
-                  </div>
-                )}
               </>
             )}
 

@@ -223,15 +223,54 @@ export class StampsService {
 
     const required = pass.card.stampsRequired ?? Number.MAX_SAFE_INTEGER;
     const visitsReq = pass.card.visitsRequired ?? Number.MAX_SAFE_INTEGER;
-    const completed =
-      (pass.card.type === 'STAMPS' && newStamps >= required) ||
-      (pass.card.type === 'VISITS' && newVisits >= visitsReq) ||
-      // COUPON/DISCOUNT/GIFT al REDEEM quedan COMPLETED inmediatamente
-      // (single-use). DISCOUNT y GIFT son legacy pre-2026-05-15.
-      ((pass.card.type === 'COUPON' ||
+    const isCouponRedeem =
+      (pass.card.type === 'COUPON' ||
         pass.card.type === 'DISCOUNT' ||
         pass.card.type === 'GIFT') &&
-        dto.action === 'REDEEM');
+      dto.action === 'REDEEM';
+
+    const completed =
+      (pass.card.type === 'STAMPS' && newStamps >= required) ||
+      (pass.card.type === 'VISITS' && newVisits >= visitsReq);
+    // COUPON/DISCOUNT/GIFT al REDEEM ya no quedan COMPLETED — se
+    // transforman al toque en una tarjeta de sellos in-place (mismo
+    // passId / serial / wallet pass). El cliente NO recibe link nuevo:
+    // su wallet pass instalado se actualiza solo vía push APNs/Google.
+
+    // Resolver stamps card target ANTES de la transacción si vamos a
+    // transformar. Si el customer ya tiene un stamps pass orfano (de
+    // backfill anterior), lo borramos para liberar la constraint
+    // composite unique (cardId, customerId) antes del update.
+    let stampsCardForTransform: { id: string } | null = null;
+    if (isCouponRedeem) {
+      stampsCardForTransform = await this.resolveOrCreateStampsCard(
+        pass.tenantId,
+        pass.cardId,
+      );
+      await this.cleanupOrphanStampsPass(
+        pass.customerId,
+        stampsCardForTransform.id,
+      );
+    }
+
+    const passUpdateData: any = {
+      stampsCount: newStamps,
+      pointsBalance: newPoints,
+      cashbackBalance: newCashback,
+      visitsCount: newVisits,
+      currentTier: newCurrentTier,
+      tierProgress: newTierProgress,
+      lastActivityAt: new Date(),
+      status: completed ? 'COMPLETED' : pass.status,
+    };
+    if (isCouponRedeem && stampsCardForTransform) {
+      // Transformación in-place: el coupon "evoluciona" a stamps card.
+      // Mismo passId, serial, qrToken, authToken, wallet pass del
+      // cliente. Solo cambia cardId + reset contador + status ACTIVE.
+      passUpdateData.cardId = stampsCardForTransform.id;
+      passUpdateData.stampsCount = 0;
+      passUpdateData.status = 'ACTIVE';
+    }
 
     const [stamp, updatedPass] = await this.prisma.$transaction([
       this.prisma.stamp.create({
@@ -247,21 +286,14 @@ export class StampsService {
             dto.purchaseAmount !== undefined && dto.purchaseAmount !== null
               ? new Prisma.Decimal(dto.purchaseAmount)
               : undefined,
-          note: dto.note,
+          note: isCouponRedeem
+            ? (dto.note ?? 'Cupón redimido — transformado a tarjeta de sellos')
+            : dto.note,
         },
       }),
       this.prisma.pass.update({
         where: { id: pass.id },
-        data: {
-          stampsCount: newStamps,
-          pointsBalance: newPoints,
-          cashbackBalance: newCashback,
-          visitsCount: newVisits,
-          currentTier: newCurrentTier,
-          tierProgress: newTierProgress,
-          lastActivityAt: new Date(),
-          status: completed ? 'COMPLETED' : pass.status,
-        },
+        data: passUpdateData,
       }),
     ]);
 
@@ -386,33 +418,11 @@ export class StampsService {
         .catch(() => null);
     }
 
-    // Auto-promote: si se redimió un COUPON, el cliente arranca su
-    // fidelización automáticamente — le creamos una stamps card pass.
-    // No bloqueamos la respuesta del scanner: si la promoción falla
-    // (no hay stamps card configurada, error de Prisma, etc), el
-    // REDEEM del cupón ya quedó persistido y devolvemos el resultado.
-    let promotedPass: any = null;
-    if (
-      dto.action === 'REDEEM' &&
-      (pass.card.type === 'COUPON' ||
-        pass.card.type === 'DISCOUNT' ||
-        pass.card.type === 'GIFT')
-    ) {
-      promotedPass = await this.autoPromoteCouponToStamps(
-        user,
-        pass.tenantId,
-        pass.customerId,
-        pass.cardId,
-      ).catch((e) => {
-        this.logger.warn(
-          `Auto-promote falló para pass ${pass.id}: ${e?.message ?? e}`,
-        );
-        return null;
-      });
-
-      // Automation event: el dueño puede engancharle una regla SEND_PUSH
-      // o SEND_WHATSAPP_LINK para mensajear al cliente "tu cupón fue
-      // usado, agregá tu nueva tarjeta de sellos: <link>".
+    // Si fue una redención de cupón, el pass ya quedó transformado a
+    // STAMPS arriba. Disparamos el automation event para que el dueño
+    // pueda engancharle reglas SEND_PUSH / SEND_WHATSAPP si quiere
+    // mandarle un mensaje "tu cupón fue usado, ahora sumá sellos".
+    if (isCouponRedeem) {
       this.automations
         .emit('COUPON_REDEEMED', {
           tenantId: pass.tenantId,
@@ -421,82 +431,115 @@ export class StampsService {
           couponPassId: pass.id,
           couponName: pass.card.name,
           rewardText: pass.card.rewardText || '',
-          // Datos del stamps pass auto-creado (puede ser null si el
-          // tenant no tiene stamps card configurada).
-          stampsPassId: promotedPass?.id ?? null,
-          stampsCardId: promotedPass?.cardId ?? null,
-          stampsPassUrl: promotedPass
-            ? `https://soyclubify.com/w/${promotedPass.id}`
-            : null,
+          // El pass ahora apunta al stamps card del tenant. No hay
+          // link nuevo — la misma wallet pass del cliente se
+          // actualizó automáticamente vía push.
+          stampsCardId: stampsCardForTransform?.id ?? null,
+          transformedInPlace: true,
         })
         .catch(() => null);
     }
 
-    return { stamp, pass: updatedPass, promotedPass };
+    // Si transformamos cupón → stamps card, devolvemos el pass con la
+    // nueva card incluida para que el scanner re-renderice la UI de
+    // sellos al instante (sin necesidad de re-scanear el QR).
+    if (isCouponRedeem) {
+      const fullPass = await this.prisma.pass.findUnique({
+        where: { id: pass.id },
+        include: { card: true, customer: true },
+      });
+      return {
+        stamp,
+        pass: fullPass ?? updatedPass,
+        transformedToStamps: true,
+      };
+    }
+    return { stamp, pass: updatedPass, transformedToStamps: false };
   }
 
-  /** Busca la stamps card "principal" del tenant y emite una nueva
-   *  Pass para el cliente. Si no hay stamps card activa, devuelve
-   *  null sin error (el frontend lo maneja con un mensaje neutro).
-   *
-   *  Estrategia de selección:
-   *  - Si la card COUPON tiene `autoPromoteToCardId` seteado (futuro
-   *    campo) → usar esa. Por ahora no existe → fallback a auto.
-   *  - Auto: primera card STAMPS activa del tenant ordenada por
-   *    createdAt ascendente (la más vieja, asumida como "principal").
+  /**
+   * Devuelve el stamps card "principal" del tenant. Si no existe uno
+   * activo, lo auto-crea con defaults sensatos. Esto garantiza que la
+   * transformación cupón→sellos siempre tenga un destino válido.
+   * El dueño puede editar el diseño de la card luego desde /app/cards.
    */
-  private async autoPromoteCouponToStamps(
-    user: AuthUser,
+  private async resolveOrCreateStampsCard(
     tenantId: string,
-    customerId: string,
     sourceCouponCardId: string,
-  ): Promise<any> {
-    let stampsCard = await this.prisma.card.findFirst({
+  ): Promise<{ id: string }> {
+    const existing = await this.prisma.card.findFirst({
       where: { tenantId, type: 'STAMPS', isActive: true },
       orderBy: { createdAt: 'asc' },
       select: { id: true },
     });
+    if (existing) return existing;
 
-    // Si el tenant no tiene stamps card activa, la auto-creamos con
-    // defaults sensatos. Regla de negocio: el cupón debe SIEMPRE
-    // promocionar al cliente al sistema de fidelización por sellos,
-    // no quedarse sin opción. El dueño puede luego editar los detalles
-    // visuales y la recompensa desde /app/cards.
-    if (!stampsCard) {
-      const tenant = await this.prisma.tenant.findUnique({
-        where: { id: tenantId },
-        select: { brandName: true, primaryColor: true, logoUrl: true },
-      });
-      const created = await this.prisma.card.create({
-        data: {
-          tenantId,
-          type: 'STAMPS',
-          name: 'Tarjeta de Fidelización',
-          description: 'Acumulá sellos en cada compra y canjeá la recompensa.',
-          stampsRequired: 10,
-          rewardText: 'Recompensa especial',
-          primaryColor: tenant?.primaryColor ?? '#22C55E',
-          secondaryColor: '#15803D',
-          businessName: tenant?.brandName ?? '',
-          logoUrl: tenant?.logoUrl ?? null,
-          isActive: true,
-        },
-        select: { id: true },
-      });
-      stampsCard = created;
-      this.logger.log(
-        `Auto-created default STAMPS card ${created.id} for tenant ${tenantId} (no existing stamps card) — triggered by COUPON redeem of ${sourceCouponCardId}`,
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { brandName: true, primaryColor: true, logoUrl: true },
+    });
+    const created = await this.prisma.card.create({
+      data: {
+        tenantId,
+        type: 'STAMPS',
+        name: 'Tarjeta de Fidelización',
+        description: 'Acumulá sellos en cada compra y canjeá la recompensa.',
+        stampsRequired: 10,
+        rewardText: 'Recompensa especial',
+        primaryColor: tenant?.primaryColor ?? '#22C55E',
+        secondaryColor: '#15803D',
+        businessName: tenant?.brandName ?? '',
+        logoUrl: tenant?.logoUrl ?? null,
+        isActive: true,
+      },
+      select: { id: true },
+    });
+    this.logger.log(
+      `Auto-created STAMPS card ${created.id} for tenant ${tenantId} (triggered by transform of coupon ${sourceCouponCardId})`,
+    );
+    return created;
+  }
+
+  /**
+   * Antes de transformar un pass cupón → stamps card target, hay que
+   * liberar la unique constraint (cardId, customerId). Si el customer
+   * ya tiene un pass huérfano en esa stamps card (creado por el
+   * backfill anterior o por una versión previa del auto-promote, sin
+   * sellos acumulados aún), lo eliminamos. Si el pass huérfano tiene
+   * sellos = customer ya estaba fidelizado pre-cupón, NO tocamos.
+   */
+  private async cleanupOrphanStampsPass(
+    customerId: string,
+    stampsCardId: string,
+  ): Promise<void> {
+    const existingStampsPass = await this.prisma.pass.findUnique({
+      where: { cardId_customerId: { cardId: stampsCardId, customerId } },
+      select: { id: true, stampsCount: true },
+    });
+    if (!existingStampsPass) return;
+    if (existingStampsPass.stampsCount > 0) {
+      this.logger.warn(
+        `Customer ${customerId} ya tiene stamps pass ${existingStampsPass.id} con sellos — skip transform para no perder progreso`,
+      );
+      // Throw para que el caller decida — alternativa: dejar el coupon
+      // como COMPLETED sin transformar. Por ahora, lo dejamos sin
+      // transformar tirando un error de constraint en el caller.
+      throw new BadRequestException(
+        'El cliente ya tiene una tarjeta de sellos con progreso. No se puede transformar el cupón sin perder los sellos acumulados. Redimí el cupón manualmente y eliminalo desde el panel.',
       );
     }
-
-    // passes.issue() es idempotente: si el customer ya tiene un pass
-    // en esa card (porque ya estaba fidelizado antes del cupón),
-    // devuelve el existente sin duplicar.
-    const newPass = await this.passes.issue(user, stampsCard.id, customerId);
+    // Pass huérfano sin sellos — seguro eliminar (no tiene historia
+    // de stamps records, no fue agregado al wallet aún en general).
+    await this.prisma.stamp.deleteMany({
+      where: { passId: existingStampsPass.id },
+    });
+    await this.prisma.walletDevice.deleteMany({
+      where: { passId: existingStampsPass.id },
+    });
+    await this.prisma.pass.delete({ where: { id: existingStampsPass.id } });
     this.logger.log(
-      `Auto-promote OK: customer ${customerId} → stamps pass ${newPass.id}`,
+      `Eliminé pass huérfano ${existingStampsPass.id} (customer ${customerId}, stamps card ${stampsCardId}) antes de transformar cupón in-place`,
     );
-    return newPass;
   }
 
   /**
@@ -531,40 +574,70 @@ export class StampsService {
     const results: Array<{
       customer: string;
       tenant: string;
-      coupon: string;
-      stampsPassId: string;
-      stampsPassUrl: string;
-      created: boolean;
+      couponName: string;
+      passId: string;
+      passUrl: string;
+      transformed: boolean;
+      error?: string;
     }> = [];
 
     for (const p of couponPasses) {
-      const promoted = await this.autoPromoteCouponToStamps(
-        user,
-        p.tenantId,
-        p.customerId,
-        p.cardId,
-      ).catch((e) => {
-        this.logger.warn(
-          `Backfill: auto-promote falló para pass ${p.id}: ${e?.message ?? e}`,
+      try {
+        const stampsCard = await this.resolveOrCreateStampsCard(
+          p.tenantId,
+          p.cardId,
         );
-        return null;
-      });
-
-      if (promoted) {
+        // Limpiar pass orfano del backfill anterior si existe
+        await this.cleanupOrphanStampsPass(p.customerId, stampsCard.id);
+        // Transformar el coupon pass in-place → mismo wallet pass del
+        // cliente, ahora apuntando a la stamps card con 0/10 sellos.
+        await this.prisma.pass.update({
+          where: { id: p.id },
+          data: {
+            cardId: stampsCard.id,
+            stampsCount: 0,
+            status: 'ACTIVE',
+            lastActivityAt: new Date(),
+          },
+        });
+        // Push update al wallet del cliente (Apple APNs + Google PATCH)
+        // para que reciba el nuevo .pkpass con diseño de stamps.
+        this.wallet.pushPassUpdate(p.id).catch((e) => {
+          this.logger.warn(
+            `Backfill push failed for pass ${p.id}: ${e?.message ?? e}`,
+          );
+        });
         results.push({
           customer: p.customer.fullName,
           tenant: p.tenant.brandName,
-          coupon: p.card.name,
-          stampsPassId: promoted.id,
-          stampsPassUrl: `https://soyclubify.com/w/${promoted.id}`,
-          created: true,
+          couponName: p.card.name,
+          passId: p.id,
+          passUrl: `https://soyclubify.com/w/${p.id}`,
+          transformed: true,
         });
+        this.logger.log(
+          `Backfill OK: pass ${p.id} transformado de ${p.card.type} → STAMPS (customer ${p.customer.fullName})`,
+        );
+      } catch (e: any) {
+        results.push({
+          customer: p.customer.fullName,
+          tenant: p.tenant.brandName,
+          couponName: p.card.name,
+          passId: p.id,
+          passUrl: `https://soyclubify.com/w/${p.id}`,
+          transformed: false,
+          error: e?.message ?? String(e),
+        });
+        this.logger.warn(
+          `Backfill: transform falló para pass ${p.id}: ${e?.message ?? e}`,
+        );
       }
     }
 
     return {
       scanned: couponPasses.length,
-      promoted: results.length,
+      transformed: results.filter((r) => r.transformed).length,
+      failed: results.filter((r) => !r.transformed).length,
       tenantSlug: tenantSlug ?? '(all)',
       results,
     };
