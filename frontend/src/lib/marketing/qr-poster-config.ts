@@ -906,6 +906,64 @@ export function defaultConfig(brandName: string): QrPosterConfig {
 }
 
 /**
+ * Defensa: garantiza que un ImageLayer cargado del backend / localStorage
+ * tenga x/y/w/h numéricos válidos. Si la persistencia se corrompió
+ * (campos null/undefined/NaN), la imagen renderizaría en (0,0) con
+ * `x + w/2 = NaN + w/2 = NaN`, lo que Konva trata como 0 → bug
+ * reportado de "imágenes vuelven a la esquina superior izquierda".
+ *
+ * Si faltan campos críticos (id/url), devolvemos null y filtramos
+ * la entrada — preferible perder la capa a tener un layer roto
+ * que rompa el render entero.
+ */
+function normalizeImageLayer(
+  im: any,
+  defaultCanvas: { w: number; h: number },
+): ImageLayer | null {
+  if (!im || typeof im !== 'object') return null;
+  if (typeof im.id !== 'string' || !im.id) return null;
+  if (typeof im.url !== 'string' || !im.url) return null;
+  const num = (v: any, fallback: number) =>
+    typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+  const w = Math.max(20, num(im.w, Math.round(defaultCanvas.w * 0.3)));
+  const h = Math.max(20, num(im.h, Math.round(defaultCanvas.h * 0.2)));
+  const xFallback = Math.round((defaultCanvas.w - w) / 2);
+  const yFallback = Math.round((defaultCanvas.h - h) / 2);
+  const x = num(im.x, xFallback);
+  const y = num(im.y, yFallback);
+  // Detección del bug "imagen salta al (0,0) después de re-login":
+  // si la persistencia perdió x/y, este log nos avisa para investigar.
+  // Sin esto, el síntoma se ve pero el debugging es ciego.
+  if (typeof window !== 'undefined') {
+    const xMissing = typeof im.x !== 'number' || !Number.isFinite(im.x);
+    const yMissing = typeof im.y !== 'number' || !Number.isFinite(im.y);
+    if (xMissing || yMissing) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[QrPosterEditor] ImageLayer "${im.id}" cargó con x=${im.x} y=${im.y} — fallback a centro (${xFallback},${yFallback}). Posible corrupción de persistencia.`,
+      );
+    }
+  }
+  return {
+    id: im.id,
+    url: im.url,
+    x,
+    y,
+    w,
+    h,
+    opacity:
+      typeof im.opacity === 'number' && Number.isFinite(im.opacity)
+        ? im.opacity
+        : 1,
+    rotation: num(im.rotation, 0),
+    keepAspect: im.keepAspect === false ? false : true,
+    crop: im.crop && typeof im.crop === 'object' ? { ...im.crop } : null,
+    fit: im.fit === 'cover' || im.fit === 'contain' || im.fit === 'fill' ? im.fit : undefined,
+    locked: im.locked === true,
+  };
+}
+
+/**
  * Migración defensiva. Si en el futuro evoluciona el shape de config y
  * un tenant tiene un poster viejo, esta función completa los campos que
  * falten con defaults. Por ahora retorna el config tal cual si parece
@@ -937,7 +995,9 @@ export function normalizeConfig(
     shapes: Array.isArray(cfg.shapes) ? cfg.shapes.map((s) => ({ ...s })) : [],
     icons: Array.isArray(cfg.icons) ? cfg.icons.map((i) => ({ ...i })) : [],
     images: Array.isArray(cfg.images)
-      ? cfg.images.map((im) => ({ ...im, crop: im.crop ? { ...im.crop } : null }))
+      ? cfg.images
+          .map((im) => normalizeImageLayer(im, def.canvas))
+          .filter((im): im is ImageLayer => im !== null)
       : [],
     patterns: Array.isArray(cfg.patterns)
       ? cfg.patterns.map((p) => ({ ...p, emojis: [...p.emojis] }))

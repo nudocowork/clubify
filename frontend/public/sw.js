@@ -9,7 +9,7 @@
 // importantes que necesitan invalidar TODA la cache de los clientes.
 // Cada vez que cambia, el SW activate purga las caches viejas y los clientes
 // vuelven a descargar todo fresh.
-const VERSION = 'v11-2026-05-16-coupon-bugs-audit';
+const VERSION = 'v12-2026-05-16-qr-poster-image-pos-fix';
 const SHELL_CACHE = `clubify-shell-${VERSION}`;
 const ASSET_CACHE = `clubify-assets-${VERSION}`;
 

@@ -770,6 +770,16 @@ export default function QrPosterEditor({
       // hay backup local. El autosave al server sigue funcionando.
       if (e?.name === 'QuotaExceededError' || e?.code === 22) {
         console.warn('localStorage lleno — backup local desactivado');
+        // CRÍTICO: si la escritura nueva falla por quota, el
+        // localStorage QUEDA con la versión vieja del cfg. En la
+        // próxima carga, el prompt "Restaurar cambios sin guardar"
+        // restauraría una versión obsoleta (imágenes en posiciones
+        // viejas, sin assets recientes). Eliminamos el backup local
+        // para forzar que el siguiente boot use el server cfg, que
+        // sí está al día via autosave.
+        try {
+          localStorage.removeItem(localKey);
+        } catch {}
         // Marcar dirty igual para que el autosave server-side dispare,
         // y avisar via banner que no hay backup local.
         setLocalBackupFailed(true);
