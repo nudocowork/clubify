@@ -10,6 +10,7 @@ export type StorefrontDto = {
   blocks?: any[];
   isPublished?: boolean;
   ordersEnabled?: boolean;
+  ordersDeliveryEnabled?: boolean;
   popupEnabled?: boolean;
   popupImageUrl?: string | null;
   popupCardId?: string | null;
@@ -69,6 +70,7 @@ export class StorefrontService {
         blocks: dto.blocks ?? [],
         isPublished: dto.isPublished ?? true,
         ordersEnabled: dto.ordersEnabled ?? true,
+        ordersDeliveryEnabled: dto.ordersDeliveryEnabled ?? true,
         customDomain,
       },
       update: {
@@ -78,6 +80,7 @@ export class StorefrontService {
         blocks: dto.blocks ?? undefined,
         isPublished: dto.isPublished ?? undefined,
         ordersEnabled: dto.ordersEnabled ?? undefined,
+        ordersDeliveryEnabled: dto.ordersDeliveryEnabled ?? undefined,
         popupEnabled: dto.popupEnabled ?? undefined,
         popupImageUrl: dto.popupImageUrl !== undefined ? dto.popupImageUrl : undefined,
         popupCardId: dto.popupCardId !== undefined ? dto.popupCardId : undefined,

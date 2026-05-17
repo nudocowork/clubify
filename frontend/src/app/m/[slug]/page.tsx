@@ -54,6 +54,7 @@ type Storefront = {
   heroImageUrl: string | null;
   menuLayout?: MenuLayout;
   ordersEnabled?: boolean;
+  ordersDeliveryEnabled?: boolean;
   pageBackgroundColor?: string | null;
   backButtonConfig?: BackButtonConfig | null;
   popup?: { imageUrl: string; cardId: string | null; delaySeconds?: number } | null;
@@ -240,6 +241,18 @@ export default function StorefrontPublic() {
 
   const totals = cartTotals(cart);
   const primary = s.primaryColor;
+
+  // Modo "mesa" cuando viene un QR de mesa (?mesa=N): siempre informativo,
+  // sin carrito. El cliente sentado en mesa no debería poder lanzar
+  // pedidos por el menú (los toma el mesero). Solo la vista delivery
+  // respeta el toggle del admin.
+  const isTableMode =
+    typeof window !== 'undefined' &&
+    (new URLSearchParams(window.location.search).get('mesa') ?? '').trim().length > 0;
+  const ordersAllowed =
+    !isTableMode &&
+    s.ordersEnabled !== false &&
+    (s.ordersDeliveryEnabled ?? true);
 
   const isCluvi = (s.menuLayout ?? 'CLASSIC') === 'CLUVI';
   // pageBackgroundColor (configurable desde /app/storefront) pisa el
@@ -531,8 +544,8 @@ export default function StorefrontPublic() {
         </div>
       )}
 
-      {/* Bottom dock con carrito (solo si pedidos están habilitados) */}
-      {s.ordersEnabled !== false && totals.count > 0 && !showCart && !showCheckout && (
+      {/* Bottom dock con carrito (solo si pedidos están habilitados para el modo activo) */}
+      {ordersAllowed && totals.count > 0 && !showCart && !showCheckout && (
         <div
           className={`fixed bottom-0 inset-x-0 px-5 pb-5 pt-3 max-w-2xl mx-auto ${
             isCluvi
@@ -559,7 +572,7 @@ export default function StorefrontPublic() {
           slug={slug}
           primary={primary}
           currency={s.currency}
-          ordersEnabled={s.ordersEnabled !== false}
+          ordersEnabled={ordersAllowed}
           onClose={() => setOpenProduct(null)}
         />
       )}

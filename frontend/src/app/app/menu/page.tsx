@@ -61,7 +61,7 @@ export default function MenuEditor() {
   const [editingCatName, setEditingCatName] = useState('');
   const [coverCat, setCoverCat] = useState<Category | null>(null);
   const [coverRecommendedOpen, setCoverRecommendedOpen] = useState(false);
-  const [ordersEnabled, setOrdersEnabled] = useState<boolean | null>(null);
+  const [ordersDeliveryEnabled, setOrdersDeliveryEnabled] = useState<boolean | null>(null);
   const [togglingOrders, setTogglingOrders] = useState(false);
   const [tenantSlug, setTenantSlug] = useState<string | null>(null);
 
@@ -91,40 +91,52 @@ export default function MenuEditor() {
 
   async function loadOrdersEnabled() {
     try {
-      const sf = await api<{ ordersEnabled: boolean }>('/storefront');
-      setOrdersEnabled(sf.ordersEnabled ?? true);
+      const sf = await api<{
+        ordersEnabled: boolean;
+        ordersDeliveryEnabled?: boolean;
+      }>('/storefront');
+      // Backend devuelve ordersDeliveryEnabled gateado por ordersEnabled.
+      // Fallback al master para storefronts viejos sin la columna nueva.
+      setOrdersDeliveryEnabled(
+        sf.ordersDeliveryEnabled ?? sf.ordersEnabled ?? true,
+      );
     } catch {
-      setOrdersEnabled(true);
+      setOrdersDeliveryEnabled(true);
     }
   }
 
-  async function toggleOrdersEnabled() {
-    if (ordersEnabled === null) return;
-    const next = !ordersEnabled;
+  async function toggleOrdersDelivery() {
+    if (ordersDeliveryEnabled === null) return;
+    const next = !ordersDeliveryEnabled;
     if (
       !next &&
       !confirm(
-        'Pasar a modo informativo: los clientes verán precios pero NO podrán agregar al carrito ni notificar pedidos. ¿Continuar?',
+        'Apagar pedidos en delivery: los clientes verán precios pero NO podrán agregar al carrito. ¿Continuar?',
       )
     ) {
       return;
     }
     setTogglingOrders(true);
-    setOrdersEnabled(next); // optimistic
+    setOrdersDeliveryEnabled(next);
     try {
+      // Mantenemos ordersEnabled (master) en sync con delivery para que
+      // checks legacy (`ordersEnabled !== false`) sigan funcionando.
       await api('/storefront', {
         method: 'PATCH',
-        body: JSON.stringify({ ordersEnabled: next }),
+        body: JSON.stringify({
+          ordersDeliveryEnabled: next,
+          ordersEnabled: next,
+        }),
       });
       toast(
         next
-          ? 'Pedidos habilitados — los clientes pueden agregar al carrito'
-          : 'Modo informativo — sin botones de pedido',
+          ? 'Pedidos delivery activos — el carrito aparece en el menú público'
+          : 'Delivery informativo — sin botones de pedido en el link público',
         'success',
       );
     } catch (e: any) {
       toast(e.message || 'Error', 'error');
-      setOrdersEnabled(!next); // rollback
+      setOrdersDeliveryEnabled(!next);
     } finally {
       setTogglingOrders(false);
     }
@@ -312,19 +324,21 @@ export default function MenuEditor() {
           </span>
         </h1>
         <div className="flex gap-2 flex-wrap">
-          {ordersEnabled !== null && (
+          {ordersDeliveryEnabled !== null && (
             <button
               type="button"
-              onClick={toggleOrdersEnabled}
+              onClick={toggleOrdersDelivery}
               disabled={togglingOrders}
-              className={`btn-ghost ${ordersEnabled ? 'text-ok' : 'text-amber-600'}`}
+              className={`btn-ghost ${ordersDeliveryEnabled ? 'text-ok' : 'text-amber-600'}`}
               title={
-                ordersEnabled
-                  ? 'Pedidos activados — los clientes pueden agregar al carrito'
-                  : 'Modo informativo — solo precios, sin carrito'
+                ordersDeliveryEnabled
+                  ? 'Pedidos delivery activos — el carrito aparece en el link público. La vista mesa siempre es informativa.'
+                  : 'Modo informativo en delivery — solo precios, sin carrito. La vista mesa siempre es informativa.'
               }
             >
-              {ordersEnabled ? '🛒 Pedidos: ON' : '📋 Solo informativo'}
+              {ordersDeliveryEnabled
+                ? '🛒 Pedidos delivery: ON'
+                : '📋 Delivery informativo'}
             </button>
           )}
           <button className="btn-ghost" onClick={() => setShowCatForm(!showCatForm)}>
