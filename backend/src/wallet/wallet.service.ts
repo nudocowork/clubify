@@ -480,6 +480,15 @@ export class WalletService {
       })
       .join('');
 
+    // Modo glass (heroImageUrl): foto base + overlay oscuro gradient para
+    // legibilidad del texto blanco. Mismo patrón visual que el strip.
+    // Modo gradient (sin hero): fallback original con colors de la card.
+    const heroImageUrl = (pass.card as any).heroImageUrl as string | null;
+    const usingHero = !!heroImageUrl;
+    const bgRect = usingHero
+      ? `<rect width="100%" height="100%" fill="url(#heroOverlay)"/>`
+      : `<rect width="100%" height="100%" fill="url(#bg)"/>
+         <rect width="100%" height="100%" fill="url(#depth)"/>`;
     const svg = `
 <svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
   <defs>
@@ -492,14 +501,39 @@ export class WalletService {
       <stop offset="50%" stop-color="rgba(255,255,255,0)"/>
       <stop offset="100%" stop-color="rgba(0,0,0,0.18)"/>
     </linearGradient>
+    <linearGradient id="heroOverlay" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="rgba(0,0,0,0.40)"/>
+      <stop offset="100%" stop-color="rgba(0,0,0,0.78)"/>
+    </linearGradient>
   </defs>
-  <rect width="100%" height="100%" fill="url(#bg)"/>
-  <rect width="100%" height="100%" fill="url(#depth)"/>
-  <text x="${W / 2}" y="100" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="48" fill="white" font-weight="800">${this.escapeXml(title)}</text>
+  ${bgRect}
+  <text x="${W / 2}" y="100" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="48" fill="white" font-weight="800" style="filter: drop-shadow(0 2px 6px rgba(0,0,0,0.40));">${this.escapeXml(title)}</text>
   ${colSvg}
 </svg>`.trim();
 
-    return sharp(Buffer.from(svg, 'utf8')).png().toBuffer();
+    // Si usamos hero: bajar la imagen, cover 1032×336, y componer SVG encima.
+    // Si falla la red: fallback al SVG-only para no romper el render.
+    let baseImage: Buffer | null = null;
+    if (usingHero && heroImageUrl) {
+      try {
+        const res = await fetch(heroImageUrl);
+        if (res.ok) {
+          const buf = Buffer.from(await res.arrayBuffer());
+          baseImage = await sharp(buf)
+            .resize(W, H, { fit: 'cover', position: 'center' })
+            .png()
+            .toBuffer();
+        }
+      } catch (e: any) {
+        this.logger.warn(
+          `[PASS HERO] heroImageUrl fetch falló: ${e?.message ?? e} — fallback gradient`,
+        );
+      }
+    }
+    const compositeBase = baseImage
+      ? sharp(baseImage).composite([{ input: Buffer.from(svg, 'utf8') }])
+      : sharp(Buffer.from(svg, 'utf8'));
+    return compositeBase.png().toBuffer();
   }
 
   /**
@@ -532,6 +566,10 @@ export class WalletService {
       stampInactiveColor: c.stampInactiveColor ?? null,
       stampContourColor: c.stampContourColor ?? null,
       centerBgColor: c.centerBgColor ?? null,
+      // Opción 2 (glassmorphism con foto hero) — si la card tiene
+      // heroImageUrl, la usamos como base del strip con overlay oscuro
+      // y los sellos en glass encima. Sino, fallback al gradient actual.
+      heroImageUrl: c.heroImageUrl ?? null,
     });
     // Usamos la versión @2x (640×246) que se ve bien en Android y desktop.
     return result['strip@2x.png'] ?? result['strip.png'] ?? null;
@@ -547,6 +585,7 @@ export class WalletService {
     stampInactiveColor?: string | null;
     stampContourColor?: string | null;
     centerBgColor?: string | null;
+    heroImageUrl?: string | null;
   }): Promise<Record<string, Buffer>> {
     const sharp = (await import('sharp')).default;
     const {
@@ -559,12 +598,17 @@ export class WalletService {
       stampInactiveColor,
       stampContourColor,
       centerBgColor,
+      heroImageUrl,
     } = opts;
     // Defaults estilo Starbucks / Apple Wallet: filled = blanco sólido,
     // empty = relleno sutil glassmorphism sin borde marcado. El contorno
     // sólo se dibuja si el tenant lo configuró explícitamente.
+    // Cuando hay heroImageUrl (modo glass): los vacíos se ven más sutiles
+    // para no competir con la foto, y los llenos quedan blancos puros.
+    const usingHero = !!heroImageUrl;
     const fillFull = stampActiveColor ?? '#FFFFFF';
-    const fillEmpty = stampInactiveColor ?? 'rgba(255,255,255,0.13)';
+    const fillEmpty =
+      stampInactiveColor ?? (usingHero ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.13)');
     const customStroke = stampContourColor ?? null;
 
     const rows = required > 6 ? 2 : 1;
@@ -617,10 +661,16 @@ export class WalletService {
       }
     }
 
-    // Background del strip: gradiente diagonal de la card + gloss sutil
-    // vertical (highlight blanco arriba que se desvanece, oscurecimiento
-    // mínimo abajo) para dar profundidad sin opacar la marca.
+    // Background del strip:
+    //  - Modo glass (heroImageUrl): foto base + overlay oscuro gradient para
+    //    legibilidad de los sellos. El SVG se compone ENCIMA de la foto.
+    //  - Modo gradient (sin hero): gradiente diagonal de la card + gloss
+    //    sutil. El SVG es self-contained con el background dentro.
     const bgFill = centerBgColor ? centerBgColor : 'url(#bg)';
+    const bgRect = usingHero
+      ? `<rect width="100%" height="100%" fill="url(#heroOverlay)"/>`
+      : `<rect width="100%" height="100%" fill="${bgFill}"/>
+         <rect width="100%" height="100%" fill="url(#gloss)"/>`;
     const svg = `
 <svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
   <defs>
@@ -632,6 +682,10 @@ export class WalletService {
       <stop offset="0%" stop-color="rgba(255,255,255,0.10)"/>
       <stop offset="55%" stop-color="rgba(255,255,255,0)"/>
       <stop offset="100%" stop-color="rgba(0,0,0,0.10)"/>
+    </linearGradient>
+    <linearGradient id="heroOverlay" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="rgba(0,0,0,0.30)"/>
+      <stop offset="100%" stop-color="rgba(0,0,0,0.75)"/>
     </linearGradient>
     <filter id="stampShadow" x="-30%" y="-30%" width="160%" height="160%">
       <feGaussianBlur in="SourceAlpha" stdDeviation="2.5"/>
@@ -645,16 +699,40 @@ export class WalletService {
       </feMerge>
     </filter>
   </defs>
-  <rect width="100%" height="100%" fill="${bgFill}"/>
-  <rect width="100%" height="100%" fill="url(#gloss)"/>
+  ${bgRect}
   ${circles.join('\n  ')}
 </svg>`.trim();
 
-    const baseSvg = Buffer.from(svg, 'utf8');
+    // Si usamos hero: bajamos la imagen, cover 640×246, y componemos el SVG
+    // del overlay + sellos encima. Si falla la red, fallback al SVG-only
+    // (gradient + sellos) para no romper el strip.
+    let baseImage: Buffer | null = null;
+    if (usingHero && heroImageUrl) {
+      try {
+        const res = await fetch(heroImageUrl);
+        if (res.ok) {
+          const buf = Buffer.from(await res.arrayBuffer());
+          baseImage = await sharp(buf)
+            .resize(W, H, { fit: 'cover', position: 'center' })
+            .png()
+            .toBuffer();
+        }
+      } catch (e: any) {
+        this.logger.warn(
+          `[STAMPS STRIP] heroImageUrl fetch falló: ${e?.message ?? e} — fallback gradient`,
+        );
+      }
+    }
+
+    const compositeBase = baseImage
+      ? sharp(baseImage).composite([{ input: Buffer.from(svg, 'utf8') }])
+      : sharp(Buffer.from(svg, 'utf8'));
+    const baseBuf = await compositeBase.png().toBuffer();
+
     const [s1, s2, s3] = await Promise.all([
-      sharp(baseSvg).resize(320, 123).png().toBuffer(),
-      sharp(baseSvg).resize(640, 246).png().toBuffer(),
-      sharp(baseSvg).resize(960, 369).png().toBuffer(),
+      sharp(baseBuf).resize(320, 123).png().toBuffer(),
+      sharp(baseBuf).resize(640, 246).png().toBuffer(),
+      sharp(baseBuf).resize(960, 369).png().toBuffer(),
     ]);
     return {
       'strip.png': s1,

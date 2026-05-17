@@ -1,7 +1,8 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { CardType } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { QueueService } from '../jobs/queue.service';
 
 export type CardDto = {
   type: CardType;
@@ -51,7 +52,37 @@ export type CardDto = {
 
 @Injectable()
 export class CardsService {
-  constructor(private prisma: PrismaService) {}
+  private logger = new Logger(CardsService.name);
+
+  constructor(
+    private prisma: PrismaService,
+    private queue: QueueService,
+  ) {}
+
+  /** Campos del Card que se reflejan visualmente en el pass wallet.
+   * Cuando alguno cambia, encolamos un wallet.push para cada pass activo
+   * para que Apple Wallet y Google Wallet del cliente vean el cambio.
+   */
+  private static VISUAL_FIELDS = [
+    'primaryColor',
+    'secondaryColor',
+    'stampActiveColor',
+    'stampInactiveColor',
+    'stampContourColor',
+    'centerBgColor',
+    'logoUrl',
+    'heroImageUrl',
+    'iconUrl',
+    'stampIcon',
+    'name',
+    'rewardText',
+    'rewardDescText',
+    'howToEarnText',
+    'businessName',
+    'terms',
+    'termsEnabled',
+    'activeLinks',
+  ] as const;
 
   private resolveTenantId(user: AuthUser, tenantIdParam?: string) {
     if (user.role === 'SUPER_ADMIN') {
@@ -183,7 +214,39 @@ export class CardsService {
       if (k in dto) data[k] = dto[k] ?? null;
     }
     if ('tiers' in dto) data.tiers = (dto.tiers ?? []) as any;
-    return this.prisma.card.update({ where: { id }, data });
+    const updated = await this.prisma.card.update({ where: { id }, data });
+
+    // Auto-sync: si el cambio tocó algún campo visual del pass, encolamos
+    // wallet.push para cada pass activo de esta card. Esto pushea silencioso
+    // a Apple Wallet (APNs) y hace PATCH al LoyaltyObject de Google Wallet
+    // para que los clientes vean el cambio sin re-instalar la tarjeta.
+    const visualChanged = CardsService.VISUAL_FIELDS.some((k) => k in dto);
+    if (visualChanged) {
+      this.enqueuePassPushForCard(id).catch((e) => {
+        this.logger.warn(
+          `Auto-sync pass push for card ${id} falló: ${(e as Error).message}`,
+        );
+      });
+    }
+
+    return updated;
+  }
+
+  private async enqueuePassPushForCard(cardId: string) {
+    const passes = await this.prisma.pass.findMany({
+      where: { cardId, status: 'ACTIVE' },
+      select: { id: true },
+    });
+    if (passes.length === 0) return;
+    this.logger.log(
+      `Auto-sync: encolando wallet.push para ${passes.length} pass(es) de card ${cardId}`,
+    );
+    for (const p of passes) {
+      await this.queue.enqueue('wallet.push', {
+        passId: p.id,
+        reason: 'card_visual_update',
+      } as any);
+    }
   }
 
   async remove(user: AuthUser, id: string) {

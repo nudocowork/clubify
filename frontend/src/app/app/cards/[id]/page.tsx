@@ -8,6 +8,7 @@ import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { StampIconPicker } from '@/components/StampIconPicker';
 import { CardExpiryPicker } from '@/components/CardExpiryPicker';
+import { ImageUploader } from '@/components/ImageUploader';
 import { WalletPassPreview } from '@/components/WalletPassPreview';
 import { WalletStylesGallery } from '@/components/WalletStylesGallery';
 
@@ -39,6 +40,7 @@ type Card = {
   centerBgColor?: string | null;
   stampsRequired: number | null;
   stampIcon?: string;
+  heroImageUrl?: string | null;
   discountPercent?: number | null;
   pointsPerCurrency?: number | string | null;
   cashbackPercent?: number | null;
@@ -711,6 +713,7 @@ function EditCardModal({
     discountPercent: card.discountPercent ?? 10,
     pointsPerCurrency: Number(card.pointsPerCurrency ?? 0.001),
     stampIcon: card.stampIcon ?? '☕',
+    heroImageUrl: card.heroImageUrl ?? (null as string | null),
     validUntil: card.validUntil
       ? card.validUntil.split('T')[0]
       : (null as string | null),
@@ -765,6 +768,7 @@ function EditCardModal({
         rewardEarnedMessage: form.rewardEarnedMessage,
         multiRewards: form.multiRewards,
         activeLinks: form.activeLinks,
+        heroImageUrl: form.heroImageUrl,
       };
       if (card.type === 'STAMPS') {
         payload.stampsRequired = form.stampsRequired;
@@ -900,6 +904,22 @@ function EditCardModal({
                 <StampIconPicker
                   value={form.stampIcon}
                   onSelect={(icon) => setForm({ ...form, stampIcon: icon })}
+                />
+              </div>
+              <div>
+                <label className="label">
+                  📸 Imagen de portada de la tarjeta
+                </label>
+                <p className="text-xs text-mute leading-relaxed -mt-1 mb-2.5">
+                  Foto de fondo en Apple y Google Wallet. Los sellos van encima
+                  con overlay oscuro. Recomendado <b>800×400 px</b> o más.
+                  Si la quitás, vuelve al gradiente con tus colores.
+                </p>
+                <ImageUploader
+                  value={form.heroImageUrl}
+                  onChange={(url) => setForm({ ...form, heroImageUrl: url })}
+                  folder="card-hero"
+                  crop={false}
                 />
               </div>
               <div>

@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { StampIconPicker } from '@/components/StampIconPicker';
 import { CardExpiryPicker } from '@/components/CardExpiryPicker';
+import { ImageUploader } from '@/components/ImageUploader';
 import { WalletPassPreview } from '@/components/WalletPassPreview';
 import { WalletStylesGallery } from '@/components/WalletStylesGallery';
 import {
@@ -58,6 +59,7 @@ const FROM_SCRATCH_DEFAULTS = {
   }>,
   tierMetric: 'spend' as 'spend' | 'visits' | 'stamps',
   stampIcon: '☕',
+  heroImageUrl: null as string | null,
   validUntil: null as string | null,
   validDaysAfterIssue: null as number | null,
   locationId: null as string | null,
@@ -943,6 +945,22 @@ function Step4Design({
             />
           </div>
         )}
+
+        <div className="pt-2 border-t border-line">
+          <label className="label">📸 Imagen de portada de la tarjeta</label>
+          <p className="text-xs text-mute leading-relaxed -mt-1 mb-2.5">
+            Se muestra como fondo del banner en Apple y Google Wallet (estilo
+            premium glassmorphism, con los sellos encima). Subí una foto de tu
+            producto o local — recomendado <b>800×400 px</b> o más.
+            Si no subís, se usa un gradiente con tus colores.
+          </p>
+          <ImageUploader
+            value={form.heroImageUrl}
+            onChange={(url) => set('heroImageUrl', url)}
+            folder="card-hero"
+            crop={false}
+          />
+        </div>
 
         <div className="pt-2 border-t border-line">
           <div className="flex items-center justify-between">
