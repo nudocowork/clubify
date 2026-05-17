@@ -107,18 +107,32 @@ export class CampaignsService {
       },
     });
 
-    // Auto-invitar al influencer al panel de afiliado.
-    await this.auth
+    // Crear cuenta de afiliado con password directo (admin lo comparte).
+    // Si falla por algún motivo, no rompe la creación de campaña.
+    const presetPassword = this.auth.generateReadablePassword();
+    const inviteResult = await this.auth
       .inviteAffiliate({
         email,
         fullName: dto.influencerName,
         role: 'AFFILIATE_INFLUENCER',
         referralCodeId: influencerCode.id,
         phone: dto.influencerWhatsapp,
+        presetPassword,
       })
       .catch(() => null);
 
-    return campaign;
+    return {
+      ...campaign,
+      // Credenciales del afiliado (solo en la response de create — el
+      // admin las copia y comparte; no se persisten en plain text).
+      affiliateCredentials: inviteResult?.password
+        ? {
+            email,
+            password: inviteResult.password,
+            loginUrl: '/login',
+          }
+        : null,
+    };
   }
 
   async list(user: AuthUser) {
@@ -250,17 +264,28 @@ export class CampaignsService {
       },
     });
 
-    await this.auth
+    const presetPassword = this.auth.generateReadablePassword();
+    const inviteResult = await this.auth
       .inviteAffiliate({
         email,
         fullName: dto.fullName,
         role: 'AFFILIATE_AMBASSADOR',
         referralCodeId: ambassadorCode.id,
         phone: dto.whatsapp,
+        presetPassword,
       })
       .catch(() => null);
 
-    return ambassadorCode;
+    return {
+      ...ambassadorCode,
+      affiliateCredentials: inviteResult?.password
+        ? {
+            email,
+            password: inviteResult.password,
+            loginUrl: '/login',
+          }
+        : null,
+    };
   }
 
   /**

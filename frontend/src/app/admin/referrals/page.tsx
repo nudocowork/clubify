@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
+import { AffiliateCredentialsModal } from '@/components/AffiliateCredentialsModal';
 
 const STATUS_LABEL: Record<string, { text: string; cls: string }> = {
   SIGNED_UP: { text: 'Inscrito', cls: 'bg-bg2 text-mute' },
@@ -1216,20 +1217,49 @@ function CreateCampaignModal({
   });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [credentials, setCredentials] = useState<{
+    email: string;
+    password: string;
+    loginUrl: string;
+  } | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
     setBusy(true);
     try {
-      await api('/campaigns', { method: 'POST', body: JSON.stringify(form) });
-      toast('Campaña creada', 'success');
-      onCreated();
+      const res = await api<any>('/campaigns', {
+        method: 'POST',
+        body: JSON.stringify(form),
+      });
+      if (res?.affiliateCredentials) {
+        setCredentials(res.affiliateCredentials);
+        toast('Campaña creada — copiá las credenciales del influencer', 'success');
+      } else {
+        toast('Campaña creada', 'success');
+        onCreated();
+      }
     } catch (e: any) {
       setErr(e.message || 'No se pudo crear');
     } finally {
       setBusy(false);
     }
+  }
+
+  // Pantalla de credenciales: aparece UNA SOLA VEZ después de crear.
+  // El admin las copia y comparte con el afiliado (WhatsApp, etc).
+  if (credentials) {
+    return (
+      <AffiliateCredentialsModal
+        credentials={credentials}
+        whoLabel={`influencer ${form.influencerName}`}
+        whatsapp={form.influencerWhatsapp}
+        onClose={() => {
+          setCredentials(null);
+          onCreated();
+        }}
+      />
+    );
   }
 
   return (
@@ -1374,19 +1404,36 @@ function CampaignDetailModal({
     onChanged();
   }
 
+  const [ambassadorCredentials, setAmbassadorCredentials] = useState<{
+    email: string;
+    password: string;
+    loginUrl: string;
+    fullName: string;
+    whatsapp: string;
+  } | null>(null);
+
   async function addAmbassador(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     try {
-      await api(`/campaigns/${campaignId}/ambassadors`, {
+      const res = await api<any>(`/campaigns/${campaignId}/ambassadors`, {
         method: 'POST',
         body: JSON.stringify(addForm),
       });
+      const saved = { ...addForm };
       setAddForm({ fullName: '', email: '', whatsapp: '', commissionPercent: 25, customCode: '' });
       setShowAdd(false);
-      toast('Embajador agregado', 'success');
       load();
       onChanged();
+      if (res?.affiliateCredentials) {
+        setAmbassadorCredentials({
+          ...res.affiliateCredentials,
+          fullName: saved.fullName,
+          whatsapp: saved.whatsapp,
+        });
+      } else {
+        toast('Embajador agregado', 'success');
+      }
     } catch (e: any) {
       toast(e.message || 'Error', 'error');
     } finally {
@@ -1551,6 +1598,14 @@ function CampaignDetailModal({
           </>
         )}
       </div>
+      {ambassadorCredentials && (
+        <AffiliateCredentialsModal
+          credentials={ambassadorCredentials}
+          whoLabel={`embajador ${ambassadorCredentials.fullName}`}
+          whatsapp={ambassadorCredentials.whatsapp}
+          onClose={() => setAmbassadorCredentials(null)}
+        />
+      )}
     </div>
   );
 }

@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import { PhoneInput } from '@/components/PhoneInput';
+import { AffiliateCredentialsModal } from '@/components/AffiliateCredentialsModal';
 
 type Detail = {
   id: string;
@@ -106,18 +107,35 @@ export default function CampaignDetailPage() {
     }
   }
 
+  const [ambCreds, setAmbCreds] = useState<{
+    email: string;
+    password: string;
+    loginUrl: string;
+    fullName: string;
+    whatsapp: string;
+  } | null>(null);
+
   async function addAmbassador(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     try {
-      await api(`/campaigns/${id}/ambassadors`, {
+      const res = await api<any>(`/campaigns/${id}/ambassadors`, {
         method: 'POST',
         body: JSON.stringify(addForm),
       });
+      const saved = { ...addForm };
       setAddForm({ fullName: '', email: '', whatsapp: '', commissionPercent: 25, customCode: '' });
       setShowAdd(false);
-      toast('Embajador agregado', 'success');
       load();
+      if (res?.affiliateCredentials) {
+        setAmbCreds({
+          ...res.affiliateCredentials,
+          fullName: saved.fullName,
+          whatsapp: saved.whatsapp,
+        });
+      } else {
+        toast('Embajador agregado', 'success');
+      }
     } catch (e: any) {
       toast(e.message || 'Error', 'error');
     } finally {
@@ -351,6 +369,14 @@ export default function CampaignDetailPage() {
         )}
       </div>
 
+      {ambCreds && (
+        <AffiliateCredentialsModal
+          credentials={ambCreds}
+          whoLabel={`embajador ${ambCreds.fullName}`}
+          whatsapp={ambCreds.whatsapp}
+          onClose={() => setAmbCreds(null)}
+        />
+      )}
     </div>
   );
 }

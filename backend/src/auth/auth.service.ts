@@ -373,19 +373,30 @@ export class AuthService {
     role: 'AFFILIATE_INFLUENCER' | 'AFFILIATE_AMBASSADOR' | 'AFFILIATE_SOCIO';
     referralCodeId: string;
     phone?: string;
-  }) {
+    /** Si viene, se setea como password del User en vez de un placeholder
+     *  random. El admin lo recibe en la response para compartirlo con el
+     *  afiliado (no se envía email de reset). Útil para que el admin
+     *  comparta credenciales directas vía WhatsApp / SMS / verbal. */
+    presetPassword?: string;
+  }): Promise<{ ok: true; userId: string; password: string | null }> {
     const email = opts.email.toLowerCase().trim();
+
+    // Si admin pasó presetPassword, generamos su hash; sino, placeholder
+    // random (flow tradicional vía email de reset).
+    const usingPresetPassword = !!opts.presetPassword && opts.presetPassword.length >= 8;
+    const passwordToHash = usingPresetPassword
+      ? opts.presetPassword!
+      : randomBytes(32).toString('hex');
 
     let user = await this.prisma.user.findUnique({ where: { email } });
     if (!user) {
-      // Password placeholder — el affiliate la define al aceptar el invite.
-      const placeholderHash = await this.hashPassword(randomBytes(32).toString('hex'));
+      const hashed = await this.hashPassword(passwordToHash);
       user = await this.prisma.user.create({
         data: {
           email,
           fullName: opts.fullName,
           phone: opts.phone,
-          passwordHash: placeholderHash,
+          passwordHash: hashed,
           role: opts.role,
           isActive: true,
         },
@@ -402,6 +413,14 @@ export class AuthService {
         where: { id: user.id },
         data: { role: opts.role },
       });
+    } else if (usingPresetPassword) {
+      // User existente + admin pasó preset password → resetear password.
+      // Equivale a un admin reset manual.
+      const hashed = await this.hashPassword(passwordToHash);
+      user = await this.prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash: hashed, passwordChangedAt: new Date() },
+      });
     }
 
     // Linkear ReferralCode → User (solo si aún no estaba linkeado).
@@ -409,6 +428,16 @@ export class AuthService {
       where: { id: opts.referralCodeId },
       data: { ownerUserId: user.id },
     });
+
+    // Si admin seteó password directo, NO mandamos email de reset.
+    // El admin se encarga de compartir las credenciales (el password
+    // viene en la response del endpoint que llamó esto).
+    if (usingPresetPassword) {
+      this.logger.log(
+        `Afiliado creado con password directo: ${email} role=${opts.role}`,
+      );
+      return { ok: true, userId: user.id, password: passwordToHash };
+    }
 
     const rawToken = randomBytes(32).toString('base64url');
     const tokenHash = createHash('sha256').update(rawToken).digest('hex');
@@ -450,7 +479,20 @@ export class AuthService {
       `Invite affiliate enviado: ${email} role=${opts.role} (token expira en 7d)`,
     );
 
-    return { ok: true, userId: user.id };
+    return { ok: true, userId: user.id, password: null };
+  }
+
+  /** Helper público: genera una contraseña random legible (10 chars
+   *  alfanuméricos sin caracteres ambiguos). Útil para que el admin la
+   *  comparta verbalmente sin confusiones de O/0 o l/1/I. */
+  generateReadablePassword(length: number = 10): string {
+    const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789abcdefghjkmnpqrstuvwxyz';
+    const bytes = randomBytes(length);
+    let pwd = '';
+    for (let i = 0; i < length; i++) {
+      pwd += alphabet[bytes[i] % alphabet.length];
+    }
+    return pwd;
   }
 
   async resetPassword(rawToken: string, newPassword: string) {
