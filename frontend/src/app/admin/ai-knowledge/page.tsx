@@ -570,7 +570,7 @@ function MasterPromptButton() {
                 <textarea
                   className="input font-mono text-xs"
                   rows={16}
-                  placeholder="Ejemplo:&#10;Sos un asistente de Clubify. Hablás en español neutro LATAM. Nunca uses jerga argentina. Si el cliente menciona precios sin tener login, redirígelo a /signup. Si pregunta por el plan Pro, mencioná que incluye automatizaciones WhatsApp y prioridad de soporte."
+                  placeholder="Ejemplo:&#10;Sos un asistente de Clubify. Hablás en español neutro LATAM. Nunca uses jerga argentina. Si el cliente menciona precios sin tener login, redirígelo a /signup. Plan único Elite USD 50/mes incluye todo (tarjetas wallet, automatizaciones WhatsApp, multi-ubicación)."
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                 />

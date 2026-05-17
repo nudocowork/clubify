@@ -5,8 +5,8 @@ import { useState } from 'react';
 type Props = {
   publicToken: string;
   businessName: string;
-  /** "Elite" | "Pro" — incluido en el mensaje pre-armado de share. */
-  planLabel: 'Elite' | 'Pro';
+  /** Plan único Elite — incluido en el mensaje pre-armado de share. */
+  planLabel: 'Elite';
   /** Color acento del template para el botón share. */
   accent: string;
 };

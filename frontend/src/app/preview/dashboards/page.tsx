@@ -344,10 +344,10 @@ function DashNudo() {
 
 function DashGrowBusiness() {
   const accounts = [
-    { name: 'Café del Día', city: 'Bogotá', plan: 'Pro', status: 'ok', last: '27 mar' },
+    { name: 'Café del Día', city: 'Bogotá', plan: 'Elite', status: 'ok', last: '27 mar' },
     { name: 'Pizzería Roma', city: 'Medellín', plan: 'Elite', status: 'ok', last: '7 ene' },
     { name: 'Barbería Central', city: 'Cali', plan: 'Elite', status: 'warn', last: 'hoy' },
-    { name: 'Autolavado Express', city: 'Bogotá', plan: 'Pro', status: 'ok', last: 'ayer' },
+    { name: 'Autolavado Express', city: 'Bogotá', plan: 'Elite', status: 'ok', last: 'ayer' },
   ];
   return (
     <div className="flex flex-1 bg-[#FAFBFC] overflow-hidden">

@@ -594,8 +594,8 @@ export default function CustomersPage() {
                   className="text-brand hover:underline"
                 >
                   automatizaciones de WhatsApp
-                </Link>{' '}
-                (plan Pro).
+                </Link>
+                .
               </div>
               <button
                 onClick={() => setWaOpen(false)}

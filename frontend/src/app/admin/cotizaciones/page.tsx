@@ -12,7 +12,7 @@ import {
 
 const FALLBACK_TEMPLATE = QUOTE_TEMPLATES.find((t) => t.slug === 'other')!;
 
-type Plan = 'ELITE' | 'PRO';
+type Plan = 'ELITE';
 
 type Quote = {
   id: string;
@@ -331,7 +331,7 @@ export default function CotizacionesPage() {
   }
 
   const byPlanMap = useMemo(() => {
-    const m: Record<string, number> = { ELITE: 0, PRO: 0 };
+    const m: Record<string, number> = { ELITE: 0 };
     stats?.byPlan.forEach((b) => {
       m[b.plan] = b.count;
     });
@@ -408,14 +408,12 @@ export default function CotizacionesPage() {
           }
         />
         <StatCard
-          label="Elite / Pro"
+          label="Elite"
           loading={loading && !stats}
           render={
             stats ? (
               <div className="text-2xl font-bold">
                 <span>{byPlanMap.ELITE}</span>
-                <span className="text-mute mx-1">/</span>
-                <span className="text-brand">{byPlanMap.PRO}</span>
               </div>
             ) : null
           }
@@ -741,13 +739,13 @@ export default function CotizacionesPage() {
         </div>
         <div className="flex flex-wrap gap-3 items-center">
           <div className="tabs">
-            {(['ALL', 'ELITE', 'PRO'] as const).map((f) => (
+            {(['ALL', 'ELITE'] as const).map((f) => (
               <button
                 key={f}
                 onClick={() => setFilterPlan(f)}
                 className={`tab ${filterPlan === f ? 'tab-active' : ''}`}
               >
-                {f === 'ALL' ? 'Todos' : f === 'ELITE' ? 'Elite' : 'Pro'}
+                {f === 'ALL' ? 'Todos' : 'Elite'}
               </button>
             ))}
           </div>
@@ -944,13 +942,7 @@ export default function CotizacionesPage() {
                       </td>
                       <td className="px-4 py-3.5">{q.businessName}</td>
                       <td className="px-4 py-3.5">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                            q.plan === 'PRO'
-                              ? 'bg-brand-soft text-brand-700'
-                              : 'bg-bg2 text-ink'
-                          }`}
-                        >
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-brand-soft text-brand-700">
                           {q.plan}
                         </span>
                         <div className="text-xs text-mute mt-0.5">

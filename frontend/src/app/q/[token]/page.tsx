@@ -75,7 +75,7 @@ export default async function PublicQuotePage({
     ? QUOTE_TEMPLATES.find((t) => t.slug === quote.templateSlug) ?? null
     : null;
   const accent = template?.accent ?? '#22C55E';
-  const planLabel = quote.plan === 'ELITE' ? 'Elite' : 'Pro';
+  const planLabel = 'Elite';
   const priceLabel = fmtMoney(quote.priceSnapshot, quote.currencySnapshot);
   // qt = publicToken completo para que el signup pueda atribuir la conversión
   // a esta cotización exacta (closed-loop). utm es solo el prefijo legible
@@ -148,7 +148,7 @@ export default async function PublicQuotePage({
       <QuotePublicActions
         publicToken={quote.publicToken}
         businessName={quote.businessName}
-        planLabel={planLabel as 'Elite' | 'Pro'}
+        planLabel={planLabel}
         accent={accent}
       />
 

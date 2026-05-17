@@ -530,15 +530,11 @@ export class AuthService {
       slug = `${slugify(brandName)}-${suffix}`;
     }
 
-    // Selección de plan. AMBOS PLANES requieren pago antes de usar la app
-    // (decisión 2026-05-04 — eliminamos el trial de Elite). El lockscreen de
-    // /app espera `hotmartSubscriberCode` antes de dejar entrar al panel.
-    const requestedPlan = (dto.plan ?? '').toLowerCase().trim();
-    const isProSignup = requestedPlan === 'pro';
-    const targetPlanName = isProSignup ? 'Pro' : 'Elite';
-
+    // Plan único: Elite. El parámetro `dto.plan` se ignora desde 2026-05-16
+    // (Pro descontinuado). Pago inmediato — el lockscreen de /app espera
+    // `hotmartSubscriberCode` antes de dejar entrar al panel.
+    void dto.plan;
     const defaultPlan =
-      (await this.prisma.plan.findUnique({ where: { name: targetPlanName } })) ??
       (await this.prisma.plan.findUnique({ where: { name: 'Elite' } })) ??
       (await this.prisma.plan.findFirst({ where: { isActive: true }, orderBy: { priceMonthly: 'asc' } }));
     if (!defaultPlan) throw new BadRequestException('No hay planes configurados');
