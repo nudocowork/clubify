@@ -152,9 +152,37 @@ export class CustomersService {
     }
   }
 
+  /**
+   * Borra un cliente y TODO su historial asociado. Operación destructiva e
+   * irreversible — confirmar en UI antes de llamar.
+   *
+   * Schema de relaciones:
+   *  - Pass, Stamp, CustomerBadge → onDelete: Cascade (se borran solos)
+   *  - Order, Cart, Message → FK sin cascade (Postgres bloquearía el delete)
+   *    → los borramos / desvinculamos a mano dentro de la misma transaction.
+   *
+   * Order tiene OrderEvent con cascade, así que borrar Order limpia sus events.
+   */
   async remove(user: AuthUser, id: string) {
     await this.get(user, id);
-    await this.prisma.customer.delete({ where: { id } });
+    await this.prisma.$transaction(async (tx) => {
+      // Carts y Messages: customerId es nullable → desvincular (preserva
+      // estadísticas históricas anonimizadas si las hay).
+      await tx.cart.updateMany({
+        where: { customerId: id },
+        data: { customerId: null },
+      });
+      await tx.message.updateMany({
+        where: { customerId: id },
+        data: { customerId: null },
+      });
+      // Orders: customerId es NOT NULL → hay que borrar los orders (y sus
+      // OrderEvents cascadean). El usuario aceptó "Eliminar historial" en
+      // el modal de confirmación.
+      await tx.order.deleteMany({ where: { customerId: id } });
+      // Customer: borra (cascade limpia Pass, Stamp, CustomerBadge).
+      await tx.customer.delete({ where: { id } });
+    });
     return { ok: true };
   }
 

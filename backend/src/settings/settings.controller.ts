@@ -19,6 +19,10 @@ class BrandingDto {
   @IsOptional() @IsString() salesWhatsapp?: string | null;
   @IsOptional() @IsString() salesEmail?: string | null;
   @IsOptional() @IsString() salesInstagram?: string | null;
+  @IsOptional() @IsString() @MaxLength(40) landingStatBusinesses?: string | null;
+  @IsOptional() @IsString() @MaxLength(40) landingStatWalletCustomers?: string | null;
+  @IsOptional() @IsString() @MaxLength(40) landingStatOrders?: string | null;
+  @IsOptional() @IsString() @MaxLength(40) landingStatRating?: string | null;
 }
 
 class PricingDto {

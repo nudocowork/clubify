@@ -502,6 +502,35 @@ export default function CustomersPage() {
           >
             <Icon name="send" size={14} /> Enviar WhatsApp
           </button>
+          <button
+            onClick={async () => {
+              const n = selected.size;
+              const msg = `¿Eliminar ${n} cliente${n === 1 ? '' : 's'}?\n\nEsta acción NO se puede deshacer y borra:\n• Tarjeta wallet del cliente\n• Sellos / saldo / nivel VIP\n• Historial de pedidos\n• Mensajes asociados\n\nEscribí ELIMINAR para confirmar.`;
+              const confirmText = window.prompt(msg);
+              if ((confirmText ?? '').trim().toUpperCase() !== 'ELIMINAR') return;
+              let ok = 0;
+              let fail = 0;
+              for (const id of Array.from(selected)) {
+                try {
+                  await api(`/customers/${id}`, { method: 'DELETE' });
+                  ok++;
+                } catch {
+                  fail++;
+                }
+              }
+              setSelected(new Set());
+              toast(
+                fail > 0
+                  ? `${ok} eliminados · ${fail} fallaron`
+                  : `${ok} cliente${ok === 1 ? '' : 's'} eliminado${ok === 1 ? '' : 's'}`,
+                fail > 0 ? 'error' : 'success',
+              );
+              load();
+            }}
+            className="bg-bad text-white text-sm font-semibold px-4 py-2 rounded-full inline-flex items-center gap-1.5 hover:bg-bad/90"
+          >
+            <Icon name="trash" size={14} /> Eliminar
+          </button>
         </div>
       )}
 

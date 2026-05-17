@@ -28,6 +28,12 @@ export type BrandingSettings = {
   salesWhatsapp: string | null;
   salesEmail: string | null;
   salesInstagram: string | null;
+  // Stats que se muestran en la landing pública (sección "STATS_FALLBACK").
+  // Editables sin redeploy. Si está vacío, la landing usa el fallback hardcoded.
+  landingStatBusinesses: string | null;
+  landingStatWalletCustomers: string | null;
+  landingStatOrders: string | null;
+  landingStatRating: string | null;
 };
 
 const KEYS = {
@@ -40,6 +46,10 @@ const KEYS = {
   salesWhatsapp: 'sales.whatsappPhone',
   salesEmail: 'sales.email',
   salesInstagram: 'sales.instagramUrl',
+  landingStatBusinesses: 'landing.stats.businesses',
+  landingStatWalletCustomers: 'landing.stats.walletCustomers',
+  landingStatOrders: 'landing.stats.orders',
+  landingStatRating: 'landing.stats.rating',
   pricingEliteCost: 'pricing.eliteCost',
   pricingProCost: 'pricing.proCost',
   pricingCurrency: 'pricing.currency',
@@ -88,6 +98,10 @@ export class SettingsService {
             KEYS.salesWhatsapp,
             KEYS.salesEmail,
             KEYS.salesInstagram,
+            KEYS.landingStatBusinesses,
+            KEYS.landingStatWalletCustomers,
+            KEYS.landingStatOrders,
+            KEYS.landingStatRating,
           ],
         },
       },
@@ -109,6 +123,10 @@ export class SettingsService {
       salesWhatsapp: norm(map.get(KEYS.salesWhatsapp)),
       salesEmail: norm(map.get(KEYS.salesEmail)),
       salesInstagram: norm(map.get(KEYS.salesInstagram)),
+      landingStatBusinesses: norm(map.get(KEYS.landingStatBusinesses)),
+      landingStatWalletCustomers: norm(map.get(KEYS.landingStatWalletCustomers)),
+      landingStatOrders: norm(map.get(KEYS.landingStatOrders)),
+      landingStatRating: norm(map.get(KEYS.landingStatRating)),
     };
   }
 
@@ -143,6 +161,18 @@ export class SettingsService {
     }
     if (data.salesInstagram !== undefined) {
       ops.push(this.upsert(KEYS.salesInstagram, (data.salesInstagram ?? '').trim()));
+    }
+    if (data.landingStatBusinesses !== undefined) {
+      ops.push(this.upsert(KEYS.landingStatBusinesses, (data.landingStatBusinesses ?? '').trim()));
+    }
+    if (data.landingStatWalletCustomers !== undefined) {
+      ops.push(this.upsert(KEYS.landingStatWalletCustomers, (data.landingStatWalletCustomers ?? '').trim()));
+    }
+    if (data.landingStatOrders !== undefined) {
+      ops.push(this.upsert(KEYS.landingStatOrders, (data.landingStatOrders ?? '').trim()));
+    }
+    if (data.landingStatRating !== undefined) {
+      ops.push(this.upsert(KEYS.landingStatRating, (data.landingStatRating ?? '').trim()));
     }
     await Promise.all(ops);
     return this.getBrandingAdmin();

@@ -13,6 +13,10 @@ type Branding = {
   salesWhatsapp: string | null;
   salesEmail: string | null;
   salesInstagram: string | null;
+  landingStatBusinesses: string | null;
+  landingStatWalletCustomers: string | null;
+  landingStatOrders: string | null;
+  landingStatRating: string | null;
 };
 
 export default function AdminBrandingPage() {
@@ -24,6 +28,10 @@ export default function AdminBrandingPage() {
     salesWhatsapp: null,
     salesEmail: null,
     salesInstagram: null,
+    landingStatBusinesses: null,
+    landingStatWalletCustomers: null,
+    landingStatOrders: null,
+    landingStatRating: null,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -151,6 +159,73 @@ export default function AdminBrandingPage() {
               placeholder="https://instagram.com/clubify"
               value={b.salesInstagram ?? ''}
               onChange={(e) => setB({ ...b, salesInstagram: e.target.value })}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="card card-pad mt-5">
+        <h2 className="text-base font-semibold m-0">
+          📊 Stats de la landing pública
+        </h2>
+        <p className="text-xs text-mute mt-1 leading-relaxed">
+          Contadores que se muestran en la sección de números de{' '}
+          <code className="bg-bg2 px-1 rounded">soyclubify.com</code>.
+          Editables sin redeploy. Si dejás un campo vacío, se usa el valor
+          por defecto. Aceptan cualquier texto (ej: <code>+150</code>,{' '}
+          <code>30K+</code>, <code>4.9 / 5</code>).
+        </p>
+        <div className="mt-3.5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div>
+            <label className="label">Negocios activos</label>
+            <input
+              type="text"
+              className="input"
+              placeholder="+150"
+              maxLength={40}
+              value={b.landingStatBusinesses ?? ''}
+              onChange={(e) =>
+                setB({ ...b, landingStatBusinesses: e.target.value })
+              }
+            />
+          </div>
+          <div>
+            <label className="label">Clientes con tarjeta wallet</label>
+            <input
+              type="text"
+              className="input"
+              placeholder="+30K"
+              maxLength={40}
+              value={b.landingStatWalletCustomers ?? ''}
+              onChange={(e) =>
+                setB({ ...b, landingStatWalletCustomers: e.target.value })
+              }
+            />
+          </div>
+          <div>
+            <label className="label">Pedidos / mes</label>
+            <input
+              type="text"
+              className="input"
+              placeholder="50K"
+              maxLength={40}
+              value={b.landingStatOrders ?? ''}
+              onChange={(e) =>
+                setB({ ...b, landingStatOrders: e.target.value })
+              }
+            />
+          </div>
+          <div>
+            <label className="label">Calificación</label>
+            <input
+              type="text"
+              className="input"
+              placeholder="4.9 / 5"
+              maxLength={40}
+              value={b.landingStatRating ?? ''}
+              onChange={(e) =>
+                setB({ ...b, landingStatRating: e.target.value })
+              }
             />
           </div>
         </div>

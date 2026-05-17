@@ -5,7 +5,9 @@
 
 import Link from 'next/link';
 
-const MENU_ITEMS = [
+type MenuItem = { name: string; price: string; img: string };
+
+const DEFAULT_MENU_ITEMS: MenuItem[] = [
   { name: 'Yakimeshi de Lomo', price: '$ 52.700', img: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=200&h=200&fit=crop' },
   { name: 'Yakimeshi Mixto', price: '$ 52.700', img: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=200&h=200&fit=crop' },
   { name: 'Yakimeshi Tradicional', price: '$ 41.300', img: 'https://images.unsplash.com/photo-1552566626-52f8b828add9?w=200&h=200&fit=crop' },
@@ -18,14 +20,18 @@ function MenuPhone({
   width = 260,
   background = '#FAFAF5',
   delayS = 0,
+  items,
+  brandName = 'cluvi',
 }: {
   width?: number;
   background?: string;
   delayS?: number;
+  items: MenuItem[];
+  brandName?: string;
 }) {
   const height = (width * 640) / 320;
   // Duplicamos los items 2x para que el scroll loop sea seamless
-  const loopItems = [...MENU_ITEMS, ...MENU_ITEMS];
+  const loopItems = [...items, ...items];
   return (
     <div
       className="relative bg-[#0a0a0a] rounded-[40px] p-[8px] shadow-[0_30px_70px_-15px_rgba(0,0,0,0.4),0_0_0_1.5px_#1f1f1f,0_0_0_3px_#000]"
@@ -38,7 +44,7 @@ function MenuPhone({
       >
         {/* Header sticky */}
         <div className="absolute top-0 inset-x-0 h-9 bg-black flex items-center justify-center z-10 px-3">
-          <div className="text-[11px] font-bold tracking-tight text-white">cluvi</div>
+          <div className="text-[11px] font-bold tracking-tight text-white">{brandName}</div>
         </div>
         {/* Tabs */}
         <div className="absolute top-9 inset-x-0 h-7 bg-black/95 z-10 flex items-center gap-3 px-3 text-[9px]">
@@ -86,11 +92,21 @@ export function HeroBanner({
   waLink,
   mailLink,
   igLink,
+  menuItems,
+  brandName,
 }: {
   waLink: string;
   mailLink?: string | null;
   igLink?: string | null;
-} = { waLink: 'https://wa.me/573000000000', mailLink: null, igLink: null }) {
+  menuItems?: MenuItem[];
+  brandName?: string;
+} = {
+  waLink: 'https://wa.me/573000000000',
+  mailLink: null,
+  igLink: null,
+}) {
+  const items = menuItems && menuItems.length > 0 ? menuItems : DEFAULT_MENU_ITEMS;
+  const brand = brandName ?? 'cluvi';
   return (
     <>
       <style>{`
@@ -121,7 +137,7 @@ export function HeroBanner({
                 href="#precios"
                 className="inline-flex items-center justify-center px-6 sm:px-7 py-3 sm:py-3.5 rounded-full bg-ink text-white font-semibold shadow-md hover:opacity-90 transition text-sm sm:text-base"
               >
-                Ver planes y empezar
+                Ver plan y empezar
               </Link>
               <a
                 href={waLink}
@@ -172,10 +188,10 @@ export function HeroBanner({
               }}
             >
               <div className="hidden lg:block">
-                <MenuPhone width={200} background="#0a0a0a" delayS={0.6} />
+                <MenuPhone width={200} background="#0a0a0a" delayS={0.6} items={items} brandName={brand} />
               </div>
               <div className="block lg:hidden">
-                <MenuPhone width={170} background="#0a0a0a" delayS={0.6} />
+                <MenuPhone width={170} background="#0a0a0a" delayS={0.6} items={items} brandName={brand} />
               </div>
             </div>
 
@@ -189,13 +205,13 @@ export function HeroBanner({
             >
               {/* tres tamaños responsivos sin custom CSS */}
               <div className="hidden lg:block">
-                <MenuPhone width={220} background="#FAFAF5" delayS={0} />
+                <MenuPhone width={220} background="#FAFAF5" delayS={0} items={items} brandName={brand} />
               </div>
               <div className="hidden sm:block lg:hidden">
-                <MenuPhone width={190} background="#FAFAF5" delayS={0} />
+                <MenuPhone width={190} background="#FAFAF5" delayS={0} items={items} brandName={brand} />
               </div>
               <div className="block sm:hidden">
-                <MenuPhone width={170} background="#FAFAF5" delayS={0} />
+                <MenuPhone width={170} background="#FAFAF5" delayS={0} items={items} brandName={brand} />
               </div>
             </div>
 

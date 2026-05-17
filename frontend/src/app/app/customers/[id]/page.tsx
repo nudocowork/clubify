@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
@@ -320,7 +320,9 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
 
 export default function CustomerDetail() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const [c, setC] = useState<Customer | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   async function load() {
     try {
@@ -332,6 +334,22 @@ export default function CustomerDetail() {
   useEffect(() => {
     load();
   }, [id]);
+
+  async function deleteCustomer() {
+    if (!c) return;
+    const msg = `¿Eliminar a ${c.fullName}?\n\nEsta acción NO se puede deshacer y borra:\n• Tarjeta wallet del cliente\n• Sellos / saldo / nivel VIP\n• Historial de pedidos (${c.totalOrdersCount})\n• Mensajes asociados\n\nEscribí ELIMINAR para confirmar.`;
+    const confirmText = window.prompt(msg);
+    if ((confirmText ?? '').trim().toUpperCase() !== 'ELIMINAR') return;
+    setDeleting(true);
+    try {
+      await api(`/customers/${id}`, { method: 'DELETE' });
+      toast('Cliente eliminado', 'success');
+      router.push('/app/customers');
+    } catch (e: any) {
+      toast(e.message || 'No se pudo eliminar', 'error');
+      setDeleting(false);
+    }
+  }
 
   if (!c) return <div className="text-mute">Cargando…</div>;
 
@@ -349,16 +367,27 @@ export default function CustomerDetail() {
           </Link>{' '}
           <span className="page-crumb">/ {c.fullName}</span>
         </h1>
-        {c.phone && (
-          <a
-            className="btn-primary"
-            href={`https://wa.me/${c.phone.replace(/\D/g, '')}`}
-            target="_blank"
-            rel="noreferrer"
+        <div className="flex gap-2">
+          {c.phone && (
+            <a
+              className="btn-primary"
+              href={`https://wa.me/${c.phone.replace(/\D/g, '')}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <Icon name="send" /> WhatsApp
+            </a>
+          )}
+          <button
+            onClick={deleteCustomer}
+            disabled={deleting}
+            className="bg-bad text-white text-sm font-semibold px-4 py-2 rounded-pill inline-flex items-center gap-1.5 hover:bg-bad/90 disabled:opacity-50"
+            title="Eliminar cliente y todo su historial"
           >
-            <Icon name="send" /> WhatsApp
-          </a>
-        )}
+            <Icon name="trash" size={14} />
+            {deleting ? 'Eliminando…' : 'Eliminar'}
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4">

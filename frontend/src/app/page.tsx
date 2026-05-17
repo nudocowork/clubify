@@ -6,76 +6,9 @@ import { RefCapture } from '@/components/RefCapture';
 import { FadeIn } from '@/components/FadeIn';
 import { HeroTrio } from '@/components/HeroTrio';
 import { HeroBanner } from '@/components/HeroBanner';
+import { FidelizacionBanner } from '@/components/FidelizacionBanner';
 import { InfoLinksBanner } from '@/components/InfoLinksBanner';
 import { Logo } from '@/components/Logo';
-
-const PILLARS = [
-  {
-    icon: 'shopping-bag' as const,
-    color: '#22C55E',
-    title: 'Pedidos',
-    desc: 'Menú digital, carrito y checkout que dispara al WhatsApp del dueño.',
-    bullets: ['Sin app · sin contratos', 'Kanban en vivo', 'Tickets cocina + recibo cliente'],
-  },
-  {
-    icon: 'card' as const,
-    color: '#8B5CF6',
-    title: 'Fidelización',
-    desc: 'Tarjetas en Apple Wallet & Google Wallet, sellos y puntos automatizados.',
-    bullets: ['Apple + Google Wallet', 'Sellos por compra', 'Recompensas configurables'],
-  },
-  {
-    icon: 'spark' as const,
-    color: '#EC4899',
-    title: 'Automatización',
-    desc: 'WhatsApp, email y push automáticos por evento, cumpleaños, inactividad.',
-    bullets: ['Triggers IF→THEN', 'Plantillas WA Cloud', 'Mensajes con variables'],
-  },
-  {
-    icon: 'users' as const,
-    color: '#14B8A6',
-    title: 'CRM',
-    desc: 'Segmentación, tags, notas internas, LTV y campañas masivas WhatsApp.',
-    bullets: ['Tags + notas', 'Segmentos VIP / 7d / 30d', 'Importación CSV'],
-  },
-  {
-    icon: 'history' as const,
-    color: '#F59E0B',
-    title: 'Analítica',
-    desc: 'Funnels, top productos, heatmap por hora, retención por cohortes.',
-    bullets: ['Insights accionables', 'Series 7d/30d/90d', 'CSV export'],
-  },
-  {
-    icon: 'arrow-right' as const,
-    color: '#0EA5E9',
-    title: 'Sitio público',
-    desc: 'Storefront editable con bloques drag & drop y dominio propio.',
-    bullets: ['Editor visual', 'Mini-páginas tipo Linktree', 'CNAME custom'],
-  },
-];
-
-const STEPS = [
-  {
-    n: '01',
-    title: 'Sube tu menú',
-    desc: 'Categorías, productos, fotos. 5 minutos. O lo importas del Excel que ya tienes.',
-  },
-  {
-    n: '02',
-    title: 'Comparte tu link',
-    desc: 'Pégalo en Instagram, WhatsApp, código QR en mesas. Tus clientes piden directo.',
-  },
-  {
-    n: '03',
-    title: 'Recibe pedidos',
-    desc: 'Llegan al kanban en tiempo real con sonido. Drag & drop para cambiar estado.',
-  },
-  {
-    n: '04',
-    title: 'Fideliza solo',
-    desc: 'Cada pedido suma sello en wallet. Al completarse, mensaje automático con cupón.',
-  },
-];
 
 const TESTIMONIALS = [
   {
@@ -113,10 +46,12 @@ const LOGOS = [
   'Panadería 21',
 ];
 
-const STATS = [
-  { value: '1.500+', label: 'Negocios activos en LATAM' },
-  { value: '80K+', label: 'Clientes con tarjeta wallet' },
-  { value: '200K', label: 'Pedidos procesados / mes' },
+// Default fallback. Los valores reales vienen del Setting `landing.stats`
+// (editables desde /admin/branding sin redeploy).
+const STATS_FALLBACK = [
+  { value: '+150', label: 'Negocios activos en LATAM' },
+  { value: '+30K', label: 'Clientes con tarjeta wallet' },
+  { value: '50K', label: 'Pedidos procesados / mes' },
   { value: '4.9 / 5', label: 'Calificación de dueños' },
 ];
 
@@ -153,26 +88,85 @@ type SalesContact = {
   instagram: string | null;
 };
 
-async function fetchSalesContact(): Promise<SalesContact> {
+type LandingStats = {
+  businesses: string | null;
+  walletCustomers: string | null;
+  orders: string | null;
+  rating: string | null;
+};
+
+type BrandingPublic = {
+  sales: SalesContact;
+  stats: LandingStats;
+};
+
+// Productos reales del menú de NudoCowork para alimentar la animación del
+// HeroBanner. Si el fetch falla, HeroBanner usa los productos hardcoded.
+async function fetchNudoMenuItems(): Promise<
+  { name: string; price: string; img: string }[]
+> {
   const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
   try {
+    const r = await fetch(`${API}/api/public/m/nudocowork/menu`, {
+      next: { revalidate: 300 },
+    });
+    if (!r.ok) return [];
+    const cats: any[] = await r.json();
+    const items: { name: string; price: string; img: string }[] = [];
+    for (const c of cats) {
+      for (const p of c.products ?? []) {
+        if (!p.imageUrl) continue;
+        items.push({
+          name: p.name,
+          price: `$ ${Number(p.basePrice ?? 0).toLocaleString('es-CO')}`,
+          img: p.imageUrl,
+        });
+        if (items.length >= 8) break;
+      }
+      if (items.length >= 8) break;
+    }
+    return items;
+  } catch {
+    return [];
+  }
+}
+
+async function fetchBranding(): Promise<BrandingPublic> {
+  const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
+  const empty: BrandingPublic = {
+    sales: { whatsapp: null, email: null, instagram: null },
+    stats: { businesses: null, walletCustomers: null, orders: null, rating: null },
+  };
+  try {
     const r = await fetch(`${API}/api/branding`, { next: { revalidate: 60 } });
-    if (!r.ok) return { whatsapp: null, email: null, instagram: null };
+    if (!r.ok) return empty;
     const d: any = await r.json();
     return {
-      whatsapp: d?.salesWhatsapp ?? null,
-      email: d?.salesEmail ?? null,
-      instagram: d?.salesInstagram ?? null,
+      sales: {
+        whatsapp: d?.salesWhatsapp ?? null,
+        email: d?.salesEmail ?? null,
+        instagram: d?.salesInstagram ?? null,
+      },
+      stats: {
+        businesses: d?.landingStatBusinesses ?? null,
+        walletCustomers: d?.landingStatWalletCustomers ?? null,
+        orders: d?.landingStatOrders ?? null,
+        rating: d?.landingStatRating ?? null,
+      },
     };
   } catch {
-    return { whatsapp: null, email: null, instagram: null };
+    return empty;
   }
 }
 
 export default async function Landing() {
   const country = detectCountryFromHeaders(headers());
   const PRICING = buildPricing(country);
-  const sales = await fetchSalesContact();
+  const [branding, nudoMenuItems] = await Promise.all([
+    fetchBranding(),
+    fetchNudoMenuItems(),
+  ]);
+  const { sales, stats } = branding;
   const waLink = sales.whatsapp
     ? `https://wa.me/${sales.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent('Hola, quiero saber más de Clubify')}`
     : 'https://wa.me/573000000000?text=Hola%2C%20quiero%20saber%20m%C3%A1s%20de%20Clubify';
@@ -180,6 +174,14 @@ export default async function Landing() {
     ? `mailto:${sales.email}?subject=${encodeURIComponent('Quiero saber más de Clubify')}`
     : null;
   const igLink = sales.instagram ?? null;
+
+  // Stats: usa lo seteado en admin si está, sino el fallback hardcoded.
+  const STATS = [
+    { value: stats.businesses || STATS_FALLBACK[0].value, label: STATS_FALLBACK[0].label },
+    { value: stats.walletCustomers || STATS_FALLBACK[1].value, label: STATS_FALLBACK[1].label },
+    { value: stats.orders || STATS_FALLBACK[2].value, label: STATS_FALLBACK[2].label },
+    { value: stats.rating || STATS_FALLBACK[3].value, label: STATS_FALLBACK[3].label },
+  ];
   return (
     <main className="min-h-screen bg-white text-ink">
       <RefCapture />
@@ -229,7 +231,7 @@ export default async function Landing() {
                 <span className="text-amber-500">★★★★★</span>
                 <span>4.9/5</span>
                 <span className="text-mute font-normal">·</span>
-                <span className="text-mute font-normal">1.500+ negocios en LATAM</span>
+                <span className="text-mute font-normal">+150 negocios en LATAM</span>
               </div>
 
               <h1 className="text-[44px] md:text-[56px] lg:text-[64px] font-bold leading-[1.04] tracking-tight">
@@ -241,8 +243,8 @@ export default async function Landing() {
               </h1>
 
               <p className="mt-6 text-lg lg:text-xl text-mute max-w-xl leading-relaxed">
-                Pedidos por WhatsApp, fidelización en wallet, automatizaciones,
-                CRM y analítica — sin pagar 5 herramientas, sin programar.
+                Tarjetas de fidelización, menú digital, CRM de pedidos y
+                automatizaciones de delivery.
               </p>
 
               {/* Pilares inline */}
@@ -264,7 +266,7 @@ export default async function Landing() {
                   className="inline-flex items-center bg-ink text-white font-semibold text-base px-6 py-3.5 rounded-pill hover:bg-ink/90 transition shadow-md"
                   href="#precios"
                 >
-                  Ver planes y empezar
+                  Ver plan y empezar
                 </Link>
                 <a
                   className="inline-flex items-center gap-2 bg-white border border-line text-ink font-semibold text-base px-6 py-3.5 rounded-pill hover:border-ink/30 transition"
@@ -342,101 +344,20 @@ export default async function Landing() {
         </div>
       </section>
 
-      {/* ─────────── Producto / Pillars (bento) ─────────── */}
-      <section id="producto" className="bg-bg2/40 border-y border-line/80 py-24">
-        <div className="mx-auto max-w-7xl px-6">
-          <FadeIn className="text-center mb-14 max-w-2xl mx-auto">
-            <div className="text-xs uppercase tracking-[0.18em] text-brand font-semibold mb-3">
-              Producto
-            </div>
-            <h2 className="text-3xl md:text-5xl font-bold tracking-tight leading-[1.1]">
-              6 herramientas en una sola cuenta
-            </h2>
-            <p className="text-mute mt-4 text-lg">
-              Reemplaza tu menú QR, tu tarjeta de puntos, tu CRM, tu Excel de
-              pedidos y tu campaña de WhatsApp con una sola plataforma.
-            </p>
-          </FadeIn>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {PILLARS.map((p, i) => (
-              <FadeIn
-                key={p.title}
-                delay={i * 80}
-                className="group bg-white rounded-2xl p-7 border border-line hover:border-ink/20 hover:shadow-lg transition"
-              >
-                <div
-                  className="w-12 h-12 rounded-xl flex items-center justify-center text-white mb-5"
-                  style={{ background: p.color }}
-                >
-                  <Icon name={p.icon} size={22} />
-                </div>
-                <div className="font-bold text-xl">{p.title}</div>
-                <p className="text-mute text-sm mt-1.5 leading-relaxed">
-                  {p.desc}
-                </p>
-                <ul className="mt-5 space-y-1.5">
-                  {p.bullets.map((b) => (
-                    <li
-                      key={b}
-                      className="flex items-start gap-2 text-sm text-ink/80"
-                    >
-                      <span
-                        className="mt-1 flex-none"
-                        style={{ color: p.color }}
-                      >
-                        <Icon name="check" size={14} />
-                      </span>
-                      <span>{b}</span>
-                    </li>
-                  ))}
-                </ul>
-              </FadeIn>
-            ))}
-          </div>
-        </div>
-      </section>
-
       {/* ─────────── Hero secundario "Menús con IA" (estilo Cluvi) ─────────── */}
-      <HeroBanner waLink={waLink} mailLink={mailLink} igLink={igLink} />
+      <HeroBanner
+        waLink={waLink}
+        mailLink={mailLink}
+        igLink={igLink}
+        menuItems={nudoMenuItems.length > 0 ? nudoMenuItems : undefined}
+        brandName={nudoMenuItems.length > 0 ? 'nudo cowork' : undefined}
+      />
+
+      {/* ─────────── Bloque Fidelización (mismo estilo que Menús IA) ─────────── */}
+      <FidelizacionBanner waLink={waLink} />
 
       {/* ─────────── InfoLinks (mini-pages estilo Linktree) ─────────── */}
       <InfoLinksBanner />
-
-      {/* ─────────── Cómo funciona ─────────── */}
-      <section id="como" className="py-24">
-        <div className="mx-auto max-w-7xl px-6">
-          <div className="text-center mb-12 max-w-2xl mx-auto">
-            <div className="text-xs uppercase tracking-[0.18em] text-brand font-semibold mb-3">
-              Cómo funciona
-            </div>
-            <h2 className="text-3xl md:text-5xl font-bold tracking-tight leading-[1.1]">
-              De cero a vendiendo en 10 minutos
-            </h2>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-            {STEPS.map((s, i) => (
-              <div
-                key={s.n}
-                className="relative bg-white rounded-2xl p-6 border border-line"
-              >
-                <div className="text-[42px] font-bold text-brand-soft leading-none">
-                  {s.n}
-                </div>
-                <div className="font-bold text-lg mt-3">{s.title}</div>
-                <div className="text-mute text-sm mt-1.5 leading-relaxed">
-                  {s.desc}
-                </div>
-                {i < STEPS.length - 1 && (
-                  <div className="hidden lg:block absolute top-1/2 -right-2 text-mute2 text-xl">
-                    →
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
 
       {/* ─────────── Testimonios ─────────── */}
       <section id="clientes" className="bg-bg2/40 border-y border-line/80 py-24">
@@ -446,7 +367,7 @@ export default async function Landing() {
               Lo que dicen
             </div>
             <h2 className="text-3xl md:text-5xl font-bold tracking-tight leading-[1.1]">
-              Negocios reales, resultados reales
+              Nuestros clientes
             </h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
