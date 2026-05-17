@@ -69,6 +69,9 @@ export const messages = {
     'storefront.pass_points': 'Puntos',
     'storefront.sections_empty_main': 'Sin productos en esta sección',
     'storefront.sections_empty_sub': 'Sin productos en esta subsección',
+    'menu.recommended.name': 'Recomendados',
+    'menu.recommended.tagline': 'Lo más pedido por nuestros clientes.',
+    'menu.translating': 'Traduciendo el menú…',
 
     // Producto modal
     'product.extras': 'Extras',
@@ -89,7 +92,7 @@ export const messages = {
     'checkout.fulfillment_dinein': '🍽 Mesa',
     'checkout.fulfillment_dinein_hint': 'Escaneá el QR de tu mesa',
     'checkout.fulfillment_delivery': '🛵 Domicilio',
-    'checkout.fulfillment_delivery_hint': 'Disponible en plan Pro',
+    'checkout.fulfillment_delivery_hint': 'A domicilio',
     'checkout.no_options_title': '📍 Para pedir desde aquí',
     'checkout.no_options_sub':
       'Escaneá el QR de tu mesa, o contáctanos por WhatsApp para hacer tu pedido.',
@@ -225,6 +228,9 @@ export const messages = {
     'storefront.sections_empty_sub': 'No products in this subsection',
     'storefront.cart_items': '🛒 {{count}} items',
     'storefront.cart_order': 'Order →',
+    'menu.recommended.name': 'Recommended',
+    'menu.recommended.tagline': 'Our customers’ favorites.',
+    'menu.translating': 'Translating menu…',
 
     // Product modal
     'product.extras': 'Extras',
@@ -245,7 +251,7 @@ export const messages = {
     'checkout.fulfillment_dinein': '🍽 Dine-in',
     'checkout.fulfillment_dinein_hint': 'Scan your table QR',
     'checkout.fulfillment_delivery': '🛵 Delivery',
-    'checkout.fulfillment_delivery_hint': 'Available on Pro plan',
+    'checkout.fulfillment_delivery_hint': 'Home delivery',
     'checkout.no_options_title': '📍 To order from here',
     'checkout.no_options_sub':
       'Scan your table QR, or contact us on WhatsApp to place your order.',
@@ -381,6 +387,9 @@ export const messages = {
     'storefront.sections_empty_sub': 'Sem produtos nesta subseção',
     'storefront.cart_items': '🛒 {{count}} itens',
     'storefront.cart_order': 'Pedir →',
+    'menu.recommended.name': 'Recomendados',
+    'menu.recommended.tagline': 'Os mais pedidos pelos nossos clientes.',
+    'menu.translating': 'Traduzindo o menu…',
 
     // Product modal
     'product.extras': 'Extras',
@@ -401,7 +410,7 @@ export const messages = {
     'checkout.fulfillment_dinein': '🍽 Mesa',
     'checkout.fulfillment_dinein_hint': 'Escaneie o QR da sua mesa',
     'checkout.fulfillment_delivery': '🛵 Entrega',
-    'checkout.fulfillment_delivery_hint': 'Disponível no plano Pro',
+    'checkout.fulfillment_delivery_hint': 'A domicílio',
     'checkout.no_options_title': '📍 Para pedir daqui',
     'checkout.no_options_sub':
       'Escaneie o QR da sua mesa, ou fale conosco pelo WhatsApp para fazer seu pedido.',

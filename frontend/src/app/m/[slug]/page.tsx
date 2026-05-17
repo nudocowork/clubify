@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import {
   addToCart,
@@ -14,7 +14,7 @@ import { Barcode } from '@/components/Barcode';
 import { ClubifyBadge } from '@/components/ClubifyBadge';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { CO_LOCATIONS, OTRO_MUNICIPIO } from '@/lib/co-locations';
-import { useT } from '@/lib/i18n';
+import { useLocale, useT } from '@/lib/i18n';
 import { SectionCoverPreview } from '@/components/menu/SectionCoverPreview';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
@@ -99,6 +99,7 @@ function fmt(n: number, currency = 'COP') {
 
 export default function StorefrontPublic() {
   const tt = useT();
+  const [locale] = useLocale();
   const { slug } = useParams<{ slug: string }>();
   const [s, setS] = useState<Storefront | null>(null);
   const [menu, setMenu] = useState<Category[]>([]);
@@ -113,27 +114,69 @@ export default function StorefrontPublic() {
   // param (links posteriores compartidos, etc).
   const [capturedPromo, setCapturedPromo] = useState<string | null>(null);
 
+  // Indicador "traduciendo…" con debounce de 250ms. Si la respuesta
+  // viene en menos (típico para cache hits) no se muestra → no flicker.
+  const [translating, setTranslating] = useState(false);
+
   useEffect(() => {
-    setLoadError(null);
-    fetch(`${API}/api/public/m/${slug}`)
-      .then(async (r) => {
-        if (!r.ok) {
-          const j = await r.json().catch(() => ({}));
-          throw new Error(j?.message ?? 'No disponible');
-        }
-        return r.json();
-      })
-      .then(setS)
-      .catch((e: Error) => setLoadError(e.message || 'No disponible'));
-    fetch(`${API}/api/public/m/${slug}/menu`)
-      .then(async (r) => (r.ok ? r.json() : []))
-      .then(setMenu)
-      .catch(() => setMenu([]));
     setCart(readCart(slug));
     const handler = () => setCart(readCart(slug));
     window.addEventListener(`cart:${slug}`, handler);
     return () => window.removeEventListener(`cart:${slug}`, handler);
   }, [slug]);
+
+  // Storefront + menú: ambos fetchs dependen del locale activo. Backend
+  // traduce on-the-fly con cache (Fase 2). La primera carga en un idioma
+  // paga el call a Claude (~1s); las siguientes son DB hits.
+  useEffect(() => {
+    if (!slug) return;
+    setLoadError(null);
+    let cancelled = false;
+
+    // Indicador con debounce: solo aparece si la traducción tarda >250ms.
+    // Para cache hits, el fetch termina antes y el indicador no se ve.
+    let debounceId: ReturnType<typeof setTimeout> | null = null;
+    if (locale !== 'es') {
+      debounceId = setTimeout(() => {
+        if (!cancelled) setTranslating(true);
+      }, 250);
+    }
+
+    const finish = () => {
+      if (debounceId) clearTimeout(debounceId);
+      if (!cancelled) setTranslating(false);
+    };
+
+    Promise.all([
+      fetch(`${API}/api/public/m/${slug}?locale=${locale}`)
+        .then(async (r) => {
+          if (!r.ok) {
+            const j = await r.json().catch(() => ({}));
+            throw new Error(j?.message ?? 'No disponible');
+          }
+          return r.json();
+        })
+        .then((data) => {
+          if (!cancelled) setS(data);
+        })
+        .catch((e: Error) => {
+          if (!cancelled) setLoadError(e.message || 'No disponible');
+        }),
+      fetch(`${API}/api/public/m/${slug}/menu?locale=${locale}`)
+        .then(async (r) => (r.ok ? r.json() : []))
+        .then((data) => {
+          if (!cancelled) setMenu(data);
+        })
+        .catch(() => {
+          if (!cancelled) setMenu([]);
+        }),
+    ]).finally(finish);
+
+    return () => {
+      cancelled = true;
+      if (debounceId) clearTimeout(debounceId);
+    };
+  }, [slug, locale]);
 
   // Capturar ?promo=CODE del QR Descuento. Se persiste en localStorage
   // para que el banner sobreviva navegaciones. El código se PRESENTA al
@@ -159,6 +202,22 @@ export default function StorefrontPublic() {
       if (stored) setCapturedPromo(stored);
     } catch {}
   }, [slug]);
+
+  // Backend manda la sección virtual "Recomendados" con nombre/tagline
+  // hardcodeados en español. La sustituimos por las claves i18n al render.
+  // Fase 2 hará lo propio para el resto del contenido dinámico (nombres
+  // de categorías, productos, etc.) vía cache + Claude.
+  const localizedMenu = useMemo(() => {
+    return menu.map((c) => {
+      if (c.id !== '__recommended__') return c;
+      return {
+        ...c,
+        name: tt('menu.recommended.name'),
+        tagline: tt('menu.recommended.tagline'),
+        description: tt('menu.recommended.tagline'),
+      };
+    });
+  }, [menu, tt]);
 
   if (loadError) {
     return (
@@ -195,6 +254,21 @@ export default function StorefrontPublic() {
         background: pageBg,
       }}
     >
+      {/* Indicador "traduciendo…" — pill fija arriba con spinner.
+          Aparece solo si el fetch >250ms (debounce en el useEffect).
+          Para cache hits no se ve. */}
+      {translating && (
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex items-center gap-2 px-3.5 py-2 bg-white/95 backdrop-blur-md rounded-full shadow-lg ring-1 ring-black/5 text-xs font-medium text-gray-700">
+            <span
+              className="inline-block w-3.5 h-3.5 rounded-full border-2 border-gray-300 border-t-gray-700 animate-spin"
+              aria-hidden
+            />
+            <span>{tt('menu.translating')}</span>
+          </div>
+        </div>
+      )}
+
       {/* Hero */}
       <header className="relative">
         {/* Backdrop: heroImage o gradient brand */}
@@ -327,7 +401,7 @@ export default function StorefrontPublic() {
       {/* Menú */}
       {tab === 'menu' && (
         <div className="max-w-2xl mx-auto mt-4 px-5">
-          {menu.length === 0 && (
+          {localizedMenu.length === 0 && (
             <div className="text-center py-16 animate-in fade-in duration-300">
               <div className="text-5xl mb-3">📋</div>
               <div className="font-semibold text-lg">{tt('storefront.menu_empty_title')}</div>
@@ -348,7 +422,7 @@ export default function StorefrontPublic() {
           )}
           <MenuRenderer
             layout={s.menuLayout ?? 'CLASSIC'}
-            menu={menu}
+            menu={localizedMenu}
             primary={primary}
             currency={s.currency}
             onPick={setOpenProduct}
@@ -830,23 +904,18 @@ function CheckoutSheet({
       ? new URLSearchParams(window.location.search).get('mesa') ?? ''
       : '';
   const lockedTable = tableFromQr.trim().length > 0;
-  const isPro = planName === 'Pro';
 
-  // Sin QR: no podemos servir a mesa. Sin plan Pro: no se permite domicilio.
-  // PICKUP fue removido. Si no hay opciones disponibles, mostramos guidance
-  // al cliente para que pida por WhatsApp en vez de hacer checkout.
-  const defaultFulfillment: 'DINE_IN' | 'DELIVERY' | null = lockedTable
+  // Sin QR de mesa → default DELIVERY (a domicilio). PICKUP fue removido.
+  const defaultFulfillment: 'DINE_IN' | 'DELIVERY' = lockedTable
     ? 'DINE_IN'
-    : isPro
-    ? 'DELIVERY'
-    : null;
+    : 'DELIVERY';
 
   const [form, setForm] = useState({
     firstName: '',
     lastName: '',
     phone: '',
     email: '',
-    fulfillment: (defaultFulfillment ?? 'DINE_IN') as 'DINE_IN' | 'DELIVERY',
+    fulfillment: defaultFulfillment as 'DINE_IN' | 'DELIVERY',
     tableNumber: tableFromQr,
     customerNote: '',
     // Dirección de envío (solo se completa cuando fulfillment === 'DELIVERY')
@@ -1000,8 +1069,8 @@ function CheckoutSheet({
                       {
                         v: 'DELIVERY' as const,
                         l: tt('checkout.fulfillment_delivery'),
-                        disabled: !isPro,
-                        hint: tt('checkout.fulfillment_delivery_hint'),
+                        disabled: false,
+                        hint: '',
                       },
                     ]
                   ).map((o) => {
@@ -1037,18 +1106,6 @@ function CheckoutSheet({
                       </button>
                     );
                   })}
-                </div>
-              </div>
-            )}
-            {/* Si no hay opción válida (sin QR + sin Pro), guiamos al
-                cliente al WhatsApp del negocio para que pida por ahí */}
-            {!lockedTable && !isPro && (
-              <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5 text-sm text-amber-900">
-                <div className="font-semibold mb-0.5">
-                  {tt('checkout.no_options_title')}
-                </div>
-                <div className="text-xs">
-                  {tt('checkout.no_options_sub')}
                 </div>
               </div>
             )}
@@ -1161,14 +1218,9 @@ function CheckoutSheet({
 
             <button
               type="submit"
-              disabled={submitting || defaultFulfillment === null}
+              disabled={submitting}
               className="w-full rounded-pill text-white font-semibold py-3.5 disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-95 active:scale-[0.98] transition shadow-md"
               style={{ background: primary }}
-              title={
-                defaultFulfillment === null
-                  ? tt('checkout.no_options_sub')
-                  : undefined
-              }
             >
               {submitting ? tt('common.sending') : tt('checkout.submit')}
             </button>

@@ -79,8 +79,6 @@ export default function SettingsPage() {
     }
   }
 
-  const isPro = tenant?.plan?.name === 'Pro';
-
   async function saveProfile(e: React.FormEvent) {
     e.preventDefault();
     setProfileMsg(null);
@@ -265,25 +263,12 @@ export default function SettingsPage() {
         </div>
       </form>
 
-      {/* Mensajería de WhatsApp · solo Pro */}
-      <div
-        className={`card card-pad mb-4 ${
-          !isPro ? 'opacity-90 border border-amber-200 bg-amber-50/30' : ''
-        }`}
-      >
+      {/* Mensajería de WhatsApp */}
+      <div className="card card-pad mb-4">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <h2 className="text-base font-semibold m-0 flex items-center gap-2">
               💬 Mensajería de WhatsApp
-              {tenant?.plan?.name && (
-                <span
-                  className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                    isPro ? 'bg-ok-soft text-ok' : 'bg-amber-100 text-amber-800'
-                  }`}
-                >
-                  {isPro ? 'Pro · activo' : 'Requiere Pro'}
-                </span>
-              )}
             </h2>
             <p className="text-xs text-mute mt-1 leading-relaxed">
               Configura los dos números que enrutan tus pedidos: dónde reciben
@@ -292,18 +277,6 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {!isPro ? (
-          <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5 text-sm text-amber-900">
-            <div className="font-semibold mb-0.5">🔒 Función exclusiva del plan Pro</div>
-            <div className="text-xs">
-              Activa Pro para configurar el flujo automático cliente → caja →
-              courier de domicilio.{' '}
-              <Link href="/app/billing" className="underline">
-                Activar plan Pro →
-              </Link>
-            </div>
-          </div>
-        ) : (
           <form onSubmit={saveWhatsapp} className="mt-4 grid gap-3">
             <div>
               <label className="label flex items-center gap-1.5">
@@ -366,7 +339,6 @@ export default function SettingsPage() {
               </button>
             </div>
           </form>
-        )}
       </div>
 
       {/* Export */}

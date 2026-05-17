@@ -1,10 +1,8 @@
 'use client';
-import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
-import { useBranding, supportWaLink } from '@/lib/useBranding';
 
 type Rule = {
   id: string;
@@ -54,26 +52,15 @@ export default function AutomationsPage() {
   const [templates, setTemplates] = useState<TemplateBackend[]>([]);
   const [showTemplates, setShowTemplates] = useState(false);
   const [editing, setEditing] = useState<Partial<Rule> | null>(null);
-  const [planName, setPlanName] = useState<string | null>(null);
-  const isPro = planName === 'Pro';
-  const branding = useBranding();
-  const helpLink = supportWaLink(
-    branding,
-    'Hola, quiero saber más sobre las automatizaciones de Clubify',
-  );
 
   async function load() {
     try {
       setList(await api('/automations'));
     } catch {
-      // 402 UPGRADE_REQUIRED para tenants no-Pro: ignoramos, mostramos lockscreen
       setList([]);
     }
   }
   useEffect(() => {
-    api<any>('/tenants/me')
-      .then((t) => setPlanName(t?.plan?.name ?? null))
-      .catch(() => null);
     api<TemplateBackend[]>('/automations/templates')
       .then(setTemplates)
       .catch(() => setTemplates([]));
@@ -92,76 +79,6 @@ export default function AutomationsPage() {
     } catch (e: any) {
       toast(e.message || 'Error', 'error');
     }
-  }
-
-  // Lockscreen: si el plan está cargado y NO es Pro, bloqueamos toda la página
-  if (planName !== null && !isPro) {
-    return (
-      <div className="max-w-2xl mx-auto">
-        <div className="card card-pad bg-gradient-to-br from-brand-400 via-brand-500 to-brand-700 text-white">
-          <div className="flex items-start gap-4">
-            <div className="text-5xl">🔒</div>
-            <div className="flex-1">
-              <div className="text-[11px] uppercase tracking-wider font-bold opacity-80">
-                Función exclusiva del plan Pro
-              </div>
-              <h1 className="text-2xl font-bold mt-1">
-                Automatizaciones de WhatsApp
-              </h1>
-              <p className="text-sm text-white/90 mt-2 leading-relaxed">
-                Manda mensajes automáticos cuando tus clientes confirman pedido,
-                completan sellos, cumplen años, o se alejan por días. Sin esfuerzo
-                manual — corre 24/7 desde tu sub-account.
-              </p>
-              <div className="mt-3 text-sm text-white/85">
-                Tu plan actual: <b>{planName}</b> · Necesitas:{' '}
-                <b className="text-white">Pro</b> (USD 99/mes)
-              </div>
-            </div>
-          </div>
-          <div className="mt-5 flex gap-2 flex-wrap">
-            <Link
-              href="/app/billing"
-              className="bg-white text-brand-700 font-semibold px-5 py-2.5 rounded-pill text-sm hover:bg-white/95"
-            >
-              Activar plan Pro →
-            </Link>
-            {helpLink && (
-              <a
-                href={helpLink}
-                target="_blank"
-                rel="noreferrer"
-                className="bg-white/15 hover:bg-white/25 transition border border-white/30 text-white font-semibold px-5 py-2.5 rounded-pill text-sm"
-              >
-                💬 Tengo dudas
-              </a>
-            )}
-          </div>
-        </div>
-
-        <div className="card card-pad mt-4">
-          <h3 className="text-base font-semibold m-0">Qué desbloqueas</h3>
-          <ul className="mt-3 grid sm:grid-cols-2 gap-2.5 text-sm">
-            {[
-              '✨ Mensajes automáticos por evento (sello, pedido, cumpleaños)',
-              '🎯 Segmentación avanzada de clientes',
-              '🔄 Reglas en cadena (si X entonces Y)',
-              '📊 Reportes de performance por automatización',
-              '⏰ Programación por días/horas',
-              '💎 Soporte prioritario',
-            ].map((f) => (
-              <li key={f} className="flex items-start gap-2">
-                <span>{f}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        <div className="text-center text-xs text-mute mt-6">
-          ¿Ya pagaste y aún ves esto? Refresca la página o escríbenos.
-        </div>
-      </div>
-    );
   }
 
   async function save(r: Partial<Rule>) {
@@ -211,26 +128,13 @@ export default function AutomationsPage() {
         <div className="flex gap-2">
           <button
             className="btn-ghost"
-            disabled={planName !== null && !isPro}
-            onClick={() => {
-              if (!isPro) {
-                toast('Las automatizaciones requieren plan Pro.', 'info');
-                return;
-              }
-              setShowTemplates(true);
-            }}
+            onClick={() => setShowTemplates(true)}
           >
             <Icon name="spark" /> Plantillas
           </button>
           <button
-            className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={planName !== null && !isPro}
-            title={!isPro && planName ? 'Requiere plan Pro' : ''}
-            onClick={() => {
-              if (!isPro) {
-                toast('Las automatizaciones requieren plan Pro. Actualiza tu suscripción.', 'info');
-                return;
-              }
+            className="btn-primary"
+            onClick={() =>
               setEditing({
                 name: '',
                 description: '',
@@ -238,8 +142,8 @@ export default function AutomationsPage() {
                 conditions: [],
                 actions: [{ type: 'SEND_PUSH', title: '', body: '' }],
                 isActive: true,
-              });
-            }}
+              })
+            }
           >
             <Icon name="plus" /> Nueva regla
           </button>

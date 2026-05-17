@@ -122,7 +122,6 @@ const STATS = [
 
 function buildPricing(country: string | null) {
   const elite = getLocalPrice(50, country);
-  const pro = getLocalPrice(99, country);
   return [
     {
       name: 'Elite',
@@ -130,35 +129,19 @@ function buildPricing(country: string | null) {
       priceUsd: elite.displayUsd,
       isUsdCountry: elite.isUsdCountry,
       note: 'al mes',
-      badge: 'Activación inmediata',
+      badge: 'Todo incluido',
       features: [
         'Pedidos ilimitados',
         'Tarjetas wallet (Apple + Google) ilimitadas',
+        'Automatizaciones de WhatsApp',
+        'Mensajes automáticos por evento (sello, cumpleaños, recordatorio, etc.)',
         'Multi-ubicación + multi-staff',
         'Dominio propio + analítica',
         'Email transaccional + scanner PWA',
         'Soporte por chat',
       ],
       cta: 'Empezar ahora →',
-      href: '/signup?plan=elite',
-      primary: false,
-    },
-    {
-      name: 'Pro',
-      price: pro.display,
-      priceUsd: pro.displayUsd,
-      isUsdCountry: pro.isUsdCountry,
-      note: 'al mes',
-      features: [
-        'Todo lo de Elite',
-        'Automatizaciones de WhatsApp',
-        'Mensajes automáticos por evento (sello, cumpleaños, recordatorio, etc.)',
-        'Segmentación avanzada de clientes',
-        'Plantillas de mensaje',
-        'Soporte prioritario',
-      ],
-      cta: 'Activar Pro',
-      href: '/signup?plan=pro',
+      href: '/signup',
       primary: true,
     },
   ];
@@ -585,7 +568,7 @@ export default async function Landing() {
             {[
               {
                 q: '¿Cuánto pago y en qué moneda?',
-                a: 'El plan Elite es USD 50/mes y el Pro USD 99/mes, cobrados al crear tu cuenta. Te mostramos el equivalente en tu moneda local (COP, MXN, ARS, BRL, etc.) al cambio del día. Sin contratos — cancelas cuando quieras desde tu panel.',
+                a: 'USD 50/mes, cobrados al crear tu cuenta. Te mostramos el equivalente en tu moneda local (COP, MXN, ARS, BRL, etc.) al cambio del día. Sin contratos — cancelas cuando quieras desde tu panel.',
               },
               {
                 q: '¿Mis clientes necesitan descargar una app?',

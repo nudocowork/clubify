@@ -1906,7 +1906,7 @@ function CreateCouponModal({
               <label className="label">Planes (CSV)</label>
               <input
                 className="input"
-                placeholder="Elite,Pro o vacío para todos"
+                placeholder="Elite o vacío para todos"
                 value={form.applicablePlans}
                 onChange={(e) => setForm({ ...form, applicablePlans: e.target.value })}
               />

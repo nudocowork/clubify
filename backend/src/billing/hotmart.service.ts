@@ -329,13 +329,11 @@ export class HotmartService {
   }
 
   /**
-   * Construye la URL de checkout según el plan del tenant.
-   * Las env vars son:
+   * Construye la URL de checkout. Las env vars son:
    *   HOTMART_PRODUCT_ID_ELITE  → producto del plan Elite ($50)
-   *   HOTMART_PRODUCT_ID_PRO    → producto del plan Pro ($99) — opcional
-   *   HOTMART_PRODUCT_ID        → fallback genérico si no hay match por plan
-   *   HOTMART_OFFER_CODE_<PLAN> → opcional, `off=` para offers específicas
-   *   HOTMART_BID_<PLAN>        → opcional, `bid=` para tracking de oferta/bid
+   *   HOTMART_PRODUCT_ID        → fallback genérico
+   *   HOTMART_OFFER_CODE_ELITE  → opcional, `off=` para offer específica
+   *   HOTMART_BID_ELITE         → opcional, `bid=` para tracking de oferta
    */
   /**
    * Construye la URL de checkout. Soporta 2 modos de descuento:
@@ -412,20 +410,18 @@ export class HotmartService {
     return process.env.HOTMART_BID;
   }
 
-  /** "Elite" → "ELITE", "Pro" → "PRO". Acepta también el nombre antiguo. */
+  /** Único plan vivo es Elite. Cualquier otro nombre cae al fallback. */
   private planKey(planName?: string): string | undefined {
     if (!planName) return undefined;
     const n = planName.toLowerCase().trim();
     if (n === 'elite') return 'ELITE';
-    if (n === 'pro' || n.includes('automatizaciones') || n.includes('whatsapp')) return 'PRO';
     return undefined;
   }
 
   isConfigured(): boolean {
     const hasAnyProduct =
       !!process.env.HOTMART_PRODUCT_ID ||
-      !!process.env.HOTMART_PRODUCT_ID_ELITE ||
-      !!process.env.HOTMART_PRODUCT_ID_PRO;
+      !!process.env.HOTMART_PRODUCT_ID_ELITE;
     return hasAnyProduct && !!process.env.HOTMART_HOTTOK;
   }
 

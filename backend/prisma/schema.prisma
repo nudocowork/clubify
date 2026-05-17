@@ -396,6 +396,7 @@ model Tenant {
   couponUses          CouponUse[]
   badges              Badge[]
   qrPosters           QrPoster[]
+  menuTranslations    MenuTranslation[]
   // Cotizaciones que se convirtieron en este tenant (closed-loop signup
   // con qt=<publicToken> en el URL).
   fromQuotes          Quote[]           @relation("QuoteConvertedToTenant")
@@ -820,6 +821,30 @@ model Adicional {
   createdAt DateTime @default(now())
 
   @@index([tenantId, position])
+}
+
+/// Cache de traducciones del contenido dinámico del menú (Fase 2).
+/// Una fila por (entidad, campo, locale). `sourceText` es el snapshot
+/// del texto fuente al momento de traducir — si el dueño edita el
+/// original, el hit-cache no coincide y se vuelve a llamar a Claude.
+/// `source = 'manual'` indica override del admin (Fase 4) y NO se
+/// pisa por una traducción automática posterior.
+model MenuTranslation {
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  entityType String
+  entityId   String
+  field      String
+  locale     String
+  text       String
+  sourceText String
+  source     String   @default("auto")
+  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now())
+
+  @@unique([tenantId, entityType, entityId, field, locale])
+  @@index([tenantId, locale])
 }
 
 // ============================================================
@@ -1690,7 +1715,6 @@ model CustomerBadge {
 // cambios en Settings (pricing.*) no rompen PDFs generados en el pasado.
 enum QuotePlan {
   ELITE
-  PRO
 }
 
 model Quote {

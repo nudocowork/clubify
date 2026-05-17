@@ -33,10 +33,11 @@ export default function SignupPage() {
 function SignupInner() {
   const router = useRouter();
   const params = useSearchParams();
-  const planParam = (params.get('plan') || 'elite').toLowerCase();
-  const isPro = planParam === 'pro';
-  const planLabel = isPro ? 'Pro' : 'Elite';
-  const planPriceUsd = isPro ? 99 : 50;
+  // El parámetro plan se ignora — solo existe el plan Elite. Se mantiene
+  // la lectura por compatibilidad con links viejos que aún apunten a /signup?plan=...
+  void params;
+  const planLabel = 'Elite';
+  const planPriceUsd = 50;
 
   const [form, setForm] = useState({
     fullName: '',
@@ -204,7 +205,7 @@ function SignupInner() {
           businessCategorySlug: form.businessCategorySlug,
           referralCode,
           couponCode,
-          plan: isPro ? 'pro' : 'elite',
+          plan: 'elite',
           quoteToken: quoteToken || undefined,
           attribution: Object.keys(attribution).length ? attribution : undefined,
         }),
@@ -270,12 +271,11 @@ function SignupInner() {
               Plan {planLabel} · USD {planPriceUsd}/mes · activación inmediata
             </div>
             <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
-              {isPro ? 'Activa Pro y empieza ahora' : 'Crea tu negocio en Clubify'}
+              Crea tu negocio en Clubify
             </h1>
             <p className="text-mute mt-2 leading-relaxed">
-              {isPro
-                ? 'Creas tu cuenta y te llevamos al pago seguro. Apenas el cobro se aprueba quedas activo con todas las automatizaciones de WhatsApp.'
-                : 'Creas tu cuenta y te llevamos al pago seguro de Hotmart. Apenas se confirme el pago entras al panel y empiezas a vender.'}
+              Creas tu cuenta y te llevamos al pago seguro de Hotmart. Apenas se
+              confirme el pago entras al panel y empiezas a vender.
             </p>
 
             <form onSubmit={submit} className="mt-8 space-y-4">

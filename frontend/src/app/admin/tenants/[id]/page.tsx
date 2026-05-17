@@ -352,7 +352,6 @@ const SIMULATOR_EVENTS: {
   { event: 'PURCHASE_CHARGEBACK', label: 'Chargeback', emoji: '🚫', hint: 'Suspende + revierte comisión', variant: 'danger' },
   { event: 'SUBSCRIPTION_CANCELLATION', label: 'Cancelación', emoji: '🛑', hint: 'Suspende suavemente (sin revertir)', variant: 'danger' },
   { event: 'UPDATE_SUBSCRIPTION_CHARGE_DATE', label: 'Mover próximo cobro', emoji: '📅', hint: '+30 días desde ahora', variant: 'neutral' },
-  { event: 'SWITCH_PLAN', label: 'Cambiar plan', emoji: '🔄', hint: 'Requiere indicar plan destino', variant: 'neutral' },
 ];
 
 function HotmartSimulatorCard({
@@ -363,16 +362,12 @@ function HotmartSimulatorCard({
   onChange: () => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
-  const [switchToPlan, setSwitchToPlan] = useState<'Elite' | 'Pro'>(
-    tenant?.plan?.name === 'Pro' ? 'Elite' : 'Pro',
-  );
 
   async function fire(event: string) {
     if (!confirm(`¿Disparar ${event} en este tenant? Esto NO involucra Hotmart real.`)) return;
     setBusy(event);
     try {
       const body: any = { tenantId: tenant.id, event };
-      if (event === 'SWITCH_PLAN') body.switchToPlan = switchToPlan;
       const r = await api<any>('/admin/billing/hotmart/simulate-webhook', {
         method: 'POST',
         body: JSON.stringify(body),
@@ -434,18 +429,6 @@ function HotmartSimulatorCard({
             </button>
           );
         })}
-      </div>
-
-      <div className="mt-4 rounded-input bg-bg2 px-3 py-2.5 flex items-center gap-3 flex-wrap">
-        <label className="text-xs text-mute">Plan destino para SWITCH_PLAN:</label>
-        <select
-          className="input py-1 text-sm max-w-[140px]"
-          value={switchToPlan}
-          onChange={(ev) => setSwitchToPlan(ev.target.value as 'Elite' | 'Pro')}
-        >
-          <option value="Elite">Elite</option>
-          <option value="Pro">Pro</option>
-        </select>
       </div>
 
       <div className="mt-3 text-[11px] text-mute leading-relaxed">

@@ -24,7 +24,6 @@ type NavItem = {
   href: string;
   label: string;
   icon: IconName;
-  lockedPro?: boolean;
   /** Si está seteado, el item solo se muestra si la categoría del negocio
    *  habilita ese módulo. Sin module = visible siempre. */
   module?: BusinessModule;
@@ -79,7 +78,6 @@ export default function AppShell({
   // por default todas las secciones quedan colapsadas (la activa se
   // auto-expande igual gracias al hasActive en el render).
   const [hasUserPref, setHasUserPref] = useState(false);
-  const isPro = planName === 'Pro';
 
   // Cargar/persistir preferencia de secciones colapsadas
   useEffect(() => {
@@ -255,7 +253,8 @@ export default function AppShell({
               section: catalogSectionName,
               items: [
                 { href: '/app/menu', label: menuLabel, icon: 'menu', module: 'menu' },
-                { href: '/app/orders', label: 'Pedidos', icon: 'shopping-bag', lockedPro: true, module: 'orders' },
+                { href: '/app/translations', label: 'Traducciones', icon: 'spark' },
+                { href: '/app/orders', label: 'Pedidos', icon: 'shopping-bag', module: 'orders' },
                 { href: '/app/analytics', label: 'Analítica', icon: 'history', module: 'analytics' },
               ],
             },
@@ -301,8 +300,7 @@ export default function AppShell({
     user.role === 'TENANT_OWNER' &&
     tenantInfo &&
     !tenantInfo.hotmartSubscriberCode &&
-    planName &&
-    (planName === 'Elite' || planName === 'Pro')
+    planName === 'Elite'
   ) {
     return (
       <CardVerificationLockscreen
@@ -393,7 +391,6 @@ export default function AppShell({
               {(noHeader || !collapsed) &&
                 g.items.map((n) => {
                   const active = isHrefActive(n.href, pathname);
-                  const showLock = n.lockedPro && planName !== null && !isPro;
                   return (
                     <Link
                       key={n.href}
@@ -403,21 +400,13 @@ export default function AppShell({
                           ? 'bg-sidebar-active text-white shadow-active'
                           : 'text-gray-300 hover:bg-sidebar-hover hover:text-white'
                       }`}
-                      title={showLock ? 'Requiere plan Pro' : ''}
                     >
                       <Icon
                         name={n.icon}
                         size={18}
                         className="opacity-90 flex-none"
                       />
-                      <span className={showLock ? 'opacity-70' : ''}>
-                        {n.label}
-                      </span>
-                      {showLock && (
-                        <span className="ml-auto text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300">
-                          Pro
-                        </span>
-                      )}
+                      <span>{n.label}</span>
                     </Link>
                   );
                 })}

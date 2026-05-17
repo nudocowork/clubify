@@ -116,8 +116,8 @@ export default function NuevaCotizacionPage() {
     }
   }
 
-  const priceFor = (p: QuotePlan) =>
-    pricing ? (p === 'ELITE' ? pricing.eliteCost : pricing.proCost) : 0;
+  const priceFor = (_p: QuotePlan) =>
+    pricing ? pricing.eliteCost : 0;
   const currency = pricing?.currency ?? 'USD';
 
   return (
@@ -281,37 +281,30 @@ export default function NuevaCotizacionPage() {
         </div>
       )}
 
-      {/* Step 3 — Plan */}
+      {/* Step 3 — Plan (solo Elite, click confirma) */}
       {step === 3 && (
         <div className="card card-pad">
-          <h2 className="text-base font-semibold m-0">Seleccioná el plan</h2>
+          <h2 className="text-base font-semibold m-0">Plan único · Elite</h2>
           <p className="text-xs text-mute mt-1">
             El precio se congela en el snapshot de la cotización: cambios
             futuros en /admin/cotizaciones/precios no afectan ésta.
           </p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-            {(['ELITE', 'PRO'] as const).map((p) => {
+          <div className="mt-4 max-w-md">
+            {(['ELITE'] as const).map((p) => {
               const active = plan === p;
               const benefits = getPlanBenefits(p);
               return (
                 <button
                   key={p}
                   onClick={() => setPlan(p)}
-                  className={`text-left rounded-xl border-2 p-5 transition relative ${
+                  className={`w-full text-left rounded-xl border-2 p-5 transition ${
                     active
-                      ? p === 'PRO'
-                        ? 'border-brand bg-brand-soft'
-                        : 'border-brand bg-brand-soft'
+                      ? 'border-brand bg-brand-soft'
                       : 'border-line hover:border-brand/40 hover:bg-bg2/50'
                   }`}
                 >
-                  {p === 'PRO' && (
-                    <span className="absolute top-3 right-3 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-brand text-white">
-                      Recomendado
-                    </span>
-                  )}
                   <div className="text-sm font-semibold text-mute uppercase tracking-wide">
-                    Plan {p === 'ELITE' ? 'Elite' : 'Pro'}
+                    Plan Elite
                   </div>
                   <div className="flex items-baseline gap-1 mt-1">
                     <span className="text-3xl font-bold">
@@ -371,7 +364,7 @@ export default function NuevaCotizacionPage() {
             />
             <SummaryItem
               label="Plan"
-              value={`${plan === 'PRO' ? 'Pro' : 'Elite'} — ${fmtMoney(priceFor(plan), currency)} / mes`}
+              value={`Elite — ${fmtMoney(priceFor(plan), currency)} / mes`}
             />
           </dl>
           <div className="mt-5 p-3 rounded-lg bg-brand-soft border border-brand/20 text-xs text-mute leading-relaxed">

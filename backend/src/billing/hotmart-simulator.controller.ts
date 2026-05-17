@@ -6,7 +6,7 @@ import {
   NotFoundException,
   Post,
 } from '@nestjs/common';
-import { IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsIn, IsUUID } from 'class-validator';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { Roles } from '../common/decorators/roles.decorator';
 import {
@@ -23,7 +23,6 @@ const SIMULATABLE_EVENTS = [
   'PURCHASE_CHARGEBACK',
   'SUBSCRIPTION_CANCELLATION',
   'UPDATE_SUBSCRIPTION_CHARGE_DATE',
-  'SWITCH_PLAN',
 ] as const satisfies readonly HotmartEventType[];
 
 class SimulateWebhookDto {
@@ -32,11 +31,6 @@ class SimulateWebhookDto {
 
   @IsIn(SIMULATABLE_EVENTS as unknown as string[])
   event!: (typeof SIMULATABLE_EVENTS)[number];
-
-  /** Solo para SWITCH_PLAN: nombre del plan al que cambiar (ej. "Pro"). */
-  @IsOptional()
-  @IsString()
-  switchToPlan?: string;
 }
 
 /**
@@ -89,10 +83,7 @@ export class HotmartSimulatorController {
     const transactionId =
       tenant.hotmartTransactionId ??
       `SIMTX-${Date.now().toString(36).toUpperCase()}`;
-    const planName =
-      dto.event === 'SWITCH_PLAN'
-        ? dto.switchToPlan ?? tenant.plan?.name
-        : tenant.plan?.name;
+    const planName = tenant.plan?.name;
 
     // Default `date_next_charge` = +30 días para PURCHASE_APPROVED y
     // UPDATE_SUBSCRIPTION_CHARGE_DATE. Para los demás no aplica.

@@ -181,7 +181,7 @@ export default function CotizacionDetallePage() {
         <h1 className="page-title">
           {quote.businessName}{' '}
           <span className="page-crumb">
-            / Cotización · {quote.plan === 'PRO' ? 'Pro' : 'Elite'}
+            / Cotización · Elite
             {quote.convertedAt && (
               <span
                 className="ml-2 text-ok-ink bg-ok-soft px-2 py-0.5 rounded font-semibold"
@@ -308,7 +308,7 @@ export default function CotizacionDetallePage() {
           businessName={quote.businessName}
           customerPhone={quote.phone}
           customerEmail={quote.email}
-          planLabel={quote.plan === 'PRO' ? 'Pro' : 'Elite'}
+          planLabel="Elite"
         />
       </div>
 

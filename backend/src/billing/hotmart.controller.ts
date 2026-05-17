@@ -53,9 +53,7 @@ export class HotmartCheckoutController {
 
   /**
    * Devuelve la URL de checkout pre-rellenada con email del owner.
-   * Acepta `?plan=Pro` o `?plan=Elite` para forzar un plan específico
-   * (típicamente upgrade desde Elite a Pro). Si no se pasa, usa el plan
-   * actual del tenant.
+   * Si no se pasa `?plan=`, usa el plan actual del tenant (siempre Elite).
    */
   @Roles('TENANT_OWNER', 'SUPER_ADMIN')
   @Get('checkout-url')

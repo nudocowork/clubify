@@ -44,8 +44,7 @@ export class QuotesService {
     ]);
     if (!advisor) throw new NotFoundException('Asesor no encontrado');
 
-    const priceSnapshot =
-      input.plan === 'ELITE' ? pricing.eliteCost : pricing.proCost;
+    const priceSnapshot = pricing.eliteCost;
 
     return this.prisma.quote.create({
       data: {
@@ -330,8 +329,10 @@ export class QuotesService {
       const b = buckets.get(key);
       if (!b) continue;
       b.total += 1;
-      if (row.plan === 'PRO') b.pro += 1;
-      else b.elite += 1;
+      // Plan Pro fue retirado; todas las nuevas cotizaciones son Elite. El
+      // campo `pro` queda en 0 para preservar compat con el frontend que
+      // todavía lo lee.
+      b.elite += 1;
     }
     const byMonth = Array.from(buckets.entries()).map(([key, v]) => ({
       key,

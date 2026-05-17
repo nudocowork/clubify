@@ -7,14 +7,14 @@ import { toast } from '@/components/Toast';
 
 type Pricing = {
   eliteCost: number;
-  proCost: number;
+  proCost?: number;
   currency: string;
 };
 
 const CURRENCIES = ['USD', 'COP', 'MXN', 'ARS', 'EUR'];
 
 export default function CotizacionesPreciosPage() {
-  const [p, setP] = useState<Pricing>({ eliteCost: 50, proCost: 99, currency: 'USD' });
+  const [p, setP] = useState<Pricing>({ eliteCost: 50, currency: 'USD' });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -35,10 +35,6 @@ export default function CotizacionesPreciosPage() {
   async function save() {
     if (!Number.isFinite(p.eliteCost) || p.eliteCost < 0) {
       toast('Precio Elite inválido', 'error');
-      return;
-    }
-    if (!Number.isFinite(p.proCost) || p.proCost < 0) {
-      toast('Precio Pro inválido', 'error');
       return;
     }
     setSaving(true);
@@ -87,17 +83,17 @@ export default function CotizacionesPreciosPage() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 max-w-md">
             <div className="card card-pad">
               <div className="flex items-center justify-between">
                 <h2 className="text-base font-semibold m-0">Plan Elite</h2>
-                <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-bg2 text-fg">
+                <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-brand text-white">
                   ELITE
                 </span>
               </div>
               <p className="text-xs text-mute mt-1 leading-relaxed">
-                Incluye tarjetas de fidelización, menú digital, infolinks y
-                reseñas de Google.
+                Plan único de Clubify. Incluye todo: tarjetas, menú, pedidos,
+                automatizaciones de WhatsApp, marketing QR, referidos.
               </p>
               <label className="label mt-3.5">Precio mensual</label>
               <div className="relative">
@@ -110,36 +106,6 @@ export default function CotizacionesPreciosPage() {
                   value={Number.isFinite(p.eliteCost) ? p.eliteCost : ''}
                   onChange={(e) =>
                     setP({ ...p, eliteCost: Number(e.target.value) })
-                  }
-                />
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-mute font-mono text-sm">
-                  {p.currency}
-                </span>
-              </div>
-            </div>
-
-            <div className="card card-pad bg-brand-soft border-brand/30">
-              <div className="flex items-center justify-between">
-                <h2 className="text-base font-semibold m-0">Plan Pro</h2>
-                <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-brand text-white">
-                  PRO
-                </span>
-              </div>
-              <p className="text-xs text-mute mt-1 leading-relaxed">
-                Todo Elite + automatizaciones WhatsApp, menú delivery, toma de
-                pedidos por WA y administrativo (recordatorios, proveedores).
-              </p>
-              <label className="label mt-3.5">Precio mensual</label>
-              <div className="relative">
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  min={0}
-                  step="0.01"
-                  className="input pl-12 text-lg font-semibold"
-                  value={Number.isFinite(p.proCost) ? p.proCost : ''}
-                  onChange={(e) =>
-                    setP({ ...p, proCost: Number(e.target.value) })
                   }
                 />
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-mute font-mono text-sm">
