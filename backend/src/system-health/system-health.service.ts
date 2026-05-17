@@ -1,5 +1,48 @@
 import { Injectable } from '@nestjs/common';
+import * as fs from 'fs';
 import { PrismaService } from '../common/prisma/prisma.service';
+
+/**
+ * Detecta el límite de memoria del contenedor (Railway, Docker, K8s)
+ * leyendo el cgroup. Devuelve null si no hay límite definido (host nativo
+ * o cgroupv1 con "no limit"). Se cachea entre llamadas — el limit no
+ * cambia durante el lifetime del proceso.
+ */
+let _cachedContainerLimit: number | null | undefined;
+function detectContainerMemoryLimit(): number | null {
+  if (_cachedContainerLimit !== undefined) return _cachedContainerLimit;
+  // cgroup v2 (modernos: Docker 20+, Railway, K8s)
+  try {
+    const v2 = fs.readFileSync('/sys/fs/cgroup/memory.max', 'utf8').trim();
+    if (v2 && v2 !== 'max') {
+      const n = parseInt(v2, 10);
+      if (!isNaN(n) && n > 0 && n < 1e15) {
+        _cachedContainerLimit = n;
+        return n;
+      }
+    }
+  } catch {
+    // cgroupv2 no disponible, intentar v1
+  }
+  // cgroup v1 (legacy)
+  try {
+    const v1 = fs
+      .readFileSync('/sys/fs/cgroup/memory/memory.limit_in_bytes', 'utf8')
+      .trim();
+    if (v1) {
+      const n = parseInt(v1, 10);
+      // 9223372036854771712 ≈ max int64 = "no limit". Skip.
+      if (!isNaN(n) && n > 0 && n < 1e15) {
+        _cachedContainerLimit = n;
+        return n;
+      }
+    }
+  } catch {
+    // no cgroup data — bare metal o entorno sin containerización
+  }
+  _cachedContainerLimit = null;
+  return null;
+}
 
 /**
  * Recolecta métricas de salud del sistema (DB, proceso, contadores de
@@ -32,6 +75,7 @@ export class SystemHealthService {
       dbSizeBytes: dbSize.bytes,
       memoryHeapUsedBytes: proc.memory.heapUsed,
       memoryHeapTotalBytes: proc.memory.heapTotal,
+      memoryRssBytes: proc.memory.rss,
       storageEstimateBytes: storage.estimateBytes,
       jobsLag,
     });
@@ -233,6 +277,7 @@ export class SystemHealthService {
     dbSizeBytes: number;
     memoryHeapUsedBytes: number;
     memoryHeapTotalBytes: number;
+    memoryRssBytes: number;
     storageEstimateBytes: number;
     jobsLag: number;
   }) {
@@ -243,11 +288,18 @@ export class SystemHealthService {
     const STORAGE_BUDGET_BYTES = 10 * 1024 * 1024 * 1024;
 
     const dbPct = (d.dbSizeBytes / DB_LIMIT_BYTES) * 100;
-    const memPct =
-      d.memoryHeapTotalBytes > 0
-        ? (d.memoryHeapUsedBytes / d.memoryHeapTotalBytes) * 100
-        : 0;
     const storagePct = (d.storageEstimateBytes / STORAGE_BUDGET_BYTES) * 100;
+
+    // Memoria: la métrica útil es RSS / container_limit (lo que predice
+    // un OOM real). Antes usábamos heapUsed/heapTotal que en Node sano
+    // siempre está cerca del 95% antes del GC — falsos positivos
+    // crónicos. Si no podemos detectar container_limit (entorno bare
+    // metal / dev), fallback a `null` y no marcamos alarma.
+    const containerLimit = detectContainerMemoryLimit();
+    const memPct =
+      containerLimit && containerLimit > 0
+        ? (d.memoryRssBytes / containerLimit) * 100
+        : 0;
 
     return {
       database: {
@@ -257,10 +309,16 @@ export class SystemHealthService {
         level: levelFor(dbPct, 70, 90),
       },
       memory: {
-        usedBytes: d.memoryHeapUsedBytes,
-        limitBytes: d.memoryHeapTotalBytes,
+        // Reportamos RSS (uso real del proceso, lo que Railway mide para
+        // OOM-kill). heapUsed/heapTotal quedan disponibles en
+        // `process.memory` para diagnóstico, pero NO se usan para el
+        // semáforo principal.
+        usedBytes: d.memoryRssBytes,
+        limitBytes: containerLimit ?? 0,
         percent: round1(memPct),
-        level: levelFor(memPct, 70, 90),
+        // Sin container_limit, no podemos saber si está al límite: nivel
+        // 'ok' por default. Con limit: warn >70%, crit >90%.
+        level: containerLimit ? levelFor(memPct, 70, 90) : 'ok',
       },
       storage: {
         usedBytes: d.storageEstimateBytes,
@@ -312,7 +370,13 @@ export class SystemHealthService {
       recs.push({
         level: 'crit',
         text:
-          'Memoria del proceso al límite — aumenta replicas/RAM en Railway, puede haber OOM.',
+          'RSS del proceso sobre 90% del límite del contenedor — riesgo real de OOM-kill. Subí RAM/replicas en Railway.',
+      });
+    } else if (ind.memory.level === 'warn') {
+      recs.push({
+        level: 'warn',
+        text:
+          'RSS del proceso sobre 70% del límite del contenedor — monitorea crecimiento; si sube y no baja tras GC puede haber memory leak.',
       });
     }
 
