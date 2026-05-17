@@ -32,6 +32,11 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/package*.json ./
+# Scripts de migration (wrapper que auto-resuelve P3018/P3009 "already exists"
+# para schemas pre-existentes via db push). El startCommand de railway.json
+# llama a scripts/migrate-resolve-and-deploy.mjs antes de arrancar el server,
+# así nunca hay desfase entre el código y las columnas físicas de la DB.
+COPY --from=build /app/scripts ./scripts
 # Imágenes default Apple Wallet (icon/logo/strip) — los certs reales se
 # inyectan via env vars base64, pero estas PNGs vienen del repo.
 COPY --from=build /app/certs ./certs
@@ -40,5 +45,6 @@ COPY --from=build /app/certs ./certs
 ENV PORT=3001
 EXPOSE 3001
 
-# Aplicar migraciones pendientes y arrancar
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
+# CMD fallback — railway.json startCommand suele pisarlo. Mantenemos la
+# misma lógica para que el container también funcione fuera de Railway.
+CMD ["sh", "-c", "node scripts/migrate-resolve-and-deploy.mjs && node dist/main.js"]
