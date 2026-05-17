@@ -1,9 +1,9 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ClubifyBadge } from '@/components/ClubifyBadge';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
-import { useT } from '@/lib/i18n';
+import { useLocale, useT } from '@/lib/i18n';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -61,11 +61,16 @@ const TYPE_LABEL: Record<string, string> = {
 
 export default function EnrollPage() {
   const tt = useT();
+  const [locale] = useLocale();
   const router = useRouter();
   const { cardId } = useParams<{ cardId: string }>();
   const [card, setCard] = useState<Card | null>(null);
   const [loading, setLoading] = useState(true);
   const [unavailable, setUnavailable] = useState(false);
+  // Trackeamos primer load para mostrar spinner full-screen solo entonces.
+  // En refetches por cambio de locale ya tenemos el card renderizado —
+  // refrescamos silencioso y evitamos parpadear toda la pantalla.
+  const isFirstLoad = useRef(true);
 
   const [country, setCountry] = useState('CO');
   const [phone, setPhone] = useState('');
@@ -78,15 +83,27 @@ export default function EnrollPage() {
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`${API}/api/passes/enroll/${cardId}`)
+    let cancelled = false;
+    if (isFirstLoad.current) setLoading(true);
+    fetch(`${API}/api/passes/enroll/${cardId}?locale=${locale}`)
       .then((r) => r.json())
       .then((data) => {
+        if (cancelled) return;
         if (!data?.available) setUnavailable(true);
         else setCard(data.card);
       })
-      .catch(() => setUnavailable(true))
-      .finally(() => setLoading(false));
-  }, [cardId]);
+      .catch(() => {
+        if (!cancelled) setUnavailable(true);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoading(false);
+        isFirstLoad.current = false;
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cardId, locale]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
