@@ -194,8 +194,6 @@ export default async function Landing() {
           </Link>
 
           <nav className="hidden lg:flex items-center gap-8 text-[14px] text-mute">
-            <a href="#producto" className="hover:text-ink">Producto</a>
-            <a href="#como" className="hover:text-ink">Cómo funciona</a>
             <a href="#clientes" className="hover:text-ink">Clientes</a>
             <a href="#precios" className="hover:text-ink">Precios</a>
           </nav>
@@ -620,8 +618,7 @@ export default async function Landing() {
             <div>
               <div className="font-semibold mb-3 text-[13px]">Producto</div>
               <ul className="space-y-2 text-mute">
-                <li><a href="#producto" className="hover:text-ink">Funciones</a></li>
-                <li><a href="#como" className="hover:text-ink">Cómo funciona</a></li>
+                <li><a href="#clientes" className="hover:text-ink">Clientes</a></li>
                 <li><a href="#precios" className="hover:text-ink">Precios</a></li>
               </ul>
             </div>
