@@ -547,50 +547,6 @@ export default async function Landing() {
         </div>
       </section>
 
-      {/* ─────────── Final CTA ─────────── */}
-      <section className="py-24">
-        <div className="mx-auto max-w-5xl px-6">
-          <div className="bg-ink text-white rounded-[28px] p-10 md:p-16 text-center relative overflow-hidden">
-            <div
-              className="absolute inset-0 opacity-25"
-              style={{
-                background:
-                  'radial-gradient(ellipse 60% 60% at 50% 100%, rgba(91,94,238,0.6), transparent 70%)',
-              }}
-            />
-            <h2 className="text-3xl md:text-5xl font-bold tracking-tight relative leading-[1.1]">
-              Tu negocio merece tecnología{' '}
-              <span className="bg-gradient-to-r from-brand-400 to-brand-700 bg-clip-text text-transparent">
-                que vende
-              </span>
-            </h2>
-            <p className="text-white/75 mt-4 leading-relaxed text-base md:text-lg relative">
-              5 minutos para tu primer pedido. Si no te sirve, te ayudamos a
-              exportar todo y migrar.
-            </p>
-            <div className="flex gap-3 justify-center mt-8 flex-wrap relative">
-              <Link
-                href="#precios"
-                className="bg-white text-ink font-semibold text-base px-6 py-3.5 rounded-pill hover:bg-white/95"
-              >
-                Ver planes y empezar
-              </Link>
-              <a
-                href={waLink}
-                target="_blank"
-                rel="noreferrer"
-                className="bg-white/10 hover:bg-white/15 text-white font-semibold text-base px-6 py-3.5 rounded-pill border border-white/25"
-              >
-                Hablar con ventas
-              </a>
-            </div>
-            <div className="text-xs text-white/55 mt-4 relative">
-              Sin permanencia · cancela cuando quieras desde tu panel
-            </div>
-          </div>
-        </div>
-      </section>
-
       {/* ─────────── Footer ─────────── */}
       <footer className="border-t border-line bg-white">
         <div className="mx-auto max-w-7xl px-6 py-14">
