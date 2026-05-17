@@ -21,11 +21,12 @@ export type StampDto = {
   purchaseAmount?: number;
 };
 
-// Anti-fraude: tiempo mínimo entre dos STAMP/VISIT consecutivos al mismo pass.
-// Evita que el staff abuse del scanner agregando múltiples sellos en una sola
-// compra. 30 segundos es suficiente para que un cliente legítimo vuelva a
-// comprar (Apple Pay tap → comprar otro café → tap de nuevo) sin frustrar.
-const MIN_SECONDS_BETWEEN_STAMPS = 30;
+// Anti-fraude: máximo 1 sello por cliente por día. El staff no puede
+// agregar otro sello al mismo pass hasta que pasen 24h del anterior.
+// SUPER_ADMIN bypasses esta regla (para corregir errores manualmente)
+// y el operador con PIN puede usar amount > 1 si necesita batch
+// excepcional (cumpleaños, evento, etc).
+const MIN_SECONDS_BETWEEN_STAMPS = 24 * 60 * 60; // 24h
 
 @Injectable()
 export class StampsService {
@@ -104,10 +105,11 @@ export class StampsService {
       if (recent) {
         const elapsedSec = (Date.now() - recent.createdAt.getTime()) / 1000;
         if (elapsedSec < MIN_SECONDS_BETWEEN_STAMPS) {
+          const remainingHours = Math.ceil(
+            (MIN_SECONDS_BETWEEN_STAMPS - elapsedSec) / 3600,
+          );
           throw new BadRequestException(
-            `Esperá ${Math.ceil(
-              MIN_SECONDS_BETWEEN_STAMPS - elapsedSec,
-            )}s antes del próximo sello (anti-fraude).`,
+            `Este cliente ya recibió un sello hoy. Próximo sello disponible en ~${remainingHours}h.`,
           );
         }
       }
@@ -128,6 +130,22 @@ export class StampsService {
     ) {
       throw new BadRequestException(
         'Monto de compra requerido para registrar el sello.',
+      );
+    }
+
+    // Monto mínimo por sello: si la tarjeta lo tiene configurado, el
+    // purchaseAmount debe ser >= ese mínimo. Mensaje claro al staff
+    // del scanner para que sepa por qué no se otorga el sello.
+    if (
+      requiresPurchase &&
+      user.role !== 'SUPER_ADMIN' &&
+      pass.card.minAmountPerStamp &&
+      dto.purchaseAmount !== undefined &&
+      dto.purchaseAmount !== null &&
+      Number(dto.purchaseAmount) < Number(pass.card.minAmountPerStamp)
+    ) {
+      throw new BadRequestException(
+        `Monto mínimo por sello: $${Number(pass.card.minAmountPerStamp)}. La compra de $${Number(dto.purchaseAmount)} no alcanza.`,
       );
     }
 

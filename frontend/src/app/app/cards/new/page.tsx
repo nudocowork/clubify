@@ -49,6 +49,7 @@ const FROM_SCRATCH_DEFAULTS = {
   pointsPerCurrency: 0.001,
   cashbackPercent: 5 as number | null,
   cashbackMinPurchase: 0 as number | null,
+  minAmountPerStamp: null as number | null,
   visitsRequired: 10 as number | null,
   tiers: [] as Array<{
     name: string;
@@ -743,6 +744,33 @@ function Step3Configure({
                 value={form.discountPercent}
                 onChange={(e) => set('discountPercent', Number(e.target.value))}
               />
+            </div>
+          </div>
+        )}
+        {(form.type === 'STAMPS' ||
+          form.type === 'VISITS' ||
+          form.type === 'HYBRID') && (
+          <div className="mt-3">
+            <label className="label">
+              Monto mínimo por sello
+              <span className="text-mute font-normal ml-1">(opcional)</span>
+            </label>
+            <input
+              type="number"
+              className="input"
+              min={0}
+              step={1000}
+              placeholder="0 = sin mínimo"
+              value={form.minAmountPerStamp ?? ''}
+              onChange={(e) => {
+                const v = e.target.value.trim();
+                set('minAmountPerStamp', v === '' ? null : Number(v));
+              }}
+            />
+            <div className="text-[11px] text-mute mt-1">
+              Si lo seteas, el scanner solo otorga sello si la compra es
+              mayor o igual a este monto. Útil para evitar sellos por
+              compras chicas.
             </div>
           </div>
         )}

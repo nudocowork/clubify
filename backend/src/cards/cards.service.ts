@@ -25,6 +25,7 @@ export type CardDto = {
   discountPercent?: number;
   cashbackPercent?: number | null;
   cashbackMinPurchase?: number | null;
+  minAmountPerStamp?: number | null;
   visitsRequired?: number | null;
   tiers?: Array<{
     name: string;
@@ -157,6 +158,7 @@ export class CardsService {
         discountPercent: dto.discountPercent,
         cashbackPercent: dto.cashbackPercent ?? undefined,
         cashbackMinPurchase: dto.cashbackMinPurchase ?? undefined,
+        minAmountPerStamp: dto.minAmountPerStamp ?? undefined,
         visitsRequired: dto.visitsRequired ?? undefined,
         tiers: (dto.tiers ?? []) as any,
         tierMetric: dto.tierMetric ?? 'spend',
@@ -209,6 +211,7 @@ export class CardsService {
       'centerBgColor',
       'cashbackPercent',
       'cashbackMinPurchase',
+      'minAmountPerStamp',
       'visitsRequired',
     ] as const) {
       if (k in dto) data[k] = dto[k] ?? null;

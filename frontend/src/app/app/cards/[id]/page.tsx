@@ -44,6 +44,7 @@ type Card = {
   discountPercent?: number | null;
   pointsPerCurrency?: number | string | null;
   cashbackPercent?: number | null;
+  minAmountPerStamp?: number | string | null;
   visitsRequired?: number | null;
   tiers?: Array<{ name: string }>;
   validUntil?: string | null;
@@ -710,6 +711,10 @@ function EditCardModal({
     stampContourColor: card.stampContourColor ?? (null as string | null),
     centerBgColor: card.centerBgColor ?? (null as string | null),
     stampsRequired: card.stampsRequired ?? 10,
+    minAmountPerStamp:
+      card.minAmountPerStamp == null
+        ? (null as number | null)
+        : Number(card.minAmountPerStamp),
     discountPercent: card.discountPercent ?? 10,
     pointsPerCurrency: Number(card.pointsPerCurrency ?? 0.001),
     stampIcon: card.stampIcon ?? '☕',
@@ -773,6 +778,7 @@ function EditCardModal({
       if (card.type === 'STAMPS') {
         payload.stampsRequired = form.stampsRequired;
         payload.stampIcon = form.stampIcon;
+        payload.minAmountPerStamp = form.minAmountPerStamp;
       }
       if (card.type === 'DISCOUNT') payload.discountPercent = form.discountPercent;
       if (card.type === 'POINTS') payload.pointsPerCurrency = form.pointsPerCurrency;
@@ -898,6 +904,31 @@ function EditCardModal({
                     setForm({ ...form, stampsRequired: Number(e.target.value) })
                   }
                 />
+              </div>
+              <div>
+                <label className="label">
+                  Monto mínimo por sello
+                  <span className="text-mute font-normal ml-1">(opcional)</span>
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1000}
+                  placeholder="Vacío = sin mínimo"
+                  className="input max-w-[200px]"
+                  value={form.minAmountPerStamp ?? ''}
+                  onChange={(e) => {
+                    const v = e.target.value.trim();
+                    setForm({
+                      ...form,
+                      minAmountPerStamp: v === '' ? null : Number(v),
+                    });
+                  }}
+                />
+                <div className="text-[11px] text-mute mt-1">
+                  El scanner solo otorga sello si la compra es mayor o igual
+                  a este monto.
+                </div>
               </div>
               <div>
                 <label className="label">Icono del sello</label>

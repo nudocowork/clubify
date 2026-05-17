@@ -515,6 +515,10 @@ model Card {
   // CASHBACK: % devuelto por compra. Compra mínima opcional para activar.
   cashbackPercent     Int?
   cashbackMinPurchase Decimal?  @db.Decimal(12, 2)
+  // STAMPS/VISITS/HYBRID: monto mínimo de compra para otorgar un sello.
+  // Si null, no hay restricción. Si seteado, el scanner valida
+  // purchaseAmount >= minAmountPerStamp antes de incrementar.
+  minAmountPerStamp   Decimal?  @db.Decimal(12, 2)
   // VISITS: cuántas visitas para canjear la recompensa (equivalente a
   // stampsRequired pero sin importar el ticket).
   visitsRequired      Int?

@@ -28,6 +28,8 @@ class CardBody {
   // CASHBACK: % devuelto en saldo + compra mínima opcional
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() cashbackPercent?: number | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) cashbackMinPurchase?: number | null;
+  // Monto mínimo por sello (STAMPS/VISITS/HYBRID). null = sin restricción.
+  @IsOptional() @ValidateIf((_, v) => v !== null) minAmountPerStamp?: number | null;
   // VISITS: cuántas visitas para canjear el premio
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(1) visitsRequired?: number | null;
   // MEMBERSHIP con tiers VIP. tiers: [{name, threshold, perks?, color?, icon?}]
