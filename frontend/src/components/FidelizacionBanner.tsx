@@ -203,12 +203,12 @@ export function FidelizacionBanner({
             </p>
             <ul className="mt-6 grid sm:grid-cols-2 gap-2.5 max-w-xl mx-auto lg:mx-0 text-sm text-ink/80">
               {[
-                '🍎 Apple Wallet nativo',
-                '🤖 Google Wallet sincronizado',
+                '📱 Disponible para Apple Wallet y Google Wallet',
                 '⭐ Sellos automáticos al escanear',
-                '🎁 Recompensas configurables',
+                '📍 GeoPush envía mensajes a 300 m del local',
                 '🎂 Mensajes de cumpleaños',
-                '📊 Dashboard con LTV por cliente',
+                '🎁 Recompensas configurables',
+                '👥 Base de datos de tus clientes',
               ].map((f) => (
                 <li key={f} className="flex items-center gap-2">
                   <span>{f}</span>
