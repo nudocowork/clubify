@@ -11,3 +11,7 @@ coverage
 .idea
 *.swp
 *.swo
+# TS incremental cache — si se cuela al container, `nest build --tsc`
+# piensa que nada cambió y NO emite dist/main.js → el container arranca
+# pero `node dist/main.js` falla silencioso. Pasó el 2026-05-17.
+*.tsbuildinfo
