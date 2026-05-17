@@ -354,9 +354,58 @@ export class GoogleWalletService {
     }
   }
 
+  /**
+   * Genera header+body de la notificación push de Android según el estado
+   * actual del pase. Equivalente a `buildBalance` pero formateado para que
+   * el usuario lo vea en la barra de notificaciones de Android.
+   */
+  private buildNotificationText(pass: any): { header: string; body: string } {
+    const t = pass.card.type;
+    const brand = pass.tenant?.brandName || pass.card.name || 'Tu tarjeta';
+    if (t === 'CASHBACK') {
+      const v = Math.round(Number(pass.cashbackBalance ?? 0));
+      return {
+        header: brand,
+        body: `Saldo cashback: $${v.toLocaleString('es-CO')}`,
+      };
+    }
+    if (t === 'VISITS') {
+      return {
+        header: brand,
+        body: `Visitas: ${pass.visitsCount ?? 0}/${pass.card.visitsRequired ?? 10}`,
+      };
+    }
+    if (t === 'POINTS') {
+      return {
+        header: brand,
+        body: `Tienes ${Math.round(Number(pass.pointsBalance ?? 0))} puntos`,
+      };
+    }
+    if (t === 'MEMBERSHIP') {
+      return { header: brand, body: `Nivel: ${pass.currentTier || 'Miembro'}` };
+    }
+    if (t === 'DISCOUNT') {
+      return {
+        header: brand,
+        body: `Descuento ${pass.card.discountPercent ?? 10}% disponible`,
+      };
+    }
+    if (t === 'COUPON') {
+      const redeemed = pass.status === 'COMPLETED';
+      return {
+        header: brand,
+        body: redeemed ? 'Cupón redimido' : 'Cupón disponible',
+      };
+    }
+    return {
+      header: brand,
+      body: `Sellos: ${pass.stampsCount ?? 0}/${pass.card.stampsRequired ?? 10}`,
+    };
+  }
+
   async pushUpdate(
     passId: string,
-  ): Promise<{ ok: boolean; status: string; error?: string }> {
+  ): Promise<{ ok: boolean; status: string; notified?: boolean; error?: string }> {
     const pass = await this.prisma.pass.findUnique({
       where: { id: passId },
       include: { card: true, tenant: true, customer: true },
@@ -393,7 +442,38 @@ export class GoogleWalletService {
         } as any,
       });
       this.logger.log(`Google Wallet patched: ${pass.googleObjectId}`);
-      return { ok: true, status: 'patched' };
+
+      // PATCH no dispara notificación push en Android. Para que el usuario
+      // vea un toast en la barra de notificaciones (equivalente al APNs
+      // silent push que re-renderiza Apple Wallet con un haptic) hay que
+      // POST `loyaltyobject/{id}/addMessage` con `messageType: TEXT_AND_NOTIFY`.
+      let notified = false;
+      try {
+        const { header, body } = this.buildNotificationText(pass);
+        const msgId = `update-${Date.now()}`;
+        await wallet.loyaltyobject.addmessage({
+          resourceId: pass.googleObjectId,
+          requestBody: {
+            message: {
+              id: msgId,
+              header,
+              body,
+              messageType: 'TEXT_AND_NOTIFY',
+            },
+          } as any,
+        });
+        notified = true;
+        this.logger.log(
+          `Google Wallet notify sent: ${pass.googleObjectId} → "${body}"`,
+        );
+      } catch (e: any) {
+        const code = e?.code || e?.response?.status;
+        this.logger.warn(
+          `Google Wallet addMessage failed (${code}): ${e?.message ?? e}`,
+        );
+      }
+
+      return { ok: true, status: 'patched', notified };
     } catch (e: any) {
       const code = e?.code || e?.response?.status;
       if (code === 404) {
