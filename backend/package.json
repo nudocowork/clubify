@@ -4,7 +4,7 @@
   "private": true,
   "description": "Clubify SaaS — backend (NestJS + Prisma)",
   "scripts": {
-    "build": "nest build --tsc",
+    "build": "rm -rf dist tsconfig.tsbuildinfo && nest build --tsc",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main.js",
