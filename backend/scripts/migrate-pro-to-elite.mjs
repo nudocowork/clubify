@@ -58,14 +58,26 @@ async function main() {
   }
 
   // ----- Quotes ----- //
-  const proQuotes = await prisma.quote.count({ where: { plan: 'PRO' } });
+  // Raw SQL porque después de aplicar la migration `20260601_quote_plan_remove_pro`
+  // el enum QuotePlan solo tiene ELITE, entonces el Prisma client tipado no
+  // acepta plan='PRO' en queries. Pero si la migration corrió OK, el conteo
+  // de PRO en la tabla ya debería ser 0 (la migration hace el UPDATE primero).
+  let proQuotes = 0;
+  try {
+    const r =
+      await prisma.$queryRaw`SELECT COUNT(*)::int AS c FROM "Quote" WHERE "plan"::text = 'PRO'`;
+    proQuotes = r?.[0]?.c ?? 0;
+  } catch (e) {
+    // Si el enum ya no tiene PRO, el cast falla — significa que el cleanup ya pasó.
+    console.log(
+      `\n(Quotes: enum QuotePlan ya no tiene PRO, asumiendo 0 pendientes)`,
+    );
+  }
   console.log(`\nQuotes con plan=PRO: ${proQuotes}`);
   if (proQuotes > 0 && !DRY_RUN) {
-    const r = await prisma.quote.updateMany({
-      where: { plan: 'PRO' },
-      data: { plan: 'ELITE' },
-    });
-    console.log(`✓ Migradas ${r.count} cotización(es) PRO → ELITE`);
+    const r =
+      await prisma.$executeRaw`UPDATE "Quote" SET "plan" = 'ELITE'::text::"QuotePlan" WHERE "plan"::text = 'PRO'`;
+    console.log(`✓ Migradas ${r} cotización(es) PRO → ELITE`);
   } else if (proQuotes > 0) {
     console.log('(dry-run: no se aplicaron cambios)');
   }
