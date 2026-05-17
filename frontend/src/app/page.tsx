@@ -491,19 +491,15 @@ export default async function Landing() {
               quieras desde tu panel.
             </p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 max-w-3xl mx-auto items-start">
+          <div className="max-w-md mx-auto">
             {PRICING.map((p) => (
               <div
                 key={p.name}
-                className={`relative bg-white rounded-2xl p-7 border ${
-                  p.primary
-                    ? 'border-brand shadow-xl md:scale-[1.03]'
-                    : 'border-line'
-                }`}
+                className="relative bg-white rounded-2xl p-7 border border-brand shadow-xl"
               >
                 {p.primary && (
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-ink text-white text-xs font-semibold px-3 py-1 rounded-full">
-                    Más popular
+                    Plan único
                   </div>
                 )}
                 <div className="flex items-center justify-between gap-2">
