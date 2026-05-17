@@ -5,6 +5,10 @@ export const metadata: Metadata = {
   description:
     'Escáner de tarjetas y pases Clubify para staff. Registra sellos, visitas y compras desde el móvil.',
   applicationName: 'Clubify Escáner',
+  // Manifest aparte para que la PWA del scanner instale con start_url=/scan
+  // y nombre "Clubify · Escáner" en lugar del manifest del sitio principal
+  // que ahora apunta a / con nombre "Clubify".
+  manifest: '/manifest-scanner.webmanifest',
   appleWebApp: {
     capable: true,
     title: 'Clubify Escáner',

@@ -31,17 +31,26 @@ export async function generateMetadata(): Promise<Metadata> {
   // Orden importante para Google Search: SVG primero (vectorial, mejor calidad),
   // luego PNGs por tamaño ascendente, luego favicon.ico como fallback legacy.
   // Si hay un favicon custom de branding (super admin Setting) lo priorizamos.
+  //
+  // FAVICON_VERSION: bump cuando regeneramos los PNGs/SVG locales — Google
+  // y browsers cachean favicons por semanas-meses. La query string fuerza
+  // re-fetch en clientes (browsers ignoran cuando el contenido cambia, pero
+  // ven URL distinta y refrescan). Para Google Search hay que pedir
+  // re-indexación en Search Console; este cache-bust acelera el proceso.
+  const FAVICON_VERSION = '2026-05-16';
+  const v = (url: string) =>
+    url.includes('?') ? `${url}&v=${FAVICON_VERSION}` : `${url}?v=${FAVICON_VERSION}`;
   const icon = faviconUrl
     ? [{ url: faviconUrl, type: 'image/png' }]
     : [
-        { url: '/icons/icon.svg', type: 'image/svg+xml' },
-        { url: '/favicon-16.png', sizes: '16x16', type: 'image/png' },
-        { url: '/favicon-32.png', sizes: '32x32', type: 'image/png' },
-        { url: '/favicon-48.png', sizes: '48x48', type: 'image/png' },
-        { url: '/favicon-96.png', sizes: '96x96', type: 'image/png' },
-        { url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
-        { url: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
-        { url: '/favicon.ico', sizes: 'any' },
+        { url: v('/icons/icon.svg'), type: 'image/svg+xml' },
+        { url: v('/favicon-16.png'), sizes: '16x16', type: 'image/png' },
+        { url: v('/favicon-32.png'), sizes: '32x32', type: 'image/png' },
+        { url: v('/favicon-48.png'), sizes: '48x48', type: 'image/png' },
+        { url: v('/favicon-96.png'), sizes: '96x96', type: 'image/png' },
+        { url: v('/icons/icon-192.png'), sizes: '192x192', type: 'image/png' },
+        { url: v('/icons/icon-512.png'), sizes: '512x512', type: 'image/png' },
+        { url: v('/favicon.ico'), sizes: 'any' },
       ];
 
   return {
@@ -71,7 +80,7 @@ export async function generateMetadata(): Promise<Metadata> {
       locale: 'es_LA',
       type: 'website',
       images: [
-        { url: '/og-image.png', width: 1200, height: 630, alt: 'Clubify · El sistema operativo de tu negocio local' },
+        { url: v('/og-image.png'), width: 1200, height: 630, alt: 'Clubify · El sistema operativo de tu negocio local' },
       ],
     },
     twitter: {
@@ -79,7 +88,7 @@ export async function generateMetadata(): Promise<Metadata> {
       title: 'Clubify · El sistema operativo de tu negocio local',
       description:
         'Vende por WhatsApp, fideliza con wallet y automatiza. Activa tu cuenta y empieza a vender hoy.',
-      images: ['/og-image.png'],
+      images: [v('/og-image.png')],
     },
     robots: {
       index: true,
@@ -88,21 +97,21 @@ export async function generateMetadata(): Promise<Metadata> {
     },
     icons: {
       icon,
-      shortcut: [{ url: '/favicon.ico' }],
+      shortcut: [{ url: v('/favicon.ico') }],
       apple: [
-        { url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
+        { url: v('/apple-touch-icon.png'), sizes: '180x180', type: 'image/png' },
       ],
       other: [
         {
           rel: 'mask-icon',
-          url: '/icons/safari-pinned-tab.svg',
+          url: v('/icons/safari-pinned-tab.svg'),
           color: '#22C55E',
         },
       ],
     },
     other: {
       'msapplication-TileColor': '#22C55E',
-      'msapplication-TileImage': '/icons/icon-192.png',
+      'msapplication-TileImage': v('/icons/icon-192.png'),
     },
   };
 }

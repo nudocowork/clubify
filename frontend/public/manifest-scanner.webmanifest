@@ -1,16 +1,16 @@
 {
-  "name": "Clubify",
+  "name": "Clubify · Escáner",
   "short_name": "Clubify",
-  "description": "El sistema operativo de tu negocio local: pedidos por WhatsApp, fidelización wallet, automatizaciones, CRM y analítica.",
-  "id": "/",
-  "start_url": "/",
+  "description": "Escáner de tarjetas y pases Clubify para staff",
+  "id": "/scan",
+  "start_url": "/scan",
   "scope": "/",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui"],
   "orientation": "portrait",
-  "background_color": "#0B1F14",
-  "theme_color": "#22C55E",
-  "categories": ["business", "productivity", "lifestyle"],
+  "background_color": "#0E1A24",
+  "theme_color": "#6366F1",
+  "categories": ["business", "productivity"],
   "lang": "es",
   "dir": "ltr",
   "icons": [
@@ -57,13 +57,12 @@
       "purpose": "maskable"
     }
   ],
-  "screenshots": [],
   "shortcuts": [
     {
-      "name": "Mi tienda",
-      "short_name": "Tienda",
-      "description": "Ver el panel de tu negocio",
-      "url": "/app",
+      "name": "Escanear",
+      "short_name": "Scan",
+      "description": "Abrir escáner de QR",
+      "url": "/scan",
       "icons": [
         { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }
       ]
