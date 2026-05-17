@@ -102,6 +102,8 @@ type BrandingPublic = {
 
 // Productos reales del menú de NudoCowork para alimentar la animación del
 // HeroBanner. Si el fetch falla, HeroBanner usa los productos hardcoded.
+// Dedupe por product.id porque la categoría virtual "Recomendados" repite
+// productos que ya viven en su categoría real.
 async function fetchNudoMenuItems(): Promise<
   { name: string; price: string; img: string }[]
 > {
@@ -113,9 +115,12 @@ async function fetchNudoMenuItems(): Promise<
     if (!r.ok) return [];
     const cats: any[] = await r.json();
     const items: { name: string; price: string; img: string }[] = [];
+    const seen = new Set<string>();
     for (const c of cats) {
       for (const p of c.products ?? []) {
         if (!p.imageUrl) continue;
+        if (seen.has(p.id)) continue;
+        seen.add(p.id);
         items.push({
           name: p.name,
           price: `$ ${Number(p.basePrice ?? 0).toLocaleString('es-CO')}`,
@@ -342,6 +347,9 @@ export default async function Landing() {
         </div>
       </section>
 
+      {/* ─────────── Bloque Fidelización (va arriba de Menús IA) ─────────── */}
+      <FidelizacionBanner waLink={waLink} />
+
       {/* ─────────── Hero secundario "Menús con IA" (estilo Cluvi) ─────────── */}
       <HeroBanner
         waLink={waLink}
@@ -350,9 +358,6 @@ export default async function Landing() {
         menuItems={nudoMenuItems.length > 0 ? nudoMenuItems : undefined}
         brandName={nudoMenuItems.length > 0 ? 'nudo cowork' : undefined}
       />
-
-      {/* ─────────── Bloque Fidelización (mismo estilo que Menús IA) ─────────── */}
-      <FidelizacionBanner waLink={waLink} />
 
       {/* ─────────── InfoLinks (mini-pages estilo Linktree) ─────────── */}
       <InfoLinksBanner />
