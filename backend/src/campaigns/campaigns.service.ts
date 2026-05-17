@@ -22,7 +22,6 @@ export type CreateCampaignDto = {
   influencerWhatsapp: string;
   influencerCommissionPercent?: number; // default 30
   influencerCustomCode?: string; // ej: "JUAN30" — si no, se genera
-  discountAbsorption?: 'ORIGINAL_PRICE' | 'PAID_PRICE' | 'EMPRESA_ABSORBS' | 'PROPORTIONAL';
 };
 
 export type CreateAmbassadorDto = {
@@ -101,7 +100,6 @@ export class CampaignsService {
         name: dto.name.trim(),
         ownerCodeId: influencerCode.id,
         status: 'ACTIVE',
-        discountAbsorption: dto.discountAbsorption ?? 'PROPORTIONAL',
       },
       include: {
         ownerCode: true,
@@ -158,7 +156,6 @@ export class CampaignsService {
         id: c.id,
         name: c.name,
         status: c.status,
-        discountAbsorption: c.discountAbsorption,
         createdAt: c.createdAt,
         ownerCode: {
           id: c.ownerCode.id,
@@ -211,7 +208,7 @@ export class CampaignsService {
   async update(
     user: AuthUser,
     id: string,
-    patch: { name?: string; status?: CampaignStatus; discountAbsorption?: string },
+    patch: { name?: string; status?: CampaignStatus },
   ) {
     this.assertAdmin(user);
     return this.prisma.campaign.update({
@@ -219,7 +216,6 @@ export class CampaignsService {
       data: {
         name: patch.name?.trim(),
         status: patch.status,
-        discountAbsorption: patch.discountAbsorption,
       },
     });
   }

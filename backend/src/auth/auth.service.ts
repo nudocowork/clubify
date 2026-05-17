@@ -499,7 +499,6 @@ export class AuthService {
     brandName: string;
     whatsappPhone?: string;
     referralCode?: string;
-    couponCode?: string;
     plan?: string;
     businessCategorySlug?: string;
     /** Token público de una Quote — viene del /q/<token> CTA. Si matchea,
@@ -606,42 +605,12 @@ export class AuthService {
       ip,
     });
 
-    // Atribución promo: el cliente pudo venir con un cupón, un código de
-    // referido directo, o ambos. Lookup tolerante (no falla el signup si
-    // el código no existe).
-    //
-    // Lógica:
-    //   - Si couponCode está, lo registramos como CouponUse e incrementamos
-    //     useCount. Si el cupón está asociado a un ReferralCode, también
-    //     creamos un ReferralUse para esa atribución.
-    //   - Si además vino referralCode (manual + cupón mixto), prefiere el
-    //     del cupón. Si no había cupón con atribución, usa el referralCode
-    //     manual directamente.
+    // Atribución: si el cliente vino con un código de referido (link
+    // /ref/<slug> o tipeado), lo resolvemos para crear el ReferralUse.
+    // Lookup tolerante — no falla el signup si el código no existe.
     let attributedReferralCodeId: string | null = null;
 
-    if (dto.couponCode) {
-      const code = dto.couponCode.trim().toUpperCase();
-      try {
-        const coupon = await this.prisma.coupon.findUnique({ where: { code } });
-        if (coupon && coupon.status === 'ACTIVE') {
-          // Idempotente — único por (couponId, tenantId).
-          await this.prisma.couponUse.create({
-            data: { couponId: coupon.id, tenantId: tenant.id },
-          });
-          await this.prisma.coupon.update({
-            where: { id: coupon.id },
-            data: { useCount: { increment: 1 } },
-          });
-          if (coupon.referralCodeId) {
-            attributedReferralCodeId = coupon.referralCodeId;
-          }
-        }
-      } catch {
-        /* noop */
-      }
-    }
-
-    if (!attributedReferralCodeId && dto.referralCode) {
+    if (dto.referralCode) {
       const code = dto.referralCode.trim().toUpperCase();
       try {
         const ref = await this.prisma.referralCode.findUnique({ where: { code } });

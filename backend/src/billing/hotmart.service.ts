@@ -475,40 +475,19 @@ export class HotmartService {
         referralCode: { role: { in: ['INFLUENCER', 'AMBASSADOR'] } },
       },
       include: {
-        referralCode: {
-          include: {
-            parentCode: true,
-            campaign: { select: { discountAbsorption: true } },
-            ownerOfCampaign: { select: { discountAbsorption: true } },
-          },
-        },
+        referralCode: { include: { parentCode: true } },
         commissions: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
       orderBy: { createdAt: 'desc' },
     });
 
-    // Resolver regla de absorción de descuento. La regla vive en la
-    // campaña — un embajador la hereda de su `campaignId`; un influencer
-    // titular de campaña la lee de `ownerOfCampaign`. Sin campaña asociada:
-    // PROPORTIONAL como default seguro.
-    const absorption =
-      use?.referralCode.campaign?.discountAbsorption ??
-      use?.referralCode.ownerOfCampaign?.discountAbsorption ??
-      'PROPORTIONAL';
-    // Base sobre la cual calculamos la comisión del referido (directa+indirecta):
-    //   - PAID_PRICE: usa el monto efectivamente pagado (descuento prorrateado).
-    //   - resto: usa el precio original (referidos cobran sobre tarifa lista).
-    const referralBase =
-      absorption === 'PAID_PRICE' ? amountPaid : originalPrice;
-    // Base para la comisión del SOCIO:
-    //   - EMPRESA_ABSORBS: socio cobra sobre original (descuento sale solo de empresa).
-    //   - ORIGINAL_PRICE: socio cobra sobre original.
-    //   - PAID_PRICE: socio cobra sobre lo pagado.
-    //   - PROPORTIONAL: socio cobra sobre lo pagado (comparte el descuento con empresa).
-    const socioBase =
-      absorption === 'ORIGINAL_PRICE' || absorption === 'EMPRESA_ABSORBS'
-        ? originalPrice
-        : amountPaid;
+    // Sin descuentos: comisiones siempre sobre el precio del plan. Si
+    // Hotmart cobró menos por alguna razón (impuesto, conversión, etc),
+    // referido y socio igual cobran sobre la tarifa lista. La diferencia
+    // la absorbe la empresa.
+    const referralBase = originalPrice;
+    const socioBase = originalPrice;
+    void amountPaid;
 
     if (use) {
       const last = use.commissions[0];
@@ -528,7 +507,7 @@ export class HotmartService {
           data: { referralUseId: use.id, amount: direct, status: 'PENDING' },
         });
         this.logger.log(
-          `Comisión directa: ${use.referralCode.role} ${use.referralCode.code} $${direct} (${pct}% sobre $${referralBase} · ${absorption})`,
+          `Comisión directa: ${use.referralCode.role} ${use.referralCode.code} $${direct} (${pct}% sobre $${referralBase})`,
         );
 
         // Indirecta: si es embajador, su influencer parent gana 5% por default.

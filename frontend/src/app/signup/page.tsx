@@ -5,16 +5,6 @@ import { Suspense, useEffect, useState } from 'react';
 import { api, setSession } from '@/lib/api';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
-
-type PromoResolved = {
-  type: 'coupon' | 'referral' | 'mixed' | 'invalid';
-  message: string;
-  discountPercent?: number;
-  duration?: 'FIRST_MONTH' | 'RECURRING';
-  attribution?: { role: string; ownerName: string; code: string } | null;
-  couponId?: string;
-  referralCodeId?: string;
-};
 import { Icon } from '@/components/Icon';
 import { Logo } from '@/components/Logo';
 import {
@@ -33,9 +23,6 @@ export default function SignupPage() {
 function SignupInner() {
   const router = useRouter();
   const params = useSearchParams();
-  // El parámetro plan se ignora — solo existe el plan Elite. Se mantiene
-  // la lectura por compatibilidad con links viejos que aún apunten a /signup?plan=...
-  void params;
   const planLabel = 'Elite';
   const planPriceUsd = 50;
 
@@ -51,37 +38,18 @@ function SignupInner() {
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [showPwd, setShowPwd] = useState(false);
-  const [promoCode, setPromoCode] = useState('');
-  const [promoResolved, setPromoResolved] = useState<PromoResolved | null>(null);
-  const [validatingPromo, setValidatingPromo] = useState(false);
 
-  // Pre-rellenar promo. Prioridad:
-  //   1. URL ?promo=X (intención explícita — el cliente llegó por un
-  //      link nuevo, gana sobre el cache)
-  //   2. clubify:promo en localStorage (cupón de descuento cached)
-  //   3. URL ?ref=X (link de afiliado, solo atribución)
-  //   4. clubify:ref en localStorage (atribución capturada antes)
-  // Decisión UX: el cupón en URL gana sobre el cached porque es la
-  // intención explícita del usuario que está abriendo el link AHORA.
-  // El ref puro (sin promo en URL) NO pisa el cupón cached — el cupón
-  // tiene beneficio para el cliente, el ref es solo atribución para
-  // el afiliado y se trackea aparte.
+  // Atribución oculta: el cliente puede haber llegado por un link de
+  // afiliado /ref/<slug>?ref=X o tenerlo cached en localStorage. NO
+  // exponemos quién atribuye en UI — se manda en el payload sin que
+  // el cliente sepa que su signup beneficia a algún afiliado.
+  const [refCode, setRefCode] = useState<string | null>(null);
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const cachedPromo = localStorage.getItem('clubify:promo');
-    const promoUrl = params.get('promo');
     const refUrl = params.get('ref');
     const cachedRef = localStorage.getItem('clubify:ref');
-    const winner = promoUrl || cachedPromo || refUrl || cachedRef || '';
-    if (winner) setPromoCode(winner.toUpperCase());
-    // Si llegó un promo nuevo por URL, persistir (puede ser el mismo
-    // que el cached — siempre escribir es idempotente y deja el último
-    // promo visto disponible para próximas visitas).
-    if (promoUrl) {
-      try {
-        localStorage.setItem('clubify:promo', promoUrl.toUpperCase());
-      } catch {}
-    }
+    const winner = refUrl || cachedRef || '';
+    if (winner) setRefCode(winner.toUpperCase());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -120,29 +88,6 @@ function SignupInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Validación live del promo (debounced 350ms)
-  useEffect(() => {
-    if (!promoCode || promoCode.trim().length < 3) {
-      setPromoResolved(null);
-      return;
-    }
-    const t = setTimeout(async () => {
-      setValidatingPromo(true);
-      try {
-        const r = await fetch(
-          `${API}/api/public/promo/validate?code=${encodeURIComponent(promoCode)}&plan=${planLabel}`,
-        );
-        const data: PromoResolved = await r.json();
-        setPromoResolved(data);
-      } catch {
-        setPromoResolved({ type: 'invalid', message: 'No se pudo validar' });
-      } finally {
-        setValidatingPromo(false);
-      }
-    }, 350);
-    return () => clearTimeout(t);
-  }, [promoCode, planLabel]);
-
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
@@ -151,22 +96,7 @@ function SignupInner() {
       return;
     }
     setSubmitting(true);
-    // Si la validación reconoció el código como cupón o mixto lo enviamos
-    // como couponCode; si fue solo referral, como referralCode. Si vino
-    // del URL/localStorage sin validar, también va como referralCode (el
-    // backend resuelve igual).
-    const trimmedPromo = promoCode.trim().toUpperCase() || undefined;
-    let referralCode: string | undefined;
-    let couponCode: string | undefined;
-    if (promoResolved && trimmedPromo) {
-      if (promoResolved.type === 'coupon' || promoResolved.type === 'mixed') {
-        couponCode = trimmedPromo;
-      } else if (promoResolved.type === 'referral') {
-        referralCode = trimmedPromo;
-      }
-    } else if (trimmedPromo) {
-      referralCode = trimmedPromo;
-    }
+    const referralCode = refCode ?? undefined;
     // Atribución capturada por RefCapture (slug `/ref/<slug>` + UTMs + referer).
     let attribution: {
       viaSlug?: string;
@@ -204,7 +134,6 @@ function SignupInner() {
           whatsappPhone: form.whatsappPhone || undefined,
           businessCategorySlug: form.businessCategorySlug,
           referralCode,
-          couponCode,
           plan: 'elite',
           quoteToken: quoteToken || undefined,
           attribution: Object.keys(attribution).length ? attribution : undefined,
@@ -212,11 +141,10 @@ function SignupInner() {
       });
       setSession(r.accessToken, r.user, { refreshToken: r.refreshToken });
       try {
-        // Limpiamos AMBOS keys post-signup — el código ya quedó atado
-        // a este usuario en el backend, no tiene sentido cargarlo en
-        // futuras visitas de otra cuenta desde el mismo browser.
+        // Limpiamos las keys de atribución post-signup — ya quedaron
+        // atadas a este tenant en el backend, no tiene sentido cargarlas
+        // en futuras visitas de otra cuenta desde el mismo browser.
         localStorage.removeItem('clubify:ref');
-        localStorage.removeItem('clubify:promo');
         localStorage.removeItem('clubify:via');
         localStorage.removeItem('clubify:utm');
         localStorage.removeItem('clubify:referer');
@@ -371,34 +299,6 @@ function SignupInner() {
                     {showPwd ? 'ocultar' : 'mostrar'}
                   </button>
                 </div>
-              </div>
-
-              <div>
-                <label className="label">
-                  Código promocional
-                  <span className="text-mute font-normal ml-1">(opcional)</span>
-                </label>
-                <input
-                  className="input"
-                  placeholder="JUAN10"
-                  value={promoCode}
-                  onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
-                  autoComplete="off"
-                />
-                {validatingPromo && (
-                  <div className="text-xs text-mute mt-1">Validando…</div>
-                )}
-                {promoResolved && !validatingPromo && (
-                  <div
-                    className={`text-xs mt-1.5 px-2.5 py-1.5 rounded-lg ${
-                      promoResolved.type === 'invalid'
-                        ? 'bg-bad-soft text-bad-ink'
-                        : 'bg-ok-soft text-ok'
-                    }`}
-                  >
-                    {promoResolved.message}
-                  </div>
-                )}
               </div>
 
               <label className="flex items-start gap-2.5 text-sm cursor-pointer pt-1">

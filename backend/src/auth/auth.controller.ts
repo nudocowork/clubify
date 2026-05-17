@@ -58,7 +58,6 @@ class SignupDto {
   @IsString() @MinLength(2) brandName!: string;
   @IsOptional() @IsString() whatsappPhone?: string;
   @IsOptional() @IsString() referralCode?: string;
-  @IsOptional() @IsString() couponCode?: string;
   @IsOptional() @IsString() plan?: string;
   @IsOptional() @IsString() businessCategorySlug?: string;
   @IsOptional() @IsString() @MinLength(8) @MaxLength(64) quoteToken?: string;

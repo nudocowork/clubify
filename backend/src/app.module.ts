@@ -18,7 +18,6 @@ import { LocationsModule } from './locations/locations.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ReferralsModule } from './referrals/referrals.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
-import { CouponsModule } from './coupons/coupons.module';
 import { BadgesModule } from './badges/badges.module';
 import { AffiliateModule } from './affiliate/affiliate.module';
 import { WalletModule } from './wallet/wallet.module';
@@ -73,7 +72,6 @@ import { QuotesModule } from './quotes/quotes.module';
     NotificationsModule,
     ReferralsModule,
     CampaignsModule,
-    CouponsModule,
     BadgesModule,
     AffiliateModule,
     WalletModule,

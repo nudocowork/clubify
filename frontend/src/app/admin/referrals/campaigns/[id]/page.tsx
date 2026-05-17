@@ -2,7 +2,7 @@
 /**
  * Página dedicada de una campaña — supera al modal con vista completa:
  * mini dashboard de KPIs, lista detallada de embajadores con métricas,
- * historial de comisiones de la campaña, crear cupón inline.
+ * historial de comisiones de la campaña.
  */
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -15,7 +15,6 @@ type Detail = {
   id: string;
   name: string;
   status: 'ACTIVE' | 'PAUSED' | 'FINISHED';
-  discountAbsorption: string;
   createdAt: string;
   ownerCode: {
     id: string;
@@ -61,20 +60,12 @@ export default function CampaignDetailPage() {
   const [data, setData] = useState<Detail | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
-  const [showCoupon, setShowCoupon] = useState(false);
   const [addForm, setAddForm] = useState({
     fullName: '',
     email: '',
     whatsapp: '',
     commissionPercent: 25,
     customCode: '',
-  });
-  const [couponForm, setCouponForm] = useState({
-    code: '',
-    discountPercent: 10,
-    duration: 'FIRST_MONTH' as 'FIRST_MONTH' | 'RECURRING',
-    validUntil: '',
-    maxUses: '',
   });
   const [busy, setBusy] = useState(false);
 
@@ -102,7 +93,7 @@ export default function CampaignDetailPage() {
     load();
   }
 
-  async function patchCampaign(patch: Partial<{ name: string; discountAbsorption: string }>) {
+  async function patchCampaign(patch: Partial<{ name: string }>) {
     try {
       await api(`/campaigns/${id}`, {
         method: 'PATCH',
@@ -139,31 +130,6 @@ export default function CampaignDetailPage() {
     await api(`/campaigns/ambassadors/${ambId}`, { method: 'DELETE' });
     toast('Embajador desactivado', 'success');
     load();
-  }
-
-  async function createCoupon(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      await api('/coupons', {
-        method: 'POST',
-        body: JSON.stringify({
-          code: couponForm.code,
-          discountPercent: Number(couponForm.discountPercent),
-          duration: couponForm.duration,
-          validUntil: couponForm.validUntil || null,
-          maxUses: couponForm.maxUses ? Number(couponForm.maxUses) : null,
-          campaignId: id,
-        }),
-      });
-      setCouponForm({ code: '', discountPercent: 10, duration: 'FIRST_MONTH', validUntil: '', maxUses: '' });
-      setShowCoupon(false);
-      toast('Cupón creado y vinculado a la campaña', 'success');
-    } catch (e: any) {
-      toast(e.message || 'Error', 'error');
-    } finally {
-      setBusy(false);
-    }
   }
 
   if (loading || !data) return <div className="p-8 text-mute">Cargando…</div>;
@@ -209,8 +175,7 @@ export default function CampaignDetailPage() {
             >
               {STATUS_PILL[data.status].text}
             </span>
-            <span className="text-xs text-mute">Regla: {data.discountAbsorption}</span>
-            <span className="text-xs text-mute">· Creada {fmtDate(data.createdAt)}</span>
+            <span className="text-xs text-mute">Creada {fmtDate(data.createdAt)}</span>
           </div>
         </div>
         <div className="flex gap-2">
@@ -386,111 +351,31 @@ export default function CampaignDetailPage() {
         )}
       </div>
 
-      {/* Cupones */}
-      <div className="card card-pad mb-5">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <h2 className="font-semibold m-0">Cupones de la campaña</h2>
-            <div className="text-[11px] text-mute mt-0.5">
-              <strong>Cupón = descuento para el cliente</strong>. El{' '}
-              <strong>% de comisión</strong> del afiliado es independiente
-              y se configura en el código del embajador.
-            </div>
-          </div>
-          <button onClick={() => setShowCoupon(!showCoupon)} className="btn-ghost text-sm shrink-0">
-            {showCoupon ? 'Cancelar' : '+ Cupón'}
-          </button>
-        </div>
-        {showCoupon && (
-          <form onSubmit={createCoupon} className="border border-line rounded-lg p-3 mb-3 space-y-2 bg-bg2/30">
-            <div className="grid grid-cols-2 gap-2">
-              <input
-                className="input"
-                placeholder="Código (ej: VERANO20)"
-                required
-                value={couponForm.code}
-                onChange={(e) => setCouponForm({ ...couponForm, code: e.target.value.toUpperCase() })}
-              />
-              <input
-                className="input"
-                type="number"
-                min={1}
-                max={100}
-                placeholder="% descuento"
-                value={couponForm.discountPercent}
-                onChange={(e) => setCouponForm({ ...couponForm, discountPercent: Number(e.target.value) })}
-              />
-            </div>
-            <select
-              className="input"
-              value={couponForm.duration}
-              onChange={(e) => setCouponForm({ ...couponForm, duration: e.target.value as any })}
-            >
-              <option value="FIRST_MONTH">Solo primer mes</option>
-              <option value="RECURRING">Recurrente mensual</option>
-            </select>
-            <div className="grid grid-cols-2 gap-2">
-              <input
-                type="date"
-                className="input"
-                placeholder="Válido hasta"
-                value={couponForm.validUntil}
-                onChange={(e) => setCouponForm({ ...couponForm, validUntil: e.target.value })}
-              />
-              <input
-                type="number"
-                min={1}
-                className="input"
-                placeholder="Máx. usos (vacío = ∞)"
-                value={couponForm.maxUses}
-                onChange={(e) => setCouponForm({ ...couponForm, maxUses: e.target.value })}
-              />
-            </div>
-            <button type="submit" disabled={busy} className="btn-primary text-sm w-full">
-              {busy ? 'Creando…' : 'Crear cupón'}
-            </button>
-          </form>
-        )}
-        <div className="text-xs text-mute">
-          Los cupones de esta campaña aparecen en{' '}
-          <Link href="/admin/referrals" className="text-brand hover:underline">
-            la tab Cupones
-          </Link>
-          .
-        </div>
-      </div>
     </div>
   );
 }
 
-/** Edición rápida de la configuración de la campaña: nombre + regla de
- *  absorción de descuento. Item 23 — el admin puede ajustar sin
- *  recrear la campaña. */
+/** Edición del nombre de la campaña. */
 function CampaignSettings({
   data,
   onPatch,
 }: {
-  data: { name: string; discountAbsorption: string };
-  onPatch: (patch: Partial<{ name: string; discountAbsorption: string }>) => Promise<void>;
+  data: { name: string };
+  onPatch: (patch: Partial<{ name: string }>) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(data.name);
-  const [absorption, setAbsorption] = useState(data.discountAbsorption);
 
   useEffect(() => {
     setName(data.name);
-    setAbsorption(data.discountAbsorption);
-  }, [data.name, data.discountAbsorption]);
+  }, [data.name]);
 
   async function save() {
-    const patch: Partial<{ name: string; discountAbsorption: string }> = {};
-    if (name.trim() && name !== data.name) patch.name = name.trim();
-    if (absorption !== data.discountAbsorption) patch.discountAbsorption = absorption;
-    if (Object.keys(patch).length === 0) {
+    if (!name.trim() || name === data.name) {
       setEditing(false);
       return;
     }
-    await onPatch(patch);
+    await onPatch({ name: name.trim() });
     setEditing(false);
   }
 
@@ -501,10 +386,7 @@ function CampaignSettings({
           <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1">
             Configuración
           </div>
-          <div className="text-sm">
-            Regla de descuento:{' '}
-            <span className="font-mono">{data.discountAbsorption}</span>
-          </div>
+          <div className="text-sm">Nombre: {data.name}</div>
         </div>
         <button onClick={() => setEditing(true)} className="btn-ghost text-sm">
           Editar
@@ -516,39 +398,18 @@ function CampaignSettings({
   return (
     <div className="card card-pad mb-5 space-y-3">
       <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
-        Editar configuración
+        Editar nombre de campaña
       </div>
-      <div>
-        <label className="label">Nombre de campaña</label>
-        <input
-          className="input"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-      </div>
-      <div>
-        <label className="label">Regla de absorción del descuento</label>
-        <select
-          className="input"
-          value={absorption}
-          onChange={(e) => setAbsorption(e.target.value)}
-        >
-          <option value="PROPORTIONAL">Proporcional (default)</option>
-          <option value="ORIGINAL_PRICE">Sobre precio original</option>
-          <option value="PAID_PRICE">Sobre precio pagado</option>
-          <option value="EMPRESA_ABSORBS">La empresa absorbe</option>
-        </select>
-        <div className="text-[11px] text-mute mt-1 leading-relaxed">
-          Define cómo se calculan las comisiones cuando hay un cupón de
-          descuento activo. Afecta las próximas ventas, no las históricas.
-        </div>
-      </div>
+      <input
+        className="input"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+      />
       <div className="flex gap-2 justify-end">
         <button
           onClick={() => {
             setEditing(false);
             setName(data.name);
-            setAbsorption(data.discountAbsorption);
           }}
           className="btn-ghost text-sm"
         >

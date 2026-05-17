@@ -19,7 +19,6 @@ type Tab =
   | 'clients'
   | 'commissions'
   | 'payouts'
-  | 'coupons'
   | 'config'
   | 'leaderboard'
   | 'codes';
@@ -98,7 +97,6 @@ export default function AdminReferrals() {
     { id: 'clients', label: '🏢 Negocios' },
     { id: 'commissions', label: '💵 Comisiones' },
     { id: 'payouts', label: '⏳ Pendientes por pagar' },
-    { id: 'coupons', label: '🎟 Cupones' },
     { id: 'config', label: '⚙️ Configuración' },
   ];
 
@@ -127,7 +125,6 @@ export default function AdminReferrals() {
       {tab === 'clients' && <ClientsTab />}
       {tab === 'commissions' && <CommissionsTab />}
       {tab === 'payouts' && <PayoutsTab />}
-      {tab === 'coupons' && <CouponsTab />}
       {tab === 'config' && <ConfigTab />}
       {tab === 'leaderboard' && <LeaderboardTab />}
       {tab === 'codes' && <CodesTab />}
@@ -1071,7 +1068,6 @@ type CampaignSummary = {
   id: string;
   name: string;
   status: 'ACTIVE' | 'PAUSED' | 'FINISHED';
-  discountAbsorption: string;
   createdAt: string;
   ownerCode: { id: string; code: string; ownerName: string; commissionPercent: number };
   ambassadorsCount: number;
@@ -1217,7 +1213,6 @@ function CreateCampaignModal({
     influencerWhatsapp: '',
     influencerCommissionPercent: 30,
     influencerCustomCode: '',
-    discountAbsorption: 'PROPORTIONAL',
   });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -1327,19 +1322,6 @@ function CreateCampaignModal({
               />
             </div>
           </div>
-          <div>
-            <label className="label">Regla de descuento</label>
-            <select
-              className="input"
-              value={form.discountAbsorption}
-              onChange={(e) => setForm({ ...form, discountAbsorption: e.target.value })}
-            >
-              <option value="PROPORTIONAL">Socio + empresa proporcional (default)</option>
-              <option value="EMPRESA_ABSORBS">Solo empresa absorbe</option>
-              <option value="ORIGINAL_PRICE">Comisión sobre precio original</option>
-              <option value="PAID_PRICE">Comisión sobre precio pagado</option>
-            </select>
-          </div>
         </div>
         {err && <div className="mt-3 rounded-lg bg-bad-soft px-3 py-2 text-sm text-bad-ink">{err}</div>}
         <div className="flex justify-end gap-2 mt-5">
@@ -1441,7 +1423,6 @@ function CampaignDetailModal({
               <span className={`text-xs uppercase font-bold px-2 py-0.5 rounded ${STATUS_PILL[data.status as keyof typeof STATUS_PILL].cls}`}>
                 {STATUS_PILL[data.status as keyof typeof STATUS_PILL].text}
               </span>
-              <span className="text-xs text-mute">Regla: {data.discountAbsorption}</span>
               <div className="ml-auto flex gap-1">
                 {data.status !== 'ACTIVE' && (
                   <button onClick={() => setStatus('ACTIVE')} className="btn-ghost text-xs">
@@ -1574,377 +1555,6 @@ function CampaignDetailModal({
   );
 }
 
-// =============================================================
-//                       COUPONS TAB (Fase 3)
-// =============================================================
-
-type CouponRow = {
-  id: string;
-  code: string;
-  discountPercent: string | number;
-  duration: 'FIRST_MONTH' | 'RECURRING';
-  status: 'ACTIVE' | 'PAUSED' | 'EXPIRED';
-  validFrom: string | null;
-  validUntil: string | null;
-  maxUses: number | null;
-  useCount: number;
-  applicablePlans: string;
-  referralCode: { code: string; ownerName: string; role: string } | null;
-  campaign: { name: string } | null;
-  _count: { uses: number };
-};
-
-const COUPON_STATUS_CLS: Record<CouponRow['status'], string> = {
-  ACTIVE: 'bg-ok-soft text-ok',
-  PAUSED: 'bg-amber-100 text-amber-800',
-  EXPIRED: 'bg-bg2 text-mute',
-};
-
-function CouponsTab() {
-  const [list, setList] = useState<CouponRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showCreate, setShowCreate] = useState(false);
-
-  async function load() {
-    setLoading(true);
-    try {
-      setList(await api<CouponRow[]>('/coupons'));
-    } catch (e: any) {
-      toast(e.message || 'Error', 'error');
-    } finally {
-      setLoading(false);
-    }
-  }
-  useEffect(() => {
-    load();
-  }, []);
-
-  async function setStatus(id: string, status: CouponRow['status']) {
-    await api(`/coupons/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
-    load();
-  }
-
-  async function remove(id: string) {
-    if (!confirm('¿Eliminar este cupón? El historial de usos se preserva.')) return;
-    try {
-      await api(`/coupons/${id}`, { method: 'DELETE' });
-      toast('Cupón eliminado', 'success');
-      load();
-    } catch (e: any) {
-      toast(e.message || 'Error', 'error');
-    }
-  }
-
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <div className="text-sm text-mute">
-          Los cupones aplican un descuento en el signup. Si están vinculados a un
-          influencer/embajador, también atribuyen la venta.
-        </div>
-        <button onClick={() => setShowCreate(true)} className="btn-primary text-sm">
-          <Icon name="plus" /> Nuevo cupón
-        </button>
-      </div>
-
-      {loading ? (
-        <div className="card card-pad h-32 animate-shimmer" />
-      ) : list.length === 0 ? (
-        <div className="card card-pad text-center py-12">
-          <div className="text-4xl mb-2">🎟</div>
-          <div className="font-semibold">Aún no hay cupones</div>
-          <div className="text-sm text-mute mt-1">
-            Crea uno para correr una promo o vincular descuentos a una campaña.
-          </div>
-        </div>
-      ) : (
-        <div className="card overflow-hidden p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[860px]">
-              <thead className="bg-bg2">
-                <tr>
-                  {['Código', 'Descuento', 'Duración', 'Atribución', 'Vigencia', 'Usos', 'Estado', ''].map((h) => (
-                    <th
-                      key={h}
-                      className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {list.map((c) => (
-                  <tr key={c.id} className="border-t border-line2 hover:bg-[#FAFAFB]">
-                    <td className="px-4 py-3 font-mono font-bold">{c.code}</td>
-                    <td className="px-4 py-3 font-semibold">
-                      {Number(c.discountPercent)}%
-                    </td>
-                    <td className="px-4 py-3 text-xs text-mute">
-                      {c.duration === 'RECURRING' ? 'Recurrente' : 'Primer mes'}
-                    </td>
-                    <td className="px-4 py-3 text-xs">
-                      {c.referralCode ? (
-                        <div>
-                          <div className="font-medium">{c.referralCode.ownerName}</div>
-                          <div className="text-mute font-mono">{c.referralCode.code}</div>
-                        </div>
-                      ) : c.campaign ? (
-                        <div className="text-mute">📣 {c.campaign.name}</div>
-                      ) : (
-                        <span className="text-mute">— Global</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-mute">
-                      {c.validFrom || c.validUntil ? (
-                        <>
-                          {c.validFrom ? fmtDate(c.validFrom) : '—'}
-                          {' → '}
-                          {c.validUntil ? fmtDate(c.validUntil) : '—'}
-                        </>
-                      ) : (
-                        'Sin límite'
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-xs">
-                      {c.useCount}
-                      {c.maxUses != null && (
-                        <span className="text-mute"> / {c.maxUses}</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${COUPON_STATUS_CLS[c.status]}`}
-                      >
-                        {c.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right whitespace-nowrap">
-                      {c.status === 'ACTIVE' && (
-                        <button
-                          onClick={() => setStatus(c.id, 'PAUSED')}
-                          className="text-xs text-amber-700 hover:underline mr-2"
-                        >
-                          Pausar
-                        </button>
-                      )}
-                      {c.status === 'PAUSED' && (
-                        <button
-                          onClick={() => setStatus(c.id, 'ACTIVE')}
-                          className="text-xs text-ok hover:underline mr-2"
-                        >
-                          Activar
-                        </button>
-                      )}
-                      <button
-                        onClick={() => remove(c.id)}
-                        className="text-xs text-bad hover:underline"
-                      >
-                        Eliminar
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {showCreate && (
-        <CreateCouponModal
-          onClose={() => setShowCreate(false)}
-          onCreated={() => {
-            setShowCreate(false);
-            load();
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
-function CreateCouponModal({
-  onClose,
-  onCreated,
-}: {
-  onClose: () => void;
-  onCreated: () => void;
-}) {
-  const [form, setForm] = useState({
-    code: '',
-    discountPercent: 10,
-    duration: 'FIRST_MONTH' as 'FIRST_MONTH' | 'RECURRING',
-    validFrom: '',
-    validUntil: '',
-    maxUses: '',
-    applicablePlans: '',
-    referralCodeId: '',
-    campaignId: '',
-  });
-  const [referrals, setReferrals] = useState<any[]>([]);
-  const [campaigns, setCampaigns] = useState<any[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    api<any>('/referrals/leaderboard').then((rows) => setReferrals(rows ?? [])).catch(() => {});
-    api<any[]>('/campaigns').then((rows) => setCampaigns(rows ?? [])).catch(() => {});
-  }, []);
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setErr(null);
-    setBusy(true);
-    try {
-      await api('/coupons', {
-        method: 'POST',
-        body: JSON.stringify({
-          code: form.code,
-          discountPercent: Number(form.discountPercent),
-          duration: form.duration,
-          validFrom: form.validFrom || null,
-          validUntil: form.validUntil || null,
-          maxUses: form.maxUses ? Number(form.maxUses) : null,
-          applicablePlans: form.applicablePlans,
-          referralCodeId: form.referralCodeId || null,
-          campaignId: form.campaignId || null,
-        }),
-      });
-      toast('Cupón creado', 'success');
-      onCreated();
-    } catch (e: any) {
-      setErr(e.message || 'No se pudo crear');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div
-      className="fixed inset-0 z-50 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4"
-      onClick={onClose}
-    >
-      <form
-        onSubmit={submit}
-        onClick={(e) => e.stopPropagation()}
-        className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-5 max-h-[90vh] overflow-auto"
-      >
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold m-0">Nuevo cupón</h2>
-          <button type="button" onClick={onClose} className="text-mute hover:text-ink text-xl leading-none">
-            ×
-          </button>
-        </div>
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="label">Código</label>
-              <input
-                className="input"
-                required
-                placeholder="JUAN10"
-                value={form.code}
-                onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
-              />
-            </div>
-            <div>
-              <label className="label">Descuento %</label>
-              <input
-                type="number"
-                min={1}
-                max={100}
-                className="input"
-                value={form.discountPercent}
-                onChange={(e) => setForm({ ...form, discountPercent: Number(e.target.value) })}
-              />
-            </div>
-          </div>
-          <div>
-            <label className="label">Duración del descuento</label>
-            <select
-              className="input"
-              value={form.duration}
-              onChange={(e) => setForm({ ...form, duration: e.target.value as any })}
-            >
-              <option value="FIRST_MONTH">Solo primer mes</option>
-              <option value="RECURRING">Recurrente mensual</option>
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="label">Vigencia desde</label>
-              <input
-                type="date"
-                className="input"
-                value={form.validFrom}
-                onChange={(e) => setForm({ ...form, validFrom: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="label">Vigencia hasta</label>
-              <input
-                type="date"
-                className="input"
-                value={form.validUntil}
-                onChange={(e) => setForm({ ...form, validUntil: e.target.value })}
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="label">Máx. usos (vacío = sin límite)</label>
-              <input
-                type="number"
-                min={1}
-                className="input"
-                value={form.maxUses}
-                onChange={(e) => setForm({ ...form, maxUses: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="label">Planes (CSV)</label>
-              <input
-                className="input"
-                placeholder="Elite o vacío para todos"
-                value={form.applicablePlans}
-                onChange={(e) => setForm({ ...form, applicablePlans: e.target.value })}
-              />
-            </div>
-          </div>
-          <div className="pt-2 border-t border-line text-xs uppercase tracking-wider text-mute font-semibold">
-            Atribución (opcional)
-          </div>
-          <div>
-            <label className="label">Vincular a campaña</label>
-            <select
-              className="input"
-              value={form.campaignId}
-              onChange={(e) => setForm({ ...form, campaignId: e.target.value })}
-            >
-              <option value="">— Sin atribución —</option>
-              {campaigns.map((c: any) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({c.ownerCode.code})
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-        {err && <div className="mt-3 rounded-lg bg-bad-soft px-3 py-2 text-sm text-bad-ink">{err}</div>}
-        <div className="flex justify-end gap-2 mt-5">
-          <button type="button" className="btn-ghost" onClick={onClose} disabled={busy}>
-            Cancelar
-          </button>
-          <button type="submit" className="btn-primary" disabled={busy}>
-            {busy ? 'Creando…' : 'Crear cupón'}
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
 
 // =============================================================
 //                       SUMMARY TAB (Fase 4)
@@ -1966,7 +1576,6 @@ type SummaryResp = {
     commRejectedUsd: number;
     socioPaidUsd: number;
     socioPendingUsd: number;
-    discountUsedUsd: number;
     netoEmpresaUsd: number;
   };
   topCampaigns: Array<{
@@ -2027,7 +1636,7 @@ function SummaryTab() {
         <Kpi label="MRR (30d)" value={fmtUsd(k.mrrUsd)} tone="brand" />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div className="card card-pad">
           <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1">
             Comisiones referidos
@@ -2045,15 +1654,6 @@ function SummaryTab() {
           <div className="space-y-1.5">
             <SumRow label="Pagado" value={fmtUsd(k.socioPaidUsd)} tone="ok" />
             <SumRow label="Pendiente" value={fmtUsd(k.socioPendingUsd)} tone="amber" />
-          </div>
-        </div>
-        <div className="card card-pad">
-          <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1">
-            Descuentos aplicados
-          </div>
-          <div className="text-2xl font-bold text-brand">{fmtUsd(k.discountUsedUsd)}</div>
-          <div className="text-xs text-mute mt-1">
-            Suma estimada por cupones × usos
           </div>
         </div>
       </div>

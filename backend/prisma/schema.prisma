@@ -393,7 +393,6 @@ model Tenant {
   suppliers           Supplier[]
   frequentProducts    FrequentProduct[]
   purchaseOrders      PurchaseOrder[]
-  couponUses          CouponUse[]
   badges              Badge[]
   qrPosters           QrPoster[]
   menuTranslations    MenuTranslation[]
@@ -1245,7 +1244,6 @@ model ReferralCode {
   uses            ReferralUse[]
   visits          ReferralVisit[]
   ownerOfCampaign Campaign?     @relation("CampaignOwner")
-  coupons         Coupon[]
 
   @@index([parentCodeId])
   @@index([campaignId])
@@ -1278,80 +1276,14 @@ model ReferralVisit {
 // el campo `ownerCodeId` apunta a él. La relación inversa se usa para
 // listar las campañas de un influencer.
 model Campaign {
-  id                 String         @id @default(uuid())
-  name               String
-  ownerCodeId        String         @unique
-  ownerCode          ReferralCode   @relation("CampaignOwner", fields: [ownerCodeId], references: [id], onDelete: Cascade)
-  status             CampaignStatus @default(ACTIVE)
-  // Configuración de absorción de descuento (4 modos).
-  // ORIGINAL_PRICE: comisiones sobre precio original; descuento sale del bolsillo de la empresa
-  // PAID_PRICE: comisiones sobre precio efectivamente pagado
-  // EMPRESA_ABSORBS: descuento sale solo de la empresa
-  // PROPORTIONAL: socio y empresa comparten el descuento proporcionalmente
-  discountAbsorption String         @default("PROPORTIONAL")
-  createdAt          DateTime       @default(now())
+  id          String         @id @default(uuid())
+  name        String
+  ownerCodeId String         @unique
+  ownerCode   ReferralCode   @relation("CampaignOwner", fields: [ownerCodeId], references: [id], onDelete: Cascade)
+  status      CampaignStatus @default(ACTIVE)
+  createdAt   DateTime       @default(now())
 
-  codes   ReferralCode[]
-  coupons Coupon[]
-}
-
-enum CouponStatus {
-  ACTIVE
-  PAUSED
-  EXPIRED
-}
-
-enum CouponDuration {
-  FIRST_MONTH
-  RECURRING
-}
-
-// Cupón de descuento. Mutuamente excluyente con ReferralCode (no son
-// la misma tabla aunque comparten el formato del código). Lookup en
-// signup: primero buscamos coupon, si no, referral.
-//
-// Asociación: opcionalmente vinculado a un ReferralCode (atribuye la venta
-// al influencer/embajador) o a una Campaign (atribuye al influencer dueño)
-// o ninguno (cupón "global" sin atribución, descuento solo).
-model Coupon {
-  id              String         @id @default(uuid())
-  code            String         @unique
-  discountPercent Decimal        @db.Decimal(5, 2)
-  validFrom       DateTime?
-  validUntil      DateTime?
-  maxUses         Int?
-  useCount        Int            @default(0)
-  // CSV de planNames donde aplica (vacío = todos). Ej: "Elite,Pro"
-  applicablePlans String         @default("")
-  duration        CouponDuration @default(FIRST_MONTH)
-  status          CouponStatus   @default(ACTIVE)
-  // Atribución (opcional). Si referralCodeId está, el uso del cupón
-  // también genera la comisión del referral. Si campaignId está, atribuye
-  // al influencer titular de la campaña. Si ambos null, es global (solo
-  // descuento, sin atribución).
-  referralCodeId  String?
-  referralCode    ReferralCode?  @relation(fields: [referralCodeId], references: [id], onDelete: SetNull)
-  campaignId      String?
-  campaign        Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  createdAt       DateTime       @default(now())
-
-  uses CouponUse[]
-
-  @@index([referralCodeId])
-  @@index([campaignId])
-  @@index([status])
-}
-
-model CouponUse {
-  id        String   @id @default(uuid())
-  couponId  String
-  coupon    Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
-  tenantId  String?
-  tenant    Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
-  createdAt DateTime @default(now())
-
-  @@index([couponId])
-  @@index([tenantId])
+  codes ReferralCode[]
 }
 
 model ReferralUse {

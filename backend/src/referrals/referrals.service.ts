@@ -445,7 +445,7 @@ export class ReferralsService {
     // findMany() previo bloqueaba el dashboard.
     const oneMonthAgo = new Date(Date.now() - 30 * 86400_000);
     const oneMonthAgoMs = oneMonthAgo.getTime();
-    const [campaigns, codes, uses, commByStatus, mrrAgg, coupons] = await Promise.all([
+    const [campaigns, codes, uses, commByStatus, mrrAgg] = await Promise.all([
       this.prisma.campaign.findMany({
         include: {
           ownerCode: { include: { uses: { include: { commissions: true } } } },
@@ -475,9 +475,6 @@ export class ReferralsService {
         },
         _sum: { amount: true },
       }),
-      this.prisma.coupon.findMany({
-        select: { id: true, status: true, useCount: true, discountPercent: true },
-      }),
     ]);
 
     const round = (n: number) => Math.round(n * 100) / 100;
@@ -495,13 +492,6 @@ export class ReferralsService {
 
     const influencerCount = codes.filter((c) => c.role === 'INFLUENCER').length;
     const ambassadorCount = codes.filter((c) => c.role === 'AMBASSADOR').length;
-
-    // Discount aplicado: suma de discountPercent * useCount * priceMonthly aprox.
-    // Nivel de detalle suficiente para el dashboard, no para contabilidad.
-    const discountUsedUsd = coupons.reduce(
-      (s, c) => s + Number(c.discountPercent) * c.useCount,
-      0,
-    );
 
     // Top campañas por MRR generado (últimos 30d).
     const campaignRows = campaigns.map((camp) => {
@@ -603,7 +593,6 @@ export class ReferralsService {
         commRejectedUsd: round(commRejectedUsd),
         socioPaidUsd: round(socioPaidUsd),
         socioPendingUsd: round(socioPendingUsd),
-        discountUsedUsd: round(discountUsedUsd),
         netoEmpresaUsd: 0, // placeholder; F5 calcula real
       },
       topCampaigns: campaignRows

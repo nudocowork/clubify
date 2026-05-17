@@ -11,7 +11,6 @@ import { Throttle } from '@nestjs/throttler';
 import {
   IsEmail,
   IsEnum,
-  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -26,8 +25,6 @@ import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorat
 import { Roles } from '../common/decorators/roles.decorator';
 import { Public } from '../common/decorators/public.decorator';
 
-const ABSORPTIONS = ['ORIGINAL_PRICE', 'PAID_PRICE', 'EMPRESA_ABSORBS', 'PROPORTIONAL'] as const;
-
 class CreateCampaignBody {
   @IsString() name!: string;
   @IsString() influencerName!: string;
@@ -35,13 +32,11 @@ class CreateCampaignBody {
   @IsString() influencerWhatsapp!: string;
   @IsOptional() @IsNumber() @Min(0) @Max(100) influencerCommissionPercent?: number;
   @IsOptional() @IsString() influencerCustomCode?: string;
-  @IsOptional() @IsIn(ABSORPTIONS as any) discountAbsorption?: string;
 }
 
 class UpdateCampaignBody {
   @IsOptional() @IsString() name?: string;
   @IsOptional() @IsEnum(CampaignStatus) status?: CampaignStatus;
-  @IsOptional() @IsIn(ABSORPTIONS as any) discountAbsorption?: string;
 }
 
 class AmbassadorBody {
