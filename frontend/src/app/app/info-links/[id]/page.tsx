@@ -10,6 +10,28 @@ import {
   resolveTemplate,
   type InfoLinkTemplate,
 } from '@/lib/info-link-templates';
+import { SectionCoverEditor } from '@/components/menu/SectionCoverEditor';
+import { SectionCoverPreview } from '@/components/menu/SectionCoverPreview';
+import { uploadCoverImage } from '@/lib/menu/upload-cover-image';
+import type { SectionCoverConfig } from '@/lib/menu/section-cover-config';
+import { SortableList, DragHandle } from '@/components/Sortable';
+
+/** Devuelve true si el botón está renderizado como cover, false si simple.
+ *  Si renderAs no está, se deriva de !!cover (compat botones viejos). */
+function isCoverMode(b: { renderAs?: 'simple' | 'cover'; cover?: any }) {
+  if (b.renderAs) return b.renderAs === 'cover';
+  return !!b.cover;
+}
+
+/** Asegura un _id estable por botón. Si falta, lo genera. */
+function ensureButtonId<B extends { _id?: string }>(b: B): B & { _id: string } {
+  if (b._id) return b as B & { _id: string };
+  const id =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `b_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+  return { ...(b as object), _id: id } as B & { _id: string };
+}
 
 type Section =
   | { type: 'heading'; text: string; level?: number }
@@ -22,6 +44,8 @@ type Section =
   | { type: 'embed_card' };
 
 type Button = {
+  /** Id estable para drag&drop sortable. Se autogenera si falta. */
+  _id?: string;
   label: string;
   type: 'WHATSAPP' | 'INSTAGRAM' | 'MAPS' | 'MENU' | 'CARD' | 'PROMO' | 'EXTERNAL';
   url?: string;
@@ -34,6 +58,19 @@ type Button = {
   // MAPS: locationId opcional — si null, usa el primer location del tenant
   locationId?: string | null;
   style?: 'primary' | 'secondary';
+  // Estilo visual del botón. 'simple' (pill clásico) o 'cover' (card
+  // visual tipo portada de sección de menú). Si está ausente, se
+  // deriva de `!!cover` para compat con botones viejos.
+  renderAs?: 'simple' | 'cover';
+  // Diseño visual cuando renderAs = 'cover'. Cuando renderAs = 'simple'
+  // se ignora pero se preserva por si el dueño vuelve a 'cover'.
+  cover?: SectionCoverConfig | null;
+  // Subtítulo que aparece debajo del título en la portada visual.
+  // Solo se usa cuando renderAs = 'cover'.
+  tagline?: string | null;
+  // Si false, no se renderiza en la página pública (sin borrarlo).
+  // Default true.
+  isActive?: boolean;
 };
 
 type InfoLink = {
@@ -68,10 +105,14 @@ export default function InfoLinkEditor() {
   const [busy, setBusy] = useState(false);
   const [stats, setStats] = useState<any>(null);
   const [locations, setLocations] = useState<Array<{ id: string; name: string }>>([]);
+  // Índice del botón al que se le está editando el cover en modal.
+  // null = modal cerrado.
+  const [coverEditingIdx, setCoverEditingIdx] = useState<number | null>(null);
 
   async function load() {
     const l = await api<InfoLink>(`/info-links/${id}`);
-    setLink(l);
+    // Garantiza _id por botón al primer load para drag&drop.
+    setLink({ ...l, buttons: l.buttons.map(ensureButtonId) });
     setTenant(await api('/tenants/me'));
     setStats(await api(`/info-links/${id}/stats`).catch(() => null));
     setLocations(
@@ -151,10 +192,15 @@ export default function InfoLinkEditor() {
 
   function addButton() {
     if (!link) return;
-    update('buttons', [
-      ...link.buttons,
-      { label: 'Botón nuevo', type: 'EXTERNAL', url: 'https://', style: 'primary' },
-    ]);
+    const fresh: Button = {
+      label: 'Botón nuevo',
+      type: 'EXTERNAL',
+      url: 'https://',
+      style: 'primary',
+      renderAs: 'simple',
+      isActive: true,
+    };
+    update('buttons', [...link.buttons, ensureButtonId(fresh)]);
   }
 
   function updateButton(i: number, patch: Partial<Button>) {
@@ -166,9 +212,41 @@ export default function InfoLinkEditor() {
 
   function removeButton(i: number) {
     if (!link) return;
+    if (!confirm('¿Eliminar este botón?')) return;
     const arr = [...link.buttons];
     arr.splice(i, 1);
     update('buttons', arr);
+  }
+
+  function duplicateButton(i: number) {
+    if (!link) return;
+    const src = link.buttons[i];
+    if (!src) return;
+    const copy = ensureButtonId({
+      ...src,
+      _id: undefined,
+      label: `${src.label} (copia)`,
+    });
+    const arr = [...link.buttons];
+    arr.splice(i + 1, 0, copy);
+    update('buttons', arr);
+  }
+
+  function reorderButtons(next: Button[]) {
+    update('buttons', next);
+  }
+
+  function setButtonRenderAs(i: number, mode: 'simple' | 'cover') {
+    if (!link) return;
+    const b = link.buttons[i];
+    if (!b) return;
+    // Al pasar a 'cover' por primera vez, abrimos el modal para que el
+    // dueño suba imagen y elija template. Si ya tenía cover, no abrimos
+    // — solo cambiamos el modo.
+    updateButton(i, { renderAs: mode });
+    if (mode === 'cover' && !b.cover) {
+      setCoverEditingIdx(i);
+    }
   }
 
   if (!link || !tenant) return <div className="text-mute">Cargando…</div>;
@@ -396,17 +474,82 @@ export default function InfoLinkEditor() {
               </button>
             </div>
 
-            <div className="space-y-2">
-              {link.buttons.length === 0 && (
-                <div className="text-mute text-sm text-center py-4">
-                  Sin botones. Agrega CTAs como WhatsApp, Maps, Menú embed.
-                </div>
-              )}
-              {link.buttons.map((b, i) => (
+            {link.buttons.length === 0 && (
+              <div className="text-mute text-sm text-center py-4">
+                Sin botones. Agrega CTAs como WhatsApp, Maps, Menú embed.
+              </div>
+            )}
+            <SortableList<Button & { id: string }>
+              items={link.buttons.map((b) => ({ ...ensureButtonId(b), id: b._id! }))}
+              onReorder={(next) => reorderButtons(next.map(({ id, ...rest }) => rest))}
+              className="space-y-2"
+            >
+              {(item, ctx) => {
+                const i = link.buttons.findIndex((b) => b._id === item._id);
+                if (i < 0) return null;
+                const b = link.buttons[i];
+                const coverMode = isCoverMode(b);
+                const active = b.isActive !== false;
+                return (
                 <div
-                  key={i}
-                  className="border border-line2 rounded-lg p-3 grid grid-cols-1 sm:grid-cols-[1fr_140px_auto] gap-2"
+                  className={`border border-line2 rounded-lg p-3 grid grid-cols-1 sm:grid-cols-[auto_1fr_140px_auto] gap-2 transition ${
+                    active ? '' : 'opacity-50 bg-bg2/30'
+                  }`}
                 >
+                  {/* Barra superior: drag handle + segmented Simple/Visual
+                      + active toggle + duplicar. Estilo segmented inspirado
+                      en el editor de secciones del menú. */}
+                  <div className="col-span-full flex items-center gap-2 flex-wrap">
+                    <DragHandle {...ctx.dragHandleProps} />
+                    <div className="inline-flex rounded-pill bg-bg2 p-0.5 text-[11px] font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => setButtonRenderAs(i, 'simple')}
+                        className={`px-3 py-1.5 rounded-pill transition ${
+                          coverMode
+                            ? 'text-mute hover:text-ink'
+                            : 'bg-white text-ink shadow-sm'
+                        }`}
+                      >
+                        Botón simple
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setButtonRenderAs(i, 'cover')}
+                        className={`px-3 py-1.5 rounded-pill transition ${
+                          coverMode
+                            ? 'bg-white text-ink shadow-sm'
+                            : 'text-mute hover:text-ink'
+                        }`}
+                      >
+                        ✨ Visual / portada
+                      </button>
+                    </div>
+                    <div className="flex-1" />
+                    <label className="flex items-center gap-1.5 text-[11px] text-mute cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={active}
+                        onChange={(e) =>
+                          updateButton(i, { isActive: e.target.checked })
+                        }
+                      />
+                      {active ? 'Activo' : 'Pausado'}
+                    </label>
+                    <button
+                      type="button"
+                      className="btn-ghost text-xs"
+                      onClick={() => duplicateButton(i)}
+                      title="Duplicar este botón"
+                    >
+                      ⎘ Duplicar
+                    </button>
+                  </div>
+
+                  {/* Reservamos la primera celda de la grid principal con
+                      un spacer para que el drag handle ya colocado en la
+                      barra superior no se duplique. */}
+                  <div className="hidden sm:block" />
                   <input
                     className="input"
                     placeholder="Texto del botón"
@@ -432,6 +575,59 @@ export default function InfoLinkEditor() {
                   >
                     <Icon name="trash" />
                   </button>
+
+                  {/* Cuando renderAs = 'cover': fila con preview + CTA edit
+                      + input rápido de subtítulo. Si no tiene cover guardado
+                      aún, mostramos CTA para abrir el editor (se autoabre
+                      al cambiar a 'Visual'). */}
+                  {coverMode && (
+                    <div className="col-span-full border-t border-line2 pt-3 space-y-2">
+                      <div className="flex items-center gap-3">
+                        {b.cover ? (
+                          <button
+                            type="button"
+                            className="flex-shrink-0 rounded-lg overflow-hidden border border-line hover:border-brand transition w-28"
+                            onClick={() => setCoverEditingIdx(i)}
+                            title="Editar diseño de la portada"
+                          >
+                            <SectionCoverPreview
+                              config={b.cover}
+                              title={b.label || 'Botón'}
+                              tagline={b.tagline || null}
+                              scale={112 / 360}
+                            />
+                          </button>
+                        ) : (
+                          <div className="w-28 h-20 rounded-lg border-2 border-dashed border-line flex items-center justify-center text-mute text-xs">
+                            sin portada
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <input
+                            className="input text-sm"
+                            placeholder="Subtítulo (ej: De especialidad)"
+                            value={b.tagline ?? ''}
+                            onChange={(e) =>
+                              updateButton(i, {
+                                tagline: e.target.value || null,
+                              })
+                            }
+                            maxLength={200}
+                          />
+                          <div className="text-[11px] text-mute mt-1">
+                            Aparece debajo del título en la portada.
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn-ghost text-xs"
+                          onClick={() => setCoverEditingIdx(i)}
+                        >
+                          🎨 Diseñar portada
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   {b.type === 'EXTERNAL' && (
                     <input
                       className="input col-span-full"
@@ -508,8 +704,9 @@ export default function InfoLinkEditor() {
                     </div>
                   )}
                 </div>
-              ))}
-            </div>
+                );
+              }}
+            </SortableList>
           </div>
 
           {/* Stats */}
@@ -582,6 +779,95 @@ export default function InfoLinkEditor() {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Modal editor de cover por botón. Reutiliza SectionCoverEditor
+          (el mismo del layout SECTIONS del menú) — así los botones se
+          configuran con la misma UX que las secciones de menú. */}
+      {coverEditingIdx !== null && link.buttons[coverEditingIdx] && (
+        <CoverModal
+          button={link.buttons[coverEditingIdx]}
+          onClose={() => setCoverEditingIdx(null)}
+          onPatch={(patch) => updateButton(coverEditingIdx, patch)}
+        />
+      )}
+    </div>
+  );
+}
+
+function CoverModal({
+  button,
+  onClose,
+  onPatch,
+}: {
+  button: Button;
+  onClose: () => void;
+  onPatch: (patch: Partial<Button>) => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-start justify-center overflow-y-auto p-0 sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-bg w-full max-w-5xl rounded-none sm:rounded-2xl shadow-xl my-0 sm:my-8"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 bg-bg z-10 flex items-center justify-between px-5 py-3 border-b border-line">
+          <div>
+            <div className="text-xs text-mute">Portada del botón</div>
+            <h2 className="font-semibold text-lg m-0">
+              {button.label || 'Sin título'}
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-mute hover:text-ink p-1"
+            aria-label="Cerrar"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="label">Subtítulo (tagline) — opcional</label>
+            <input
+              type="text"
+              className="input"
+              placeholder="Ej: De especialidad"
+              value={button.tagline ?? ''}
+              onChange={(e) => onPatch({ tagline: e.target.value || null })}
+              maxLength={200}
+            />
+            <p className="text-[11px] text-mute mt-1">
+              Aparece debajo del nombre en la portada. Vacío = sin subtítulo.
+            </p>
+          </div>
+
+          <SectionCoverEditor
+            title={button.label || 'Botón'}
+            tagline={button.tagline || null}
+            value={button.cover ?? null}
+            onChange={(cover) => onPatch({ cover })}
+            onUpload={uploadCoverImage}
+          />
+        </div>
+
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-line">
+          <button
+            type="button"
+            onClick={() => onPatch({ cover: null })}
+            className="btn-ghost text-xs"
+            title="Resetea el diseño visual (mantiene el botón en modo Visual)"
+          >
+            Reset diseño
+          </button>
+          <button type="button" onClick={onClose} className="btn-primary">
+            Listo
+          </button>
         </div>
       </div>
     </div>
@@ -761,27 +1047,42 @@ function PublicLinkPreview({
           <p className="text-[11px] text-mute mt-1 leading-snug">{link.subtitle}</p>
         )}
 
-        {/* Botones tipo Linktree */}
-        {link.buttons.length > 0 && (
+        {/* Botones tipo Linktree (o cards estilo "sección" si renderAs=cover).
+            Los pausados (isActive === false) no aparecen en la preview, igual
+            que en el público. */}
+        {link.buttons.some((b) => b.isActive !== false) && (
           <div className="space-y-2 mt-4 text-left">
-            {link.buttons.map((b, i) => (
-              <div
-                key={i}
-                className="block w-full py-2.5 px-4 rounded-2xl text-center text-[13px] font-semibold transition shadow-sm"
-                style={{
-                  background:
-                    b.style === 'secondary' ? '#fff' : primary,
-                  color: b.style === 'secondary' ? primary : '#fff',
-                  border: `1.5px solid ${primary}`,
-                  boxShadow:
-                    b.style === 'secondary'
-                      ? '0 1px 2px rgba(0,0,0,.04)'
-                      : `0 4px 12px ${primary}33`,
-                }}
-              >
-                {b.label}
-              </div>
-            ))}
+            {link.buttons
+              .filter((b) => b.isActive !== false)
+              .map((b, i) =>
+                isCoverMode(b) && b.cover ? (
+                  <div key={i} className="rounded-xl overflow-hidden">
+                    <SectionCoverPreview
+                      config={b.cover}
+                      title={b.label || 'Botón'}
+                      tagline={b.tagline || null}
+                      scale={0.45}
+                    />
+                  </div>
+                ) : (
+                  <div
+                    key={i}
+                    className="block w-full py-2.5 px-4 rounded-2xl text-center text-[13px] font-semibold transition shadow-sm"
+                    style={{
+                      background:
+                        b.style === 'secondary' ? '#fff' : primary,
+                      color: b.style === 'secondary' ? primary : '#fff',
+                      border: `1.5px solid ${primary}`,
+                      boxShadow:
+                        b.style === 'secondary'
+                          ? '0 1px 2px rgba(0,0,0,.04)'
+                          : `0 4px 12px ${primary}33`,
+                    }}
+                  >
+                    {b.label}
+                  </div>
+                ),
+              )}
           </div>
         )}
 

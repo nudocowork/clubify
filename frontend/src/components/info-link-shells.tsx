@@ -1,6 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 import type { ReactNode } from 'react';
 import type { InfoLinkTemplate } from '@/lib/info-link-templates';
+import { SectionCoverPreview } from '@/components/menu/SectionCoverPreview';
 
 // =============================================================
 //  Tipos compartidos
@@ -36,7 +37,35 @@ export type ResolvedButton = {
   newTab: boolean;
   isPrimary: boolean;
   onClick: () => void;
+  /** Config visual tipo sección de menú. Si está seteado, el botón se
+   *  renderiza como una card grande con cover (igual que las secciones
+   *  del layout SECTIONS del menú), pero sigue siendo un <a> clickable
+   *  que redirige al href. Independiente del template del InfoLink. */
+  cover: unknown;
+  /** Subtítulo opcional debajo del título en la portada visual. */
+  tagline: string | null;
 };
+
+/** Botón con cover. Mismo render en todos los shells para coherencia
+ *  visual — el cover ya define su propio estilo (imagen, tipografía,
+ *  overlay, alto). */
+function CoverButtonLink({ b }: { b: ResolvedButton }) {
+  return (
+    <a
+      href={b.href}
+      target={b.newTab ? '_blank' : undefined}
+      rel="noreferrer"
+      onClick={b.onClick}
+      className="block w-full rounded-2xl overflow-hidden shadow-md hover:shadow-xl transition active:scale-[0.99]"
+    >
+      <SectionCoverPreview
+        config={b.cover}
+        title={b.label}
+        tagline={b.tagline ?? null}
+      />
+    </a>
+  );
+}
 
 export type ShellProps = {
   tenant: ShellTenant;
@@ -89,22 +118,26 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode }: Sh
 
         {buttons.length > 0 && (
           <div className="mt-7 space-y-2.5">
-            {buttons.map((b, i) => (
-              <a
-                key={i}
-                href={b.href}
-                target={b.newTab ? '_blank' : undefined}
-                rel="noreferrer"
-                onClick={b.onClick}
-                className={`block w-full px-4 py-3 rounded-2xl text-center text-sm font-semibold transition backdrop-blur-md ${
-                  b.isPrimary
-                    ? 'bg-white text-[#1A0E2E] shadow-xl hover:shadow-2xl'
-                    : 'bg-white/10 text-white border border-white/20 hover:bg-white/15'
-                }`}
-              >
-                {b.label}
-              </a>
-            ))}
+            {buttons.map((b, i) =>
+              b.cover ? (
+                <CoverButtonLink key={i} b={b} />
+              ) : (
+                <a
+                  key={i}
+                  href={b.href}
+                  target={b.newTab ? '_blank' : undefined}
+                  rel="noreferrer"
+                  onClick={b.onClick}
+                  className={`block w-full px-4 py-3 rounded-2xl text-center text-sm font-semibold transition backdrop-blur-md ${
+                    b.isPrimary
+                      ? 'bg-white text-[#1A0E2E] shadow-xl hover:shadow-2xl'
+                      : 'bg-white/10 text-white border border-white/20 hover:bg-white/15'
+                  }`}
+                >
+                  {b.label}
+                </a>
+              ),
+            )}
           </div>
         )}
 
@@ -182,23 +215,27 @@ export function MinimalShell({ tenant, link, primary, buttons, sectionsNode }: S
 
         {buttons.length > 0 && (
           <div className="mt-7 space-y-2">
-            {buttons.map((b, i) => (
-              <a
-                key={i}
-                href={b.href}
-                target={b.newTab ? '_blank' : undefined}
-                rel="noreferrer"
-                onClick={b.onClick}
-                className={`block w-full px-4 py-3 rounded-xl border text-sm text-center font-medium transition ${
-                  b.isPrimary
-                    ? 'border-transparent text-white'
-                    : 'border-line text-ink hover:bg-bg2/60'
-                }`}
-                style={b.isPrimary ? { background: primary } : undefined}
-              >
-                {b.label}
-              </a>
-            ))}
+            {buttons.map((b, i) =>
+              b.cover ? (
+                <CoverButtonLink key={i} b={b} />
+              ) : (
+                <a
+                  key={i}
+                  href={b.href}
+                  target={b.newTab ? '_blank' : undefined}
+                  rel="noreferrer"
+                  onClick={b.onClick}
+                  className={`block w-full px-4 py-3 rounded-xl border text-sm text-center font-medium transition ${
+                    b.isPrimary
+                      ? 'border-transparent text-white'
+                      : 'border-line text-ink hover:bg-bg2/60'
+                  }`}
+                  style={b.isPrimary ? { background: primary } : undefined}
+                >
+                  {b.label}
+                </a>
+              ),
+            )}
           </div>
         )}
 
@@ -218,8 +255,13 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode }: Shel
     link.heroImageUrl ||
     `linear-gradient(135deg, ${primary}, ${tenant.secondaryColor || '#15803D'})`;
   const galleryShown = (link.gallery ?? []).slice(0, 6);
-  const primaryBtn = buttons.find((b) => b.isPrimary) ?? buttons[0];
-  const secondaryBtns = buttons.filter((b) => b !== primaryBtn).slice(0, 3);
+  // Los botones con cover se renderizan aparte como cards full-width.
+  // El layout original (primaryBtn pill + secondaryBtns en grid 3) solo
+  // aplica a los botones sin cover.
+  const coverBtns = buttons.filter((b) => !!b.cover);
+  const regularBtns = buttons.filter((b) => !b.cover);
+  const primaryBtn = regularBtns.find((b) => b.isPrimary) ?? regularBtns[0];
+  const secondaryBtns = regularBtns.filter((b) => b !== primaryBtn).slice(0, 3);
 
   return (
     <div className="min-h-screen bg-[#FAFAFA]">
@@ -271,6 +313,13 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode }: Shel
             </div>
           )}
 
+          {coverBtns.length > 0 && (
+            <div className="mt-5 space-y-2.5">
+              {coverBtns.map((b, i) => (
+                <CoverButtonLink key={`cov-${i}`} b={b} />
+              ))}
+            </div>
+          )}
           {primaryBtn && (
             <a
               href={primaryBtn.href}
@@ -350,23 +399,29 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode }: S
           )}
           {buttons.length > 0 && (
             <div className="flex gap-2 mt-3 flex-wrap">
-              {buttons.slice(0, 4).map((b, i) => (
-                <a
-                  key={i}
-                  href={b.href}
-                  target={b.newTab ? '_blank' : undefined}
-                  rel="noreferrer"
-                  onClick={b.onClick}
-                  className={`text-[11px] font-semibold px-3 py-1.5 rounded-full ${
-                    b.isPrimary
-                      ? 'text-white'
-                      : 'border border-line text-ink hover:bg-bg2/40'
-                  }`}
-                  style={b.isPrimary ? { background: primary } : undefined}
-                >
-                  {b.label}
-                </a>
-              ))}
+              {buttons.slice(0, 4).map((b, i) =>
+                b.cover ? (
+                  <div key={i} className="basis-full">
+                    <CoverButtonLink b={b} />
+                  </div>
+                ) : (
+                  <a
+                    key={i}
+                    href={b.href}
+                    target={b.newTab ? '_blank' : undefined}
+                    rel="noreferrer"
+                    onClick={b.onClick}
+                    className={`text-[11px] font-semibold px-3 py-1.5 rounded-full ${
+                      b.isPrimary
+                        ? 'text-white'
+                        : 'border border-line text-ink hover:bg-bg2/40'
+                    }`}
+                    style={b.isPrimary ? { background: primary } : undefined}
+                  >
+                    {b.label}
+                  </a>
+                ),
+              )}
             </div>
           )}
         </div>
@@ -460,7 +515,10 @@ export function NeonShell({ tenant, link, primary, buttons, sectionsNode }: Shel
 
         {buttons.length > 0 && (
           <div className="mt-7 space-y-2.5">
-            {buttons.map((b, i) => (
+            {buttons.map((b, i) =>
+              b.cover ? (
+                <CoverButtonLink key={i} b={b} />
+              ) : (
               <a
                 key={i}
                 href={b.href}
@@ -481,7 +539,8 @@ export function NeonShell({ tenant, link, primary, buttons, sectionsNode }: Shel
               >
                 {b.label}
               </a>
-            ))}
+              ),
+            )}
           </div>
         )}
 

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { InfoLinkShell, ResolvedButton } from '@/components/info-link-shells';
 import { resolveTemplate } from '@/lib/info-link-templates';
+import { useLocale } from '@/lib/i18n';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
@@ -16,6 +17,10 @@ type Button = {
   waMessage?: string;
   locationId?: string | null;
   style?: 'primary' | 'secondary';
+  renderAs?: 'simple' | 'cover';
+  cover?: unknown;
+  tagline?: string | null;
+  isActive?: boolean;
 };
 
 type Location = {
@@ -54,32 +59,39 @@ type Link = {
 
 export default function PublicInfoLink() {
   const { slug, linkSlug } = useParams<{ slug: string; linkSlug: string }>();
+  const [locale] = useLocale();
   const [data, setData] = useState<{ tenant: Tenant; link: Link } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [menu, setMenu] = useState<any[]>([]);
   const [storefront, setStorefront] = useState<any>(null);
 
   useEffect(() => {
-    fetch(`${API}/api/public/i/${slug}/${linkSlug}`)
+    let cancelled = false;
+    fetch(`${API}/api/public/i/${slug}/${linkSlug}?locale=${locale}`)
       .then(async (r) => {
         if (!r.ok) throw new Error('No disponible');
         return r.json();
       })
       .then((d) => {
+        if (cancelled) return;
         setData(d);
-        // Si tiene embeds, prefetch
+        // Si tiene embeds, prefetch — también traducidos para coherencia
         const types = (d.link.sections || []).map((s: any) => s.type);
         if (types.includes('embed_menu')) {
-          fetch(`${API}/api/public/m/${slug}/menu`)
+          fetch(`${API}/api/public/m/${slug}/menu?locale=${locale}`)
             .then((r) => r.json())
-            .then(setMenu);
+            .then((m) => {
+              if (!cancelled) setMenu(m);
+            });
         }
         if (types.includes('embed_promotions') || types.includes('embed_card')) {
-          fetch(`${API}/api/public/m/${slug}`)
+          fetch(`${API}/api/public/m/${slug}?locale=${locale}`)
             .then((r) => r.json())
-            .then(setStorefront);
+            .then((sf) => {
+              if (!cancelled) setStorefront(sf);
+            });
         }
-        // Detectar si vino por QR
+        // Detectar si vino por QR (sólo una vez, no depende de locale)
         const ref = new URLSearchParams(window.location.search).get('ref');
         if (ref === 'qr') {
           fetch(`${API}/api/public/i/${d.link.id}/track`, {
@@ -89,8 +101,13 @@ export default function PublicInfoLink() {
           });
         }
       })
-      .catch((e) => setErr(e.message));
-  }, [slug, linkSlug]);
+      .catch((e) => {
+        if (!cancelled) setErr(e.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [slug, linkSlug, locale]);
 
   function trackClick(label: string) {
     if (!data) return;
@@ -172,11 +189,16 @@ export default function PublicInfoLink() {
     }).format(n);
   }
 
-  // Resuelve los buttons del editor a {href, target, isPrimary, onClick}
+  // Resuelve los buttons del editor a {href, target, isPrimary, onClick}.
+  // Los pausados (isActive === false) no se renderizan. El cover se
+  // entrega solo cuando renderAs === 'cover' (o legacy: !!cover sin
+  // renderAs explícito).
   const resolvedButtons: ResolvedButton[] = link.buttons
+    .filter((b) => b.isActive !== false)
     .map((b) => {
       const href = buttonHref(b);
       if (!href) return null;
+      const useCover = b.renderAs ? b.renderAs === 'cover' : !!b.cover;
       return {
         label: b.label,
         href,
@@ -187,6 +209,8 @@ export default function PublicInfoLink() {
           b.type === 'WHATSAPP',
         isPrimary: b.style !== 'secondary',
         onClick: () => trackClick(b.label),
+        cover: useCover ? b.cover : null,
+        tagline: (useCover ? b.tagline ?? null : null) as string | null,
       };
     })
     .filter((x): x is ResolvedButton => !!x);
