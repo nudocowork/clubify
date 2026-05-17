@@ -3,9 +3,10 @@ import { PassesService } from './passes.service';
 import { PassesController } from './passes.controller';
 import { WalletModule } from '../wallet/wallet.module';
 import { AutomationsModule } from '../automations/automations.module';
+import { CatalogModule } from '../catalog/catalog.module';
 
 @Module({
-  imports: [WalletModule, AutomationsModule],
+  imports: [WalletModule, AutomationsModule, CatalogModule],
   providers: [PassesService],
   controllers: [PassesController],
   exports: [PassesService],

@@ -1,21 +1,68 @@
-import { Controller, Get, NotFoundException, Param } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  Query,
+} from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { Public } from '../common/decorators/public.decorator';
+import {
+  TranslatableItem,
+  TranslationService,
+  normalizeLocale,
+} from './translation.service';
+
+// Forma exacta del tenant con sus relaciones para el storefront público.
+// Mantener este `include` en sync con el findUnique de storefront() — si
+// agregás una relación nueva, sumala acá también para que TS la vea.
+const STOREFRONT_TENANT_INCLUDE = {
+  storefront: true,
+  locations: { where: { isActive: true } },
+  plan: { select: { name: true } },
+} as const;
+
+type StorefrontTenant = Prisma.TenantGetPayload<{
+  include: typeof STOREFRONT_TENANT_INCLUDE;
+}>;
+
+type PublicLocation = {
+  id: string;
+  name: string;
+  address: string | null;
+  latitude: number;
+  longitude: number;
+};
+
+type PublicPromotion = {
+  id: string;
+  name: string;
+  description: string | null;
+  imageUrl: string | null;
+  type: string;
+  value: number;
+  originalPrice: number | null;
+  validUntil: Date | null;
+};
 
 @Controller('public/m')
 export class PublicMenuController {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private translation: TranslationService,
+  ) {}
 
   @Public()
   @Get(':slug')
-  async storefront(@Param('slug') slug: string) {
+  async storefront(
+    @Param('slug') slug: string,
+    @Query('locale') localeRaw?: string,
+  ) {
+    const locale = normalizeLocale(localeRaw);
     const t = await this.prisma.tenant.findUnique({
       where: { slug },
-      include: {
-        storefront: true,
-        locations: { where: { isActive: true } },
-        plan: { select: { name: true } },
-      },
+      include: STOREFRONT_TENANT_INCLUDE,
     });
     if (!t || t.status === 'SUSPENDED')
       throw new NotFoundException('Negocio no disponible');
@@ -30,6 +77,91 @@ export class PublicMenuController {
       orderBy: { createdAt: 'desc' },
     });
 
+    const description = t.storefront?.description ?? '';
+    const locations = t.locations.map((l) => ({
+      id: l.id,
+      name: l.name,
+      address: l.address,
+      latitude: Number(l.latitude),
+      longitude: Number(l.longitude),
+    }));
+    const promotionsOut = promotions.map((p) => ({
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      imageUrl: p.imageUrl,
+      type: p.type,
+      value: Number(p.value),
+      originalPrice: p.originalPrice ? Number(p.originalPrice) : null,
+      validUntil: p.validUntil,
+    }));
+
+    // Traduce description del storefront + nombres/descripciones de
+    // promociones. brandName, addresses y locations.name son ruidosos
+    // de traducir (NudoCowork → NudoCowork, calles → mismas calles) y
+    // los saltamos.
+    if (locale !== 'es') {
+      const items: TranslatableItem[] = [];
+      if (description) {
+        items.push({
+          entityType: 'storefront',
+          entityId: t.id,
+          field: 'description',
+          text: description,
+        });
+      }
+      for (const p of promotionsOut) {
+        if (p.name) {
+          items.push({
+            entityType: 'promotion',
+            entityId: p.id,
+            field: 'name',
+            text: p.name,
+          });
+        }
+        if (p.description) {
+          items.push({
+            entityType: 'promotion',
+            entityId: p.id,
+            field: 'description',
+            text: p.description,
+          });
+        }
+      }
+      if (items.length > 0) {
+        const tr = await this.translation.translateMenuBatch(
+          t.id,
+          items,
+          locale,
+        );
+        const get = (et: string, id: string, field: string, fb: string) =>
+          tr.get(`${et}:${id}:${field}`) ?? fb;
+        // mutación local (los map de arriba ya devolvieron objetos
+        // nuevos, no toca cache de prisma)
+        const newDescription = get(
+          'storefront',
+          t.id,
+          'description',
+          description,
+        );
+        for (const p of promotionsOut) {
+          if (p.name) p.name = get('promotion', p.id, 'name', p.name);
+          if (p.description)
+            p.description = get('promotion', p.id, 'description', p.description);
+        }
+        return this.buildStorefrontResponse(t, newDescription, locations, promotionsOut);
+      }
+    }
+
+    return this.buildStorefrontResponse(t, description, locations, promotionsOut);
+  }
+
+  private buildStorefrontResponse(
+    t: StorefrontTenant,
+    description: string,
+    locations: PublicLocation[],
+    promotions: PublicPromotion[],
+  ) {
     return {
       id: t.id,
       slug: t.slug,
@@ -49,12 +181,17 @@ export class PublicMenuController {
       instagramUrl: t.instagramUrl,
       mapsUrl: t.mapsUrl,
       currency: t.currency,
-      description: t.storefront?.description ?? '',
+      description,
       heroImageUrl: t.storefront?.heroImageUrl ?? null,
       blocks: t.storefront?.blocks ?? [],
       theme: t.storefront?.theme ?? {},
       menuLayout: t.storefront?.menuLayout ?? 'CLASSIC',
       ordersEnabled: t.storefront?.ordersEnabled ?? true,
+      // Solo aplica a la vista delivery (link público sin ?mesa). La vista
+      // mesa SIEMPRE se renderiza informativa, sin importar este flag.
+      ordersDeliveryEnabled:
+        (t.storefront?.ordersEnabled ?? true) &&
+        (t.storefront?.ordersDeliveryEnabled ?? true),
       pageBackgroundColor: t.storefront?.pageBackgroundColor ?? null,
       backButtonConfig: t.storefront?.backButtonConfig ?? null,
       popup:
@@ -66,29 +203,18 @@ export class PublicMenuController {
             }
           : null,
       planName: t.plan?.name ?? null,
-      locations: t.locations.map((l) => ({
-        id: l.id,
-        name: l.name,
-        address: l.address,
-        latitude: Number(l.latitude),
-        longitude: Number(l.longitude),
-      })),
-      promotions: promotions.map((p) => ({
-        id: p.id,
-        name: p.name,
-        description: p.description,
-        imageUrl: p.imageUrl,
-        type: p.type,
-        value: Number(p.value),
-        originalPrice: p.originalPrice ? Number(p.originalPrice) : null,
-        validUntil: p.validUntil,
-      })),
+      locations,
+      promotions,
     };
   }
 
   @Public()
   @Get(':slug/menu')
-  async menu(@Param('slug') slug: string) {
+  async menu(
+    @Param('slug') slug: string,
+    @Query('locale') localeRaw?: string,
+  ) {
+    const locale = normalizeLocale(localeRaw);
     const t = await this.prisma.tenant.findUnique({
       where: { slug },
       select: {
@@ -194,26 +320,185 @@ export class PublicMenuController {
       .filter((p: any) => p.isRecommended)
       .map(mapProduct);
 
-    if (recommended.length > 0) {
-      return [
-        {
-          id: '__recommended__',
-          name: 'Recomendados',
-          slug: 'recomendados',
-          description: 'Lo más pedido por nuestros clientes.',
-          imageUrl: null,
-          // Cover editable desde /app/menu (botón 🎨 en la entrada
-          // virtual "Recomendados"). Si el tenant no editó, queda null
-          // y el frontend usa el header default minimal.
-          tagline: t.storefront?.recommendedTagline ?? null,
-          coverConfig: t.storefront?.recommendedCoverConfig ?? null,
-          products: recommended,
-          subsections: [],
-        },
-        ...mapped,
-      ];
-    }
+    const full =
+      recommended.length > 0
+        ? [
+            {
+              id: '__recommended__',
+              name: 'Recomendados',
+              slug: 'recomendados',
+              description: 'Lo más pedido por nuestros clientes.',
+              imageUrl: null,
+              // Cover editable desde /app/menu (botón 🎨 en la entrada
+              // virtual "Recomendados"). Si el tenant no editó, queda null
+              // y el frontend usa el header default minimal.
+              tagline: t.storefront?.recommendedTagline ?? null,
+              coverConfig: t.storefront?.recommendedCoverConfig ?? null,
+              products: recommended,
+              subsections: [],
+            },
+            ...mapped,
+          ]
+        : mapped;
 
-    return mapped;
+    // Fast-path: locale=es es la fuente canónica; ningún tenant edita en
+    // EN/PT en este Fase, así que devolvemos directo sin tocar nada.
+    if (locale === 'es') return full;
+
+    return this.applyTranslations(t.id, full, locale);
+  }
+
+  /**
+   * Camina el árbol del menú, junta todos los strings traducibles (sin
+   * duplicar identidad), pide traducciones al TranslationService (cache
+   * + Claude) y devuelve un árbol nuevo con los textos sustituidos.
+   * Mantiene el árbol original intacto.
+   *
+   * NOTA sobre la sección virtual `__recommended__`:
+   *  - El TÍTULO de la sección ("Recomendados") y su descripción los
+   *    traduce el frontend con i18n keys (Fase 1, sin tokens).
+   *  - Los PRODUCTOS dentro sí se traducen en backend, pero reusan la
+   *    misma cache key que sus categorías reales (productId es el
+   *    mismo), entonces no duplican llamadas a Claude ni filas en
+   *    MenuTranslation.
+   */
+  private async applyTranslations(
+    tenantId: string,
+    sections: any[],
+    locale: string,
+  ) {
+    const items: TranslatableItem[] = [];
+
+    const collectFromProduct = (p: any) => {
+      if (p.name) {
+        items.push({
+          entityType: 'product',
+          entityId: p.id,
+          field: 'name',
+          text: p.name,
+        });
+      }
+      if (p.description) {
+        items.push({
+          entityType: 'product',
+          entityId: p.id,
+          field: 'description',
+          text: p.description,
+        });
+      }
+      for (const v of p.variants ?? []) {
+        if (v.name) {
+          items.push({
+            entityType: 'variant',
+            entityId: v.id,
+            field: 'name',
+            text: v.name,
+          });
+        }
+        if (v.groupName) {
+          items.push({
+            entityType: 'variant',
+            entityId: v.id,
+            field: 'groupName',
+            text: v.groupName,
+          });
+        }
+      }
+      for (const e of p.extras ?? []) {
+        if (e.name) {
+          items.push({
+            entityType: 'extra',
+            entityId: e.id,
+            field: 'name',
+            text: e.name,
+          });
+        }
+      }
+    };
+
+    const collectFromCategory = (c: any) => {
+      // Saltear sección virtual; el frontend la traduce con i18n keys.
+      if (c.id === '__recommended__') {
+        for (const p of c.products ?? []) collectFromProduct(p);
+        return;
+      }
+      if (c.name) {
+        items.push({
+          entityType: 'category',
+          entityId: c.id,
+          field: 'name',
+          text: c.name,
+        });
+      }
+      if (c.description) {
+        items.push({
+          entityType: 'category',
+          entityId: c.id,
+          field: 'description',
+          text: c.description,
+        });
+      }
+      if (c.tagline) {
+        items.push({
+          entityType: 'category',
+          entityId: c.id,
+          field: 'tagline',
+          text: c.tagline,
+        });
+      }
+      for (const p of c.products ?? []) collectFromProduct(p);
+      for (const sub of c.subsections ?? []) collectFromCategory(sub);
+    };
+
+    for (const c of sections) collectFromCategory(c);
+
+    const tr = await this.translation.translateMenuBatch(
+      tenantId,
+      items,
+      locale,
+    );
+    const get = (
+      et: TranslatableItem['entityType'],
+      id: string,
+      field: TranslatableItem['field'],
+      fallback: string | null,
+    ) => tr.get(`${et}:${id}:${field}`) ?? fallback;
+
+    const mapProduct = (p: any) => ({
+      ...p,
+      name: get('product', p.id, 'name', p.name) ?? p.name,
+      description: get('product', p.id, 'description', p.description) ?? p.description,
+      variants: (p.variants ?? []).map((v: any) => ({
+        ...v,
+        name: get('variant', v.id, 'name', v.name) ?? v.name,
+        groupName: get('variant', v.id, 'groupName', v.groupName) ?? v.groupName,
+      })),
+      extras: (p.extras ?? []).map((e: any) => ({
+        ...e,
+        name: get('extra', e.id, 'name', e.name) ?? e.name,
+      })),
+    });
+
+    const mapCategory = (c: any) => {
+      if (c.id === '__recommended__') {
+        return { ...c, products: (c.products ?? []).map(mapProduct) };
+      }
+      return {
+        ...c,
+        name: get('category', c.id, 'name', c.name) ?? c.name,
+        description:
+          c.description == null
+            ? c.description
+            : get('category', c.id, 'description', c.description),
+        tagline:
+          c.tagline == null
+            ? c.tagline
+            : get('category', c.id, 'tagline', c.tagline),
+        products: (c.products ?? []).map(mapProduct),
+        subsections: (c.subsections ?? []).map(mapCategory),
+      };
+    };
+
+    return sections.map(mapCategory);
   }
 }

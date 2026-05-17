@@ -6,15 +6,30 @@ import { ProductsController } from './products.controller';
 import { PublicMenuController } from './public-menu.controller';
 import { AdicionalesService } from './adicionales.service';
 import { AdicionalesController } from './adicionales.controller';
+import { TranslationService } from './translation.service';
+import { TranslationsAdminService } from './translations.service';
+import { TranslationsController } from './translations.controller';
 
 @Module({
-  providers: [CategoriesService, ProductsService, AdicionalesService],
+  providers: [
+    CategoriesService,
+    ProductsService,
+    AdicionalesService,
+    TranslationService,
+    TranslationsAdminService,
+  ],
   controllers: [
     CategoriesController,
     ProductsController,
     PublicMenuController,
     AdicionalesController,
+    TranslationsController,
   ],
-  exports: [CategoriesService, ProductsService, AdicionalesService],
+  exports: [
+    CategoriesService,
+    ProductsService,
+    AdicionalesService,
+    TranslationService,
+  ],
 })
 export class CatalogModule {}

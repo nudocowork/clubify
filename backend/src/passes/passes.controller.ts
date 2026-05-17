@@ -8,6 +8,11 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Public } from '../common/decorators/public.decorator';
+import {
+  TranslatableItem,
+  TranslationService,
+  normalizeLocale,
+} from '../catalog/translation.service';
 
 class IssueBody {
   @IsUUID() cardId!: string;
@@ -34,6 +39,7 @@ export class PassesController {
     private svc: PassesService,
     private wallet: WalletService,
     private prisma: PrismaService,
+    private translator: TranslationService,
   ) {}
 
   /**
@@ -42,11 +48,16 @@ export class PassesController {
    */
   @Public()
   @Get('enroll/:cardId')
-  async getEnrollCard(@Param('cardId') cardId: string) {
+  async getEnrollCard(
+    @Param('cardId') cardId: string,
+    @Query('locale') localeRaw?: string,
+  ) {
+    const locale = normalizeLocale(localeRaw);
     const card = await this.prisma.card.findUnique({
       where: { id: cardId },
       select: {
         id: true,
+        tenantId: true,
         name: true,
         type: true,
         description: true,
@@ -70,7 +81,39 @@ export class PassesController {
     if (!card || !card.isActive || card.tenant.status === 'SUSPENDED') {
       return { available: false };
     }
-    return { available: true, card };
+    if (locale === 'es') {
+      return { available: true, card };
+    }
+    // Fase 5: traducción de campos visibles en la página de enrollment.
+    // terms y otros campos legales se mantienen en ES porque el dueño
+    // probablemente los redactó con intención específica (legal/marca).
+    const items: TranslatableItem[] = [];
+    if (card.name) {
+      items.push({ entityType: 'card', entityId: card.id, field: 'name', text: card.name });
+    }
+    if (card.description) {
+      items.push({ entityType: 'card', entityId: card.id, field: 'description', text: card.description });
+    }
+    if (card.rewardText) {
+      items.push({ entityType: 'card', entityId: card.id, field: 'rewardText', text: card.rewardText });
+    }
+    if (items.length === 0) return { available: true, card };
+    const tr = await this.translator.translateMenuBatch(
+      card.tenantId,
+      items,
+      locale,
+    );
+    return {
+      available: true,
+      card: {
+        ...card,
+        name: tr.get(`card:${card.id}:name`) ?? card.name,
+        description:
+          tr.get(`card:${card.id}:description`) ?? card.description,
+        rewardText:
+          tr.get(`card:${card.id}:rewardText`) ?? card.rewardText,
+      },
+    };
   }
 
   @Public()

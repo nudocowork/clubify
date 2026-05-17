@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { InfoLinksService } from './info-links.service';
 import { Public } from '../common/decorators/public.decorator';
 
@@ -11,8 +11,9 @@ export class PublicInfoLinksController {
   get(
     @Param('tenantSlug') tenantSlug: string,
     @Param('linkSlug') linkSlug: string,
+    @Query('locale') locale?: string,
   ) {
-    return this.svc.getPublic(tenantSlug, linkSlug);
+    return this.svc.getPublic(tenantSlug, linkSlug, locale);
   }
 
   @Public()

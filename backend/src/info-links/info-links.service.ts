@@ -1,6 +1,11 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import {
+  TranslatableItem,
+  TranslationService,
+  normalizeLocale,
+} from '../catalog/translation.service';
 
 function slugify(s: string) {
   return (
@@ -28,7 +33,10 @@ export type InfoLinkDto = {
 
 @Injectable()
 export class InfoLinksService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private translator: TranslationService,
+  ) {}
 
   private tid(user: AuthUser, override?: string) {
     if (user.role === 'SUPER_ADMIN') {
@@ -135,7 +143,8 @@ export class InfoLinksService {
 
   // ============ Público ============
 
-  async getPublic(tenantSlug: string, linkSlug: string) {
+  async getPublic(tenantSlug: string, linkSlug: string, localeRaw?: string) {
+    const locale = normalizeLocale(localeRaw);
     const tenant = await this.prisma.tenant.findUnique({
       where: { slug: tenantSlug },
       select: {
@@ -177,7 +186,45 @@ export class InfoLinksService {
       .create({ data: { infoLinkId: link.id, type: 'view' } })
       .catch(() => null);
 
-    return { tenant, link };
+    if (locale === 'es') return { tenant, link };
+
+    // Fase 5: traducción del title + subtitle del InfoLink. El JSON
+    // de sections/buttons queda en ES por ahora (estructuras complejas
+    // — Fase 6 si hace falta).
+    const items: TranslatableItem[] = [];
+    if (link.title) {
+      items.push({
+        entityType: 'infolink',
+        entityId: link.id,
+        field: 'title',
+        text: link.title,
+      });
+    }
+    if (link.subtitle) {
+      items.push({
+        entityType: 'infolink',
+        entityId: link.id,
+        field: 'subtitle',
+        text: link.subtitle,
+      });
+    }
+    if (items.length === 0) return { tenant, link };
+    const tr = await this.translator.translateMenuBatch(
+      tenant.id,
+      items,
+      locale,
+    );
+    return {
+      tenant,
+      link: {
+        ...link,
+        title: tr.get(`infolink:${link.id}:title`) ?? link.title,
+        subtitle:
+          link.subtitle == null
+            ? link.subtitle
+            : (tr.get(`infolink:${link.id}:subtitle`) ?? link.subtitle),
+      },
+    };
   }
 
   trackEvent(linkId: string, type: string, metadata: any = {}) {
