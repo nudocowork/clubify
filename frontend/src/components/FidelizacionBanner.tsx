@@ -203,9 +203,9 @@ export function FidelizacionBanner({
             </p>
             <ul className="mt-6 grid sm:grid-cols-2 gap-2.5 max-w-xl mx-auto lg:mx-0 text-sm text-ink/80">
               {[
-                '📱 Disponible para Apple Wallet y Google Wallet',
+                '📱 Disponible Apple Wallet y Google Wallet',
                 '⭐ Sellos automáticos al escanear',
-                '📍 GeoPush envía mensajes a 300 m del local',
+                '📍 GeoPush a 300mts del local',
                 '🎂 Mensajes de cumpleaños',
                 '🎁 Recompensas configurables',
                 '👥 Base de datos de tus clientes',
