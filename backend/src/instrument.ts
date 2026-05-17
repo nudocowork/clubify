@@ -7,9 +7,15 @@
  * queda silenciosa, no rompe el boot. Esto es A propósito: dev local sigue
  * andando sin pedir cuenta Sentry, y los entornos sin DSN no fallan.
  */
+// eslint-disable-next-line no-console
+console.log('[Boot] instrument.ts top');
 import * as Sentry from '@sentry/node';
+// eslint-disable-next-line no-console
+console.log('[Boot] instrument.ts imported @sentry/node');
 
 const dsn = process.env.SENTRY_DSN;
+// eslint-disable-next-line no-console
+console.log('[Boot] SENTRY_DSN present:', !!dsn);
 
 if (dsn) {
   Sentry.init({
@@ -43,5 +49,7 @@ if (dsn) {
     },
   });
 }
+// eslint-disable-next-line no-console
+console.log('[Boot] instrument.ts done');
 
 export { Sentry };

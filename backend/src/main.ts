@@ -1,13 +1,21 @@
+// eslint-disable-next-line no-console
+console.log('[Boot] main.ts top — node version=' + process.version);
 // `import './instrument'` DEBE ser la primera línea — Sentry parchea http/pg
 // vía auto-instrumentación, y necesita correr antes de cualquier otro import.
 import './instrument';
+// eslint-disable-next-line no-console
+console.log('[Boot] main.ts after instrument import');
 import { NestFactory, HttpAdapterHost } from '@nestjs/core';
 import { ValidationPipe, Logger, type INestApplication } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import type { Request, Response, NextFunction } from 'express';
 import { timingSafeEqual } from 'crypto';
+// eslint-disable-next-line no-console
+console.log('[Boot] main.ts before AppModule import');
 import { AppModule } from './app.module';
+// eslint-disable-next-line no-console
+console.log('[Boot] main.ts after AppModule import');
 import { SentryExceptionFilter } from './common/sentry/sentry.filter';
 
 /**
