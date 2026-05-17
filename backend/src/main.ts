@@ -126,6 +126,8 @@ function setupSwagger(app: INestApplication) {
 }
 
 async function bootstrap() {
+  // eslint-disable-next-line no-console
+  console.log('[Boot] >>> NestFactory.create');
   const app = await NestFactory.create(AppModule, {
     cors: {
       origin: (origin, cb) => {
@@ -156,12 +158,23 @@ async function bootstrap() {
 
   setupSwagger(app);
 
+  // eslint-disable-next-line no-console
+  console.log('[Boot] >>> NestFactory.create OK');
   const port = Number(process.env.PORT ?? 3001);
+  // eslint-disable-next-line no-console
+  console.log(`[Boot] >>> app.listen ${port}`);
   await app.listen(port, '0.0.0.0');
+  // eslint-disable-next-line no-console
+  console.log(`[Boot] >>> listening OK`);
   Logger.log(`Clubify API listening on :${port}`, 'Bootstrap');
   if (process.env.NODE_ENV !== 'production' || process.env.SWAGGER_USER) {
     Logger.log(`Swagger docs: http://0.0.0.0:${port}/api/docs`, 'Bootstrap');
   }
 }
 
-bootstrap();
+bootstrap().catch((err) => {
+  // eslint-disable-next-line no-console
+  console.error('[Boot] FATAL:', err?.message ?? err);
+  console.error(err?.stack ?? '');
+  process.exit(1);
+});

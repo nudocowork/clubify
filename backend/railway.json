@@ -5,9 +5,9 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "node scripts/migrate-resolve-and-deploy.mjs ; node dist/main.js",
+    "startCommand": "echo '>>> starting nest (no migrate)' ; node dist/main.js",
     "healthcheckPath": "/api/health",
-    "healthcheckTimeout": 300,
+    "healthcheckTimeout": 600,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3
   }
