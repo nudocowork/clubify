@@ -5,7 +5,7 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "echo '>>> starting nest (no migrate)' ; node dist/main.js",
+    "startCommand": "echo 'diag1-shell-alive' && ls -la dist/main.js && echo 'diag2-main-exists' && echo 'diag3-node-version:' && node --version && echo 'diag4-about-to-exec' && exec node dist/main.js",
     "healthcheckPath": "/api/health",
     "healthcheckTimeout": 600,
     "restartPolicyType": "ON_FAILURE",
