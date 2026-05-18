@@ -5,7 +5,7 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "echo 'diag1-shell-alive' && ls -la dist/main.js && echo 'diag2-main-exists' && echo 'diag3-node-version:' && node --version && echo 'diag4-about-to-exec' && exec node dist/main.js",
+    "startCommand": "echo M1; echo M2; echo M3; echo M4; echo M5-pre-node; node dist/main.js; echo M6-exit-$?",
     "healthcheckPath": "/api/health",
     "healthcheckTimeout": 600,
     "restartPolicyType": "ON_FAILURE",
