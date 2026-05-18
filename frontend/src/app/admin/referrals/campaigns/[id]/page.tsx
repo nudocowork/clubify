@@ -67,6 +67,7 @@ export default function CampaignDetailPage() {
     whatsapp: '',
     commissionPercent: 25,
     customCode: '',
+    password: '',
   });
   const [busy, setBusy] = useState(false);
 
@@ -124,7 +125,7 @@ export default function CampaignDetailPage() {
         body: JSON.stringify(addForm),
       });
       const saved = { ...addForm };
-      setAddForm({ fullName: '', email: '', whatsapp: '', commissionPercent: 25, customCode: '' });
+      setAddForm({ fullName: '', email: '', whatsapp: '', commissionPercent: 25, customCode: '', password: '' });
       setShowAdd(false);
       load();
       if (res?.affiliateCredentials) {
@@ -311,6 +312,16 @@ export default function CampaignDetailPage() {
                 onChange={(e) => setAddForm({ ...addForm, customCode: e.target.value.toUpperCase() })}
               />
             </div>
+            <input
+              className="input"
+              type="text"
+              required
+              minLength={8}
+              maxLength={64}
+              placeholder="Contraseña de acceso (mín 8 caracteres)"
+              value={addForm.password}
+              onChange={(e) => setAddForm({ ...addForm, password: e.target.value })}
+            />
             <button type="submit" disabled={busy} className="btn-primary text-sm w-full">
               {busy ? 'Agregando…' : 'Agregar embajador'}
             </button>

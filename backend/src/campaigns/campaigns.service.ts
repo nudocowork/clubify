@@ -22,6 +22,8 @@ export type CreateCampaignDto = {
   influencerWhatsapp: string;
   influencerCommissionPercent?: number; // default 30
   influencerCustomCode?: string; // ej: "JUAN30" — si no, se genera
+  // Password que el admin tipea en el form. Si no, generamos readable.
+  influencerPassword?: string;
 };
 
 export type CreateAmbassadorDto = {
@@ -30,6 +32,8 @@ export type CreateAmbassadorDto = {
   whatsapp: string;
   commissionPercent?: number; // default 25
   customCode?: string;
+  // Password que el admin tipea en el form. Si no, generamos readable.
+  password?: string;
 };
 
 @Injectable()
@@ -108,8 +112,11 @@ export class CampaignsService {
     });
 
     // Crear cuenta de afiliado con password directo (admin lo comparte).
-    // Si falla por algún motivo, no rompe la creación de campaña.
-    const presetPassword = this.auth.generateReadablePassword();
+    // Si el admin tipeó una password en el form, se usa esa; si no,
+    // generamos una readable (compat). Si falla por algún motivo, no
+    // rompe la creación de campaña.
+    const presetPassword =
+      dto.influencerPassword?.trim() || this.auth.generateReadablePassword();
     const inviteResult = await this.auth
       .inviteAffiliate({
         email,
@@ -264,7 +271,8 @@ export class CampaignsService {
       },
     });
 
-    const presetPassword = this.auth.generateReadablePassword();
+    const presetPassword =
+      dto.password?.trim() || this.auth.generateReadablePassword();
     const inviteResult = await this.auth
       .inviteAffiliate({
         email,

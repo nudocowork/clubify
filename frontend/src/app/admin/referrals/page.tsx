@@ -1214,6 +1214,7 @@ function CreateCampaignModal({
     influencerWhatsapp: '',
     influencerCommissionPercent: 30,
     influencerCustomCode: '',
+    influencerPassword: '',
   });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -1352,6 +1353,24 @@ function CreateCampaignModal({
               />
             </div>
           </div>
+          <div>
+            <label className="label">Contraseña de acceso</label>
+            <input
+              className="input"
+              type="text"
+              required
+              minLength={8}
+              maxLength={64}
+              placeholder="Mínimo 8 caracteres"
+              value={form.influencerPassword}
+              onChange={(e) =>
+                setForm({ ...form, influencerPassword: e.target.value })
+              }
+            />
+            <p className="text-xs text-mute mt-1">
+              Esta es la contraseña que el influencer va a usar para entrar en /login. Copiala y compartila junto al email.
+            </p>
+          </div>
         </div>
         {err && <div className="mt-3 rounded-lg bg-bad-soft px-3 py-2 text-sm text-bad-ink">{err}</div>}
         <div className="flex justify-end gap-2 mt-5">
@@ -1379,7 +1398,7 @@ function CampaignDetailModal({
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
-  const [addForm, setAddForm] = useState({ fullName: '', email: '', whatsapp: '', commissionPercent: 25, customCode: '' });
+  const [addForm, setAddForm] = useState({ fullName: '', email: '', whatsapp: '', commissionPercent: 25, customCode: '', password: '' });
   const [busy, setBusy] = useState(false);
 
   async function load() {
@@ -1421,7 +1440,7 @@ function CampaignDetailModal({
         body: JSON.stringify(addForm),
       });
       const saved = { ...addForm };
-      setAddForm({ fullName: '', email: '', whatsapp: '', commissionPercent: 25, customCode: '' });
+      setAddForm({ fullName: '', email: '', whatsapp: '', commissionPercent: 25, customCode: '', password: '' });
       setShowAdd(false);
       load();
       onChanged();
@@ -1553,6 +1572,16 @@ function CampaignDetailModal({
                     onChange={(e) => setAddForm({ ...addForm, customCode: e.target.value.toUpperCase() })}
                   />
                 </div>
+                <input
+                  className="input"
+                  type="text"
+                  required
+                  minLength={8}
+                  maxLength={64}
+                  placeholder="Contraseña de acceso (mín 8 caracteres)"
+                  value={addForm.password}
+                  onChange={(e) => setAddForm({ ...addForm, password: e.target.value })}
+                />
                 <button type="submit" className="btn-primary text-sm w-full" disabled={busy}>
                   {busy ? 'Agregando…' : 'Agregar embajador'}
                 </button>

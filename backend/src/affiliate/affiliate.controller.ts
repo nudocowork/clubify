@@ -42,7 +42,14 @@ export class AffiliateController {
   @Post('ambassadors')
   createAmbassador(
     @CurrentUser() user: AuthUser,
-    @Body() body: { fullName: string; email: string; whatsapp: string; commissionPercent?: number },
+    @Body()
+    body: {
+      fullName: string;
+      email: string;
+      whatsapp: string;
+      commissionPercent?: number;
+      password?: string;
+    },
   ) {
     return this.svc.createAmbassadorAsInfluencer(user, body);
   }

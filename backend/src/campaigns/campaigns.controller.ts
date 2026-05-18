@@ -32,6 +32,9 @@ class CreateCampaignBody {
   @IsString() influencerWhatsapp!: string;
   @IsOptional() @IsNumber() @Min(0) @Max(100) influencerCommissionPercent?: number;
   @IsOptional() @IsString() influencerCustomCode?: string;
+  // Password elegida por el admin para el acceso del influencer. Si no
+  // se manda, el backend genera una readable (compat). Min 8 chars.
+  @IsOptional() @IsString() @MinLength(8) @MaxLength(64) influencerPassword?: string;
 }
 
 class UpdateCampaignBody {
@@ -45,6 +48,8 @@ class AmbassadorBody {
   @IsString() whatsapp!: string;
   @IsOptional() @IsNumber() @Min(0) @Max(100) commissionPercent?: number;
   @IsOptional() @IsString() customCode?: string;
+  // Password elegida por el admin para el acceso del embajador.
+  @IsOptional() @IsString() @MinLength(8) @MaxLength(64) password?: string;
 }
 
 @Controller('campaigns')

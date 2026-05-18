@@ -246,7 +246,13 @@ export class AffiliateService {
    */
   async createAmbassadorAsInfluencer(
     user: AuthUser,
-    dto: { fullName: string; email: string; whatsapp: string; commissionPercent?: number },
+    dto: {
+      fullName: string;
+      email: string;
+      whatsapp: string;
+      commissionPercent?: number;
+      password?: string;
+    },
   ) {
     if (user.role !== 'AFFILIATE_INFLUENCER') {
       throw new ForbiddenException('Solo influencers pueden crear embajadores');
@@ -292,18 +298,28 @@ export class AffiliateService {
       },
     });
 
-    // Auto-invite al embajador.
-    await this.auth
+    // Auto-invite al embajador. Si el influencer tipeó una password
+    // en el form, la usamos; sino generamos readable y la incluimos en
+    // la response para que el influencer la copie y comparta.
+    const presetPassword =
+      dto.password?.trim() || this.auth.generateReadablePassword();
+    const inviteResult = await this.auth
       .inviteAffiliate({
         email,
         fullName: dto.fullName,
         role: 'AFFILIATE_AMBASSADOR',
         referralCodeId: ambassador.id,
         phone: dto.whatsapp,
+        presetPassword,
       })
       .catch(() => null);
 
-    return ambassador;
+    return {
+      ...ambassador,
+      affiliateCredentials: inviteResult?.password
+        ? { email, password: inviteResult.password, loginUrl: '/login' }
+        : null,
+    };
   }
 
   async commissions(user: AuthUser) {
