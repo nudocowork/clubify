@@ -927,22 +927,21 @@ function UploadDocumentModal({
       );
       fd.append('audience', audience);
       fd.append('category', category || 'General');
-      // Usamos fetch directo porque api() asume JSON. Pero compartimos la
-      // misma url base + auth header (clubify:session).
+      // Usamos fetch directo porque api() inyecta Content-Type: json y
+      // eso rompe FormData (necesita multipart con boundary auto-set por
+      // fetch). El token sí lo compartimos con api() — viene de la
+      // cookie `clubify_token` (NO de localStorage; eso era un bug que
+      // causaba 401 al subir).
       const base =
         process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
-      const session = (() => {
-        try {
-          return JSON.parse(localStorage.getItem('clubify:session') ?? 'null');
-        } catch {
-          return null;
-        }
+      const token = (() => {
+        if (typeof document === 'undefined') return null;
+        const m = document.cookie.match(/(^|;\s*)clubify_token=([^;]+)/);
+        return m ? decodeURIComponent(m[2]) : null;
       })();
       const res = await fetch(`${base}/api/admin/knowledge/documents`, {
         method: 'POST',
-        headers: session?.accessToken
-          ? { authorization: `Bearer ${session.accessToken}` }
-          : {},
+        headers: token ? { authorization: `Bearer ${token}` } : {},
         body: fd,
       });
       if (!res.ok) {
