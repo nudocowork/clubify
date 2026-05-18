@@ -41,9 +41,13 @@ COPY --from=build /app/scripts ./scripts
 # inyectan via env vars base64, pero estas PNGs vienen del repo.
 COPY --from=build /app/certs ./certs
 
-# Railway / Render asignan PORT por env; default a 3001 si no
-ENV PORT=3001
-EXPOSE 3001
+# Railway inyecta PORT en runtime; NO hardcodear ENV PORT acá porque
+# eso podría sobrescribir el valor que Railway intenta inyectar para
+# el routing del healthcheck. Dejamos que main.ts haga `?? 3001` como
+# fallback solo si Railway no inyectó nada.
+# EXPOSE es solo metadata (Railway ignora este número y usa $PORT);
+# lo dejamos en 8080 que es el más común para servicios HTTP.
+EXPOSE 8080
 
 # CMD fallback — railway.json startCommand suele pisarlo. Mantenemos la
 # misma lógica para que el container también funcione fuera de Railway.

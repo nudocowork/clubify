@@ -1,5 +1,17 @@
 // eslint-disable-next-line no-console
 console.log('[Boot] main.ts top — node version=' + process.version);
+// Use stderr.write con fsync para garantizar flush incluso si stdout
+// queda buffered. Útil para Railway/Docker donde stdout puede demorar
+// en aparecer si el proceso se cuelga después.
+process.stderr.write(
+  `[Boot] PORT env = ${process.env.PORT ?? '(undefined)'}\n`,
+);
+process.stderr.write(
+  `[Boot] NODE_ENV = ${process.env.NODE_ENV ?? '(undefined)'}\n`,
+);
+process.stderr.write(
+  `[Boot] DATABASE_URL host = ${(process.env.DATABASE_URL ?? '').split('@')[1]?.split('/')[0] ?? '(missing)'}\n`,
+);
 // `import './instrument'` DEBE ser la primera línea — Sentry parchea http/pg
 // vía auto-instrumentación, y necesita correr antes de cualquier otro import.
 import './instrument';
