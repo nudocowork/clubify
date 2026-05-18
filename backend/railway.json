@@ -5,7 +5,7 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "echo M1; echo M2; echo M3; echo M4; echo M5-pre-node; node dist/main.js; echo M6-exit-$?",
+    "startCommand": "node dist/main.js",
     "healthcheckPath": "/api/health",
     "healthcheckTimeout": 600,
     "restartPolicyType": "ON_FAILURE",
