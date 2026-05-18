@@ -14,6 +14,10 @@ export type CreateReferralDto = {
   whatsapp: string;
   commissionPercent?: number;
   source?: string;
+  // Si está presente, auto-creamos User con role=AFFILIATE_INFLUENCER
+  // y esta password, así el aplicante puede entrar a /login → /app/referrals
+  // sin esperar al admin.
+  password?: string;
 };
 
 @Injectable()
@@ -214,11 +218,31 @@ export class ReferralsService {
       },
     });
 
+    // Si el aplicante tipeó password, auto-creamos cuenta AFFILIATE_INFLUENCER
+    // así puede entrar inmediatamente a /login. Si falla (email duplicado,
+    // etc), no rompemos la creación del referralCode — admin lo arregla.
+    let createdAccount = false;
+    if (dto.password && dto.password.trim().length >= 8) {
+      const inviteResult = await this.auth
+        .inviteAffiliate({
+          email: dto.email,
+          fullName: dto.fullName,
+          role: 'AFFILIATE_INFLUENCER',
+          referralCodeId: referral.id,
+          phone: dto.whatsapp,
+          presetPassword: dto.password.trim(),
+        })
+        .catch(() => null);
+      createdAccount = !!inviteResult?.password;
+    }
+
     const appUrl = process.env.APP_URL ?? 'http://localhost:3000';
     return {
       ...referral,
       shareLink: `${appUrl}/ref/${slug}`,
       legacyShareLink: `${appUrl}/?ref=${code}`,
+      // Si creamos cuenta, el frontend muestra el CTA "Entrar al panel".
+      accountReady: createdAccount,
     };
   }
 

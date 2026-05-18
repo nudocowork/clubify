@@ -19,7 +19,7 @@ export default function ReferPage() {
 function ReferInner() {
   const searchParams = useSearchParams();
   const source = searchParams?.get('source')?.trim().slice(0, 60) || undefined;
-  const [form, setForm] = useState({ fullName: '', email: '', whatsapp: '' });
+  const [form, setForm] = useState({ fullName: '', email: '', whatsapp: '', password: '' });
   const [result, setResult] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -82,6 +82,19 @@ function ReferInner() {
                 <strong>{Number(result.commissionPercent)}%</strong> por cada negocio
                 que se vuelva cliente pago.
               </div>
+              {result.accountReady && (
+                <div className="mt-5 rounded-lg bg-brand-soft p-4">
+                  <div className="text-sm font-semibold mb-2">
+                    Tu cuenta está lista
+                  </div>
+                  <p className="text-xs text-mute mb-3">
+                    Ya podés entrar a tu panel con el correo que registraste y la contraseña que elegiste.
+                  </p>
+                  <Link href="/login" className="btn-primary w-full justify-center text-sm">
+                    Entrar a mi panel
+                  </Link>
+                </div>
+              )}
             </div>
           </>
         ) : (
@@ -120,6 +133,22 @@ function ReferInner() {
                   onChange={(e) => setForm({ ...form, email: e.target.value })}
                   required
                 />
+              </div>
+              <div>
+                <label className="label">Contraseña de acceso</label>
+                <input
+                  className="input"
+                  type="password"
+                  minLength={8}
+                  maxLength={64}
+                  placeholder="Mínimo 8 caracteres"
+                  value={form.password}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  required
+                />
+                <p className="text-xs text-mute mt-1">
+                  Con esta contraseña vas a poder entrar a tu panel de referidos en /login con tu correo.
+                </p>
               </div>
               {err && (
                 <div className="rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink">

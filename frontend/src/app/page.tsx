@@ -600,11 +600,8 @@ export default async function Landing() {
             </div>
           </div>
           <div className="border-t border-line mt-10 pt-6 flex flex-col md:flex-row items-center justify-between gap-3 text-xs text-mute">
-            <div>© {new Date().getFullYear()} Clubify · Hecho en LATAM</div>
+            <div>© 2025 Clubify</div>
             <div className="flex items-center gap-3">
-              <span className="text-[10px] uppercase tracking-wider bg-bg2 px-2 py-1 rounded font-semibold">
-                SOC 2 · LGPD
-              </span>
               <span>Pagos seguros con tarjeta</span>
             </div>
           </div>

@@ -18,7 +18,7 @@ export default function LegalLayout({ children }: { children: React.ReactNode })
         {children}
       </article>
       <footer className="border-t border-line py-8 text-center text-xs text-mute">
-        © {new Date().getFullYear()} Clubify · Hecho en LATAM ·{' '}
+        © 2025 Clubify ·{' '}
         <Link href="/legal/terms" className="hover:text-ink">
           Términos
         </Link>{' '}

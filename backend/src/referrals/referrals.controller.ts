@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Headers, Ip, Param, Patch, Post, Query } from '@nestjs/common';
-import { IsEmail, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsEmail, IsNumber, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { CommissionStatus } from '@prisma/client';
 import { ReferralsService } from './referrals.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
@@ -12,6 +12,10 @@ class CreateReferralBody {
   @IsString() whatsapp!: string;
   @IsOptional() @IsNumber() commissionPercent?: number;
   @IsOptional() @IsString() source?: string;
+  // Si el aplicante tipea una password, le auto-creamos cuenta
+  // AFFILIATE_INFLUENCER en el momento y puede entrar a /app/referrals
+  // sin esperar aprobación admin.
+  @IsOptional() @IsString() @MinLength(8) @MaxLength(64) password?: string;
 }
 
 class CommissionBody {
