@@ -142,6 +142,19 @@ export default function AppShell({
       router.push('/login');
       return;
     }
+    // Detección de estado inconsistente: localStorage.clubify_user dice
+    // que estás logueado pero la cookie clubify_token desapareció (cookie
+    // expiró antes de localStorage, o user borró cookies). Antes la app
+    // te dejaba entrar y TODAS las requests fallaban 401 sin pista clara.
+    // Ahora forzamos un re-login limpio.
+    const hasTokenCookie =
+      typeof document !== 'undefined' &&
+      /(^|;\s*)clubify_token=/.test(document.cookie);
+    if (!hasTokenCookie) {
+      clearSession();
+      router.push('/login?expired=1');
+      return;
+    }
     if (variant === 'admin' && u.role !== 'SUPER_ADMIN') router.push('/app');
     if (variant === 'app' && u.role === 'SUPER_ADMIN') router.push('/admin');
     setUser(u);
