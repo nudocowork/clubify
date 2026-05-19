@@ -193,16 +193,16 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode }: Sh
             primary={primary}
             fallback={
               tenant.logoUrl ? (
-                <div className="bg-white rounded-2xl shadow-2xl ring-1 ring-white/30 px-5 py-4 flex items-center justify-center max-w-[200px] w-fit">
+                <div className="bg-white rounded-full shadow-2xl ring-1 ring-white/30 w-28 h-28 p-4 flex items-center justify-center overflow-hidden flex-none">
                   <img
                     src={tenant.logoUrl}
                     alt={tenant.brandName}
-                    className="max-w-[160px] w-auto h-auto max-h-[120px] object-contain block"
+                    className="max-w-full max-h-full w-auto h-auto object-contain block"
                   />
                 </div>
               ) : (
                 <div
-                  className="w-24 h-24 rounded-2xl ring-4 ring-white/30 shadow-2xl flex items-center justify-center text-3xl font-bold"
+                  className="w-24 h-24 rounded-full ring-4 ring-white/30 shadow-2xl flex items-center justify-center text-3xl font-bold"
                   style={{ background: primary }}
                 >
                   {initial}
@@ -293,16 +293,16 @@ export function MinimalShell({ tenant, link, primary, buttons, sectionsNode }: S
             primary={primary}
             fallback={
               tenant.logoUrl ? (
-                <div className="bg-white rounded-2xl shadow-sm ring-1 ring-black/5 px-4 py-3 flex items-center justify-center max-w-[180px] w-fit">
+                <div className="bg-white rounded-full shadow-md ring-1 ring-black/5 w-24 h-24 p-3.5 flex items-center justify-center overflow-hidden flex-none">
                   <img
                     src={tenant.logoUrl}
                     alt={tenant.brandName}
-                    className="max-w-[140px] w-auto h-auto max-h-[100px] object-contain block"
+                    className="max-w-full max-h-full w-auto h-auto object-contain block"
                   />
                 </div>
               ) : (
                 <div
-                  className="w-20 h-20 rounded-2xl flex items-center justify-center text-2xl font-bold text-white"
+                  className="w-20 h-20 rounded-full flex items-center justify-center text-2xl font-bold text-white"
                   style={{ background: primary }}
                 >
                   {initial}
@@ -425,16 +425,16 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode }: Shel
               primary={primary}
               fallback={
                 tenant.logoUrl ? (
-                  <div className="bg-white rounded-2xl ring-4 ring-white shadow-md px-5 py-4 flex items-center justify-center max-w-[200px] w-fit">
+                  <div className="bg-white rounded-full ring-4 ring-white shadow-lg w-28 h-28 p-4 flex items-center justify-center overflow-hidden flex-none">
                     <img
                       src={tenant.logoUrl}
                       alt={tenant.brandName}
-                      className="max-w-[150px] w-auto h-auto max-h-[110px] object-contain block"
+                      className="max-w-full max-h-full w-auto h-auto object-contain block"
                     />
                   </div>
                 ) : (
                   <div
-                    className="w-24 h-24 rounded-2xl ring-4 ring-white shadow-md flex items-center justify-center text-2xl font-bold text-white"
+                    className="w-24 h-24 rounded-full ring-4 ring-white shadow-md flex items-center justify-center text-2xl font-bold text-white"
                     style={{ background: primary }}
                   >
                     {initial}
@@ -550,16 +550,16 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode }: S
               primary={primary}
               fallback={
                 tenant.logoUrl ? (
-                  <div className="bg-white rounded-2xl ring-2 ring-pink-400 shadow-sm px-2.5 py-2 flex items-center justify-center max-w-[120px] flex-none">
+                  <div className="bg-white rounded-full ring-2 ring-pink-400 shadow-sm w-16 h-16 p-2 flex items-center justify-center overflow-hidden flex-none">
                     <img
                       src={tenant.logoUrl}
                       alt={tenant.brandName}
-                      className="max-w-[90px] w-auto h-auto max-h-[64px] object-contain block"
+                      className="max-w-full max-h-full w-auto h-auto object-contain block"
                     />
                   </div>
                 ) : (
                   <div
-                    className="w-16 h-16 rounded-2xl ring-2 ring-pink-400 flex items-center justify-center text-xl font-bold text-white flex-none"
+                    className="w-16 h-16 rounded-full ring-2 ring-pink-400 flex items-center justify-center text-xl font-bold text-white flex-none"
                     style={{ background: primary }}
                   >
                     {initial}
@@ -667,18 +667,18 @@ export function NeonShell({ tenant, link, primary, buttons, sectionsNode }: Shel
             fallback={
               tenant.logoUrl ? (
                 <div
-                  className="bg-white rounded-2xl px-5 py-4 flex items-center justify-center max-w-[200px] w-fit"
+                  className="bg-white rounded-full w-28 h-28 p-4 flex items-center justify-center overflow-hidden flex-none"
                   style={{ boxShadow: `0 0 40px ${accent}80, 0 0 80px ${accent}30` }}
                 >
                   <img
                     src={tenant.logoUrl}
                     alt={tenant.brandName}
-                    className="max-w-[160px] w-auto h-auto max-h-[120px] object-contain block"
+                    className="max-w-full max-h-full w-auto h-auto object-contain block"
                   />
                 </div>
               ) : (
                 <div
-                  className="w-24 h-24 rounded-2xl flex items-center justify-center text-3xl font-bold"
+                  className="w-24 h-24 rounded-full flex items-center justify-center text-3xl font-bold"
                   style={{
                     background: '#0a0a14',
                     color: accent,

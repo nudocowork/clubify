@@ -19,11 +19,19 @@ export type LogoContainerPresetId =
   | 'dark'
   | 'glassmorphism';
 
+export type LogoContainerShape = 'rounded' | 'circle';
+
 export type LogoContainerConfig = {
   /** Identificador del preset desde el que el usuario partió, si arrancó
    *  con uno. Permite al editor resaltar el preset activo. Si está null,
    *  el usuario armó la config manual o no eligió ninguno. */
   preset: LogoContainerPresetId | null;
+  /** Forma del contenedor. `circle` fuerza aspect 1:1 + radius 50% para
+   *  un look tipo Apple/Airbnb. `rounded` respeta `borderRadius` y permite
+   *  un rectángulo proporcional al logo. Default 'circle' para nuevos.
+   *  Optional para retrocompat con configs viejos serializados sin shape —
+   *  los helpers asumen 'circle' cuando ausente. */
+  shape?: LogoContainerShape;
   /** Color de fondo del contenedor. Si bgOpacity < 1 se aplica como
    *  rgba — los presets pasan el hex y el editor lo modula. */
   bgColor: string;
@@ -61,15 +69,16 @@ export type LogoContainerConfig = {
 
 export const DEFAULT_LOGO_CONTAINER: LogoContainerConfig = {
   preset: null,
+  shape: 'circle',
   bgColor: '#FFFFFF',
   bgOpacity: 1,
   backdropBlur: 0,
-  borderRadius: 16,
-  paddingX: 20,
-  paddingY: 16,
-  maxWidth: 200,
-  logoMaxWidth: 160,
-  logoMaxHeight: 120,
+  borderRadius: 9999,
+  paddingX: 18,
+  paddingY: 18,
+  maxWidth: 128,
+  logoMaxWidth: 96,
+  logoMaxHeight: 96,
   borderColor: '#000000',
   borderWidth: 0,
   ringColor: 'rgba(255,255,255,0.3)',
@@ -83,15 +92,15 @@ export const LOGO_CONTAINER_PRESETS: Record<
 > = {
   minimalista: {
     label: 'Minimalista',
-    description: 'Sin sombra, sin borde — solo el logo respirando',
+    description: 'Círculo blanco sin sombra — solo el logo respirando',
     config: {
       ...DEFAULT_LOGO_CONTAINER,
       preset: 'minimalista',
+      shape: 'circle',
       bgColor: '#FFFFFF',
       bgOpacity: 1,
-      borderRadius: 12,
-      paddingX: 16,
-      paddingY: 14,
+      paddingX: 18,
+      paddingY: 18,
       shadow: 'none',
       borderWidth: 0,
       ringWidth: 0,
@@ -99,15 +108,15 @@ export const LOGO_CONTAINER_PRESETS: Record<
   },
   premium: {
     label: 'Premium',
-    description: 'Card blanco con sombra suave y anillo blanco',
+    description: 'Círculo blanco con sombra suave y anillo blanco — look Airbnb/Apple',
     config: {
       ...DEFAULT_LOGO_CONTAINER,
       preset: 'premium',
+      shape: 'circle',
       bgColor: '#FFFFFF',
       bgOpacity: 1,
-      borderRadius: 20,
       paddingX: 22,
-      paddingY: 18,
+      paddingY: 22,
       shadow: 'xl',
       borderWidth: 0,
       ringColor: 'rgba(255,255,255,0.6)',
@@ -116,15 +125,15 @@ export const LOGO_CONTAINER_PRESETS: Record<
   },
   dark: {
     label: 'Dark',
-    description: 'Fondo oscuro con halo neón — ideal para marcas con vibe nocturno',
+    description: 'Círculo oscuro con halo neón — vibe nocturno',
     config: {
       ...DEFAULT_LOGO_CONTAINER,
       preset: 'dark',
+      shape: 'circle',
       bgColor: '#0A0A14',
       bgOpacity: 1,
-      borderRadius: 18,
       paddingX: 22,
-      paddingY: 18,
+      paddingY: 22,
       shadow: 'glow',
       borderColor: 'rgba(255,255,255,0.08)',
       borderWidth: 1,
@@ -133,16 +142,16 @@ export const LOGO_CONTAINER_PRESETS: Record<
   },
   glassmorphism: {
     label: 'Glassmorphism',
-    description: 'Vidrio esmerilado — translúcido con blur de fondo',
+    description: 'Círculo translúcido con backdrop blur — vidrio esmerilado',
     config: {
       ...DEFAULT_LOGO_CONTAINER,
       preset: 'glassmorphism',
+      shape: 'circle',
       bgColor: '#FFFFFF',
       bgOpacity: 0.18,
       backdropBlur: 18,
-      borderRadius: 22,
       paddingX: 22,
-      paddingY: 18,
+      paddingY: 22,
       shadow: 'lg',
       borderColor: 'rgba(255,255,255,0.45)',
       borderWidth: 1,
@@ -194,15 +203,24 @@ export function getLogoContainerProps(
   primary: string,
 ): { style: CSSProperties; className: string } {
   const cfg = config ?? DEFAULT_LOGO_CONTAINER;
+  const isCircle = cfg.shape === 'circle';
+  // En modo círculo forzamos width=height usando un tamaño cuadrado fijo
+  // (maxWidth) y aspectRatio 1:1, sino el padding desigual rompe el círculo.
   const style: CSSProperties = {
     background: hexToRgba(cfg.bgColor, cfg.bgOpacity),
-    borderRadius: `${cfg.borderRadius}px`,
+    borderRadius: isCircle ? '9999px' : `${cfg.borderRadius}px`,
     paddingLeft: `${cfg.paddingX}px`,
     paddingRight: `${cfg.paddingX}px`,
     paddingTop: `${cfg.paddingY}px`,
     paddingBottom: `${cfg.paddingY}px`,
-    maxWidth: `${cfg.maxWidth}px`,
     boxShadow: shadowToCss(cfg.shadow, primary),
+    ...(isCircle
+      ? {
+          width: `${cfg.maxWidth}px`,
+          height: `${cfg.maxWidth}px`,
+          aspectRatio: '1 / 1',
+        }
+      : { maxWidth: `${cfg.maxWidth}px` }),
   };
   if (cfg.backdropBlur > 0) {
     (style as any).backdropFilter = `blur(${cfg.backdropBlur}px)`;
@@ -219,16 +237,32 @@ export function getLogoContainerProps(
   }
   return {
     style,
-    className: 'flex items-center justify-center w-fit overflow-visible',
+    className: isCircle
+      ? 'flex items-center justify-center overflow-hidden flex-none'
+      : 'flex items-center justify-center w-fit overflow-visible',
   };
 }
 
 /** Estilo del <img> interior. Garantiza object-contain + max dims para
- *  que el logo NUNCA se recorte. */
+ *  que el logo NUNCA se recorte. En modo círculo, el max sale del
+ *  contenedor menos padding, no del logoMaxWidth declarado. */
 export function getLogoImgStyle(
   config: LogoContainerConfig | null | undefined,
 ): CSSProperties {
   const cfg = config ?? DEFAULT_LOGO_CONTAINER;
+  if (cfg.shape === 'circle') {
+    // En círculo el ancho/alto disponible viene del container (maxWidth -
+    // 2*padding). Usamos 100% para llenar el área disponible respetando
+    // el padding del wrapper, manteniendo object-contain.
+    return {
+      maxWidth: '100%',
+      maxHeight: '100%',
+      width: 'auto',
+      height: 'auto',
+      objectFit: 'contain',
+      display: 'block',
+    };
+  }
   return {
     maxWidth: `${cfg.logoMaxWidth}px`,
     maxHeight: `${cfg.logoMaxHeight}px`,

@@ -1125,15 +1125,18 @@ function PublicLinkPreview({
             }}
           />
         )}
-        {/* Avatar superpuesto */}
+        {/* Avatar superpuesto — círculo blanco con padding para que el
+            logo se vea entero (object-contain), no recortado por el círculo. */}
         <div className="absolute -bottom-7 left-1/2 -translate-x-1/2">
           {tenant?.logoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={tenant.logoUrl}
-              alt=""
-              className="w-14 h-14 rounded-full object-cover border-4 border-white shadow-md bg-white"
-            />
+            <div className="w-14 h-14 rounded-full bg-white border-4 border-white shadow-md p-1 flex items-center justify-center overflow-hidden">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={tenant.logoUrl}
+                alt=""
+                className="max-w-full max-h-full w-auto h-auto object-contain block"
+              />
+            </div>
           ) : (
             <div
               className="w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-lg border-4 border-white shadow-md"
@@ -1519,10 +1522,41 @@ function LogoContainerPanel({
               </div>
             </div>
 
+            {/* Forma del contenedor */}
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
+                Forma
+              </div>
+              <div className="inline-flex rounded-pill bg-bg2 p-0.5 text-xs font-semibold">
+                {(['circle', 'rounded'] as const).map((s) => {
+                  const current = (cfg.shape ?? 'circle') === s;
+                  const label = s === 'circle' ? '⚪ Círculo' : '▢ Cuadrado redondeado';
+                  return (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => patch({ shape: s })}
+                      className={`px-3 py-1.5 rounded-pill transition ${
+                        current
+                          ? 'bg-white text-ink shadow-sm'
+                          : 'text-mute hover:text-ink'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Sliders */}
             <div className="space-y-3">
               <SliderRow
-                label="Tamaño máximo (ancho)"
+                label={
+                  (cfg.shape ?? 'circle') === 'circle'
+                    ? 'Tamaño del círculo'
+                    : 'Tamaño máximo (ancho)'
+                }
                 min={80}
                 max={280}
                 value={cfg.maxWidth}
@@ -1545,14 +1579,16 @@ function LogoContainerPanel({
                 onChange={(v) => patch({ paddingY: v })}
                 unit="px"
               />
-              <SliderRow
-                label="Radio del borde"
-                min={0}
-                max={40}
-                value={cfg.borderRadius}
-                onChange={(v) => patch({ borderRadius: v })}
-                unit="px"
-              />
+              {(cfg.shape ?? 'circle') === 'rounded' && (
+                <SliderRow
+                  label="Radio del borde"
+                  min={0}
+                  max={40}
+                  value={cfg.borderRadius}
+                  onChange={(v) => patch({ borderRadius: v })}
+                  unit="px"
+                />
+              )}
               <SliderRow
                 label="Opacidad del fondo"
                 min={0}
