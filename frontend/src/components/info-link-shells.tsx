@@ -3,6 +3,11 @@ import type { CSSProperties, ReactNode } from 'react';
 import type { InfoLinkTemplate } from '@/lib/info-link-templates';
 import { SectionCoverPreview } from '@/components/menu/SectionCoverPreview';
 import { ClubifyBadge } from '@/components/ClubifyBadge';
+import {
+  getLogoContainerProps,
+  getLogoImgStyle,
+  type LogoContainerConfig,
+} from '@/lib/info-link-logo-container';
 
 // =============================================================
 //  Tipos compartidos
@@ -28,7 +33,9 @@ export type ShellLink = {
   gallery: string[];
   sections: any[];
   buttons: { label: string; type: string; url?: string; style?: 'primary' | 'secondary' }[];
-  theme: any;
+  /** theme.logoContainer (opcional) decide el look del card del logo.
+   *  Si null/undefined, el shell usa su default histórico. */
+  theme: { primaryColor?: string; logoContainer?: LogoContainerConfig | null } & Record<string, any>;
   views: number;
 };
 
@@ -91,6 +98,34 @@ export function buttonStyleProps(
   };
 }
 
+/** Tarjeta del logo del negocio. Si `theme.logoContainer` viene seteado,
+ *  honramos esa config (override del default del shell). Sino, renderea
+ *  el fallback que cada shell pasa (markup original). Nunca recorta el
+ *  logo — el <img> interno siempre object-contain con max-w/max-h. */
+function ShellLogoCard({
+  tenant,
+  config,
+  primary,
+  fallback,
+}: {
+  tenant: ShellTenant;
+  config?: LogoContainerConfig | null;
+  primary: string;
+  fallback: ReactNode;
+}) {
+  if (!config || !tenant.logoUrl) return <>{fallback}</>;
+  const { style, className } = getLogoContainerProps(config, primary);
+  return (
+    <div style={style} className={className}>
+      <img
+        src={tenant.logoUrl}
+        alt={tenant.brandName}
+        style={getLogoImgStyle(config)}
+      />
+    </div>
+  );
+}
+
 /** Botón con cover. Mismo render en todos los shells para coherencia
  *  visual — el cover ya define su propio estilo (imagen, tipografía,
  *  overlay, alto). */
@@ -136,22 +171,29 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode }: Sh
     >
       <article className="max-w-md mx-auto px-5 pt-10 pb-12">
         <div className="flex flex-col items-center text-center">
-          {tenant.logoUrl ? (
-            <div className="bg-white rounded-2xl shadow-2xl ring-1 ring-white/30 px-5 py-4 flex items-center justify-center max-w-[200px] w-fit">
-              <img
-                src={tenant.logoUrl}
-                alt={tenant.brandName}
-                className="max-w-[160px] w-auto h-auto max-h-[120px] object-contain block"
-              />
-            </div>
-          ) : (
-            <div
-              className="w-24 h-24 rounded-2xl ring-4 ring-white/30 shadow-2xl flex items-center justify-center text-3xl font-bold"
-              style={{ background: primary }}
-            >
-              {initial}
-            </div>
-          )}
+          <ShellLogoCard
+            tenant={tenant}
+            config={link.theme?.logoContainer}
+            primary={primary}
+            fallback={
+              tenant.logoUrl ? (
+                <div className="bg-white rounded-2xl shadow-2xl ring-1 ring-white/30 px-5 py-4 flex items-center justify-center max-w-[200px] w-fit">
+                  <img
+                    src={tenant.logoUrl}
+                    alt={tenant.brandName}
+                    className="max-w-[160px] w-auto h-auto max-h-[120px] object-contain block"
+                  />
+                </div>
+              ) : (
+                <div
+                  className="w-24 h-24 rounded-2xl ring-4 ring-white/30 shadow-2xl flex items-center justify-center text-3xl font-bold"
+                  style={{ background: primary }}
+                >
+                  {initial}
+                </div>
+              )
+            }
+          />
           <h1 className="text-2xl font-bold mt-4">{link.title}</h1>
           <div className="text-[11px] text-white/60 mt-0.5">
             {tenant.brandName}
@@ -226,22 +268,29 @@ export function MinimalShell({ tenant, link, primary, buttons, sectionsNode }: S
     <div className="min-h-screen bg-white">
       <article className="max-w-md mx-auto px-6 pt-10 pb-12">
         <div className="flex flex-col items-center text-center">
-          {tenant.logoUrl ? (
-            <div className="bg-white rounded-2xl shadow-sm ring-1 ring-black/5 px-4 py-3 flex items-center justify-center max-w-[180px] w-fit">
-              <img
-                src={tenant.logoUrl}
-                alt={tenant.brandName}
-                className="max-w-[140px] w-auto h-auto max-h-[100px] object-contain block"
-              />
-            </div>
-          ) : (
-            <div
-              className="w-20 h-20 rounded-2xl flex items-center justify-center text-2xl font-bold text-white"
-              style={{ background: primary }}
-            >
-              {initial}
-            </div>
-          )}
+          <ShellLogoCard
+            tenant={tenant}
+            config={link.theme?.logoContainer}
+            primary={primary}
+            fallback={
+              tenant.logoUrl ? (
+                <div className="bg-white rounded-2xl shadow-sm ring-1 ring-black/5 px-4 py-3 flex items-center justify-center max-w-[180px] w-fit">
+                  <img
+                    src={tenant.logoUrl}
+                    alt={tenant.brandName}
+                    className="max-w-[140px] w-auto h-auto max-h-[100px] object-contain block"
+                  />
+                </div>
+              ) : (
+                <div
+                  className="w-20 h-20 rounded-2xl flex items-center justify-center text-2xl font-bold text-white"
+                  style={{ background: primary }}
+                >
+                  {initial}
+                </div>
+              )
+            }
+          />
           <h1 className="text-lg font-semibold mt-3 text-ink">{link.title}</h1>
           <div className="text-[11px] text-mute">{tenant.brandName}</div>
           {link.subtitle && (
@@ -328,22 +377,29 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode }: Shel
         </div>
         <div className="px-5">
           <div className="-mt-12 flex justify-center">
-            {tenant.logoUrl ? (
-              <div className="bg-white rounded-2xl ring-4 ring-white shadow-md px-5 py-4 flex items-center justify-center max-w-[200px] w-fit">
-                <img
-                  src={tenant.logoUrl}
-                  alt={tenant.brandName}
-                  className="max-w-[150px] w-auto h-auto max-h-[110px] object-contain block"
-                />
-              </div>
-            ) : (
-              <div
-                className="w-24 h-24 rounded-2xl ring-4 ring-white shadow-md flex items-center justify-center text-2xl font-bold text-white"
-                style={{ background: primary }}
-              >
-                {initial}
-              </div>
-            )}
+            <ShellLogoCard
+              tenant={tenant}
+              config={link.theme?.logoContainer}
+              primary={primary}
+              fallback={
+                tenant.logoUrl ? (
+                  <div className="bg-white rounded-2xl ring-4 ring-white shadow-md px-5 py-4 flex items-center justify-center max-w-[200px] w-fit">
+                    <img
+                      src={tenant.logoUrl}
+                      alt={tenant.brandName}
+                      className="max-w-[150px] w-auto h-auto max-h-[110px] object-contain block"
+                    />
+                  </div>
+                ) : (
+                  <div
+                    className="w-24 h-24 rounded-2xl ring-4 ring-white shadow-md flex items-center justify-center text-2xl font-bold text-white"
+                    style={{ background: primary }}
+                  >
+                    {initial}
+                  </div>
+                )
+              }
+            />
           </div>
           <div className="text-center mt-3">
             <h1 className="text-xl font-bold text-ink">{link.title}</h1>
@@ -443,22 +499,30 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode }: S
       <article className="max-w-md mx-auto bg-white shadow-sm min-h-screen pb-10">
         <div className="px-5 pt-7 pb-3 border-b border-line2">
           <div className="flex items-center gap-3">
-            {tenant.logoUrl ? (
-              <div className="bg-white rounded-2xl ring-2 ring-pink-400 shadow-sm px-2.5 py-2 flex items-center justify-center max-w-[120px] flex-none">
-                <img
-                  src={tenant.logoUrl}
-                  alt={tenant.brandName}
-                  className="max-w-[90px] w-auto h-auto max-h-[64px] object-contain block"
-                />
-              </div>
-            ) : (
-              <div
-                className="w-16 h-16 rounded-2xl ring-2 ring-pink-400 flex items-center justify-center text-xl font-bold text-white flex-none"
-                style={{ background: primary }}
-              >
-                {initial}
-              </div>
-            )}
+            <ShellLogoCard
+              tenant={tenant}
+              config={link.theme?.logoContainer}
+              primary={primary}
+              fallback={
+                tenant.logoUrl ? (
+                  <div className="bg-white rounded-2xl ring-2 ring-pink-400 shadow-sm px-2.5 py-2 flex items-center justify-center max-w-[120px] flex-none">
+                    <img
+                      src={tenant.logoUrl}
+                      alt={tenant.brandName}
+                      className="max-w-[90px] w-auto h-auto max-h-[64px] object-contain block"
+                    />
+                  </div>
+                ) : (
+                  <div
+                    className="w-16 h-16 rounded-2xl ring-2 ring-pink-400 flex items-center justify-center text-xl font-bold text-white flex-none"
+                    style={{ background: primary }}
+                  >
+                    {initial}
+                  </div>
+                )
+              }
+            />
+
             <div className="flex-1 min-w-0">
               <div className="font-bold text-ink leading-tight">
                 {tenant.brandName}
@@ -550,29 +614,37 @@ export function NeonShell({ tenant, link, primary, buttons, sectionsNode }: Shel
     >
       <article className="max-w-md mx-auto px-5 pt-10 pb-12">
         <div className="flex flex-col items-center text-center">
-          {tenant.logoUrl ? (
-            <div
-              className="bg-white rounded-2xl px-5 py-4 flex items-center justify-center max-w-[200px] w-fit"
-              style={{ boxShadow: `0 0 40px ${accent}80, 0 0 80px ${accent}30` }}
-            >
-              <img
-                src={tenant.logoUrl}
-                alt={tenant.brandName}
-                className="max-w-[160px] w-auto h-auto max-h-[120px] object-contain block"
-              />
-            </div>
-          ) : (
-            <div
-              className="w-24 h-24 rounded-2xl flex items-center justify-center text-3xl font-bold"
-              style={{
-                background: '#0a0a14',
-                color: accent,
-                boxShadow: `0 0 40px ${accent}80, 0 0 80px ${accent}30`,
-              }}
-            >
-              {initial}
-            </div>
-          )}
+          <ShellLogoCard
+            tenant={tenant}
+            config={link.theme?.logoContainer}
+            primary={accent}
+            fallback={
+              tenant.logoUrl ? (
+                <div
+                  className="bg-white rounded-2xl px-5 py-4 flex items-center justify-center max-w-[200px] w-fit"
+                  style={{ boxShadow: `0 0 40px ${accent}80, 0 0 80px ${accent}30` }}
+                >
+                  <img
+                    src={tenant.logoUrl}
+                    alt={tenant.brandName}
+                    className="max-w-[160px] w-auto h-auto max-h-[120px] object-contain block"
+                  />
+                </div>
+              ) : (
+                <div
+                  className="w-24 h-24 rounded-2xl flex items-center justify-center text-3xl font-bold"
+                  style={{
+                    background: '#0a0a14',
+                    color: accent,
+                    boxShadow: `0 0 40px ${accent}80, 0 0 80px ${accent}30`,
+                  }}
+                >
+                  {initial}
+                </div>
+              )
+            }
+          />
+
           <h1
             className="text-3xl font-black mt-4 tracking-tight"
             style={{

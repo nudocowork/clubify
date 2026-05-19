@@ -15,6 +15,14 @@ import { SectionCoverPreview } from '@/components/menu/SectionCoverPreview';
 import { uploadCoverImage } from '@/lib/menu/upload-cover-image';
 import type { SectionCoverConfig } from '@/lib/menu/section-cover-config';
 import { SortableList, DragHandle } from '@/components/Sortable';
+import {
+  DEFAULT_LOGO_CONTAINER,
+  LOGO_CONTAINER_PRESETS,
+  getLogoContainerProps,
+  getLogoImgStyle,
+  type LogoContainerConfig,
+  type LogoContainerPresetId,
+} from '@/lib/info-link-logo-container';
 
 /** Devuelve true si el botón está renderizado como cover, false si simple.
  *  Si renderAs no está, se deriva de !!cover (compat botones viejos). */
@@ -86,7 +94,11 @@ type InfoLink = {
   gallery: string[];
   sections: Section[];
   buttons: Button[];
-  theme: { primaryColor?: string; template?: InfoLinkTemplate };
+  theme: {
+    primaryColor?: string;
+    template?: InfoLinkTemplate;
+    logoContainer?: LogoContainerConfig | null;
+  };
   isActive: boolean;
   views: number;
 };
@@ -401,6 +413,16 @@ export default function InfoLinkEditor() {
               </div>
             </div>
           </div>
+
+          {/* Estilo del contenedor del logo */}
+          <LogoContainerPanel
+            value={link.theme.logoContainer ?? null}
+            primary={primary}
+            tenantLogoUrl={tenant?.logoUrl ?? null}
+            onChange={(next) =>
+              update('theme', { ...link.theme, logoContainer: next })
+            }
+          />
 
           {/* URL */}
           <div className="card card-pad">
@@ -1210,3 +1232,254 @@ function PublicLinkPreview({
     </div>
   );
 }
+
+// =====================================================
+// LogoContainerPanel — preset picker + sliders + preview
+// =====================================================
+//
+// Panel para customizar el contenedor del logo del InfoLink. 4 presets
+// rápidos (minimalista/premium/dark/glassmorphism) + sliders fine para
+// padding, radius, tamaño, sombra. Vista previa en vivo sobre fondo
+// neutro (no replica todo el shell — eso lo cubre la vista pública).
+function LogoContainerPanel({
+  value,
+  primary,
+  tenantLogoUrl,
+  onChange,
+}: {
+  value: LogoContainerConfig | null;
+  primary: string;
+  tenantLogoUrl: string | null;
+  onChange: (next: LogoContainerConfig | null) => void;
+}) {
+  const enabled = value !== null;
+  const cfg = value ?? DEFAULT_LOGO_CONTAINER;
+
+  function patch(p: Partial<LogoContainerConfig>) {
+    onChange({ ...cfg, ...p, preset: null });
+  }
+  function applyPreset(id: LogoContainerPresetId) {
+    onChange({ ...LOGO_CONTAINER_PRESETS[id].config });
+  }
+
+  const containerProps = getLogoContainerProps(cfg, primary);
+  const imgStyle = getLogoImgStyle(cfg);
+
+  return (
+    <div className="card card-pad">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold m-0">Estilo del logo</h3>
+        <label className="flex items-center gap-2 text-xs text-mute cursor-pointer">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) =>
+              onChange(e.target.checked ? { ...DEFAULT_LOGO_CONTAINER } : null)
+            }
+          />
+          Personalizar
+        </label>
+      </div>
+
+      {!enabled && (
+        <div className="text-xs text-mute leading-relaxed">
+          Sin personalizar — el contenedor del logo usa el estilo del
+          template activo. Activá la opción de arriba para elegir un look
+          o ajustarlo fino.
+        </div>
+      )}
+
+      {enabled && (
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_220px] gap-5">
+          <div className="space-y-4">
+            {/* Presets */}
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
+                Presets
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {(
+                  Object.keys(LOGO_CONTAINER_PRESETS) as LogoContainerPresetId[]
+                ).map((id) => {
+                  const p = LOGO_CONTAINER_PRESETS[id];
+                  const active = cfg.preset === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => applyPreset(id)}
+                      className={`text-left rounded-lg p-3 border transition ${
+                        active
+                          ? 'border-brand bg-brand/5'
+                          : 'border-line hover:border-ink/30'
+                      }`}
+                    >
+                      <div className="font-semibold text-sm">{p.label}</div>
+                      <div className="text-[11px] text-mute mt-0.5 leading-snug">
+                        {p.description}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Sliders */}
+            <div className="space-y-3">
+              <SliderRow
+                label="Tamaño máximo (ancho)"
+                min={80}
+                max={280}
+                value={cfg.maxWidth}
+                onChange={(v) => patch({ maxWidth: v })}
+                unit="px"
+              />
+              <SliderRow
+                label="Padding interno (horizontal)"
+                min={0}
+                max={40}
+                value={cfg.paddingX}
+                onChange={(v) => patch({ paddingX: v })}
+                unit="px"
+              />
+              <SliderRow
+                label="Padding interno (vertical)"
+                min={0}
+                max={40}
+                value={cfg.paddingY}
+                onChange={(v) => patch({ paddingY: v })}
+                unit="px"
+              />
+              <SliderRow
+                label="Radio del borde"
+                min={0}
+                max={40}
+                value={cfg.borderRadius}
+                onChange={(v) => patch({ borderRadius: v })}
+                unit="px"
+              />
+              <SliderRow
+                label="Opacidad del fondo"
+                min={0}
+                max={100}
+                value={Math.round(cfg.bgOpacity * 100)}
+                onChange={(v) => patch({ bgOpacity: v / 100 })}
+                unit="%"
+              />
+              <SliderRow
+                label="Blur del fondo (glassmorphism)"
+                min={0}
+                max={30}
+                value={cfg.backdropBlur}
+                onChange={(v) => patch({ backdropBlur: v })}
+                unit="px"
+              />
+              <SliderRow
+                label="Grosor del anillo"
+                min={0}
+                max={8}
+                value={cfg.ringWidth}
+                onChange={(v) => patch({ ringWidth: v })}
+                unit="px"
+              />
+            </div>
+
+            {/* Color de fondo + sombra */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label text-xs">Color de fondo</label>
+                <input
+                  type="color"
+                  className="input h-11 p-1"
+                  value={cfg.bgColor}
+                  onChange={(e) => patch({ bgColor: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="label text-xs">Sombra</label>
+                <select
+                  className="input"
+                  value={cfg.shadow}
+                  onChange={(e) =>
+                    patch({ shadow: e.target.value as LogoContainerConfig['shadow'] })
+                  }
+                >
+                  <option value="none">Ninguna</option>
+                  <option value="sm">Suave</option>
+                  <option value="md">Media</option>
+                  <option value="lg">Grande</option>
+                  <option value="xl">Premium (XL)</option>
+                  <option value="glow">Glow neón (color marca)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Preview */}
+          <div className="lg:sticky lg:top-4">
+            <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2 text-center">
+              Vista previa
+            </div>
+            <div
+              className="rounded-xl flex items-center justify-center min-h-[180px] p-6"
+              style={{
+                background:
+                  cfg.preset === 'dark' || cfg.preset === 'glassmorphism'
+                    ? `linear-gradient(135deg, ${primary}40, #1a1a2e)`
+                    : '#F3F4F6',
+              }}
+            >
+              {tenantLogoUrl ? (
+                <div className={containerProps.className} style={containerProps.style}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={tenantLogoUrl} alt="logo" style={imgStyle} />
+                </div>
+              ) : (
+                <div className="text-xs text-mute italic">
+                  Subí un logo en Configuración → Marca para ver el preview
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SliderRow({
+  label,
+  min,
+  max,
+  value,
+  onChange,
+  unit,
+}: {
+  label: string;
+  min: number;
+  max: number;
+  value: number;
+  onChange: (v: number) => void;
+  unit: string;
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between text-xs mb-1">
+        <span className="text-mute">{label}</span>
+        <span className="font-mono text-ink">
+          {value}
+          {unit}
+        </span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full accent-brand"
+      />
+    </div>
+  );
+}
+
