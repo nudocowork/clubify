@@ -2,6 +2,7 @@
 import type { ReactNode } from 'react';
 import type { InfoLinkTemplate } from '@/lib/info-link-templates';
 import { SectionCoverPreview } from '@/components/menu/SectionCoverPreview';
+import { ClubifyBadge } from '@/components/ClubifyBadge';
 
 // =============================================================
 //  Tipos compartidos
@@ -92,14 +93,16 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode }: Sh
       <article className="max-w-md mx-auto px-5 pt-10 pb-12">
         <div className="flex flex-col items-center text-center">
           {tenant.logoUrl ? (
-            <img
-              src={tenant.logoUrl}
-              alt=""
-              className="w-24 h-24 rounded-full object-cover ring-4 ring-white/30 shadow-2xl"
-            />
+            <div className="bg-white rounded-2xl shadow-2xl ring-1 ring-white/30 px-5 py-4 flex items-center justify-center max-w-[200px] w-fit">
+              <img
+                src={tenant.logoUrl}
+                alt={tenant.brandName}
+                className="max-w-[160px] w-auto h-auto max-h-[120px] object-contain block"
+              />
+            </div>
           ) : (
             <div
-              className="w-24 h-24 rounded-full ring-4 ring-white/30 shadow-2xl flex items-center justify-center text-3xl font-bold"
+              className="w-24 h-24 rounded-2xl ring-4 ring-white/30 shadow-2xl flex items-center justify-center text-3xl font-bold"
               style={{ background: primary }}
             >
               {initial}
@@ -145,8 +148,8 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode }: Sh
           <div className="mt-8 text-white/90 prose-aurora">{sectionsNode}</div>
         )}
 
-        <div className="mt-10 text-center text-[10px] text-white/40">
-          Powered by Clubify
+        <div className="mt-10 text-center">
+          <ClubifyBadge variant="pill" />
         </div>
       </article>
     </div>
@@ -175,14 +178,16 @@ export function MinimalShell({ tenant, link, primary, buttons, sectionsNode }: S
       <article className="max-w-md mx-auto px-6 pt-10 pb-12">
         <div className="flex flex-col items-center text-center">
           {tenant.logoUrl ? (
-            <img
-              src={tenant.logoUrl}
-              alt=""
-              className="w-20 h-20 rounded-full object-cover"
-            />
+            <div className="bg-white rounded-2xl shadow-sm ring-1 ring-black/5 px-4 py-3 flex items-center justify-center max-w-[180px] w-fit">
+              <img
+                src={tenant.logoUrl}
+                alt={tenant.brandName}
+                className="max-w-[140px] w-auto h-auto max-h-[100px] object-contain block"
+              />
+            </div>
           ) : (
             <div
-              className="w-20 h-20 rounded-full flex items-center justify-center text-2xl font-bold text-white"
+              className="w-20 h-20 rounded-2xl flex items-center justify-center text-2xl font-bold text-white"
               style={{ background: primary }}
             >
               {initial}
@@ -240,6 +245,8 @@ export function MinimalShell({ tenant, link, primary, buttons, sectionsNode }: S
         )}
 
         {sectionsNode && <div className="mt-8 text-ink">{sectionsNode}</div>}
+
+        <ClubifyBadge />
       </article>
     </div>
   );
@@ -277,11 +284,13 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode }: Shel
         <div className="px-5">
           <div className="-mt-12 flex justify-center">
             {tenant.logoUrl ? (
-              <img
-                src={tenant.logoUrl}
-                alt=""
-                className="w-24 h-24 rounded-2xl ring-4 ring-white shadow-md object-cover"
-              />
+              <div className="bg-white rounded-2xl ring-4 ring-white shadow-md px-5 py-4 flex items-center justify-center max-w-[200px] w-fit">
+                <img
+                  src={tenant.logoUrl}
+                  alt={tenant.brandName}
+                  className="max-w-[150px] w-auto h-auto max-h-[110px] object-contain block"
+                />
+              </div>
             ) : (
               <div
                 className="w-24 h-24 rounded-2xl ring-4 ring-white shadow-md flex items-center justify-center text-2xl font-bold text-white"
@@ -350,8 +359,9 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode }: Shel
           )}
 
           {sectionsNode && (
-            <div className="mt-7 pb-10 text-ink">{sectionsNode}</div>
+            <div className="mt-7 pb-2 text-ink">{sectionsNode}</div>
           )}
+          <ClubifyBadge />
         </div>
       </article>
     </div>
@@ -372,14 +382,16 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode }: S
         <div className="px-5 pt-7 pb-3 border-b border-line2">
           <div className="flex items-center gap-3">
             {tenant.logoUrl ? (
-              <img
-                src={tenant.logoUrl}
-                alt=""
-                className="w-16 h-16 rounded-full object-cover ring-2 ring-pink-400"
-              />
+              <div className="bg-white rounded-2xl ring-2 ring-pink-400 shadow-sm px-2.5 py-2 flex items-center justify-center max-w-[120px] flex-none">
+                <img
+                  src={tenant.logoUrl}
+                  alt={tenant.brandName}
+                  className="max-w-[90px] w-auto h-auto max-h-[64px] object-contain block"
+                />
+              </div>
             ) : (
               <div
-                className="w-16 h-16 rounded-full ring-2 ring-pink-400 flex items-center justify-center text-xl font-bold text-white"
+                className="w-16 h-16 rounded-2xl ring-2 ring-pink-400 flex items-center justify-center text-xl font-bold text-white flex-none"
                 style={{ background: primary }}
               >
                 {initial}
@@ -453,6 +465,7 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode }: S
         {sectionsNode && (
           <div className="px-5 pt-5 text-ink">{sectionsNode}</div>
         )}
+        <ClubifyBadge />
       </article>
     </div>
   );
@@ -476,15 +489,19 @@ export function NeonShell({ tenant, link, primary, buttons, sectionsNode }: Shel
       <article className="max-w-md mx-auto px-5 pt-10 pb-12">
         <div className="flex flex-col items-center text-center">
           {tenant.logoUrl ? (
-            <img
-              src={tenant.logoUrl}
-              alt=""
-              className="w-24 h-24 rounded-full object-cover"
+            <div
+              className="bg-white rounded-2xl px-5 py-4 flex items-center justify-center max-w-[200px] w-fit"
               style={{ boxShadow: `0 0 40px ${accent}80, 0 0 80px ${accent}30` }}
-            />
+            >
+              <img
+                src={tenant.logoUrl}
+                alt={tenant.brandName}
+                className="max-w-[160px] w-auto h-auto max-h-[120px] object-contain block"
+              />
+            </div>
           ) : (
             <div
-              className="w-24 h-24 rounded-full flex items-center justify-center text-3xl font-bold"
+              className="w-24 h-24 rounded-2xl flex items-center justify-center text-3xl font-bold"
               style={{
                 background: '#0a0a14',
                 color: accent,
@@ -548,11 +565,8 @@ export function NeonShell({ tenant, link, primary, buttons, sectionsNode }: Shel
           <div className="mt-8 text-white/85">{sectionsNode}</div>
         )}
 
-        <div
-          className="mt-10 text-center text-[10px] uppercase tracking-[0.3em]"
-          style={{ color: `${accent}50` }}
-        >
-          ━━ clubify ━━
+        <div className="mt-10 text-center">
+          <ClubifyBadge variant="pill" />
         </div>
       </article>
     </div>
