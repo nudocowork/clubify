@@ -652,7 +652,7 @@ export default function InfoLinkEditor() {
                           >
                             <SectionCoverPreview
                               config={b.cover}
-                              title={b.label || 'Botón'}
+                              title={b.label || ''}
                               tagline={b.tagline || null}
                               scale={112 / 360}
                             />
@@ -952,7 +952,7 @@ function CoverModal({
           </div>
 
           <SectionCoverEditor
-            title={button.label || 'Botón'}
+            title={button.label || ''}
             tagline={button.tagline || null}
             value={button.cover ?? null}
             onChange={(cover) => onPatch({ cover })}
@@ -1164,7 +1164,7 @@ function PublicLinkPreview({
                     <div key={i} className="rounded-xl overflow-hidden">
                       <SectionCoverPreview
                         config={b.cover}
-                        title={b.label || 'Botón'}
+                        title={b.label || ''}
                         tagline={b.tagline || null}
                         scale={0.45}
                       />

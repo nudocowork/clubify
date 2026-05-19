@@ -110,9 +110,11 @@ export function SectionCoverPreview({
         {effectiveBadge && cfg.badge && (
           <span style={textStyleToCss(cfg.badge, scale)}>{effectiveBadge}</span>
         )}
-        <h3 style={{ ...textStyleToCss(cfg.title, scale), margin: 0 }}>
-          {title}
-        </h3>
+        {title && (
+          <h3 style={{ ...textStyleToCss(cfg.title, scale), margin: 0 }}>
+            {title}
+          </h3>
+        )}
         {effectiveTagline && cfg.tagline && (
           <p style={{ ...textStyleToCss(cfg.tagline, scale), margin: 0 }}>
             {effectiveTagline}
