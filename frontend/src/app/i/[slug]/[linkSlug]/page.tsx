@@ -4,13 +4,23 @@ import { useParams } from 'next/navigation';
 import { InfoLinkShell, ResolvedButton } from '@/components/info-link-shells';
 import { resolveTemplate } from '@/lib/info-link-templates';
 import { useLocale } from '@/lib/i18n';
+import { InfoLinkPopupModal } from '@/components/InfoLinkPopupModal';
+import type { PopupConfig } from '@/lib/info-link-popup';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
 type Section = any;
 type Button = {
   label: string;
-  type: 'WHATSAPP' | 'INSTAGRAM' | 'MAPS' | 'MENU' | 'CARD' | 'PROMO' | 'EXTERNAL';
+  type:
+    | 'WHATSAPP'
+    | 'INSTAGRAM'
+    | 'MAPS'
+    | 'MENU'
+    | 'CARD'
+    | 'PROMO'
+    | 'EXTERNAL'
+    | 'POPUP';
   url?: string;
   igHandle?: string;
   waPhone?: string;
@@ -24,6 +34,8 @@ type Button = {
   cover?: unknown;
   tagline?: string | null;
   isActive?: boolean;
+  /** Config del popup (cuando type='POPUP'). */
+  popup?: PopupConfig | null;
 };
 
 type Location = {
@@ -67,6 +79,8 @@ export default function PublicInfoLink() {
   const [err, setErr] = useState<string | null>(null);
   const [menu, setMenu] = useState<any[]>([]);
   const [storefront, setStorefront] = useState<any>(null);
+  /** Popup activo (botón type='POPUP' fue clickeado). null = cerrado. */
+  const [openPopup, setOpenPopup] = useState<PopupConfig | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -181,6 +195,10 @@ export default function PublicInfoLink() {
         return `/m/${tenant.slug}`;
       case 'EXTERNAL':
         return b.url;
+      case 'POPUP':
+        // POPUP no navega — usamos '#' como href neutro; el onClick del
+        // botón intercepta con preventDefault y abre el modal.
+        return '#';
     }
   }
 
@@ -204,6 +222,7 @@ export default function PublicInfoLink() {
       const useCover = b.renderAs ? b.renderAs === 'cover' : !!b.cover;
       const bgStyle =
         b.bgStyle ?? (b.style === 'secondary' ? 'outline' : 'solid');
+      const isPopupBtn = b.type === 'POPUP';
       return {
         label: b.label,
         href,
@@ -214,7 +233,13 @@ export default function PublicInfoLink() {
           b.type === 'WHATSAPP',
         isPrimary: b.style !== 'secondary',
         bgStyle,
-        onClick: () => trackClick(b.label),
+        onClick: (e?: React.MouseEvent) => {
+          if (isPopupBtn) {
+            e?.preventDefault();
+            setOpenPopup(b.popup ?? null);
+          }
+          trackClick(b.label);
+        },
         cover: useCover ? b.cover : null,
         tagline: (useCover ? b.tagline ?? null : null) as string | null,
       };
@@ -365,13 +390,20 @@ export default function PublicInfoLink() {
   const template = resolveTemplate(link.theme);
 
   return (
-    <InfoLinkShell
-      template={template}
-      tenant={tenant}
-      link={link}
-      primary={primary}
-      buttons={resolvedButtons}
-      sectionsNode={sectionsNode}
-    />
+    <>
+      <InfoLinkShell
+        template={template}
+        tenant={tenant}
+        link={link}
+        primary={primary}
+        buttons={resolvedButtons}
+        sectionsNode={sectionsNode}
+      />
+      <InfoLinkPopupModal
+        popup={openPopup}
+        primary={primary}
+        onClose={() => setOpenPopup(null)}
+      />
+    </>
   );
 }

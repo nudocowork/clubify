@@ -1,5 +1,5 @@
 /* eslint-disable @next/next/no-img-element */
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import type { InfoLinkTemplate } from '@/lib/info-link-templates';
 import { SectionCoverPreview } from '@/components/menu/SectionCoverPreview';
 import { ClubifyBadge } from '@/components/ClubifyBadge';
@@ -62,7 +62,10 @@ export type ResolvedButton = {
    *  `transparent` deja el fondo del banner visible, `outline` solo borde.
    *  Default 'solid' para retrocompat. */
   bgStyle: ButtonBgStyle;
-  onClick: () => void;
+  /** El handler RECIBE el evento — para botones type='POPUP' la página
+   *  llama e.preventDefault() y abre el modal en su lugar. Para botones
+   *  link normales, el evento se ignora y el navegador navega al href. */
+  onClick: (e?: ReactMouseEvent) => void;
   /** Config visual tipo sección de menú. Si está seteado, el botón se
    *  renderiza como una card grande con cover (igual que las secciones
    *  del layout SECTIONS del menú), pero sigue siendo un <a> clickable

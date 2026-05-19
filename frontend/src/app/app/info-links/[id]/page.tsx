@@ -33,6 +33,14 @@ import {
   type BannerPosition,
 } from '@/lib/info-link-banner';
 import { FULL_LOOKS, type FullLookId } from '@/lib/info-link-full-looks';
+import {
+  DEFAULT_POPUP_CONFIG,
+  POPUP_TEMPLATES,
+  popupMaxWidthPx,
+  popupShadowCss,
+  type PopupConfig,
+  type PopupTemplateId,
+} from '@/lib/info-link-popup';
 
 /** Devuelve true si el botón está renderizado como cover, false si simple.
  *  Si renderAs no está, se deriva de !!cover (compat botones viejos). */
@@ -65,7 +73,15 @@ type Button = {
   /** Id estable para drag&drop sortable. Se autogenera si falta. */
   _id?: string;
   label: string;
-  type: 'WHATSAPP' | 'INSTAGRAM' | 'MAPS' | 'MENU' | 'CARD' | 'PROMO' | 'EXTERNAL';
+  type:
+    | 'WHATSAPP'
+    | 'INSTAGRAM'
+    | 'MAPS'
+    | 'MENU'
+    | 'CARD'
+    | 'PROMO'
+    | 'EXTERNAL'
+    | 'POPUP';
   url?: string;
   // Campos específicos por tipo
   // INSTAGRAM: handle del usuario sin '@', se construye https://instagram.com/<handle>
@@ -93,6 +109,9 @@ type Button = {
   // Si false, no se renderiza en la página pública (sin borrarlo).
   // Default true.
   isActive?: boolean;
+  // Cuando type='POPUP', al hacer click el botón abre un modal con este
+  // contenido en lugar de navegar.
+  popup?: PopupConfig | null;
 };
 
 type InfoLink = {
@@ -124,6 +143,7 @@ const BUTTON_TYPE_LABEL: Record<string, string> = {
   MENU: '🍽 Ver menú',
   PROMO: '🎁 Promociones',
   EXTERNAL: '🔗 Link externo',
+  POPUP: '💬 Popup informativo',
 };
 
 export default function InfoLinkEditor() {
@@ -776,6 +796,15 @@ export default function InfoLinkEditor() {
                           ))}
                         </select>
                       )}
+                    </div>
+                  )}
+                  {b.type === 'POPUP' && (
+                    <div className="col-span-full border-t border-line2 pt-3">
+                      <PopupEditor
+                        value={b.popup ?? null}
+                        primary={primary}
+                        onChange={(next) => updateButton(i, { popup: next })}
+                      />
                     </div>
                   )}
                 </div>
@@ -1918,6 +1947,243 @@ function BannerPanel({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// =====================================================
+// PopupEditor — config del popup que abre el botón type='POPUP'
+// =====================================================
+function PopupEditor({
+  value,
+  primary,
+  onChange,
+}: {
+  value: PopupConfig | null;
+  primary: string;
+  onChange: (next: PopupConfig) => void;
+}) {
+  const cfg = value ?? DEFAULT_POPUP_CONFIG;
+  function patch(p: Partial<PopupConfig>) {
+    onChange({ ...cfg, ...p });
+  }
+  function applyTemplate(id: PopupTemplateId) {
+    onChange({ ...POPUP_TEMPLATES[id].config });
+  }
+  const ctaColor = cfg.ctaColor || primary;
+
+  return (
+    <div className="space-y-4">
+      <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
+        Contenido del popup
+      </div>
+
+      <div>
+        <div className="text-xs text-mute mb-1.5">
+          Plantillas rápidas (clic para precargar)
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          {(Object.keys(POPUP_TEMPLATES) as PopupTemplateId[]).map((id) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => applyTemplate(id)}
+              className="text-xs px-2.5 py-1.5 rounded-md border border-line hover:border-ink/30 hover:bg-bg2 transition"
+            >
+              {POPUP_TEMPLATES[id].label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-[1fr_240px] gap-5">
+        <div className="space-y-3">
+          <div>
+            <label className="label text-xs">Título</label>
+            <input
+              className="input"
+              value={cfg.title}
+              onChange={(e) => patch({ title: e.target.value })}
+              maxLength={80}
+            />
+          </div>
+          <div>
+            <label className="label text-xs">Descripción</label>
+            <textarea
+              className="input"
+              rows={4}
+              value={cfg.description}
+              onChange={(e) => patch({ description: e.target.value })}
+              maxLength={500}
+              placeholder="Texto del popup. Saltos de línea respetados."
+            />
+          </div>
+          <div>
+            <label className="label text-xs">Imagen (opcional)</label>
+            <ImageUploader
+              value={cfg.imageUrl}
+              onChange={(url) => patch({ imageUrl: url })}
+              folder="info-links"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="label text-xs">Texto del botón (opcional)</label>
+              <input
+                className="input"
+                value={cfg.ctaText}
+                onChange={(e) => patch({ ctaText: e.target.value })}
+                placeholder="Ej: Reservar ahora"
+                maxLength={40}
+              />
+            </div>
+            <div>
+              <label className="label text-xs">Link del botón</label>
+              <input
+                className="input"
+                value={cfg.ctaUrl}
+                onChange={(e) => patch({ ctaUrl: e.target.value })}
+                placeholder="https://wa.me/... o https://..."
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="label text-xs">Fondo</label>
+              <input
+                type="color"
+                className="input h-10 p-1"
+                value={cfg.bgColor}
+                onChange={(e) => patch({ bgColor: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="label text-xs">Texto</label>
+              <input
+                type="color"
+                className="input h-10 p-1"
+                value={cfg.textColor}
+                onChange={(e) => patch({ textColor: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="label text-xs">Botón</label>
+              <input
+                type="color"
+                className="input h-10 p-1"
+                value={cfg.ctaColor || primary}
+                onChange={(e) => patch({ ctaColor: e.target.value })}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="label text-xs">Tamaño</label>
+              <select
+                className="input"
+                value={cfg.size}
+                onChange={(e) =>
+                  patch({ size: e.target.value as PopupConfig['size'] })
+                }
+              >
+                <option value="sm">Chico (320px)</option>
+                <option value="md">Medio (440px)</option>
+                <option value="lg">Grande (560px)</option>
+              </select>
+            </div>
+            <div>
+              <label className="label text-xs">Sombra</label>
+              <select
+                className="input"
+                value={cfg.shadow}
+                onChange={(e) =>
+                  patch({ shadow: e.target.value as PopupConfig['shadow'] })
+                }
+              >
+                <option value="none">Ninguna</option>
+                <option value="sm">Suave</option>
+                <option value="md">Media</option>
+                <option value="lg">Grande</option>
+                <option value="xl">Premium (XL)</option>
+              </select>
+            </div>
+          </div>
+          <SliderRow
+            label="Bordes redondeados"
+            min={0}
+            max={40}
+            value={cfg.borderRadius}
+            onChange={(v) => patch({ borderRadius: v })}
+            unit="px"
+          />
+          <label className="flex items-center gap-2 text-xs text-mute cursor-pointer">
+            <input
+              type="checkbox"
+              checked={cfg.closeOnOutside}
+              onChange={(e) => patch({ closeOnOutside: e.target.checked })}
+            />
+            Permitir cerrar tocando fuera del popup
+          </label>
+        </div>
+
+        {/* Preview mini */}
+        <div className="lg:sticky lg:top-4">
+          <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2 text-center">
+            Vista previa
+          </div>
+          <div
+            className="rounded-xl p-4 bg-ink/80 flex items-center justify-center"
+            style={{ minHeight: 200 }}
+          >
+            <div
+              style={{
+                background: cfg.bgColor,
+                color: cfg.textColor,
+                borderRadius: `${cfg.borderRadius}px`,
+                boxShadow: popupShadowCss(cfg.shadow),
+                width: '100%',
+                maxWidth: `${Math.min(220, popupMaxWidthPx(cfg.size))}px`,
+              }}
+            >
+              {cfg.imageUrl && (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  src={cfg.imageUrl}
+                  alt=""
+                  style={{
+                    width: '100%',
+                    maxHeight: 100,
+                    objectFit: 'cover',
+                    borderTopLeftRadius: `${cfg.borderRadius}px`,
+                    borderTopRightRadius: `${cfg.borderRadius}px`,
+                  }}
+                />
+              )}
+              <div className="px-3 py-2.5">
+                <div className="font-bold text-sm leading-tight">
+                  {cfg.title || 'Título'}
+                </div>
+                {cfg.description && (
+                  <div className="text-[11px] mt-1 leading-snug whitespace-pre-line opacity-90">
+                    {cfg.description}
+                  </div>
+                )}
+                {cfg.ctaText && (
+                  <div
+                    className="mt-2 text-center text-[11px] font-semibold py-1.5 rounded-md text-white"
+                    style={{ background: ctaColor }}
+                  >
+                    {cfg.ctaText}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="text-[10px] text-mute mt-2 text-center leading-snug">
+            Se abre al tocar el botón en el InfoLink público.
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
