@@ -296,26 +296,28 @@ export default function StorefrontPublic() {
           }}
         />
         <div className="px-5 pt-10 pb-6 max-w-2xl mx-auto">
-          <div className="flex items-center gap-3.5">
+          <div className="flex flex-col items-center text-center gap-3">
             {s.logoUrl ? (
-              <img
-                src={s.logoUrl}
-                alt=""
-                className="w-14 h-14 rounded-2xl ring-4 ring-white shadow-sm object-cover"
-              />
+              <div className="bg-white rounded-2xl shadow-sm ring-1 ring-black/5 px-5 py-4 flex items-center justify-center max-w-[180px] w-fit overflow-visible">
+                <img
+                  src={s.logoUrl}
+                  alt={s.brandName}
+                  className="max-w-[140px] w-auto h-auto max-h-[110px] object-contain block"
+                />
+              </div>
             ) : (
               <div
-                className="w-14 h-14 rounded-2xl flex items-center justify-center text-white font-bold text-xl ring-4 ring-white shadow-sm"
+                className="w-20 h-20 rounded-2xl flex items-center justify-center text-white font-bold text-3xl ring-4 ring-white shadow-sm"
                 style={{ background: `linear-gradient(135deg, ${primary}, ${s.secondaryColor})` }}
               >
                 {s.brandName[0]}
               </div>
             )}
-            <div className="flex-1 min-w-0">
-              <div className="font-bold text-2xl tracking-tight truncate">{s.brandName}</div>
+            <div className="w-full min-w-0">
+              <div className="font-bold text-2xl tracking-tight">{s.brandName}</div>
               {s.description && (
                 <div
-                  className={`text-sm leading-snug whitespace-pre-line ${
+                  className={`text-sm leading-snug whitespace-pre-line mt-1 ${
                     isCluvi ? 'text-white/70' : 'text-mute'
                   }`}
                 >
@@ -324,7 +326,7 @@ export default function StorefrontPublic() {
               )}
             </div>
           </div>
-          <div className="flex gap-2 flex-wrap mt-4">
+          <div className="flex gap-2 flex-wrap justify-center mt-4">
             {s.whatsappPhone && (
               <a
                 href={`https://wa.me/${s.whatsappPhone.replace(/\D/g, '')}`}
