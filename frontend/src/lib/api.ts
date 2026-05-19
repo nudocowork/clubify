@@ -8,7 +8,7 @@ const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 // no tenga que re-loguearse cada hora.
 const REFRESH_MAX_AGE = 30 * 24 * 60 * 60; // 30d, igual al backend
 
-function getToken() {
+export function getToken() {
   if (typeof document === 'undefined') return null;
   const m = document.cookie.match(/(^|;\s*)clubify_token=([^;]+)/);
   return m ? decodeURIComponent(m[2]) : null;

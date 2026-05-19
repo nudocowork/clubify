@@ -204,6 +204,7 @@ export default function AppShell({
             section: 'Programa',
             items: [
               { href: '/admin/referrals', label: 'Referidos', icon: 'gift' },
+              { href: '/admin/support-materials', label: 'Material de apoyo', icon: 'spark' },
             ],
           },
           {

@@ -46,6 +46,7 @@ import { QrPostersModule } from './qr-posters/qr-posters.module';
 import { AdminModule } from './admin/admin.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { QuotesModule } from './quotes/quotes.module';
+import { SupportMaterialsModule } from './support-materials/support-materials.module';
 
 @Module({
   imports: [
@@ -100,6 +101,7 @@ import { QuotesModule } from './quotes/quotes.module';
     AdminModule,
     OnboardingModule,
     QuotesModule,
+    SupportMaterialsModule,
   ],
   providers: [
     // Sin esto, `ThrottlerModule.forRoot()` y los `@Throttle({...})` por

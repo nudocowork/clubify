@@ -1248,6 +1248,9 @@ model ReferralCode {
   uses            ReferralUse[]
   visits          ReferralVisit[]
   ownerOfCampaign Campaign?     @relation("CampaignOwner")
+  /// Materiales de apoyo scope a este influencer (visibles solo a sus
+  /// embajadores). Vacío para mayoría — los materiales globales no van acá.
+  scopedSupportMaterials SupportMaterial[] @relation("SupportMaterialScope")
 
   @@index([parentCodeId])
   @@index([campaignId])
@@ -1405,6 +1408,71 @@ model KnowledgeDocument {
 
   @@index([status])
   @@index([audience])
+}
+
+// ============================================================
+//             SUPPORT MATERIAL (sales enablement)
+// ============================================================
+// Biblioteca de recursos curada por el super admin para que los
+// afiliados (influencer / embajador) los descarguen / consulten desde
+// su panel /affiliate. Distinto de KnowledgeDocument:
+// - SupportMaterial NO se procesa para RAG ni se embebe; es directo
+//   para descarga / link / view (PDF, video link, script copyable, etc.)
+// - Soporta scope por audiencia + opcional por influencer específico
+//   (ej: "solo embajadores de Maria López").
+// - Categorías libres (texto) — el admin organiza como quiera.
+
+enum SupportMaterialType {
+  PDF
+  IMAGE
+  VIDEO
+  AUDIO
+  LINK
+  SCRIPT
+  PRESENTATION
+  TEMPLATE
+  OTHER
+}
+
+enum SupportMaterialAudience {
+  INFLUENCER
+  AMBASSADOR
+  BOTH
+}
+
+model SupportMaterial {
+  id             String                  @id @default(uuid())
+  title          String
+  description    String?                 @db.Text
+  type           SupportMaterialType
+  /// URL pública R2 cuando hay un archivo subido (PDF/IMAGE/AUDIO/etc.).
+  /// Para type=LINK/VIDEO suele ser null y se usa externalUrl.
+  fileUrl        String?
+  /// URL externa (YouTube, Drive, Loom, etc.). Para type=VIDEO/LINK.
+  externalUrl    String?
+  /// Thumbnail opcional — preview en grilla. Si null, el frontend usa
+  /// un ícono por type.
+  thumbnailUrl   String?
+  /// Para SCRIPT: texto plano para copiar. Hasta ~10k chars.
+  scriptBody     String?                 @db.Text
+  /// Categoría libre: "Primeros pasos", "Scripts WA", etc. El admin
+  /// la escribe — autocomplete con valores existentes en el front.
+  category       String                  @default("General")
+  audience       SupportMaterialAudience @default(BOTH)
+  /// Si está seteado, solo embajadores cuyo parentCode pertenezca a
+  /// este influencer ven el material. Útil para "material exclusivo del
+  /// equipo de X". Si null, todos los que matcheen audience lo ven.
+  scopeInfluencerId String?
+  scopeInfluencer   ReferralCode? @relation("SupportMaterialScope", fields: [scopeInfluencerId], references: [id], onDelete: SetNull)
+  order          Int                     @default(0)
+  isActive       Boolean                 @default(true)
+  createdById    String?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  @@index([audience, isActive])
+  @@index([category])
+  @@index([scopeInfluencerId])
 }
 
 // ============================================================
