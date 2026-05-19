@@ -906,6 +906,35 @@ export function defaultConfig(brandName: string): QrPosterConfig {
 }
 
 /**
+ * Helpers compartidos para normalización defensiva de capas. Si la
+ * persistencia se corrompió (x/y/w/h null/undefined/NaN), las capas
+ * Konva renderizan en (0,0) — bug reportado de "se mueven a la esquina
+ * superior izquierda al recargar". Cada normalize<X>Layer aplica el
+ * fallback a CENTRO del canvas + console.warn para telemetría.
+ */
+const numOr = (v: any, fallback: number): number =>
+  typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+
+function warnIfMissingCoords(
+  layerKind: string,
+  id: string,
+  rawX: any,
+  rawY: any,
+  fallbackX: number,
+  fallbackY: number,
+): void {
+  if (typeof window === 'undefined') return;
+  const xMissing = typeof rawX !== 'number' || !Number.isFinite(rawX);
+  const yMissing = typeof rawY !== 'number' || !Number.isFinite(rawY);
+  if (xMissing || yMissing) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[QrPosterEditor] ${layerKind} "${id}" cargó con x=${rawX} y=${rawY} — fallback a centro (${fallbackX},${fallbackY}). Posible corrupción de persistencia.`,
+    );
+  }
+}
+
+/**
  * Defensa: garantiza que un ImageLayer cargado del backend / localStorage
  * tenga x/y/w/h numéricos válidos. Si la persistencia se corrompió
  * (campos null/undefined/NaN), la imagen renderizaría en (0,0) con
@@ -963,6 +992,98 @@ function normalizeImageLayer(
   };
 }
 
+/** Defensa para ShapeLayer — mismo patrón que normalizeImageLayer. */
+function normalizeShapeLayer(
+  s: any,
+  defaultCanvas: { w: number; h: number },
+): ShapeLayer | null {
+  if (!s || typeof s !== 'object') return null;
+  if (typeof s.id !== 'string' || !s.id) return null;
+  if (typeof s.type !== 'string' || !s.type) return null;
+  const w = Math.max(20, numOr(s.w, Math.round(defaultCanvas.w * 0.2)));
+  const h = Math.max(20, numOr(s.h, Math.round(defaultCanvas.h * 0.2)));
+  const xFallback = Math.round((defaultCanvas.w - w) / 2);
+  const yFallback = Math.round((defaultCanvas.h - h) / 2);
+  warnIfMissingCoords('ShapeLayer', s.id, s.x, s.y, xFallback, yFallback);
+  return {
+    ...s,
+    x: numOr(s.x, xFallback),
+    y: numOr(s.y, yFallback),
+    w,
+    h,
+    fill: typeof s.fill === 'string' ? s.fill : '#000000',
+    opacity: numOr(s.opacity, 1),
+    rotation: numOr(s.rotation, 0),
+  } as ShapeLayer;
+}
+
+/** Defensa para IconLayer — emoji con x/y/size. */
+function normalizeIconLayer(
+  i: any,
+  defaultCanvas: { w: number; h: number },
+): IconLayer | null {
+  if (!i || typeof i !== 'object') return null;
+  if (typeof i.id !== 'string' || !i.id) return null;
+  if (typeof i.emoji !== 'string' || !i.emoji) return null;
+  const size = Math.max(12, numOr(i.size, 48));
+  const xFallback = Math.round((defaultCanvas.w - size) / 2);
+  const yFallback = Math.round((defaultCanvas.h - size) / 2);
+  warnIfMissingCoords('IconLayer', i.id, i.x, i.y, xFallback, yFallback);
+  return {
+    ...i,
+    x: numOr(i.x, xFallback),
+    y: numOr(i.y, yFallback),
+    size,
+    opacity: numOr(i.opacity, 1),
+    rotation: numOr(i.rotation, 0),
+  } as IconLayer;
+}
+
+/** Defensa para CustomTextLayer — caja de texto libre. */
+function normalizeCustomTextLayer(
+  t: any,
+  defaultCanvas: { w: number; h: number },
+): CustomTextLayer | null {
+  if (!t || typeof t !== 'object') return null;
+  if (typeof t.id !== 'string' || !t.id) return null;
+  const xFallback = Math.round(defaultCanvas.w / 2 - 100);
+  const yFallback = Math.round(defaultCanvas.h / 2);
+  warnIfMissingCoords('CustomTextLayer', t.id, t.x, t.y, xFallback, yFallback);
+  return {
+    ...t,
+    x: numOr(t.x, xFallback),
+    y: numOr(t.y, yFallback),
+    size: Math.max(8, numOr(t.size, 16)),
+    opacity: numOr(t.opacity, 1),
+    rotation: numOr(t.rotation, 0),
+    lineHeight: numOr(t.lineHeight, 1.2),
+    letterSpacing: numOr(t.letterSpacing, 0),
+    shadow: t.shadow ? { ...t.shadow } : null,
+  } as CustomTextLayer;
+}
+
+/** Defensa para LogoLayer — el logo del negocio sobre el canvas. */
+function normalizeLogoLayer(
+  l: any,
+  defaultCanvas: { w: number; h: number },
+): LogoLayer | null {
+  if (!l || typeof l !== 'object') return null;
+  if (typeof l.url !== 'string' || !l.url) return null;
+  const size = Math.max(20, numOr(l.size, 100));
+  const xFallback = Math.round((defaultCanvas.w - size) / 2);
+  const yFallback = Math.round((defaultCanvas.h - size) / 2);
+  warnIfMissingCoords('LogoLayer', 'logo', l.x, l.y, xFallback, yFallback);
+  return {
+    url: l.url,
+    x: numOr(l.x, xFallback),
+    y: numOr(l.y, yFallback),
+    size,
+    opacity: numOr(l.opacity, 1),
+    rotation: numOr(l.rotation, 0),
+    locked: l.locked === true,
+  };
+}
+
 /**
  * Migración defensiva. Si en el futuro evoluciona el shape de config y
  * un tenant tiene un poster viejo, esta función completa los campos que
@@ -991,9 +1112,17 @@ export function normalizeConfig(
     // Clonado superficial — sino mutar cfg.bg.color1 muta el normalized
     bg: cfg.bg ? ({ ...cfg.bg } as BgConfig) : { ...def.bg },
     qr: { ...def.qr, ...(cfg.qr ?? {}) },
-    logo: cfg.logo ? { ...cfg.logo } : null,
-    shapes: Array.isArray(cfg.shapes) ? cfg.shapes.map((s) => ({ ...s })) : [],
-    icons: Array.isArray(cfg.icons) ? cfg.icons.map((i) => ({ ...i })) : [],
+    logo: cfg.logo ? normalizeLogoLayer(cfg.logo, def.canvas) : null,
+    shapes: Array.isArray(cfg.shapes)
+      ? cfg.shapes
+          .map((s) => normalizeShapeLayer(s, def.canvas))
+          .filter((s): s is ShapeLayer => s !== null)
+      : [],
+    icons: Array.isArray(cfg.icons)
+      ? cfg.icons
+          .map((i) => normalizeIconLayer(i, def.canvas))
+          .filter((i): i is IconLayer => i !== null)
+      : [],
     images: Array.isArray(cfg.images)
       ? cfg.images
           .map((im) => normalizeImageLayer(im, def.canvas))
@@ -1003,10 +1132,9 @@ export function normalizeConfig(
       ? cfg.patterns.map((p) => ({ ...p, emojis: [...p.emojis] }))
       : [],
     customTexts: Array.isArray(cfg.customTexts)
-      ? cfg.customTexts.map((t) => ({
-          ...t,
-          shadow: t.shadow ? { ...t.shadow } : null,
-        }))
+      ? cfg.customTexts
+          .map((t) => normalizeCustomTextLayer(t, def.canvas))
+          .filter((t): t is CustomTextLayer => t !== null)
       : [],
     texts: {
       title: mergeText(def.texts.title, cfg.texts?.title),
