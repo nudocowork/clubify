@@ -40,11 +40,13 @@ export type ShellLink = {
   buttons: { label: string; type: string; url?: string; style?: 'primary' | 'secondary' }[];
   /** theme.logoContainer (opcional) decide el look del card del logo.
    *  theme.bannerConfig (opcional) controla overlay/zoom/blur/posición del
-   *  hero image. Si null/undefined, los shells usan sus defaults históricos. */
+   *  hero image. theme.fontFamily se aplica a todo el shell vía CSS root.
+   *  Si null/undefined, los shells usan sus defaults históricos. */
   theme: {
     primaryColor?: string;
     logoContainer?: LogoContainerConfig | null;
     bannerConfig?: BannerConfig | null;
+    fontFamily?: string | null;
   } & Record<string, any>;
   views: number;
 };
@@ -174,9 +176,10 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode }: Sh
   const initial = tenant.brandName[0]?.toUpperCase() ?? '?';
   return (
     <div
-      className="min-h-screen text-white"
+      className="min-h-screen text-white animate-in fade-in duration-500"
       style={{
         background: `radial-gradient(circle at 15% 0%, ${primary}66 0%, transparent 40%), radial-gradient(circle at 85% 25%, ${tenant.secondaryColor || '#8B4513'}66 0%, transparent 40%), radial-gradient(circle at 50% 100%, #1a0e2e 0%, transparent 60%), linear-gradient(180deg, #2D1B4E 0%, #1A0E2E 100%)`,
+        fontFamily: link.theme?.fontFamily ?? undefined,
       }}
     >
       <article className="max-w-md mx-auto px-5 pt-10 pb-12">
@@ -275,7 +278,10 @@ export function MinimalShell({ tenant, link, primary, buttons, sectionsNode }: S
   ].filter((s) => !!s.href);
 
   return (
-    <div className="min-h-screen bg-white">
+    <div
+      className="min-h-screen bg-white animate-in fade-in duration-500"
+      style={{ fontFamily: link.theme?.fontFamily ?? undefined }}
+    >
       <article className="max-w-md mx-auto px-6 pt-10 pb-12">
         <div className="flex flex-col items-center text-center">
           <ShellLogoCard
@@ -377,7 +383,10 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode }: Shel
   const bannerConfig = link.theme?.bannerConfig ?? null;
   const overlayBg = getBannerOverlayBackground(bannerConfig);
   return (
-    <div className="min-h-screen bg-[#FAFAFA]">
+    <div
+      className="min-h-screen bg-[#FAFAFA] animate-in fade-in duration-500"
+      style={{ fontFamily: link.theme?.fontFamily ?? undefined }}
+    >
       <article className="max-w-md mx-auto bg-white shadow-sm min-h-screen">
         <div className="h-40 relative overflow-hidden">
           {link.heroImageUrl ? (
@@ -525,7 +534,10 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode }: S
   const stories = (link.gallery ?? []).slice(0, 6);
 
   return (
-    <div className="min-h-screen bg-white">
+    <div
+      className="min-h-screen bg-white animate-in fade-in duration-500"
+      style={{ fontFamily: link.theme?.fontFamily ?? undefined }}
+    >
       <article className="max-w-md mx-auto bg-white shadow-sm min-h-screen pb-10">
         <div className="px-5 pt-7 pb-3 border-b border-line2">
           <div className="flex items-center gap-3">
@@ -636,10 +648,11 @@ export function NeonShell({ tenant, link, primary, buttons, sectionsNode }: Shel
   const initial = tenant.brandName[0]?.toUpperCase() ?? '?';
   return (
     <div
-      className="min-h-screen text-white"
+      className="min-h-screen text-white animate-in fade-in duration-500"
       style={{
         background:
           'radial-gradient(ellipse at top, #1a1a2e 0%, #0f0f1e 100%)',
+        fontFamily: link.theme?.fontFamily ?? undefined,
       }}
     >
       <article className="max-w-md mx-auto px-5 pt-10 pb-12">

@@ -32,6 +32,7 @@ import {
   type BannerPresetId,
   type BannerPosition,
 } from '@/lib/info-link-banner';
+import { FULL_LOOKS, type FullLookId } from '@/lib/info-link-full-looks';
 
 /** Devuelve true si el botón está renderizado como cover, false si simple.
  *  Si renderAs no está, se deriva de !!cover (compat botones viejos). */
@@ -108,6 +109,9 @@ type InfoLink = {
     template?: InfoLinkTemplate;
     logoContainer?: LogoContainerConfig | null;
     bannerConfig?: BannerConfig | null;
+    /** Familia tipográfica aplicada al shell completo. Si null, usa el
+     *  default del template. */
+    fontFamily?: string | null;
   };
   isActive: boolean;
   views: number;
@@ -424,23 +428,13 @@ export default function InfoLinkEditor() {
             </div>
           </div>
 
-          {/* Estilo del contenedor del logo */}
-          <LogoContainerPanel
-            value={link.theme.logoContainer ?? null}
+          {/* Personalización visual — looks completos + paneles fine */}
+          <VisualSection
+            theme={link.theme}
             primary={primary}
             tenantLogoUrl={tenant?.logoUrl ?? null}
-            onChange={(next) =>
-              update('theme', { ...link.theme, logoContainer: next })
-            }
-          />
-
-          {/* Banner (hero image) — overlay, posición, zoom, blur */}
-          <BannerPanel
-            value={link.theme.bannerConfig ?? null}
             heroImageUrl={link.heroImageUrl}
-            onChange={(next) =>
-              update('theme', { ...link.theme, bannerConfig: next })
-            }
+            onChange={(patch) => update('theme', { ...link.theme, ...patch })}
           />
 
           {/* URL */}
@@ -1253,6 +1247,159 @@ function PublicLinkPreview({
 }
 
 // =====================================================
+// VisualSection — wrapper que agrupa logo + banner + tipografía + looks
+// =====================================================
+//
+// Una sola card en el editor que cubre toda la personalización visual:
+// 1. Row de "Looks completos" arriba (4 presets que bundlean logo+banner+font)
+// 2. Logo container panel (preset + sliders fine)
+// 3. Banner panel (preset + sliders fine)
+// 4. Tipografía global
+//
+// Reemplaza al stack de cards sueltas — UX más cercana a Notion/Stripe
+// donde toda la personalización vive bajo un mismo techo.
+function VisualSection({
+  theme,
+  primary,
+  tenantLogoUrl,
+  heroImageUrl,
+  onChange,
+}: {
+  theme: {
+    logoContainer?: LogoContainerConfig | null;
+    bannerConfig?: BannerConfig | null;
+    fontFamily?: string | null;
+  };
+  primary: string;
+  tenantLogoUrl: string | null;
+  heroImageUrl: string | null;
+  onChange: (patch: {
+    logoContainer?: LogoContainerConfig | null;
+    bannerConfig?: BannerConfig | null;
+    fontFamily?: string | null;
+  }) => void;
+}) {
+  function applyFullLook(id: FullLookId) {
+    const look = FULL_LOOKS[id];
+    onChange({
+      logoContainer: { ...look.logoContainer },
+      bannerConfig: { ...look.bannerConfig },
+      fontFamily: look.fontFamily,
+    });
+  }
+  function activeLookId(): FullLookId | null {
+    return (theme.logoContainer?.preset ?? null) as FullLookId | null;
+  }
+
+  const FONT_OPTIONS: Array<{ value: string; label: string }> = [
+    { value: 'Inter, system-ui, sans-serif', label: 'Inter (sans clean)' },
+    { value: '"Playfair Display", Georgia, serif', label: 'Playfair (serif editorial)' },
+    { value: '"Space Grotesk", Inter, sans-serif', label: 'Space Grotesk (tech)' },
+    { value: '"Manrope", Inter, sans-serif', label: 'Manrope (moderna)' },
+    { value: 'Georgia, "Times New Roman", serif', label: 'Georgia (clásica)' },
+    { value: '"Poppins", Inter, sans-serif', label: 'Poppins (amigable)' },
+  ];
+
+  return (
+    <div className="card card-pad space-y-6">
+      <div>
+        <h3 className="font-semibold m-0 mb-1">Personalización visual</h3>
+        <div className="text-xs text-mute leading-relaxed">
+          Elegí un "look completo" abajo para aplicar logo + banner + tipografía
+          coherentes en un click, o ajustá cada sección individualmente más abajo.
+        </div>
+      </div>
+
+      {/* FullLook presets — un click setea logo+banner+font juntos */}
+      <div>
+        <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
+          Looks completos
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+          {(Object.keys(FULL_LOOKS) as FullLookId[]).map((id) => {
+            const look = FULL_LOOKS[id];
+            const active = activeLookId() === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => applyFullLook(id)}
+                className={`text-left rounded-lg p-3 border transition ${
+                  active
+                    ? 'border-brand bg-brand/5 shadow-sm'
+                    : 'border-line hover:border-ink/30 hover:shadow-sm'
+                }`}
+              >
+                <div className="font-semibold text-sm">{look.label}</div>
+                <div
+                  className="text-[11px] text-mute mt-0.5 leading-snug"
+                  style={{ fontFamily: look.fontFamily }}
+                >
+                  {look.description}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        <div className="text-[11px] text-mute mt-2 leading-snug">
+          Tip: aplicá un look y después tuneá fino abajo — los cambios sobreescriben
+          las configs sin perder el resto del look.
+        </div>
+      </div>
+
+      {/* Tipografía */}
+      <div>
+        <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
+          Tipografía
+        </div>
+        <select
+          className="input"
+          value={theme.fontFamily ?? ''}
+          onChange={(e) =>
+            onChange({ fontFamily: e.target.value || null })
+          }
+        >
+          <option value="">Por defecto del template</option>
+          {FONT_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value} style={{ fontFamily: opt.value }}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+        {theme.fontFamily && (
+          <div
+            className="mt-2 p-3 rounded-lg bg-bg2 text-ink"
+            style={{ fontFamily: theme.fontFamily }}
+          >
+            <div className="text-lg font-bold">Tu negocio</div>
+            <div className="text-sm">Así se ve un título con esta fuente.</div>
+          </div>
+        )}
+      </div>
+
+      {/* Logo container — preset cards + sliders */}
+      <div className="border-t border-line pt-5">
+        <LogoContainerPanel
+          value={theme.logoContainer ?? null}
+          primary={primary}
+          tenantLogoUrl={tenantLogoUrl}
+          onChange={(next) => onChange({ logoContainer: next })}
+        />
+      </div>
+
+      {/* Banner */}
+      <div className="border-t border-line pt-5">
+        <BannerPanel
+          value={theme.bannerConfig ?? null}
+          heroImageUrl={heroImageUrl}
+          onChange={(next) => onChange({ bannerConfig: next })}
+        />
+      </div>
+    </div>
+  );
+}
+
+// =====================================================
 // LogoContainerPanel — preset picker + sliders + preview
 // =====================================================
 //
@@ -1285,9 +1432,9 @@ function LogoContainerPanel({
   const imgStyle = getLogoImgStyle(cfg);
 
   return (
-    <div className="card card-pad">
+    <div>
       <div className="flex items-center justify-between mb-3">
-        <h3 className="font-semibold m-0">Estilo del logo</h3>
+        <h3 className="font-semibold m-0 text-sm">Estilo del logo</h3>
         <label className="flex items-center gap-2 text-xs text-mute cursor-pointer">
           <input
             type="checkbox"
@@ -1533,9 +1680,9 @@ function BannerPanel({
   }
 
   return (
-    <div className="card card-pad">
+    <div>
       <div className="flex items-center justify-between mb-3">
-        <h3 className="font-semibold m-0">Banner (foto de portada)</h3>
+        <h3 className="font-semibold m-0 text-sm">Banner (foto de portada)</h3>
         <label className="flex items-center gap-2 text-xs text-mute cursor-pointer">
           <input
             type="checkbox"
