@@ -390,8 +390,13 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode }: Shel
       className="min-h-screen bg-[#FAFAFA] animate-in fade-in duration-500"
       style={{ fontFamily: link.theme?.fontFamily ?? undefined }}
     >
+      {/* IMPORTANTE: el article NO debe tener overflow-hidden — sino el
+          logo flotante (con -mt-14) se cortaría al desbordar el banner. */}
       <article className="max-w-md mx-auto bg-white shadow-sm min-h-screen">
-        <div className="h-40 relative overflow-hidden">
+        {/* Banner: position relative + z-1 explícito. overflow-hidden
+            solo aplica DENTRO del banner (recorta la foto al frame) sin
+            afectar al logo, que está en otro contenedor afuera. */}
+        <div className="h-40 overflow-hidden relative" style={{ zIndex: 1 }}>
           {link.heroImageUrl ? (
             <div
               className="absolute inset-0"
@@ -417,15 +422,21 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode }: Shel
             <div className="absolute inset-0 bg-black/15" />
           )}
         </div>
+        {/* Wrapper del logo: SEPARADO del banner en el DOM. z-index 10
+            garantiza que pinta encima de cualquier overlay del banner.
+            -mt-14 hace que el logo flote sobre la división banner/contenido. */}
         <div className="px-5">
-          <div className="-mt-12 flex justify-center">
+          <div
+            className="-mt-14 flex justify-center relative"
+            style={{ zIndex: 10 }}
+          >
             <ShellLogoCard
               tenant={tenant}
               config={link.theme?.logoContainer}
               primary={primary}
               fallback={
                 tenant.logoUrl ? (
-                  <div className="bg-white rounded-full ring-4 ring-white shadow-lg w-28 h-28 p-4 flex items-center justify-center overflow-hidden flex-none">
+                  <div className="bg-white rounded-full ring-4 ring-white shadow-xl w-28 h-28 p-4 flex items-center justify-center overflow-hidden flex-none">
                     <img
                       src={tenant.logoUrl}
                       alt={tenant.brandName}
@@ -434,7 +445,7 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode }: Shel
                   </div>
                 ) : (
                   <div
-                    className="w-24 h-24 rounded-full ring-4 ring-white shadow-md flex items-center justify-center text-2xl font-bold text-white"
+                    className="w-24 h-24 rounded-full ring-4 ring-white shadow-xl flex items-center justify-center text-2xl font-bold text-white"
                     style={{ background: primary }}
                   >
                     {initial}

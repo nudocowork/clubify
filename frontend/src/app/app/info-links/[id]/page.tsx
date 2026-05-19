@@ -1109,8 +1109,9 @@ function PublicLinkPreview({
   const initial = (tenant?.brandName?.[0] || 'C').toUpperCase();
   return (
     <div className="text-ink bg-white" style={{ ['--primary' as any]: primary }}>
-      {/* Hero con degradado de marca */}
-      <div className="relative">
+      {/* Hero: contenedor SEPARADO del logo. overflow-hidden recorta solo
+          la foto al frame del banner, no afecta al logo (siblings). */}
+      <div className="relative overflow-hidden" style={{ zIndex: 1 }}>
         {link.heroImageUrl ? (
           <img
             src={link.heroImageUrl}
@@ -1125,30 +1126,34 @@ function PublicLinkPreview({
             }}
           />
         )}
-        {/* Avatar superpuesto — círculo blanco con padding para que el
-            logo se vea entero (object-contain), no recortado por el círculo. */}
-        <div className="absolute -bottom-7 left-1/2 -translate-x-1/2">
-          {tenant?.logoUrl ? (
-            <div className="w-14 h-14 rounded-full bg-white border-4 border-white shadow-md p-1 flex items-center justify-center overflow-hidden">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={tenant.logoUrl}
-                alt=""
-                className="max-w-full max-h-full w-auto h-auto object-contain block"
-              />
-            </div>
-          ) : (
-            <div
-              className="w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-lg border-4 border-white shadow-md"
-              style={{ background: primary }}
-            >
-              {initial}
-            </div>
-          )}
-        </div>
+      </div>
+      {/* Logo wrapper: HERMANO del banner (no hijo), con margin negativo
+          para flotar sobre el borde inferior del banner. z-index 10 lo
+          mantiene encima de cualquier overlay del banner. */}
+      <div
+        className="flex justify-center -mt-7 relative"
+        style={{ zIndex: 10 }}
+      >
+        {tenant?.logoUrl ? (
+          <div className="w-14 h-14 rounded-full bg-white border-4 border-white shadow-md p-1 flex items-center justify-center overflow-hidden">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={tenant.logoUrl}
+              alt=""
+              className="max-w-full max-h-full w-auto h-auto object-contain block"
+            />
+          </div>
+        ) : (
+          <div
+            className="w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-lg border-4 border-white shadow-md"
+            style={{ background: primary }}
+          >
+            {initial}
+          </div>
+        )}
       </div>
 
-      <div className="px-4 pt-9 pb-4 text-center">
+      <div className="px-4 pt-3 pb-4 text-center">
         <h1 className="text-base font-bold leading-tight">{link.title}</h1>
         {link.subtitle && (
           <p className="text-[11px] text-mute mt-1 leading-snug">{link.subtitle}</p>
