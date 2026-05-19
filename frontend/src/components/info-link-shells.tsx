@@ -1,5 +1,5 @@
 /* eslint-disable @next/next/no-img-element */
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import type { InfoLinkTemplate } from '@/lib/info-link-templates';
 import { SectionCoverPreview } from '@/components/menu/SectionCoverPreview';
 import { ClubifyBadge } from '@/components/ClubifyBadge';
@@ -32,11 +32,17 @@ export type ShellLink = {
   views: number;
 };
 
+export type ButtonBgStyle = 'solid' | 'transparent' | 'outline';
+
 export type ResolvedButton = {
   label: string;
   href: string;
   newTab: boolean;
   isPrimary: boolean;
+  /** Estilo de fondo del botón. `solid` rellena con color de marca,
+   *  `transparent` deja el fondo del banner visible, `outline` solo borde.
+   *  Default 'solid' para retrocompat. */
+  bgStyle: ButtonBgStyle;
   onClick: () => void;
   /** Config visual tipo sección de menú. Si está seteado, el botón se
    *  renderiza como una card grande con cover (igual que las secciones
@@ -46,6 +52,44 @@ export type ResolvedButton = {
   /** Subtítulo opcional debajo del título en la portada visual. */
   tagline: string | null;
 };
+
+/** Resuelve clases + style inline para un botón según su bgStyle. Pensado
+ *  para los 5 shells — cada uno lo invoca con su `primary` y un set base
+ *  de clases (radius/padding/typography del shell). El color del texto se
+ *  decide así:
+ *  - solid: texto blanco (contrasta sobre primary)
+ *  - outline: texto en color primary
+ *  - transparent: texto sobre fondo del shell (white en dark, ink en light)
+ */
+export function buttonStyleProps(
+  bgStyle: ButtonBgStyle,
+  primary: string,
+  opts: { dark?: boolean } = {},
+): { className: string; style: CSSProperties } {
+  const dark = opts.dark === true;
+  if (bgStyle === 'transparent') {
+    return {
+      className: dark
+        ? 'bg-transparent text-white hover:bg-white/5'
+        : 'bg-transparent text-ink hover:bg-black/[0.03]',
+      style: {},
+    };
+  }
+  if (bgStyle === 'outline') {
+    return {
+      className: 'bg-transparent hover:bg-white/[0.04]',
+      style: {
+        color: primary,
+        border: `1.5px solid ${primary}`,
+      },
+    };
+  }
+  // solid (default)
+  return {
+    className: 'text-white hover:opacity-90 shadow-sm',
+    style: { background: primary },
+  };
+}
 
 /** Botón con cover. Mismo render en todos los shells para coherencia
  *  visual — el cover ya define su propio estilo (imagen, tipografía,
@@ -121,10 +165,14 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode }: Sh
 
         {buttons.length > 0 && (
           <div className="mt-7 space-y-2.5">
-            {buttons.map((b, i) =>
-              b.cover ? (
-                <CoverButtonLink key={i} b={b} />
-              ) : (
+            {buttons.map((b, i) => {
+              if (b.cover) return <CoverButtonLink key={i} b={b} />;
+              const sp = buttonStyleProps(b.bgStyle, primary, { dark: true });
+              // En AURORA el "solid" del shell usa blanco (no primary) por
+              // diseño histórico — preservamos eso cuando bgStyle es solid +
+              // isPrimary, sino respetamos el helper.
+              const auroraSolid = b.bgStyle === 'solid' && b.isPrimary;
+              return (
                 <a
                   key={i}
                   href={b.href}
@@ -132,15 +180,16 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode }: Sh
                   rel="noreferrer"
                   onClick={b.onClick}
                   className={`block w-full px-4 py-3 rounded-2xl text-center text-sm font-semibold transition backdrop-blur-md ${
-                    b.isPrimary
+                    auroraSolid
                       ? 'bg-white text-[#1A0E2E] shadow-xl hover:shadow-2xl'
-                      : 'bg-white/10 text-white border border-white/20 hover:bg-white/15'
+                      : sp.className
                   }`}
+                  style={auroraSolid ? undefined : sp.style}
                 >
                   {b.label}
                 </a>
-              ),
-            )}
+              );
+            })}
           </div>
         )}
 
@@ -220,27 +269,23 @@ export function MinimalShell({ tenant, link, primary, buttons, sectionsNode }: S
 
         {buttons.length > 0 && (
           <div className="mt-7 space-y-2">
-            {buttons.map((b, i) =>
-              b.cover ? (
-                <CoverButtonLink key={i} b={b} />
-              ) : (
+            {buttons.map((b, i) => {
+              if (b.cover) return <CoverButtonLink key={i} b={b} />;
+              const sp = buttonStyleProps(b.bgStyle, primary, { dark: false });
+              return (
                 <a
                   key={i}
                   href={b.href}
                   target={b.newTab ? '_blank' : undefined}
                   rel="noreferrer"
                   onClick={b.onClick}
-                  className={`block w-full px-4 py-3 rounded-xl border text-sm text-center font-medium transition ${
-                    b.isPrimary
-                      ? 'border-transparent text-white'
-                      : 'border-line text-ink hover:bg-bg2/60'
-                  }`}
-                  style={b.isPrimary ? { background: primary } : undefined}
+                  className={`block w-full px-4 py-3 rounded-xl text-sm text-center font-medium transition ${sp.className}`}
+                  style={sp.style}
                 >
                   {b.label}
                 </a>
-              ),
-            )}
+              );
+            })}
           </div>
         )}
 
@@ -329,32 +374,49 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode }: Shel
               ))}
             </div>
           )}
-          {primaryBtn && (
-            <a
-              href={primaryBtn.href}
-              target={primaryBtn.newTab ? '_blank' : undefined}
-              rel="noreferrer"
-              onClick={primaryBtn.onClick}
-              className="block w-full mt-5 py-3 rounded-full text-white text-center text-sm font-semibold shadow-md hover:opacity-95"
-              style={{ background: primary }}
-            >
-              {primaryBtn.label}
-            </a>
-          )}
+          {primaryBtn && (() => {
+            const sp = buttonStyleProps(primaryBtn.bgStyle, primary, { dark: false });
+            return (
+              <a
+                href={primaryBtn.href}
+                target={primaryBtn.newTab ? '_blank' : undefined}
+                rel="noreferrer"
+                onClick={primaryBtn.onClick}
+                className={`block w-full mt-5 py-3 rounded-full text-center text-sm font-semibold transition ${
+                  primaryBtn.bgStyle === 'solid' ? 'shadow-md' : ''
+                } ${sp.className}`}
+                style={sp.style}
+              >
+                {primaryBtn.label}
+              </a>
+            );
+          })()}
           {secondaryBtns.length > 0 && (
             <div className="grid grid-cols-3 gap-1.5 mt-2">
-              {secondaryBtns.map((b, i) => (
-                <a
-                  key={i}
-                  href={b.href}
-                  target={b.newTab ? '_blank' : undefined}
-                  rel="noreferrer"
-                  onClick={b.onClick}
-                  className="py-2.5 rounded-lg text-[11px] font-semibold border border-line bg-white text-center text-ink hover:bg-bg2/40"
-                >
-                  {b.label}
-                </a>
-              ))}
+              {secondaryBtns.map((b, i) => {
+                const sp = buttonStyleProps(b.bgStyle, primary, { dark: false });
+                // Defaults históricos del shell: secondaryBtns sin bgStyle
+                // explícito usan border + bg blanco. Si el usuario fijó
+                // bgStyle, ese gana.
+                const usingDefault = b.bgStyle === 'solid' && !b.isPrimary;
+                return (
+                  <a
+                    key={i}
+                    href={b.href}
+                    target={b.newTab ? '_blank' : undefined}
+                    rel="noreferrer"
+                    onClick={b.onClick}
+                    className={`py-2.5 rounded-lg text-[11px] font-semibold text-center transition ${
+                      usingDefault
+                        ? 'border border-line bg-white text-ink hover:bg-bg2/40'
+                        : sp.className
+                    }`}
+                    style={usingDefault ? undefined : sp.style}
+                  >
+                    {b.label}
+                  </a>
+                );
+              })}
             </div>
           )}
 
@@ -411,29 +473,29 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode }: S
           )}
           {buttons.length > 0 && (
             <div className="flex gap-2 mt-3 flex-wrap">
-              {buttons.slice(0, 4).map((b, i) =>
-                b.cover ? (
-                  <div key={i} className="basis-full">
-                    <CoverButtonLink b={b} />
-                  </div>
-                ) : (
+              {buttons.slice(0, 4).map((b, i) => {
+                if (b.cover) {
+                  return (
+                    <div key={i} className="basis-full">
+                      <CoverButtonLink b={b} />
+                    </div>
+                  );
+                }
+                const sp = buttonStyleProps(b.bgStyle, primary, { dark: false });
+                return (
                   <a
                     key={i}
                     href={b.href}
                     target={b.newTab ? '_blank' : undefined}
                     rel="noreferrer"
                     onClick={b.onClick}
-                    className={`text-[11px] font-semibold px-3 py-1.5 rounded-full ${
-                      b.isPrimary
-                        ? 'text-white'
-                        : 'border border-line text-ink hover:bg-bg2/40'
-                    }`}
-                    style={b.isPrimary ? { background: primary } : undefined}
+                    className={`text-[11px] font-semibold px-3 py-1.5 rounded-full transition ${sp.className}`}
+                    style={sp.style}
                   >
                     {b.label}
                   </a>
-                ),
-              )}
+                );
+              })}
             </div>
           )}
         </div>
@@ -532,32 +594,48 @@ export function NeonShell({ tenant, link, primary, buttons, sectionsNode }: Shel
 
         {buttons.length > 0 && (
           <div className="mt-7 space-y-2.5">
-            {buttons.map((b, i) =>
-              b.cover ? (
-                <CoverButtonLink key={i} b={b} />
-              ) : (
-              <a
-                key={i}
-                href={b.href}
-                target={b.newTab ? '_blank' : undefined}
-                rel="noreferrer"
-                onClick={b.onClick}
-                className={`block w-full px-4 py-3 text-sm text-center font-bold uppercase tracking-wider transition ${
-                  b.isPrimary
-                    ? 'text-black'
-                    : 'border text-white hover:bg-white/5'
-                }`}
-                style={{
-                  background: b.isPrimary ? accent : 'transparent',
-                  borderColor: b.isPrimary ? 'transparent' : `${accent}50`,
-                  clipPath:
-                    'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)',
-                }}
-              >
-                {b.label}
-              </a>
-              ),
-            )}
+            {buttons.map((b, i) => {
+              if (b.cover) return <CoverButtonLink key={i} b={b} />;
+              // NEON tiene clip-path estilo cyberpunk + colores de acento
+              // propios. Mapeamos bgStyle a tres looks fieles al template:
+              // solid = bloque sólido con acento + texto negro
+              // outline = borde del acento + texto blanco
+              // transparent = sin borde ni bg, texto del acento
+              const clip =
+                'polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px)';
+              let cls = 'text-white';
+              let style: CSSProperties = {
+                clipPath: clip,
+                background: 'transparent',
+              };
+              if (b.bgStyle === 'solid') {
+                cls = 'text-black hover:opacity-90';
+                style = { ...style, background: accent };
+              } else if (b.bgStyle === 'outline') {
+                cls = 'text-white hover:bg-white/5';
+                style = {
+                  ...style,
+                  border: `1.5px solid ${accent}50`,
+                };
+              } else {
+                // transparent
+                cls = 'hover:bg-white/5';
+                style = { ...style, color: accent };
+              }
+              return (
+                <a
+                  key={i}
+                  href={b.href}
+                  target={b.newTab ? '_blank' : undefined}
+                  rel="noreferrer"
+                  onClick={b.onClick}
+                  className={`block w-full px-4 py-3 text-sm text-center font-bold uppercase tracking-wider transition ${cls}`}
+                  style={style}
+                >
+                  {b.label}
+                </a>
+              );
+            })}
           </div>
         )}
 

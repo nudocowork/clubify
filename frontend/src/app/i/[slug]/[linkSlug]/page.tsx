@@ -17,6 +17,9 @@ type Button = {
   waMessage?: string;
   locationId?: string | null;
   style?: 'primary' | 'secondary';
+  /** Estilo de fondo. Default 'solid' — pero si está ausente derivamos
+   *  de `style` (primary→solid, secondary→outline) para compat. */
+  bgStyle?: 'solid' | 'transparent' | 'outline';
   renderAs?: 'simple' | 'cover';
   cover?: unknown;
   tagline?: string | null;
@@ -199,6 +202,8 @@ export default function PublicInfoLink() {
       const href = buttonHref(b);
       if (!href) return null;
       const useCover = b.renderAs ? b.renderAs === 'cover' : !!b.cover;
+      const bgStyle =
+        b.bgStyle ?? (b.style === 'secondary' ? 'outline' : 'solid');
       return {
         label: b.label,
         href,
@@ -208,6 +213,7 @@ export default function PublicInfoLink() {
           b.type === 'MAPS' ||
           b.type === 'WHATSAPP',
         isPrimary: b.style !== 'secondary',
+        bgStyle,
         onClick: () => trackClick(b.label),
         cover: useCover ? b.cover : null,
         tagline: (useCover ? b.tagline ?? null : null) as string | null,

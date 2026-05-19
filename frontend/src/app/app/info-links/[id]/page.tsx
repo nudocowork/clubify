@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
@@ -58,6 +58,10 @@ type Button = {
   // MAPS: locationId opcional — si null, usa el primer location del tenant
   locationId?: string | null;
   style?: 'primary' | 'secondary';
+  // Estilo de fondo del botón cuando renderAs = 'simple'. Default 'solid'
+  // para botones nuevos; en botones viejos se deriva de `style`
+  // (primary→solid, secondary→outline) cuando ausente.
+  bgStyle?: 'solid' | 'transparent' | 'outline';
   // Estilo visual del botón. 'simple' (pill clásico) o 'cover' (card
   // visual tipo portada de sección de menú). Si está ausente, se
   // deriva de `!!cover` para compat con botones viejos.
@@ -197,6 +201,7 @@ export default function InfoLinkEditor() {
       type: 'EXTERNAL',
       url: 'https://',
       style: 'primary',
+      bgStyle: 'solid',
       renderAs: 'simple',
       isActive: true,
     };
@@ -628,6 +633,41 @@ export default function InfoLinkEditor() {
                       </div>
                     </div>
                   )}
+                  {/* Picker de estilo del botón (solid/transparent/outline).
+                      Solo aplica cuando renderAs = 'simple'. En cover, el
+                      estilo lo decide el editor de portada. */}
+                  {!coverMode && (
+                    <div className="col-span-full flex items-center gap-2 flex-wrap">
+                      <span className="text-[11px] uppercase tracking-wider text-mute font-semibold">
+                        Estilo
+                      </span>
+                      <div className="inline-flex rounded-pill bg-bg2 p-0.5 text-[11px] font-semibold">
+                        {(['solid', 'transparent', 'outline'] as const).map((opt) => {
+                          const current = (b.bgStyle ?? 'solid') === opt;
+                          const label =
+                            opt === 'solid'
+                              ? '● Sólido'
+                              : opt === 'transparent'
+                              ? '○ Transparente'
+                              : '▢ Solo borde';
+                          return (
+                            <button
+                              key={opt}
+                              type="button"
+                              onClick={() => updateButton(i, { bgStyle: opt })}
+                              className={`px-2.5 py-1 rounded-pill transition ${
+                                current
+                                  ? 'bg-white text-ink shadow-sm'
+                                  : 'text-mute hover:text-ink'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                   {b.type === 'EXTERNAL' && (
                     <input
                       className="input col-span-full"
@@ -1054,35 +1094,45 @@ function PublicLinkPreview({
           <div className="space-y-2 mt-4 text-left">
             {link.buttons
               .filter((b) => b.isActive !== false)
-              .map((b, i) =>
-                isCoverMode(b) && b.cover ? (
-                  <div key={i} className="rounded-xl overflow-hidden">
-                    <SectionCoverPreview
-                      config={b.cover}
-                      title={b.label || 'Botón'}
-                      tagline={b.tagline || null}
-                      scale={0.45}
-                    />
-                  </div>
-                ) : (
+              .map((b, i) => {
+                if (isCoverMode(b) && b.cover) {
+                  return (
+                    <div key={i} className="rounded-xl overflow-hidden">
+                      <SectionCoverPreview
+                        config={b.cover}
+                        title={b.label || 'Botón'}
+                        tagline={b.tagline || null}
+                        scale={0.45}
+                      />
+                    </div>
+                  );
+                }
+                const bgStyle =
+                  b.bgStyle ?? (b.style === 'secondary' ? 'outline' : 'solid');
+                const style: CSSProperties = {};
+                if (bgStyle === 'solid') {
+                  style.background = primary;
+                  style.color = '#fff';
+                  style.boxShadow = `0 4px 12px ${primary}33`;
+                } else if (bgStyle === 'outline') {
+                  style.background = 'transparent';
+                  style.color = primary;
+                  style.border = `1.5px solid ${primary}`;
+                } else {
+                  // transparent
+                  style.background = 'transparent';
+                  style.color = primary;
+                }
+                return (
                   <div
                     key={i}
-                    className="block w-full py-2.5 px-4 rounded-2xl text-center text-[13px] font-semibold transition shadow-sm"
-                    style={{
-                      background:
-                        b.style === 'secondary' ? '#fff' : primary,
-                      color: b.style === 'secondary' ? primary : '#fff',
-                      border: `1.5px solid ${primary}`,
-                      boxShadow:
-                        b.style === 'secondary'
-                          ? '0 1px 2px rgba(0,0,0,.04)'
-                          : `0 4px 12px ${primary}33`,
-                    }}
+                    className="block w-full py-2.5 px-4 rounded-2xl text-center text-[13px] font-semibold transition"
+                    style={style}
                   >
                     {b.label}
                   </div>
-                ),
-              )}
+                );
+              })}
           </div>
         )}
 
