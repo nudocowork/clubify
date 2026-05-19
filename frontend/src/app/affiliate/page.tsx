@@ -4,7 +4,7 @@
  * minimal — un solo archivo con las 3 vistas (Resumen, Clientes,
  * Comisiones) en tabs. Datos scoped por el backend al usuario logueado.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api, clearSession, getImpersonationBackup, stopImpersonation } from '@/lib/api';
@@ -13,7 +13,7 @@ import { toast } from '@/components/Toast';
 import { PhoneInput } from '@/components/PhoneInput';
 import { SupportWidget } from '@/components/SupportWidget';
 
-type Tab = 'overview' | 'clients' | 'commissions' | 'settings';
+type Tab = 'overview' | 'clients' | 'commissions' | 'materials' | 'settings';
 
 type Me = {
   user: { id: string; email: string; fullName: string; role: string; phone?: string | null } | null;
@@ -253,6 +253,12 @@ export default function AffiliatePanel() {
             💵 Comisiones
           </button>
           <button
+            className={`tab ${tab === 'materials' ? 'tab-active' : ''}`}
+            onClick={() => setTab('materials')}
+          >
+            📚 Material de apoyo
+          </button>
+          <button
             className={`tab ${tab === 'settings' ? 'tab-active' : ''}`}
             onClick={() => setTab('settings')}
           >
@@ -263,6 +269,7 @@ export default function AffiliatePanel() {
         {tab === 'overview' && <Overview me={me} />}
         {tab === 'clients' && <ClientsList />}
         {tab === 'commissions' && <CommissionsList />}
+        {tab === 'materials' && <SupportMaterialsList />}
         {tab === 'settings' && (
           <SettingsView
             me={me}
@@ -1250,5 +1257,332 @@ function SettingsView({
         </button>
       </div>
     </form>
+  );
+}
+
+// =====================================================
+// SupportMaterialsList — biblioteca de recursos del afiliado
+// =====================================================
+//
+// Lee /affiliate/support-materials que devuelve solo lo que el rol del
+// usuario puede ver (filtra por audience + scope). Cards con ícono por
+// tipo, buscador, filtro de categoría, acciones contextuales (descargar,
+// abrir link, copiar script).
+
+type SupportMaterialType =
+  | 'PDF'
+  | 'IMAGE'
+  | 'VIDEO'
+  | 'AUDIO'
+  | 'LINK'
+  | 'SCRIPT'
+  | 'PRESENTATION'
+  | 'TEMPLATE'
+  | 'OTHER';
+
+type SupportMaterial = {
+  id: string;
+  title: string;
+  description: string | null;
+  type: SupportMaterialType;
+  fileUrl: string | null;
+  externalUrl: string | null;
+  thumbnailUrl: string | null;
+  scriptBody: string | null;
+  category: string;
+  createdAt: string;
+};
+
+const M_TYPE_ICON: Record<SupportMaterialType, string> = {
+  PDF: '📄',
+  IMAGE: '🖼',
+  VIDEO: '🎬',
+  AUDIO: '🎵',
+  LINK: '🔗',
+  SCRIPT: '📝',
+  PRESENTATION: '🎤',
+  TEMPLATE: '📋',
+  OTHER: '📦',
+};
+
+const M_TYPE_LABEL: Record<SupportMaterialType, string> = {
+  PDF: 'PDF',
+  IMAGE: 'Imagen',
+  VIDEO: 'Video',
+  AUDIO: 'Audio',
+  LINK: 'Link',
+  SCRIPT: 'Script',
+  PRESENTATION: 'Presentación',
+  TEMPLATE: 'Plantilla',
+  OTHER: 'Recurso',
+};
+
+function SupportMaterialsList() {
+  const [items, setItems] = useState<SupportMaterial[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [category, setCategory] = useState('');
+  const [previewScript, setPreviewScript] = useState<SupportMaterial | null>(null);
+
+  useEffect(() => {
+    api<SupportMaterial[]>('/affiliate/support-materials')
+      .then((r) => setItems(r ?? []))
+      .catch(() => setItems([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const categories = useMemo(() => {
+    const s = new Set<string>();
+    items.forEach((m) => s.add(m.category));
+    return Array.from(s).sort();
+  }, [items]);
+
+  const filtered = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return items.filter((m) => {
+      if (category && m.category !== category) return false;
+      if (term) {
+        const hay = `${m.title} ${m.description ?? ''} ${m.category}`.toLowerCase();
+        if (!hay.includes(term)) return false;
+      }
+      return true;
+    });
+  }, [items, search, category]);
+
+  const grouped = useMemo(() => {
+    const byCat: Record<string, SupportMaterial[]> = {};
+    filtered.forEach((m) => {
+      byCat[m.category] = byCat[m.category] ?? [];
+      byCat[m.category].push(m);
+    });
+    return Object.entries(byCat).sort(([a], [b]) => a.localeCompare(b));
+  }, [filtered]);
+
+  if (loading) {
+    return <div className="card card-pad text-mute text-sm">Cargando…</div>;
+  }
+
+  if (items.length === 0) {
+    return (
+      <div className="card card-pad text-center py-10">
+        <div className="text-4xl mb-2">📚</div>
+        <div className="font-semibold mb-1">Aún no hay materiales</div>
+        <div className="text-xs text-mute leading-relaxed max-w-sm mx-auto">
+          El equipo Clubify sube acá scripts, videos, PDFs y plantillas que te
+          ayudan a vender. Volvé en unos días si todavía no hay nada disponible.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="card card-pad">
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_220px] gap-3">
+          <input
+            className="input"
+            placeholder="🔍 Buscar material…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <select
+            className="input"
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+          >
+            <option value="">Todas las categorías</option>
+            {categories.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="text-[11px] text-mute mt-2 leading-snug">
+          {filtered.length} de {items.length} materiales disponibles para vos.
+        </div>
+      </div>
+
+      {grouped.length === 0 ? (
+        <div className="card card-pad text-center text-mute text-sm py-6">
+          Sin resultados para la búsqueda.
+        </div>
+      ) : (
+        grouped.map(([cat, list]) => (
+          <div key={cat}>
+            <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
+              {cat} <span className="text-mute/60">· {list.length}</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {list.map((m) => (
+                <SupportMaterialCard
+                  key={m.id}
+                  m={m}
+                  onPreviewScript={() => setPreviewScript(m)}
+                />
+              ))}
+            </div>
+          </div>
+        ))
+      )}
+
+      {previewScript && (
+        <ScriptPreviewModal
+          material={previewScript}
+          onClose={() => setPreviewScript(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function SupportMaterialCard({
+  m,
+  onPreviewScript,
+}: {
+  m: SupportMaterial;
+  onPreviewScript: () => void;
+}) {
+  const url = m.fileUrl || m.externalUrl;
+  const isScript = m.type === 'SCRIPT' && !!m.scriptBody;
+
+  async function copyLink() {
+    if (!url) return;
+    await navigator.clipboard.writeText(url);
+    toast('Link copiado', 'success');
+  }
+
+  async function copyScript() {
+    if (!m.scriptBody) return;
+    await navigator.clipboard.writeText(m.scriptBody);
+    toast('Script copiado al portapapeles', 'success');
+  }
+
+  return (
+    <div className="card card-pad flex flex-col gap-2.5 hover:shadow-md transition">
+      {m.thumbnailUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={m.thumbnailUrl}
+          alt=""
+          className="w-full h-32 object-cover rounded-lg"
+        />
+      ) : (
+        <div className="w-full h-32 rounded-lg bg-bg2 flex items-center justify-center text-5xl">
+          {M_TYPE_ICON[m.type]}
+        </div>
+      )}
+
+      <div>
+        <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
+          {M_TYPE_LABEL[m.type]}
+        </div>
+        <div className="font-semibold text-sm leading-tight mt-0.5">
+          {m.title}
+        </div>
+        {m.description && (
+          <div className="text-xs text-mute leading-snug mt-1 line-clamp-2">
+            {m.description}
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center gap-1.5 mt-auto pt-1.5">
+        {isScript && (
+          <>
+            <button
+              onClick={onPreviewScript}
+              className="btn-ghost text-[11px] flex-1"
+            >
+              👁 Ver
+            </button>
+            <button onClick={copyScript} className="btn-primary text-[11px] flex-1">
+              📋 Copiar
+            </button>
+          </>
+        )}
+        {!isScript && url && (
+          <>
+            {m.fileUrl ? (
+              <a
+                href={url}
+                download
+                target="_blank"
+                rel="noreferrer"
+                className="btn-primary text-[11px] flex-1 text-center"
+              >
+                ⬇ Descargar
+              </a>
+            ) : (
+              <a
+                href={url}
+                target="_blank"
+                rel="noreferrer"
+                className="btn-primary text-[11px] flex-1 text-center"
+              >
+                ↗ Abrir
+              </a>
+            )}
+            <button onClick={copyLink} className="btn-ghost text-[11px]" title="Copiar link">
+              🔗
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ScriptPreviewModal({
+  material,
+  onClose,
+}: {
+  material: SupportMaterial;
+  onClose: () => void;
+}) {
+  async function copy() {
+    if (material.scriptBody) {
+      await navigator.clipboard.writeText(material.scriptBody);
+      toast('Copiado', 'success');
+    }
+  }
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto p-5 animate-in zoom-in-95 fade-in duration-150"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
+              {M_TYPE_LABEL[material.type]} · {material.category}
+            </div>
+            <h2 className="font-bold text-lg leading-tight">{material.title}</h2>
+          </div>
+          <button onClick={onClose} className="text-mute hover:text-ink text-xl">
+            ×
+          </button>
+        </div>
+        {material.description && (
+          <div className="text-xs text-mute mb-3 leading-relaxed">
+            {material.description}
+          </div>
+        )}
+        <pre className="bg-bg2 rounded-lg p-3 text-xs whitespace-pre-wrap font-mono leading-relaxed max-h-[50vh] overflow-y-auto">
+          {material.scriptBody}
+        </pre>
+        <div className="flex justify-end gap-2 pt-3">
+          <button onClick={onClose} className="btn-ghost text-sm">
+            Cerrar
+          </button>
+          <button onClick={copy} className="btn-primary text-sm">
+            📋 Copiar todo
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
