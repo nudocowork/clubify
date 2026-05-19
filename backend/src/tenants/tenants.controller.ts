@@ -4,6 +4,7 @@ import { TenantsService } from './tenants.service';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { TenantStatus } from '@prisma/client';
+import { TenantLockGuard } from '../common/guards/tenant-lock.guard';
 
 class CreateTenantBody {
   @IsString() brandName!: string;
@@ -45,7 +46,10 @@ class UpdateTenantBody {
 @Controller('tenants')
 @Roles('SUPER_ADMIN')
 export class TenantsController {
-  constructor(private svc: TenantsService) {}
+  constructor(
+    private svc: TenantsService,
+    private lockGuard: TenantLockGuard,
+  ) {}
 
   @Get()
   list() {
@@ -85,6 +89,23 @@ export class TenantsController {
   @Post(':id/impersonate')
   impersonate(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.svc.impersonate(id, user.id);
+  }
+
+  /** Toggle demo lock. Body: { locked: boolean, reason?: string }.
+   *  Cuando locked=true, no-SUPER_ADMIN no puede modificar nada en
+   *  ese tenant — pensado para cuentas demo que los embajadores muestran
+   *  a prospects sin riesgo. Invalida cache del guard al toque. */
+  @Patch(':id/lock')
+  async setLock(
+    @Param('id') id: string,
+    @Body() body: { locked: boolean; reason?: string | null },
+  ) {
+    const result = await this.svc.setLock(id, {
+      locked: !!body?.locked,
+      reason: body?.reason ?? null,
+    });
+    this.lockGuard.invalidate(id);
+    return result;
   }
 
   @Delete(':id')

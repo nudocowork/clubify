@@ -70,6 +70,7 @@ export default function AppShell({
     brandName?: string;
     hotmartSubscriberCode?: string | null;
     businessCategorySlug?: string | null;
+    isLocked?: boolean;
   } | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
     new Set(),
@@ -505,6 +506,15 @@ export default function AppShell({
             >
               ← Volver al admin
             </button>
+          </div>
+        )}
+        {variant === 'app' && tenantInfo?.isLocked && (
+          <div className="bg-violet-600 text-white px-4 py-2 text-[13px] flex items-center gap-2 flex-wrap">
+            <span className="font-semibold">🔒 Cuenta demo · solo lectura</span>
+            <span className="opacity-90">
+              Esta cuenta está bloqueada para demostración. Podés navegar todo el panel
+              pero no se puede modificar ni eliminar contenido.
+            </span>
           </div>
         )}
         {variant === 'app' && <TrialBanner />}

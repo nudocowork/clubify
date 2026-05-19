@@ -401,4 +401,31 @@ export class TenantsService {
       data: dto,
     });
   }
+
+  /**
+   * Toggle del demo lock — solo super admin. Cuando isLocked=true,
+   * TenantLockGuard bloquea POST/PATCH/PUT/DELETE de todos los usuarios
+   * no-SUPER_ADMIN. Pensado para cuentas demo curadas que los embajadores
+   * muestran a prospects sin poder modificar el contenido.
+   */
+  async setLock(
+    tenantId: string,
+    opts: { locked: boolean; reason?: string | null },
+  ) {
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true },
+    });
+    if (!t) throw new NotFoundException('Negocio no encontrado');
+    const updated = await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: {
+        isLocked: opts.locked,
+        lockedAt: opts.locked ? new Date() : null,
+        lockedReason: opts.locked ? (opts.reason ?? null) : null,
+      },
+      select: { id: true, isLocked: true, lockedAt: true, lockedReason: true },
+    });
+    return updated;
+  }
 }

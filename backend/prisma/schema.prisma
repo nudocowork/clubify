@@ -311,6 +311,14 @@ model Tenant {
   primaryColor                String       @default("#22C55E")
   secondaryColor              String       @default("#15803D")
   status                      TenantStatus @default(TRIAL)
+  /// Si true, el tenant está en modo demo bloqueado: cualquier usuario
+  /// que NO sea SUPER_ADMIN puede ver el panel y navegar pero no puede
+  /// modificar nada (POST/PATCH/PUT/DELETE rechazados con 423 Locked).
+  /// Pensado para crear cuentas demo que los embajadores logean y muestran
+  /// a prospects sin riesgo de que toquen el contenido curado.
+  isLocked                    Boolean      @default(false)
+  lockedAt                    DateTime?
+  lockedReason                String?      @db.Text
   // Categoría del rubro (restaurante, autolavado, barbería, etc.) — define
   // qué módulos del panel ve el dueño. Lista en common/business-categories.ts.
   // Nullable por compat con tenants viejos; en runtime cae a 'restaurant'.

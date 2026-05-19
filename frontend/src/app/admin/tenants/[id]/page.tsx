@@ -233,8 +233,57 @@ export default function TenantDetail() {
                 Marcar como activo
               </button>
             )}
+            {/* Demo lock toggle — convierte el tenant en cuenta demo de
+                solo-lectura. Cualquier no-SUPER_ADMIN que entre solo puede
+                ver/navegar. Útil para que los embajadores muestren a prospects. */}
+            <button
+              className={`text-sm ${t.isLocked ? 'btn-primary' : 'btn-ghost'}`}
+              disabled={actioning}
+              onClick={async () => {
+                const wantLock = !t.isLocked;
+                if (wantLock) {
+                  if (
+                    !confirm(
+                      '¿Activar modo demo (solo lectura)?\n\nNadie excepto super admin podrá modificar este negocio. Pensado para cuentas demo que los embajadores muestran a prospects.',
+                    )
+                  )
+                    return;
+                }
+                setActioning(true);
+                try {
+                  await api(`/tenants/${id}/lock`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ locked: wantLock }),
+                  });
+                  toast(
+                    wantLock ? '🔒 Cuenta bloqueada como demo' : '🔓 Demo desbloqueado — editable',
+                    'success',
+                  );
+                  await load();
+                } catch (e: any) {
+                  toast(e.message || 'No se pudo cambiar el lock', 'error');
+                } finally {
+                  setActioning(false);
+                }
+              }}
+              title={
+                t.isLocked
+                  ? 'Quitar el bloqueo demo para volver a editar el contenido'
+                  : 'Activar modo demo: solo lectura para no-super-admin'
+              }
+            >
+              {t.isLocked ? '🔓 Desbloquear demo' : '🔒 Bloquear como demo'}
+            </button>
           </div>
         </div>
+        {t.isLocked && (
+          <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 mt-3 text-xs text-amber-900">
+            <strong>🔒 Modo demo activo.</strong> Cualquier usuario que entre a
+            este negocio (incluyendo dueño o staff) solo puede ver y navegar —
+            no puede modificar nada. Solo super admin puede editar. Desbloqueá
+            arriba si necesitás actualizar el contenido curado.
+          </div>
+        )}
       </div>
 
       {/* KPIs */}
