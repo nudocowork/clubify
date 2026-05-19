@@ -8,6 +8,11 @@ import {
   getLogoImgStyle,
   type LogoContainerConfig,
 } from '@/lib/info-link-logo-container';
+import {
+  getBannerBackgroundStyle,
+  getBannerOverlayBackground,
+  type BannerConfig,
+} from '@/lib/info-link-banner';
 
 // =============================================================
 //  Tipos compartidos
@@ -34,8 +39,13 @@ export type ShellLink = {
   sections: any[];
   buttons: { label: string; type: string; url?: string; style?: 'primary' | 'secondary' }[];
   /** theme.logoContainer (opcional) decide el look del card del logo.
-   *  Si null/undefined, el shell usa su default histórico. */
-  theme: { primaryColor?: string; logoContainer?: LogoContainerConfig | null } & Record<string, any>;
+   *  theme.bannerConfig (opcional) controla overlay/zoom/blur/posición del
+   *  hero image. Si null/undefined, los shells usan sus defaults históricos. */
+  theme: {
+    primaryColor?: string;
+    logoContainer?: LogoContainerConfig | null;
+    bannerConfig?: BannerConfig | null;
+  } & Record<string, any>;
   views: number;
 };
 
@@ -364,16 +374,36 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode }: Shel
   const primaryBtn = regularBtns.find((b) => b.isPrimary) ?? regularBtns[0];
   const secondaryBtns = regularBtns.filter((b) => b !== primaryBtn).slice(0, 3);
 
+  const bannerConfig = link.theme?.bannerConfig ?? null;
+  const overlayBg = getBannerOverlayBackground(bannerConfig);
   return (
     <div className="min-h-screen bg-[#FAFAFA]">
       <article className="max-w-md mx-auto bg-white shadow-sm min-h-screen">
-        <div
-          className="h-40 bg-cover bg-center relative"
-          style={{
-            background: link.heroImageUrl ? `url(${heroBg}) center/cover` : heroBg,
-          }}
-        >
-          <div className="absolute inset-0 bg-black/15" />
+        <div className="h-40 relative overflow-hidden">
+          {link.heroImageUrl ? (
+            <div
+              className="absolute inset-0"
+              style={getBannerBackgroundStyle(
+                link.heroImageUrl,
+                bannerConfig,
+                heroBg as string,
+              )}
+            />
+          ) : (
+            <div className="absolute inset-0" style={{ background: heroBg }} />
+          )}
+          {/* Overlay: si bannerConfig viene, respetamos su tipo; sino
+              dejamos el negro 15% histórico para mantener legibilidad. */}
+          {bannerConfig ? (
+            overlayBg !== 'transparent' && (
+              <div
+                className="absolute inset-0"
+                style={{ background: overlayBg }}
+              />
+            )
+          ) : (
+            <div className="absolute inset-0 bg-black/15" />
+          )}
         </div>
         <div className="px-5">
           <div className="-mt-12 flex justify-center">

@@ -23,6 +23,15 @@ import {
   type LogoContainerConfig,
   type LogoContainerPresetId,
 } from '@/lib/info-link-logo-container';
+import {
+  DEFAULT_BANNER_CONFIG,
+  BANNER_PRESETS,
+  getBannerBackgroundStyle,
+  getBannerOverlayBackground,
+  type BannerConfig,
+  type BannerPresetId,
+  type BannerPosition,
+} from '@/lib/info-link-banner';
 
 /** Devuelve true si el botón está renderizado como cover, false si simple.
  *  Si renderAs no está, se deriva de !!cover (compat botones viejos). */
@@ -98,6 +107,7 @@ type InfoLink = {
     primaryColor?: string;
     template?: InfoLinkTemplate;
     logoContainer?: LogoContainerConfig | null;
+    bannerConfig?: BannerConfig | null;
   };
   isActive: boolean;
   views: number;
@@ -421,6 +431,15 @@ export default function InfoLinkEditor() {
             tenantLogoUrl={tenant?.logoUrl ?? null}
             onChange={(next) =>
               update('theme', { ...link.theme, logoContainer: next })
+            }
+          />
+
+          {/* Banner (hero image) — overlay, posición, zoom, blur */}
+          <BannerPanel
+            value={link.theme.bannerConfig ?? null}
+            heroImageUrl={link.heroImageUrl}
+            onChange={(next) =>
+              update('theme', { ...link.theme, bannerConfig: next })
             }
           />
 
@@ -1479,6 +1498,279 @@ function SliderRow({
         onChange={(e) => onChange(Number(e.target.value))}
         className="w-full accent-brand"
       />
+    </div>
+  );
+}
+
+// =====================================================
+// BannerPanel — overlay, posición, zoom, blur del hero image
+// =====================================================
+//
+// Aplica al template SHOP (único shell que renderea heroImageUrl hoy).
+// Si bannerConfig=null, el hero se renderea con el overlay negro 15%
+// histórico (legible pero sin tunear). Activá "Personalizar" para
+// elegir preset o tunear fino.
+function BannerPanel({
+  value,
+  heroImageUrl,
+  onChange,
+}: {
+  value: BannerConfig | null;
+  heroImageUrl: string | null;
+  onChange: (next: BannerConfig | null) => void;
+}) {
+  const enabled = value !== null;
+  const cfg = value ?? DEFAULT_BANNER_CONFIG;
+
+  function patch(p: Partial<BannerConfig>) {
+    onChange({ ...cfg, ...p, preset: null });
+  }
+  function patchOverlay(p: Partial<BannerConfig['overlay']>) {
+    onChange({ ...cfg, overlay: { ...cfg.overlay, ...p }, preset: null });
+  }
+  function applyPreset(id: BannerPresetId) {
+    onChange({ ...BANNER_PRESETS[id].config });
+  }
+
+  return (
+    <div className="card card-pad">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold m-0">Banner (foto de portada)</h3>
+        <label className="flex items-center gap-2 text-xs text-mute cursor-pointer">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) =>
+              onChange(e.target.checked ? { ...DEFAULT_BANNER_CONFIG } : null)
+            }
+          />
+          Personalizar
+        </label>
+      </div>
+
+      {!heroImageUrl && (
+        <div className="text-xs text-mute italic mb-3">
+          Subí una imagen de portada arriba para ver el preview.
+        </div>
+      )}
+
+      {!enabled && (
+        <div className="text-xs text-mute leading-relaxed">
+          Sin personalizar — el banner muestra la foto con un overlay
+          oscuro suave para que el contenido encima quede legible. Activá
+          arriba para tunear overlay, posición, zoom o blur.
+        </div>
+      )}
+
+      {enabled && (
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_240px] gap-5">
+          <div className="space-y-4">
+            {/* Presets */}
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
+                Presets
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {(Object.keys(BANNER_PRESETS) as BannerPresetId[]).map((id) => {
+                  const p = BANNER_PRESETS[id];
+                  const active = cfg.preset === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => applyPreset(id)}
+                      className={`text-left rounded-lg p-3 border transition ${
+                        active
+                          ? 'border-brand bg-brand/5'
+                          : 'border-line hover:border-ink/30'
+                      }`}
+                    >
+                      <div className="font-semibold text-sm">{p.label}</div>
+                      <div className="text-[11px] text-mute mt-0.5 leading-snug">
+                        {p.description}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Posición */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label text-xs">Posición</label>
+                <select
+                  className="input"
+                  value={cfg.position}
+                  onChange={(e) =>
+                    patch({ position: e.target.value as BannerPosition })
+                  }
+                >
+                  <option value="center">Centro</option>
+                  <option value="top">Arriba</option>
+                  <option value="bottom">Abajo</option>
+                  <option value="left">Izquierda</option>
+                  <option value="right">Derecha</option>
+                  <option value="custom">Personalizada (X/Y)</option>
+                </select>
+              </div>
+              <div>
+                <label className="label text-xs">Overlay</label>
+                <select
+                  className="input"
+                  value={cfg.overlay.type}
+                  onChange={(e) =>
+                    patchOverlay({
+                      type: e.target.value as BannerConfig['overlay']['type'],
+                    })
+                  }
+                >
+                  <option value="none">Sin overlay</option>
+                  <option value="solid">Color sólido</option>
+                  <option value="gradient">Gradiente</option>
+                </select>
+              </div>
+            </div>
+
+            {cfg.position === 'custom' && (
+              <div className="space-y-3">
+                <SliderRow
+                  label="Posición X (offset horizontal)"
+                  min={-50}
+                  max={50}
+                  value={cfg.offsetX}
+                  onChange={(v) => patch({ offsetX: v })}
+                  unit="%"
+                />
+                <SliderRow
+                  label="Posición Y (offset vertical)"
+                  min={-50}
+                  max={50}
+                  value={cfg.offsetY}
+                  onChange={(v) => patch({ offsetY: v })}
+                  unit="%"
+                />
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <SliderRow
+                label="Zoom"
+                min={100}
+                max={300}
+                value={Math.round(cfg.scale * 100)}
+                onChange={(v) => patch({ scale: v / 100 })}
+                unit="%"
+              />
+              <SliderRow
+                label="Blur"
+                min={0}
+                max={20}
+                value={cfg.blur}
+                onChange={(v) => patch({ blur: v })}
+                unit="px"
+              />
+            </div>
+
+            {/* Overlay controls */}
+            {cfg.overlay.type === 'solid' && (
+              <div className="grid grid-cols-[120px_1fr] gap-3 items-end">
+                <div>
+                  <label className="label text-xs">Color overlay</label>
+                  <input
+                    type="color"
+                    className="input h-11 p-1"
+                    value={cfg.overlay.color}
+                    onChange={(e) => patchOverlay({ color: e.target.value })}
+                  />
+                </div>
+                <SliderRow
+                  label="Opacidad overlay"
+                  min={0}
+                  max={100}
+                  value={Math.round(cfg.overlay.opacity * 100)}
+                  onChange={(v) => patchOverlay({ opacity: v / 100 })}
+                  unit="%"
+                />
+              </div>
+            )}
+
+            {cfg.overlay.type === 'gradient' && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="label text-xs">From</label>
+                    <input
+                      type="text"
+                      className="input text-xs"
+                      placeholder="rgba(0,0,0,0)"
+                      value={cfg.overlay.gradientFrom}
+                      onChange={(e) =>
+                        patchOverlay({ gradientFrom: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="label text-xs">To</label>
+                    <input
+                      type="text"
+                      className="input text-xs"
+                      placeholder="rgba(0,0,0,0.7)"
+                      value={cfg.overlay.gradientTo}
+                      onChange={(e) =>
+                        patchOverlay({ gradientTo: e.target.value })
+                      }
+                    />
+                  </div>
+                </div>
+                <SliderRow
+                  label="Ángulo gradient"
+                  min={0}
+                  max={360}
+                  value={cfg.overlay.gradientAngle}
+                  onChange={(v) => patchOverlay({ gradientAngle: v })}
+                  unit="°"
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Preview */}
+          <div className="lg:sticky lg:top-4">
+            <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2 text-center">
+              Vista previa
+            </div>
+            <div className="relative h-40 rounded-xl overflow-hidden border border-line">
+              {heroImageUrl ? (
+                <>
+                  <div
+                    className="absolute inset-0"
+                    style={getBannerBackgroundStyle(
+                      heroImageUrl,
+                      cfg,
+                      'linear-gradient(135deg, #999, #ccc)',
+                    )}
+                  />
+                  {cfg.overlay.type !== 'none' && (
+                    <div
+                      className="absolute inset-0"
+                      style={{ background: getBannerOverlayBackground(cfg) }}
+                    />
+                  )}
+                </>
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center text-xs text-mute italic bg-bg2">
+                  Subí una imagen primero
+                </div>
+              )}
+            </div>
+            <div className="text-[10px] text-mute mt-2 text-center leading-snug">
+              El contenido (logo, título, botones) va encima — ajustá
+              overlay para que se lea bien.
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
