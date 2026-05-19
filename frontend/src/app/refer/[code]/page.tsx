@@ -18,8 +18,8 @@ import { PhoneInput } from '@/components/PhoneInput';
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 type CampaignInfo = {
-  campaignId: string;
-  campaignName: string;
+  campaignId: string | null;
+  campaignName: string | null;
   influencerName: string;
   influencerCode: string;
   ambassadorsCount: number;
@@ -31,6 +31,7 @@ type ApplyResponse = {
   code?: string;
   pendingApproval?: boolean;
   alreadyExists?: boolean;
+  usedCustomPassword?: boolean;
   message?: string;
 };
 
@@ -40,7 +41,14 @@ export default function ApplyAmbassadorPage() {
 
   const [info, setInfo] = useState<CampaignInfo | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [form, setForm] = useState({ fullName: '', email: '', whatsapp: '' });
+  const [form, setForm] = useState({
+    fullName: '',
+    email: '',
+    whatsapp: '',
+    password: '',
+    confirmPassword: '',
+  });
+  const [showPwd, setShowPwd] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<ApplyResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -63,7 +71,15 @@ export default function ApplyAmbassadorPage() {
     e.preventDefault();
     setErr(null);
     if (!form.fullName.trim() || !form.email.trim() || !form.whatsapp.trim()) {
-      setErr('Completá todos los campos');
+      setErr('Completá nombre, email y WhatsApp');
+      return;
+    }
+    if (!form.password || form.password.length < 8) {
+      setErr('La contraseña debe tener al menos 8 caracteres');
+      return;
+    }
+    if (form.password !== form.confirmPassword) {
+      setErr('Las contraseñas no coinciden');
       return;
     }
     setSubmitting(true);
@@ -73,7 +89,12 @@ export default function ApplyAmbassadorPage() {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(form),
+          body: JSON.stringify({
+            fullName: form.fullName,
+            email: form.email,
+            whatsapp: form.whatsapp,
+            password: form.password,
+          }),
         },
       );
       // r.json() crashea con "Unexpected token <" si el response es HTML
@@ -145,10 +166,25 @@ export default function ApplyAmbassadorPage() {
                 <div className="font-mono font-bold text-2xl">{result.code}</div>
               </div>
             )}
-            <div className="text-xs text-mute">
-              Te enviamos un email a <strong>{form.email}</strong> con las
-              instrucciones para acceder a tu panel.
-            </div>
+            {result.usedCustomPassword && !result.pendingApproval ? (
+              <div className="space-y-3">
+                <div className="text-xs text-mute">
+                  Tu cuenta ya está activa con el email <strong>{form.email}</strong>
+                  {' '}y la contraseña que elegiste.
+                </div>
+                <Link
+                  href="/login"
+                  className="btn-primary inline-flex justify-center w-full"
+                >
+                  Entrar a mi panel →
+                </Link>
+              </div>
+            ) : (
+              <div className="text-xs text-mute">
+                Te enviamos un email a <strong>{form.email}</strong> con las
+                instrucciones para acceder a tu panel.
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -162,10 +198,10 @@ export default function ApplyAmbassadorPage() {
 
         <div className="card card-pad mb-4 bg-gradient-to-br from-brand-soft to-bg2/30">
           <div className="text-[10px] uppercase tracking-wider text-brand font-bold mb-1">
-            Campaña Clubify
+            {info.campaignName ? 'Campaña Clubify' : 'Programa de embajadores'}
           </div>
           <div className="font-bold text-2xl leading-tight">
-            {info.campaignName}
+            {info.campaignName ?? 'Equipo de ' + info.influencerName}
           </div>
           <div className="text-sm text-mute mt-1">
             Liderada por <strong>{info.influencerName}</strong>
@@ -216,6 +252,44 @@ export default function ApplyAmbassadorPage() {
               />
             </div>
 
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="label m-0">Contraseña</label>
+                <button
+                  type="button"
+                  onClick={() => setShowPwd((s) => !s)}
+                  className="text-[11px] text-mute hover:text-ink"
+                >
+                  {showPwd ? '🙈 Ocultar' : '👁 Ver'}
+                </button>
+              </div>
+              <input
+                className="input"
+                type={showPwd ? 'text' : 'password'}
+                placeholder="Mín 8 caracteres"
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                autoComplete="new-password"
+                minLength={8}
+              />
+            </div>
+            <div>
+              <label className="label">Confirmar contraseña</label>
+              <input
+                className="input"
+                type={showPwd ? 'text' : 'password'}
+                placeholder="Repetí la contraseña"
+                value={form.confirmPassword}
+                onChange={(e) =>
+                  setForm({ ...form, confirmPassword: e.target.value })
+                }
+                autoComplete="new-password"
+              />
+              <div className="text-[11px] text-mute mt-1">
+                Con esta contraseña vas a entrar a tu panel apenas envíes el form.
+              </div>
+            </div>
+
             {err && (
               <div className="rounded-lg bg-bad-soft px-3 py-2 text-sm text-bad-ink">
                 {err}
@@ -232,9 +306,9 @@ export default function ApplyAmbassadorPage() {
           </form>
 
           <div className="text-[11px] text-mute mt-3 leading-relaxed text-center">
-            Al enviarlo aceptás recibir comunicaciones de Clubify y de la
-            campaña <strong>{info.campaignName}</strong>. Podés darte de baja
-            cuando quieras.
+            Al enviarlo aceptás recibir comunicaciones de Clubify y del equipo
+            de <strong>{info.influencerName}</strong>. Podés darte de baja cuando
+            quieras.
           </div>
         </div>
       </div>

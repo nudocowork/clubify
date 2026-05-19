@@ -376,7 +376,10 @@ function Overview({ me }: { me: Me }) {
 
       {/* Crear embajador (solo INFLUENCER + toggle on) */}
       {isInfluencer && (
-        <InfluencerAmbassadorsPanel ambassadors={me.ambassadors} />
+        <InfluencerAmbassadorsPanel
+          ambassadors={me.ambassadors}
+          myCode={me.myCode?.code ?? null}
+        />
       )}
 
       {/* Material de apoyo: scripts WA + copies IG + tips. Siempre visible
@@ -699,14 +702,45 @@ function CopyableSnippet({ title, text }: { title: string; text: string }) {
 
 function InfluencerAmbassadorsPanel({
   ambassadors: initial,
+  myCode,
 }: {
   ambassadors: Me['ambassadors'];
+  /** Code del influencer — se usa para construir el link público de
+   *  registro de embajadores `/refer/<code>`. Si está null (raro), la
+   *  card de "copiar link" no aparece. */
+  myCode: string | null;
 }) {
   const [ambassadors, setAmbassadors] = useState(initial);
   const [showForm, setShowForm] = useState(false);
   const [allowed, setAllowed] = useState<boolean | null>(null);
-  const [form, setForm] = useState({ fullName: '', email: '', whatsapp: '', commissionPercent: 25 });
+  const [form, setForm] = useState({
+    fullName: '',
+    email: '',
+    whatsapp: '',
+    commissionPercent: 25,
+    password: '',
+    confirmPassword: '',
+  });
+  const [showPwd, setShowPwd] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [createdInfo, setCreatedInfo] = useState<
+    { email: string; password: string } | null
+  >(null);
+
+  function genReadablePassword(len = 12): string {
+    // Mismo alfabeto que genera el backend (sin chars ambiguos)
+    const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789abcdefghjkmnpqrstuvwxyz';
+    let out = '';
+    for (let i = 0; i < len; i++) {
+      out += alphabet[Math.floor(Math.random() * alphabet.length)];
+    }
+    return out;
+  }
+  function autoFillPassword() {
+    const p = genReadablePassword();
+    setForm({ ...form, password: p, confirmPassword: p });
+    setShowPwd(true);
+  }
 
   // El backend rechaza si el toggle no está activo, pero para evitar mostrar
   // el botón inutilizable hacemos un probe ligero al GET /affiliate/me la
@@ -719,11 +753,26 @@ function InfluencerAmbassadorsPanel({
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
+    if (form.password && form.password.length < 8) {
+      toast('La contraseña debe tener al menos 8 caracteres', 'error');
+      return;
+    }
+    if (form.password && form.password !== form.confirmPassword) {
+      toast('Las contraseñas no coinciden', 'error');
+      return;
+    }
     setBusy(true);
     try {
+      const payload: any = {
+        fullName: form.fullName,
+        email: form.email,
+        whatsapp: form.whatsapp,
+        commissionPercent: form.commissionPercent,
+      };
+      if (form.password) payload.password = form.password;
       const created = await api<any>('/affiliate/ambassadors', {
         method: 'POST',
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
       setAmbassadors([
         {
@@ -736,11 +785,24 @@ function InfluencerAmbassadorsPanel({
         },
         ...ambassadors,
       ]);
-      setForm({ fullName: '', email: '', whatsapp: '', commissionPercent: 25 });
+      const credPassword =
+        created?.affiliateCredentials?.password || form.password;
+      if (credPassword) {
+        setCreatedInfo({ email: form.email, password: credPassword });
+      }
+      setForm({
+        fullName: '',
+        email: '',
+        whatsapp: '',
+        commissionPercent: 25,
+        password: '',
+        confirmPassword: '',
+      });
       setShowForm(false);
+      setShowPwd(false);
       toast(
         created.approvedAt
-          ? 'Embajador agregado'
+          ? 'Embajador agregado — credenciales creadas'
           : 'Embajador creado — pendiente de aprobación del admin',
         'success',
       );
@@ -753,6 +815,11 @@ function InfluencerAmbassadorsPanel({
       setBusy(false);
     }
   }
+
+  const signupLink =
+    myCode && typeof window !== 'undefined'
+      ? `${window.location.origin}/refer/${myCode}`
+      : '';
 
   return (
     <div className="card card-pad">
@@ -767,6 +834,37 @@ function InfluencerAmbassadorsPanel({
           </button>
         )}
       </div>
+
+      {signupLink && (
+        <div className="rounded-lg bg-brand-soft/40 border border-brand/20 p-3 mb-3">
+          <div className="text-[11px] uppercase tracking-wider text-brand font-bold mb-1.5">
+            🔗 Link de registro de embajadores
+          </div>
+          <div className="text-xs text-mute mb-2 leading-snug">
+            Compartí este link con personas que quieras sumar a tu equipo.
+            Quien lo abra se registra solo y queda automáticamente vinculado
+            a vos.
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              className="input flex-1 text-xs font-mono"
+              readOnly
+              value={signupLink}
+              onClick={(e) => e.currentTarget.select()}
+            />
+            <button
+              type="button"
+              className="btn-ghost text-xs whitespace-nowrap"
+              onClick={async () => {
+                await navigator.clipboard.writeText(signupLink);
+                toast('Link copiado', 'success');
+              }}
+            >
+              📋 Copiar
+            </button>
+          </div>
+        </div>
+      )}
 
       {allowed === false && (
         <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-900 mb-3">
@@ -810,10 +908,95 @@ function InfluencerAmbassadorsPanel({
             value={form.commissionPercent}
             onChange={(e) => setForm({ ...form, commissionPercent: Number(e.target.value) })}
           />
+          <div className="border-t border-line2 pt-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-ink">
+                Contraseña de acceso
+              </label>
+              <div className="flex items-center gap-2 text-[11px]">
+                <button
+                  type="button"
+                  onClick={autoFillPassword}
+                  className="text-brand hover:underline"
+                >
+                  ⚡ Generar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowPwd((s) => !s)}
+                  className="text-mute hover:text-ink"
+                >
+                  {showPwd ? '🙈 Ocultar' : '👁 Ver'}
+                </button>
+              </div>
+            </div>
+            <input
+              type={showPwd ? 'text' : 'password'}
+              className="input"
+              placeholder="Mín 8 caracteres (o usá Generar)"
+              value={form.password}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
+              autoComplete="new-password"
+              minLength={8}
+            />
+            <input
+              type={showPwd ? 'text' : 'password'}
+              className="input"
+              placeholder="Confirmar contraseña"
+              value={form.confirmPassword}
+              onChange={(e) =>
+                setForm({ ...form, confirmPassword: e.target.value })
+              }
+              autoComplete="new-password"
+            />
+            <div className="text-[11px] text-mute leading-snug">
+              El embajador entra a su panel con su email + esta contraseña. Si la
+              dejás vacía, le mandamos un email con instrucciones para crearla.
+            </div>
+          </div>
           <button type="submit" disabled={busy} className="btn-primary w-full text-sm">
             {busy ? 'Creando…' : 'Agregar embajador'}
           </button>
         </form>
+      )}
+
+      {createdInfo && (
+        <div className="rounded-lg bg-ok-soft border border-ok/30 px-3 py-3 mb-3 text-xs">
+          <div className="font-semibold text-ok mb-2">
+            ✓ Credenciales de acceso creadas correctamente
+          </div>
+          <div className="space-y-1.5 font-mono text-ink bg-white rounded p-2.5">
+            <div>
+              <span className="text-mute">Email: </span>
+              <strong>{createdInfo.email}</strong>
+            </div>
+            <div>
+              <span className="text-mute">Contraseña: </span>
+              <strong>{createdInfo.password}</strong>
+            </div>
+          </div>
+          <div className="flex gap-2 mt-2">
+            <button
+              type="button"
+              className="btn-ghost text-[11px]"
+              onClick={() => {
+                navigator.clipboard.writeText(
+                  `Email: ${createdInfo.email}\nContraseña: ${createdInfo.password}\nPanel: ${window.location.origin}/login`,
+                );
+                toast('Credenciales copiadas', 'success');
+              }}
+            >
+              📋 Copiar
+            </button>
+            <button
+              type="button"
+              className="btn-ghost text-[11px]"
+              onClick={() => setCreatedInfo(null)}
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
       )}
 
       {ambassadors.length === 0 ? (

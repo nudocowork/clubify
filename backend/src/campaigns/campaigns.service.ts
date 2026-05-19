@@ -311,17 +311,22 @@ export class CampaignsService {
         ambassadors: { where: { isActive: true }, select: { id: true } },
       },
     });
-    if (!ref || !ref.ownerOfCampaign || !ref.isActive) {
-      throw new NotFoundException('Campaña no encontrada o inactiva');
+    // Antes requeríamos que el influencer tuviese una Campaign asociada.
+    // Ahora aceptamos también el caso "sin campaña": el link funciona si
+    // el code del influencer existe y está activo. Esto permite al
+    // influencer compartir su link de registro de embajadores aunque
+    // todavía no haya una campaña formal creada por el admin.
+    if (!ref || !ref.isActive || ref.role !== 'INFLUENCER') {
+      throw new NotFoundException('Link de invitación no válido o inactivo');
     }
-    if (ref.ownerOfCampaign.status !== 'ACTIVE') {
+    if (ref.ownerOfCampaign && ref.ownerOfCampaign.status !== 'ACTIVE') {
       throw new BadRequestException(
         'Esta campaña no está aceptando embajadores en este momento',
       );
     }
     return {
-      campaignId: ref.ownerOfCampaign.id,
-      campaignName: ref.ownerOfCampaign.name,
+      campaignId: ref.ownerOfCampaign?.id ?? null,
+      campaignName: ref.ownerOfCampaign?.name ?? null,
       influencerName: ref.ownerName,
       influencerCode: ref.code,
       ambassadorsCount: ref.ambassadors.length,
@@ -358,17 +363,27 @@ export class CampaignsService {
    */
   async applyAsAmbassador(
     ownerCode: string,
-    dto: { fullName: string; email: string; whatsapp: string },
+    dto: {
+      fullName: string;
+      email: string;
+      whatsapp: string;
+      /** Si presente y válida (>=8), se asigna como password del embajador
+       *  para que pueda entrar directo. Sino, se autogenera y se envía
+       *  por email (flujo legacy). */
+      password?: string;
+    },
   ) {
     const clean = ownerCode.trim().toUpperCase();
     const owner = await this.prisma.referralCode.findUnique({
       where: { code: clean },
       include: { ownerOfCampaign: true },
     });
-    if (!owner || !owner.ownerOfCampaign || !owner.isActive) {
-      throw new NotFoundException('Campaña no encontrada o inactiva');
+    // Aceptamos influencer activo aunque NO tenga campaña — el link de
+    // registro no debe depender de que el admin haya creado una campaña.
+    if (!owner || !owner.isActive || owner.role !== 'INFLUENCER') {
+      throw new NotFoundException('Link de invitación no válido o inactivo');
     }
-    if (owner.ownerOfCampaign.status !== 'ACTIVE') {
+    if (owner.ownerOfCampaign && owner.ownerOfCampaign.status !== 'ACTIVE') {
       throw new BadRequestException('La campaña no está activa');
     }
 
@@ -376,6 +391,7 @@ export class CampaignsService {
     if (!email.includes('@')) throw new BadRequestException('Email inválido');
     if (!dto.fullName.trim()) throw new BadRequestException('Falta el nombre');
     if (!dto.whatsapp.trim()) throw new BadRequestException('Falta el WhatsApp');
+    const usingPreset = !!dto.password && dto.password.length >= 8;
 
     const dup = await this.prisma.referralCode.findFirst({
       where: {
@@ -397,6 +413,7 @@ export class CampaignsService {
             role: 'AFFILIATE_AMBASSADOR',
             referralCodeId: dup.id,
             phone: dup.ownerWhatsapp,
+            presetPassword: usingPreset ? dto.password : undefined,
           })
           .catch(() => null);
       }
@@ -407,6 +424,8 @@ export class CampaignsService {
         pendingApproval: isPending,
         message: isPending
           ? 'Tu solicitud sigue en revisión por el admin. Te avisaremos por email cuando se apruebe.'
+          : usingPreset
+          ? 'Ya tenías cuenta. Actualizamos tu contraseña — ya podés entrar a tu panel.'
           : 'Ya estabas inscripto como embajador de esta campaña. Te re-enviamos las instrucciones por email.',
       };
     }
@@ -437,7 +456,7 @@ export class CampaignsService {
           commissionPercent: defaultCommission,
           role: 'AMBASSADOR',
           parentCodeId: owner.id,
-          campaignId: owner.ownerOfCampaign.id,
+          campaignId: owner.ownerOfCampaign?.id ?? null,
           isActive: !requireApproval,
           approvedAt: requireApproval ? null : new Date(),
         },
@@ -473,6 +492,7 @@ export class CampaignsService {
           role: 'AFFILIATE_AMBASSADOR',
           referralCodeId: ambassadorCode.id,
           phone: dto.whatsapp,
+          presetPassword: usingPreset ? dto.password : undefined,
         })
         .catch(() => null);
     }
@@ -481,8 +501,11 @@ export class CampaignsService {
       ok: true,
       code: ambassadorCode.code,
       pendingApproval: requireApproval,
+      usedCustomPassword: usingPreset,
       message: requireApproval
         ? '¡Listo! Tu solicitud está en revisión. Recibirás un email cuando se apruebe.'
+        : usingPreset
+        ? '¡Bienvenido! Tu cuenta está activa — ya podés entrar con el email y la contraseña que elegiste.'
         : '¡Bienvenido! Te enviamos un email con tu código y el acceso al panel.',
     };
   }

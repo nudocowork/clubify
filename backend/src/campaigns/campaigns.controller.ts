@@ -100,6 +100,10 @@ class PublicApplyBody {
   @IsString() @MinLength(2) @MaxLength(120) fullName!: string;
   @IsEmail() email!: string;
   @IsString() @MinLength(8) @MaxLength(30) whatsapp!: string;
+  /** Password opcional. Si presente, el embajador entra directo a su panel
+   *  con estas credenciales — sin esperar email de reset. Si vacío, se
+   *  autogenera y se envía por email como antes. */
+  @IsOptional() @IsString() @MinLength(8) @MaxLength(64) password?: string;
 }
 
 /**
