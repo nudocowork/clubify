@@ -1,9 +1,31 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { api } from '@/lib/api';
+import { useRouter } from 'next/navigation';
+import { api, startImpersonation } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { AffiliateCredentialsModal } from '@/components/AffiliateCredentialsModal';
+
+async function enterAffiliatePanel(
+  codeId: string,
+  ownerName: string,
+  router: ReturnType<typeof useRouter>,
+) {
+  try {
+    const res = await api<any>(`/referrals/codes/${codeId}/impersonate`, {
+      method: 'POST',
+    });
+    startImpersonation({
+      accessToken: res.accessToken,
+      user: res.user,
+      affiliate: res.affiliate,
+    });
+    toast(`Entrando al panel de ${ownerName}…`, 'success');
+    router.push('/affiliate');
+  } catch (e: any) {
+    toast(e.message || 'No se pudo entrar', 'error');
+  }
+}
 
 const STATUS_LABEL: Record<string, { text: string; cls: string }> = {
   SIGNED_UP: { text: 'Inscrito', cls: 'bg-bg2 text-mute' },
@@ -1844,8 +1866,10 @@ function SumRow({
 // =============================================================
 
 function InfluencersTab() {
+  const router = useRouter();
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [enteringId, setEnteringId] = useState<string | null>(null);
   useEffect(() => {
     api<any[]>('/referrals/influencers')
       .then((r) => setRows(r ?? []))
@@ -1857,13 +1881,13 @@ function InfluencersTab() {
   return (
     <div className="card overflow-hidden p-0">
       <div className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[860px]">
+        <table className="w-full text-sm min-w-[940px]">
           <thead className="bg-bg2">
             <tr>
-              {['Influencer', 'Código', '%', 'Campaña', 'Embajadores', 'Clientes', 'Pagado', 'Pendiente'].map(
-                (h) => (
+              {['Influencer', 'Código', '%', 'Campaña', 'Embajadores', 'Clientes', 'Pagado', 'Pendiente', ''].map(
+                (h, i) => (
                   <th
-                    key={h}
+                    key={h || `col-${i}`}
                     className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
                   >
                     {h}
@@ -1875,7 +1899,7 @@ function InfluencersTab() {
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={8} className="text-center py-12 text-mute">
+                <td colSpan={9} className="text-center py-12 text-mute">
                   Aún no hay influencers
                 </td>
               </tr>
@@ -1898,6 +1922,20 @@ function InfluencersTab() {
                 </td>
                 <td className="px-4 py-3 text-ok font-medium">{fmtUsd(r.paidUsd)}</td>
                 <td className="px-4 py-3 text-amber-700 font-medium">{fmtUsd(r.pendingUsd)}</td>
+                <td className="px-4 py-3 text-right">
+                  <button
+                    disabled={enteringId === r.id}
+                    onClick={async () => {
+                      setEnteringId(r.id);
+                      await enterAffiliatePanel(r.id, r.ownerName, router);
+                      setEnteringId(null);
+                    }}
+                    className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-violet-100 text-violet-700 hover:bg-violet-200 disabled:opacity-50 whitespace-nowrap"
+                    title="Entrar al panel /affiliate como este influencer (auditado en logs)"
+                  >
+                    {enteringId === r.id ? 'Entrando…' : '→ Panel'}
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -1908,9 +1946,11 @@ function InfluencersTab() {
 }
 
 function AmbassadorsTab() {
+  const router = useRouter();
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [enteringId, setEnteringId] = useState<string | null>(null);
 
   function reload() {
     setLoading(true);
@@ -1962,13 +2002,13 @@ function AmbassadorsTab() {
 
       <div className="card overflow-hidden p-0">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[960px]">
+          <table className="w-full text-sm min-w-[1040px]">
             <thead className="bg-bg2">
               <tr>
-                {['Embajador', 'Código', '%', 'Reporta a', 'Campaña', 'Activos', 'Total', 'Pagado', 'Pendiente'].map(
-                  (h) => (
+                {['Embajador', 'Código', '%', 'Reporta a', 'Campaña', 'Activos', 'Total', 'Pagado', 'Pendiente', ''].map(
+                  (h, i) => (
                     <th
-                      key={h}
+                      key={h || `col-${i}`}
                       className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
                     >
                       {h}
@@ -1980,7 +2020,7 @@ function AmbassadorsTab() {
             <tbody>
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="text-center py-12 text-mute">
+                  <td colSpan={10} className="text-center py-12 text-mute">
                     Aún no hay embajadores
                   </td>
                 </tr>
@@ -2020,6 +2060,20 @@ function AmbassadorsTab() {
                   <td className="px-4 py-3 text-center">{r.clients}</td>
                   <td className="px-4 py-3 text-ok font-medium">{fmtUsd(r.paidUsd)}</td>
                   <td className="px-4 py-3 text-amber-700 font-medium">{fmtUsd(r.pendingUsd)}</td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      disabled={enteringId === r.id}
+                      onClick={async () => {
+                        setEnteringId(r.id);
+                        await enterAffiliatePanel(r.id, r.ownerName, router);
+                        setEnteringId(null);
+                      }}
+                      className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-violet-100 text-violet-700 hover:bg-violet-200 disabled:opacity-50 whitespace-nowrap"
+                      title="Entrar al panel /affiliate como este embajador (auditado en logs)"
+                    >
+                      {enteringId === r.id ? 'Entrando…' : '→ Panel'}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

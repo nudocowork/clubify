@@ -67,13 +67,16 @@ export function getUser() {
 }
 
 /**
- * Inicia una sesión "como tenant" desde la cuenta admin actual.
- * Guarda la sesión admin en backup, switchea al token nuevo, redirige a /app.
+ * Inicia una sesión "como tenant" o "como afiliado" desde la cuenta admin
+ * actual. Guarda la sesión admin en backup, switchea al token nuevo, redirige
+ * al panel correspondiente. Para tenant pasá `tenant`, para afiliado pasá
+ * `affiliate` (uno u otro, no ambos).
  */
 export function startImpersonation(opts: {
   accessToken: string;
   user: any;
-  tenant: { id: string; brandName: string };
+  tenant?: { id: string; brandName: string };
+  affiliate?: { codeId: string; code: string; ownerName: string; role: string };
 }) {
   const currentToken = getToken();
   const currentUser = getUser();
@@ -86,6 +89,7 @@ export function startImpersonation(opts: {
         refreshToken: currentRefresh,
         user: currentUser,
         tenant: opts.tenant,
+        affiliate: opts.affiliate,
         startedAt: new Date().toISOString(),
       }),
     );
@@ -102,7 +106,8 @@ export function getImpersonationBackup():
       token: string;
       refreshToken?: string | null;
       user: any;
-      tenant: { id: string; brandName: string };
+      tenant?: { id: string; brandName: string };
+      affiliate?: { codeId: string; code: string; ownerName: string; role: string };
       startedAt: string;
     }
   | null {

@@ -115,6 +115,14 @@ export class ReferralsController {
     return this.svc.leaderboard(user);
   }
 
+  // SUPER_ADMIN entra al panel /affiliate del influencer/embajador como si
+  // fuera el dueño del código. JWT lleva `impersonatedBy` para auditoría.
+  @Roles('SUPER_ADMIN')
+  @Post('codes/:id/impersonate')
+  impersonateAffiliate(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.svc.impersonateAffiliate(id, user.id);
+  }
+
   // Visit summary: visitas + clicks únicos por slug (últimos N días).
   // Útil para que el admin vea cuáles links están corriendo y cuáles no.
   @Roles('SUPER_ADMIN')

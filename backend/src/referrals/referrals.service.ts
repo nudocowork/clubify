@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { JwtService } from '@nestjs/jwt';
 import { customAlphabet } from 'nanoid';
 import { CommissionStatus } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -24,7 +25,76 @@ export type CreateReferralDto = {
 export class ReferralsService {
   private logger = new Logger(ReferralsService.name);
 
-  constructor(private prisma: PrismaService, private auth: AuthService) {}
+  constructor(
+    private prisma: PrismaService,
+    private auth: AuthService,
+    private jwt: JwtService,
+  ) {}
+
+  /**
+   * SUPER_ADMIN entra al panel /affiliate de un influencer/embajador como
+   * si fuera el dueño. Mismo patrón que `tenants.impersonate`: firma un
+   * JWT con `impersonatedBy` y devuelve el user para que el frontend lo
+   * guarde en sesión. El acceso queda registrado en logs por ese campo.
+   */
+  async impersonateAffiliate(codeId: string, superAdminId: string) {
+    const code = await this.prisma.referralCode.findUnique({
+      where: { id: codeId },
+      select: {
+        id: true,
+        code: true,
+        ownerName: true,
+        ownerEmail: true,
+        ownerUserId: true,
+        role: true,
+      },
+    });
+    if (!code) throw new NotFoundException('Código no encontrado');
+    if (!code.ownerUserId) {
+      throw new BadRequestException(
+        'Este código no tiene un usuario afiliado vinculado todavía.',
+      );
+    }
+    const owner = await this.prisma.user.findUnique({
+      where: { id: code.ownerUserId },
+      select: { id: true, email: true, fullName: true, role: true, tenantId: true, isActive: true },
+    });
+    if (!owner || !owner.isActive) {
+      throw new BadRequestException('El usuario del afiliado no está activo.');
+    }
+    if (!owner.role.startsWith('AFFILIATE_')) {
+      throw new BadRequestException(
+        'El usuario vinculado al código no es un afiliado.',
+      );
+    }
+
+    const payload = {
+      sub: owner.id,
+      email: owner.email,
+      role: owner.role,
+      tenantId: owner.tenantId,
+      impersonatedBy: superAdminId,
+    };
+    const accessToken = this.jwt.sign(payload);
+
+    return {
+      accessToken,
+      user: {
+        id: owner.id,
+        email: owner.email,
+        fullName: owner.fullName,
+        role: owner.role,
+        tenantId: owner.tenantId,
+      },
+      affiliate: {
+        codeId: code.id,
+        code: code.code,
+        ownerName: code.ownerName,
+        ownerEmail: code.ownerEmail,
+        role: code.role,
+      },
+    };
+  }
 
   /**
    * Slugify del nombre del afiliado para link corto `/ref/<slug>`.

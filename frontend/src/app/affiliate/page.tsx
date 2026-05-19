@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { api, clearSession } from '@/lib/api';
+import { api, clearSession, getImpersonationBackup, stopImpersonation } from '@/lib/api';
 import { Logo } from '@/components/Logo';
 import { toast } from '@/components/Toast';
 import { PhoneInput } from '@/components/PhoneInput';
@@ -88,12 +88,14 @@ export default function AffiliatePanel() {
   const [me, setMe] = useState<Me | null>(null);
   const [tab, setTab] = useState<Tab>('overview');
   const [loading, setLoading] = useState(true);
+  const [impersonation, setImpersonation] = useState<ReturnType<typeof getImpersonationBackup>>(null);
 
   useEffect(() => {
     api<Me>('/affiliate/me')
       .then(setMe)
       .catch(() => router.push('/login'))
       .finally(() => setLoading(false));
+    setImpersonation(getImpersonationBackup());
   }, [router]);
 
   function logout() {
@@ -116,6 +118,31 @@ export default function AffiliatePanel() {
 
   return (
     <div className="min-h-screen bg-bg">
+      {impersonation && (
+        <div className="bg-amber-500 text-amber-950 px-4 py-2 text-[13px] flex items-center gap-2 flex-wrap">
+          <span className="font-semibold">🛡 Modo admin</span>
+          <span className="opacity-80">
+            Estás dentro del panel de{' '}
+            <b>{impersonation.affiliate?.ownerName ?? me.user?.fullName ?? 'este afiliado'}</b>
+            {impersonation.affiliate?.code && (
+              <>
+                {' '}· código{' '}
+                <span className="font-mono">{impersonation.affiliate.code}</span>
+              </>
+            )}.
+          </span>
+          <button
+            onClick={() => {
+              stopImpersonation();
+              router.push('/admin/referrals');
+            }}
+            className="ml-auto bg-amber-950 text-amber-100 px-3 py-1 rounded-md text-xs font-semibold hover:bg-amber-900 transition"
+            title="Volver al panel super admin"
+          >
+            ← Volver al admin
+          </button>
+        </div>
+      )}
       <header className="border-b border-line bg-white px-5 py-3">
         <div className="max-w-5xl mx-auto flex items-center justify-between gap-3">
           <Link href="/" className="flex items-center gap-2">
