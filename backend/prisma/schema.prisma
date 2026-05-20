@@ -1511,6 +1511,45 @@ model ReviewFeedback {
 }
 
 // ============================================================
+//                    INDUSTRIES (sales decks)
+// ============================================================
+// Industria = vertical de negocio (cafeterías, barberías, restaurantes,
+// etc.). Wrap nivel-1 del módulo de pitch decks: cada Industry contiene
+// múltiples Presentations, y cada Presentation contiene múltiples Slides.
+// El SUPER_ADMIN cura el catálogo desde /admin/industries; la vista
+// pública (/industrias, /industria/{slug}) es para mostrar a prospects
+// el deck adecuado a su vertical.
+//
+// F1 sólo agrega el modelo Industry. Presentations y Slides llegan en F2.
+model Industry {
+  id          String   @id @default(uuid())
+  /// Nombre humano que se muestra en la card. Único — sin duplicados.
+  name        String   @unique
+  /// Slug URL-safe — usado en /industria/{slug}. Único.
+  slug        String   @unique
+  /// Subtítulo / descripción corta que aparece debajo del nombre.
+  description String?  @db.Text
+  /// Emoji decorativo de la card (👩, ☕, 💈, etc.). Opcional si hay iconUrl.
+  emoji       String?
+  /// URL absoluta de ícono SVG/PNG en R2. Opcional — si null se usa el emoji.
+  iconUrl     String?
+  /// URL de la imagen de portada en R2 — banner detrás del nombre. Opcional.
+  coverImage  String?
+  /// Color principal del tema para la card (hex, ej "#22C55E"). Opcional.
+  themeColor  String?
+  /// Soft-disable. Si false, no se muestra en la vista pública pero queda
+  /// en /admin/industries para reactivar.
+  isActive    Boolean  @default(true)
+  /// Orden manual en la grilla pública (asc). Se reordena con drag&drop
+  /// desde /admin/industries vía endpoint /reorder.
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
+// ============================================================
 //                    QR POSTERS / MARKETING
 // ============================================================
 // Carteles QR personalizables (sección "Marketing" del panel). Cada
