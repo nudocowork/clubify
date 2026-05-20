@@ -10,7 +10,7 @@
  * Backend usa la card configurada vía Setting `demo.cardId`. Si no está
  * configurada, mostramos error explicando el setup pendiente.
  */
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { PhoneInput } from '@/components/PhoneInput';
@@ -18,6 +18,14 @@ import { PhoneInput } from '@/components/PhoneInput';
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
 export default function DemoWalletPage() {
+  return (
+    <Suspense fallback={null}>
+      <DemoWalletInner />
+    </Suspense>
+  );
+}
+
+function DemoWalletInner() {
   const router = useRouter();
   const sp = useSearchParams();
   const ref = sp?.get('ref') ?? null;
