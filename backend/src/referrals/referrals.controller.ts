@@ -88,6 +88,18 @@ export class ReferralsController {
     return this.svc.rejectAmbassador(user, id);
   }
 
+  /** Convierte un embajador en influencer. Preserva historial + referidos.
+   *  Útil al crear una campaña: en vez de crear influencer de cero, podés
+   *  promover a un embajador con track record probado. */
+  @Roles('SUPER_ADMIN')
+  @Post('ambassadors/:id/promote-to-influencer')
+  promoteAmbassadorToInfluencer(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    return this.svc.promoteAmbassadorToInfluencer(user, id);
+  }
+
   @Roles('SUPER_ADMIN')
   @Post('socio')
   createOrInviteSocio(

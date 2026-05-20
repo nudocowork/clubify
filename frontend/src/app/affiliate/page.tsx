@@ -106,7 +106,12 @@ export default function AffiliatePanel() {
   if (loading) return <div className="p-8 text-mute">Cargando…</div>;
   if (!me) return null;
 
-  const isInfluencer = me.role === 'AFFILIATE_INFLUENCER';
+  // Defensa doble: role del User Y role del ReferralCode deben coincidir
+  // como INFLUENCER. Sin esto, un user con role mal sincronizado podría
+  // ver opciones de crear embajadores cuando en realidad es embajador.
+  // El backend también rechaza pero acá frenamos antes de mostrar la UI.
+  const isInfluencer =
+    me.role === 'AFFILIATE_INFLUENCER' && me.myCode?.role === 'INFLUENCER';
   const isSocio = me.role === 'AFFILIATE_SOCIO';
   // Link corto público `/ref/<slug>`. El backend loguea visita (UTM +
   // referer + país + IP) y redirige a /signup?ref=CODE&via=slug.
@@ -315,7 +320,13 @@ function Overview({ me }: { me: Me }) {
     api<DashboardResp>('/affiliate/dashboard').then(setData).catch(() => {});
   }, []);
 
-  const isInfluencer = me.role === 'AFFILIATE_INFLUENCER';
+  // Defensa doble: además de role=AFFILIATE_INFLUENCER, exigimos que el
+  // ReferralCode asociado también tenga role=INFLUENCER. Sin esto, un
+  // user con role mal sincronizado podría ver opciones de crear
+  // embajadores siendo en realidad un embajador. Backend igual rechaza
+  // pero acá evitamos mostrar el botón "+ Embajador" que confunde.
+  const isInfluencer =
+    me.role === 'AFFILIATE_INFLUENCER' && me.myCode?.role === 'INFLUENCER';
   const isSocio = me.role === 'AFFILIATE_SOCIO';
 
   return (

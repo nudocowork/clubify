@@ -47,6 +47,7 @@ import { AdminModule } from './admin/admin.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { QuotesModule } from './quotes/quotes.module';
 import { SupportMaterialsModule } from './support-materials/support-materials.module';
+import { IndustriesModule } from './industries/industries.module';
 
 @Module({
   imports: [
@@ -102,6 +103,7 @@ import { SupportMaterialsModule } from './support-materials/support-materials.mo
     OnboardingModule,
     QuotesModule,
     SupportMaterialsModule,
+    IndustriesModule,
   ],
   providers: [
     // Sin esto, `ThrottlerModule.forRoot()` y los `@Throttle({...})` por

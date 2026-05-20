@@ -2061,18 +2061,44 @@ function AmbassadorsTab() {
                   <td className="px-4 py-3 text-ok font-medium">{fmtUsd(r.paidUsd)}</td>
                   <td className="px-4 py-3 text-amber-700 font-medium">{fmtUsd(r.pendingUsd)}</td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      disabled={enteringId === r.id}
-                      onClick={async () => {
-                        setEnteringId(r.id);
-                        await enterAffiliatePanel(r.id, r.ownerName, router);
-                        setEnteringId(null);
-                      }}
-                      className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-violet-100 text-violet-700 hover:bg-violet-200 disabled:opacity-50 whitespace-nowrap"
-                      title="Entrar al panel /affiliate como este embajador (auditado en logs)"
-                    >
-                      {enteringId === r.id ? 'Entrando…' : '→ Panel'}
-                    </button>
+                    <div className="inline-flex items-center gap-1.5">
+                      <button
+                        onClick={async () => {
+                          if (
+                            !confirm(
+                              `¿Promover a "${r.ownerName}" de embajador a influencer?\n\nMantiene su historial, referidos y comisiones. Obtiene panel /affiliate completo con permiso para crear sus propios embajadores. La acción es reversible solo manualmente.`,
+                            )
+                          )
+                            return;
+                          try {
+                            await api(
+                              `/referrals/ambassadors/${r.id}/promote-to-influencer`,
+                              { method: 'POST' },
+                            );
+                            toast(`${r.ownerName} ahora es influencer`, 'success');
+                            reload();
+                          } catch (e: any) {
+                            toast(e.message || 'Error', 'error');
+                          }
+                        }}
+                        className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-amber-100 text-amber-800 hover:bg-amber-200 whitespace-nowrap"
+                        title="Convertir este embajador en influencer (panel completo, puede crear embajadores)"
+                      >
+                        ↑ Promover
+                      </button>
+                      <button
+                        disabled={enteringId === r.id}
+                        onClick={async () => {
+                          setEnteringId(r.id);
+                          await enterAffiliatePanel(r.id, r.ownerName, router);
+                          setEnteringId(null);
+                        }}
+                        className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-violet-100 text-violet-700 hover:bg-violet-200 disabled:opacity-50 whitespace-nowrap"
+                        title="Entrar al panel /affiliate como este embajador (auditado en logs)"
+                      >
+                        {enteringId === r.id ? 'Entrando…' : '→ Panel'}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
