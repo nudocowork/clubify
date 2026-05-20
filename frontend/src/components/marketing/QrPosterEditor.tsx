@@ -556,6 +556,16 @@ export default function QrPosterEditor({
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    // Bloquear cualquier autosave hasta que este load termine. Sin esto,
+    // si el cliente cambia de variante (posterIdProp distinto) sin
+    // re-montar, el cfg del cartel anterior podría persistirse contra
+    // el endpoint del cartel nuevo durante la ventana entre el cambio
+    // de dep y el .then() del fetch.
+    hasLoadedRef.current = false;
+    if (autosaveTimerRef.current) {
+      window.clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
     // En modo id, el draft local se indexa por id (no por type) para que
     // editar dos variantes del mismo type no sobrescriba mutuamente sus
     // backups locales.
@@ -603,20 +613,26 @@ export default function QrPosterEditor({
           setAutosaveState('idle');
         }
         if (row?.id) setPosterId(row.id);
+        // Habilitamos el autosave ÚNICAMENTE si el load fue exitoso.
+        // En el catch lo dejamos en false para que ningún autosave ni el
+        // cleanup unmount pisen el server con el defaultConfig en memoria
+        // si la red falla o el JWT expiró — bug histórico que dejaba el
+        // cartel guardado en (0,0) tras un error transitorio de carga.
+        if (!cancelled) hasLoadedRef.current = true;
       })
       .catch(() => null)
       .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-          // Recién acá habilitamos el autosave — antes podía pisar
-          // el server con un defaultConfig si la red tardaba.
-          hasLoadedRef.current = true;
-        }
+        if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [type, brandName]);
+    // posterIdProp incluido para que al cambiar de variante (modo
+    // multi-QR — /app/marketing/edit/[id]) sin re-montar el componente,
+    // se recargue el cartel correcto. Sin esto, el editor mostraba el
+    // cartel viejo + el autosave podía pisar el cartel nuevo con el cfg
+    // del anterior.
+  }, [type, brandName, idMode, posterIdProp]);
 
   const meta = cfg.meta ?? {};
   const effectiveUrl = typeof qrUrl === 'function' ? qrUrl(meta) : qrUrl;
@@ -714,6 +730,14 @@ export default function QrPosterEditor({
    *  (no del closure del render). Idempotente — si no hay cambios
    *  (cfg === lastSavedJson) skipea. */
   async function save({ silent = false }: { silent?: boolean } = {}) {
+    // Defensa: si el load inicial todavía no terminó, NO guardamos —
+    // sino podríamos pisar el server con el defaultConfig en memoria
+    // antes de haber leído lo que el cliente tenía guardado. Ver el
+    // comentario del cleanup unmount más abajo para el contexto del bug.
+    if (!hasLoadedRef.current) {
+      if (!silent) setAutosaveState('idle');
+      return;
+    }
     const currentCfg = cfgRef.current;
     const json = JSON.stringify(currentCfg);
     if (json === lastSavedJsonRef.current && !saveError) {
@@ -802,8 +826,20 @@ export default function QrPosterEditor({
 
   // Al desmontar el editor, hacer un save final si quedó algo pending.
   // Usa cfgRef (no cfg del closure inicial) para leer el cfg ACTUAL.
+  //
+  // CRÍTICO: solo enviar si hasLoadedRef.current === true. Sino el unmount
+  // pisaría el server con el defaultConfig inicial — bug histórico que
+  // tiraba todo el diseño guardado a la esquina superior izquierda al
+  // re-loguear / refrescar / navegar entre rutas. Con StrictMode en dev
+  // (next.config.js reactStrictMode: true), React hace mount → unmount →
+  // mount; el unmount intermedio se disparaba ANTES del load, enviaba el
+  // defaultConfig al server, y el segundo mount cargaba ese default
+  // sobreescrito → todos los layers en (0,0) / posiciones de fábrica.
+  // En prod sin StrictMode pasaba también si el usuario cerraba la pestaña
+  // o navegaba muy rápido antes del primer load.
   useEffect(() => {
     return () => {
+      if (!hasLoadedRef.current) return;
       const currentCfg = cfgRef.current;
       const json = JSON.stringify(currentCfg);
       if (json !== lastSavedJsonRef.current) {

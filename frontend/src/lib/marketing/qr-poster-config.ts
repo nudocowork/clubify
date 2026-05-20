@@ -1104,6 +1104,20 @@ export function normalizeConfig(
     if (merged.shadow) merged.shadow = { ...merged.shadow };
     return merged;
   };
+  // Canvas REAL del cfg (no el default 1080×1528) — los normalize<X>Layer
+  // lo usan como referencia para calcular fallbacks al CENTRO cuando una
+  // capa pierde x/y. Sin esto, un cartel con canvas custom (ej circular
+  // 1080×1080) terminaba ubicando la capa rota fuera del lienzo visible.
+  const refCanvas = cfg.canvas
+    ? {
+        w: typeof cfg.canvas.w === 'number' && cfg.canvas.w > 0
+          ? cfg.canvas.w
+          : def.canvas.w,
+        h: typeof cfg.canvas.h === 'number' && cfg.canvas.h > 0
+          ? cfg.canvas.h
+          : def.canvas.h,
+      }
+    : { w: def.canvas.w, h: def.canvas.h };
   return {
     canvas: cfg.canvas
       ? { ...cfg.canvas, dpi: cfg.canvas.dpi ?? 300 }
@@ -1112,20 +1126,20 @@ export function normalizeConfig(
     // Clonado superficial — sino mutar cfg.bg.color1 muta el normalized
     bg: cfg.bg ? ({ ...cfg.bg } as BgConfig) : { ...def.bg },
     qr: { ...def.qr, ...(cfg.qr ?? {}) },
-    logo: cfg.logo ? normalizeLogoLayer(cfg.logo, def.canvas) : null,
+    logo: cfg.logo ? normalizeLogoLayer(cfg.logo, refCanvas) : null,
     shapes: Array.isArray(cfg.shapes)
       ? cfg.shapes
-          .map((s) => normalizeShapeLayer(s, def.canvas))
+          .map((s) => normalizeShapeLayer(s, refCanvas))
           .filter((s): s is ShapeLayer => s !== null)
       : [],
     icons: Array.isArray(cfg.icons)
       ? cfg.icons
-          .map((i) => normalizeIconLayer(i, def.canvas))
+          .map((i) => normalizeIconLayer(i, refCanvas))
           .filter((i): i is IconLayer => i !== null)
       : [],
     images: Array.isArray(cfg.images)
       ? cfg.images
-          .map((im) => normalizeImageLayer(im, def.canvas))
+          .map((im) => normalizeImageLayer(im, refCanvas))
           .filter((im): im is ImageLayer => im !== null)
       : [],
     patterns: Array.isArray(cfg.patterns)
@@ -1133,7 +1147,7 @@ export function normalizeConfig(
       : [],
     customTexts: Array.isArray(cfg.customTexts)
       ? cfg.customTexts
-          .map((t) => normalizeCustomTextLayer(t, def.canvas))
+          .map((t) => normalizeCustomTextLayer(t, refCanvas))
           .filter((t): t is CustomTextLayer => t !== null)
       : [],
     texts: {
