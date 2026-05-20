@@ -13,6 +13,7 @@ import {
   AuthUser,
 } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
+import { Public } from '../common/decorators/public.decorator';
 
 /**
  * Admin CRUD del módulo Industries. Solo SUPER_ADMIN.
@@ -63,5 +64,26 @@ export class IndustriesAdminController {
   @Delete(':id')
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.remove(user, id);
+  }
+}
+
+/**
+ * Controller PÚBLICO — sin auth. Sirve la vista cliente
+ * (/industrias, /industria/{slug}). Solo expone industrias activas y,
+ * por dentro, solo sus presentations activas (filtros del service).
+ */
+@Controller('public/industries')
+@Public()
+export class IndustriesPublicController {
+  constructor(private svc: IndustriesService) {}
+
+  @Get()
+  list() {
+    return this.svc.listPublic();
+  }
+
+  @Get(':slug')
+  getBySlug(@Param('slug') slug: string) {
+    return this.svc.getBySlugPublic(slug);
   }
 }

@@ -1,10 +1,13 @@
 import { Module } from '@nestjs/common';
 import { IndustriesService } from './industries.service';
-import { IndustriesAdminController } from './industries.controller';
+import {
+  IndustriesAdminController,
+  IndustriesPublicController,
+} from './industries.controller';
 
 @Module({
   providers: [IndustriesService],
-  controllers: [IndustriesAdminController],
+  controllers: [IndustriesAdminController, IndustriesPublicController],
   exports: [IndustriesService],
 })
 export class IndustriesModule {}

@@ -52,6 +52,63 @@ export class IndustriesService {
     });
   }
 
+  /** Público — solo industrias activas, sin filtros admin. Sin role check
+   *  porque el controller usa @Public(). */
+  async listPublic() {
+    return this.prisma.industry.findMany({
+      where: { isActive: true },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        description: true,
+        emoji: true,
+        iconUrl: true,
+        coverImage: true,
+        themeColor: true,
+      },
+    });
+  }
+
+  /** Público — industria + sus presentaciones activas (sin slides para
+   *  no inflar). El detalle de cada presentation se trae aparte. */
+  async getBySlugPublic(slug: string) {
+    const row = await this.prisma.industry.findUnique({
+      where: { slug },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        description: true,
+        emoji: true,
+        iconUrl: true,
+        coverImage: true,
+        themeColor: true,
+        isActive: true,
+        presentations: {
+          where: { isActive: true },
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+            description: true,
+            coverImage: true,
+            themeColor: true,
+            _count: { select: { slides: true } },
+          },
+        },
+      },
+    });
+    if (!row || !row.isActive) {
+      throw new NotFoundException('Industria no encontrada');
+    }
+    // Stripeamos isActive del payload — el cliente público no lo necesita.
+    const { isActive: _isActive, ...rest } = row;
+    return rest;
+  }
+
   async getById(user: AuthUser, id: string) {
     this.ensureSuperAdmin(user);
     const row = await this.prisma.industry.findUnique({ where: { id } });

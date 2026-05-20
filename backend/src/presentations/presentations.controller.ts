@@ -14,6 +14,7 @@ import {
   AuthUser,
 } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
+import { Public } from '../common/decorators/public.decorator';
 
 /**
  * Admin CRUD de Presentations + Slides. Todo bajo SUPER_ADMIN.
@@ -131,5 +132,24 @@ export class PresentationsAdminController {
     @Body() body: any,
   ) {
     return this.svc.createSlide(user, id, body);
+  }
+}
+
+/**
+ * Controller PÚBLICO — sin auth. Sirve el slide deck en la vista pública
+ * (/industria/{industrySlug}/{presentationSlug}). Solo expone presentaciones
+ * activas dentro de industrias activas, con sus slides ordenados.
+ */
+@Controller('public/presentations')
+@Public()
+export class PresentationsPublicController {
+  constructor(private svc: PresentationsService) {}
+
+  @Get(':industrySlug/:presentationSlug')
+  getBySlug(
+    @Param('industrySlug') industrySlug: string,
+    @Param('presentationSlug') presentationSlug: string,
+  ) {
+    return this.svc.getBySlugPublic(industrySlug, presentationSlug);
   }
 }
