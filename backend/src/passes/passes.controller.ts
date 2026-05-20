@@ -123,6 +123,24 @@ export class PassesController {
     return this.svc.enrollPublic(cardId, body);
   }
 
+  /**
+   * Demo wallet flow: el prospect entra a /demo-wallet, llena un mini-form
+   * y recibe un pase real en su iPhone/Android para experimentar Clubify
+   * sin que el negocio tenga que hacer nada. La tarjeta usada se configura
+   * por Setting key `demo.cardId` desde el panel super admin. Sin esa
+   * setting devolvemos 503 con mensaje claro.
+   *
+   * El opcional `ref` (código de afiliado/embajador) queda guardado como
+   * tag en el customer creado para atribución posterior si el prospect
+   * después compra Clubify.
+   */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @Post('demo-wallet/enroll')
+  enrollDemo(@Body() body: EnrollBody & { ref?: string }) {
+    return this.svc.enrollDemoWallet(body);
+  }
+
   @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
   @Get()
   list(

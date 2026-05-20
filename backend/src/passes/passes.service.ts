@@ -1,4 +1,9 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { sign } from 'jsonwebtoken';
 import { nanoid } from 'nanoid';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -278,6 +283,42 @@ export class PassesService {
     });
 
     return { passId: tmp.id, customerId: customer.id, isNew: true };
+  }
+
+  /**
+   * Demo wallet flow — el prospect entra a /demo-wallet, completa nombre +
+   * whatsapp, y recibe un pase real para su iPhone/Android. Internamente
+   * reusa enrollPublic con la card configurada via Setting `demo.cardId`.
+   *
+   * Pensado para que afiliados/embajadores compartan el link y el prospect
+   * tenga un "aha moment" de tener la tarjeta de fidelización Clubify en
+   * SU teléfono — sin que el negocio tenga que hacer setup.
+   */
+  async enrollDemoWallet(dto: {
+    fullName: string;
+    phone: string;
+    email?: string;
+    ref?: string;
+  }) {
+    const setting = await this.prisma.setting.findUnique({
+      where: { key: 'demo.cardId' },
+    });
+    const demoCardId = setting?.value?.trim();
+    if (!demoCardId) {
+      throw new ServiceUnavailableException(
+        'El modo demo no está configurado todavía. Pedile al super admin que asigne una tarjeta demo desde el panel.',
+      );
+    }
+    // Pasamos el ref como utmSlug para que enrollPublic lo guarde como
+    // atribución del customer creado. Si después ese prospect compra
+    // Clubify, podemos hacer follow-up al afiliado que lo trajo.
+    const result = await this.enrollPublic(demoCardId, {
+      fullName: dto.fullName,
+      phone: dto.phone,
+      email: dto.email,
+      utmSlug: dto.ref,
+    });
+    return { ...result, cardId: demoCardId };
   }
 
   list(user: AuthUser, tenantId?: string, locationId?: string) {
