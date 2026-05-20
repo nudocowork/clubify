@@ -1546,7 +1546,112 @@ model Industry {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  presentations Presentation[]
+
   @@index([isActive, sortOrder])
+}
+
+/// Layout pre-armado para cada slide. El front renderea distinto según
+/// este enum (ej COVER usa imagen full-bleed + título centrado;
+/// IMAGE_LEFT pone imagen a la izq + texto a la der; etc).
+enum SlideLayout {
+  COVER
+  IMAGE_LEFT
+  IMAGE_RIGHT
+  FULL_IMAGE
+  TEXT_ONLY
+  QUOTE
+  CTA
+  STATS
+  COMPARISON
+  VIDEO
+}
+
+/// Animación de entrada del slide. Sirve para hint visual al pasar.
+/// NONE = sin animación.
+enum SlideAnimation {
+  NONE
+  FADE
+  SLIDE_RIGHT
+  SLIDE_UP
+  ZOOM
+}
+
+// ============================================================
+//                  PRESENTATIONS + SLIDES (F2)
+// ============================================================
+// Pitch deck dentro de una industria. Cada Presentation pertenece a
+// exactamente una Industry; el slug es único POR industria (no global)
+// para que dos industrias distintas puedan tener "menu-digital" sin
+// conflicto. F4 va a agregar el editor visual; F5 la vista pública en
+// /presentacion/{slug}.
+model Presentation {
+  id          String   @id @default(uuid())
+  industryId  String
+  industry    Industry @relation(fields: [industryId], references: [id], onDelete: Cascade)
+  /// Título del deck (ej "Fidelización para cafeterías").
+  title       String
+  /// Slug URL-safe — usado en /presentacion/{slug}. Único POR industria.
+  slug        String
+  /// Descripción corta del deck — aparece en la lista de presentations
+  /// dentro de la industria y en el meta de la vista pública.
+  description String?  @db.Text
+  /// Imagen de portada — primer frame al abrir el deck. Opcional.
+  coverImage  String?
+  /// Color del tema del deck (hex). Hereda del Industry si null.
+  themeColor  String?
+  /// Soft-disable. Si false, no se lista en la vista pública pero queda
+  /// en admin para reactivar.
+  isActive    Boolean  @default(true)
+  /// Orden dentro de la lista de presentations de la industria.
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  slides Slide[]
+
+  @@unique([industryId, slug])
+  @@index([industryId, isActive, sortOrder])
+}
+
+/// Slide individual dentro de una Presentation. El layout define la
+/// estructura visual (ver enum SlideLayout); content guarda overrides
+/// JSON específicos del layout (ej STATS array, COMPARISON pros/cons).
+model Slide {
+  id             String          @id @default(uuid())
+  presentationId String
+  presentation   Presentation    @relation(fields: [presentationId], references: [id], onDelete: Cascade)
+  /// Posición en el deck (asc). Drag&drop en F4 vía endpoint /reorder.
+  sortOrder      Int             @default(0)
+  layout         SlideLayout     @default(COVER)
+  /// Título principal del slide. Opcional según layout.
+  title          String?
+  /// Subtítulo / línea secundaria.
+  subtitle       String?
+  /// Cuerpo de texto largo. Soporta markdown básico (renderizado en F5).
+  body           String?         @db.Text
+  /// Imagen del slide (R2 URL). Opcional.
+  imageUrl       String?
+  /// Video opcional para layout=VIDEO (URL R2 o YouTube embed).
+  videoUrl       String?
+  /// Texto del CTA (botón) — null = sin CTA.
+  ctaText        String?
+  /// URL del CTA. Si externa, se abre en _blank; si interna, push router.
+  ctaUrl         String?
+  /// Color de fondo (hex). Si null, hereda del Presentation.themeColor.
+  bgColor        String?
+  /// Color del texto. Si null, contrast-detect en runtime.
+  textColor      String?
+  /// Animación de entrada al navegar a este slide.
+  animation      SlideAnimation  @default(NONE)
+  /// Bag JSON para layouts complejos (STATS, COMPARISON, etc) sin
+  /// inflar el schema. El editor visual de F4 define la forma exacta
+  /// según layout.
+  content        Json?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([presentationId, sortOrder])
 }
 
 // ============================================================
