@@ -1197,6 +1197,55 @@ export class ReferralsService {
   }
 
   /**
+   * Promueve un embajador a influencer. Solo SUPER_ADMIN. Preserva
+   * historial, referidos y comisiones — solo cambia el rol del code +
+   * el rol del User vinculado (si existe), y desvincula el parentCode
+   * (un influencer no tiene parent — es independiente).
+   *
+   * Caso de uso: al crear una campaña, el admin elige convertir a un
+   * embajador existente en influencer en vez de crear uno desde cero
+   * (mantiene los referidos que ya trajo + le da el panel de influencer
+   * con permiso para crear embajadores debajo suyo).
+   *
+   * Idempotente: si ya es influencer, devuelve OK sin tocar nada.
+   */
+  async promoteAmbassadorToInfluencer(user: AuthUser, codeId: string) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    const code = await this.prisma.referralCode.findUnique({
+      where: { id: codeId },
+      select: { id: true, role: true, ownerUserId: true, ownerName: true },
+    });
+    if (!code) throw new NotFoundException('Embajador no encontrado');
+    if (code.role === 'INFLUENCER') {
+      return { ok: true, alreadyInfluencer: true, code };
+    }
+    if (code.role !== 'AMBASSADOR') {
+      throw new BadRequestException(
+        `Solo se pueden promover códigos AMBASSADOR (este es ${code.role})`,
+      );
+    }
+    // Transacción: cambiar role del code + desvincular parentCode + actualizar
+    // role del User (si tiene uno asociado).
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const newCode = await tx.referralCode.update({
+        where: { id: codeId },
+        data: { role: 'INFLUENCER', parentCodeId: null },
+      });
+      if (code.ownerUserId) {
+        await tx.user.update({
+          where: { id: code.ownerUserId },
+          data: { role: 'AFFILIATE_INFLUENCER' },
+        });
+      }
+      return newCode;
+    });
+    this.logger.log(
+      `Ambassador promoted to INFLUENCER: codeId=${codeId} ownerName="${code.ownerName}" by ${user.email}`,
+    );
+    return { ok: true, alreadyInfluencer: false, code: updated };
+  }
+
+  /**
    * Payouts: comisiones con regla de 30 días de hold.
    * - Si una comisión PENDING ya cumplió 30 días desde createdAt, se
    *   auto-promueve a APPROVED ("disponible para pagar") antes de devolver.
