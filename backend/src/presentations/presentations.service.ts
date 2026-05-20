@@ -92,6 +92,58 @@ export class PresentationsService {
     return row;
   }
 
+  /** Público — presentation por (industrySlug, presentationSlug) con
+   *  todos sus slides ordenados. Sin role check porque el controller
+   *  usa @Public(). Si la industria o el deck están inactivos, 404. */
+  async getBySlugPublic(industrySlug: string, presentationSlug: string) {
+    const row = await this.prisma.presentation.findFirst({
+      where: {
+        slug: presentationSlug,
+        isActive: true,
+        industry: { slug: industrySlug, isActive: true },
+      },
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        description: true,
+        coverImage: true,
+        themeColor: true,
+        industry: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            emoji: true,
+            iconUrl: true,
+            themeColor: true,
+          },
+        },
+        slides: {
+          orderBy: { sortOrder: 'asc' },
+          select: {
+            id: true,
+            sortOrder: true,
+            layout: true,
+            title: true,
+            subtitle: true,
+            body: true,
+            imageUrl: true,
+            videoUrl: true,
+            ctaText: true,
+            ctaUrl: true,
+            bgColor: true,
+            textColor: true,
+            animation: true,
+            content: true,
+          },
+        },
+      },
+    });
+    if (!row) throw new NotFoundException('Presentación no encontrada');
+    return row;
+  }
+
   async create(user: AuthUser, dto: CreatePresentationDto) {
     this.ensureSuperAdmin(user);
     const title = (dto.title || '').trim();
