@@ -14,12 +14,15 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { TenantStatusGuard } from '../common/guards/tenant-status.guard';
 import { TenantLockGuard } from '../common/guards/tenant-lock.guard';
+import { MaintenanceGuard } from '../maintenance/maintenance.guard';
+import { MaintenanceModule } from '../maintenance/maintenance.module';
 
 @Module({
   imports: [
     PrismaModule,
     EmailModule,
     PassportModule,
+    MaintenanceModule,
     JwtModule.registerAsync({
       inject: [AppConfigService],
       useFactory: (appConfig: AppConfigService) => ({
@@ -37,6 +40,9 @@ import { TenantLockGuard } from '../common/guards/tenant-lock.guard';
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: TenantStatusGuard },
     { provide: APP_GUARD, useClass: TenantLockGuard },
+    // MaintenanceGuard al final — necesita req.user ya populado por
+    // JwtAuthGuard para hacer el bypass de SUPER_ADMIN.
+    { provide: APP_GUARD, useClass: MaintenanceGuard },
     TenantLockGuard,
   ],
   controllers: [AuthController],

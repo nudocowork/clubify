@@ -156,6 +156,9 @@ export default function MaintenancePage() {
         </div>
       </div>
 
+      {/* Toggle de modo mantenimiento — sobre toda la plataforma. */}
+      <MaintenanceToggleCard />
+
       {loading && !snap && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -476,6 +479,185 @@ function Stat({
       </div>
       <div className={`text-xl font-bold ${cls}`}>
         {value.toLocaleString('es-CO')}
+      </div>
+    </div>
+  );
+}
+
+type MaintenanceStatus = {
+  enabled: boolean;
+  message: string | null;
+  until: string | null;
+};
+
+/**
+ * Tarjeta de "Modo mantenimiento". Permite activar/desactivar el flag
+ * global que bloquea a TODOS los clientes (excepto SUPER_ADMIN) mientras
+ * el sistema se actualiza. El SUPER_ADMIN sigue navegando normal y puede
+ * desactivar desde acá cuando termina el deploy.
+ */
+function MaintenanceToggleCard() {
+  const [status, setStatus] = useState<MaintenanceStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  const [untilLocal, setUntilLocal] = useState('');
+
+  async function load() {
+    try {
+      const s = await api<MaintenanceStatus>('/admin/maintenance');
+      setStatus(s);
+      setMessage(s.message ?? '');
+      if (s.until) {
+        const d = new Date(s.until);
+        if (!Number.isNaN(d.getTime())) {
+          const pad = (n: number) => String(n).padStart(2, '0');
+          setUntilLocal(
+            `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
+              d.getDate(),
+            )}T${pad(d.getHours())}:${pad(d.getMinutes())}`,
+          );
+        }
+      } else {
+        setUntilLocal('');
+      }
+    } catch (e: any) {
+      toast(e?.message || 'No se pudo cargar el estado', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function save(nextEnabled: boolean) {
+    if (
+      nextEnabled &&
+      !confirm(
+        'Vas a ACTIVAR el modo mantenimiento. Todos los clientes verán la página "Volvemos en un rato". Solo vos (SUPER_ADMIN) vas a poder seguir navegando. ¿Continuar?',
+      )
+    )
+      return;
+    setSaving(true);
+    try {
+      let untilIso: string | null = null;
+      if (untilLocal.trim()) {
+        const d = new Date(untilLocal);
+        if (!Number.isNaN(d.getTime())) untilIso = d.toISOString();
+      }
+      const next = await api<MaintenanceStatus>('/admin/maintenance', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          enabled: nextEnabled,
+          message: message.trim() || null,
+          until: untilIso,
+        }),
+      });
+      setStatus(next);
+      toast(
+        nextEnabled
+          ? '🛠 Modo mantenimiento ACTIVADO'
+          : '✅ Modo mantenimiento DESACTIVADO',
+        'success',
+      );
+    } catch (e: any) {
+      toast(e?.message || 'No se pudo guardar', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="card card-pad mb-5">
+        <div className="h-5 bg-bg2 rounded w-1/2 animate-shimmer" />
+      </div>
+    );
+  }
+
+  const enabled = status?.enabled ?? false;
+
+  return (
+    <div
+      className={`card card-pad mb-5 border-2 ${
+        enabled ? 'border-amber-400 bg-amber-50/40' : 'border-line'
+      }`}
+    >
+      <div className="flex items-start gap-3">
+        <div className="text-3xl flex-none">{enabled ? '🛠' : '✅'}</div>
+        <div className="flex-1 min-w-0">
+          <h2 className="text-base font-semibold m-0 flex items-center gap-2">
+            Modo mantenimiento{' '}
+            {enabled ? (
+              <span className="badge badge-warn text-[10px]">ACTIVO</span>
+            ) : (
+              <span className="badge badge-info text-[10px]">Apagado</span>
+            )}
+          </h2>
+          <p className="text-sm text-mute mt-2 leading-relaxed">
+            {enabled
+              ? 'Los clientes ven la página "Volvemos en un rato". Vos seguís navegando normal porque sos SUPER_ADMIN. Desactivá cuando termines el deploy.'
+              : 'Apretá "Activar" antes de hacer un deploy con migración pesada o downtime. Los clientes ven una página estática mientras tanto.'}
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+        <div>
+          <label className="label">Mensaje para el cliente</label>
+          <textarea
+            className="input"
+            rows={3}
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="Estamos actualizando el sistema. Volvemos en unos minutos."
+            maxLength={500}
+          />
+        </div>
+        <div>
+          <label className="label">Tiempo estimado de vuelta (opcional)</label>
+          <input
+            type="datetime-local"
+            className="input"
+            value={untilLocal}
+            onChange={(e) => setUntilLocal(e.target.value)}
+          />
+          <div className="text-[11px] text-mute mt-1 leading-relaxed">
+            Si lo dejás vacío, no se muestra countdown. Si lo ponés, los
+            clientes ven "Volvemos en X minutos".
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-end gap-2 mt-4 pt-3 border-t border-line2">
+        {enabled ? (
+          <button
+            onClick={() => save(false)}
+            disabled={saving}
+            className="btn-primary"
+          >
+            {saving ? 'Guardando…' : '✅ Desactivar mantenimiento'}
+          </button>
+        ) : (
+          <>
+            <button
+              onClick={() => save(false)}
+              disabled={saving}
+              className="btn-ghost"
+              title="Guarda mensaje/ETA sin activar"
+            >
+              Guardar borrador
+            </button>
+            <button
+              onClick={() => save(true)}
+              disabled={saving}
+              className="btn-primary bg-amber-500 hover:bg-amber-600 border-amber-500"
+            >
+              {saving ? 'Guardando…' : '🛠 Activar mantenimiento'}
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
