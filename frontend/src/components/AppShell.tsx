@@ -212,6 +212,7 @@ export default function AppShell({
             section: 'Ventas',
             items: [
               { href: '/admin/cotizaciones', label: 'Cotizaciones', icon: 'clipboard' },
+              { href: '/admin/industries', label: 'Industrias', icon: 'grid' },
             ],
           },
           {
