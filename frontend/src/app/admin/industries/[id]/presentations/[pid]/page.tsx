@@ -659,15 +659,29 @@ export default function PresentationEditorPage() {
                 </div>
               </div>
 
-              <details className="card card-pad">
+              {/* Editor visual para layouts que usan content. Cae al
+                  textarea JSON crudo para el resto. */}
+              {selected.layout === 'STATS' ? (
+                <StatsEditor
+                  slide={selected}
+                  onChange={(content) => patchSelected({ content })}
+                />
+              ) : selected.layout === 'COMPARISON' ? (
+                <ComparisonEditor
+                  slide={selected}
+                  onChange={(content) => patchSelected({ content })}
+                />
+              ) : null}
+
+              <details className="card card-pad" open={!selected.content ? false : undefined}>
                 <summary className="text-[11px] uppercase tracking-wider text-mute font-semibold cursor-pointer">
-                  Contenido avanzado (JSON)
+                  Contenido avanzado (JSON crudo)
                 </summary>
                 <div className="mt-3 space-y-2">
                   <div className="text-[11px] text-mute leading-relaxed">
-                    Bag JSON específico del layout. Útil para layouts
-                    complejos (STATS, COMPARISON) — en F4 lo editás a mano;
-                    el editor visual por layout llega en F6 (polish).
+                    Bag JSON del slide. Para STATS y COMPARISON ya tenés
+                    editor visual arriba — este textarea es para casos
+                    custom o debug.
                   </div>
                   <textarea
                     className="input font-mono text-xs"
@@ -700,4 +714,250 @@ function SaveIndicator({ state }: { state: SaveState }) {
   };
   const { label, cls } = map[state];
   return <div className={`text-xs ${cls}`}>{label}</div>;
+}
+
+/**
+ * Editor visual para layout STATS — array de {label, value} editable
+ * en una lista con agregar/reordenar/eliminar. Cualquier cambio dispara
+ * patchSelected({ content }) que se propaga al autosave debounced.
+ */
+function StatsEditor({
+  slide,
+  onChange,
+}: {
+  slide: Slide;
+  onChange: (content: any) => void;
+}) {
+  const stats: Array<{ label?: string; value?: string }> = Array.isArray(
+    slide.content?.stats,
+  )
+    ? slide.content.stats
+    : [];
+
+  function update(items: Array<{ label?: string; value?: string }>) {
+    onChange({ ...(slide.content ?? {}), stats: items });
+  }
+
+  return (
+    <div className="card card-pad space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
+          Stats del slide
+        </div>
+        <button
+          onClick={() => update([...stats, { label: '', value: '' }])}
+          className="btn-primary text-xs px-2 py-1"
+        >
+          + Stat
+        </button>
+      </div>
+      {stats.length === 0 ? (
+        <div className="text-xs text-mute py-3 text-center">
+          Agregá métricas tipo "+50% en visitas" o "2.5x retención".
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {stats.map((s, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <div className="text-[11px] text-mute font-mono w-5">
+                {i + 1}.
+              </div>
+              <input
+                className="input flex-1"
+                value={s.value ?? ''}
+                onChange={(e) => {
+                  const next = [...stats];
+                  next[i] = { ...next[i], value: e.target.value };
+                  update(next);
+                }}
+                placeholder="2.5x"
+              />
+              <input
+                className="input flex-[2]"
+                value={s.label ?? ''}
+                onChange={(e) => {
+                  const next = [...stats];
+                  next[i] = { ...next[i], label: e.target.value };
+                  update(next);
+                }}
+                placeholder="retención en 3 meses"
+              />
+              <button
+                onClick={() => {
+                  if (i === 0) return;
+                  const next = [...stats];
+                  [next[i - 1], next[i]] = [next[i], next[i - 1]];
+                  update(next);
+                }}
+                disabled={i === 0}
+                className="text-mute hover:text-ink disabled:opacity-20 px-1.5 py-0.5 text-xs"
+                title="Subir"
+              >
+                ↑
+              </button>
+              <button
+                onClick={() => {
+                  if (i === stats.length - 1) return;
+                  const next = [...stats];
+                  [next[i], next[i + 1]] = [next[i + 1], next[i]];
+                  update(next);
+                }}
+                disabled={i === stats.length - 1}
+                className="text-mute hover:text-ink disabled:opacity-20 px-1.5 py-0.5 text-xs"
+                title="Bajar"
+              >
+                ↓
+              </button>
+              <button
+                onClick={() => update(stats.filter((_, j) => j !== i))}
+                className="text-bad hover:text-bad px-1.5 py-0.5 text-xs"
+                title="Eliminar"
+              >
+                🗑
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="text-[10px] text-mute leading-relaxed">
+        Tip: 4 stats se ven mejor en grid 4 columnas; 3 también funcionan.
+        Más de 4 puede quedar denso en mobile.
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Editor visual para layout COMPARISON — dos columnas (left/right),
+ * cada una con title + items[]. Útil para "Antes vs Con Clubify".
+ */
+function ComparisonEditor({
+  slide,
+  onChange,
+}: {
+  slide: Slide;
+  onChange: (content: any) => void;
+}) {
+  const left = slide.content?.left ?? { title: 'Antes', items: [] };
+  const right = slide.content?.right ?? { title: 'Con Clubify', items: [] };
+  const leftItems: string[] = Array.isArray(left.items) ? left.items : [];
+  const rightItems: string[] = Array.isArray(right.items) ? right.items : [];
+
+  function update(next: { left: typeof left; right: typeof right }) {
+    onChange({ ...(slide.content ?? {}), ...next });
+  }
+
+  function ColumnEditor({
+    side,
+    label,
+    title,
+    items,
+  }: {
+    side: 'left' | 'right';
+    label: string;
+    title: string;
+    items: string[];
+  }) {
+    const isLeft = side === 'left';
+    return (
+      <div className="space-y-2">
+        <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
+          {label}
+        </div>
+        <input
+          className="input"
+          value={title}
+          onChange={(e) => {
+            const updated = { ...(isLeft ? left : right), title: e.target.value };
+            update({
+              left: isLeft ? updated : left,
+              right: isLeft ? right : updated,
+            });
+          }}
+          placeholder={isLeft ? 'Antes' : 'Con Clubify'}
+        />
+        <div className="space-y-1.5">
+          {items.map((item, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span className="text-mute text-xs">{isLeft ? '✗' : '✓'}</span>
+              <input
+                className="input flex-1 text-sm"
+                value={item}
+                onChange={(e) => {
+                  const next = [...items];
+                  next[i] = e.target.value;
+                  const updated = {
+                    ...(isLeft ? left : right),
+                    items: next,
+                  };
+                  update({
+                    left: isLeft ? updated : left,
+                    right: isLeft ? right : updated,
+                  });
+                }}
+                placeholder={
+                  isLeft
+                    ? 'Lo que pierden hoy…'
+                    : 'Lo que ganan con vos…'
+                }
+              />
+              <button
+                onClick={() => {
+                  const updated = {
+                    ...(isLeft ? left : right),
+                    items: items.filter((_, j) => j !== i),
+                  };
+                  update({
+                    left: isLeft ? updated : left,
+                    right: isLeft ? right : updated,
+                  });
+                }}
+                className="text-bad hover:text-bad px-1.5 py-0.5 text-xs"
+                title="Eliminar"
+              >
+                🗑
+              </button>
+            </div>
+          ))}
+        </div>
+        <button
+          onClick={() => {
+            const updated = {
+              ...(isLeft ? left : right),
+              items: [...items, ''],
+            };
+            update({
+              left: isLeft ? updated : left,
+              right: isLeft ? right : updated,
+            });
+          }}
+          className="text-xs text-brand hover:underline"
+        >
+          + Ítem
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card card-pad space-y-4">
+      <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
+        Comparativa (dos columnas)
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <ColumnEditor
+          side="left"
+          label="Columna izquierda (con ✗)"
+          title={left.title ?? 'Antes'}
+          items={leftItems}
+        />
+        <ColumnEditor
+          side="right"
+          label="Columna derecha (con ✓)"
+          title={right.title ?? 'Con Clubify'}
+          items={rightItems}
+        />
+      </div>
+    </div>
+  );
 }
