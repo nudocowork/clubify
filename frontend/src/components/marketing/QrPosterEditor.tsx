@@ -160,6 +160,66 @@ function mulberry32(seed: number) {
   };
 }
 
+/**
+ * Decide si un backup de localStorage parece corrupto comparándolo
+ * contra el cfg que llegó del server. Devuelve string con la razón si
+ * descartamos, null si parece OK para ofrecer restaurar.
+ *
+ * Heurística defensiva pensada para frenar el bug histórico donde el
+ * cliente aceptaba "¿Restaurar cambios sin guardar?" sin pensar, el
+ * cfg local tenía elementos en (0,0) por sesión rota anterior, y el
+ * autosave persistía esa basura al server pisando el cfg bueno.
+ *
+ * Reglas:
+ * - Si el local tiene MENOS elementos totales que el server → sospechoso
+ *   (restaurar un backup nunca pierde contenido, lo agrega).
+ * - Si los textos title/subtitle/cta/brand en local están todos en x=0/y=0
+ *   pero en server NO → sospechoso (el render por defecto los pone bien).
+ * - Si los shapes/icons/images/customTexts del local tienen TODOS x=0,y=0
+ *   y el server no → sospechoso (raro que el usuario apile todo en
+ *   esquina).
+ */
+function backupLooksCorrupt(local: any, server: any): string | null {
+  if (!local || !server) return null;
+  const countLayers = (c: any) =>
+    (c?.shapes?.length ?? 0) +
+    (c?.icons?.length ?? 0) +
+    (c?.images?.length ?? 0) +
+    (c?.customTexts?.length ?? 0) +
+    (c?.logo ? 1 : 0);
+  const localCount = countLayers(local);
+  const serverCount = countLayers(server);
+  if (serverCount > 0 && localCount < serverCount) {
+    return `local tiene ${localCount} capas vs server ${serverCount} — restaurar perdería contenido`;
+  }
+  // ¿Todos los textos fijos del local en (0,0)? Sospechoso si server no
+  const textKeys = ['title', 'subtitle', 'cta', 'brand'] as const;
+  const localTextsAt00 = textKeys.every(
+    (k) => local?.texts?.[k]?.x === 0 && local?.texts?.[k]?.y === 0,
+  );
+  const serverTextsAt00 = textKeys.every(
+    (k) => server?.texts?.[k]?.x === 0 && server?.texts?.[k]?.y === 0,
+  );
+  if (localTextsAt00 && !serverTextsAt00) {
+    return 'todos los textos del local en (0,0) pero el server tiene posiciones reales';
+  }
+  // ¿Todas las capas extra del local en (0,0)? Sospechoso si server no
+  const allLayersAt00 = (c: any) => {
+    const arr = [
+      ...(c?.shapes ?? []),
+      ...(c?.icons ?? []),
+      ...(c?.images ?? []),
+      ...(c?.customTexts ?? []),
+    ];
+    if (arr.length === 0) return false;
+    return arr.every((l: any) => l?.x === 0 && l?.y === 0);
+  };
+  if (allLayersAt00(local) && !allLayersAt00(server) && serverCount > 0) {
+    return 'todas las capas del local en (0,0) — corrupción típica';
+  }
+  return null;
+}
+
 /** Convierte el BgConfig sólido o gradient a props de fill para el Rect
  *  base. Para imagen, el Rect base queda con un color neutro y la
  *  imagen se pinta como KonvaImage separada arriba. */
@@ -543,6 +603,7 @@ export default function QrPosterEditor({
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [editorLoadError, setEditorLoadError] = useState<string | null>(null);
   const [exporting, setExporting] = useState<null | 'png' | 'jpg' | 'pdf'>(null);
   const [guides, setGuides] = useState<Guide[]>([]);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -556,6 +617,7 @@ export default function QrPosterEditor({
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setEditorLoadError(null);
     // Bloquear cualquier autosave hasta que este load termine. Sin esto,
     // si el cliente cambia de variante (posterIdProp distinto) sin
     // re-montar, el cfg del cartel anterior podría persistirse contra
@@ -585,24 +647,43 @@ export default function QrPosterEditor({
 
         // Recuperación de backup local: si la última sesión quedó con
         // cambios sin guardar (refresh / cierre accidental), preguntamos
-        // si restaurar. Si el cliente dice no, descarta el backup.
+        // si restaurar. ANTES de ofrecer restaurar VALIDAMOS que el backup
+        // local no parezca corrupto — sino el cliente acepta sin pensar y
+        // el autosave persiste la basura local pisando el server bueno
+        // (bug histórico: todos los elementos terminaban en 0,0 o tamaños
+        // por defecto). Si el backup parece corrupto vs el server, lo
+        // descartamos silencioso y usamos el server.
         let restored = false;
         try {
           const localJson = localStorage.getItem(key);
           if (localJson && localJson !== serverJson) {
-            const yes = window.confirm(
-              'Tenés cambios sin guardar de la sesión anterior. ¿Restaurar ahora?\n\n(Cancelar = descartar el backup local)',
-            );
-            if (yes) {
-              const localCfg = JSON.parse(localJson);
-              replaceHistory(normalizeConfig(localCfg, brandName));
-              // El backend NO tiene esta versión todavía — queda dirty,
-              // el autosave se va a disparar enseguida.
-              lastSavedJsonRef.current = serverJson;
-              setAutosaveState('dirty');
-              restored = true;
-            } else {
+            const localCfgRaw = JSON.parse(localJson);
+            const looksCorrupt = backupLooksCorrupt(localCfgRaw, serverCfg);
+            if (looksCorrupt) {
+              // eslint-disable-next-line no-console
+              console.warn(
+                '[QrPosterEditor] backup localStorage descartado (parece corrupto vs server)',
+                {
+                  reason: looksCorrupt,
+                  type,
+                  posterIdProp,
+                },
+              );
               localStorage.removeItem(key);
+            } else {
+              const yes = window.confirm(
+                'Tenés cambios sin guardar de la sesión anterior. ¿Restaurar ahora?\n\n(Cancelar = descartar el backup local)',
+              );
+              if (yes) {
+                replaceHistory(normalizeConfig(localCfgRaw, brandName));
+                // El backend NO tiene esta versión todavía — queda dirty,
+                // el autosave se va a disparar enseguida.
+                lastSavedJsonRef.current = serverJson;
+                setAutosaveState('dirty');
+                restored = true;
+              } else {
+                localStorage.removeItem(key);
+              }
             }
           }
         } catch {}
@@ -620,7 +701,13 @@ export default function QrPosterEditor({
         // cartel guardado en (0,0) tras un error transitorio de carga.
         if (!cancelled) hasLoadedRef.current = true;
       })
-      .catch(() => null)
+      .catch((e: any) => {
+        if (cancelled) return;
+        setEditorLoadError(
+          e?.message?.toString() ||
+            'No se pudo cargar el diseño guardado. Revisá tu conexión y recargá la página.',
+        );
+      })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
@@ -747,6 +834,31 @@ export default function QrPosterEditor({
     if (!silent) setSaving(true);
     setSaveError(null);
     setAutosaveState('saving');
+    // Log diagnóstico — útil cuando el cliente reporta "todo a 0,0":
+    // miramos console y vemos qué cfg se está mandando. Si los textos o
+    // capas están en (0,0) acá, sabemos que el bug está ANTES del save
+    // (no en el server). Solo en dev / cuando el usuario active debug.
+    if (typeof window !== 'undefined' && (window as any).__QR_DEBUG__) {
+      // eslint-disable-next-line no-console
+      console.log('[QrPosterEditor] save →', {
+        type,
+        posterIdProp,
+        texts: {
+          title: { x: currentCfg.texts?.title?.x, y: currentCfg.texts?.title?.y },
+          subtitle: { x: currentCfg.texts?.subtitle?.x, y: currentCfg.texts?.subtitle?.y },
+          cta: { x: currentCfg.texts?.cta?.x, y: currentCfg.texts?.cta?.y },
+          brand: { x: currentCfg.texts?.brand?.x, y: currentCfg.texts?.brand?.y },
+        },
+        qr: { x: currentCfg.qr?.x, y: currentCfg.qr?.y },
+        logo: currentCfg.logo ? { x: currentCfg.logo.x, y: currentCfg.logo.y } : null,
+        counts: {
+          shapes: currentCfg.shapes?.length ?? 0,
+          icons: currentCfg.icons?.length ?? 0,
+          images: currentCfg.images?.length ?? 0,
+          customTexts: currentCfg.customTexts?.length ?? 0,
+        },
+      });
+    }
     try {
       const row = idMode
         ? await api<any>(`/qr-posters/${posterIdProp}`, {
@@ -1367,8 +1479,35 @@ export default function QrPosterEditor({
     };
   }
 
-  if (loading) {
-    return <div className="text-mute py-8 text-center">Cargando editor…</div>;
+  // Mientras carga: NO renderizamos el editor — sino el primer paint
+  // con cfg=defaultConfig podría disparar autosave si la guard fallara, o
+  // el usuario podría empezar a editar sobre datos viejos. El skeleton
+  // mantiene la página estable y comunica al usuario que está esperando.
+  if (editorLoadError) {
+    return (
+      <div className="py-16 text-center">
+        <div className="text-bad text-sm mb-2">⚠ {editorLoadError}</div>
+        <button
+          onClick={() => window.location.reload()}
+          className="btn-ghost text-xs"
+        >
+          Recargar
+        </button>
+      </div>
+    );
+  }
+  if (loading || !hasLoadedRef.current) {
+    return (
+      <div className="py-16 text-center">
+        <div className="inline-flex items-center gap-2 text-mute text-sm">
+          <span className="inline-block w-4 h-4 border-2 border-mute/30 border-t-mute rounded-full animate-spin" />
+          Cargando diseño guardado…
+        </div>
+        <div className="text-[11px] text-mute/70 mt-2">
+          No edites hasta que termine de cargar.
+        </div>
+      </div>
+    );
   }
 
   const bgFill = rectFillProps(cfg.bg, cfg.canvas.w, cfg.canvas.h);
