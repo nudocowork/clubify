@@ -134,6 +134,20 @@ export default function PresentationEditorPage() {
     setContentErr(null);
   }, [selectedId]);  // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Ref espejo de `slides` para que flushSave lea SIEMPRE el state ACTUAL,
+  // no del closure del render donde se agendó el setTimeout. Sin esto, el
+  // patch que dispara el autosave captura `slides` del render previo (sin
+  // el cambio nuevo) → el PATCH envía valores stale al backend.
+  //
+  // Bug histórico: el usuario subía una imagen en el editor, el thumbnail
+  // se veía en el admin (porque el state local sí tenía la URL), pero el
+  // backend recibía imageUrl: null. La página pública mostraba un slide
+  // vacío con placeholder gris. Mismo patrón que cfgRef en QrPosterEditor.
+  const slidesRef = useRef(slides);
+  useEffect(() => {
+    slidesRef.current = slides;
+  }, [slides]);
+
   /** Actualiza el slide local + agenda autosave debounced al backend. */
   function patchSelected(patch: Partial<Slide>) {
     if (!selected) return;
@@ -143,45 +157,47 @@ export default function PresentationEditorPage() {
     setSaveState('dirty');
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     saveTimerRef.current = window.setTimeout(() => {
-      flushSave(selected.id, patch);
+      flushSave(selected.id);
     }, AUTOSAVE_DEBOUNCE_MS);
   }
 
-  /** Persiste el cambio al server. Lee el slide ACTUAL del state (no del
-   *  closure) para juntar todos los patches que ocurrieron durante el
-   *  debounce en un único PATCH. */
-  const flushSave = useCallback(
-    async (slideId: string, _patch: Partial<Slide>) => {
-      const current = slides.find((s) => s.id === slideId);
-      // Si el slide se borró durante el debounce, ignoramos.
-      if (!current) return;
-      setSaveState('saving');
-      try {
-        await api(`/admin/presentations/slides/${slideId}`, {
-          method: 'PATCH',
-          body: JSON.stringify({
-            layout: current.layout,
-            title: current.title,
-            subtitle: current.subtitle,
-            body: current.body,
-            imageUrl: current.imageUrl,
-            videoUrl: current.videoUrl,
-            ctaText: current.ctaText,
-            ctaUrl: current.ctaUrl,
-            bgColor: current.bgColor,
-            textColor: current.textColor,
-            animation: current.animation,
-            content: current.content,
-          }),
-        });
-        setSaveState('saved');
-      } catch (e: any) {
-        setSaveState('error');
-        toast(e?.message || 'No se pudo guardar el slide', 'error');
-      }
-    },
-    [slides],
-  );
+  /** Persiste el cambio al server. Lee el slide ACTUAL desde slidesRef
+   *  (no del closure) para que todos los patches que ocurrieron durante el
+   *  debounce — incluyendo el que disparó este flush — se incluyan en el
+   *  PATCH. */
+  const flushSave = useCallback(async (slideId: string) => {
+    const current = slidesRef.current.find((s) => s.id === slideId);
+    // Si el slide se borró durante el debounce, ignoramos.
+    if (!current) return;
+    setSaveState('saving');
+    try {
+      await api(`/admin/presentations/slides/${slideId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          layout: current.layout,
+          title: current.title,
+          subtitle: current.subtitle,
+          body: current.body,
+          imageUrl: current.imageUrl,
+          videoUrl: current.videoUrl,
+          ctaText: current.ctaText,
+          ctaUrl: current.ctaUrl,
+          bgColor: current.bgColor,
+          textColor: current.textColor,
+          animation: current.animation,
+          content: current.content,
+        }),
+      });
+      setSaveState('saved');
+    } catch (e: any) {
+      setSaveState('error');
+      toast(e?.message || 'No se pudo guardar el slide', 'error');
+    }
+    // Sin deps — el callback lee todo desde refs y setters de React (que
+    // son estables). Sin useCallback el componente lo recrea cada render
+    // pero igual funciona; lo dejamos memoized para evitar re-trigger de
+    // effects que dependan de su identidad.
+  }, []);
 
   // Cleanup del timer al desmontar — sino un autosave en flight tras
   // navegar a otra ruta podría escribir contra un slide stale.
