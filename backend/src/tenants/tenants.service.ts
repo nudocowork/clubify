@@ -74,6 +74,7 @@ export type UpdateMyTenantDto = Partial<{
   googleReviewUrl: string;
   walletLogoUrl: string;
   pushLogoUrl: string;
+  mainSectionLabelOverride: string | null;
 }>;
 
 @Injectable()
@@ -400,9 +401,18 @@ export class TenantsService {
   }
 
   async updateMine(tenantId: string, dto: UpdateMyTenantDto) {
+    const data: any = { ...dto };
+    if ('mainSectionLabelOverride' in data) {
+      const raw = data.mainSectionLabelOverride;
+      // "" o null limpia el override; texto custom se trimea y se acota a 24 chars.
+      data.mainSectionLabelOverride =
+        typeof raw === 'string' && raw.trim().length > 0
+          ? raw.trim().slice(0, 24)
+          : null;
+    }
     return this.prisma.tenant.update({
       where: { id: tenantId },
-      data: dto,
+      data,
     });
   }
 
