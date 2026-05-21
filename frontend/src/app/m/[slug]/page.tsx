@@ -59,6 +59,9 @@ type Storefront = {
   backButtonConfig?: BackButtonConfig | null;
   popup?: { imageUrl: string; cardId: string | null; delaySeconds?: number } | null;
   planName?: string | null;
+  // Label visible para tab principal y títulos — resuelto server-side
+  // (override del tenant > categoría > "Menú"). Fallback "Menú" si no llega.
+  mainSectionLabel?: string;
   promotions: any[];
 };
 
@@ -407,7 +410,14 @@ export default function StorefrontPublic() {
                 color: tab === t ? '#fff' : '#6B7280',
               }}
             >
-              {t === 'menu' ? tt('storefront.tab_menu') : tt('storefront.tab_promos')}
+              {t === 'menu'
+                ? // Si el tenant configuró un label custom (o categoría no-menu),
+                  // lo usamos sin pasar por i18n. Solo cuando es "Menú" default
+                  // pasamos por el sistema i18n para EN/PT.
+                  s.mainSectionLabel && s.mainSectionLabel !== 'Menú'
+                  ? s.mainSectionLabel
+                  : tt('storefront.tab_menu')
+                : tt('storefront.tab_promos')}
             </button>
           ))}
         </div>
@@ -419,7 +429,11 @@ export default function StorefrontPublic() {
           {localizedMenu.length === 0 && (
             <div className="text-center py-16 animate-in fade-in duration-300">
               <div className="text-5xl mb-3">📋</div>
-              <div className="font-semibold text-lg">{tt('storefront.menu_empty_title')}</div>
+              <div className="font-semibold text-lg">
+                {s.mainSectionLabel && s.mainSectionLabel !== 'Menú'
+                  ? `${s.mainSectionLabel} próximamente`
+                  : tt('storefront.menu_empty_title')}
+              </div>
               <div className={`text-sm mt-1 max-w-xs mx-auto ${isCluvi ? 'text-white/70' : 'text-mute'}`}>
                 {tt('storefront.menu_empty_sub')}
               </div>
