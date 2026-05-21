@@ -19,8 +19,22 @@ type TenantMe = {
   whatsappPhone: string | null;
   whatsappOrdersPhone: string | null;
   whatsappDeliveryPhone: string | null;
+  mainSectionLabelOverride: string | null;
+  businessCategorySlug: string | null;
   plan?: { name: string } | null;
 };
+
+type MainSectionMode = 'menu' | 'services' | 'custom';
+
+function detectMainMode(override: string | null): {
+  mode: MainSectionMode;
+  custom: string;
+} {
+  if (!override) return { mode: 'menu', custom: '' };
+  if (override === 'Servicios') return { mode: 'services', custom: '' };
+  if (override === 'Menú') return { mode: 'menu', custom: '' };
+  return { mode: 'custom', custom: override };
+}
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -38,6 +52,11 @@ export default function SettingsPage() {
   const [savingWa, setSavingWa] = useState(false);
   const [waMsg, setWaMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
+  const [sectionMode, setSectionMode] = useState<MainSectionMode>('menu');
+  const [sectionCustom, setSectionCustom] = useState<string>('');
+  const [savingSection, setSavingSection] = useState(false);
+  const [sectionMsg, setSectionMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
   useEffect(() => {
     api<Profile>('/users/me').then((u) => {
       setMe(u);
@@ -54,9 +73,67 @@ export default function SettingsPage() {
           ordersPhone: t.whatsappOrdersPhone ?? '',
           deliveryPhone: t.whatsappDeliveryPhone ?? '',
         });
+        const { mode, custom } = detectMainMode(t.mainSectionLabelOverride);
+        setSectionMode(mode);
+        setSectionCustom(custom);
       })
       .catch(() => null);
   }, []);
+
+  async function saveSectionLabel(e: React.FormEvent) {
+    e.preventDefault();
+    setSectionMsg(null);
+    // Resolución del valor a persistir según el modo elegido.
+    let override: string | null = null;
+    if (sectionMode === 'services') {
+      override = 'Servicios';
+    } else if (sectionMode === 'custom') {
+      const trimmed = sectionCustom.trim();
+      if (!trimmed) {
+        setSectionMsg({
+          ok: false,
+          text: 'Escribí el nombre personalizado o elegí otra opción',
+        });
+        return;
+      }
+      if (trimmed.length > 24) {
+        setSectionMsg({
+          ok: false,
+          text: 'Máximo 24 caracteres',
+        });
+        return;
+      }
+      override = trimmed;
+    } else {
+      // mode === 'menu' → guardamos null para que use el fallback
+      // (categoría o "Menú" duro). Mantiene la columna limpia.
+      override = null;
+    }
+    setSavingSection(true);
+    try {
+      const updated = await api<TenantMe>('/tenants/me', {
+        method: 'PATCH',
+        body: JSON.stringify({ mainSectionLabelOverride: override }),
+      });
+      setTenant(updated);
+      // Invalidar caché del hook para que sidebar + admin se refresquen
+      // al recargar la próxima ruta. Import lazy para no acoplar el bundle.
+      import('@/lib/useMainSectionLabel').then((m) =>
+        m.invalidateMainSectionLabel(),
+      );
+      setSectionMsg({
+        ok: true,
+        text: 'Nombre actualizado. Recargá para verlo en todo el panel.',
+      });
+    } catch (err: any) {
+      setSectionMsg({
+        ok: false,
+        text: err?.message || 'No se pudo guardar',
+      });
+    } finally {
+      setSavingSection(false);
+    }
+  }
 
   async function saveWhatsapp(e: React.FormEvent) {
     e.preventDefault();
@@ -339,6 +416,88 @@ export default function SettingsPage() {
               </button>
             </div>
           </form>
+      </div>
+
+      {/* Nombre de sección principal */}
+      <div className="card card-pad mb-4">
+        <h2 className="text-base font-semibold m-0 flex items-center gap-2">
+          🏷 Nombre de sección principal
+        </h2>
+        <p className="text-xs text-mute mt-1 leading-relaxed">
+          Cambia cómo aparece la palabra "Menú" en tu panel y en la vista
+          pública. Útil si vendés servicios (peluquería, autolavado, spa) o
+          tenés algo distinto a una carta tradicional (tratamientos, planes,
+          paquetes, etc.).
+        </p>
+        <form onSubmit={saveSectionLabel} className="mt-4 grid gap-3">
+          <div>
+            <label className="label">Opción</label>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {(
+                [
+                  { v: 'menu', emoji: '🍽', label: 'Menú', hint: 'Por defecto' },
+                  { v: 'services', emoji: '🛠', label: 'Servicios', hint: 'Peluquerías, spas, autolavados' },
+                  { v: 'custom', emoji: '✏️', label: 'Personalizado', hint: 'Tratamientos, Catálogo, etc.' },
+                ] as const
+              ).map((opt) => {
+                const active = sectionMode === opt.v;
+                return (
+                  <button
+                    type="button"
+                    key={opt.v}
+                    onClick={() => setSectionMode(opt.v)}
+                    className={`text-left rounded-input border-2 p-2.5 transition ${
+                      active
+                        ? 'border-brand bg-brand-soft'
+                        : 'border-line bg-white hover:border-brand/40'
+                    }`}
+                  >
+                    <div className="text-lg mb-0.5">{opt.emoji}</div>
+                    <div className="text-sm font-semibold">{opt.label}</div>
+                    <div className="text-[11px] text-mute">{opt.hint}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {sectionMode === 'custom' && (
+            <div>
+              <label className="label">Nombre personalizado</label>
+              <input
+                className="input max-w-xs"
+                placeholder="Ej: Tratamientos, Catálogo, Paquetes…"
+                value={sectionCustom}
+                onChange={(e) => setSectionCustom(e.target.value.slice(0, 24))}
+                maxLength={24}
+              />
+              <p className="text-[11px] text-mute mt-1">
+                Máximo 24 caracteres. Vas a verlo en sidebar, botones, QR,
+                tabs públicos y títulos.
+              </p>
+            </div>
+          )}
+
+          {sectionMsg && (
+            <div
+              className={`text-sm rounded-lg px-3 py-2 ${
+                sectionMsg.ok ? 'bg-ok-soft text-ok' : 'bg-bad-soft text-bad-ink'
+              }`}
+            >
+              {sectionMsg.text}
+            </div>
+          )}
+
+          <div className="flex justify-end">
+            <button
+              type="submit"
+              disabled={savingSection}
+              className="btn-primary text-sm"
+            >
+              {savingSection ? 'Guardando…' : 'Guardar nombre'}
+            </button>
+          </div>
+        </form>
       </div>
 
       {/* Export */}
