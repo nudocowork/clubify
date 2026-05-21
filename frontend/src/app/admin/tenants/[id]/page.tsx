@@ -686,6 +686,9 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
 
   const [mode, setMode] = useState<BillingMode>(currentMode);
   const [trialDays, setTrialDays] = useState(7);
+  const [gracePeriodDays, setGracePeriodDays] = useState<number>(
+    typeof tenant.gracePeriodDays === 'number' ? tenant.gracePeriodDays : 0,
+  );
   const [nextChargeDate, setNextChargeDate] = useState(
     tenant.currentPeriodEnd
       ? new Date(tenant.currentPeriodEnd).toISOString().slice(0, 10)
@@ -702,12 +705,34 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
   const [saving, setSaving] = useState(false);
 
   async function apply() {
+    const graceChanged = gracePeriodDays !== (tenant.gracePeriodDays ?? 0);
+    const modeChanged = mode !== currentMode;
+    // Solo cambia la gracia (mismo modo): usamos PATCH /tenants/:id sin tocar
+    // trialEndsAt ni el ciclo de cobro. Útil para extender gracia sin reset.
+    if (graceChanged && !modeChanged) {
+      if (!confirm(`Actualizar días de gracia a ${gracePeriodDays}?`)) return;
+      setSaving(true);
+      try {
+        await api(`/tenants/${tenant.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ gracePeriodDays }),
+        });
+        toast('Días de gracia actualizados', 'success');
+        onChange();
+      } catch (e: any) {
+        toast(e.message || 'No se pudo actualizar', 'error');
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     if (!confirm(`Cambiar facturación a "${MODE_OPTIONS.find((m) => m.v === mode)?.label}"?`))
       return;
     setSaving(true);
     try {
       const body: any = { mode };
       if (mode === 'trial') body.trialDays = trialDays;
+      if (graceChanged) body.gracePeriodDays = gracePeriodDays;
       if (mode === 'paid') {
         if (nextChargeDate)
           body.nextChargeDate = new Date(nextChargeDate).toISOString();
@@ -748,6 +773,12 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
             </strong>
           </>
         )}
+        {(tenant.gracePeriodDays ?? 0) > 0 && (
+          <>
+            {' '}· Gracia post-trial{' '}
+            <strong className="text-ink">{tenant.gracePeriodDays} días</strong>
+          </>
+        )}
         {tenant.currentPeriodEnd && (
           <>
             {' '}· Próximo cobro{' '}
@@ -785,16 +816,38 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
       </div>
 
       {mode === 'trial' && (
-        <div className="mt-4">
-          <label className="label">Días de trial desde hoy</label>
-          <input
-            className="input max-w-xs"
-            type="number"
-            min={1}
-            max={365}
-            value={trialDays}
-            onChange={(e) => setTrialDays(Number(e.target.value) || 7)}
-          />
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="label">Días de trial desde hoy</label>
+            <input
+              className="input"
+              type="number"
+              min={1}
+              max={365}
+              value={trialDays}
+              onChange={(e) => setTrialDays(Number(e.target.value) || 7)}
+            />
+            <div className="text-[11px] text-mute mt-1">
+              El trial arranca al aplicar y vence al final del día N.
+            </div>
+          </div>
+          <div>
+            <label className="label">Días de gracia tras vencer</label>
+            <input
+              className="input"
+              type="number"
+              min={0}
+              max={365}
+              value={gracePeriodDays}
+              onChange={(e) =>
+                setGracePeriodDays(Math.max(0, Number(e.target.value) || 0))
+              }
+            />
+            <div className="text-[11px] text-mute mt-1">
+              Días extra de acceso tras vencer el trial antes de bloquear.
+              0 = corte inmediato.
+            </div>
+          </div>
         </div>
       )}
 
@@ -839,8 +892,17 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
           type="button"
           className="btn-primary"
           onClick={apply}
-          disabled={saving || mode === currentMode}
-          title={mode === currentMode ? 'Ya está en este modo' : 'Aplicar cambio'}
+          disabled={
+            saving ||
+            (mode === currentMode &&
+              gracePeriodDays === (tenant.gracePeriodDays ?? 0))
+          }
+          title={
+            mode === currentMode &&
+            gracePeriodDays === (tenant.gracePeriodDays ?? 0)
+              ? 'No hay cambios'
+              : 'Aplicar cambio'
+          }
         >
           {saving ? 'Aplicando…' : 'Aplicar cambio →'}
         </button>

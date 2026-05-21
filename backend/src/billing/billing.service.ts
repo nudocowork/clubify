@@ -167,16 +167,24 @@ export class BillingService {
     }
   }
 
-  /** Bloquea tenants con trial expirado + secuencia de notificaciones SMS. */
+  /** Bloquea tenants con trial expirado (respetando gracePeriodDays) + secuencia SMS. */
   async runDailyCheck() {
     const now = new Date();
-    const expiredTrials = await this.prisma.tenant.findMany({
+    const dayMs = 24 * 60 * 60 * 1000;
+    const candidates = await this.prisma.tenant.findMany({
       where: {
         status: 'TRIAL',
         trialEndsAt: { lt: now },
         currentPeriodEnd: null,
       },
-      select: { id: true, brandName: true },
+      select: { id: true, brandName: true, trialEndsAt: true, gracePeriodDays: true },
+    });
+    // Solo suspendemos si trialEndsAt + gracePeriodDays ya pasó. La gracia 0
+    // mantiene el comportamiento anterior (corte duro al vencer trial).
+    const expiredTrials = candidates.filter((t) => {
+      if (!t.trialEndsAt) return false;
+      const cutoff = t.trialEndsAt.getTime() + (t.gracePeriodDays ?? 0) * dayMs;
+      return cutoff < now.getTime();
     });
 
     for (const t of expiredTrials) {

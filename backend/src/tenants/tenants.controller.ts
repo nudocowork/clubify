@@ -27,6 +27,7 @@ class BillingBody {
   @IsIn(['free', 'trial', 'paid', 'pending'])
   mode!: 'free' | 'trial' | 'paid' | 'pending';
   @IsOptional() @IsInt() @Min(1) trialDays?: number;
+  @IsOptional() @IsInt() @Min(0) gracePeriodDays?: number;
   @IsOptional() @IsDateString() nextChargeDate?: string;
   @IsOptional() @IsString() hotmartSubscriberCode?: string;
 }
@@ -41,6 +42,7 @@ class UpdateTenantBody {
   @IsOptional() @IsString() status?: TenantStatus;
   @IsOptional() @IsUUID() planId?: string;
   @IsOptional() @IsInt() @Min(1) maxLocationsOverride?: number;
+  @IsOptional() @IsInt() @Min(0) gracePeriodDays?: number;
 }
 
 @Controller('tenants')

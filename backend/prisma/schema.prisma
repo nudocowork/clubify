@@ -335,6 +335,8 @@ model Tenant {
   // Trial / billing
   trialStartedAt              DateTime?
   trialEndsAt                 DateTime?
+  // Días extra después de trialEndsAt antes de suspender (editable por super admin).
+  gracePeriodDays             Int          @default(0)
   currentPeriodEnd            DateTime?
   hotmartSubscriberCode       String?
   hotmartTransactionId        String?

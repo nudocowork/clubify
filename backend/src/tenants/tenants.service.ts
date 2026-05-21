@@ -282,6 +282,7 @@ export class TenantsService {
     dto: {
       mode: 'free' | 'trial' | 'paid' | 'pending';
       trialDays?: number;
+      gracePeriodDays?: number;
       nextChargeDate?: string;
       hotmartSubscriberCode?: string;
     },
@@ -340,6 +341,9 @@ export class TenantsService {
           currentPeriodEnd: null,
         };
         break;
+    }
+    if (typeof dto.gracePeriodDays === 'number') {
+      data.gracePeriodDays = Math.max(0, Math.min(365, Math.floor(dto.gracePeriodDays)));
     }
     return this.prisma.tenant.update({ where: { id }, data });
   }
