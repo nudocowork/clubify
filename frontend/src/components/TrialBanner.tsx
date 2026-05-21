@@ -8,6 +8,9 @@ type Status = {
   daysLeftInTrial: number | null;
   trialEndsAt: string | null;
   isActiveAccess: boolean;
+  gracePeriodDays?: number;
+  inGracePeriod?: boolean;
+  graceDaysLeft?: number | null;
 };
 
 export function TrialBanner() {
@@ -19,7 +22,13 @@ export function TrialBanner() {
   }, []);
 
   if (!s || hidden) return null;
-  if (s.status !== 'TRIAL' && s.status !== 'PAST_DUE' && s.status !== 'EXPIRED' && s.status !== 'SUSPENDED') {
+  if (
+    s.status !== 'TRIAL' &&
+    s.status !== 'PAST_DUE' &&
+    s.status !== 'EXPIRED' &&
+    s.status !== 'SUSPENDED' &&
+    !s.inGracePeriod
+  ) {
     return null;
   }
 
@@ -29,7 +38,20 @@ export function TrialBanner() {
   let label = '';
   let cta = 'Activar suscripción';
 
-  if (s.status === 'TRIAL') {
+  // Gracia post-trial: prioridad sobre el flujo TRIAL normal — el trial
+  // técnicamente ya venció pero el super admin extendió X días de margen.
+  if (s.inGracePeriod) {
+    const g = s.graceDaysLeft ?? 0;
+    bg = 'bg-orange-50';
+    border = 'border-orange-200';
+    text = 'text-orange-900';
+    label =
+      g > 1
+        ? `Tu trial venció. Tenés ${g} días de gracia restantes antes de que se suspenda tu cuenta.`
+        : g === 1
+        ? 'Tu trial venció. Te queda 1 día de gracia antes de que se suspenda tu cuenta.'
+        : 'Tu trial venció. Tu cuenta se suspende hoy si no activás la suscripción.';
+  } else if (s.status === 'TRIAL') {
     const d = s.daysLeftInTrial ?? 0;
     if (d > 0) {
       bg = 'bg-brand-soft';

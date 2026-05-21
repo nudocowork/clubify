@@ -17,6 +17,12 @@ export type TrialStatus = {
   daysLeftInTrial: number | null;
   currentPeriodEnd: Date | null;
   isActiveAccess: boolean;
+  // Gracia post-trial: si trialEndsAt ya pasó pero queda gracia, el dueño
+  // sigue con acceso. Estos campos permiten al frontend mostrar un banner
+  // específico "trial vencido — X días de gracia restantes".
+  gracePeriodDays: number;
+  inGracePeriod: boolean;
+  graceDaysLeft: number | null;
 };
 
 const TRIAL_DAYS = 10;
@@ -115,6 +121,7 @@ export class BillingService {
         currentPeriodEnd: true,
         suspendedAt: true,
         failedPaymentCount: true,
+        gracePeriodDays: true,
       },
     });
     if (!t) {
@@ -124,28 +131,59 @@ export class BillingService {
         daysLeftInTrial: null,
         currentPeriodEnd: null,
         isActiveAccess: false,
+        gracePeriodDays: 0,
+        inGracePeriod: false,
+        graceDaysLeft: null,
       };
     }
 
     const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
     let daysLeft: number | null = null;
     if (t.trialEndsAt) {
       daysLeft = Math.max(
         0,
-        Math.ceil((t.trialEndsAt.getTime() - now) / (24 * 60 * 60 * 1000)),
+        Math.ceil((t.trialEndsAt.getTime() - now) / dayMs),
       );
+    }
+
+    // Ventana de gracia = [trialEndsAt, trialEndsAt + gracePeriodDays).
+    const grace = t.gracePeriodDays ?? 0;
+    let inGracePeriod = false;
+    let graceDaysLeft: number | null = null;
+    if (
+      t.status === 'TRIAL' &&
+      !t.suspendedAt &&
+      t.trialEndsAt &&
+      t.trialEndsAt.getTime() < now &&
+      grace > 0
+    ) {
+      const graceEnd = t.trialEndsAt.getTime() + grace * dayMs;
+      if (graceEnd > now) {
+        inGracePeriod = true;
+        graceDaysLeft = Math.max(0, Math.ceil((graceEnd - now) / dayMs));
+      }
     }
 
     let derived: TrialStatus['status'] = t.status as any;
     if (t.suspendedAt) derived = 'SUSPENDED';
-    else if (t.status === 'TRIAL' && t.trialEndsAt && t.trialEndsAt.getTime() < now) {
+    else if (
+      t.status === 'TRIAL' &&
+      t.trialEndsAt &&
+      t.trialEndsAt.getTime() < now &&
+      !inGracePeriod
+    ) {
       derived = 'EXPIRED';
     } else if (t.status === 'ACTIVE' && (t.failedPaymentCount ?? 0) > 0) {
       derived = 'PAST_DUE';
     }
 
+    // Durante la gracia mantenemos acceso (el cron tampoco lo suspende todavía).
     const isActiveAccess =
-      derived === 'TRIAL' || derived === 'ACTIVE' || derived === 'PAST_DUE';
+      derived === 'TRIAL' ||
+      derived === 'ACTIVE' ||
+      derived === 'PAST_DUE' ||
+      inGracePeriod;
 
     return {
       status: derived,
@@ -153,6 +191,9 @@ export class BillingService {
       daysLeftInTrial: daysLeft,
       currentPeriodEnd: t.currentPeriodEnd,
       isActiveAccess,
+      gracePeriodDays: grace,
+      inGracePeriod,
+      graceDaysLeft,
     };
   }
 
