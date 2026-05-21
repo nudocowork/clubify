@@ -9,7 +9,7 @@ import { nanoid } from 'nanoid';
 import sharp from 'sharp';
 
 const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-const MAX_SIZE = 5 * 1024 * 1024; // 5 MB
+const MAX_SIZE = 15 * 1024 * 1024; // 15 MB — sharp pipeline reencode/resize a 2000px+webp
 
 // Umbrales de optimización. Imágenes grandes se resize-an a 2000px max y
 // se reencodean a webp (excepto GIF que conserva animation y PNG con alpha

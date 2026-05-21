@@ -17,8 +17,8 @@ export async function uploadCoverImage(file: File): Promise<string> {
   if (!file.type.startsWith('image/')) {
     throw new Error('Solo imágenes (JPG/PNG/WebP)');
   }
-  if (file.size > 5 * 1024 * 1024) {
-    throw new Error('Máximo 5 MB');
+  if (file.size > 15 * 1024 * 1024) {
+    throw new Error('Máximo 15 MB');
   }
   const fd = new FormData();
   fd.append('file', file, file.name);

@@ -39,8 +39,8 @@ export function ImageUploader({
       setErr('Solo imágenes (jpg, png, webp, gif)');
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      setErr('Máximo 5 MB');
+    if (file.size > 15 * 1024 * 1024) {
+      setErr('Máximo 15 MB');
       return;
     }
     setErr(null);
@@ -186,7 +186,7 @@ export function ImageUploader({
             </div>
             <div className="text-sm font-medium">Sube una imagen</div>
             <div className="text-xs text-mute">
-              Arrastra o haz click · jpg, png, webp · max 5MB
+              Arrastra o haz click · jpg, png, webp · max 15MB
             </div>
           </>
         )}
