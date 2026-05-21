@@ -55,6 +55,63 @@ function getTenantSubdomain(host: string): string | null {
 const cache = new Map<string, { slug: string | null; until: number }>();
 const TTL_MS = 60_000;
 
+// Cache aparte para el flag de mantenimiento. TTL menor (30s) porque el
+// flag es más sensible a la latencia — cuando el SUPER_ADMIN apaga, la
+// vuelta a normal debe ser rápida.
+let maintenanceCache: {
+  enabled: boolean;
+  expiresAt: number;
+} | null = null;
+const MAINTENANCE_TTL_MS = 30_000;
+
+async function isMaintenanceEnabled(): Promise<boolean> {
+  const now = Date.now();
+  if (maintenanceCache && maintenanceCache.expiresAt > now) {
+    return maintenanceCache.enabled;
+  }
+  try {
+    const r = await fetch(`${API}/api/public/maintenance/status`, {
+      cache: 'no-store',
+    });
+    if (!r.ok) {
+      maintenanceCache = { enabled: false, expiresAt: now + MAINTENANCE_TTL_MS };
+      return false;
+    }
+    const j = (await r.json()) as { enabled?: boolean };
+    const enabled = j?.enabled === true;
+    maintenanceCache = { enabled, expiresAt: now + MAINTENANCE_TTL_MS };
+    return enabled;
+  } catch {
+    // Si el backend está caído, NO mostrar página de mantenimiento —
+    // sino un bug del backend rompe el sitio. Fail-open.
+    return false;
+  }
+}
+
+/** Decodifica el payload del JWT sin verificar firma — solo para leer
+ *  el role en el middleware edge. La verificación criptográfica corre
+ *  en el backend; acá solo decidimos qué UI mostrar. Un usuario que
+ *  fragua role=SUPER_ADMIN en el cookie igual NO accede a nada porque
+ *  el backend rechaza el JWT inválido. */
+function decodeJwtRole(token: string | undefined): string | null {
+  if (!token) return null;
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return null;
+    // base64url → base64
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = b64 + '=='.slice(0, (4 - (b64.length % 4)) % 4);
+    const json =
+      typeof atob === 'function'
+        ? atob(padded)
+        : Buffer.from(padded, 'base64').toString('utf-8');
+    const payload = JSON.parse(json);
+    return typeof payload?.role === 'string' ? payload.role : null;
+  } catch {
+    return null;
+  }
+}
+
 async function resolveHost(host: string): Promise<string | null> {
   const now = Date.now();
   const hit = cache.get(host);
@@ -81,6 +138,38 @@ export async function middleware(req: NextRequest) {
   const url = req.nextUrl;
   const host = (req.headers.get('host') ?? '').toLowerCase().split(':')[0];
 
+  // ────────── Maintenance mode ──────────
+  // Si el flag global está activo, rewriteamos TODO el tráfico web a
+  // /maintenance EXCEPTO:
+  //  - SUPER_ADMIN (cookie con role en JWT) — para que pueda apagar el flag.
+  //  - El panel /admin (para que SUPER_ADMIN pueda loguearse y entrar).
+  //  - /login (para que SUPER_ADMIN pueda autenticarse).
+  //  - La propia página /maintenance (sino loop infinito de rewrite).
+  //  - Activos estáticos (/_next, /icons, /favicon, /sw.js).
+  //  - El backend NO se rutea por acá, no afecta.
+  const isMaintenanceBypass =
+    url.pathname === '/maintenance' ||
+    url.pathname.startsWith('/_next') ||
+    url.pathname.startsWith('/icons/') ||
+    url.pathname.startsWith('/favicon') ||
+    url.pathname === '/sw.js' ||
+    url.pathname.startsWith('/admin') ||
+    url.pathname === '/login' ||
+    url.pathname.startsWith('/manifest');
+
+  if (!isMaintenanceBypass) {
+    const enabled = await isMaintenanceEnabled();
+    if (enabled) {
+      const token = req.cookies.get('clubify_token')?.value;
+      const role = decodeJwtRole(token);
+      if (role !== 'SUPER_ADMIN') {
+        const rewrite = url.clone();
+        rewrite.pathname = '/maintenance';
+        return NextResponse.rewrite(rewrite);
+      }
+    }
+  }
+
   // Salir rápido si: host reservado, ruta de API/Next, ruta del panel
   if (
     !host ||
@@ -95,6 +184,7 @@ export async function middleware(req: NextRequest) {
     url.pathname.startsWith('/reset') ||
     url.pathname.startsWith('/scan') ||
     url.pathname.startsWith('/onboarding') ||
+    url.pathname === '/maintenance' ||
     url.pathname.startsWith('/m/') ||
     url.pathname.startsWith('/i/') ||
     url.pathname.startsWith('/o/') ||

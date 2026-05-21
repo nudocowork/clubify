@@ -49,6 +49,7 @@ import { QuotesModule } from './quotes/quotes.module';
 import { SupportMaterialsModule } from './support-materials/support-materials.module';
 import { IndustriesModule } from './industries/industries.module';
 import { PresentationsModule } from './presentations/presentations.module';
+import { MaintenanceModule } from './maintenance/maintenance.module';
 
 @Module({
   imports: [
@@ -106,6 +107,7 @@ import { PresentationsModule } from './presentations/presentations.module';
     SupportMaterialsModule,
     IndustriesModule,
     PresentationsModule,
+    MaintenanceModule,
   ],
   providers: [
     // Sin esto, `ThrottlerModule.forRoot()` y los `@Throttle({...})` por
