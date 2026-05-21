@@ -15,7 +15,7 @@ import { SupportWidget } from './SupportWidget';
 import { useBranding } from '@/lib/useBranding';
 import {
   getCategoryBySlug,
-  catalogItemLabel,
+  resolveMainSectionLabel,
   type BusinessModule,
 } from '@/lib/business-categories';
 
@@ -70,6 +70,7 @@ export default function AppShell({
     brandName?: string;
     hotmartSubscriberCode?: string | null;
     businessCategorySlug?: string | null;
+    mainSectionLabelOverride?: string | null;
     isLocked?: boolean;
   } | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
@@ -172,6 +173,7 @@ export default function AppShell({
           brandName: t?.brandName,
           hotmartSubscriberCode: t?.hotmartSubscriberCode ?? null,
           businessCategorySlug: t?.businessCategorySlug ?? null,
+          mainSectionLabelOverride: t?.mainSectionLabelOverride ?? null,
         });
       })
       .catch(() => null);
@@ -230,15 +232,17 @@ export default function AppShell({
           const catSlug = tenantInfo?.businessCategorySlug;
           const cat = getCategoryBySlug(catSlug);
           const has = (m: BusinessModule) => cat.modules.includes(m);
-          const menuLabel = catalogItemLabel(catSlug);
-          // El nombre de la sección "Menú digital" cambia según el rubro:
-          // 'menu' → "Menú digital", 'catalog' → "Catálogo", 'services' → "Servicios"
+          // Label de sección principal — override custom del tenant pisa el
+          // mapping de la categoría. Aplica a sidebar + título de sección +
+          // QR Menú (que pasa a "QR Servicios" / "QR Tratamientos" / etc).
+          const menuLabel = resolveMainSectionLabel(
+            tenantInfo?.mainSectionLabelOverride,
+            catSlug,
+          );
+          // "Menú digital" se queda solo si el label es "Menú"; sino usa el
+          // label directo (ya no hay un "digital" que sumar para custom).
           const catalogSectionName =
-            cat.catalogLabel === 'services'
-              ? 'Servicios'
-              : cat.catalogLabel === 'catalog'
-              ? 'Catálogo'
-              : 'Menú digital';
+            menuLabel === 'Menú' ? 'Menú digital' : menuLabel;
 
           const all: NavGroup[] = [
             // Dashboard standalone (sin header)
@@ -259,7 +263,7 @@ export default function AppShell({
             {
               section: 'Marketing',
               items: [
-                { href: '/app/marketing/qr-menu', label: 'QR Menú', icon: 'menu', module: 'menu' },
+                { href: '/app/marketing/qr-menu', label: `QR ${menuLabel}`, icon: 'menu', module: 'menu' },
                 { href: '/app/marketing/qr-counter', label: 'QR Mostrador', icon: 'card' },
                 { href: '/app/marketing/qr-discount', label: 'QR Descuento', icon: 'gift' },
                 { href: '/app/marketing/qr-reviews', label: 'QR Reseñas', icon: 'spark' },

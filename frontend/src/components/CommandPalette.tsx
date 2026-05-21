@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Icon } from './Icon';
 import { api } from '@/lib/api';
+import { useMainSectionLabel } from '@/lib/useMainSectionLabel';
 
 type IconName = Parameters<typeof Icon>[0]['name'];
 
@@ -25,6 +26,7 @@ export function CommandPalette({ variant }: { variant: 'admin' | 'app' }) {
   const [searching, setSearching] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const searchSeq = useRef(0);
+  const mainLabel = useMainSectionLabel();
 
   const commands: Command[] = useMemo(() => {
     if (variant === 'admin') {
@@ -39,7 +41,7 @@ export function CommandPalette({ variant }: { variant: 'admin' | 'app' }) {
       // Navegación principal
       { id: 'n1', group: 'Ir a', label: 'Dashboard', href: '/app', icon: 'grid' },
       { id: 'n2', group: 'Ir a', label: 'Pedidos', href: '/app/orders', icon: 'shopping-bag', keywords: 'orders kanban' },
-      { id: 'n3', group: 'Ir a', label: 'Menú', href: '/app/menu', icon: 'menu', keywords: 'productos' },
+      { id: 'n3', group: 'Ir a', label: mainLabel, href: '/app/menu', icon: 'menu', keywords: 'productos menu' },
       { id: 'n4', group: 'Ir a', label: 'Promociones', href: '/app/promos', icon: 'spark', keywords: 'descuentos cupones' },
       { id: 'n5', group: 'Ir a', label: 'Analítica', href: '/app/analytics', icon: 'history', keywords: 'metricas' },
       { id: 'n6', group: 'Ir a', label: 'Tarjetas de fidelización', href: '/app/cards', icon: 'card', keywords: 'sellos puntos loyalty' },
@@ -57,13 +59,13 @@ export function CommandPalette({ variant }: { variant: 'admin' | 'app' }) {
       { id: 'n18', group: 'Ir a', label: 'Mi cuenta', href: '/app/settings', icon: 'users', keywords: 'profile perfil' },
       { id: 'n19', group: 'Ir a', label: 'Novedades / changelog', href: '/app/whats-new', icon: 'spark', keywords: 'whats new release notes' },
       { id: 'n20', group: 'Ir a', label: 'Modo cocina TV', href: '/app/orders/display', icon: 'shopping-bag', keywords: 'kitchen display kanban' },
-      { id: 'n21', group: 'Ir a', label: 'QR Menú imprimible', href: '/app/marketing/qr-menu', icon: 'qr', keywords: 'poster mesa cartel marketing' },
+      { id: 'n21', group: 'Ir a', label: `QR ${mainLabel} imprimible`, href: '/app/marketing/qr-menu', icon: 'qr', keywords: 'poster mesa cartel marketing qr menu' },
       { id: 'n22', group: 'Ir a', label: 'Marketing · QR', href: '/app/marketing', icon: 'spark', keywords: 'qr cartel poster marketing' },
 
       // Acciones rápidas
       { id: 'c1', group: 'Crear', label: 'Nuevo cliente', href: '/app/customers', icon: 'plus', keywords: 'add customer' },
       { id: 'c2', group: 'Crear', label: 'Nueva tarjeta de fidelización', href: '/app/cards/new', icon: 'plus' },
-      { id: 'c3', group: 'Crear', label: 'Nuevo producto en menú', href: '/app/menu', icon: 'plus' },
+      { id: 'c3', group: 'Crear', label: `Nuevo producto en ${mainLabel.toLowerCase()}`, href: '/app/menu', icon: 'plus' },
       { id: 'c4', group: 'Crear', label: 'Nueva promoción', href: '/app/promos', icon: 'plus' },
       { id: 'c5', group: 'Crear', label: 'Nueva ubicación', href: '/app/locations', icon: 'plus' },
       { id: 'c6', group: 'Crear', label: 'Invitar empleado', href: '/app/staff', icon: 'plus' },
@@ -91,7 +93,7 @@ export function CommandPalette({ variant }: { variant: 'admin' | 'app' }) {
           window.location.href = '/login';
         } },
     ];
-  }, [variant]);
+  }, [variant, mainLabel]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {

@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
+import { resolveMainSectionLabel } from '@/lib/business-categories';
 import { Icon } from '@/components/Icon';
 import { ImageUploader } from '@/components/ImageUploader';
 import { SortableList, DragHandle } from '@/components/Sortable';
@@ -64,6 +65,7 @@ export default function MenuEditor() {
   const [ordersDeliveryEnabled, setOrdersDeliveryEnabled] = useState<boolean | null>(null);
   const [togglingOrders, setTogglingOrders] = useState(false);
   const [tenantSlug, setTenantSlug] = useState<string | null>(null);
+  const [mainLabel, setMainLabel] = useState<string>('Menú');
 
   async function load(preserveActive = true) {
     const c = await api<Category[]>('/catalog/categories');
@@ -84,8 +86,20 @@ export default function MenuEditor() {
     load(false);
     loadAdicionales();
     loadOrdersEnabled();
-    api<{ slug?: string }>('/tenants/me')
-      .then((me) => setTenantSlug(me?.slug ?? null))
+    api<{
+      slug?: string;
+      mainSectionLabelOverride?: string | null;
+      businessCategorySlug?: string | null;
+    }>('/tenants/me')
+      .then((me) => {
+        setTenantSlug(me?.slug ?? null);
+        setMainLabel(
+          resolveMainSectionLabel(
+            me?.mainSectionLabelOverride,
+            me?.businessCategorySlug,
+          ),
+        );
+      })
       .catch(() => null);
   }, []);
 
@@ -130,7 +144,7 @@ export default function MenuEditor() {
       });
       toast(
         next
-          ? 'Pedidos delivery activos — el carrito aparece en el menú público'
+          ? `Pedidos delivery activos — el carrito aparece en el ${mainLabel.toLowerCase()} público`
           : 'Delivery informativo — sin botones de pedido en el link público',
         'success',
       );
@@ -318,7 +332,7 @@ export default function MenuEditor() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Menú{' '}
+          {mainLabel}{' '}
           <span className="page-crumb">
             / {cats.length} categorías · {products.length} productos
           </span>
@@ -348,24 +362,24 @@ export default function MenuEditor() {
             href={tenantSlug ? `/m/${tenantSlug}?mesa=1` : '#'}
             target="_blank"
             className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
-            title="Vista del menú como la verá un cliente sentado en una mesa"
+            title={`Vista de ${mainLabel.toLowerCase()} como la verá un cliente sentado en una mesa`}
           >
-            🍽 Ver menú mesa
+            🍽 Ver {mainLabel.toLowerCase()} mesa
           </Link>
           <Link
             href={tenantSlug ? `/m/${tenantSlug}` : '#'}
             target="_blank"
             className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
-            title="Vista del menú para domicilio — el link público que enviás a tus clientes"
+            title={`Vista de ${mainLabel.toLowerCase()} para domicilio — el link público que enviás a tus clientes`}
           >
-            🛵 Ver menú delivery
+            🛵 Ver {mainLabel.toLowerCase()} delivery
           </Link>
           <Link
             href="/app/storefront"
             className="btn-ghost"
-            title="Personaliza el aspecto público de tu menú (logo, estilo, layout)"
+            title={`Personaliza el aspecto público de tu ${mainLabel.toLowerCase()} (logo, estilo, layout)`}
           >
-            🎨 Configura tu menú
+            🎨 Configura tu {mainLabel.toLowerCase()}
           </Link>
           <Link
             href="/app/info-links"
@@ -380,7 +394,7 @@ export default function MenuEditor() {
           <Link
             href="/app/promos"
             className="btn-ghost"
-            title="Productos en oferta del menú"
+            title={`Productos en oferta del ${mainLabel.toLowerCase()}`}
           >
             <Icon name="spark" /> Promociones
           </Link>
@@ -716,6 +730,7 @@ export default function MenuEditor() {
           value={editing}
           categories={cats}
           adicionales={adicionales}
+          mainLabel={mainLabel}
           onCancel={() => setEditing(null)}
           onSave={saveProduct}
         />
@@ -1121,12 +1136,14 @@ function ProductDrawer({
   value,
   categories,
   adicionales,
+  mainLabel,
   onCancel,
   onSave,
 }: {
   value: Partial<Product>;
   categories: Category[];
   adicionales: Adicional[];
+  mainLabel: string;
   onCancel: () => void;
   onSave: (p: Partial<Product>) => void;
 }) {
@@ -1247,8 +1264,9 @@ function ProductDrawer({
                 ⭐ Destacar como Recomendado
               </div>
               <div className="text-xs text-mute mt-0.5">
-                Aparece en una sección "Recomendados" al inicio del menú
-                público para empujar las ventas de este producto.
+                Aparece en una sección "Recomendados" al inicio del{' '}
+                {mainLabel.toLowerCase()} público para empujar las ventas de
+                este producto.
               </div>
             </div>
           </label>

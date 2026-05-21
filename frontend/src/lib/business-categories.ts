@@ -284,3 +284,18 @@ export function catalogItemLabel(slug: string | null | undefined): string {
   if (cat.catalogLabel === 'catalog') return 'Catálogo';
   return 'Menú';
 }
+
+/**
+ * Resuelve el label visible de sección principal: override custom del tenant
+ * > mapping de la categoría > "Menú" como default. Espejo del helper backend
+ * en `backend/src/common/business-categories.ts:resolveMainSectionLabel`.
+ */
+export function resolveMainSectionLabel(
+  override: string | null | undefined,
+  categorySlug: string | null | undefined,
+): string {
+  if (typeof override === 'string' && override.trim().length > 0) {
+    return override.trim();
+  }
+  return catalogItemLabel(categorySlug);
+}

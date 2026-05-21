@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api, getUser } from '@/lib/api';
+import { resolveMainSectionLabel } from '@/lib/business-categories';
 import { Icon } from '@/components/Icon';
 import { ImageUploader } from '@/components/ImageUploader';
 import { toast } from '@/components/Toast';
@@ -129,6 +130,7 @@ export default function StorefrontEditor() {
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [tenantSlug, setTenantSlug] = useState<string>('');
   const [brandName, setBrandName] = useState<string>('Mi negocio');
+  const [mainLabel, setMainLabel] = useState<string>('Menú');
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [logoDirty, setLogoDirty] = useState(false);
   // Campos del tenant editables desde acá. Se persisten contra
@@ -155,6 +157,12 @@ export default function StorefrontEditor() {
       setSf({ ...data, blocks });
       if (me?.slug) setTenantSlug(me.slug);
       if (me?.brandName) setBrandName(me.brandName);
+      setMainLabel(
+        resolveMainSectionLabel(
+          me?.mainSectionLabelOverride,
+          me?.businessCategorySlug,
+        ),
+      );
       if (me?.logoUrl !== undefined) setLogoUrl(me.logoUrl ?? null);
       if (me?.whatsappPhone !== undefined) setWhatsappPhone(me.whatsappPhone ?? '');
       if (me?.primaryColor !== undefined) setPrimaryColor(me.primaryColor ?? '#22C55E');
@@ -222,7 +230,7 @@ export default function StorefrontEditor() {
     return (
       <div className="card card-pad max-w-lg mx-auto mt-8 text-center space-y-3">
         <div className="text-3xl">⚠️</div>
-        <div className="font-semibold">No se pudo cargar la configuración del menú</div>
+        <div className="font-semibold">No se pudo cargar la configuración del {mainLabel.toLowerCase()}</div>
         <div className="text-sm text-mute break-words">{loadErr}</div>
         <button type="button" onClick={load} className="btn-primary">
           Reintentar
@@ -236,31 +244,32 @@ export default function StorefrontEditor() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Configura tu menú <span className="page-crumb">/ {sf.isPublished ? 'Publicado' : 'Borrador'}</span>
+          Configura tu {mainLabel.toLowerCase()}{' '}
+          <span className="page-crumb">/ {sf.isPublished ? 'Publicado' : 'Borrador'}</span>
         </h1>
         <div className="flex gap-2 flex-wrap items-center">
           <Link
             href={tenantSlug ? `/m/${tenantSlug}?mesa=1` : '#'}
             target="_blank"
             className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
-            title="Vista del menú como la verá un cliente sentado en una mesa"
+            title={`Vista del ${mainLabel.toLowerCase()} como la verá un cliente sentado en una mesa`}
           >
-            🍽 Ver menú mesa
+            🍽 Ver {mainLabel.toLowerCase()} mesa
           </Link>
           <Link
             href="/app/marketing/qr-menu"
             className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
-            title="Genera un cartel imprimible con el QR de tu menú"
+            title={`Genera un cartel imprimible con el QR de tu ${mainLabel.toLowerCase()}`}
           >
-            🖨 QR Menú
+            🖨 QR {mainLabel}
           </Link>
           <Link
             href={publicHref}
             target="_blank"
             className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
-            title="Vista del menú para domicilio — el link público que enviás a tus clientes"
+            title={`Vista del ${mainLabel.toLowerCase()} para domicilio — el link público que enviás a tus clientes`}
           >
-            🛵 Ver menú delivery
+            🛵 Ver {mainLabel.toLowerCase()} delivery
           </Link>
           <button
             type="button"
@@ -333,7 +342,7 @@ export default function StorefrontEditor() {
             </select>
           </div>
 
-          <h3 className="text-base font-semibold mt-6 mb-3">Estilo del menú</h3>
+          <h3 className="text-base font-semibold mt-6 mb-3">Estilo del {mainLabel.toLowerCase()}</h3>
           <p className="text-mute text-xs mb-3">
             Cómo se ven los productos en tu storefront. Cambia cuando quieras.{' '}
             <a
@@ -379,10 +388,10 @@ export default function StorefrontEditor() {
               default del layout. */}
           <h3 className="text-base font-semibold mt-6 mb-3">🖌 Color de fondo de la página</h3>
           <p className="text-mute text-xs mb-3 leading-relaxed">
-            Color de fondo del menú público. Por defecto se usa un gris muy
-            claro (o negro en el layout Fondo oscuro). Cambialo si querés
-            que el fondo combine con tu marca — útil sobre todo en{' '}
-            <strong>Secciones premium</strong>.
+            Color de fondo del {mainLabel.toLowerCase()} público. Por defecto
+            se usa un gris muy claro (o negro en el layout Fondo oscuro).
+            Cambialo si querés que el fondo combine con tu marca — útil sobre
+            todo en <strong>Secciones premium</strong>.
           </p>
           <PageBgColorPicker
             value={sf.pageBackgroundColor ?? ''}
@@ -413,9 +422,9 @@ export default function StorefrontEditor() {
 
           <h3 className="text-base font-semibold mt-6 mb-3">🎨 Color principal</h3>
           <p className="text-mute text-xs mb-3 leading-relaxed">
-            Define el color de marca que se usa en el botón "Menú" activo,
-            estados seleccionados, bordes activos y acentos del menú
-            público. Cambialo por tu color de marca.
+            Define el color de marca que se usa en el botón "{mainLabel}"
+            activo, estados seleccionados, bordes activos y acentos del{' '}
+            {mainLabel.toLowerCase()} público. Cambialo por tu color de marca.
           </p>
           <PrimaryColorPicker
             value={primaryColor}
@@ -427,9 +436,10 @@ export default function StorefrontEditor() {
 
           <h3 className="text-base font-semibold mt-6 mb-3">💬 Botón de WhatsApp</h3>
           <p className="text-mute text-xs mb-3 leading-relaxed">
-            Mostrá u ocultá el botón que aparece arriba del menú público y
-            redirige a tu WhatsApp. El número se guarda en la cuenta del
-            negocio aunque desactives el botón.
+            Mostrá u ocultá el botón que aparece arriba del{' '}
+            {mainLabel.toLowerCase()} público y redirige a tu WhatsApp. El
+            número se guarda en la cuenta del negocio aunque desactives el
+            botón.
           </p>
           <WhatsAppConfig
             enabled={sf.whatsappButtonEnabled ?? true}
@@ -445,9 +455,10 @@ export default function StorefrontEditor() {
 
           <h3 className="text-base font-semibold mt-6 mb-3">📣 Configura tu popup</h3>
           <p className="text-mute text-xs mb-3 leading-relaxed">
-            Aparece a los 10 segundos de que un cliente abre tu menú público.
-            Si hace click en la imagen, lo llevamos a inscribirse en la
-            tarjeta seleccionada. Tiene una × en la esquina para cerrarlo.
+            Aparece a los 10 segundos de que un cliente abre tu{' '}
+            {mainLabel.toLowerCase()} público. Si hace click en la imagen, lo
+            llevamos a inscribirse en la tarjeta seleccionada. Tiene una × en
+            la esquina para cerrarlo.
           </p>
           <PopupConfig
             enabled={sf.popupEnabled ?? false}
@@ -495,6 +506,7 @@ export default function StorefrontEditor() {
           description={sf.description}
           blocksCount={sf.blocks?.length ?? 0}
           savedAt={savedAt}
+          mainLabel={mainLabel}
         />
       </div>
     </div>
@@ -637,6 +649,7 @@ function StorefrontPreview({
   description,
   blocksCount,
   savedAt,
+  mainLabel,
 }: {
   publicHref: string;
   publicUrl: string;
@@ -645,6 +658,7 @@ function StorefrontPreview({
   description: string;
   blocksCount: number;
   savedAt: Date | null;
+  mainLabel: string;
 }) {
   const [mode, setMode] = useState<'sim' | 'live'>('sim');
   const [iframeKey, setIframeKey] = useState(0);
@@ -740,6 +754,7 @@ function StorefrontPreview({
                   brandName={brandName}
                   description={description}
                   blocksCount={blocksCount}
+                  mainLabel={mainLabel}
                 />
               ) : tenantSlug ? (
                 <iframe
@@ -781,10 +796,12 @@ function SimPreview({
   brandName,
   description,
   blocksCount,
+  mainLabel,
 }: {
   brandName: string;
   description: string;
   blocksCount: number;
+  mainLabel: string;
 }) {
   return (
     <div className="h-full overflow-y-auto px-5 pt-3 pb-4">
@@ -803,7 +820,7 @@ function SimPreview({
         <span className="px-2 py-1 rounded-full bg-bg2 text-mute">📍 Maps</span>
       </div>
       <div className="flex gap-1.5 mt-3 text-[11px]">
-        <span className="px-2.5 py-1 rounded-full bg-brand text-white font-semibold">Menú</span>
+        <span className="px-2.5 py-1 rounded-full bg-brand text-white font-semibold">{mainLabel}</span>
         <span className="px-2.5 py-1 rounded-full bg-bg2 text-mute">Mi tarjeta</span>
         <span className="px-2.5 py-1 rounded-full bg-bg2 text-mute">Promos</span>
       </div>

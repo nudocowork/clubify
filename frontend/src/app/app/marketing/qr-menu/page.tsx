@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { api } from '@/lib/api';
+import { resolveMainSectionLabel } from '@/lib/business-categories';
 
 const QrPosterEditor = dynamic(
   () => import('@/components/marketing/QrPosterEditor'),
@@ -22,6 +23,10 @@ export default function QrMenuPage() {
   const origin =
     typeof window !== 'undefined' ? window.location.origin : 'https://soyclubify.com';
   const qrUrl = `${origin}/m/${slug}`;
+  const mainLabel = resolveMainSectionLabel(
+    tenant.mainSectionLabelOverride,
+    tenant.businessCategorySlug,
+  );
 
   return (
     <div>
@@ -30,13 +35,14 @@ export default function QrMenuPage() {
           <Link href="/app/marketing" className="text-mute hover:text-ink">
             Marketing
           </Link>{' '}
-          <span className="page-crumb">/ QR Menú</span>
+          <span className="page-crumb">/ QR {mainLabel}</span>
         </h1>
       </div>
 
       <p className="text-sm text-mute max-w-2xl mb-5 leading-relaxed">
-        Diseñá tu cartel QR para imprimir. El QR apunta automáticamente a tu
-        menú digital — si lo cambiás, el cartel impreso sigue funcionando.
+        Diseñá tu cartel QR para imprimir. El QR apunta automáticamente a tu{' '}
+        {mainLabel.toLowerCase()} digital — si lo cambiás, el cartel impreso
+        sigue funcionando.
       </p>
 
       <QrPosterEditor
