@@ -220,6 +220,7 @@ export default function AppShell({
           {
             section: 'Sistema',
             items: [
+              { href: '/admin/users', label: 'Administradores', icon: 'users' },
               { href: '/admin/business-categories', label: 'Categorías', icon: 'grid' },
               { href: '/admin/ai-knowledge', label: 'IA · Knowledge', icon: 'spark' },
               { href: '/admin/branding', label: 'Branding', icon: 'spark' },
