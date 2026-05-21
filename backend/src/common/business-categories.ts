@@ -74,3 +74,25 @@ export function getCategoryBySlug(slug: string | null | undefined): BusinessCate
   if (found) return found;
   return BUSINESS_CATEGORIES.find((c) => c.slug === DEFAULT_CATEGORY_SLUG)!;
 }
+
+/**
+ * Devuelve el label de sección principal visible al usuario.
+ * Prioridad: override custom del tenant → mapping de la categoría → "Menú".
+ */
+export function resolveMainSectionLabel(
+  override: string | null | undefined,
+  businessCategorySlug: string | null | undefined,
+): string {
+  if (typeof override === 'string' && override.trim().length > 0) {
+    return override.trim();
+  }
+  const cat = getCategoryBySlug(businessCategorySlug);
+  switch (cat.catalogLabel) {
+    case 'services':
+      return 'Servicios';
+    case 'catalog':
+      return 'Catálogo';
+    default:
+      return 'Menú';
+  }
+}

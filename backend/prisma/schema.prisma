@@ -332,6 +332,11 @@ model Tenant {
   instagramUrl                String?
   facebookUrl                 String?
   mapsUrl                     String?
+  // Override del label de sección principal ("Menú", "Servicios" o custom
+  // tipo "Tratamientos"). Si null, se infiere de businessCategorySlug.
+  // Editable por el dueño en /app/settings. Solo afecta texto visible —
+  // los slugs internos siguen siendo "menu".
+  mainSectionLabelOverride    String?
   // Trial / billing
   trialStartedAt              DateTime?
   trialEndsAt                 DateTime?

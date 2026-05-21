@@ -21,6 +21,8 @@ class UpdateMyBody {
   @IsOptional() @IsString() googleReviewUrl?: string;
   @IsOptional() @IsString() walletLogoUrl?: string;
   @IsOptional() @IsString() pushLogoUrl?: string;
+  // null → fallback a categoría; "" → reset; max 24 chars al persistir.
+  @IsOptional() @IsString() mainSectionLabelOverride?: string | null;
 }
 
 @Controller('tenants/me')

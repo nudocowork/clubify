@@ -8,6 +8,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { Public } from '../common/decorators/public.decorator';
+import { resolveMainSectionLabel } from '../common/business-categories';
 import {
   TranslatableItem,
   TranslationService,
@@ -203,6 +204,12 @@ export class PublicMenuController {
             }
           : null,
       planName: t.plan?.name ?? null,
+      // Label visible para tab principal y títulos ("Menú" / "Servicios" /
+      // custom). Resuelto server-side: override del tenant > categoría > "Menú".
+      mainSectionLabel: resolveMainSectionLabel(
+        t.mainSectionLabelOverride,
+        t.businessCategorySlug,
+      ),
       locations,
       promotions,
     };
