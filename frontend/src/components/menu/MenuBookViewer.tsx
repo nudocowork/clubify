@@ -139,8 +139,19 @@ export function MenuBookViewer({
   }
   if (!data) {
     return (
-      <div className="max-w-2xl mx-auto px-5 py-12 text-center text-mute">
-        <div className="animate-pulse">Cargando menú…</div>
+      <div className="max-w-5xl mx-auto px-5 py-6 flex flex-col items-center gap-4">
+        {/* Skeleton de chips */}
+        <div className="w-full flex gap-2 overflow-hidden">
+          {[1, 2, 3, 4].map((i) => (
+            <div
+              key={i}
+              className="h-7 w-24 rounded-full bg-bg2 animate-pulse"
+            />
+          ))}
+        </div>
+        {/* Skeleton del libro (mantiene ratio 3:4) */}
+        <div className="w-full max-w-md aspect-[3/4] rounded-lg bg-bg2 animate-pulse shadow-sm" />
+        <div className="text-xs text-mute">Cargando menú…</div>
       </div>
     );
   }
@@ -191,15 +202,27 @@ export function MenuBookViewer({
         </div>
       </div>
 
-      {/* Flipbook */}
-      <FlipbookWrap
-        flipRef={flipRef}
-        pages={allPages}
-        onPageChange={setPageIdx}
-        onPagePopup={(p) => p.popup && setOpenPopup(p.popup)}
-      />
+      {/* Flipbook — edge case: 1 sola página no entra al flipbook (react-pageflip
+          requiere mínimo 2 y se vería raro). La renderizamos sola con click-para-popup. */}
+      {allPages.length === 1 ? (
+        <SinglePageView
+          page={allPages[0]}
+          onClick={() => allPages[0].popup && setOpenPopup(allPages[0].popup)}
+        />
+      ) : (
+        <FlipbookWrap
+          flipRef={flipRef}
+          pages={allPages}
+          onPageChange={setPageIdx}
+          onPagePopup={(p) => p.popup && setOpenPopup(p.popup)}
+        />
+      )}
 
-      {/* Controles inferiores */}
+      {/* Preload de las 2 próximas páginas para evitar pop-in al pasar hoja */}
+      <PagePreloader pages={allPages} currentIdx={pageIdx} ahead={2} />
+
+      {/* Controles inferiores — ocultos si solo hay 1 página (no hay nada que navegar) */}
+      {allPages.length > 1 && (
       <div className="flex items-center justify-between gap-3 select-none">
         <button
           onClick={() => goTo(pageIdx - 1)}
@@ -229,6 +252,7 @@ export function MenuBookViewer({
           </button>
         </div>
       </div>
+      )}
 
       {/* Popup overlay */}
       {openPopup && (
@@ -308,6 +332,62 @@ function FlipbookWrap({
       </HTMLFlipBook>
     </div>
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Vista de una sola página (edge case: menú con 1 sola imagen)
+// ─────────────────────────────────────────────────────────────────────
+
+function SinglePageView({ page, onClick }: { page: Page; onClick: () => void }) {
+  return (
+    <div className="flex justify-center">
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={!page.popup}
+        className="relative max-w-md w-full aspect-[3/4] rounded-lg overflow-hidden bg-white shadow-md"
+        style={{ cursor: page.popup ? 'pointer' : 'default' }}
+      >
+        <img
+          src={page.imageUrl}
+          alt=""
+          className="w-full h-full object-cover"
+          draggable={false}
+        />
+        {page.popup && (
+          <span className="absolute top-2 right-2 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/85 shadow-sm text-amber-700">
+            🔔 Tocar
+          </span>
+        )}
+      </button>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Preloader: precarga las próximas N imágenes para evitar pop-in
+// al pasar hoja. Usa new Image() (no Link rel=preload) porque no
+// tenemos acceso al <head> dentro de un client component.
+// ─────────────────────────────────────────────────────────────────────
+
+function PagePreloader({
+  pages,
+  currentIdx,
+  ahead,
+}: {
+  pages: Array<Page & { sectionId: string }>;
+  currentIdx: number;
+  ahead: number;
+}) {
+  useEffect(() => {
+    for (let i = 1; i <= ahead; i++) {
+      const target = pages[currentIdx + i];
+      if (!target) break;
+      const img = new window.Image();
+      img.src = target.imageUrl;
+    }
+  }, [pages, currentIdx, ahead]);
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────
