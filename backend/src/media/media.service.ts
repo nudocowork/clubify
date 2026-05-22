@@ -11,12 +11,18 @@ import sharp from 'sharp';
 const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const MAX_SIZE = 15 * 1024 * 1024; // 15 MB — sharp pipeline reencode/resize a 2000px+webp
 
-// Umbrales de optimización. Imágenes grandes se resize-an a 2000px max y
+// Umbrales de optimización. Imágenes grandes se resize-an a 2560px max y
 // se reencodean a webp (excepto GIF que conserva animation y PNG con alpha
 // que mantenemos para evitar bordes feos).
-const OPT_MAX_DIMENSION = 2000;
+//
+// 2560×1440 cubre desktop 2K nítido (común en pantallas Retina y monitores
+// QHD modernos). Antes era 2000 lo que dejaba slides full-screen con
+// upscaling visible en pantallas grandes. WebP 90 (era 85) reduce
+// artefactos de doble compresión cuando el frontend ya pre-comprime el
+// crop a JPEG 95.
+const OPT_MAX_DIMENSION = 2560;
 const OPT_SIZE_TRIGGER = 1024 * 1024; // 1 MB
-const OPT_WEBP_QUALITY = 85;
+const OPT_WEBP_QUALITY = 90;
 
 /**
  * Provee storage S3-compatible (Cloudflare R2 en prod, MinIO en dev).
