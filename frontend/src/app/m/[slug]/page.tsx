@@ -265,6 +265,25 @@ export default function StorefrontPublic() {
   // quiere matchear el fondo con su brand. Para CLUVI también se respeta
   // si el dueño decide cambiarlo (por ej a un negro más claro).
   const pageBg = s.pageBackgroundColor || (isCluvi ? '#0a0a0a' : '#FAFBFC');
+
+  // FLIPBOOK es full-screen catálogo visual: sin header, sin tabs, sin
+  // chrome del storefront tradicional. El viewer ya tiene chips de sección
+  // arriba sticky. Mantiene el footer "Hecho con Clubify" porque la marca
+  // es no-removible (memoria feedback_clubify_branding_locked).
+  if (s.menuLayout === 'FLIPBOOK') {
+    return (
+      <div
+        className="min-h-screen pb-16"
+        style={{ background: pageBg }}
+      >
+        <MenuBookViewer slug={slug} primary={primary} />
+        <div className="mt-6 flex justify-center">
+          <ClubifyBadge />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={`min-h-screen pb-32 ${isCluvi ? 'text-white' : ''}`}
@@ -425,11 +444,9 @@ export default function StorefrontPublic() {
         </div>
       </div>
 
-      {/* Menú */}
-      {tab === 'menu' && s.menuLayout === 'FLIPBOOK' && (
-        <MenuBookViewer slug={slug} primary={primary} />
-      )}
-      {tab === 'menu' && s.menuLayout !== 'FLIPBOOK' && (
+      {/* Menú — FLIPBOOK se renderiza arriba con early return; acá solo
+          los layouts tradicionales por productos. */}
+      {tab === 'menu' && (
         <div className="max-w-2xl mx-auto mt-4 px-5">
           {localizedMenu.length === 0 && (
             <div className="text-center py-16 animate-in fade-in duration-300">
