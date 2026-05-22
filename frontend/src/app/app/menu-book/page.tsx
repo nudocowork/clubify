@@ -45,6 +45,17 @@ export default function MenuBookAdminPage() {
   const [creating, setCreating] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [popupPage, setPopupPage] = useState<BookPage | null>(null);
+  const [tenantSlug, setTenantSlug] = useState<string | null>(null);
+  const [menuLayout, setMenuLayout] = useState<string | null>(null);
+
+  useEffect(() => {
+    api<any>('/tenants/me')
+      .then((t) => setTenantSlug(t?.slug ?? null))
+      .catch(() => {});
+    api<any>('/storefront')
+      .then((sf) => setMenuLayout(sf?.menuLayout ?? null))
+      .catch(() => {});
+  }, []);
 
   async function reload() {
     setLoading(true);
@@ -95,7 +106,7 @@ export default function MenuBookAdminPage() {
   return (
     <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-5">
       <header className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
+        <div className="flex-1 min-w-[260px]">
           <h1 className="text-2xl font-bold m-0 flex items-center gap-2">
             <Icon name="book" size={22} /> Menú Libro
           </h1>
@@ -107,7 +118,24 @@ export default function MenuBookAdminPage() {
             </Link>{' '}
             y elegí <strong>📖 Libro / Flipbook</strong>.
           </p>
+          {menuLayout && menuLayout !== 'FLIPBOOK' && (
+            <div className="mt-2 inline-flex items-center gap-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-1.5">
+              ⚠️ El layout activo en público es <strong>{menuLayout}</strong>,
+              no FLIPBOOK. El cliente todavía no verá el libro.
+            </div>
+          )}
         </div>
+        {tenantSlug && (
+          <a
+            href={`/m/${tenantSlug}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn-primary text-sm whitespace-nowrap inline-flex items-center gap-2"
+            title="Abre el menú público en otra pestaña"
+          >
+            👀 Ver menú público
+          </a>
+        )}
       </header>
 
       <div className="card card-pad">

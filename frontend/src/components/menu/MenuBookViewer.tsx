@@ -2,7 +2,7 @@
 
 // Storefront público del menú visual tipo libro (FLIPBOOK).
 //
-// Hace fetch a /public/m/:slug/menu-book (devuelve { sections: [...] }
+// Hace fetch a /api/public/m/:slug/menu-book (devuelve { sections: [...] }
 // con páginas-imagen activas y popup expandido si está enabled). Renderiza
 // las páginas como un flipbook con react-pageflip:
 //   - Navegación superior por chips de sección con scroll-to.
@@ -67,7 +67,7 @@ export function MenuBookViewer({
   // ── Fetch
   useEffect(() => {
     let cancelled = false;
-    fetch(`${API}/public/m/${slug}/menu-book`)
+    fetch(`${API}/api/public/m/${slug}/menu-book`)
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
