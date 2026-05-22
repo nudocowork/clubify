@@ -3,6 +3,7 @@ import { TenantStatus } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
+import { invalidateTenantStatusCache } from '../common/guards/tenant-status.guard';
 import { nanoid } from 'nanoid';
 import {
   isValidCategorySlug,
@@ -346,7 +347,11 @@ export class TenantsService {
     if (typeof dto.gracePeriodDays === 'number') {
       data.gracePeriodDays = Math.max(0, Math.min(365, Math.floor(dto.gracePeriodDays)));
     }
-    return this.prisma.tenant.update({ where: { id }, data });
+    const updated = await this.prisma.tenant.update({ where: { id }, data });
+    // Invalidamos el cache del TenantStatusGuard — sino las escrituras de este
+    // tenant siguen 402 hasta 30s después del switch a TRIAL/ACTIVE/free.
+    invalidateTenantStatusCache(id);
+    return updated;
   }
 
   async remove(id: string) {
@@ -359,7 +364,9 @@ export class TenantsService {
     const data: any = { status };
     if (status === 'ACTIVE') data.suspendedAt = null;
     if (status === 'SUSPENDED') data.suspendedAt = new Date();
-    return this.prisma.tenant.update({ where: { id }, data });
+    const updated = await this.prisma.tenant.update({ where: { id }, data });
+    invalidateTenantStatusCache(id);
+    return updated;
   }
 
   /** Extiende el trial agregando `days` al trialEndsAt actual (o desde hoy si no hay). */
@@ -368,7 +375,7 @@ export class TenantsService {
     if (!t) throw new NotFoundException('Tenant');
     const base = t.trialEndsAt && t.trialEndsAt.getTime() > Date.now() ? t.trialEndsAt : new Date();
     const newEnd = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
-    return this.prisma.tenant.update({
+    const updated = await this.prisma.tenant.update({
       where: { id },
       data: {
         trialEndsAt: newEnd,
@@ -376,6 +383,8 @@ export class TenantsService {
         suspendedAt: null,
       },
     });
+    invalidateTenantStatusCache(id);
+    return updated;
   }
 
   async getMaxLocations(tenantId: string) {

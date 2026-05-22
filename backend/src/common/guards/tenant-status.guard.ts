@@ -9,6 +9,18 @@ import { Reflector } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 
+// Cache module-level para que el guard Y el TenantsService puedan invalidar
+// la misma entrada cuando el super admin cambia el estado del tenant. Sin
+// esto, hay hasta 30s de delay donde el guard sigue devolviendo "suspended"
+// aunque el DB ya tenga status=TRIAL/ACTIVE — y el frontend lo trata como
+// 402 → redirect a /app/billing?suspended=1.
+const cache = new Map<string, { suspended: boolean; until: number }>();
+const TTL_MS = 30_000;
+
+export function invalidateTenantStatusCache(tenantId: string) {
+  cache.delete(tenantId);
+}
+
 /**
  * Guarda escrituras (POST/PATCH/PUT/DELETE) cuando el tenant está SUSPENDED.
  * Permite siempre lecturas (GET) para que el dueño vea su info y se anime a
@@ -18,10 +30,6 @@ import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
  */
 @Injectable()
 export class TenantStatusGuard implements CanActivate {
-  // Cache simple para no pegarle a la DB en cada request.
-  private cache = new Map<string, { suspended: boolean; until: number }>();
-  private TTL_MS = 30_000;
-
   constructor(private reflector: Reflector, private prisma: PrismaService) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
@@ -66,7 +74,7 @@ export class TenantStatusGuard implements CanActivate {
 
   private async isSuspended(tenantId: string): Promise<boolean> {
     const now = Date.now();
-    const hit = this.cache.get(tenantId);
+    const hit = cache.get(tenantId);
     if (hit && hit.until > now) return hit.suspended;
 
     const t = await this.prisma.tenant.findUnique({
@@ -74,7 +82,7 @@ export class TenantStatusGuard implements CanActivate {
       select: { status: true, suspendedAt: true },
     });
     const suspended = !!t && (t.status === 'SUSPENDED' || !!t.suspendedAt);
-    this.cache.set(tenantId, { suspended, until: now + this.TTL_MS });
+    cache.set(tenantId, { suspended, until: now + TTL_MS });
     return suspended;
   }
 }
