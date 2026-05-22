@@ -21,8 +21,11 @@
 // Validaciones de seguridad:
 //   - Ambos códigos existen.
 //   - source != target.
-//   - Source role === AMBASSADOR (refuse merge de INFLUENCER/SOCIO).
+//   - Source role ∈ { AMBASSADOR, INFLUENCER }. Si es INFLUENCER también valida
+//     que no tenga embajadores hijos activos (sino quedarían huérfanos).
 //   - Source NO es owner de Campaign (un Campaign.ownerCodeId quedaría huérfano).
+//   - Source no tiene SupportMaterial scoped a él (si los tiene, abortar para
+//     no perder material — el admin debe reasignar manualmente).
 //   - Si --expect-target-parent <id>, valida target.parentCodeId === ese id
 //     (sirve para "confirmar que target está asociado al influencer Juan").
 
@@ -121,12 +124,41 @@ try {
     console.error('✗ Uno de los ReferralCode no existe. Abortando.');
     process.exit(1);
   }
-  if (before.source.code.role !== 'AMBASSADOR') {
-    console.error(`✗ Source role=${before.source.code.role}; este script solo mergea AMBASSADOR. Abortando.`);
+  if (
+    before.source.code.role !== 'AMBASSADOR' &&
+    before.source.code.role !== 'INFLUENCER'
+  ) {
+    console.error(
+      `✗ Source role=${before.source.code.role}; este script solo mergea AMBASSADOR/INFLUENCER. Abortando.`,
+    );
     process.exit(1);
   }
   if (before.source.code.ownerOfCampaign) {
     console.error('✗ Source es titular de una Campaign (ownerCodeId). Mergearlo dejaría la campaña huérfana. Abortando.');
+    process.exit(1);
+  }
+  // Si source es INFLUENCER, ningún embajador activo puede colgar de él.
+  if (before.source.code.role === 'INFLUENCER') {
+    const childAmbassadors = await prisma.referralCode.count({
+      where: { parentCodeId: sourceId, isActive: true },
+    });
+    if (childAmbassadors > 0) {
+      console.error(
+        `✗ Source INFLUENCER tiene ${childAmbassadors} embajadores hijos activos. ` +
+          `Reasignalos primero (cambiá parentCodeId) o desactivalos antes de mergear. Abortando.`,
+      );
+      process.exit(1);
+    }
+  }
+  // SupportMaterial scoped al source quedarían huérfanos / cambiarían de scope.
+  const scopedMaterials = await prisma.supportMaterial.count({
+    where: { scopeInfluencerId: sourceId },
+  });
+  if (scopedMaterials > 0) {
+    console.error(
+      `✗ Source tiene ${scopedMaterials} SupportMaterial scoped a él. ` +
+        `Reasignalos manualmente antes (UPDATE scopeInfluencerId). Abortando.`,
+    );
     process.exit(1);
   }
   if (expectTargetParent && before.target.code.parentCodeId !== expectTargetParent) {
@@ -212,6 +244,33 @@ try {
       `  (transferidas: ${after.target.commissionsCount - before.target.commissionsCount})`,
   );
   console.log('');
+
+  // Aviso sobre User.role: si el owner del target cambió de "role natural"
+  // (ej: era AFFILIATE_INFLUENCER por su INFLUENCER code y ahora su único
+  // code activo es AMBASSADOR), su panel /app/referrals puede comportarse
+  // raro hasta que un admin sincronice User.role.
+  const targetOwnerId = before.target.code.ownerUserId;
+  if (targetOwnerId) {
+    const owner = await prisma.user.findUnique({
+      where: { id: targetOwnerId },
+      select: { id: true, email: true, role: true },
+    });
+    const expectedRole =
+      before.target.code.role === 'AMBASSADOR'
+        ? 'AFFILIATE_AMBASSADOR'
+        : before.target.code.role === 'INFLUENCER'
+          ? 'AFFILIATE_INFLUENCER'
+          : null;
+    if (owner && expectedRole && owner.role !== expectedRole) {
+      console.log('⚠ User.role del owner del target NO coincide con el rol del code:');
+      console.log(`  user=${owner.email}  User.role=${owner.role}  esperado=${expectedRole}`);
+      console.log(`  Para sincronizar:`);
+      console.log(
+        `    UPDATE "User" SET role='${expectedRole}' WHERE id='${owner.id}';`,
+      );
+      console.log('');
+    }
+  }
   console.log('✓ Merge completado.');
 } catch (e) {
   console.error('✗', e);
