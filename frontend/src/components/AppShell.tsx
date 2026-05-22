@@ -274,6 +274,7 @@ export default function AppShell({
               section: catalogSectionName,
               items: [
                 { href: '/app/menu', label: menuLabel, icon: 'menu', module: 'menu' },
+                { href: '/app/menu-book', label: 'Menú Libro', icon: 'book', module: 'menu' },
                 { href: '/app/translations', label: 'Traducciones', icon: 'spark' },
                 { href: '/app/orders', label: 'Pedidos', icon: 'shopping-bag', module: 'orders' },
                 { href: '/app/analytics', label: 'Analítica', icon: 'history', module: 'analytics' },
