@@ -16,6 +16,7 @@ import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { CO_LOCATIONS, OTRO_MUNICIPIO } from '@/lib/co-locations';
 import { useLocale, useT } from '@/lib/i18n';
 import { SectionCoverPreview } from '@/components/menu/SectionCoverPreview';
+import { MenuBookViewer } from '@/components/menu/MenuBookViewer';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -26,7 +27,8 @@ type MenuLayout =
   | 'CLEAN'
   | 'COMPACT'
   | 'CLUVI'
-  | 'SECTIONS';
+  | 'SECTIONS'
+  | 'FLIPBOOK';
 
 // Estilo configurable del botón "Volver" en SECTIONS. Cualquier campo
 // puede ser undefined → el render usa el default histórico.
@@ -424,7 +426,10 @@ export default function StorefrontPublic() {
       </div>
 
       {/* Menú */}
-      {tab === 'menu' && (
+      {tab === 'menu' && s.menuLayout === 'FLIPBOOK' && (
+        <MenuBookViewer slug={slug} primary={primary} />
+      )}
+      {tab === 'menu' && s.menuLayout !== 'FLIPBOOK' && (
         <div className="max-w-2xl mx-auto mt-4 px-5">
           {localizedMenu.length === 0 && (
             <div className="text-center py-16 animate-in fade-in duration-300">
