@@ -29,6 +29,7 @@ type MenuLayout =
   | 'CLEAN'
   | 'COMPACT'
   | 'CLUVI'
+  | 'FLIPBOOK'
   | 'SECTIONS';
 
 type Storefront = {
@@ -121,6 +122,7 @@ const MENU_LAYOUTS: { id: MenuLayout; emoji: string; label: string; sub: string 
   { id: 'COMPACT', emoji: '📱', label: 'Compacto', sub: 'Lista + modal con variantes (DoorDash)' },
   { id: 'CLUVI', emoji: '🌙', label: 'Fondo oscuro', sub: 'Fondo negro + cards blancas + acentos color de marca' },
   { id: 'SECTIONS', emoji: '✨', label: 'Secciones premium', sub: 'Banners grandes por sección con portada editable (Apps premium)' },
+  { id: 'FLIPBOOK', emoji: '📖', label: 'Libro / Flipbook', sub: 'Catálogo visual de imágenes pasables como hojas — premium gastronómico' },
 ];
 
 export default function StorefrontEditor() {

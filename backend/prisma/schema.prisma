@@ -401,6 +401,7 @@ model Tenant {
   messages            Message[]
   templates           MessageTemplate[]
   storefront          Storefront?
+  menuBookSections    MenuBookSection[]
   infoLinks           InfoLink[]
   events              Event[]
   reviewFeedbacks     ReviewFeedback[]
@@ -1148,6 +1149,61 @@ enum MenuLayout {
   COMPACT // lista compacta + modal sheet (DoorDash)
   CLUVI // dark bg + white cards + yellow accents + VER pill (Cluvi/Bananas)
   SECTIONS // banners grandes por sección con portada editable (premium)
+  FLIPBOOK // menú visual tipo libro/catálogo con páginas-imagen y secciones
+}
+
+// ============================================================
+//        FLIPBOOK MENU (menú visual tipo libro)
+// ============================================================
+//
+// Cuando Storefront.menuLayout = FLIPBOOK, el menú público se renderiza
+// como un libro digital paginado en vez de la grilla clásica de
+// productos. Las secciones agrupan páginas-imagen que se pasan como
+// hojas, con navegación superior por sección y popups opcionales por
+// imagen (promo, ingredientes, reserva, etc).
+//
+// Coexiste con el menú clásico por Category/Product: el tenant elige
+// qué layout usar en /app/storefront → menuLayout. Si vuelve a CLASSIC
+// las secciones flipbook quedan persistidas pero no se renderizan.
+
+model MenuBookSection {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  title     String
+  // Orden visual. Más bajo aparece primero en la navegación superior y
+  // las páginas se concatenan en este orden.
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  pages MenuBookPage[]
+
+  @@index([tenantId, sortOrder])
+}
+
+model MenuBookPage {
+  id        String          @id @default(uuid())
+  sectionId String
+  section   MenuBookSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  imageUrl  String
+  sortOrder Int             @default(0)
+  isActive  Boolean         @default(true)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  // Popup inline (siempre 1:1 con la página — modelo separado sería
+  // overkill). Si popupEnabled=false el resto se ignora.
+  popupEnabled     Boolean @default(false)
+  popupTitle       String?
+  popupDescription String? @db.Text
+  popupImageUrl    String?
+  popupButtonText  String?
+  popupButtonUrl   String?
+  popupButtonColor String? // hex, default lo decide el front
+
+  @@index([sectionId, sortOrder])
 }
 
 // ============================================================

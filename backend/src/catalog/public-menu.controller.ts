@@ -215,6 +215,58 @@ export class PublicMenuController {
     };
   }
 
+  /**
+   * Menú visual tipo libro / flipbook. Devuelve las secciones activas
+   * del tenant con sus páginas (imageUrl + popup config) en el orden
+   * en que se deben renderizar. El frontend storefront detecta
+   * `menuLayout=FLIPBOOK` y llama acá en lugar de `/menu`.
+   *
+   * Páginas inactivas y secciones inactivas se filtran server-side.
+   * Si no hay secciones, devuelve { sections: [] } — el frontend cae
+   * a un placeholder amable.
+   */
+  @Public()
+  @Get(':slug/menu-book')
+  async menuBook(@Param('slug') slug: string) {
+    const t = await this.prisma.tenant.findUnique({
+      where: { slug },
+      select: { id: true, status: true },
+    });
+    if (!t || t.status === 'SUSPENDED') {
+      throw new NotFoundException('Negocio no disponible');
+    }
+    const sections = await this.prisma.menuBookSection.findMany({
+      where: { tenantId: t.id, isActive: true },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      include: {
+        pages: {
+          where: { isActive: true },
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        },
+      },
+    });
+    return {
+      sections: sections.map((s) => ({
+        id: s.id,
+        title: s.title,
+        pages: s.pages.map((p) => ({
+          id: p.id,
+          imageUrl: p.imageUrl,
+          popup: p.popupEnabled
+            ? {
+                title: p.popupTitle,
+                description: p.popupDescription,
+                imageUrl: p.popupImageUrl,
+                buttonText: p.popupButtonText,
+                buttonUrl: p.popupButtonUrl,
+                buttonColor: p.popupButtonColor,
+              }
+            : null,
+        })),
+      })),
+    };
+  }
+
   @Public()
   @Get(':slug/menu')
   async menu(
