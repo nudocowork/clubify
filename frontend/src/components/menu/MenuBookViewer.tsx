@@ -177,7 +177,7 @@ export function MenuBookViewer({
   return (
     <div
       ref={containerRef}
-      className="max-w-5xl mx-auto px-3 sm:px-5 py-3 flex flex-col gap-4"
+      className="max-w-5xl mx-auto px-1 sm:px-5 py-3 flex flex-col gap-4"
     >
       {/* Chips de sección — sticky arriba */}
       <div className="sticky top-0 z-20 -mx-3 sm:mx-0 px-3 sm:px-0 py-2 bg-bg/95 backdrop-blur-sm">
@@ -288,13 +288,13 @@ function FlipbookWrap({
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  // Sizing: target ratio 3:4 portrait. En mobile (vw < 768) ocupa ~90% del
-  // ancho de la pantalla; en desktop limitamos a 380px por página para
-  // dejar margen visual.
+  // Sizing: target ratio 3:4 portrait. En mobile (vw < 768) ocupa casi
+  // todo el ancho disponible (vw - 16 = 8px de padding lateral cada lado);
+  // en desktop limitamos a 420px por página para libro abierto.
   const isMobile = vw < 768;
   const pageWidth = isMobile
-    ? Math.min(vw - 32, 480)
-    : Math.min(380, (vw - 80) / 2);
+    ? Math.max(280, vw - 16)
+    : Math.min(420, (vw - 80) / 2);
   const pageHeight = Math.round(pageWidth * (4 / 3));
 
   return (
@@ -305,9 +305,9 @@ function FlipbookWrap({
         height={pageHeight}
         size="stretch"
         minWidth={280}
-        maxWidth={560}
+        maxWidth={900}
         minHeight={380}
-        maxHeight={780}
+        maxHeight={1300}
         showCover={false}
         usePortrait={isMobile}
         mobileScrollSupport
