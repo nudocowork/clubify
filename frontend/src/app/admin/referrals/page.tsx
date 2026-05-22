@@ -1870,10 +1870,16 @@ function InfluencersTab() {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [enteringId, setEnteringId] = useState<string | null>(null);
-  useEffect(() => {
+  const [demoteTarget, setDemoteTarget] = useState<any | null>(null);
+
+  function reload() {
+    setLoading(true);
     api<any[]>('/referrals/influencers')
       .then((r) => setRows(r ?? []))
       .finally(() => setLoading(false));
+  }
+  useEffect(() => {
+    reload();
   }, []);
 
   if (loading) return <div className="card card-pad h-32 animate-shimmer" />;
@@ -1923,24 +1929,68 @@ function InfluencersTab() {
                 <td className="px-4 py-3 text-ok font-medium">{fmtUsd(r.paidUsd)}</td>
                 <td className="px-4 py-3 text-amber-700 font-medium">{fmtUsd(r.pendingUsd)}</td>
                 <td className="px-4 py-3 text-right">
-                  <button
-                    disabled={enteringId === r.id}
-                    onClick={async () => {
-                      setEnteringId(r.id);
-                      await enterAffiliatePanel(r.id, r.ownerName, router);
-                      setEnteringId(null);
-                    }}
-                    className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-violet-100 text-violet-700 hover:bg-violet-200 disabled:opacity-50 whitespace-nowrap"
-                    title="Entrar al panel /affiliate como este influencer (auditado en logs)"
-                  >
-                    {enteringId === r.id ? 'Entrando…' : '→ Panel'}
-                  </button>
+                  <div className="inline-flex items-center gap-1.5">
+                    <button
+                      onClick={() => setDemoteTarget(r)}
+                      className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-rose-100 text-rose-700 hover:bg-rose-200 whitespace-nowrap"
+                      title="Convertir este influencer en embajador bajo otro influencer (preserva clientes y comisiones)"
+                    >
+                      ↓ Bajar
+                    </button>
+                    <button
+                      disabled={enteringId === r.id}
+                      onClick={async () => {
+                        setEnteringId(r.id);
+                        await enterAffiliatePanel(r.id, r.ownerName, router);
+                        setEnteringId(null);
+                      }}
+                      className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-violet-100 text-violet-700 hover:bg-violet-200 disabled:opacity-50 whitespace-nowrap"
+                      title="Entrar al panel /affiliate como este influencer (auditado en logs)"
+                    >
+                      {enteringId === r.id ? 'Entrando…' : '→ Panel'}
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      {demoteTarget && (
+        <InfluencerPickerModal
+          title={`Bajar a "${demoteTarget.ownerName}" a embajador`}
+          description={
+            <>
+              Pasa de <strong>INFLUENCER</strong> a <strong>AMBASSADOR</strong>{' '}
+              colgando de otro influencer. Sus <strong>clientes y
+              comisiones se preservan</strong> — solo cambia el rol y a
+              quién reporta. Las próximas comisiones generadas pagarán 5%
+              indirecto al nuevo influencer parent.
+            </>
+          }
+          excludeId={demoteTarget.id}
+          onClose={() => setDemoteTarget(null)}
+          onPick={async (newParent) => {
+            try {
+              await api(
+                `/referrals/influencers/${demoteTarget.id}/demote-to-ambassador`,
+                {
+                  method: 'POST',
+                  body: JSON.stringify({ newParentId: newParent.id }),
+                },
+              );
+              toast(
+                `${demoteTarget.ownerName} ahora es embajador bajo ${newParent.ownerName}`,
+                'success',
+              );
+              setDemoteTarget(null);
+              reload();
+            } catch (e: any) {
+              toast(e.message || 'Error', 'error');
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1951,6 +2001,7 @@ function AmbassadorsTab() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [enteringId, setEnteringId] = useState<string | null>(null);
+  const [reassignTarget, setReassignTarget] = useState<any | null>(null);
 
   function reload() {
     setLoading(true);
@@ -2087,6 +2138,13 @@ function AmbassadorsTab() {
                         ↑ Promover
                       </button>
                       <button
+                        onClick={() => setReassignTarget(r)}
+                        className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-sky-100 text-sky-800 hover:bg-sky-200 whitespace-nowrap"
+                        title="Cambiar el influencer al que reporta este embajador (preserva clientes y comisiones)"
+                      >
+                        ↻ Cambiar influencer
+                      </button>
+                      <button
                         disabled={enteringId === r.id}
                         onClick={async () => {
                           setEnteringId(r.id);
@@ -2104,6 +2162,169 @@ function AmbassadorsTab() {
               ))}
             </tbody>
           </table>
+        </div>
+      </div>
+      {reassignTarget && (
+        <InfluencerPickerModal
+          title={`Cambiar influencer de "${reassignTarget.ownerName}"`}
+          description={
+            <>
+              Mueve este embajador a otro <strong>influencer parent</strong>.
+              Clientes y comisiones se preservan — solo cambia a quién
+              reporta. Las próximas comisiones indirectas (5%) van al nuevo
+              influencer; las históricas quedan donde están.
+              {reassignTarget.parentName && (
+                <>
+                  <br />
+                  <span className="text-mute">
+                    Actualmente bajo: <strong>{reassignTarget.parentName}</strong>
+                  </span>
+                </>
+              )}
+            </>
+          }
+          excludeId={reassignTarget.parentCodeId ?? null}
+          onClose={() => setReassignTarget(null)}
+          onPick={async (newParent) => {
+            try {
+              await api(
+                `/referrals/ambassadors/${reassignTarget.id}/reassign-parent`,
+                {
+                  method: 'POST',
+                  body: JSON.stringify({ newParentId: newParent.id }),
+                },
+              );
+              toast(
+                `${reassignTarget.ownerName} ahora reporta a ${newParent.ownerName}`,
+                'success',
+              );
+              setReassignTarget(null);
+              reload();
+            } catch (e: any) {
+              toast(e.message || 'Error', 'error');
+            }
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function InfluencerPickerModal({
+  title,
+  description,
+  excludeId,
+  onClose,
+  onPick,
+}: {
+  title: string;
+  description: React.ReactNode;
+  excludeId: string | null;
+  onClose: () => void;
+  onPick: (influencer: { id: string; ownerName: string; code: string }) => void;
+}) {
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [pickedId, setPickedId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api<any[]>('/referrals/influencers')
+      .then((r) => setRows((r ?? []).filter((x) => x.id !== excludeId && x.isActive !== false)))
+      .finally(() => setLoading(false));
+  }, [excludeId]);
+
+  const q = search.trim().toLowerCase();
+  const filtered = q
+    ? rows.filter(
+        (r) =>
+          r.ownerName?.toLowerCase().includes(q) ||
+          r.code?.toLowerCase().includes(q) ||
+          r.ownerEmail?.toLowerCase().includes(q),
+      )
+    : rows;
+  const picked = filtered.find((r) => r.id === pickedId);
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden">
+        <div className="px-5 py-4 border-b border-line2">
+          <div className="font-semibold text-base">{title}</div>
+          <div className="text-xs text-mute leading-relaxed mt-1.5">
+            {description}
+          </div>
+        </div>
+        <div className="px-5 py-3 border-b border-line2">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar influencer por nombre, código o email…"
+            className="w-full px-3 py-2 text-sm rounded-md border border-line2 focus:outline-none focus:ring-2 focus:ring-violet-400"
+            autoFocus
+          />
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {loading ? (
+            <div className="p-6 text-center text-mute text-sm">Cargando…</div>
+          ) : filtered.length === 0 ? (
+            <div className="p-6 text-center text-mute text-sm">
+              {q ? 'Sin resultados' : 'No hay otros influencers disponibles'}
+            </div>
+          ) : (
+            <ul className="divide-y divide-line2">
+              {filtered.map((r) => (
+                <li key={r.id}>
+                  <button
+                    onClick={() => setPickedId(r.id)}
+                    className={`w-full text-left px-5 py-3 hover:bg-bg2 transition ${
+                      pickedId === r.id ? 'bg-violet-50' : ''
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-medium truncate">{r.ownerName}</div>
+                        <div className="text-xs text-mute truncate">
+                          {r.ownerEmail}
+                          {r.campaignName && (
+                            <> · Campaña: <strong>{r.campaignName}</strong></>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-xs font-mono font-bold whitespace-nowrap">
+                        {r.code}
+                      </div>
+                    </div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="px-5 py-3 border-t border-line2 flex items-center justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="text-sm px-3 py-2 rounded-md hover:bg-bg2"
+            disabled={busy}
+          >
+            Cancelar
+          </button>
+          <button
+            disabled={!picked || busy}
+            onClick={async () => {
+              if (!picked) return;
+              setBusy(true);
+              try {
+                await onPick(picked);
+              } finally {
+                setBusy(false);
+              }
+            }}
+            className="btn-primary text-sm disabled:opacity-50"
+          >
+            {busy ? 'Aplicando…' : picked ? `Asignar a ${picked.ownerName}` : 'Elegí un influencer'}
+          </button>
         </div>
       </div>
     </div>

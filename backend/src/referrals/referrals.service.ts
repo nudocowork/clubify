@@ -1249,6 +1249,180 @@ export class ReferralsService {
   }
 
   /**
+   * Demote: convierte un INFLUENCER en AMBASSADOR colgándolo de otro
+   * INFLUENCER. Preserva los ReferralUse (clientes) del code — siguen
+   * apuntando al mismo referralCodeId. Lo que cambia: role del code,
+   * parentCodeId, campaignId (al de la campaña del nuevo parent si la
+   * tiene) y rol del User vinculado.
+   *
+   * Validaciones:
+   *   - code existe y es INFLUENCER.
+   *   - newParentId existe, es INFLUENCER y ≠ codeId.
+   *   - code no tiene embajadores hijos activos (sino quedarían colgando
+   *     de un AMBASSADOR — modelo inválido).
+   *   - code no es titular de Campaign activa (sino quedaría huérfana).
+   *
+   * Comisiones futuras: el siguiente pago de cada cliente va a generar
+   * la indirecta 5% al newParent (antes no había indirecta porque era
+   * INFLUENCER independiente).
+   */
+  async demoteInfluencerToAmbassador(
+    user: AuthUser,
+    codeId: string,
+    newParentId: string,
+  ) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    if (!newParentId) throw new BadRequestException('newParentId requerido');
+    if (codeId === newParentId) {
+      throw new BadRequestException('codeId y newParentId no pueden ser iguales');
+    }
+
+    const [code, parent] = await Promise.all([
+      this.prisma.referralCode.findUnique({
+        where: { id: codeId },
+        select: {
+          id: true,
+          role: true,
+          ownerUserId: true,
+          ownerName: true,
+          ownerOfCampaign: { select: { id: true, name: true, status: true } },
+        },
+      }),
+      this.prisma.referralCode.findUnique({
+        where: { id: newParentId },
+        select: {
+          id: true,
+          role: true,
+          ownerName: true,
+          campaignId: true,
+          ownerOfCampaign: { select: { id: true } },
+        },
+      }),
+    ]);
+    if (!code) throw new NotFoundException('Code a demote no encontrado');
+    if (!parent) throw new NotFoundException('Influencer parent no encontrado');
+    if (code.role !== 'INFLUENCER') {
+      throw new BadRequestException(
+        `Solo se puede demote desde INFLUENCER (este es ${code.role})`,
+      );
+    }
+    if (parent.role !== 'INFLUENCER') {
+      throw new BadRequestException(
+        `newParent debe ser INFLUENCER (este es ${parent.role})`,
+      );
+    }
+    if (code.ownerOfCampaign && code.ownerOfCampaign.status !== 'FINISHED') {
+      throw new BadRequestException(
+        `Este influencer es titular de la campaña "${code.ownerOfCampaign.name}" (${code.ownerOfCampaign.status}). ` +
+          `Finalizá o transferí la campaña antes de demote.`,
+      );
+    }
+    const childAmbassadors = await this.prisma.referralCode.count({
+      where: { parentCodeId: codeId, isActive: true },
+    });
+    if (childAmbassadors > 0) {
+      throw new BadRequestException(
+        `Este influencer tiene ${childAmbassadors} embajadores hijos activos. ` +
+          `Reasignalos a otro influencer antes de demote.`,
+      );
+    }
+
+    const targetCampaignId =
+      parent.campaignId ?? parent.ownerOfCampaign?.id ?? null;
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const newCode = await tx.referralCode.update({
+        where: { id: codeId },
+        data: {
+          role: 'AMBASSADOR',
+          parentCodeId: newParentId,
+          campaignId: targetCampaignId,
+        },
+      });
+      if (code.ownerUserId) {
+        await tx.user.update({
+          where: { id: code.ownerUserId },
+          data: { role: 'AFFILIATE_AMBASSADOR' },
+        });
+      }
+      return newCode;
+    });
+
+    this.logger.log(
+      `Influencer demoted to AMBASSADOR: codeId=${codeId} ownerName="${code.ownerName}" ` +
+        `newParent=${newParentId} (${parent.ownerName}) by ${user.email}`,
+    );
+    return { ok: true, code: updated };
+  }
+
+  /**
+   * Reassign: cambia el parentCodeId de un AMBASSADOR a otro INFLUENCER.
+   * Preserva los clientes (ReferralUse). Las futuras comisiones indirectas
+   * van al nuevo parent. Las históricas (en uses separados del antiguo
+   * parent) quedan como están — son pasado consolidado.
+   */
+  async reassignAmbassadorParent(
+    user: AuthUser,
+    codeId: string,
+    newParentId: string,
+  ) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    if (!newParentId) throw new BadRequestException('newParentId requerido');
+    if (codeId === newParentId) {
+      throw new BadRequestException('codeId y newParentId no pueden ser iguales');
+    }
+
+    const [code, parent] = await Promise.all([
+      this.prisma.referralCode.findUnique({
+        where: { id: codeId },
+        select: { id: true, role: true, ownerName: true, parentCodeId: true },
+      }),
+      this.prisma.referralCode.findUnique({
+        where: { id: newParentId },
+        select: {
+          id: true,
+          role: true,
+          ownerName: true,
+          campaignId: true,
+          ownerOfCampaign: { select: { id: true } },
+        },
+      }),
+    ]);
+    if (!code) throw new NotFoundException('Embajador no encontrado');
+    if (!parent) throw new NotFoundException('Influencer parent no encontrado');
+    if (code.role !== 'AMBASSADOR') {
+      throw new BadRequestException(
+        `Solo se puede reasignar parent de AMBASSADOR (este es ${code.role})`,
+      );
+    }
+    if (parent.role !== 'INFLUENCER') {
+      throw new BadRequestException(
+        `newParent debe ser INFLUENCER (este es ${parent.role})`,
+      );
+    }
+    if (code.parentCodeId === newParentId) {
+      return { ok: true, alreadyAssigned: true };
+    }
+
+    const targetCampaignId =
+      parent.campaignId ?? parent.ownerOfCampaign?.id ?? null;
+
+    const updated = await this.prisma.referralCode.update({
+      where: { id: codeId },
+      data: {
+        parentCodeId: newParentId,
+        campaignId: targetCampaignId,
+      },
+    });
+
+    this.logger.log(
+      `Ambassador reassigned: codeId=${codeId} ownerName="${code.ownerName}" ` +
+        `oldParent=${code.parentCodeId} newParent=${newParentId} (${parent.ownerName}) by ${user.email}`,
+    );
+    return { ok: true, code: updated };
+  }
+
+  /**
    * Payouts: comisiones con regla de 30 días de hold.
    * - Si una comisión PENDING ya cumplió 30 días desde createdAt, se
    *   auto-promueve a APPROVED ("disponible para pagar") antes de devolver.

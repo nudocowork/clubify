@@ -100,6 +100,30 @@ export class ReferralsController {
     return this.svc.promoteAmbassadorToInfluencer(user, id);
   }
 
+  /** Convierte un INFLUENCER en AMBASSADOR colgándolo de otro influencer.
+   *  Preserva clientes y comisiones — solo cambia role + parent. */
+  @Roles('SUPER_ADMIN')
+  @Post('influencers/:id/demote-to-ambassador')
+  demoteInfluencerToAmbassador(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: { newParentId: string },
+  ) {
+    return this.svc.demoteInfluencerToAmbassador(user, id, body.newParentId);
+  }
+
+  /** Cambia el parentCode de un AMBASSADOR a otro INFLUENCER. Preserva
+   *  clientes y comisiones — solo cambia el parent. */
+  @Roles('SUPER_ADMIN')
+  @Post('ambassadors/:id/reassign-parent')
+  reassignAmbassadorParent(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: { newParentId: string },
+  ) {
+    return this.svc.reassignAmbassadorParent(user, id, body.newParentId);
+  }
+
   @Roles('SUPER_ADMIN')
   @Post('socio')
   createOrInviteSocio(
