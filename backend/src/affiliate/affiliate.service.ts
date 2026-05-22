@@ -277,13 +277,30 @@ export class AffiliateService {
     });
     const needsApproval = requireApproval?.value === 'true';
 
+    const email = dto.email.trim().toLowerCase();
+
+    // Cross-flow dedupe: un mismo email no puede tener 2 ReferralCode como
+    // AMBASSADOR (Directo Empresa, otra campaña, o este mismo influencer).
+    // Si ya existe en cualquier scope, no creamos otro — el admin debe usar
+    // scripts/merge-ambassador-accounts.mjs si quiere reasignar.
+    const existing = await this.prisma.referralCode.findFirst({
+      where: { ownerEmail: email, role: 'AMBASSADOR' },
+      select: { id: true, parentCodeId: true, campaignId: true, isActive: true },
+    });
+    if (existing) {
+      throw new BadRequestException(
+        `Ya existe un embajador con este email (referralCodeId=${existing.id}). ` +
+          `Un mismo usuario no puede ser embajador en más de un lugar. ` +
+          `Si querés reasignarlo, contactá al super admin para hacer el merge.`,
+      );
+    }
+
     // Generar código único.
     let code = codeGen();
     while (await this.prisma.referralCode.findUnique({ where: { code } })) {
       code = codeGen();
     }
 
-    const email = dto.email.trim().toLowerCase();
     const ambassador = await this.prisma.referralCode.create({
       data: {
         code,

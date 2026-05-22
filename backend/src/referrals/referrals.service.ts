@@ -882,18 +882,21 @@ export class ReferralsService {
     }
     const email = dto.email.trim().toLowerCase();
 
-    // No permitir duplicado: si ya existe un Embajador Directo Empresa
-    // con ese email, error claro (no crear segundo).
+    // No permitir duplicado: un mismo email no puede tener 2 ReferralCode
+    // como AMBASSADOR (Directo Empresa o bajo cualquier influencer). El
+    // super admin debe usar scripts/merge-ambassador-accounts.mjs si quiere
+    // unificar dos registros existentes.
     const dup = await this.prisma.referralCode.findFirst({
-      where: {
-        ownerEmail: email,
-        role: 'AMBASSADOR',
-        parentCodeId: null,
-      },
+      where: { ownerEmail: email, role: 'AMBASSADOR' },
+      include: { parentCode: { select: { ownerName: true, code: true } } },
     });
     if (dup) {
+      const scope = dup.parentCodeId
+        ? `bajo ${dup.parentCode?.ownerName ?? 'otro influencer'} [${dup.parentCode?.code ?? dup.parentCodeId}]`
+        : 'como Embajador Directo Empresa';
       throw new BadRequestException(
-        'Ya existe un Embajador Directo Empresa con este email',
+        `Ya existe un embajador con este email ${scope} (referralCodeId=${dup.id}). ` +
+          `Un mismo usuario no puede ser embajador en más de un lugar.`,
       );
     }
 

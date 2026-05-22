@@ -250,11 +250,24 @@ export class CampaignsService {
     if (!camp) throw new NotFoundException('Campaña');
 
     const email = dto.email.trim().toLowerCase();
+    // Cross-flow dedupe: un mismo email no puede tener 2 ReferralCode como
+    // AMBASSADOR (en esta campaña, en otra, o como Directo Empresa). Si ya
+    // existe, no creamos otro — usar scripts/merge-ambassador-accounts.mjs
+    // para reasignar/unificar.
     const dup = await this.prisma.referralCode.findFirst({
-      where: { ownerEmail: email, role: 'AMBASSADOR', parentCodeId: camp.ownerCodeId },
+      where: { ownerEmail: email, role: 'AMBASSADOR' },
+      include: { parentCode: { select: { ownerName: true, code: true } } },
     });
     if (dup) {
-      throw new BadRequestException('Ya existe un embajador con ese email en esta campaña');
+      const scope = dup.parentCodeId === camp.ownerCodeId
+        ? 'en esta campaña'
+        : dup.parentCodeId
+          ? `bajo ${dup.parentCode?.ownerName ?? 'otro influencer'} [${dup.parentCode?.code ?? dup.parentCodeId}]`
+          : 'como Embajador Directo Empresa';
+      throw new BadRequestException(
+        `Ya existe un embajador con este email ${scope} (referralCodeId=${dup.id}). ` +
+          `Un mismo usuario no puede ser embajador en más de un lugar.`,
+      );
     }
 
     const code = await this.resolveCode(dto.customCode);
