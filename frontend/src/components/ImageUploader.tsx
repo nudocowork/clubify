@@ -34,7 +34,7 @@ export function ImageUploader({
   const [dragOver, setDragOver] = useState(false);
   const [cropSrc, setCropSrc] = useState<string | null>(null);
 
-  function pickFile(file: File) {
+  async function pickFile(file: File) {
     if (!file.type.startsWith('image/')) {
       setErr('Solo imágenes (jpg, png, webp, gif)');
       return;
@@ -44,6 +44,26 @@ export function ImageUploader({
       return;
     }
     setErr(null);
+
+    // Medir dimensiones reales antes de subir. Si la imagen es chica
+    // para slides full-screen, mostrar warning (no bloquear — el cliente
+    // decide). 1600×900 es el mínimo razonable para que se vea nítido
+    // en pantallas modernas tras el render del slide.
+    try {
+      const dims = await measureImage(file);
+      const maxSide = Math.max(dims.w, dims.h);
+      if (maxSide < 1600) {
+        const ok = window.confirm(
+          `La imagen es de ${dims.w}×${dims.h} px (peso ${prettyBytes(
+            file.size,
+          )}).\n\nPara slides en pantalla grande recomendamos al menos 1920×1080 px — sino puede verse pixelada al ampliarse.\n\n¿Subir esta imagen igual?`,
+        );
+        if (!ok) return;
+      }
+    } catch {
+      // measureImage falló (cross-origin, formato exótico) — seguimos.
+    }
+
     if (crop) {
       // Crear URL local para el cropper, luego se sube el blob recortado
       const url = URL.createObjectURL(file);
@@ -51,6 +71,28 @@ export function ImageUploader({
     } else {
       uploadBlob(file);
     }
+  }
+
+  function measureImage(file: File): Promise<{ w: number; h: number }> {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new window.Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        resolve({ w: img.naturalWidth, h: img.naturalHeight });
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('No se pudo leer la imagen'));
+      };
+      img.src = url;
+    });
+  }
+
+  function prettyBytes(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
   async function uploadBlob(blob: Blob | File) {
@@ -300,14 +342,6 @@ function CropperModal({
   async function confirm() {
     if (!imgRef.current || !imgLoaded) return;
     setExporting(true);
-    // Output canvas: tamaño basado en frame * 2 para mejor calidad sin ser enorme
-    const OUT_W = FRAME_W * 2;
-    const OUT_H = FRAME_H * 2;
-    const canvas = document.createElement('canvas');
-    canvas.width = OUT_W;
-    canvas.height = OUT_H;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) { setExporting(false); return; }
 
     // Calcular el rect sobre la imagen original que está visible en el frame.
     // En el viewport: la imagen se renderiza centrada, luego shifted por pos,
@@ -319,6 +353,33 @@ function CropperModal({
     const cy = imgSize.h / 2 - pos.y / zoom;
     const sx = cx - sw / 2;
     const sy = cy - sh / 2;
+
+    // Resolución de salida: tomamos directamente el ancho del crop EN
+    // PIXELS DE LA IMAGEN ORIGINAL (sw) para no perder calidad. Antes
+    // usábamos FRAME_W*2 = 560px fijo → para slides full-screen
+    // (1920×1080+) la imagen quedaba pixelada 3.4x. Ahora:
+    //   - Mínimo 1600px ancho (slides en pantalla full quedan nítidos)
+    //   - Máximo 4000px ancho (no explota el canvas en imágenes
+    //     gigantes ni demoramos el upload por una hora)
+    // El backend después re-encodea a WebP 90q con max 2560px (ver
+    // OPT_MAX_DIMENSION en media.service.ts), así que ir más arriba de
+    // 2560 acá solo desperdicia ancho de banda — pero por simetría
+    // dejamos margen 4000 por si alguien sube una imagen 4K y quiere
+    // conservar full quality si en el futuro el backend sube el max.
+    const MIN_OUT = 1600;
+    const MAX_OUT = 4000;
+    const targetW = Math.max(MIN_OUT, Math.min(MAX_OUT, Math.round(sw)));
+    const OUT_W = targetW;
+    const OUT_H = Math.round(targetW * (FRAME_H / FRAME_W));
+    const canvas = document.createElement('canvas');
+    canvas.width = OUT_W;
+    canvas.height = OUT_H;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) { setExporting(false); return; }
+    // Calidad del re-sampling al hacer drawImage — high preserva
+    // detalle fino al upscalear imágenes chicas hasta MIN_OUT.
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
 
     // Detecta si la fuente tiene transparencia (PNG con alpha). Si la
     // tiene, exportamos como PNG sin fondo blanco, así no se rompe el
@@ -376,7 +437,11 @@ function CropperModal({
         }
       },
       format,
-      0.92,
+      // 0.95 (era 0.92) — el backend re-encodea a WebP de todos modos.
+      // Subir la calidad de JPEG acá reduce artefactos de doble
+      // compresión en regiones de alto detalle (texto en imágenes,
+      // bordes definidos).
+      0.95,
     );
   }
 
