@@ -19,8 +19,24 @@ type Category = {
   imageUrl?: string | null;
   tagline?: string | null;
   coverConfig?: SectionCoverConfig | null;
+  popupConfig?: PopupConfig | null;
   parentId?: string | null;
   children?: Category[];
+};
+
+export type PopupConfig = {
+  enabled: boolean;
+  imageUrl?: string | null;
+  title?: string | null;
+  description?: string | null;
+  buttonText?: string | null;
+  buttonUrl?: string | null;
+  buttonColor?: string | null;
+  /** auto = se abre solo al entrar a la sección. click = el banner es
+   *  tappable y muestra una pulse animation. */
+  trigger?: 'auto' | 'click';
+  /** Si true, sessionStorage flag evita reabrirlo en la misma visita. */
+  oncePerSession?: boolean;
 };
 type Variant = { id?: string; name: string; priceDelta: number; isDefault?: boolean; groupName?: string };
 type Extra = { id?: string; name: string; price: number };
@@ -61,6 +77,7 @@ export default function MenuEditor() {
   const [editingCatId, setEditingCatId] = useState<string | null>(null);
   const [editingCatName, setEditingCatName] = useState('');
   const [coverCat, setCoverCat] = useState<Category | null>(null);
+  const [popupCat, setPopupCat] = useState<Category | null>(null);
   const [coverRecommendedOpen, setCoverRecommendedOpen] = useState(false);
   const [ordersDeliveryEnabled, setOrdersDeliveryEnabled] = useState<boolean | null>(null);
   const [togglingOrders, setTogglingOrders] = useState(false);
@@ -525,6 +542,24 @@ export default function MenuEditor() {
                   🎨
                 </button>
                 <button
+                  className={`p-1 ${
+                    c.popupConfig?.enabled
+                      ? 'text-amber-500 hover:text-amber-600'
+                      : 'text-mute hover:text-brand'
+                  }`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPopupCat(c);
+                  }}
+                  title={
+                    c.popupConfig?.enabled
+                      ? 'Editar popup (activo)'
+                      : 'Agregar popup opcional'
+                  }
+                >
+                  🔔
+                </button>
+                <button
                   className="text-mute hover:text-brand p-1"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -597,6 +632,21 @@ export default function MenuEditor() {
                         title="Diseñar portada"
                       >
                         🎨
+                      </button>
+                      <button
+                        className={`p-0.5 ${
+                          s.popupConfig?.enabled
+                            ? 'text-amber-500 hover:text-amber-600'
+                            : 'text-mute hover:text-brand'
+                        }`}
+                        onClick={(e) => { e.stopPropagation(); setPopupCat(s); }}
+                        title={
+                          s.popupConfig?.enabled
+                            ? 'Editar popup (activo)'
+                            : 'Agregar popup opcional'
+                        }
+                      >
+                        🔔
                       </button>
                       <button
                         className="text-mute hover:text-brand p-0.5"
@@ -767,6 +817,18 @@ export default function MenuEditor() {
           onSaved={() => {
             setCoverRecommendedOpen(false);
             toast('Portada de Recomendados guardada', 'success');
+          }}
+        />
+      )}
+
+      {popupCat && (
+        <PopupEditorModal
+          category={popupCat}
+          onClose={() => setPopupCat(null)}
+          onSaved={() => {
+            setPopupCat(null);
+            load();
+            toast('Popup guardado', 'success');
           }}
         />
       )}
@@ -980,6 +1042,333 @@ function RecommendedCoverModal({
       onClose={onClose}
       onSaved={onSaved}
     />
+  );
+}
+
+// =============================================================
+//                 Popup editor modal por categoría
+// =============================================================
+
+/** Editor del popup opcional por sección del menú. PATCH al endpoint
+ *  /catalog/categories/:id con `{ popupConfig }`. Si todos los campos
+ *  están vacíos y el toggle off, manda null para "limpiar" el popup. */
+function PopupEditorModal({
+  category,
+  onClose,
+  onSaved,
+}: {
+  category: Category;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const initial: PopupConfig = category.popupConfig ?? {
+    enabled: false,
+    imageUrl: null,
+    title: '',
+    description: '',
+    buttonText: '',
+    buttonUrl: '',
+    buttonColor: '#22C55E',
+    trigger: 'auto',
+    oncePerSession: true,
+  };
+  const [cfg, setCfg] = useState<PopupConfig>(initial);
+  const [saving, setSaving] = useState(false);
+
+  function patch<K extends keyof PopupConfig>(k: K, v: PopupConfig[K]) {
+    setCfg((c) => ({ ...c, [k]: v }));
+  }
+
+  async function save() {
+    setSaving(true);
+    try {
+      // Limpieza: si está deshabilitado y sin imagen/texto, mandamos
+      // null para borrar el JSON entero. Sino guardamos el shape.
+      const isEmpty =
+        !cfg.enabled &&
+        !cfg.imageUrl &&
+        !cfg.title?.trim() &&
+        !cfg.description?.trim();
+      const body = { popupConfig: isEmpty ? null : cfg };
+      await api(`/catalog/categories/${category.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+      onSaved();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo guardar el popup', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-start justify-center overflow-y-auto p-4"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-2xl max-w-3xl w-full my-8 shadow-2xl overflow-hidden"
+      >
+        <div className="px-6 py-4 border-b border-line flex items-center justify-between gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
+              Popup opcional
+            </div>
+            <div className="font-bold text-lg leading-tight">
+              {category.name}
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-mute hover:text-ink text-xl leading-none px-2"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-0">
+          {/* Form */}
+          <div className="p-5 space-y-4 border-r-0 md:border-r border-line">
+            <label className="flex items-center gap-3 cursor-pointer p-3 rounded-lg bg-bg2/40">
+              <input
+                type="checkbox"
+                checked={cfg.enabled}
+                onChange={(e) => patch('enabled', e.target.checked)}
+                className="w-5 h-5 accent-brand"
+              />
+              <div>
+                <div className="font-semibold text-sm">Activar popup</div>
+                <div className="text-[11px] text-mute leading-snug">
+                  Cuando esté activo, los clientes lo verán al entrar a esta
+                  sección del menú.
+                </div>
+              </div>
+            </label>
+
+            <div>
+              <label className="label">Imagen</label>
+              <ImageUploader
+                value={cfg.imageUrl ?? ''}
+                onChange={(url) => patch('imageUrl', url || null)}
+                folder="category-popup"
+              />
+              <div className="text-[10px] text-mute mt-1">
+                Opcional. JPG / PNG hasta 15 MB. Se muestra arriba del popup.
+              </div>
+            </div>
+
+            <div>
+              <label className="label">Título</label>
+              <input
+                type="text"
+                className="input"
+                placeholder="Ej: Happy hour 2x1"
+                maxLength={80}
+                value={cfg.title ?? ''}
+                onChange={(e) => patch('title', e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="label">Descripción</label>
+              <textarea
+                className="input min-h-[80px]"
+                placeholder="Cuéntale a tus clientes el detalle de la promo, experiencia o servicio."
+                maxLength={400}
+                value={cfg.description ?? ''}
+                onChange={(e) => patch('description', e.target.value)}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="label">Texto del botón</label>
+                <input
+                  type="text"
+                  className="input"
+                  placeholder="Reservar"
+                  maxLength={30}
+                  value={cfg.buttonText ?? ''}
+                  onChange={(e) => patch('buttonText', e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="label">Color del botón</label>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="color"
+                    value={cfg.buttonColor || '#22C55E'}
+                    onChange={(e) => patch('buttonColor', e.target.value)}
+                    className="w-10 h-10 rounded-md border border-line cursor-pointer flex-none"
+                  />
+                  <input
+                    type="text"
+                    className="input font-mono text-xs"
+                    value={cfg.buttonColor ?? ''}
+                    onChange={(e) => patch('buttonColor', e.target.value)}
+                    placeholder="#22C55E"
+                    maxLength={20}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="label">URL del botón</label>
+              <input
+                type="url"
+                className="input"
+                placeholder="https://wa.me/57... o https://reservas.tu.com"
+                value={cfg.buttonUrl ?? ''}
+                onChange={(e) => patch('buttonUrl', e.target.value)}
+              />
+              <div className="text-[10px] text-mute mt-1">
+                Si está vacío, el botón no se muestra. Sin botón el popup
+                queda informativo (solo cerrar).
+              </div>
+            </div>
+
+            <div className="space-y-2 pt-2 border-t border-line">
+              <div className="text-xs font-semibold uppercase tracking-wider text-mute">
+                Comportamiento
+              </div>
+              <label className="flex items-start gap-2 cursor-pointer text-sm">
+                <input
+                  type="radio"
+                  name="trigger"
+                  checked={(cfg.trigger ?? 'auto') === 'auto'}
+                  onChange={() => patch('trigger', 'auto')}
+                  className="mt-1 accent-brand"
+                />
+                <div>
+                  <div className="font-medium">Abrir automáticamente</div>
+                  <div className="text-[11px] text-mute">
+                    Cuando el cliente entra a esta sección, el popup aparece
+                    solo.
+                  </div>
+                </div>
+              </label>
+              <label className="flex items-start gap-2 cursor-pointer text-sm">
+                <input
+                  type="radio"
+                  name="trigger"
+                  checked={cfg.trigger === 'click'}
+                  onChange={() => patch('trigger', 'click')}
+                  className="mt-1 accent-brand"
+                />
+                <div>
+                  <div className="font-medium">Solo al tocar el banner</div>
+                  <div className="text-[11px] text-mute">
+                    Aparece un indicador pulsante en la portada de la
+                    sección y el cliente decide si lo abre.
+                  </div>
+                </div>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer text-sm pt-2">
+                <input
+                  type="checkbox"
+                  checked={cfg.oncePerSession ?? true}
+                  onChange={(e) => patch('oncePerSession', e.target.checked)}
+                  className="w-4 h-4 accent-brand"
+                />
+                <span>Mostrar solo una vez por sesión</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Preview */}
+          <div className="bg-gradient-to-b from-bg2/50 to-bg2 p-5 flex flex-col items-center">
+            <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-3">
+              Vista previa
+            </div>
+            <PopupPreview cfg={cfg} />
+            {!cfg.enabled && (
+              <div className="mt-3 text-[10px] text-mute italic text-center">
+                El popup está desactivado — no se mostrará a los clientes.
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="px-6 py-3 border-t border-line flex items-center justify-end gap-2 bg-bg2/30">
+          <button
+            type="button"
+            onClick={onClose}
+            className="btn-ghost text-sm"
+            disabled={saving}
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={save}
+            disabled={saving}
+            className="btn-primary text-sm"
+          >
+            {saving ? 'Guardando…' : 'Guardar popup'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Mock visual del popup tal como se verá en el storefront público.
+ *  Frame mini-iPhone para dar contexto del tamaño. */
+function PopupPreview({ cfg }: { cfg: PopupConfig }) {
+  const hasContent =
+    cfg.imageUrl ||
+    cfg.title?.trim() ||
+    cfg.description?.trim();
+  return (
+    <div className="bg-white rounded-2xl shadow-xl max-w-[260px] w-full overflow-hidden">
+      {cfg.imageUrl ? (
+        <img
+          src={cfg.imageUrl}
+          alt=""
+          className="w-full max-h-[180px] object-cover"
+        />
+      ) : (
+        <div className="w-full h-[120px] bg-bg2 flex items-center justify-center text-mute text-xs">
+          (Sin imagen)
+        </div>
+      )}
+      <div className="p-4 space-y-2">
+        {cfg.title?.trim() ? (
+          <div className="font-bold text-sm leading-tight">{cfg.title}</div>
+        ) : (
+          <div className="font-bold text-sm text-mute italic">
+            (Título del popup)
+          </div>
+        )}
+        {cfg.description?.trim() && (
+          <div className="text-xs text-mute leading-snug whitespace-pre-line">
+            {cfg.description}
+          </div>
+        )}
+        <div className="flex items-center justify-end gap-2 pt-1">
+          <button className="text-[11px] px-2 py-1.5 rounded-md text-mute" disabled>
+            Cerrar
+          </button>
+          {cfg.buttonText?.trim() && cfg.buttonUrl?.trim() && (
+            <button
+              className="text-[11px] font-semibold px-3 py-1.5 rounded-md text-white shadow-sm"
+              style={{ background: cfg.buttonColor || '#22C55E' }}
+              disabled
+            >
+              {cfg.buttonText}
+            </button>
+          )}
+        </div>
+      </div>
+      {!hasContent && (
+        <div className="px-4 pb-3 text-[10px] text-mute italic text-center">
+          Completá los campos a la izquierda para previsualizar.
+        </div>
+      )}
+    </div>
   );
 }
 
