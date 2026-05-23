@@ -81,6 +81,8 @@ type Product = {
   name: string;
   description: string;
   basePrice: number;
+  priceMode?: 'FIXED' | 'RANGE';
+  priceMax?: number | null;
   imageUrl: string | null;
   tags: string[];
   variants: Variant[];
@@ -109,6 +111,24 @@ function fmt(n: number, currency = 'COP') {
   } catch {
     return `$${n.toFixed(0)}`;
   }
+}
+
+/** Formato del precio del producto según priceMode. Resuelve en un solo
+ *  lugar la decisión de mostrar:
+ *    - "Desde $X — $Y"  cuando RANGE con priceMax válido
+ *    - "$X"             cuando FIXED o RANGE sin priceMax (fallback)
+ *  Usado por los 8 layouts del storefront. */
+function fmtProductPrice(
+  p: Pick<Product, 'basePrice' | 'priceMode' | 'priceMax'>,
+  currency = 'COP',
+): string {
+  if (p.priceMode === 'RANGE' && p.priceMax != null && p.priceMax > p.basePrice) {
+    return `${fmtProductPrice(p, currency)} — ${fmt(
+      Number(p.priceMax),
+      currency,
+    )}`;
+  }
+  return fmt(Number(p.basePrice), currency);
 }
 
 export default function StorefrontPublicWrapper() {
@@ -1723,7 +1743,7 @@ function LayoutClassic({ menu, primary, currency, onPick }: LP) {
                   <div className="font-semibold text-sm">{p.name}</div>
                   <div className="text-xs text-mute mt-0.5 line-clamp-2">{p.description}</div>
                   <div className="flex items-center justify-between mt-2">
-                    <div className="font-bold text-sm">{fmt(Number(p.basePrice), currency)}</div>
+                    <div className="font-bold text-sm">{fmtProductPrice(p, currency)}</div>
                     <div className="flex gap-1">
                       {p.tags.map((t) => (
                         <span
@@ -1799,7 +1819,7 @@ function LayoutGrid({ menu, primary, currency, onPick }: LP) {
                 <div className="mt-1.5 px-1">
                   <div className="text-sm font-semibold leading-tight line-clamp-1">{p.name}</div>
                   <div className="text-sm font-bold mt-0.5" style={{ color: primary }}>
-                    {fmt(Number(p.basePrice), currency)}
+                    {fmtProductPrice(p, currency)}
                   </div>
                 </div>
               </button>
@@ -1847,7 +1867,7 @@ function LayoutCarousels({ menu, primary, currency, onPick }: LP) {
                     {p.name}
                   </div>
                   <div className="text-sm font-bold mt-0.5" style={{ color: primary }}>
-                    {fmt(Number(p.basePrice), currency)}
+                    {fmtProductPrice(p, currency)}
                   </div>
                 </div>
               </button>
@@ -1888,7 +1908,7 @@ function LayoutClean({ menu, currency, onPick }: LP) {
                 <div className="flex items-baseline justify-between gap-3">
                   <div className="text-[15px] font-semibold">{p.name}</div>
                   <div className="text-sm tracking-tight">
-                    {fmt(Number(p.basePrice), currency)}
+                    {fmtProductPrice(p, currency)}
                   </div>
                 </div>
                 {p.description && (
@@ -1963,7 +1983,7 @@ function LayoutCompact({ menu, primary, currency, onPick }: LP) {
                     )}
                   </div>
                   <div className="font-bold text-sm whitespace-nowrap">
-                    {fmt(Number(p.basePrice), currency)}
+                    {fmtProductPrice(p, currency)}
                   </div>
                 </div>
                 {p.description && (
@@ -2027,7 +2047,7 @@ function LayoutCluvi({ menu, primary, currency, onPick }: LP) {
                   )}
                   <div className="flex items-end justify-between mt-2 gap-2">
                     <div className="font-bold text-sm">
-                      {fmt(Number(p.basePrice), currency)}
+                      {fmtProductPrice(p, currency)}
                     </div>
                     <span
                       className="px-3 py-1 rounded-full text-xs font-semibold text-ink shrink-0"
@@ -2393,7 +2413,7 @@ function SectionProductCard({
           {product.name}
         </div>
         <div className="font-bold text-sm mt-1.5 text-ink">
-          {fmt(product.basePrice, currency)}
+          {fmtProductPrice(product, currency)}
         </div>
       </div>
     </button>
