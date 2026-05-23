@@ -86,4 +86,12 @@ export class IndustriesPublicController {
   getBySlug(@Param('slug') slug: string) {
     return this.svc.getBySlugPublic(slug);
   }
+
+  /** Deck unificado: industria + todos los slides de todas las presentations
+   *  activas concatenados. Reemplaza la pantalla intermedia "lista de
+   *  presentations" — al abrir /industria/:slug se ven los slides directos. */
+  @Get(':slug/deck')
+  getDeck(@Param('slug') slug: string) {
+    return this.svc.getDeckBySlugPublic(slug);
+  }
 }
