@@ -73,6 +73,93 @@ export class IndustriesService {
 
   /** Público — industria + sus presentaciones activas (sin slides para
    *  no inflar). El detalle de cada presentation se trae aparte. */
+  /**
+   * Deck unificado por industria: devuelve la industria + TODOS los slides
+   * de TODAS las presentations activas concatenados en un solo array. El
+   * orden global es presentation.sortOrder → slide.sortOrder.
+   *
+   * Reemplaza la pantalla intermedia "lista de presentations" — el usuario
+   * abre la industria y ve los slides directo. Si la industria tiene
+   * múltiples presentations, sus slides aparecen secuenciados en el deck.
+   *
+   * Cada slide incluye `presentationSlug` y `presentationTitle` para que el
+   * frontend pueda mostrar separadores/chips por presentation si quiere.
+   */
+  async getDeckBySlugPublic(slug: string) {
+    const row = await this.prisma.industry.findUnique({
+      where: { slug },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        description: true,
+        emoji: true,
+        iconUrl: true,
+        coverImage: true,
+        themeColor: true,
+        isActive: true,
+        presentations: {
+          where: { isActive: true },
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+            sortOrder: true,
+            slides: {
+              orderBy: { sortOrder: 'asc' },
+              select: {
+                id: true,
+                sortOrder: true,
+                layout: true,
+                title: true,
+                subtitle: true,
+                body: true,
+                imageUrl: true,
+                videoUrl: true,
+                ctaText: true,
+                ctaUrl: true,
+                bgColor: true,
+                textColor: true,
+                animation: true,
+                content: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!row || !row.isActive) {
+      throw new NotFoundException('Industria no encontrada');
+    }
+    // Flat array: cada slide con su origen de presentation para chips opcionales
+    const slides = row.presentations.flatMap((p) =>
+      p.slides.map((s) => ({
+        ...s,
+        presentationId: p.id,
+        presentationSlug: p.slug,
+        presentationTitle: p.title,
+      })),
+    );
+    return {
+      id: row.id,
+      name: row.name,
+      slug: row.slug,
+      description: row.description,
+      emoji: row.emoji,
+      iconUrl: row.iconUrl,
+      coverImage: row.coverImage,
+      themeColor: row.themeColor,
+      presentations: row.presentations.map((p) => ({
+        id: p.id,
+        title: p.title,
+        slug: p.slug,
+        slideCount: p.slides.length,
+      })),
+      slides,
+    };
+  }
+
   async getBySlugPublic(slug: string) {
     const row = await this.prisma.industry.findUnique({
       where: { slug },
