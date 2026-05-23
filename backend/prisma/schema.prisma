@@ -380,6 +380,23 @@ model Tenant {
   /// Cada tenant tiene su propio número (1, 2, 3, ...). Null = no se
   /// prepone prefijo (mensaje plano).
   growBusinessSwitchNumber    Int?
+  /// Alertas SMS por reseñas negativas (1-3 ⭐). Si enabled=true y
+  /// growBusiness está conectado, al recibir una reseña con rating <=
+  /// threshold se envía un SMS al teléfono configurado (o al owner
+  /// fallback) con el detalle del feedback. Aditivo — los tenants
+  /// existentes quedan con enabled=false hasta configurarlo.
+  reviewAlertsEnabled         Boolean      @default(false)
+  /// Rating umbral inclusive. Default 3 = dispara para 1, 2 y 3 ⭐.
+  /// Si bajás a 2, solo 1 y 2 ⭐ disparan.
+  reviewAlertsThreshold       Int          @default(3)
+  /// Teléfono destino del SMS. Null = usa fallback (owner.phone →
+  /// whatsappPhone → phone). Útil para mandar la alerta a un encargado
+  /// distinto del owner registrado.
+  reviewAlertsPhone           String?
+  /// Plantilla del SMS con tokens {businessName} {customerName}
+  /// {customerPhone} {rating} {feedback} {date} {feedbackUrl}. Null =
+  /// usa la plantilla default del backend.
+  reviewAlertsTemplate        String?
   createdAt                   DateTime     @default(now())
 
   users               User[]

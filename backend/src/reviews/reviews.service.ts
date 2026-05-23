@@ -1,14 +1,36 @@
 import {
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { GrowBusinessService } from '../integrations/grow-business.service';
+
+const DEFAULT_REVIEW_ALERT_TEMPLATE =
+  '⚠️ Nueva reseña privada en {businessName}\n\n' +
+  'Cliente: {customerName}\n' +
+  'Teléfono: {customerPhone}\n' +
+  'Calificación: {rating}/5\n\n' +
+  'Comentario:\n{feedback}\n\n' +
+  'Revisar en Clubify:\n{feedbackUrl}';
+
+function renderTemplate(
+  tpl: string,
+  vars: Record<string, string>,
+): string {
+  return tpl.replace(/\{(\w+)\}/g, (_, key) => vars[key] ?? '');
+}
 
 @Injectable()
 export class ReviewsService {
-  constructor(private prisma: PrismaService) {}
+  private readonly log = new Logger(ReviewsService.name);
+
+  constructor(
+    private prisma: PrismaService,
+    private growBusiness: GrowBusinessService,
+  ) {}
 
   // ────────── Público (review filter) ────────── //
 
@@ -60,17 +82,140 @@ export class ReviewsService {
       throw new NotFoundException('Negocio no disponible');
 
     const rating = Math.max(1, Math.min(5, Math.floor(body.rating)));
+    const redirected = !!body.redirectedToGoogle;
 
-    return this.prisma.reviewFeedback.create({
+    const created = await this.prisma.reviewFeedback.create({
       data: {
         tenantId: t.id,
         rating,
         comment: body.comment?.trim() || null,
         customerName: body.customerName?.trim() || null,
         customerPhone: body.customerPhone?.trim() || null,
-        redirectedToGoogle: !!body.redirectedToGoogle,
+        redirectedToGoogle: redirected,
       },
       select: { id: true, createdAt: true },
+    });
+
+    // Fire-and-forget — el SMS no debe bloquear la respuesta al cliente.
+    // Errores se loguean y se registran como evento review.sms_alert_failed.
+    if (!redirected) {
+      this.maybeNotifyReviewAlert(t.id, created.id).catch((e) => {
+        this.log.warn(
+          `[review-alert] notify failed feedback=${created.id} err=${e?.message}`,
+        );
+      });
+    }
+
+    return created;
+  }
+
+  /** Si el tenant tiene reviewAlertsEnabled y el rating cae dentro del
+   *  threshold, manda un SMS via Grow Business y registra un evento.
+   *  Idempotente por feedbackId: si ya hay un evento sms_alert_sent para
+   *  ese feedback, no reenvía. */
+  private async maybeNotifyReviewAlert(tenantId: string, feedbackId: string) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        id: true,
+        brandName: true,
+        slug: true,
+        phone: true,
+        whatsappPhone: true,
+        reviewAlertsEnabled: true,
+        reviewAlertsThreshold: true,
+        reviewAlertsPhone: true,
+        reviewAlertsTemplate: true,
+        growBusinessLocationId: true,
+        growBusinessApiKey: true,
+      },
+    });
+    if (!tenant) return;
+    if (!tenant.reviewAlertsEnabled) return;
+    if (!tenant.growBusinessLocationId || !tenant.growBusinessApiKey) {
+      this.log.warn(
+        `[review-alert] tenant=${tenantId} enabled pero sin credenciales Grow Business`,
+      );
+      return;
+    }
+
+    const feedback = await this.prisma.reviewFeedback.findUnique({
+      where: { id: feedbackId },
+    });
+    if (!feedback) return;
+    if (feedback.rating > tenant.reviewAlertsThreshold) return;
+
+    // Idempotencia: si ya mandamos alerta para este feedback, no
+    // reintentamos (caso reintentos del cliente).
+    const existing = await this.prisma.event.findFirst({
+      where: {
+        tenantId,
+        type: 'review.sms_alert_sent',
+        payload: { path: ['feedbackId'], equals: feedbackId },
+      },
+      select: { id: true },
+    });
+    if (existing) return;
+
+    // Resolver teléfono destino: override del tenant → owner.phone →
+    // whatsappPhone → phone general. Si nada, abortar con log.
+    let toPhone = tenant.reviewAlertsPhone?.trim() || '';
+    if (!toPhone) {
+      const owner = await this.prisma.user.findFirst({
+        where: { tenantId, role: 'TENANT_OWNER' },
+        select: { phone: true },
+      });
+      toPhone =
+        owner?.phone?.trim() ||
+        tenant.whatsappPhone?.trim() ||
+        tenant.phone?.trim() ||
+        '';
+    }
+    if (!toPhone) {
+      this.log.warn(`[review-alert] tenant=${tenantId} sin teléfono destino`);
+      await this.prisma.event.create({
+        data: {
+          tenantId,
+          type: 'review.sms_alert_failed',
+          payload: {
+            feedbackId,
+            reason: 'no_destination_phone',
+          },
+        },
+      });
+      return;
+    }
+
+    const template =
+      tenant.reviewAlertsTemplate?.trim() || DEFAULT_REVIEW_ALERT_TEMPLATE;
+    const feedbackUrl = `https://app.soyclubify.com/app/reviews?focus=${feedback.id}`;
+    const body = renderTemplate(template, {
+      businessName: tenant.brandName || tenant.slug,
+      storeName: tenant.brandName || tenant.slug,
+      customerName: feedback.customerName || 'Anónimo',
+      customerPhone: feedback.customerPhone || '—',
+      rating: String(feedback.rating),
+      feedback: feedback.comment || '(sin comentario)',
+      date: feedback.createdAt.toISOString().slice(0, 16).replace('T', ' '),
+      feedbackUrl,
+    });
+
+    const result = await this.growBusiness.sendSms(tenantId, toPhone, body);
+
+    await this.prisma.event.create({
+      data: {
+        tenantId,
+        type: result.ok ? 'review.sms_alert_sent' : 'review.sms_alert_failed',
+        payload: {
+          feedbackId,
+          toPhone,
+          rating: feedback.rating,
+          ok: result.ok,
+          response: result.ok
+            ? { id: (result as any).id }
+            : { status: (result as any).status, message: (result as any).message },
+        },
+      },
     });
   }
 
