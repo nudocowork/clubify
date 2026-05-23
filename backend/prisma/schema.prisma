@@ -1598,6 +1598,9 @@ model Industry {
   iconUrl     String?
   /// URL de la imagen de portada en R2 — banner detrás del nombre. Opcional.
   coverImage  String?
+  /// Estilo visual del banner de portada. 5 variantes para que el admin
+  /// elija desde el picker. Si null se usa DARK_OVERLAY.
+  coverStyle  IndustryCoverStyle @default(DARK_OVERLAY)
   /// Color principal del tema para la card (hex, ej "#22C55E"). Opcional.
   themeColor  String?
   /// Soft-disable. Si false, no se muestra en la vista pública pero queda
@@ -1612,6 +1615,21 @@ model Industry {
   presentations Presentation[]
 
   @@index([isActive, sortOrder])
+}
+
+/// Estilo visual del banner de portada de una industria. Cada uno
+/// renderiza distinto el mismo coverImage:
+///  - DARK_OVERLAY: imagen + overlay oscuro + texto blanco abajo (Netflix).
+///  - GRADIENT_BRAND: imagen + gradient bottom-up del themeColor.
+///  - BLUR_GLASS: imagen blureada + glass card centrada (premium).
+///  - MINIMAL: imagen clean + texto compacto abajo izquierda, sin overlay.
+///  - MODERN_SPLIT: split 50/50 — imagen derecha, bloque sólido themeColor izquierda.
+enum IndustryCoverStyle {
+  DARK_OVERLAY
+  GRADIENT_BRAND
+  BLUR_GLASS
+  MINIMAL
+  MODERN_SPLIT
 }
 
 /// Layout pre-armado para cada slide. El front renderea distinto según

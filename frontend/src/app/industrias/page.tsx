@@ -2,12 +2,17 @@
 /**
  * Vista pública: lista de industrias activas (catálogo de sales decks).
  *
- * Grid de cards estilo Netflix/pitch deck — cada card linkea a su
- * industria con presentaciones específicas.
+ * Grid de cards Netflix/pitch deck — cada card linkea a /industria/{slug}
+ * que muestra los slides directos. El estilo visual de cada banner lo
+ * elige el admin desde /admin/industries (5 variantes IndustryCoverStyle).
  */
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
+import {
+  IndustryCoverCard,
+  type IndustryCoverStyle,
+} from '@/components/industry/IndustryCoverCard';
 
 type Industry = {
   id: string;
@@ -17,6 +22,7 @@ type Industry = {
   emoji: string | null;
   iconUrl: string | null;
   coverImage: string | null;
+  coverStyle: IndustryCoverStyle | null;
   themeColor: string | null;
 };
 
@@ -46,66 +52,39 @@ export default function IndustriasPage() {
         </div>
 
         {loading ? (
-          <div className="text-mute py-16 text-center">Cargando…</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <div
+                key={i}
+                className="aspect-[4/3] rounded-2xl bg-bg2 animate-pulse"
+              />
+            ))}
+          </div>
         ) : items.length === 0 ? (
           <div className="card card-pad text-center py-16 text-mute max-w-md mx-auto">
             Pronto vamos a publicar las demos por rubro.
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {items.map((i) => {
-              const accent = i.themeColor ?? '#22C55E';
-              return (
-                <Link
-                  key={i.id}
-                  href={`/industria/${i.slug}`}
-                  className="group relative overflow-hidden rounded-2xl bg-surface border border-line hover:border-mute transition-all hover:shadow-card hover:-translate-y-0.5"
-                  style={{ borderTop: `4px solid ${accent}` }}
-                >
-                  {i.coverImage && (
-                    <div
-                      className="h-36 bg-cover bg-center"
-                      style={{ backgroundImage: `url("${i.coverImage}")` }}
-                    />
-                  )}
-                  <div className="p-5">
-                    <div className="flex items-start gap-3 mb-2">
-                      <div className="text-4xl leading-none flex-none">
-                        {i.iconUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={i.iconUrl}
-                            alt=""
-                            className="w-12 h-12 object-contain"
-                          />
-                        ) : (
-                          i.emoji || '🏢'
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-lg leading-tight">
-                          {i.name}
-                        </div>
-                      </div>
-                    </div>
-                    {i.description && (
-                      <p className="text-sm text-mute leading-relaxed line-clamp-3">
-                        {i.description}
-                      </p>
-                    )}
-                    <div
-                      className="mt-4 inline-flex items-center gap-1 text-sm font-semibold"
-                      style={{ color: accent }}
-                    >
-                      Iniciar presentación
-                      <span className="group-hover:translate-x-0.5 transition-transform">
-                        →
-                      </span>
-                    </div>
-                  </div>
-                </Link>
-              );
-            })}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5">
+            {items.map((i) => (
+              <Link
+                key={i.id}
+                href={`/industria/${i.slug}`}
+                className="block group transition-transform hover:-translate-y-1"
+              >
+                <IndustryCoverCard
+                  industry={{
+                    name: i.name,
+                    description: i.description,
+                    emoji: i.emoji,
+                    iconUrl: i.iconUrl,
+                    coverImage: i.coverImage,
+                    coverStyle: i.coverStyle,
+                    themeColor: i.themeColor,
+                  }}
+                />
+              </Link>
+            ))}
           </div>
         )}
       </div>
