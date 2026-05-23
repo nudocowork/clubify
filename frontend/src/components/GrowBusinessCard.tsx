@@ -250,7 +250,7 @@ export function GrowBusinessCard({
           credenciales. El admin lo ajusta independiente de locationId/apiKey. */}
       {connected && !editing && (
         <div className="mt-4 pt-4 border-t border-line">
-          <label className="label">Número de Switch (workflow GHL)</label>
+          <label className="label">Número de Switch (workflow Grow Business)</label>
           <div className="flex gap-2 items-center">
             <div className="flex items-center gap-1">
               <span className="text-mute font-mono text-sm">#Switch</span>
@@ -277,8 +277,9 @@ export function GrowBusinessCard({
           <div className="text-[11px] text-mute mt-1.5 leading-relaxed">
             Cada SMS saliente se prefijará con{' '}
             <code className="text-ink">#Switch{switchNumber || 'N'}</code> +
-            doble salto, lo que permite que el workflow de GHL enrute al
-            sub-canal correcto. Dejá vacío para enviar sin prefijo.
+            doble salto, lo que permite que el workflow de Grow Business
+            enrute al sub-canal correcto. Dejá vacío para enviar sin
+            prefijo.
           </div>
         </div>
       )}
@@ -339,7 +340,7 @@ export function GrowBusinessCard({
             <div className="text-[11px] text-mute mt-1">
               Si lo configurás, los SMS se prefijan con{' '}
               <code className="text-ink">#Switch{switchNumber || 'N'}</code>{' '}
-              para que el workflow de GHL pueda enrutar.
+              para que el workflow de Grow Business pueda enrutar.
             </div>
           </div>
           <div className="flex gap-2 justify-end">
