@@ -4,17 +4,21 @@
 //
 // Hace fetch a /api/public/m/:slug/menu-book (devuelve { sections: [...] }
 // con páginas-imagen activas y popup expandido si está enabled). Renderiza
-// las páginas como un flipbook con react-pageflip:
-//   - Navegación superior por chips de sección con scroll-to.
-//   - Swipe móvil (1 página) / libro abierto desktop (2 páginas).
-//   - Botones prev/next + indicador "X / Y".
-//   - Fullscreen toggle.
-//   - Popup overlay cuando una página tiene popup activado.
+// las páginas como un slider CSS-snap horizontal:
+//   - Una página visible a la vez ocupando casi todo el ancho.
+//   - Swipe horizontal nativo (touch en mobile, drag en desktop).
+//   - Snap mandatory entre páginas — la imagen siempre queda centrada.
+//   - Chips sticky superiores que saltan a la primera página de su sección
+//     con scrollIntoView smooth.
+//   - Botones prev/next + indicador "X / Y" + fullscreen.
+//   - Popup overlay al tap en página con popup activado.
 //
-// react-pageflip se carga vía dynamic({ ssr: false }) — depende de DOM
-// y mediciones de viewport, no funciona en SSR.
+// Decisión técnica: se removió react-pageflip (versión anterior) porque
+// en mobile con usePortrait+stretch el comportamiento de page-flip 3D no
+// era confiable — a veces apilaba las páginas verticalmente en lugar de
+// paginar. El CSS snap nativo es más robusto cross-device y se siente
+// premium con scroll-smooth + snap-mandatory.
 
-import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
@@ -46,9 +50,6 @@ type Section = {
 
 type BookData = { sections: Section[] };
 
-// react-pageflip no es SSR-safe.
-const HTMLFlipBook = dynamic(() => import('react-pageflip'), { ssr: false });
-
 export function MenuBookViewer({
   slug,
   primary,
@@ -61,7 +62,7 @@ export function MenuBookViewer({
   const [pageIdx, setPageIdx] = useState(0);
   const [openPopup, setOpenPopup] = useState<Popup | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const flipRef = useRef<any>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // ── Fetch
@@ -96,15 +97,24 @@ export function MenuBookViewer({
     return { allPages: pages, sectionStarts: starts };
   }, [data]);
 
+  // ── Navegación: scrollTo página por índice
   function goTo(idx: number) {
-    if (!flipRef.current) return;
     const total = allPages.length;
+    if (total === 0) return;
     const target = Math.max(0, Math.min(total - 1, idx));
-    // pageFlip().flip(idx) hace la animación; .turnToPage(idx) salta directo
-    const api = flipRef.current.pageFlip?.();
-    if (api?.flip) api.flip(target);
-    else if (api?.turnToPage) api.turnToPage(target);
+    const el = scrollerRef.current;
+    if (!el) return;
+    const pageWidth = el.clientWidth;
+    el.scrollTo({ left: target * pageWidth, behavior: 'smooth' });
     setPageIdx(target);
+  }
+
+  // ── Detecta página actual mientras el user hace swipe / scroll
+  function onScrollerScroll() {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const idx = Math.round(el.scrollLeft / el.clientWidth);
+    if (idx !== pageIdx) setPageIdx(idx);
   }
 
   function toggleFullscreen() {
@@ -127,6 +137,16 @@ export function MenuBookViewer({
     return () => document.removeEventListener('fullscreenchange', onFs);
   }, []);
 
+  // ── Preload próximas 2 imágenes para evitar pop-in al pasar
+  useEffect(() => {
+    for (let i = 1; i <= 2; i++) {
+      const target = allPages[pageIdx + i];
+      if (!target) break;
+      const img = new window.Image();
+      img.src = target.imageUrl;
+    }
+  }, [allPages, pageIdx]);
+
   // ── Loading / error / empty
   if (loadErr) {
     return (
@@ -139,17 +159,15 @@ export function MenuBookViewer({
   }
   if (!data) {
     return (
-      <div className="max-w-5xl mx-auto px-5 py-6 flex flex-col items-center gap-4">
-        {/* Skeleton de chips */}
+      <div className="max-w-5xl mx-auto px-3 sm:px-5 py-3 flex flex-col items-center gap-4">
         <div className="w-full flex gap-2 overflow-hidden">
           {[1, 2, 3, 4].map((i) => (
             <div
               key={i}
-              className="h-7 w-24 rounded-full bg-bg2 animate-pulse"
+              className="h-7 w-24 rounded-full bg-bg2 animate-pulse flex-none"
             />
           ))}
         </div>
-        {/* Skeleton del libro (mantiene ratio 3:4) */}
         <div className="w-full max-w-md aspect-[3/4] rounded-lg bg-bg2 animate-pulse shadow-sm" />
         <div className="text-xs text-mute">Cargando menú…</div>
       </div>
@@ -177,10 +195,10 @@ export function MenuBookViewer({
   return (
     <div
       ref={containerRef}
-      className="max-w-5xl mx-auto px-1 sm:px-5 py-3 flex flex-col gap-4"
+      className="max-w-5xl mx-auto flex flex-col gap-3"
     >
       {/* Chips de sección — sticky arriba */}
-      <div className="sticky top-0 z-20 -mx-3 sm:mx-0 px-3 sm:px-0 py-2 bg-bg/95 backdrop-blur-sm">
+      <div className="sticky top-0 z-20 px-2 py-2 bg-bg/95 backdrop-blur-sm">
         <div className="flex gap-2 overflow-x-auto no-scrollbar">
           {data.sections.map((s) => {
             const active = s.id === activeSectionId;
@@ -188,7 +206,7 @@ export function MenuBookViewer({
               <button
                 key={s.id}
                 onClick={() => goTo(sectionStarts[s.id] ?? 0)}
-                className={`px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition border ${
+                className={`px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition border flex-none ${
                   active
                     ? 'text-white border-transparent shadow-sm'
                     : 'bg-bg2 text-ink border-line2 hover:bg-bg3'
@@ -202,56 +220,53 @@ export function MenuBookViewer({
         </div>
       </div>
 
-      {/* Flipbook — edge case: 1 sola página no entra al flipbook (react-pageflip
-          requiere mínimo 2 y se vería raro). La renderizamos sola con click-para-popup. */}
-      {allPages.length === 1 ? (
-        <SinglePageView
-          page={allPages[0]}
-          onClick={() => allPages[0].popup && setOpenPopup(allPages[0].popup)}
-        />
-      ) : (
-        <FlipbookWrap
-          flipRef={flipRef}
-          pages={allPages}
-          onPageChange={setPageIdx}
-          onPagePopup={(p) => p.popup && setOpenPopup(p.popup)}
-        />
-      )}
+      {/* Slider horizontal — snap mandatory, swipe nativo */}
+      <div
+        ref={scrollerRef}
+        onScroll={onScrollerScroll}
+        className="flex overflow-x-auto snap-x snap-mandatory scroll-smooth no-scrollbar touch-pan-x overscroll-x-contain"
+        style={{ WebkitOverflowScrolling: 'touch' }}
+      >
+        {allPages.map((p) => (
+          <PageSlide
+            key={p.id}
+            page={p}
+            onClick={() => p.popup && setOpenPopup(p.popup)}
+          />
+        ))}
+      </div>
 
-      {/* Preload de las 2 próximas páginas para evitar pop-in al pasar hoja */}
-      <PagePreloader pages={allPages} currentIdx={pageIdx} ahead={2} />
-
-      {/* Controles inferiores — ocultos si solo hay 1 página (no hay nada que navegar) */}
+      {/* Controles inferiores — ocultos si solo hay 1 página */}
       {allPages.length > 1 && (
-      <div className="flex items-center justify-between gap-3 select-none">
-        <button
-          onClick={() => goTo(pageIdx - 1)}
-          disabled={pageIdx === 0}
-          className="text-sm font-semibold px-3 py-2 rounded-md bg-bg2 hover:bg-bg3 disabled:opacity-30 disabled:cursor-not-allowed"
-        >
-          ← Anterior
-        </button>
-        <div className="text-xs text-mute font-medium">
-          Página <strong className="text-ink">{pageIdx + 1}</strong> de{' '}
-          {allPages.length}
-        </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-3 select-none px-3">
           <button
-            onClick={toggleFullscreen}
-            className="text-sm p-2 rounded-md bg-bg2 hover:bg-bg3"
-            title={isFullscreen ? 'Salir pantalla completa' : 'Pantalla completa'}
-          >
-            {isFullscreen ? '⤓' : '⤢'}
-          </button>
-          <button
-            onClick={() => goTo(pageIdx + 1)}
-            disabled={pageIdx >= allPages.length - 1}
+            onClick={() => goTo(pageIdx - 1)}
+            disabled={pageIdx === 0}
             className="text-sm font-semibold px-3 py-2 rounded-md bg-bg2 hover:bg-bg3 disabled:opacity-30 disabled:cursor-not-allowed"
           >
-            Siguiente →
+            ← Anterior
           </button>
+          <div className="text-xs text-mute font-medium">
+            Página <strong className="text-ink">{pageIdx + 1}</strong> de{' '}
+            {allPages.length}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={toggleFullscreen}
+              className="text-sm p-2 rounded-md bg-bg2 hover:bg-bg3"
+              title={isFullscreen ? 'Salir pantalla completa' : 'Pantalla completa'}
+            >
+              {isFullscreen ? '⤓' : '⤢'}
+            </button>
+            <button
+              onClick={() => goTo(pageIdx + 1)}
+              disabled={pageIdx >= allPages.length - 1}
+              className="text-sm font-semibold px-3 py-2 rounded-md bg-bg2 hover:bg-bg3 disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              Siguiente →
+            </button>
+          </div>
         </div>
-      </div>
       )}
 
       {/* Popup overlay */}
@@ -263,165 +278,35 @@ export function MenuBookViewer({
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Wrap del flipbook (responsive: 1 página mobile, 2 desktop)
+// Slide individual: ocupa todo el ancho del scroller, aspect 3:4 portrait
 // ─────────────────────────────────────────────────────────────────────
 
-function FlipbookWrap({
-  flipRef,
-  pages,
-  onPageChange,
-  onPagePopup,
+function PageSlide({
+  page,
+  onClick,
 }: {
-  flipRef: React.MutableRefObject<any>;
-  pages: Array<Page & { sectionId: string }>;
-  onPageChange: (idx: number) => void;
-  onPagePopup: (p: Page) => void;
+  page: Page & { sectionId: string };
+  onClick: () => void;
 }) {
-  // Medimos viewport para definir tamaño de página. Mobile: una sola página
-  // grande, casi full-width. Desktop: libro abierto centrado.
-  const [vw, setVw] = useState<number>(
-    typeof window !== 'undefined' ? window.innerWidth : 1024,
-  );
-  useEffect(() => {
-    const onResize = () => setVw(window.innerWidth);
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
-
-  // Sizing: target ratio 3:4 portrait. En mobile (vw < 768) ocupa casi
-  // todo el ancho disponible (vw - 16 = 8px de padding lateral cada lado);
-  // en desktop limitamos a 420px por página para libro abierto.
-  const isMobile = vw < 768;
-  const pageWidth = isMobile
-    ? Math.max(280, vw - 16)
-    : Math.min(420, (vw - 80) / 2);
-  const pageHeight = Math.round(pageWidth * (4 / 3));
-
   return (
-    <div className="flex justify-center">
-      <HTMLFlipBook
-        ref={flipRef}
-        width={pageWidth}
-        height={pageHeight}
-        size="stretch"
-        minWidth={280}
-        maxWidth={900}
-        minHeight={380}
-        maxHeight={1300}
-        showCover={false}
-        usePortrait={isMobile}
-        mobileScrollSupport
-        flippingTime={650}
-        maxShadowOpacity={0.35}
-        drawShadow
-        useMouseEvents
-        clickEventForward
-        className="touch-pan-y"
-        startPage={0}
-        startZIndex={0}
-        autoSize={false}
-        showPageCorners
-        disableFlipByClick={false}
-        style={{}}
-        swipeDistance={30}
-        onFlip={(e: any) => onPageChange(e.data)}
-      >
-        {pages.map((p) => (
-          <PageView key={p.id} page={p} onClick={() => onPagePopup(p)} />
-        ))}
-      </HTMLFlipBook>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// Vista de una sola página (edge case: menú con 1 sola imagen)
-// ─────────────────────────────────────────────────────────────────────
-
-function SinglePageView({ page, onClick }: { page: Page; onClick: () => void }) {
-  return (
-    <div className="flex justify-center">
+    <div className="flex-none w-full snap-start snap-always px-2">
       <button
         type="button"
         onClick={onClick}
         disabled={!page.popup}
-        className="relative max-w-md w-full aspect-[3/4] rounded-lg overflow-hidden bg-white shadow-md"
+        className="relative w-full aspect-[3/4] rounded-xl overflow-hidden bg-white shadow-sm"
         style={{ cursor: page.popup ? 'pointer' : 'default' }}
-      >
-        <img
-          src={page.imageUrl}
-          alt=""
-          className="w-full h-full object-cover"
-          draggable={false}
-        />
-        {page.popup && (
-          <span className="absolute top-2 right-2 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/85 shadow-sm text-amber-700">
-            🔔 Tocar
-          </span>
-        )}
-      </button>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// Preloader: precarga las próximas N imágenes para evitar pop-in
-// al pasar hoja. Usa new Image() (no Link rel=preload) porque no
-// tenemos acceso al <head> dentro de un client component.
-// ─────────────────────────────────────────────────────────────────────
-
-function PagePreloader({
-  pages,
-  currentIdx,
-  ahead,
-}: {
-  pages: Array<Page & { sectionId: string }>;
-  currentIdx: number;
-  ahead: number;
-}) {
-  useEffect(() => {
-    for (let i = 1; i <= ahead; i++) {
-      const target = pages[currentIdx + i];
-      if (!target) break;
-      const img = new window.Image();
-      img.src = target.imageUrl;
-    }
-  }, [pages, currentIdx, ahead]);
-  return null;
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// Página individual dentro del flipbook
-// ─────────────────────────────────────────────────────────────────────
-
-function PageView({ page, onClick }: { page: Page; onClick: () => void }) {
-  return (
-    <div className="w-full h-full bg-white shadow-sm">
-      <button
-        type="button"
-        onClick={(e) => {
-          // No queremos que el click cuente como "flip"; pasamos la
-          // gestión al popup si la página tiene uno. Si no hay popup, el
-          // click no hace nada (el flip lo maneja react-pageflip por
-          // sus controles internos sobre las esquinas).
-          if (page.popup) {
-            e.stopPropagation();
-            onClick();
-          }
-        }}
-        className="w-full h-full block"
-        style={{ cursor: page.popup ? 'pointer' : 'default' }}
-        title={page.popup?.title ?? undefined}
       >
         <img
           src={page.imageUrl}
           alt=""
           loading="lazy"
-          className="w-full h-full object-cover pointer-events-none"
+          decoding="async"
+          className="w-full h-full object-cover"
           draggable={false}
         />
         {page.popup && (
-          <span className="absolute top-2 right-2 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/85 shadow-sm text-amber-700">
+          <span className="absolute top-2 right-2 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/90 shadow-sm text-amber-700">
             🔔 Tocar
           </span>
         )}
