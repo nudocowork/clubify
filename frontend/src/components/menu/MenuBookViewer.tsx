@@ -50,12 +50,27 @@ type Section = {
 
 type BookData = { sections: Section[] };
 
+/** Slugify simple (ASCII, lowercase, guiones). Espejo del backend slugify. */
+function sectionSlugify(s: string): string {
+  return (s || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+}
+
 export function MenuBookViewer({
   slug,
   primary,
+  initialSectionSlug,
 }: {
   slug: string;
   primary: string;
+  /** Si viene, arranca el viewer en la primera página de esa sección y
+   *  no actualiza la URL al cargar. Cualquier cambio posterior sí. */
+  initialSectionSlug?: string;
 }) {
   const [data, setData] = useState<BookData | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -64,6 +79,9 @@ export function MenuBookViewer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  // Para no pisar la URL durante el primer render (sino al refrescar
+  // /m/x/seccion-y sin haber scrolleado quedaría /m/x).
+  const initialUrlSetRef = useRef(false);
 
   // ── Fetch
   useEffect(() => {
@@ -84,18 +102,64 @@ export function MenuBookViewer({
     };
   }, [slug]);
 
-  // ── Plano de páginas + offset por sección (para chips)
-  const { allPages, sectionStarts } = useMemo(() => {
+  // ── Plano de páginas + offset por sección (para chips) + map slug→id
+  const { allPages, sectionStarts, sectionSlugs } = useMemo(() => {
     const pages: Array<Page & { sectionId: string }> = [];
     const starts: Record<string, number> = {};
+    const slugMap: Record<string, string> = {}; // slug → sectionId
     if (data) {
+      // Resolver slugs con desambiguación (si dos secciones slugifyan igual,
+      // segunda gana sufijo -2, -3, etc).
+      const seen = new Set<string>();
       for (const s of data.sections) {
         starts[s.id] = pages.length;
+        let baseSlug = sectionSlugify(s.title) || s.id.slice(0, 8);
+        let candidate = baseSlug;
+        let suffix = 2;
+        while (seen.has(candidate)) {
+          candidate = `${baseSlug}-${suffix++}`;
+        }
+        seen.add(candidate);
+        slugMap[candidate] = s.id;
         for (const p of s.pages) pages.push({ ...p, sectionId: s.id });
       }
     }
-    return { allPages: pages, sectionStarts: starts };
+    return { allPages: pages, sectionStarts: starts, sectionSlugs: slugMap };
   }, [data]);
+
+  // ── Mapa inverso sectionId → slug (para construir URL al cambiar sección)
+  const slugBySectionId = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const [s, id] of Object.entries(sectionSlugs)) m[id] = s;
+    return m;
+  }, [sectionSlugs]);
+
+  // ── Saltar a sección inicial si vino por URL (/m/[slug]/[sectionSlug])
+  useEffect(() => {
+    if (!data || !initialSectionSlug) {
+      initialUrlSetRef.current = true;
+      return;
+    }
+    const targetSectionId = sectionSlugs[initialSectionSlug];
+    if (!targetSectionId) {
+      initialUrlSetRef.current = true;
+      return; // slug no existe → arranca en página 0 (fallback)
+    }
+    const targetIdx = sectionStarts[targetSectionId];
+    if (targetIdx == null) {
+      initialUrlSetRef.current = true;
+      return;
+    }
+    // Saltar después de un tick para que el scroller ya esté montado.
+    setTimeout(() => {
+      const el = scrollerRef.current;
+      if (!el) return;
+      const pageWidth = el.clientWidth;
+      el.scrollTo({ left: targetIdx * pageWidth, behavior: 'auto' });
+      setPageIdx(targetIdx);
+      initialUrlSetRef.current = true;
+    }, 50);
+  }, [data, initialSectionSlug, sectionSlugs, sectionStarts]);
 
   // ── Navegación: scrollTo página por índice
   function goTo(idx: number) {
@@ -191,6 +255,20 @@ export function MenuBookViewer({
     }
     return id;
   })();
+
+  // Sincronizar URL con sección activa — replaceState para no inflar el
+  // historial con cada swipe (solo si querés "back" botón a otra sección,
+  // hay que cambiarlo a pushState; replaceState es más limpio para deck
+  // continuo). No corre antes del initial scroll para no pisar la URL.
+  useEffect(() => {
+    if (!initialUrlSetRef.current) return;
+    if (typeof window === 'undefined') return;
+    const activeSlug = slugBySectionId[activeSectionId];
+    if (!activeSlug) return;
+    const targetPath = `/m/${slug}/${activeSlug}`;
+    if (window.location.pathname === targetPath) return;
+    window.history.replaceState({}, '', targetPath);
+  }, [activeSectionId, slugBySectionId, slug]);
 
   return (
     <div

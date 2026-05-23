@@ -103,7 +103,18 @@ function fmt(n: number, currency = 'COP') {
   }
 }
 
-export default function StorefrontPublic() {
+export default function StorefrontPublicWrapper() {
+  return <StorefrontPublic />;
+}
+
+export function StorefrontPublic({
+  initialSectionSlug,
+}: {
+  /** Slug de sección opcional desde /m/[slug]/[sectionSlug]. El viewer del
+   *  layout activo lo lee para arrancar ahí (flipbook salta a la primera
+   *  página de esa sección). */
+  initialSectionSlug?: string;
+} = {}) {
   const tt = useT();
   const [locale] = useLocale();
   const { slug } = useParams<{ slug: string }>();
@@ -297,7 +308,11 @@ export default function StorefrontPublic() {
         className="min-h-screen relative"
         style={{ background: pageBg }}
       >
-        <MenuBookViewer slug={slug} primary={primary} />
+        <MenuBookViewer
+          slug={slug}
+          primary={primary}
+          initialSectionSlug={initialSectionSlug}
+        />
         <a
           href="https://soyclubify.com"
           target="_blank"
