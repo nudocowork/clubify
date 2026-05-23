@@ -17,6 +17,9 @@ export type StorefrontDto = {
   popupDelaySeconds?: number;
   whatsappButtonEnabled?: boolean;
   pageBackgroundColor?: string | null;
+  logoBgColor?: string | null;
+  titleColor?: string | null;
+  descriptionColor?: string | null;
   backButtonConfig?: Record<string, any> | null;
   recommendedTagline?: string | null;
   recommendedCoverConfig?: Record<string, any> | null;
@@ -90,6 +93,12 @@ export class StorefrontService {
           dto.pageBackgroundColor === undefined
             ? undefined
             : dto.pageBackgroundColor,
+        logoBgColor:
+          dto.logoBgColor === undefined ? undefined : dto.logoBgColor,
+        titleColor:
+          dto.titleColor === undefined ? undefined : dto.titleColor,
+        descriptionColor:
+          dto.descriptionColor === undefined ? undefined : dto.descriptionColor,
         backButtonConfig:
           dto.backButtonConfig === undefined
             ? undefined

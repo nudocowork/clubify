@@ -1124,6 +1124,18 @@ model Storefront {
   // dueño quiere matchear el fondo con su brand. Cualquier color CSS
   // válido (#hex, rgb(), nombre).
   pageBackgroundColor   String?
+  // Color de fondo del contenedor del logo en el header del storefront
+  // público. NULL = blanco (default histórico). Cualquier CSS válido,
+  // incluyendo "transparent" para logos con fondo propio que deben
+  // verse edge-to-edge sobre la pageBackgroundColor.
+  logoBgColor           String?
+  // Color del título (brandName) en el header del storefront público.
+  // NULL = default según layout (ink en claros, white en CLUVI). Cualquier
+  // CSS válido. Útil para matchear branding sobre fondos custom.
+  titleColor            String?
+  // Color de la descripción (subtítulo) del header. NULL = default
+  // (text-mute en claros, white/70 en CLUVI). Mismo formato que titleColor.
+  descriptionColor      String?
   // Estilo del botón "Volver" que aparece sobre la portada de cada
   // sección en el layout SECTIONS. JSON con bgColor/iconColor/opacity/
   // borderColor/borderWidth/shadow/size. NULL = usar default

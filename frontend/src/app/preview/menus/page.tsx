@@ -503,6 +503,110 @@ function Option6() {
 }
 
 // ============================================================
+// SECTIONS — portadas premium con cover + tagline por sección
+// (Boomerangme style). Cada categoría tiene su propio banner foto y
+// se entra a su listado al tocar la portada.
+// ============================================================
+function Option7() {
+  const SECTIONS = [
+    {
+      title: 'Café de especialidad',
+      tag: '12 OPCIONES',
+      img: 'https://images.unsplash.com/photo-1554118811-1e0d58224f24?w=600&h=400&fit=crop',
+    },
+    {
+      title: 'Postres artesanales',
+      tag: 'HECHO EN CASA',
+      img: 'https://images.unsplash.com/photo-1567306226416-28f0efdc88ce?w=600&h=400&fit=crop',
+    },
+    {
+      title: 'Brunch sábados',
+      tag: '⭐ MÁS PEDIDO',
+      img: 'https://images.unsplash.com/photo-1525351484163-7529414344d8?w=600&h=400&fit=crop',
+    },
+  ];
+  return (
+    <div style={{ background: '#FAFBFC' }} className="min-h-full">
+      <div className="px-4 pt-3 pb-4 bg-white">
+        <div
+          className="w-14 h-14 rounded-2xl mx-auto"
+          style={{ background: LOGO_BG }}
+        />
+        <div className="text-center mt-2 font-bold text-sm">Café del Día</div>
+        <div className="text-center text-[10px] text-gray-500 mt-0.5">
+          Tostadores · Bucaramanga
+        </div>
+      </div>
+      <div className="px-3 pt-3 space-y-2.5">
+        {SECTIONS.map((s, i) => (
+          <div
+            key={i}
+            className="relative rounded-2xl overflow-hidden shadow-sm h-[120px] flex items-end"
+            style={{
+              backgroundImage: `linear-gradient(180deg, rgba(0,0,0,0) 30%, rgba(0,0,0,0.7) 100%), url(${s.img})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+            }}
+          >
+            <div className="p-3 text-white w-full">
+              <div className="text-[9px] uppercase tracking-wider font-bold opacity-90 mb-0.5">
+                {s.tag}
+              </div>
+              <div className="font-bold text-base leading-tight">{s.title}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// FLIPBOOK — menú visual tipo libro. Páginas-imagen swipe horizontal,
+// chips de sección arriba, sin info del negocio (solo el contenido).
+// ============================================================
+function Option8() {
+  const SECTIONS = ['Entradas', 'Sushi', 'Fuerte', 'Postre'];
+  return (
+    <div style={{ background: '#F5F1EA' }} className="min-h-full flex flex-col">
+      {/* Chips de sección */}
+      <div className="px-2 pt-2 pb-1.5 bg-gradient-to-b from-[#F5F1EA] via-[#F5F1EA]/95 to-transparent">
+        <div className="flex gap-1.5 overflow-hidden">
+          <button className="px-3 py-1.5 rounded-full text-[10px] font-semibold whitespace-nowrap text-white shadow-sm bg-[#0F2E1F] flex-none">
+            Entradas
+          </button>
+          {SECTIONS.slice(1).map((s) => (
+            <button
+              key={s}
+              className="px-3 py-1.5 rounded-full text-[10px] font-semibold whitespace-nowrap bg-white/85 text-ink/75 flex-none"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
+      {/* Página imagen edge-to-edge */}
+      <div className="flex-1 flex items-center justify-center px-1">
+        <img
+          src="https://images.unsplash.com/photo-1579871494447-9811cf80d66c?w=600&h=900&fit=crop"
+          alt=""
+          className="w-full h-auto block"
+        />
+      </div>
+      {/* Pill flotante controles */}
+      <div className="self-center mb-2 flex items-center gap-1 px-1.5 py-1 rounded-full bg-white/90 shadow-md">
+        <span className="w-6 h-6 flex items-center justify-center text-xs">←</span>
+        <span className="text-[10px] font-medium px-2 tabular-nums">
+          <strong>1</strong>
+          <span className="opacity-60"> / 8</span>
+        </span>
+        <span className="w-6 h-6 flex items-center justify-center text-xs">→</span>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // Page
 // ============================================================
 export default function MenusPreview() {
@@ -514,7 +618,7 @@ export default function MenusPreview() {
             Preview · Storefront mobile
           </div>
           <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
-            6 maneras de ver el menú en el teléfono
+            8 maneras de ver el menú en el teléfono
           </h1>
           <p className="text-mute mt-2 text-sm max-w-2xl mx-auto">
             Cada negocio elige su estilo desde Mi sitio · Estilo del menú.
@@ -599,13 +703,39 @@ export default function MenusPreview() {
           >
             <Option6 />
           </Phone>
+
+          <Phone
+            num={7}
+            title="Secciones premium"
+            best="Cafés, restaurantes y spas con identidad fuerte por categoría"
+            pros={[
+              'Portadas grandes con foto + tagline',
+              'Cada sección tiene su propio cover',
+              'Estética Boomerangme / Apple',
+            ]}
+          >
+            <Option7 />
+          </Phone>
+
+          <Phone
+            num={8}
+            title="Libro / Flipbook"
+            best="Restaurantes con menú diseñado en PDF/imagen (sushi, pizza, carta cócteles)"
+            pros={[
+              'Subís páginas-imagen del menú impreso',
+              'Swipe horizontal nativo + chips por sección',
+              'Popup opcional por imagen (precio, promo)',
+            ]}
+          >
+            <Option8 />
+          </Phone>
         </div>
 
         <div className="text-center mt-12 text-sm text-mute">
           <div className="inline-flex items-center gap-2 bg-white border border-line rounded-full px-4 py-2 shadow-sm">
-            💡 Mi sugerencia:{' '}
-            <strong className="text-ink">opción 5</strong>
-            {' '}— ya tienes variantes y extras en el modelo
+            💡 Sugerencia:{' '}
+            <strong className="text-ink">opción 5 o 7</strong>
+            {' '}— 5 si tenés variantes/extras; 7 si querés look editorial premium
           </div>
         </div>
       </div>

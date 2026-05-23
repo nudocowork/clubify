@@ -47,6 +47,9 @@ type Storefront = {
   popupDelaySeconds?: number;
   whatsappButtonEnabled?: boolean;
   pageBackgroundColor?: string | null;
+  logoBgColor?: string | null;
+  titleColor?: string | null;
+  descriptionColor?: string | null;
   backButtonConfig?: BackButtonCfg | null;
 };
 
@@ -202,6 +205,9 @@ export default function StorefrontEditor() {
           popupDelaySeconds: sf.popupDelaySeconds ?? 10,
           whatsappButtonEnabled: sf.whatsappButtonEnabled ?? true,
           pageBackgroundColor: sf.pageBackgroundColor ?? null,
+          logoBgColor: sf.logoBgColor ?? null,
+          titleColor: sf.titleColor ?? null,
+          descriptionColor: sf.descriptionColor ?? null,
           backButtonConfig: sf.backButtonConfig ?? null,
         }),
       });
@@ -352,7 +358,7 @@ export default function StorefrontEditor() {
               target="_blank"
               className="text-brand hover:underline"
             >
-              Ver los 5 estilos →
+              Ver los 8 estilos →
             </a>
           </p>
           <div className="grid grid-cols-2 gap-2">
@@ -400,6 +406,69 @@ export default function StorefrontEditor() {
             isCluvi={(sf.menuLayout ?? 'CLASSIC') === 'CLUVI'}
             onChange={(v) => setSf({ ...sf, pageBackgroundColor: v })}
           />
+
+          {/* Colores del header público — contenedor del logo + título +
+              descripción. Permiten matchear el branding cuando el logo o
+              los textos no contrastan con el fondo default (blanco). NULL
+              en los 3 = comportamiento histórico. */}
+          <h3 className="text-base font-semibold mt-6 mb-3">🖼 Logo y texto del header</h3>
+          <p className="text-mute text-xs mb-3 leading-relaxed">
+            Personalizá los colores del header del {mainLabel.toLowerCase()}{' '}
+            público. Útil cuando tu logo es claro (necesita fondo oscuro) u
+            oscuro (necesita fondo claro). Los textos pueden adaptarse al
+            color de fondo que elijas para mantener contraste.
+          </p>
+          <div className="space-y-4">
+            <HeaderColorRow
+              label="Fondo del logo"
+              hint='Cuadro detrás del logo. Usá "Transparente" si tu logo ya trae fondo propio.'
+              value={sf.logoBgColor ?? ''}
+              defaultLabel="Blanco"
+              defaultColor="#FFFFFF"
+              allowTransparent
+              presets={[
+                { color: '#FFFFFF', label: 'Blanco' },
+                { color: '#0a0a0a', label: 'Negro' },
+                { color: '#1F2937', label: 'Gris oscuro' },
+                { color: '#F5F1EA', label: 'Crema' },
+                { color: '#FFF7ED', label: 'Beige' },
+                { color: primaryColor, label: 'Color de marca' },
+              ]}
+              onChange={(v) => setSf({ ...sf, logoBgColor: v })}
+            />
+            <HeaderColorRow
+              label="Color del título"
+              hint="Nombre del negocio en el header."
+              value={sf.titleColor ?? ''}
+              defaultLabel="Negro"
+              defaultColor="#0F172A"
+              presets={[
+                { color: '#0F172A', label: 'Negro' },
+                { color: '#FFFFFF', label: 'Blanco' },
+                { color: '#1F2937', label: 'Gris oscuro' },
+                { color: '#92400E', label: 'Marrón' },
+                { color: '#9F1239', label: 'Vino' },
+                { color: primaryColor, label: 'Color de marca' },
+              ]}
+              onChange={(v) => setSf({ ...sf, titleColor: v })}
+            />
+            <HeaderColorRow
+              label="Color de la descripción"
+              hint="Subtítulo / tagline del negocio."
+              value={sf.descriptionColor ?? ''}
+              defaultLabel="Gris medio"
+              defaultColor="#64748B"
+              presets={[
+                { color: '#64748B', label: 'Gris medio' },
+                { color: '#FFFFFFCC', label: 'Blanco 80%' },
+                { color: '#0F172A', label: 'Negro' },
+                { color: '#A78BFA', label: 'Violeta suave' },
+                { color: '#FBBF24', label: 'Dorado' },
+                { color: primaryColor, label: 'Color de marca' },
+              ]}
+              onChange={(v) => setSf({ ...sf, descriptionColor: v })}
+            />
+          </div>
 
           {/* Solo aparece para SECTIONS — es el único layout que muestra
               el botón "Volver" sobre la portada de cada sección. Para los
@@ -509,6 +578,7 @@ export default function StorefrontEditor() {
           blocksCount={sf.blocks?.length ?? 0}
           savedAt={savedAt}
           mainLabel={mainLabel}
+          menuLayout={sf.menuLayout ?? 'CLASSIC'}
         />
       </div>
     </div>
@@ -652,6 +722,7 @@ function StorefrontPreview({
   blocksCount,
   savedAt,
   mainLabel,
+  menuLayout,
 }: {
   publicHref: string;
   publicUrl: string;
@@ -661,14 +732,29 @@ function StorefrontPreview({
   blocksCount: number;
   savedAt: Date | null;
   mainLabel: string;
+  menuLayout: MenuLayout;
 }) {
-  const [mode, setMode] = useState<'sim' | 'live'>('sim');
+  // Default a 'live' cuando el negocio ya tiene slug: es el único modo
+  // que refleja el layout real (premium / FLIPBOOK / SECTIONS / colores
+  // de header). El SimPreview es un mock genérico estilo CLASSIC y se
+  // queda como fallback informativo si el slug aún no existe.
+  const [mode, setMode] = useState<'sim' | 'live'>(
+    tenantSlug ? 'live' : 'sim',
+  );
   const [iframeKey, setIframeKey] = useState(0);
 
   // Recarga el iframe cada vez que se publica (savedAt cambia).
   useEffect(() => {
     if (mode === 'live' && savedAt) setIframeKey((k) => k + 1);
   }, [savedAt, mode]);
+
+  // Si el layout activo no es CLASSIC, la simulación no lo refleja.
+  // Mostramos un aviso para evitar que el user crea que su menú se ve
+  // así en producción.
+  const simIsFaithful = menuLayout === 'CLASSIC';
+  const layoutLabel = (
+    MENU_LAYOUTS.find((l) => l.id === menuLayout)?.label ?? menuLayout
+  );
 
   // Hora "viva" para que el iPhone se sienta real
   const [now, setNow] = useState<string>('11:42');
@@ -752,12 +838,20 @@ function StorefrontPreview({
 
             <div className="pt-[34px] h-full overflow-hidden">
               {mode === 'sim' ? (
-                <SimPreview
-                  brandName={brandName}
-                  description={description}
-                  blocksCount={blocksCount}
-                  mainLabel={mainLabel}
-                />
+                <div className="h-full overflow-hidden">
+                  {!simIsFaithful && (
+                    <div className="bg-amber-50 border-b border-amber-200 px-2 py-1.5 text-[9px] text-amber-900 leading-snug text-center">
+                      ⚠ La simulación muestra estilo Clásico. Cambiá a{' '}
+                      <strong>En vivo</strong> para ver "{layoutLabel}".
+                    </div>
+                  )}
+                  <SimPreview
+                    brandName={brandName}
+                    description={description}
+                    blocksCount={blocksCount}
+                    mainLabel={mainLabel}
+                  />
+                </div>
               ) : tenantSlug ? (
                 <iframe
                   key={iframeKey}
@@ -1319,6 +1413,140 @@ function PageBgColorPicker({
           ↺ Usar fondo por defecto del layout ({defaultBg})
         </button>
       )}
+    </div>
+  );
+}
+
+// =============================================================
+//                Header color row (logo bg / título / descripción)
+// =============================================================
+
+/** Picker compacto en una fila: swatch | label+hex | presets. Pensado
+ *  para listas verticales de configs de color donde cada item ocupa poco
+ *  espacio. allowTransparent agrega un swatch checker que setea el valor
+ *  literal "transparent" (CSS válido). */
+function HeaderColorRow({
+  label,
+  hint,
+  value,
+  defaultLabel,
+  defaultColor,
+  presets,
+  allowTransparent,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  value: string;
+  defaultLabel: string;
+  defaultColor: string;
+  presets: { color: string; label: string }[];
+  allowTransparent?: boolean;
+  onChange: (v: string | null) => void;
+}) {
+  const isUsingDefault = !value;
+  const isTransparent = value === 'transparent';
+  // input type=color no acepta "transparent" — caemos al default visual.
+  const effective = isTransparent ? defaultColor : value || defaultColor;
+
+  return (
+    <div className="border border-line rounded-lg p-3 space-y-2 bg-bg2/30">
+      <div className="flex items-baseline justify-between gap-2">
+        <div>
+          <div className="text-sm font-semibold">{label}</div>
+          {hint && <div className="text-[11px] text-mute leading-snug">{hint}</div>}
+        </div>
+        {!isUsingDefault && (
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            className="text-[10px] text-mute hover:text-brand underline whitespace-nowrap"
+          >
+            ↺ Default ({defaultLabel})
+          </button>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={effective}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-10 h-10 rounded-md border border-line cursor-pointer flex-none"
+          aria-label={`Selector ${label}`}
+        />
+        <input
+          type="text"
+          className="input font-mono uppercase text-xs flex-1"
+          value={value}
+          placeholder={`Default: ${defaultColor}`}
+          onChange={(e) => {
+            const v = e.target.value.trim();
+            if (!v) {
+              onChange(null);
+              return;
+            }
+            const m = v.match(/^#?([0-9a-fA-F]{3,8})$/);
+            if (m) {
+              onChange('#' + m[1].toLowerCase());
+            } else {
+              onChange(v);
+            }
+          }}
+          maxLength={40}
+        />
+        <div
+          className="w-10 h-10 rounded-md border border-line flex-none"
+          style={
+            isTransparent
+              ? {
+                  backgroundImage:
+                    'linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%), linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%)',
+                  backgroundSize: '8px 8px',
+                  backgroundPosition: '0 0, 4px 4px',
+                }
+              : { background: effective }
+          }
+          title={isTransparent ? 'Transparente' : effective}
+        />
+      </div>
+      <div className="flex gap-1 flex-wrap">
+        {allowTransparent && (
+          <button
+            type="button"
+            onClick={() => onChange('transparent')}
+            className={`w-6 h-6 rounded border-2 transition ${
+              isTransparent ? 'border-ink scale-110' : 'border-white hover:scale-105'
+            }`}
+            style={{
+              backgroundImage:
+                'linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%), linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%)',
+              backgroundSize: '6px 6px',
+              backgroundPosition: '0 0, 3px 3px',
+              boxShadow: '0 0 0 1px rgba(0,0,0,0.1)',
+            }}
+            title="Transparente"
+            aria-label="Transparente"
+          />
+        )}
+        {presets.map((p) => (
+          <button
+            key={p.color + p.label}
+            type="button"
+            onClick={() => onChange(p.color)}
+            className={`w-6 h-6 rounded border-2 transition ${
+              value.toLowerCase() === p.color.toLowerCase()
+                ? 'border-ink scale-110'
+                : 'border-white hover:scale-105'
+            }`}
+            style={{
+              background: p.color,
+              boxShadow: '0 0 0 1px rgba(0,0,0,0.1)',
+            }}
+            title={p.label}
+            aria-label={p.label}
+          />
+        ))}
+      </div>
     </div>
   );
 }

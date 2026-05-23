@@ -35,6 +35,16 @@ class StorefrontBody {
   // Color CSS válido (#hex, rgb(), nombre). null = usar default del layout.
   @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(40)
   pageBackgroundColor?: string | null;
+  // Color de fondo del contenedor del logo (#hex, rgb(), "transparent"...).
+  // null = blanco (default histórico).
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(40)
+  logoBgColor?: string | null;
+  // Color del título del header. null = default por layout.
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(40)
+  titleColor?: string | null;
+  // Color de la descripción del header. null = default por layout.
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(40)
+  descriptionColor?: string | null;
   @ValidateIf((_, v) => v !== null) @IsOptional() @IsObject()
   backButtonConfig?: Record<string, any> | null;
   // Cover de la sección virtual "Recomendados". null = limpiar.
