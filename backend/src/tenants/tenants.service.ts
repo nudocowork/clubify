@@ -59,6 +59,7 @@ export type UpdateTenantDto = Partial<{
   planId: string;
   maxLocationsOverride: number | null;
   reviewAlertsAccountId: string | null;
+  billingAlertsAccountId: string | null;
 }>;
 
 export type UpdateMyTenantDto = Partial<{
@@ -81,6 +82,8 @@ export type UpdateMyTenantDto = Partial<{
   reviewAlertsThreshold: number;
   reviewAlertsPhone: string | null;
   reviewAlertsTemplate: string | null;
+  billingAlertsEnabled: boolean;
+  billingAlertsPhone: string | null;
 }>;
 
 @Injectable()

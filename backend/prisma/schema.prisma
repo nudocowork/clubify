@@ -404,7 +404,19 @@ model Tenant {
   /// admin conecte UNA subcuenta y la asigne a múltiples negocios.
   /// Null = usa creds del tenant directo (comportamiento legacy).
   reviewAlertsAccountId       String?
-  reviewAlertsAccount         GrowBusinessAccount? @relation(fields: [reviewAlertsAccountId], references: [id], onDelete: SetNull)
+  reviewAlertsAccount         GrowBusinessAccount? @relation("ReviewAlertsAccount", fields: [reviewAlertsAccountId], references: [id], onDelete: SetNull)
+  /// SMS administrativos (recordatorios de pago, impago, suspensión).
+  /// Default true para no romper comportamiento legacy — billing
+  /// siempre venía mandando. El owner lo puede apagar desde su panel.
+  billingAlertsEnabled        Boolean      @default(true)
+  /// Teléfono destino del SMS de billing. Null = fallback (owner.phone
+  /// → whatsappPhone → phone), igual que antes.
+  billingAlertsPhone          String?
+  /// Subcuenta global compartida para SMS de billing. Misma idea que
+  /// reviewAlertsAccountId pero para mensajes administrativos. Null =
+  /// fallback a credenciales propias del tenant (legacy).
+  billingAlertsAccountId      String?
+  billingAlertsAccount        GrowBusinessAccount? @relation("BillingAlertsAccount", fields: [billingAlertsAccountId], references: [id], onDelete: SetNull)
   createdAt                   DateTime     @default(now())
 
   users               User[]
@@ -2091,11 +2103,18 @@ model GrowBusinessAccount {
   apiKey        String
   /// Switch number opcional, prepone "#Switch{N}\n\n" al body si está.
   switchNumber  Int?
+  /// Propósito de la subcuenta para que el super admin agrupe en UI y
+  /// para sugerir defaults al asignar a un tenant. Valores libres:
+  /// "BILLING" (recordatorios de pago / cobros), "OPERATIONAL" (reseñas,
+  /// pedidos delivery, alertas operativas), "GENERAL" (cualquier uso).
+  /// Default "GENERAL" para no romper subcuentas previas.
+  purpose       String   @default("GENERAL")
   isDefault     Boolean  @default(false)
   lastTestAt    DateTime?
   lastTestOk    Boolean?
   createdAt     DateTime @default(now())
   deletedAt     DateTime?
 
-  tenants Tenant[]
+  reviewTenants  Tenant[] @relation("ReviewAlertsAccount")
+  billingTenants Tenant[] @relation("BillingAlertsAccount")
 }

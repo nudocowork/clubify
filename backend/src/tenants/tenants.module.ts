@@ -5,9 +5,10 @@ import { TenantMeController } from './me.controller';
 import { StaffController, ChangePasswordController, UserMeController } from './staff.controller';
 import { AuthModule } from '../auth/auth.module';
 import { IntegrationsModule } from '../integrations/integrations.module';
+import { BillingModule } from '../billing/billing.module';
 
 @Module({
-  imports: [AuthModule, IntegrationsModule],
+  imports: [AuthModule, IntegrationsModule, BillingModule],
   providers: [TenantsService],
   controllers: [
     TenantMeController,

@@ -8,6 +8,16 @@ import { PrismaService } from '../common/prisma/prisma.service';
 
 const API = 'https://services.leadconnectorhq.com';
 
+const VALID_PURPOSES = new Set(['BILLING', 'OPERATIONAL', 'GENERAL']);
+
+/** Normaliza purpose a uno de los valores válidos. Cualquier otro string
+ *  (vacío, inválido, casing distinto) cae a "GENERAL". */
+function normalizePurpose(p?: string | null): string {
+  if (!p) return 'GENERAL';
+  const upper = p.trim().toUpperCase();
+  return VALID_PURPOSES.has(upper) ? upper : 'GENERAL';
+}
+
 /**
  * CRUD de subcuentas globales de Grow Business compartidas entre
  * múltiples tenants. La diferencia con `GrowBusinessService` (que
@@ -30,12 +40,15 @@ export class GrowBusinessAccountsService {
     const accounts = await this.prisma.growBusinessAccount.findMany({
       where: { deletedAt: null },
       orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
-      include: { _count: { select: { tenants: true } } },
+      include: {
+        _count: { select: { reviewTenants: true, billingTenants: true } },
+      },
     });
     // Sanitizar: no devolver apiKey completa en la lista (solo prefijo).
     return accounts.map((a) => ({
       id: a.id,
       name: a.name,
+      purpose: a.purpose,
       locationId: a.locationId,
       apiKeyPreview: a.apiKey
         ? a.apiKey.slice(0, 4) + '…' + a.apiKey.slice(-4)
@@ -44,7 +57,10 @@ export class GrowBusinessAccountsService {
       isDefault: a.isDefault,
       lastTestAt: a.lastTestAt,
       lastTestOk: a.lastTestOk,
-      tenantsCount: a._count.tenants,
+      tenantsCount:
+        a._count.reviewTenants + a._count.billingTenants,
+      reviewTenantsCount: a._count.reviewTenants,
+      billingTenantsCount: a._count.billingTenants,
       createdAt: a.createdAt,
     }));
   }
@@ -55,6 +71,7 @@ export class GrowBusinessAccountsService {
     apiKey: string;
     switchNumber?: number | null;
     isDefault?: boolean;
+    purpose?: string;
   }) {
     if (!input.name?.trim()) throw new BadRequestException('Name requerido');
     if (!input.locationId?.trim())
@@ -77,6 +94,7 @@ export class GrowBusinessAccountsService {
         apiKey: input.apiKey.trim(),
         switchNumber: input.switchNumber ?? null,
         isDefault: !!input.isDefault,
+        purpose: normalizePurpose(input.purpose),
       },
     });
   }
@@ -89,6 +107,7 @@ export class GrowBusinessAccountsService {
       apiKey?: string;
       switchNumber?: number | null;
       isDefault?: boolean;
+      purpose?: string;
     },
   ) {
     const existing = await this.prisma.growBusinessAccount.findUnique({
@@ -114,13 +133,15 @@ export class GrowBusinessAccountsService {
           input.switchNumber === undefined ? undefined : input.switchNumber,
         isDefault:
           input.isDefault === undefined ? undefined : !!input.isDefault,
+        purpose:
+          input.purpose === undefined ? undefined : normalizePurpose(input.purpose),
       },
     });
   }
 
-  /** Soft delete: SET deletedAt y rompe asignaciones (los tenants
-   *  vinculados quedan con reviewAlertsAccountId=null por la FK
-   *  ON DELETE SET NULL). */
+  /** Soft delete: SET deletedAt y rompe asignaciones de los tenants
+   *  vinculados (tanto reviewAlerts como billingAlerts). La FK también
+   *  tiene ON DELETE SET NULL como red de seguridad. */
   async remove(id: string) {
     const existing = await this.prisma.growBusinessAccount.findUnique({
       where: { id },
@@ -130,6 +151,10 @@ export class GrowBusinessAccountsService {
       this.prisma.tenant.updateMany({
         where: { reviewAlertsAccountId: id },
         data: { reviewAlertsAccountId: null },
+      }),
+      this.prisma.tenant.updateMany({
+        where: { billingAlertsAccountId: id },
+        data: { billingAlertsAccountId: null },
       }),
       this.prisma.growBusinessAccount.update({
         where: { id },

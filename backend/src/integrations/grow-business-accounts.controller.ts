@@ -24,6 +24,7 @@ class CreateAccountDto {
   @IsString() @MinLength(10) apiKey!: string;
   @IsOptional() @IsInt() @Min(1) switchNumber?: number | null;
   @IsOptional() @IsBoolean() isDefault?: boolean;
+  @IsOptional() @IsString() purpose?: string;
 }
 
 class UpdateAccountDto {
@@ -32,6 +33,7 @@ class UpdateAccountDto {
   @IsOptional() @IsString() @MinLength(10) apiKey?: string;
   @IsOptional() switchNumber?: number | null;
   @IsOptional() @IsBoolean() isDefault?: boolean;
+  @IsOptional() @IsString() purpose?: string;
 }
 
 @Controller('admin/integrations/grow-business-accounts')

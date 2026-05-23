@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { Response } from 'express';
 import { GrowBusinessService } from '../integrations/grow-business.service';
+import { BillingService } from '../billing/billing.service';
 import {
   IsBoolean,
   IsHexColor,
@@ -48,6 +49,10 @@ class UpdateMyBody {
   @IsOptional() @IsInt() @Min(1) @Max(3) reviewAlertsThreshold?: number;
   @IsOptional() @IsString() reviewAlertsPhone?: string | null;
   @IsOptional() @IsString() reviewAlertsTemplate?: string | null;
+  // Alertas SMS administrativas (recordatorios de pago / impago /
+  // suspensión). Default true en DB para preservar comportamiento legacy.
+  @IsOptional() @IsBoolean() billingAlertsEnabled?: boolean;
+  @IsOptional() @IsString() billingAlertsPhone?: string | null;
 }
 
 @Controller('tenants/me')
@@ -57,7 +62,43 @@ export class TenantMeController {
     private svc: TenantsService,
     private prisma: PrismaService,
     private growBusiness: GrowBusinessService,
+    private billing: BillingService,
   ) {}
+
+  /** Test del SMS de billing — manda un mensaje genérico al teléfono de
+   *  billing configurado por el owner. Útil para validar la cadena
+   *  subcuenta global > creds tenant + teléfono override antes de
+   *  esperar un cron o un webhook real. */
+  @Post('billing-alerts/test')
+  async testBillingAlert(@CurrentUser() user: AuthUser) {
+    if (!user.tenantId) throw new ForbiddenException();
+    const target = await this.billing.resolveBillingTarget(user.tenantId);
+    if (!target) {
+      throw new BadRequestException(
+        'No hay credenciales / teléfono configurado para alertas de pago. ' +
+          'Revisá que la subcuenta esté asignada (o que tu negocio tenga ' +
+          'su propia conexión Grow Business) y que las alertas estén activadas.',
+      );
+    }
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: user.tenantId },
+      select: { brandName: true },
+    });
+    const body =
+      '🧪 Test de alertas de pago\n\n' +
+      `Negocio: ${t?.brandName ?? '—'}\n` +
+      'Si recibís este SMS, los recordatorios de pago de Clubify están listos.';
+    const result = await this.growBusiness.sendSmsWithCreds(
+      target.creds,
+      target.phone,
+      body,
+    );
+    return {
+      ok: result.ok,
+      toPhone: target.phone,
+      response: result,
+    };
+  }
 
   /** Test del SMS de alerta de reseña — manda un mensaje real con data
    *  ficticia al teléfono configurado. Sirve para que el owner valide
