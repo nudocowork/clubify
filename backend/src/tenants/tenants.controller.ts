@@ -49,6 +49,9 @@ class UpdateTenantBody {
   // Asignar subcuenta global de Grow Business para SMS de billing
   // (recordatorios de pago, impago, suspensión). null = creds tenant.
   @IsOptional() billingAlertsAccountId?: string | null;
+  // Asignar subcuenta global de Grow Business para SMS a empresas de
+  // domicilio cuando pedidos delivery cambian de estado. null = tenant.
+  @IsOptional() deliveryAlertsAccountId?: string | null;
 }
 
 @Controller('tenants')

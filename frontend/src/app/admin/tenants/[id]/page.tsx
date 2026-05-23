@@ -377,6 +377,8 @@ export default function TenantDetail() {
 
         <BillingAlertsAccountCard tenant={t} onSaved={load} />
 
+        <DeliveryAlertsAccountCard tenant={t} onSaved={load} />
+
         <ReviewAlertsLogsCard tenantId={t.id} />
 
         <BillingNotificationsCard tenant={t} />
@@ -472,6 +474,26 @@ function BillingAlertsAccountCard({
   );
 }
 
+function DeliveryAlertsAccountCard({
+  tenant,
+  onSaved,
+}: {
+  tenant: any;
+  onSaved: () => void;
+}) {
+  return (
+    <AlertsAccountCard
+      tenant={tenant}
+      onSaved={onSaved}
+      field="deliveryAlertsAccountId"
+      title="🛵 Subcuenta SMS para alertas de domicilio"
+      description="Elegí qué subcuenta Grow Business usar para los SMS a empresas de domicilio cuando un pedido delivery cambia de estado."
+      preferredPurpose="OPERATIONAL"
+      radioName="gb-delivery-account"
+    />
+  );
+}
+
 /** Componente reusable: card con radio buttons para elegir subcuenta
  *  global asignada a un campo específico del tenant. Las subcuentas se
  *  ordenan poniendo primero las del `preferredPurpose` (BILLING para
@@ -488,7 +510,10 @@ function AlertsAccountCard({
 }: {
   tenant: any;
   onSaved: () => void;
-  field: 'reviewAlertsAccountId' | 'billingAlertsAccountId';
+  field:
+    | 'reviewAlertsAccountId'
+    | 'billingAlertsAccountId'
+    | 'deliveryAlertsAccountId';
   title: string;
   description: string;
   preferredPurpose: 'BILLING' | 'OPERATIONAL';

@@ -53,6 +53,13 @@ class UpdateMyBody {
   // suspensión). Default true en DB para preservar comportamiento legacy.
   @IsOptional() @IsBoolean() billingAlertsEnabled?: boolean;
   @IsOptional() @IsString() billingAlertsPhone?: string | null;
+  // Alertas SMS a empresas de domicilio cuando pedidos delivery cambian
+  // de estado. Default off (opt-in).
+  @IsOptional() @IsBoolean() deliveryAlertsEnabled?: boolean;
+  // Array de teléfonos destino — JSON libre, frontend valida formato.
+  @IsOptional() deliveryAlertsPhones?: string[] | null;
+  // Array de eventos suscritos: 'created' | 'confirmed' | 'ready' | 'delivered'.
+  @IsOptional() deliveryAlertsEvents?: string[] | null;
 }
 
 @Controller('tenants/me')
@@ -64,6 +71,89 @@ export class TenantMeController {
     private growBusiness: GrowBusinessService,
     private billing: BillingService,
   ) {}
+
+  /** Test del SMS de delivery — manda un mensaje al primer teléfono
+   *  configurado en deliveryAlertsPhones (o whatsappDeliveryPhone si
+   *  el array está vacío). Útil para validar antes de recibir un
+   *  pedido real. */
+  @Post('delivery-alerts/test')
+  async testDeliveryAlert(@CurrentUser() user: AuthUser) {
+    if (!user.tenantId) throw new ForbiddenException();
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: user.tenantId },
+      select: {
+        id: true,
+        brandName: true,
+        whatsappDeliveryPhone: true,
+        deliveryAlertsPhones: true,
+        deliveryAlertsAccountId: true,
+        growBusinessLocationId: true,
+        growBusinessApiKey: true,
+        growBusinessSwitchNumber: true,
+      },
+    });
+    if (!tenant) throw new ForbiddenException();
+
+    const phones: string[] = Array.isArray(tenant.deliveryAlertsPhones)
+      ? (tenant.deliveryAlertsPhones as string[]).filter(
+          (p) => typeof p === 'string' && p.trim().length >= 6,
+        )
+      : [];
+    if (phones.length === 0 && tenant.whatsappDeliveryPhone) {
+      phones.push(tenant.whatsappDeliveryPhone);
+    }
+    if (phones.length === 0) {
+      throw new BadRequestException(
+        'Sin teléfonos destino — agregá al menos uno antes de probar.',
+      );
+    }
+
+    let creds: {
+      locationId: string;
+      apiKey: string;
+      switchNumber: number | null;
+    } | null = null;
+    if (tenant.deliveryAlertsAccountId) {
+      const acc = await this.prisma.growBusinessAccount.findFirst({
+        where: { id: tenant.deliveryAlertsAccountId, deletedAt: null },
+        select: { locationId: true, apiKey: true, switchNumber: true },
+      });
+      if (acc) {
+        creds = {
+          locationId: acc.locationId,
+          apiKey: acc.apiKey,
+          switchNumber: acc.switchNumber,
+        };
+      }
+    }
+    if (!creds && tenant.growBusinessLocationId && tenant.growBusinessApiKey) {
+      creds = {
+        locationId: tenant.growBusinessLocationId,
+        apiKey: tenant.growBusinessApiKey,
+        switchNumber: tenant.growBusinessSwitchNumber,
+      };
+    }
+    if (!creds) {
+      throw new BadRequestException(
+        'Sin credenciales — asigná una subcuenta o conectá Grow Business para el negocio.',
+      );
+    }
+
+    const body =
+      '🧪 Test de alerta de domicilio\n\n' +
+      `Negocio: ${tenant.brandName}\n` +
+      'Si recibiste este SMS, las alertas de pedidos delivery están listas.';
+    const results = await Promise.all(
+      phones.map(async (p) => {
+        const r = await this.growBusiness
+          .sendSmsWithCreds(creds!, p, body)
+          .catch((e) => ({ ok: false as const, message: e?.message }));
+        return { phone: p, ok: r.ok, message: !r.ok ? (r as any).message : null };
+      }),
+    );
+    const okCount = results.filter((r) => r.ok).length;
+    return { ok: okCount > 0, total: phones.length, okCount, results };
+  }
 
   /** Test del SMS de billing — manda un mensaje genérico al teléfono de
    *  billing configurado por el owner. Útil para validar la cadena

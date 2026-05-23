@@ -29,6 +29,7 @@ type Account = {
   tenantsCount: number;
   reviewTenantsCount?: number;
   billingTenantsCount?: number;
+  deliveryTenantsCount?: number;
   createdAt: string;
 };
 
@@ -223,10 +224,12 @@ export default function IntegrationsPage() {
                       <span className="font-semibold">Negocios usándola:</span>{' '}
                       {acc.tenantsCount}
                       {(acc.reviewTenantsCount != null ||
-                        acc.billingTenantsCount != null) && (
+                        acc.billingTenantsCount != null ||
+                        acc.deliveryTenantsCount != null) && (
                         <span className="text-[10px] ml-1">
                           (reseñas: {acc.reviewTenantsCount ?? 0} · pagos:{' '}
-                          {acc.billingTenantsCount ?? 0})
+                          {acc.billingTenantsCount ?? 0} · delivery:{' '}
+                          {acc.deliveryTenantsCount ?? 0})
                         </span>
                       )}
                       {acc.lastTestAt && (

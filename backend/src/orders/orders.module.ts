@@ -8,9 +8,17 @@ import { PromotionsModule } from '../promotions/promotions.module';
 import { AutomationsModule } from '../automations/automations.module';
 import { AuthModule } from '../auth/auth.module';
 import { WalletModule } from '../wallet/wallet.module';
+import { IntegrationsModule } from '../integrations/integrations.module';
 
 @Module({
-  imports: [ChannelsModule, PromotionsModule, AutomationsModule, AuthModule, WalletModule],
+  imports: [
+    ChannelsModule,
+    PromotionsModule,
+    AutomationsModule,
+    AuthModule,
+    WalletModule,
+    IntegrationsModule,
+  ],
   providers: [OrdersService, OrdersGateway],
   controllers: [OrdersController, PublicOrdersController],
   exports: [OrdersService, OrdersGateway],
