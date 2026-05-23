@@ -145,7 +145,7 @@ function LoginInner() {
         <div className="mt-4 text-center text-xs text-mute">
           ¿No tienes cuenta?{' '}
           <Link href="/signup" className="text-brand hover:underline font-medium">
-            Crea una gratis
+            Adquiérelo aquí
           </Link>
         </div>
       </form>
