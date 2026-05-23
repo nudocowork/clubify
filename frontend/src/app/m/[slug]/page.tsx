@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import {
   addToCart,
@@ -123,12 +123,65 @@ function fmtProductPrice(
   currency = 'COP',
 ): string {
   if (p.priceMode === 'RANGE' && p.priceMax != null && p.priceMax > p.basePrice) {
-    return `${fmtProductPrice(p, currency)} — ${fmt(
+    return `${fmt(Number(p.basePrice), currency)} — ${fmt(
       Number(p.priceMax),
       currency,
     )}`;
   }
   return fmt(Number(p.basePrice), currency);
+}
+
+/** Aplana una categoría en blocks de productos: el primer block son
+ *  los productos directos de la categoría (sin sub-header, title=null),
+ *  los siguientes son cada subsección con su título. Si una sección
+ *  no tiene subsections, devuelve un único block.
+ *
+ *  Bloques con products vacíos se filtran — no inflan UI con headers
+ *  huérfanos. Usado por todos los layouts vertical-acordeón. */
+function getProductBlocks(
+  cat: Category,
+): Array<{ id: string; title: string | null; products: Product[] }> {
+  const blocks: Array<{ id: string; title: string | null; products: Product[] }> =
+    [];
+  if (cat.products.length > 0) {
+    blocks.push({ id: cat.id, title: null, products: cat.products });
+  }
+  for (const sub of cat.subsections ?? []) {
+    if (sub.products.length > 0) {
+      blocks.push({ id: sub.id, title: sub.name, products: sub.products });
+    }
+  }
+  return blocks;
+}
+
+/** Sub-header visual para subsecciones dentro de una categoría. Estilo
+ *  diferente del header de categoría (más sutil) para que la jerarquía
+ *  se entienda visualmente sin competir. */
+function SubsectionHeader({
+  title,
+  primary,
+  isCluvi,
+}: {
+  title: string;
+  primary: string;
+  isCluvi?: boolean;
+}) {
+  return (
+    <div className="mt-5 mb-2 first:mt-0 flex items-center gap-2">
+      <div
+        className="w-1 h-4 rounded-sm"
+        style={{ background: primary }}
+        aria-hidden
+      />
+      <h3
+        className={`text-[11px] uppercase tracking-[0.16em] font-bold m-0 ${
+          isCluvi ? 'text-white/80' : 'text-ink/80'
+        }`}
+      >
+        {title}
+      </h3>
+    </div>
+  );
 }
 
 export default function StorefrontPublicWrapper() {
@@ -1720,13 +1773,22 @@ function LayoutClassic({ menu, primary, currency, onPick }: LP) {
             <h2 className="text-xs uppercase tracking-[0.18em] text-mute font-semibold">
               {cat.name}{' '}
               <span className="text-mute/70 font-normal normal-case tracking-normal">
-                · {cat.products.length}
+                · {cat.products.length +
+                  (cat.subsections ?? []).reduce(
+                    (n, s) => n + s.products.length,
+                    0,
+                  )}
               </span>
             </h2>
           }
         >
           <div className="space-y-2.5">
-            {cat.products.map((p) => (
+            {getProductBlocks(cat).map((block) => (
+              <Fragment key={block.id}>
+                {block.title && (
+                  <SubsectionHeader title={block.title} primary={primary} />
+                )}
+                {block.products.map((p) => (
               <button
                 key={p.id}
                 onClick={() => onPick(p)}
@@ -1763,6 +1825,8 @@ function LayoutClassic({ menu, primary, currency, onPick }: LP) {
                   +
                 </div>
               </button>
+                ))}
+              </Fragment>
             ))}
           </div>
         </AccordionSection>
@@ -1784,13 +1848,24 @@ function LayoutGrid({ menu, primary, currency, onPick }: LP) {
             <h2 className="text-xs uppercase tracking-[0.18em] text-mute font-semibold">
               {cat.name}{' '}
               <span className="text-mute/70 font-normal normal-case tracking-normal">
-                · {cat.products.length}
+                · {cat.products.length +
+                  (cat.subsections ?? []).reduce(
+                    (n, s) => n + s.products.length,
+                    0,
+                  )}
               </span>
             </h2>
           }
         >
           <div className="grid grid-cols-2 gap-3">
-            {cat.products.map((p) => (
+            {getProductBlocks(cat).map((block) => (
+              <Fragment key={block.id}>
+                {block.title && (
+                  <div className="col-span-2">
+                    <SubsectionHeader title={block.title} primary={primary} />
+                  </div>
+                )}
+                {block.products.map((p) => (
               <button
                 key={p.id}
                 onClick={() => onPick(p)}
@@ -1823,6 +1898,8 @@ function LayoutGrid({ menu, primary, currency, onPick }: LP) {
                   </div>
                 </div>
               </button>
+                ))}
+              </Fragment>
             ))}
           </div>
         </AccordionSection>
@@ -1833,46 +1910,69 @@ function LayoutGrid({ menu, primary, currency, onPick }: LP) {
 
 // 3️⃣ CAROUSELS — scroll horizontal por categoría (Netflix)
 function LayoutCarousels({ menu, primary, currency, onPick }: LP) {
+  // Cada categoría se vuelve N carruseles: 1 por productos directos +
+  // 1 por subsección con productos. Cada carrusel mantiene su scroll
+  // independiente — más legible que mezclar todo en uno solo.
+  const blocksByCat = menu.map((cat) => ({
+    cat,
+    blocks: getProductBlocks(cat),
+  }));
   return (
     <>
-      {menu.map((cat) => (
+      {blocksByCat.map(({ cat, blocks }) => (
         <section key={cat.id} className="mb-7">
           <div className="flex items-baseline justify-between mb-2.5 px-1">
             <h2 className="font-bold text-base">{cat.name}</h2>
-            <span className="text-xs text-mute">{cat.products.length} productos</span>
+            <span className="text-xs text-mute">
+              {cat.products.length +
+                (cat.subsections ?? []).reduce(
+                  (n, s) => n + s.products.length,
+                  0,
+                )}{' '}
+              productos
+            </span>
           </div>
-          <div className="flex gap-3 overflow-x-auto pb-2 -mx-5 px-5 snap-x snap-mandatory">
-            {cat.products.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => onPick(p)}
-                className="w-[140px] flex-none text-left snap-start"
-              >
-                <div className="aspect-square rounded-xl overflow-hidden relative bg-bg2">
-                  {p.imageUrl ? (
-                    <img src={p.imageUrl} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-3xl text-mute">
-                      🍽
+          {blocks.map((block) => (
+            <Fragment key={block.id}>
+              {block.title && (
+                <div className="px-1">
+                  <SubsectionHeader title={block.title} primary={primary} />
+                </div>
+              )}
+              <div className="flex gap-3 overflow-x-auto pb-2 -mx-5 px-5 snap-x snap-mandatory mb-3">
+                {block.products.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => onPick(p)}
+                    className="w-[140px] flex-none text-left snap-start"
+                  >
+                    <div className="aspect-square rounded-xl overflow-hidden relative bg-bg2">
+                      {p.imageUrl ? (
+                        <img src={p.imageUrl} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-3xl text-mute">
+                          🍽
+                        </div>
+                      )}
+                      {p.tags[0] && (
+                        <span className="absolute top-1.5 left-1.5 text-[8px] uppercase tracking-wider bg-white/95 text-ink font-bold px-1 py-0.5 rounded">
+                          {p.tags[0]}
+                        </span>
+                      )}
                     </div>
-                  )}
-                  {p.tags[0] && (
-                    <span className="absolute top-1.5 left-1.5 text-[8px] uppercase tracking-wider bg-white/95 text-ink font-bold px-1 py-0.5 rounded">
-                      {p.tags[0]}
-                    </span>
-                  )}
-                </div>
-                <div className="mt-1 px-0.5">
-                  <div className="text-xs font-semibold leading-tight line-clamp-2 min-h-[2.4em]">
-                    {p.name}
-                  </div>
-                  <div className="text-sm font-bold mt-0.5" style={{ color: primary }}>
-                    {fmtProductPrice(p, currency)}
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
+                    <div className="mt-1 px-0.5">
+                      <div className="text-xs font-semibold leading-tight line-clamp-2 min-h-[2.4em]">
+                        {p.name}
+                      </div>
+                      <div className="text-sm font-bold mt-0.5" style={{ color: primary }}>
+                        {fmtProductPrice(p, currency)}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </Fragment>
+          ))}
         </section>
       ))}
     </>
@@ -1880,7 +1980,7 @@ function LayoutCarousels({ menu, primary, currency, onPick }: LP) {
 }
 
 // 4️⃣ CLEAN — sin fotos, serif elegante (boutique)
-function LayoutClean({ menu, currency, onPick }: LP) {
+function LayoutClean({ menu, primary, currency, onPick }: LP) {
   return (
     <div className="font-serif">
       {menu.map((cat) => (
@@ -1899,7 +1999,18 @@ function LayoutClean({ menu, currency, onPick }: LP) {
           }
         >
           <div className="space-y-4">
-            {cat.products.map((p) => (
+            {getProductBlocks(cat).map((block) => (
+              <Fragment key={block.id}>
+                {block.title && (
+                  /* Sub-header serif italic centrado, consistente con la
+                     vibe boutique del layout. */
+                  <div className="text-center pt-2">
+                    <div className="text-[11px] tracking-[0.2em] uppercase italic text-mute">
+                      ~ {block.title} ~
+                    </div>
+                  </div>
+                )}
+                {block.products.map((p) => (
               <button
                 key={p.id}
                 onClick={() => onPick(p)}
@@ -1920,6 +2031,8 @@ function LayoutClean({ menu, currency, onPick }: LP) {
                   </div>
                 )}
               </button>
+                ))}
+              </Fragment>
             ))}
           </div>
         </AccordionSection>
@@ -1956,19 +2069,32 @@ function LayoutCompact({ menu, primary, currency, onPick }: LP) {
             <h2 className="font-bold text-sm mt-1">
               {cat.name}{' '}
               <span className="text-mute font-normal text-xs">
-                · {cat.products.length}
+                · {cat.products.length +
+                  (cat.subsections ?? []).reduce(
+                    (n, s) => n + s.products.length,
+                    0,
+                  )}
               </span>
             </h2>
           }
         >
           <div className="bg-white rounded-card border border-line overflow-hidden">
-            {cat.products.map((p, i) => (
+            {getProductBlocks(cat).map((block) => (
+              <Fragment key={block.id}>
+                {block.title && (
+                  /* Sub-header como row del card, color de marca. */
+                  <div
+                    className="px-3.5 py-1.5 text-[10px] uppercase tracking-[0.16em] font-bold border-b border-line bg-bg2/40"
+                    style={{ color: primary }}
+                  >
+                    {block.title}
+                  </div>
+                )}
+                {block.products.map((p) => (
               <button
                 key={p.id}
                 onClick={() => onPick(p)}
-                className={`w-full text-left px-3.5 py-3 hover:bg-bg2/50 transition ${
-                  i < cat.products.length - 1 ? 'border-b border-line' : ''
-                }`}
+                className="w-full text-left px-3.5 py-3 hover:bg-bg2/50 transition border-b border-line last:border-b-0"
               >
                 <div className="flex items-baseline justify-between gap-2">
                   <div className="font-semibold text-sm flex items-center gap-1.5">
@@ -1990,6 +2116,8 @@ function LayoutCompact({ menu, primary, currency, onPick }: LP) {
                   <div className="text-[11px] text-mute mt-0.5 line-clamp-1">{p.description}</div>
                 )}
               </button>
+                ))}
+              </Fragment>
             ))}
           </div>
         </AccordionSection>
@@ -2019,7 +2147,16 @@ function LayoutCluvi({ menu, primary, currency, onPick }: LP) {
           }
         >
           <div className="space-y-3">
-            {cat.products.map((p) => (
+            {getProductBlocks(cat).map((block) => (
+              <Fragment key={block.id}>
+                {block.title && (
+                  <SubsectionHeader
+                    title={block.title}
+                    primary={primary}
+                    isCluvi
+                  />
+                )}
+                {block.products.map((p) => (
               <button
                 key={p.id}
                 onClick={() => onPick(p)}
@@ -2058,6 +2195,8 @@ function LayoutCluvi({ menu, primary, currency, onPick }: LP) {
                   </div>
                 </div>
               </button>
+                ))}
+              </Fragment>
             ))}
           </div>
         </AccordionSection>
