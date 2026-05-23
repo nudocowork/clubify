@@ -189,19 +189,23 @@ export class OrdersService {
         (addr ? `Dirección: ${addr}\n` : '') +
         (order.customerNote ? `\nNota: ${order.customerNote}` : '');
 
-      // Idempotencia: si ya mandamos este eventKey para este order, skip.
+      // Idempotencia: si ya mandamos ESTE eventKey para este order, skip.
+      // El filtro en payload debe ser por (orderId AND eventKey) — sino el
+      // findFirst trae cualquier event 'sent' del order y un chequeo
+      // posterior `existing.eventKey === eventKey` puede fallar cuando
+      // existing es de OTRO eventKey, permitiendo duplicados.
       const existing = await this.prisma.event.findFirst({
         where: {
           tenantId,
-          type: `delivery.sms_alert_sent`,
-          payload: {
-            path: ['orderId'],
-            equals: orderId,
-          },
+          type: 'delivery.sms_alert_sent',
+          AND: [
+            { payload: { path: ['orderId'], equals: orderId } },
+            { payload: { path: ['eventKey'], equals: eventKey } },
+          ],
         },
-        select: { id: true, payload: true },
+        select: { id: true },
       });
-      if (existing && (existing.payload as any)?.eventKey === eventKey) return;
+      if (existing) return;
 
       // Mandar a cada destino, registrar como un único evento con
       // resumen de éxitos/fallos para no inflar la tabla.

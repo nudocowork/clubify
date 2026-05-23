@@ -2082,9 +2082,11 @@ function LayoutCompact({ menu, primary, currency, onPick }: LP) {
             {getProductBlocks(cat).map((block) => (
               <Fragment key={block.id}>
                 {block.title && (
-                  /* Sub-header como row del card, color de marca. */
+                  /* Sub-header del card. Sin border-b — el bg-bg2/40 lo
+                     separa visualmente y evita doble línea con el border
+                     del último button del block previo. */
                   <div
-                    className="px-3.5 py-1.5 text-[10px] uppercase tracking-[0.16em] font-bold border-b border-line bg-bg2/40"
+                    className="px-3.5 py-1.5 text-[10px] uppercase tracking-[0.16em] font-bold bg-bg2/40"
                     style={{ color: primary }}
                   >
                     {block.title}
