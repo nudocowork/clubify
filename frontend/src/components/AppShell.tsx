@@ -223,6 +223,7 @@ export default function AppShell({
               { href: '/admin/business-categories', label: 'Categorías', icon: 'grid' },
               { href: '/admin/ai-knowledge', label: 'IA · Knowledge', icon: 'spark' },
               { href: '/admin/branding', label: 'Branding', icon: 'spark' },
+              { href: '/admin/integrations', label: 'Integraciones SMS', icon: 'spark' },
               { href: '/admin/maintenance', label: 'Mantenimiento', icon: 'grid' },
               { href: '/admin/audit', label: 'Audit log', icon: 'history' },
             ],

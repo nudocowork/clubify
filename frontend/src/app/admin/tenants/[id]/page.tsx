@@ -373,6 +373,8 @@ export default function TenantDetail() {
 
         <GrowBusinessCard tenantId={t.id} planName={t.plan?.name ?? null} />
 
+        <ReviewAlertsAccountCard tenant={t} onSaved={load} />
+
         <ReviewAlertsLogsCard tenantId={t.id} />
 
         <BillingNotificationsCard tenant={t} />
@@ -415,6 +417,173 @@ type ReviewAlertEvent = {
   payload: any;
   createdAt: string;
 };
+
+// ============================================================
+//   Asignación de subcuenta SMS global para alertas de reseñas
+// ============================================================
+
+type GbAccountOption = {
+  id: string;
+  name: string;
+  isDefault: boolean;
+  lastTestOk: boolean | null;
+};
+
+function ReviewAlertsAccountCard({
+  tenant,
+  onSaved,
+}: {
+  tenant: any;
+  onSaved: () => void;
+}) {
+  const [accounts, setAccounts] = useState<GbAccountOption[] | null>(null);
+  const [selected, setSelected] = useState<string>(
+    tenant.reviewAlertsAccountId ?? '',
+  );
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setSelected(tenant.reviewAlertsAccountId ?? '');
+  }, [tenant.reviewAlertsAccountId]);
+
+  useEffect(() => {
+    api<GbAccountOption[]>('/admin/integrations/grow-business-accounts')
+      .then((data) =>
+        setAccounts(
+          data.map((a: any) => ({
+            id: a.id,
+            name: a.name,
+            isDefault: a.isDefault,
+            lastTestOk: a.lastTestOk,
+          })),
+        ),
+      )
+      .catch((e: any) => toast(e.message || 'No se cargaron las subcuentas', 'error'));
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await api(`/tenants/${tenant.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          reviewAlertsAccountId: selected || null,
+        }),
+      });
+      toast('Subcuenta asignada', 'success');
+      onSaved();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo guardar', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const dirty = (selected || '') !== (tenant.reviewAlertsAccountId ?? '');
+
+  return (
+    <div className="card card-pad">
+      <h3 className="text-base font-semibold m-0 flex items-center gap-2">
+        📲 Subcuenta SMS para alertas de reseñas
+      </h3>
+      <p className="text-xs text-mute mt-1 leading-relaxed">
+        Elegí qué subcuenta Grow Business usar para los SMS de este
+        negocio. Las subcuentas se gestionan en{' '}
+        <Link
+          href="/admin/integrations"
+          className="text-brand hover:underline"
+        >
+          Integraciones SMS
+        </Link>
+        .
+      </p>
+
+      {accounts === null && (
+        <div className="text-xs text-mute mt-3">Cargando subcuentas…</div>
+      )}
+
+      {accounts && accounts.length === 0 && (
+        <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-900">
+          No hay subcuentas registradas todavía.{' '}
+          <Link href="/admin/integrations" className="font-semibold underline">
+            Creá la primera →
+          </Link>
+        </div>
+      )}
+
+      {accounts && accounts.length > 0 && (
+        <>
+          <div className="mt-3 space-y-1">
+            <label className="flex items-center gap-2 p-2 rounded hover:bg-bg2/40 cursor-pointer">
+              <input
+                type="radio"
+                name="gb-account"
+                checked={selected === ''}
+                onChange={() => setSelected('')}
+                className="accent-brand"
+              />
+              <div>
+                <div className="text-sm font-medium">
+                  Usar credenciales propias del negocio
+                </div>
+                <div className="text-[11px] text-mute">
+                  Comportamiento legacy — usa las credenciales pegadas en
+                  el card Grow Business arriba.
+                </div>
+              </div>
+            </label>
+            {accounts.map((acc) => (
+              <label
+                key={acc.id}
+                className="flex items-center gap-2 p-2 rounded hover:bg-bg2/40 cursor-pointer"
+              >
+                <input
+                  type="radio"
+                  name="gb-account"
+                  checked={selected === acc.id}
+                  onChange={() => setSelected(acc.id)}
+                  className="accent-brand"
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium flex items-center gap-2">
+                    {acc.name}
+                    {acc.isDefault && (
+                      <span className="text-[9px] uppercase tracking-wider font-bold bg-brand/15 text-brand px-1.5 py-0.5 rounded">
+                        Default
+                      </span>
+                    )}
+                    {acc.lastTestOk === true && (
+                      <span className="text-[9px] uppercase tracking-wider font-bold bg-ok/15 text-ok px-1.5 py-0.5 rounded">
+                        OK
+                      </span>
+                    )}
+                    {acc.lastTestOk === false && (
+                      <span className="text-[9px] uppercase tracking-wider font-bold bg-bad/15 text-bad px-1.5 py-0.5 rounded">
+                        Falló
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </label>
+            ))}
+          </div>
+
+          {dirty && (
+            <div className="mt-3 flex justify-end">
+              <button
+                onClick={save}
+                disabled={saving}
+                className="btn-primary text-sm"
+              >
+                {saving ? 'Guardando…' : 'Guardar asignación'}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
 
 function ReviewAlertsLogsCard({ tenantId }: { tenantId: string }) {
   const [logs, setLogs] = useState<ReviewAlertEvent[] | null>(null);
