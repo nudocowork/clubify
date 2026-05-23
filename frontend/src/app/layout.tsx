@@ -40,18 +40,23 @@ export async function generateMetadata(): Promise<Metadata> {
   const FAVICON_VERSION = '2026-05-16';
   const v = (url: string) =>
     url.includes('?') ? `${url}&v=${FAVICON_VERSION}` : `${url}?v=${FAVICON_VERSION}`;
+  // Si hay branding.faviconUrl (custom del super admin), va primero. Pero
+  // SIEMPRE incluimos los locales como fallback — si la URL de R2 falla
+  // (cdn caído, imagen corrupta), el browser cae al siguiente disponible
+  // en lugar de quedarse sin favicon visible.
+  const localIcons = [
+    { url: v('/icons/icon.svg'), type: 'image/svg+xml' },
+    { url: v('/favicon-16.png'), sizes: '16x16', type: 'image/png' },
+    { url: v('/favicon-32.png'), sizes: '32x32', type: 'image/png' },
+    { url: v('/favicon-48.png'), sizes: '48x48', type: 'image/png' },
+    { url: v('/favicon-96.png'), sizes: '96x96', type: 'image/png' },
+    { url: v('/icons/icon-192.png'), sizes: '192x192', type: 'image/png' },
+    { url: v('/icons/icon-512.png'), sizes: '512x512', type: 'image/png' },
+    { url: v('/favicon.ico'), sizes: 'any' },
+  ];
   const icon = faviconUrl
-    ? [{ url: faviconUrl, type: 'image/png' }]
-    : [
-        { url: v('/icons/icon.svg'), type: 'image/svg+xml' },
-        { url: v('/favicon-16.png'), sizes: '16x16', type: 'image/png' },
-        { url: v('/favicon-32.png'), sizes: '32x32', type: 'image/png' },
-        { url: v('/favicon-48.png'), sizes: '48x48', type: 'image/png' },
-        { url: v('/favicon-96.png'), sizes: '96x96', type: 'image/png' },
-        { url: v('/icons/icon-192.png'), sizes: '192x192', type: 'image/png' },
-        { url: v('/icons/icon-512.png'), sizes: '512x512', type: 'image/png' },
-        { url: v('/favicon.ico'), sizes: 'any' },
-      ];
+    ? [{ url: faviconUrl, type: 'image/png' }, ...localIcons]
+    : localIcons;
 
   return {
     metadataBase: new URL(
