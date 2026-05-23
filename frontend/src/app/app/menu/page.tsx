@@ -296,6 +296,20 @@ export default function MenuEditor() {
   }
 
   async function saveProduct(p: Partial<Product>) {
+    // Validar rango antes de mandar: si máximo <= mínimo, fmtProductPrice
+    // cae silencioso a FIXED en el storefront (condición `priceMax > basePrice`).
+    // Mejor avisar al dueño en lugar de guardar config rota.
+    if (
+      p.priceMode === 'RANGE' &&
+      (p.priceMax == null ||
+        Number(p.priceMax) <= Number(p.basePrice ?? 0))
+    ) {
+      toast(
+        'El precio máximo debe ser mayor al mínimo. Corregí el rango antes de guardar.',
+        'error',
+      );
+      return;
+    }
     // El backend usa ValidationPipe con forbidNonWhitelisted=true — manda
     // solo los campos del DTO. Sino el GET trae `id`, `tenantId`,
     // `createdAt`, `timesOrdered`, relación `category`, etc., que el
