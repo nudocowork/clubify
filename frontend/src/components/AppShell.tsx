@@ -213,7 +213,6 @@ export default function AppShell({
           {
             section: 'Ventas',
             items: [
-              { href: '/admin/cotizaciones', label: 'Cotizaciones', icon: 'clipboard' },
               { href: '/admin/industries', label: 'Industrias', icon: 'grid' },
             ],
           },
@@ -278,13 +277,6 @@ export default function AppShell({
                 { href: '/app/translations', label: 'Traducciones', icon: 'spark' },
                 { href: '/app/orders', label: 'Pedidos', icon: 'shopping-bag', module: 'orders' },
                 { href: '/app/analytics', label: 'Analítica', icon: 'history', module: 'analytics' },
-              ],
-            },
-            {
-              section: 'Administrativo',
-              items: [
-                { href: '/app/admin/reminders', label: 'Recordatorios', icon: 'clipboard' },
-                { href: '/app/admin/orders', label: 'Pedidos a proveedores', icon: 'truck' },
               ],
             },
             {
