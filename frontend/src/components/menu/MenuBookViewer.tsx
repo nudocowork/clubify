@@ -228,7 +228,7 @@ export function MenuBookViewer({
           {[1, 2, 3, 4].map((i) => (
             <div
               key={i}
-              className="h-7 w-24 rounded-full bg-bg2 animate-pulse flex-none"
+              className="h-11 w-28 rounded-full bg-bg2 animate-pulse flex-none"
             />
           ))}
         </div>
@@ -276,20 +276,21 @@ export function MenuBookViewer({
       className="w-full flex flex-col"
     >
       {/* Chips de sección — overlay translúcido sobre la imagen, sin
-          background sólido que los aísle visualmente. Se sienten como
-          parte del menú. */}
-      <div className="sticky top-0 z-20 px-2 pt-2 pb-1.5 bg-gradient-to-b from-bg via-bg/90 to-transparent">
-        <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
+          background sólido que los aísle visualmente. Tamaño premium: más
+          altura, mejor touch area en mobile (~44px) y tipografía más
+          legible sin romper la línea minimalista. */}
+      <div className="sticky top-0 z-20 px-3 pt-3 pb-2.5 bg-gradient-to-b from-bg via-bg/95 to-transparent">
+        <div className="flex gap-2 overflow-x-auto no-scrollbar">
           {data.sections.map((s) => {
             const active = s.id === activeSectionId;
             return (
               <button
                 key={s.id}
                 onClick={() => goTo(sectionStarts[s.id] ?? 0)}
-                className={`px-3 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap transition flex-none ${
+                className={`px-5 py-2.5 rounded-full text-sm font-semibold whitespace-nowrap transition-all duration-200 flex-none tracking-[0.01em] ${
                   active
-                    ? 'text-white shadow-sm'
-                    : 'bg-white/80 backdrop-blur-sm text-ink/80 hover:bg-white'
+                    ? 'text-white shadow-md scale-[1.02]'
+                    : 'bg-white/85 backdrop-blur-sm text-ink/75 hover:bg-white hover:text-ink shadow-sm ring-1 ring-black/[0.04]'
                 }`}
                 style={active ? { background: primary } : undefined}
               >
