@@ -17,6 +17,10 @@ import { CO_LOCATIONS, OTRO_MUNICIPIO } from '@/lib/co-locations';
 import { useLocale, useT } from '@/lib/i18n';
 import { SectionCoverPreview } from '@/components/menu/SectionCoverPreview';
 import { MenuBookViewer } from '@/components/menu/MenuBookViewer';
+import {
+  CategoryPopupController,
+  CategoryPopupBadge,
+} from '@/components/menu/CategoryPopupController';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -87,6 +91,7 @@ type Category = {
   imageUrl?: string | null;
   tagline?: string | null;
   coverConfig?: any | null;
+  popupConfig?: import('@/components/menu/CategoryPopupController').PopupConfig | null;
   products: Product[];
   subsections?: Category[];
 };
@@ -505,6 +510,11 @@ export default function StorefrontPublic() {
             onPick={setOpenProduct}
             backButtonConfig={s.backButtonConfig}
           />
+          {/* Popups opcionales por categoría — auto al entrar a la
+              sección via IntersectionObserver, o click si el header
+              renderiza CategoryPopupBadge. Único punto de montaje para
+              todos los layouts (FLIPBOOK tiene su propio sistema). */}
+          <CategoryPopupController categories={localizedMenu} />
         </div>
       )}
 
@@ -1572,11 +1582,16 @@ function AccordionSection({
   className = 'mb-6',
   header,
   children,
+  popupTrigger,
 }: {
   catId: string;
   className?: string;
   header: React.ReactNode;
   children: React.ReactNode;
+  /** Si la categoría tiene popup con trigger=click, el header muestra
+   *  un badge "🔔 Tocar" pulsante. CategoryPopupController captura el
+   *  click globalmente vía data attribute. */
+  popupTrigger?: 'auto' | 'click' | null;
 }) {
   const [open, setOpen] = useState(true);
 
@@ -1603,6 +1618,9 @@ function AccordionSection({
         aria-expanded={open}
       >
         <div className="flex-1 min-w-0">{header}</div>
+        {popupTrigger === 'click' && (
+          <CategoryPopupBadge categoryId={catId} className="shrink-0" />
+        )}
         <span
           className={`text-mute text-sm shrink-0 transition-transform ${
             open ? '' : '-rotate-90'
@@ -1636,6 +1654,7 @@ function LayoutClassic({ menu, primary, currency, onPick }: LP) {
         <AccordionSection
           key={cat.id}
           catId={cat.id}
+          popupTrigger={cat.popupConfig?.trigger ?? null}
           header={
             <h2 className="text-xs uppercase tracking-[0.18em] text-mute font-semibold">
               {cat.name}{' '}
@@ -1699,6 +1718,7 @@ function LayoutGrid({ menu, primary, currency, onPick }: LP) {
         <AccordionSection
           key={cat.id}
           catId={cat.id}
+          popupTrigger={cat.popupConfig?.trigger ?? null}
           header={
             <h2 className="text-xs uppercase tracking-[0.18em] text-mute font-semibold">
               {cat.name}{' '}
@@ -1806,6 +1826,7 @@ function LayoutClean({ menu, currency, onPick }: LP) {
         <AccordionSection
           key={cat.id}
           catId={cat.id}
+          popupTrigger={cat.popupConfig?.trigger ?? null}
           className="mb-7"
           header={
             <div className="text-center">
@@ -1868,6 +1889,7 @@ function LayoutCompact({ menu, primary, currency, onPick }: LP) {
         <AccordionSection
           key={cat.id}
           catId={cat.id}
+          popupTrigger={cat.popupConfig?.trigger ?? null}
           className="mb-5"
           header={
             <h2 className="font-bold text-sm mt-1">
@@ -1924,6 +1946,7 @@ function LayoutCluvi({ menu, primary, currency, onPick }: LP) {
         <AccordionSection
           key={cat.id}
           catId={cat.id}
+          popupTrigger={cat.popupConfig?.trigger ?? null}
           className="mb-8"
           header={
             <h2
