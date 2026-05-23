@@ -195,21 +195,23 @@ export function MenuBookViewer({
   return (
     <div
       ref={containerRef}
-      className="max-w-5xl mx-auto flex flex-col gap-3"
+      className="w-full flex flex-col"
     >
-      {/* Chips de sección — sticky arriba */}
-      <div className="sticky top-0 z-20 px-2 py-2 bg-bg/95 backdrop-blur-sm">
-        <div className="flex gap-2 overflow-x-auto no-scrollbar">
+      {/* Chips de sección — overlay translúcido sobre la imagen, sin
+          background sólido que los aísle visualmente. Se sienten como
+          parte del menú. */}
+      <div className="sticky top-0 z-20 px-2 pt-2 pb-1.5 bg-gradient-to-b from-bg via-bg/90 to-transparent">
+        <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
           {data.sections.map((s) => {
             const active = s.id === activeSectionId;
             return (
               <button
                 key={s.id}
                 onClick={() => goTo(sectionStarts[s.id] ?? 0)}
-                className={`px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition border flex-none ${
+                className={`px-3 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap transition flex-none ${
                   active
-                    ? 'text-white border-transparent shadow-sm'
-                    : 'bg-bg2 text-ink border-line2 hover:bg-bg3'
+                    ? 'text-white shadow-sm'
+                    : 'bg-white/80 backdrop-blur-sm text-ink/80 hover:bg-white'
                 }`}
                 style={active ? { background: primary } : undefined}
               >
@@ -220,7 +222,8 @@ export function MenuBookViewer({
         </div>
       </div>
 
-      {/* Slider horizontal — snap mandatory, swipe nativo */}
+      {/* Slider horizontal — snap mandatory, swipe nativo, padding lateral
+          mínimo para que la imagen sea protagonista. */}
       <div
         ref={scrollerRef}
         onScroll={onScrollerScroll}
@@ -236,36 +239,37 @@ export function MenuBookViewer({
         ))}
       </div>
 
-      {/* Controles inferiores — ocultos si solo hay 1 página */}
+      {/* Controles compactos — flotantes sobre la parte baja del slider.
+          Ocultos si solo hay 1 página. */}
       {allPages.length > 1 && (
-        <div className="flex items-center justify-between gap-3 select-none px-3">
+        <div className="sticky bottom-2 z-20 mx-auto mt-2 flex items-center gap-1 px-1.5 py-1 rounded-full bg-white/90 backdrop-blur-sm shadow-md select-none">
           <button
             onClick={() => goTo(pageIdx - 1)}
             disabled={pageIdx === 0}
-            className="text-sm font-semibold px-3 py-2 rounded-md bg-bg2 hover:bg-bg3 disabled:opacity-30 disabled:cursor-not-allowed"
+            className="w-8 h-8 flex items-center justify-center rounded-full text-ink hover:bg-bg2 disabled:opacity-30 disabled:cursor-not-allowed text-sm"
+            title="Anterior"
           >
-            ← Anterior
+            ←
           </button>
-          <div className="text-xs text-mute font-medium">
-            Página <strong className="text-ink">{pageIdx + 1}</strong> de{' '}
-            {allPages.length}
+          <div className="text-[11px] text-mute font-medium px-2 min-w-[58px] text-center tabular-nums">
+            <span className="text-ink font-semibold">{pageIdx + 1}</span>
+            <span className="opacity-60"> / {allPages.length}</span>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={toggleFullscreen}
-              className="text-sm p-2 rounded-md bg-bg2 hover:bg-bg3"
-              title={isFullscreen ? 'Salir pantalla completa' : 'Pantalla completa'}
-            >
-              {isFullscreen ? '⤓' : '⤢'}
-            </button>
-            <button
-              onClick={() => goTo(pageIdx + 1)}
-              disabled={pageIdx >= allPages.length - 1}
-              className="text-sm font-semibold px-3 py-2 rounded-md bg-bg2 hover:bg-bg3 disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              Siguiente →
-            </button>
-          </div>
+          <button
+            onClick={toggleFullscreen}
+            className="w-8 h-8 flex items-center justify-center rounded-full text-ink hover:bg-bg2 text-sm"
+            title={isFullscreen ? 'Salir pantalla completa' : 'Pantalla completa'}
+          >
+            {isFullscreen ? '⤓' : '⤢'}
+          </button>
+          <button
+            onClick={() => goTo(pageIdx + 1)}
+            disabled={pageIdx >= allPages.length - 1}
+            className="w-8 h-8 flex items-center justify-center rounded-full text-ink hover:bg-bg2 disabled:opacity-30 disabled:cursor-not-allowed text-sm"
+            title="Siguiente"
+          >
+            →
+          </button>
         </div>
       )}
 
@@ -288,22 +292,20 @@ function PageSlide({
   page: Page & { sectionId: string };
   onClick: () => void;
 }) {
-  // Sin aspect-ratio fijo ni object-cover. La imagen se muestra completa
-  // (object-contain) centrada vertical+horizontalmente dentro de un slide
-  // de altura fluida basada en viewport (descuenta chips superiores +
-  // controles inferiores ≈ 160-180px). Si la imagen es vertical (típico
-  // menú restaurante), se ve completa sin recortar; si es horizontal,
-  // también — queda con espacio arriba/abajo en lugar de recortarse.
+  // Sin padding lateral — la imagen ocupa todo el ancho del slide.
+  // Altura calculada para ocupar viewport - chips arriba (≈ 50px), sin
+  // descontar controles (son sticky overlay) → más altura útil para la
+  // imagen. object-contain mantiene proporción sin recortar.
   return (
     <div
-      className="flex-none w-full snap-start snap-always px-2 flex items-center justify-center"
-      style={{ height: 'calc(100vh - 180px)', minHeight: 320 }}
+      className="flex-none w-full snap-start snap-always flex items-center justify-center px-1"
+      style={{ height: 'calc(100vh - 70px)', minHeight: 360 }}
     >
       <button
         type="button"
         onClick={onClick}
         disabled={!page.popup}
-        className="relative max-w-full max-h-full rounded-xl overflow-hidden shadow-sm bg-white inline-flex"
+        className="relative max-w-full max-h-full inline-flex"
         style={{ cursor: page.popup ? 'pointer' : 'default' }}
       >
         <img
@@ -311,7 +313,7 @@ function PageSlide({
           alt=""
           loading="lazy"
           decoding="async"
-          className="block max-w-full max-h-full w-auto h-auto object-contain"
+          className="block max-w-full max-h-full w-auto h-auto object-contain rounded-lg"
           draggable={false}
         />
         {page.popup && (

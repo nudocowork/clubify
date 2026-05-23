@@ -287,19 +287,25 @@ export default function StorefrontPublic() {
   const pageBg = s.pageBackgroundColor || (isCluvi ? '#0a0a0a' : '#FAFBFC');
 
   // FLIPBOOK es full-screen catálogo visual: sin header, sin tabs, sin
-  // chrome del storefront tradicional. El viewer ya tiene chips de sección
-  // arriba sticky. Mantiene el footer "Hecho con Clubify" porque la marca
-  // es no-removible (memoria feedback_clubify_branding_locked).
+  // chrome del storefront tradicional. El viewer ya integra chips, slider
+  // y controles. La marca Clubify queda como microbadge discreto en la
+  // esquina (regla feedback_clubify_branding_locked exige presencia pero
+  // sin protagonismo).
   if (s.menuLayout === 'FLIPBOOK') {
     return (
       <div
-        className="min-h-screen pb-16"
+        className="min-h-screen relative"
         style={{ background: pageBg }}
       >
         <MenuBookViewer slug={slug} primary={primary} />
-        <div className="mt-6 flex justify-center">
-          <ClubifyBadge />
-        </div>
+        <a
+          href="https://soyclubify.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="fixed bottom-2 right-2 z-10 text-[9px] text-mute/70 hover:text-mute font-medium tracking-tight select-none px-1.5 py-0.5 rounded bg-white/60 backdrop-blur-sm"
+        >
+          Clubify
+        </a>
       </div>
     );
   }
