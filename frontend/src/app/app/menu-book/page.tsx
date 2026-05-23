@@ -378,6 +378,7 @@ function SectionCard({
           <ImageUploader
             folder="menu-book"
             crop={false}
+            maxSizeMb={25}
             onChange={uploadPage}
             value={null}
           />
@@ -571,6 +572,7 @@ function PopupEditorModal({
                   <ImageUploader
                     folder="menu-book-popup"
                     crop={false}
+                    maxSizeMb={25}
                     value={form.popupImageUrl || null}
                     onChange={(url) =>
                       setForm({ ...form, popupImageUrl: url ?? '' })
