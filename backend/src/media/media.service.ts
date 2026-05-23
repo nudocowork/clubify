@@ -9,7 +9,13 @@ import { nanoid } from 'nanoid';
 import sharp from 'sharp';
 
 const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-const MAX_SIZE = 15 * 1024 * 1024; // 15 MB — sharp pipeline reencode/resize a 2000px+webp
+const MAX_SIZE = 15 * 1024 * 1024; // 15 MB default — sharp pipeline reencode/resize a 2560px+webp
+// Folders que aceptan archivos más grandes (menús-imagen de alta resolución
+// vienen del diseñador en PDF→PNG y suelen pesar >15 MB sin optimizar).
+// Backend igual los reduce a OPT_MAX_DIMENSION=2560 y WebP 90q antes de
+// subir al bucket, así el archivo final servido es liviano.
+const MAX_SIZE_LARGE = 25 * 1024 * 1024;
+const LARGE_FOLDERS = new Set(['menu-book', 'menu-book-popup']);
 
 // Umbrales de optimización. Imágenes grandes se resize-an a 2560px max y
 // se reencodean a webp (excepto GIF que conserva animation y PNG con alpha
@@ -89,8 +95,10 @@ export class MediaService {
     file: Express.Multer.File;
   }): Promise<{ url: string; key: string; size: number; contentType: string }> {
     if (!opts.file) throw new BadRequestException('No file provided');
-    if (opts.file.size > MAX_SIZE) {
-      throw new BadRequestException(`Archivo muy grande (max ${MAX_SIZE / 1024 / 1024}MB)`);
+    const folder = opts.folder ?? 'products';
+    const maxSize = LARGE_FOLDERS.has(folder) ? MAX_SIZE_LARGE : MAX_SIZE;
+    if (opts.file.size > maxSize) {
+      throw new BadRequestException(`Archivo muy grande (max ${maxSize / 1024 / 1024}MB)`);
     }
     if (!ALLOWED.includes(opts.file.mimetype)) {
       throw new BadRequestException(`Tipo no permitido: ${opts.file.mimetype}`);
@@ -101,7 +109,6 @@ export class MediaService {
       );
     }
 
-    const folder = opts.folder ?? 'uploads';
     const tenantPart = opts.tenantId ? `${opts.tenantId}/` : '';
 
     // Optimización: resize + re-encode si la imagen es grande. Best-effort —

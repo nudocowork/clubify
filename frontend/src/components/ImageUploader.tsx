@@ -19,6 +19,9 @@ export function ImageUploader({
   // subir. Si false (logos, branding), sube tal cual.
   crop = true,
   aspect = 1, // 1 = cuadrado, 4/3 = card, etc.
+  // Tamaño máximo permitido en MB. Default 15. El backend acepta 25 para
+  // los folders menu-book/menu-book-popup (menús de alta resolución).
+  maxSizeMb = 15,
 }: {
   value?: string | null;
   onChange: (url: string | null) => void;
@@ -26,6 +29,7 @@ export function ImageUploader({
   className?: string;
   crop?: boolean;
   aspect?: number;
+  maxSizeMb?: number;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -39,8 +43,8 @@ export function ImageUploader({
       setErr('Solo imágenes (jpg, png, webp, gif)');
       return;
     }
-    if (file.size > 15 * 1024 * 1024) {
-      setErr('Máximo 15 MB');
+    if (file.size > maxSizeMb * 1024 * 1024) {
+      setErr(`Máximo ${maxSizeMb} MB`);
       return;
     }
     setErr(null);
@@ -228,7 +232,7 @@ export function ImageUploader({
             </div>
             <div className="text-sm font-medium">Sube una imagen</div>
             <div className="text-xs text-mute">
-              Arrastra o haz click · jpg, png, webp · max 15MB
+              Arrastra o haz click · jpg, png, webp · max {maxSizeMb}MB
             </div>
           </>
         )}
