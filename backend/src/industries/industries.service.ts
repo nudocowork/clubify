@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { IndustryCoverStyle, Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 
@@ -16,6 +16,7 @@ export type CreateIndustryDto = {
   emoji?: string | null;
   iconUrl?: string | null;
   coverImage?: string | null;
+  coverStyle?: IndustryCoverStyle;
   themeColor?: string | null;
   isActive?: boolean;
   sortOrder?: number;
@@ -66,6 +67,7 @@ export class IndustriesService {
         emoji: true,
         iconUrl: true,
         coverImage: true,
+        coverStyle: true,
         themeColor: true,
       },
     });
@@ -96,6 +98,7 @@ export class IndustriesService {
         emoji: true,
         iconUrl: true,
         coverImage: true,
+        coverStyle: true,
         themeColor: true,
         isActive: true,
         presentations: {
@@ -149,6 +152,7 @@ export class IndustriesService {
       emoji: row.emoji,
       iconUrl: row.iconUrl,
       coverImage: row.coverImage,
+      coverStyle: row.coverStyle,
       themeColor: row.themeColor,
       presentations: row.presentations.map((p) => ({
         id: p.id,
@@ -222,6 +226,7 @@ export class IndustriesService {
           emoji: dto.emoji?.trim() || null,
           iconUrl: dto.iconUrl?.trim() || null,
           coverImage: dto.coverImage?.trim() || null,
+          coverStyle: dto.coverStyle ?? undefined,
           themeColor: dto.themeColor?.trim() || null,
           isActive: dto.isActive ?? true,
           sortOrder: dto.sortOrder ?? 0,
@@ -261,6 +266,7 @@ export class IndustriesService {
     if (dto.iconUrl !== undefined) data.iconUrl = dto.iconUrl?.trim() || null;
     if (dto.coverImage !== undefined)
       data.coverImage = dto.coverImage?.trim() || null;
+    if (dto.coverStyle !== undefined) data.coverStyle = dto.coverStyle;
     if (dto.themeColor !== undefined)
       data.themeColor = dto.themeColor?.trim() || null;
     if (dto.isActive !== undefined) data.isActive = dto.isActive;

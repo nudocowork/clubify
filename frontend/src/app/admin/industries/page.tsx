@@ -21,6 +21,8 @@ import Link from 'next/link';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import { ImageUploader } from '@/components/ImageUploader';
+import { BannerStylePicker } from '@/components/industry/BannerStylePicker';
+import type { IndustryCoverStyle } from '@/components/industry/IndustryCoverCard';
 
 type Industry = {
   id: string;
@@ -30,6 +32,7 @@ type Industry = {
   emoji: string | null;
   iconUrl: string | null;
   coverImage: string | null;
+  coverStyle: IndustryCoverStyle | null;
   themeColor: string | null;
   isActive: boolean;
   sortOrder: number;
@@ -46,6 +49,7 @@ const DEFAULT_FORM: FormState = {
   emoji: '',
   iconUrl: null,
   coverImage: null,
+  coverStyle: 'DARK_OVERLAY',
   themeColor: '#22C55E',
   isActive: true,
   sortOrder: 0,
@@ -116,6 +120,7 @@ export default function AdminIndustriesPage() {
       emoji: i.emoji ?? '',
       iconUrl: i.iconUrl,
       coverImage: i.coverImage,
+      coverStyle: i.coverStyle ?? 'DARK_OVERLAY',
       themeColor: i.themeColor ?? '#22C55E',
       isActive: i.isActive,
       sortOrder: i.sortOrder,
@@ -150,6 +155,7 @@ export default function AdminIndustriesPage() {
       emoji: form.emoji?.trim() || null,
       iconUrl: form.iconUrl || null,
       coverImage: form.coverImage || null,
+      coverStyle: form.coverStyle ?? 'DARK_OVERLAY',
       themeColor: form.themeColor || null,
       isActive: form.isActive ?? true,
       sortOrder: form.sortOrder ?? 0,
@@ -516,6 +522,24 @@ export default function AdminIndustriesPage() {
                 <div className="text-[11px] text-mute mt-1">
                   Banner que aparece arriba de la card y en la vista pública.
                 </div>
+
+                {form.coverImage && (
+                  <div className="mt-3">
+                    <BannerStylePicker
+                      industry={{
+                        name: form.name || 'Industria',
+                        description: form.description ?? null,
+                        emoji: form.emoji ?? null,
+                        iconUrl: form.iconUrl ?? null,
+                        coverImage: form.coverImage,
+                        coverStyle: form.coverStyle ?? 'DARK_OVERLAY',
+                        themeColor: form.themeColor ?? '#22C55E',
+                      }}
+                      selected={form.coverStyle ?? 'DARK_OVERLAY'}
+                      onSelect={(style) => patchForm({ coverStyle: style })}
+                    />
+                  </div>
+                )}
               </div>
 
               <label className="flex items-center gap-2 text-sm">
