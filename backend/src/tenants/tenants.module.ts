@@ -4,9 +4,10 @@ import { TenantsController } from './tenants.controller';
 import { TenantMeController } from './me.controller';
 import { StaffController, ChangePasswordController, UserMeController } from './staff.controller';
 import { AuthModule } from '../auth/auth.module';
+import { IntegrationsModule } from '../integrations/integrations.module';
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, IntegrationsModule],
   providers: [TenantsService],
   controllers: [
     TenantMeController,

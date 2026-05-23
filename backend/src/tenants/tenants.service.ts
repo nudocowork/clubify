@@ -76,6 +76,10 @@ export type UpdateMyTenantDto = Partial<{
   walletLogoUrl: string;
   pushLogoUrl: string;
   mainSectionLabelOverride: string | null;
+  reviewAlertsEnabled: boolean;
+  reviewAlertsThreshold: number;
+  reviewAlertsPhone: string | null;
+  reviewAlertsTemplate: string | null;
 }>;
 
 @Injectable()

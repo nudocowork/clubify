@@ -1,6 +1,24 @@
-import { Body, Controller, ForbiddenException, Get, Patch, Res } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  Patch,
+  Post,
+  Res,
+} from '@nestjs/common';
 import { Response } from 'express';
-import { IsHexColor, IsOptional, IsString } from 'class-validator';
+import { GrowBusinessService } from '../integrations/grow-business.service';
+import {
+  IsBoolean,
+  IsHexColor,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 import { TenantsService } from './tenants.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -23,6 +41,13 @@ class UpdateMyBody {
   @IsOptional() @IsString() pushLogoUrl?: string;
   // null → fallback a categoría; "" → reset; max 24 chars al persistir.
   @IsOptional() @IsString() mainSectionLabelOverride?: string | null;
+  // Alertas SMS por reseñas negativas (Grow Business).
+  @IsOptional() @IsBoolean() reviewAlertsEnabled?: boolean;
+  // Threshold inclusive. Solo permitimos 1-3 — arriba de 3 no tiene
+  // sentido (4-5 va a Google y no hay feedback privado).
+  @IsOptional() @IsInt() @Min(1) @Max(3) reviewAlertsThreshold?: number;
+  @IsOptional() @IsString() reviewAlertsPhone?: string | null;
+  @IsOptional() @IsString() reviewAlertsTemplate?: string | null;
 }
 
 @Controller('tenants/me')
@@ -31,7 +56,65 @@ export class TenantMeController {
   constructor(
     private svc: TenantsService,
     private prisma: PrismaService,
+    private growBusiness: GrowBusinessService,
   ) {}
+
+  /** Test del SMS de alerta de reseña — manda un mensaje real con data
+   *  ficticia al teléfono configurado. Sirve para que el owner valide
+   *  end-to-end (credenciales + número destino) antes de confiar en una
+   *  reseña real. Requiere reviewAlertsEnabled + Grow Business conectado. */
+  @Post('review-alerts/test')
+  async testReviewAlert(@CurrentUser() user: AuthUser) {
+    if (!user.tenantId) throw new ForbiddenException();
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: user.tenantId },
+      select: {
+        id: true,
+        brandName: true,
+        slug: true,
+        phone: true,
+        whatsappPhone: true,
+        reviewAlertsEnabled: true,
+        reviewAlertsPhone: true,
+        reviewAlertsTemplate: true,
+        growBusinessLocationId: true,
+        growBusinessApiKey: true,
+      },
+    });
+    if (!tenant) throw new ForbiddenException();
+    if (!tenant.growBusinessLocationId || !tenant.growBusinessApiKey) {
+      throw new BadRequestException(
+        'Grow Business no está conectado para este negocio.',
+      );
+    }
+    let toPhone = tenant.reviewAlertsPhone?.trim() || '';
+    if (!toPhone) {
+      const owner = await this.prisma.user.findFirst({
+        where: { tenantId: tenant.id, role: 'TENANT_OWNER' },
+        select: { phone: true },
+      });
+      toPhone =
+        owner?.phone?.trim() ||
+        tenant.whatsappPhone?.trim() ||
+        tenant.phone?.trim() ||
+        '';
+    }
+    if (!toPhone) {
+      throw new BadRequestException(
+        'Sin teléfono destino configurado (ni override ni owner ni whatsappPhone).',
+      );
+    }
+    const body =
+      '🧪 Test de alerta de reseñas\n\n' +
+      `Negocio: ${tenant.brandName}\n` +
+      'Si recibís este SMS, la conexión está lista. Activala con el toggle.';
+    const result = await this.growBusiness.sendSms(tenant.id, toPhone, body);
+    return {
+      ok: result.ok,
+      toPhone,
+      response: result,
+    };
+  }
 
   @Get()
   get(@CurrentUser() user: AuthUser) {
