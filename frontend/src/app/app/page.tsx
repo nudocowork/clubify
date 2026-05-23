@@ -6,7 +6,6 @@ import { Icon } from '@/components/Icon';
 import { KpiSkeleton, Skeleton } from '@/components/Skeleton';
 import { InsightsCard } from '@/components/InsightsCard';
 import { ActivityFeed } from '@/components/ActivityFeed';
-import { OnboardingChecklist } from '@/components/OnboardingChecklist';
 
 type Metrics = {
   cards: number;
@@ -313,7 +312,9 @@ export default function TenantDashboard() {
   return (
     <div>
       <WelcomeTour tenant={tenant} />
-      <OnboardingChecklist />
+      {/* OnboardingChecklist removido — el panel ahora entra directo al
+          dashboard funcional sin checklist de pasos. Las funcionalidades
+          siguen disponibles desde sidebar. */}
       <InsightsCard />
       <div className="page-head">
         <h1 className="page-title">

@@ -263,7 +263,10 @@ export default function AppShell({
             {
               section: 'Marketing',
               items: [
-                { href: '/app/marketing/qr-menu', label: `QR ${menuLabel}`, icon: 'menu', module: 'menu' },
+                // QR de la sección principal — siempre visible. La categoría
+                // del negocio solo cambia el label ("Menú" / "Servicios" /
+                // "Tratamientos"), no la visibilidad del item.
+                { href: '/app/marketing/qr-menu', label: `QR ${menuLabel}` , icon: 'menu' },
                 { href: '/app/marketing/qr-counter', label: 'QR Mostrador', icon: 'card' },
                 { href: '/app/marketing/qr-discount', label: 'QR Descuento', icon: 'gift' },
                 { href: '/app/marketing/qr-reviews', label: 'QR Reseñas', icon: 'spark' },
@@ -272,8 +275,11 @@ export default function AppShell({
             {
               section: catalogSectionName,
               items: [
-                { href: '/app/menu', label: menuLabel, icon: 'menu', module: 'menu' },
-                { href: '/app/menu-book', label: 'Menú Libro', icon: 'book', module: 'menu' },
+                // Sección principal del catálogo — SIEMPRE visible. El label
+                // y el QR adaptan al rubro pero el módulo no se oculta por
+                // categoría (cualquier negocio puede usar el menú digital).
+                { href: '/app/menu', label: menuLabel, icon: 'menu' },
+                { href: '/app/menu-book', label: 'Menú Libro', icon: 'book' },
                 { href: '/app/translations', label: 'Traducciones', icon: 'spark' },
                 { href: '/app/orders', label: 'Pedidos', icon: 'shopping-bag', module: 'orders' },
                 { href: '/app/analytics', label: 'Analítica', icon: 'history', module: 'analytics' },
