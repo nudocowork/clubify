@@ -284,11 +284,8 @@ export function TenantSwitcher() {
             : 'bg-sidebar-hover text-white hover:bg-[#172534]'
         }`}
       >
-        <span className="w-7 h-7 rounded-full bg-brand text-white text-[11px] font-bold flex items-center justify-center flex-none">
-          🔁
-        </span>
-        <span className="truncate flex-1 text-left text-[12.5px] leading-tight">
-          Cambiar de subcuenta
+        <span className="truncate flex-1 text-left text-[12.5px] leading-tight font-semibold">
+          Subcuentas
           <span className="block text-[10px] text-sidebar-mute font-normal">
             Click para escoger un negocio
           </span>
