@@ -58,6 +58,7 @@ export type UpdateTenantDto = Partial<{
   status: TenantStatus;
   planId: string;
   maxLocationsOverride: number | null;
+  reviewAlertsAccountId: string | null;
 }>;
 
 export type UpdateMyTenantDto = Partial<{

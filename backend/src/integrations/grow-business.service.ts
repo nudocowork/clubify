@@ -202,4 +202,50 @@ export class GrowBusinessService {
       return { ok: false as const, message: e?.message ?? 'Error enviando SMS' };
     }
   }
+
+  /**
+   * Envía un SMS usando credenciales explícitas (subcuenta global de
+   * GrowBusinessAccount). Usado por features tipo alertas de reseñas
+   * cuando el tenant tiene `reviewAlertsAccountId` apuntando a una
+   * subcuenta compartida en lugar de credenciales propias.
+   */
+  async sendSmsWithCreds(
+    creds: { locationId: string; apiKey: string; switchNumber?: number | null },
+    toPhone: string,
+    body: string,
+  ) {
+    if (!creds.locationId || !creds.apiKey) {
+      return { ok: false as const, message: 'Credenciales incompletas' };
+    }
+    const alreadyHasPrefix = /^#Switch\d+\s*\n/i.test(body);
+    const messageBody =
+      creds.switchNumber != null && !alreadyHasPrefix
+        ? `#Switch${creds.switchNumber}\n\n${body}`
+        : body;
+    try {
+      const res = await fetch(`${this.API_BASE}/conversations/messages`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${creds.apiKey}`,
+          Version: this.API_VERSION,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'SMS',
+          locationId: creds.locationId,
+          message: messageBody,
+          toNumber: toPhone,
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        return { ok: false as const, status: res.status, message: text.slice(0, 200) };
+      }
+      const data = await res.json().catch(() => ({}));
+      return { ok: true as const, id: data?.messageId ?? data?.id ?? null };
+    } catch (e: any) {
+      return { ok: false as const, message: e?.message ?? 'Error enviando SMS' };
+    }
+  }
 }

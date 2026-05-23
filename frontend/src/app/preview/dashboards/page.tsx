@@ -1179,7 +1179,7 @@ export default function DashboardsPreview() {
           <Frame
             num={2}
             title="Grow Business"
-            best="Multi-cuenta — el dueño ve todas sus subcuentas como en GHL."
+            best="Multi-cuenta — el dueño ve todas sus subcuentas en un único panel."
             pros={[
               'Account switcher prominente arriba del sidebar',
               'Lista densa con avatar + estado + último login',

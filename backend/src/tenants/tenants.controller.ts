@@ -43,6 +43,9 @@ class UpdateTenantBody {
   @IsOptional() @IsUUID() planId?: string;
   @IsOptional() @IsInt() @Min(1) maxLocationsOverride?: number;
   @IsOptional() @IsInt() @Min(0) gracePeriodDays?: number;
+  // Asignar subcuenta global de Grow Business para alertas SMS de
+  // reseñas. null = limpiar (volver a credenciales propias del tenant).
+  @IsOptional() reviewAlertsAccountId?: string | null;
 }
 
 @Controller('tenants')
