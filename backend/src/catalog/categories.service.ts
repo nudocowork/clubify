@@ -24,6 +24,9 @@ export type CategoryDto = {
    *  Estructura libre — la valida el frontend. Backend persiste como
    *  JSONB. Null = fallback legacy. */
   coverConfig?: Record<string, any> | null;
+  /** Popup opcional por categoría. Mismo patrón que coverConfig:
+   *  estructura libre, null = sin popup. Validación en frontend. */
+  popupConfig?: Record<string, any> | null;
 };
 
 @Injectable()
@@ -68,6 +71,7 @@ export class CategoriesService {
         imageUrl: dto.imageUrl,
         tagline: dto.tagline ?? null,
         coverConfig: dto.coverConfig ?? undefined,
+        popupConfig: dto.popupConfig ?? undefined,
         position: dto.position ?? (last?.position ?? -1) + 1,
       },
     });
@@ -91,6 +95,10 @@ export class CategoriesService {
           dto.coverConfig === undefined
             ? undefined
             : (dto.coverConfig as any),
+        popupConfig:
+          dto.popupConfig === undefined
+            ? undefined
+            : (dto.popupConfig as any),
       },
     });
   }

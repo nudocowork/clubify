@@ -39,6 +39,13 @@ class CategoryBody {
   @ValidateIf((_, v) => v !== null)
   @IsObject()
   coverConfig?: Record<string, any> | null;
+  // popupConfig idem: objeto libre (validado en frontend) o null para
+  // borrar. Shape esperado: { enabled, imageUrl, title, description,
+  // buttonText, buttonUrl, buttonColor, trigger, oncePerSession }.
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsObject()
+  popupConfig?: Record<string, any> | null;
 }
 
 class ReorderBody {

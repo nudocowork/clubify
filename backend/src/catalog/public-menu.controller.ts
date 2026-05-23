@@ -347,6 +347,12 @@ export class PublicMenuController {
       })),
     });
 
+    // popupConfig solo viaja al cliente si está enabled — sin enabled
+    // el frontend no tiene nada que hacer con esa data y evita exponer
+    // configs en borrador.
+    const mapPopup = (p: any) =>
+      p && typeof p === 'object' && p.enabled ? p : null;
+
     const mapped = categories.map((c) => ({
       id: c.id,
       name: c.name,
@@ -355,6 +361,7 @@ export class PublicMenuController {
       imageUrl: c.imageUrl,
       tagline: c.tagline,
       coverConfig: c.coverConfig,
+      popupConfig: mapPopup(c.popupConfig),
       products: c.products.map(mapProduct),
       subsections: (c.children ?? []).map((sub: any) => ({
         id: sub.id,
@@ -364,6 +371,7 @@ export class PublicMenuController {
         imageUrl: sub.imageUrl,
         tagline: sub.tagline,
         coverConfig: sub.coverConfig,
+        popupConfig: mapPopup(sub.popupConfig),
         products: (sub.products ?? []).map(mapProduct),
       })),
     }));
@@ -393,6 +401,7 @@ export class PublicMenuController {
               // y el frontend usa el header default minimal.
               tagline: t.storefront?.recommendedTagline ?? null,
               coverConfig: t.storefront?.recommendedCoverConfig ?? null,
+              popupConfig: null,
               products: recommended,
               subsections: [],
             },

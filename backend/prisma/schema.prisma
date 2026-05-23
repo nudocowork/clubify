@@ -766,6 +766,15 @@ model Category {
   /// {...}, height, template }. Si null, render usa fallback (imageUrl
   /// como bg + nombre centrado, estilo legacy).
   coverConfig Json?
+  /// Popup opcional por categoría/sección del menú. Si `enabled=true`,
+  /// el storefront público lo muestra (auto al entrar o al tap del
+  /// banner según `trigger`). Shape:
+  /// { enabled: bool, imageUrl?: string, title?: string,
+  ///   description?: string, buttonText?: string, buttonUrl?: string,
+  ///   buttonColor?: string, trigger: 'auto'|'click',
+  ///   oncePerSession: bool }.
+  /// NULL = sin popup (default histórico, NO se renderiza nada).
+  popupConfig Json?
   position    Int        @default(0)
   isActive    Boolean    @default(true)
   createdAt   DateTime   @default(now())
