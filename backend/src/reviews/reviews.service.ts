@@ -292,4 +292,18 @@ export class ReviewsService {
     await this.prisma.reviewFeedback.delete({ where: { id } });
     return { ok: true };
   }
+
+  /** Últimos 50 eventos review.sms_alert_* del tenant — para que el super
+   *  admin audite envíos desde /admin/tenants/[id]. */
+  async listReviewAlertLogs(tenantId: string) {
+    const events = await this.prisma.event.findMany({
+      where: {
+        tenantId,
+        type: { in: ['review.sms_alert_sent', 'review.sms_alert_failed'] },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+    return events;
+  }
 }

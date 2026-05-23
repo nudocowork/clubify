@@ -373,6 +373,8 @@ export default function TenantDetail() {
 
         <GrowBusinessCard tenantId={t.id} planName={t.plan?.name ?? null} />
 
+        <ReviewAlertsLogsCard tenantId={t.id} />
+
         <BillingNotificationsCard tenant={t} />
 
         <BillingCard tenant={t} onChange={load} />
@@ -402,6 +404,144 @@ const SIMULATOR_EVENTS: {
   { event: 'SUBSCRIPTION_CANCELLATION', label: 'Cancelación', emoji: '🛑', hint: 'Suspende suavemente (sin revertir)', variant: 'danger' },
   { event: 'UPDATE_SUBSCRIPTION_CHARGE_DATE', label: 'Mover próximo cobro', emoji: '📅', hint: '+30 días desde ahora', variant: 'neutral' },
 ];
+
+// ============================================================
+//   Logs de envíos SMS por reseñas negativas (audit superadmin)
+// ============================================================
+
+type ReviewAlertEvent = {
+  id: string;
+  type: 'review.sms_alert_sent' | 'review.sms_alert_failed';
+  payload: any;
+  createdAt: string;
+};
+
+function ReviewAlertsLogsCard({ tenantId }: { tenantId: string }) {
+  const [logs, setLogs] = useState<ReviewAlertEvent[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const data = await api<ReviewAlertEvent[]>(
+        `/admin/tenants/${tenantId}/review-alerts/logs`,
+      );
+      setLogs(data);
+    } catch (e: any) {
+      toast(e.message || 'No se pudo cargar', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId]);
+
+  const sent = logs?.filter((l) => l.type === 'review.sms_alert_sent').length ?? 0;
+  const failed = logs?.filter((l) => l.type === 'review.sms_alert_failed').length ?? 0;
+
+  return (
+    <div className="card card-pad">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-3 text-left"
+      >
+        <div>
+          <h3 className="text-base font-semibold m-0 flex items-center gap-2">
+            📲 Logs de alertas SMS de reseñas
+            {logs && (
+              <span className="text-[10px] uppercase tracking-wider text-mute">
+                {sent} enviadas · {failed} fallidas (últimas 50)
+              </span>
+            )}
+          </h3>
+          <p className="text-xs text-mute mt-1 leading-relaxed">
+            Cada vez que un cliente deja una reseña baja, registramos si el
+            SMS via Grow Business salió o falló.
+          </p>
+        </div>
+        <span
+          className={`text-mute text-sm shrink-0 transition-transform ${
+            open ? '' : '-rotate-90'
+          }`}
+        >
+          ▾
+        </span>
+      </button>
+
+      {open && (
+        <div className="mt-4 pt-4 border-t border-line">
+          {loading && <div className="text-xs text-mute">Cargando…</div>}
+          {!loading && logs?.length === 0 && (
+            <div className="text-xs text-mute italic">
+              Aún no hay envíos registrados.
+            </div>
+          )}
+          {!loading && logs && logs.length > 0 && (
+            <div className="space-y-2">
+              {logs.map((log) => {
+                const ok = log.type === 'review.sms_alert_sent';
+                return (
+                  <div
+                    key={log.id}
+                    className={`rounded-lg border px-3 py-2 text-xs ${
+                      ok
+                        ? 'bg-ok/5 border-ok/20'
+                        : 'bg-bad/5 border-bad/20'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <span
+                        className={`text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded ${
+                          ok ? 'bg-ok text-white' : 'bg-bad text-white'
+                        }`}
+                      >
+                        {ok ? 'enviado' : 'fallido'}
+                      </span>
+                      <span className="text-mute">
+                        {new Date(log.createdAt).toLocaleString('es-CO')}
+                      </span>
+                      {log.payload?.rating && (
+                        <span className="font-semibold">
+                          {'⭐'.repeat(log.payload.rating)}
+                        </span>
+                      )}
+                      {log.payload?.toPhone && (
+                        <code className="ml-auto text-[10px] bg-bg2 px-1.5 py-0.5 rounded">
+                          → {log.payload.toPhone}
+                        </code>
+                      )}
+                    </div>
+                    {log.payload?.response?.message && (
+                      <div className="text-mute leading-snug whitespace-pre-line break-all">
+                        {log.payload.response.message}
+                      </div>
+                    )}
+                    {log.payload?.reason === 'no_destination_phone' && (
+                      <div className="text-amber-700 italic">
+                        Sin teléfono destino configurado.
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={load}
+            className="btn-ghost text-xs mt-3"
+          >
+            ↻ Refrescar
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function HotmartSimulatorCard({
   tenant,

@@ -59,4 +59,12 @@ export class ReviewsController {
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.remove(user, id);
   }
+
+  /** Logs de envíos de SMS por reseñas negativas para un tenant.
+   *  Solo SUPER_ADMIN — usado desde /admin/tenants/[id]. */
+  @Roles('SUPER_ADMIN')
+  @Get('admin/tenants/:id/review-alerts/logs')
+  reviewAlertLogs(@Param('id') id: string) {
+    return this.svc.listReviewAlertLogs(id);
+  }
 }
