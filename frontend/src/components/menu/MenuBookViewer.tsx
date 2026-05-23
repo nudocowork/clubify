@@ -292,20 +292,17 @@ function PageSlide({
   page: Page & { sectionId: string };
   onClick: () => void;
 }) {
-  // Sin padding lateral — la imagen ocupa todo el ancho del slide.
-  // Altura calculada para ocupar viewport - chips arriba (≈ 50px), sin
-  // descontar controles (son sticky overlay) → más altura útil para la
-  // imagen. object-contain mantiene proporción sin recortar.
+  // Edge-to-edge real: sin padding lateral. La imagen toma w-full y la
+  // altura del slide se adapta al aspect ratio natural (h-auto). Slide
+  // con min-h-[60vh] para que imágenes horizontales no queden minúsculas
+  // — la imagen se centra cuando no llena el alto.
   return (
-    <div
-      className="flex-none w-full snap-start snap-always flex items-center justify-center px-1"
-      style={{ height: 'calc(100vh - 70px)', minHeight: 360 }}
-    >
+    <div className="flex-none w-full snap-start snap-always flex items-center justify-center min-h-[60vh]">
       <button
         type="button"
         onClick={onClick}
         disabled={!page.popup}
-        className="relative max-w-full max-h-full inline-flex"
+        className="relative w-full inline-flex"
         style={{ cursor: page.popup ? 'pointer' : 'default' }}
       >
         <img
@@ -313,7 +310,7 @@ function PageSlide({
           alt=""
           loading="lazy"
           decoding="async"
-          className="block max-w-full max-h-full w-auto h-auto object-contain rounded-lg"
+          className="block w-full h-auto"
           draggable={false}
         />
         {page.popup && (
