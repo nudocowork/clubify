@@ -523,23 +523,21 @@ export default function AdminIndustriesPage() {
                   Banner que aparece arriba de la card y en la vista pública.
                 </div>
 
-                {form.coverImage && (
-                  <div className="mt-3">
-                    <BannerStylePicker
-                      industry={{
-                        name: form.name || 'Industria',
-                        description: form.description ?? null,
-                        emoji: form.emoji ?? null,
-                        iconUrl: form.iconUrl ?? null,
-                        coverImage: form.coverImage,
-                        coverStyle: form.coverStyle ?? 'DARK_OVERLAY',
-                        themeColor: form.themeColor ?? '#22C55E',
-                      }}
-                      selected={form.coverStyle ?? 'DARK_OVERLAY'}
-                      onSelect={(style) => patchForm({ coverStyle: style })}
-                    />
-                  </div>
-                )}
+                <div className="mt-4 pt-4 border-t border-line2">
+                  <BannerStylePicker
+                    industry={{
+                      name: form.name || 'Industria',
+                      description: form.description ?? null,
+                      emoji: form.emoji ?? null,
+                      iconUrl: form.iconUrl ?? null,
+                      coverImage: form.coverImage ?? null,
+                      coverStyle: form.coverStyle ?? 'DARK_OVERLAY',
+                      themeColor: form.themeColor ?? '#22C55E',
+                    }}
+                    selected={form.coverStyle ?? 'DARK_OVERLAY'}
+                    onSelect={(style) => patchForm({ coverStyle: style })}
+                  />
+                </div>
               </div>
 
               <label className="flex items-center gap-2 text-sm">
