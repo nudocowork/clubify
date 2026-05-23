@@ -57,6 +57,71 @@ export class BillingService {
     return t?.whatsappPhone ?? t?.phone ?? null;
   }
 
+  /**
+   * Resuelve credenciales + teléfono destino para enviar un SMS de
+   * billing al tenant. Centraliza la lógica para que billing.service y
+   * hotmart.service consuman desde acá.
+   *
+   * Retorna null cuando: alertas apagadas explícitamente, sin creds
+   * disponibles (ni subcuenta global ni propias del tenant), o sin
+   * teléfono destino.
+   *
+   * Prioridades:
+   *  - Creds:  billingAlertsAccountId (subcuenta global)  >  growBusiness* del tenant
+   *  - Teléfono: billingAlertsPhone (override)  >  cascada ownerPhone()
+   */
+  async resolveBillingTarget(tenantId: string): Promise<{
+    creds: { locationId: string; apiKey: string; switchNumber: number | null };
+    phone: string;
+  } | null> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        id: true,
+        billingAlertsEnabled: true,
+        billingAlertsPhone: true,
+        billingAlertsAccountId: true,
+        growBusinessLocationId: true,
+        growBusinessApiKey: true,
+        growBusinessSwitchNumber: true,
+      },
+    });
+    if (!tenant || !tenant.billingAlertsEnabled) return null;
+
+    let creds: {
+      locationId: string;
+      apiKey: string;
+      switchNumber: number | null;
+    } | null = null;
+    if (tenant.billingAlertsAccountId) {
+      const acc = await this.prisma.growBusinessAccount.findFirst({
+        where: { id: tenant.billingAlertsAccountId, deletedAt: null },
+        select: { locationId: true, apiKey: true, switchNumber: true },
+      });
+      if (acc) {
+        creds = {
+          locationId: acc.locationId,
+          apiKey: acc.apiKey,
+          switchNumber: acc.switchNumber,
+        };
+      }
+    }
+    if (!creds && tenant.growBusinessLocationId && tenant.growBusinessApiKey) {
+      creds = {
+        locationId: tenant.growBusinessLocationId,
+        apiKey: tenant.growBusinessApiKey,
+        switchNumber: tenant.growBusinessSwitchNumber,
+      };
+    }
+    if (!creds) return null;
+
+    const phone =
+      tenant.billingAlertsPhone?.trim() || (await this.ownerPhone(tenantId));
+    if (!phone) return null;
+
+    return { creds, phone };
+  }
+
   async cancelSubscription(tenantId: string, reason?: string) {
     const t = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
@@ -278,20 +343,25 @@ export class BillingService {
       ) {
         continue; // ya enviado para este ciclo
       }
-      const phone = await this.ownerPhone(t.id);
-      if (!phone || !t.currentPeriodEnd) continue;
+      if (!t.currentPeriodEnd) continue;
+      const target = await this.resolveBillingTarget(t.id);
+      if (!target) continue;
       const message = smsPaymentReminderTomorrow({
         brandName: t.brandName,
         chargeDate: t.currentPeriodEnd,
       });
-      const r = await this.growBusiness.sendSms(t.id, phone, message);
+      const r = await this.growBusiness.sendSmsWithCreds(
+        target.creds,
+        target.phone,
+        message,
+      );
       if (r.ok) {
         await this.prisma.tenant.update({
           where: { id: t.id },
           data: { paymentReminderSentFor: t.currentPeriodEnd },
         });
         sent++;
-        this.logger.log(`SMS D-1 enviado a ${t.brandName} (${phone})`);
+        this.logger.log(`SMS D-1 enviado a ${t.brandName} (${target.phone})`);
       } else {
         this.logger.warn(
           `SMS D-1 falló para ${t.brandName}: ${r.message ?? 'unknown'}`,
@@ -329,8 +399,9 @@ export class BillingService {
 
     let sent = 0;
     for (const t of candidates) {
-      const phone = await this.ownerPhone(t.id);
-      if (!phone || !t.lastPaymentAttemptAt) continue;
+      if (!t.lastPaymentAttemptAt) continue;
+      const target = await this.resolveBillingTarget(t.id);
+      if (!target) continue;
       const pauseDate = new Date(
         t.lastPaymentAttemptAt.getTime() + PAUSE_DAYS * 24 * 60 * 60 * 1000,
       );
@@ -338,14 +409,20 @@ export class BillingService {
         brandName: t.brandName,
         pauseDate,
       });
-      const r = await this.growBusiness.sendSms(t.id, phone, message);
+      const r = await this.growBusiness.sendSmsWithCreds(
+        target.creds,
+        target.phone,
+        message,
+      );
       if (r.ok) {
         await this.prisma.tenant.update({
           where: { id: t.id },
           data: { pausePendingNoticeSentAt: now },
         });
         sent++;
-        this.logger.log(`SMS "pausa pendiente" enviado a ${t.brandName} (${phone})`);
+        this.logger.log(
+          `SMS "pausa pendiente" enviado a ${t.brandName} (${target.phone})`,
+        );
       } else {
         this.logger.warn(
           `SMS "pausa pendiente" falló para ${t.brandName}: ${r.message ?? 'unknown'}`,
@@ -376,13 +453,15 @@ export class BillingService {
         data: { status: 'SUSPENDED', suspendedAt: now },
       });
       suspended++;
-      const phone = await this.ownerPhone(t.id);
-      if (phone) {
+      const target = await this.resolveBillingTarget(t.id);
+      if (target) {
         const message = smsAccountPaused({ brandName: t.brandName });
         this.growBusiness
-          .sendSms(t.id, phone, message)
+          .sendSmsWithCreds(target.creds, target.phone, message)
           .catch((e) =>
-            this.logger.warn(`SMS "pausada" falló para ${t.brandName}: ${e?.message ?? e}`),
+            this.logger.warn(
+              `SMS "pausada" falló para ${t.brandName}: ${e?.message ?? e}`,
+            ),
           );
       }
       this.logger.warn(

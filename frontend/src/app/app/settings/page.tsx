@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { api, downloadFile, getUser, setSession, clearSession } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import { Icon } from '@/components/Icon';
+import { toast } from '@/components/Toast';
 
 type Profile = {
   id: string;
@@ -21,6 +22,8 @@ type TenantMe = {
   whatsappDeliveryPhone: string | null;
   mainSectionLabelOverride: string | null;
   businessCategorySlug: string | null;
+  billingAlertsEnabled?: boolean;
+  billingAlertsPhone?: string | null;
   plan?: { name: string } | null;
 };
 
@@ -340,6 +343,9 @@ export default function SettingsPage() {
         </div>
       </form>
 
+      {/* Alertas SMS de pago */}
+      <BillingAlertsCard tenant={tenant} onSaved={(t) => setTenant(t)} />
+
       {/* Mensajería de WhatsApp */}
       <div className="card card-pad mb-4">
         <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -534,6 +540,150 @@ export default function SettingsPage() {
             className="px-4 py-2 rounded-pill bg-bg2 text-ink text-sm font-semibold hover:bg-line"
           >
             <Icon name="arrow-right" size={14} /> Cerrar sesión
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Card que el owner ve en /app/settings para gestionar las alertas
+ *  SMS de pago (recordatorios D-1, impago, suspensión). Toggle global
+ *  + override del teléfono destino + botón probar. */
+function BillingAlertsCard({
+  tenant,
+  onSaved,
+}: {
+  tenant: TenantMe | null;
+  onSaved: (t: TenantMe) => void;
+}) {
+  const [enabled, setEnabled] = useState<boolean>(true);
+  const [phone, setPhone] = useState<string>('');
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+
+  useEffect(() => {
+    if (!tenant) return;
+    setEnabled(tenant.billingAlertsEnabled ?? true);
+    setPhone(tenant.billingAlertsPhone ?? '');
+  }, [tenant]);
+
+  if (!tenant) return null;
+
+  async function save() {
+    setSaving(true);
+    try {
+      const updated = await api<TenantMe>('/tenants/me', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          billingAlertsEnabled: enabled,
+          billingAlertsPhone: phone.trim() || null,
+        }),
+      });
+      toast('Alertas de pago guardadas', 'success');
+      onSaved(updated);
+    } catch (e: any) {
+      toast(e.message || 'No se pudo guardar', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function test() {
+    setTesting(true);
+    try {
+      const res = await api<{ ok: boolean; toPhone: string; response: any }>(
+        '/tenants/me/billing-alerts/test',
+        { method: 'POST' },
+      );
+      if (res.ok) {
+        toast(`SMS de prueba enviado a ${res.toPhone}`, 'success');
+      } else {
+        toast(
+          `Falló: ${res.response?.message || 'sin detalle'}`,
+          'error',
+        );
+      }
+    } catch (e: any) {
+      toast(e.message || 'No se pudo probar', 'error');
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  const dirty =
+    enabled !== (tenant.billingAlertsEnabled ?? true) ||
+    (phone.trim() || '') !== (tenant.billingAlertsPhone ?? '');
+
+  return (
+    <div className="card card-pad mb-4">
+      <h2 className="text-base font-semibold m-0 flex items-center gap-2">
+        💳 Alertas SMS de pago
+        {enabled ? (
+          <span className="text-[10px] font-bold uppercase tracking-wider bg-ok/15 text-ok px-2 py-0.5 rounded-full">
+            Activas
+          </span>
+        ) : (
+          <span className="text-[10px] font-bold uppercase tracking-wider bg-bg2 text-mute px-2 py-0.5 rounded-full">
+            Pausadas
+          </span>
+        )}
+      </h2>
+      <p className="text-xs text-mute mt-1 leading-relaxed">
+        Recordatorios automáticos sobre tu suscripción: aviso 24 horas
+        antes del cobro, si un cobro falla, y antes de pausar la cuenta.
+      </p>
+
+      <div className="mt-4 space-y-3">
+        <label className="flex items-center gap-3 cursor-pointer p-3 rounded-lg bg-bg2/40">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => setEnabled(e.target.checked)}
+            className="w-5 h-5 accent-brand"
+          />
+          <div>
+            <div className="font-semibold text-sm">Recibir alertas de pago</div>
+            <div className="text-[11px] text-mute leading-snug">
+              Apagalas si preferís manejar la facturación sin SMS — vas a
+              ver los avisos igual en email y en el panel.
+            </div>
+          </div>
+        </label>
+
+        <div>
+          <label className="label">
+            Teléfono destino
+            <span className="text-mute font-normal ml-2 text-[10px]">
+              (opcional · default: tu WhatsApp)
+            </span>
+          </label>
+          <input
+            type="tel"
+            className="input"
+            placeholder="+57 300 000 0000"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            maxLength={40}
+          />
+        </div>
+
+        <div className="flex items-center justify-between gap-2 pt-2 border-t border-line">
+          <button
+            type="button"
+            onClick={test}
+            disabled={testing}
+            className="btn-ghost text-sm disabled:opacity-50"
+          >
+            {testing ? 'Enviando…' : '📤 Probar SMS'}
+          </button>
+          <button
+            type="button"
+            onClick={save}
+            disabled={saving || !dirty}
+            className="btn-primary text-sm"
+          >
+            {saving ? 'Guardando…' : 'Guardar cambios'}
           </button>
         </div>
       </div>

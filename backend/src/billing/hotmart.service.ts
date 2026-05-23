@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { EmailService } from '../email/email.service';
+import { BillingService } from './billing.service';
 import {
   smsPaymentConfirmed,
   smsPaymentFailed,
@@ -57,32 +58,21 @@ export class HotmartService {
     private prisma: PrismaService,
     private growBusiness: GrowBusinessService,
     private email: EmailService,
+    private billing: BillingService,
   ) {}
 
-  /** Helper: celular del dueño para SMS (user.phone → tenant.whatsappPhone → tenant.phone). */
-  private async ownerPhone(tenantId: string): Promise<string | null> {
-    const owner = await this.prisma.user.findFirst({
-      where: { tenantId, role: 'TENANT_OWNER', isActive: true },
-      select: { phone: true },
-      orderBy: { createdAt: 'asc' },
-    });
-    if (owner?.phone) return owner.phone;
-    const t = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
-      select: { whatsappPhone: true, phone: true },
-    });
-    return t?.whatsappPhone ?? t?.phone ?? null;
-  }
-
-  /** Best-effort: manda SMS al dueño, no falla el webhook si no se puede. */
+  /** Best-effort: manda SMS al dueño, no falla el webhook si no se puede.
+   *  Usa el mismo resolver de billing (subcuenta global > creds tenant +
+   *  override de teléfono + toggle billingAlertsEnabled). Si el owner
+   *  apagó alertas o no hay creds/teléfono → silent skip. */
   private async notifyOwner(tenantId: string, brandName: string, message: string) {
-    const phone = await this.ownerPhone(tenantId);
-    if (!phone) return;
+    const target = await this.billing.resolveBillingTarget(tenantId);
+    if (!target) return;
     const r = await this.growBusiness
-      .sendSms(tenantId, phone, message)
+      .sendSmsWithCreds(target.creds, target.phone, message)
       .catch((e) => ({ ok: false as const, message: e?.message }));
     if (r.ok) {
-      this.logger.log(`SMS Hotmart enviado a ${brandName} (${phone})`);
+      this.logger.log(`SMS Hotmart enviado a ${brandName} (${target.phone})`);
     } else {
       this.logger.warn(
         `SMS Hotmart falló para ${brandName}: ${r.message ?? 'unknown'}`,

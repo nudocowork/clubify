@@ -14,9 +14,12 @@ import { toast } from '@/components/Toast';
  * `project_grow_business_naming.md` es non-negotiable.
  */
 
+type Purpose = 'BILLING' | 'OPERATIONAL' | 'GENERAL';
+
 type Account = {
   id: string;
   name: string;
+  purpose: Purpose;
   locationId: string;
   apiKeyPreview: string | null;
   switchNumber: number | null;
@@ -24,7 +27,29 @@ type Account = {
   lastTestAt: string | null;
   lastTestOk: boolean | null;
   tenantsCount: number;
+  reviewTenantsCount?: number;
+  billingTenantsCount?: number;
   createdAt: string;
+};
+
+const PURPOSE_META: Record<Purpose, { label: string; emoji: string; description: string }> = {
+  BILLING: {
+    label: 'Billing — pagos',
+    emoji: '💳',
+    description:
+      'Para recordatorios de pago, avisos de impago y suspensión.',
+  },
+  OPERATIONAL: {
+    label: 'Operativa — reseñas / pedidos',
+    emoji: '📣',
+    description:
+      'Para alertas de reseñas negativas, pedidos delivery y comunicaciones operativas.',
+  },
+  GENERAL: {
+    label: 'General',
+    emoji: '⚙️',
+    description: 'Subcuenta sin propósito específico — usá para cualquier flujo.',
+  },
 };
 
 export default function IntegrationsPage() {
@@ -138,8 +163,22 @@ export default function IntegrationsPage() {
       )}
 
       {!loading && accounts && accounts.length > 0 && (
-        <div className="space-y-3">
-          {accounts.map((acc) => (
+        <div className="space-y-6">
+          {(['BILLING', 'OPERATIONAL', 'GENERAL'] as const).map((purpose) => {
+            const inGroup = accounts.filter(
+              (a) => (a.purpose ?? 'GENERAL') === purpose,
+            );
+            if (inGroup.length === 0) return null;
+            const meta = PURPOSE_META[purpose];
+            return (
+              <div key={purpose}>
+                <h2 className="text-sm font-bold uppercase tracking-[0.12em] text-mute mb-2 flex items-center gap-2">
+                  <span>{meta.emoji}</span>
+                  <span>{meta.label}</span>
+                </h2>
+                <p className="text-[11px] text-mute mb-2">{meta.description}</p>
+                <div className="space-y-3">
+                  {inGroup.map((acc) => (
             <div key={acc.id} className="card card-pad">
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div className="flex-1 min-w-0">
@@ -183,6 +222,13 @@ export default function IntegrationsPage() {
                     <div>
                       <span className="font-semibold">Negocios usándola:</span>{' '}
                       {acc.tenantsCount}
+                      {(acc.reviewTenantsCount != null ||
+                        acc.billingTenantsCount != null) && (
+                        <span className="text-[10px] ml-1">
+                          (reseñas: {acc.reviewTenantsCount ?? 0} · pagos:{' '}
+                          {acc.billingTenantsCount ?? 0})
+                        </span>
+                      )}
                       {acc.lastTestAt && (
                         <>
                           {' '}
@@ -218,7 +264,11 @@ export default function IntegrationsPage() {
                 </div>
               </div>
             </div>
-          ))}
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -256,6 +306,7 @@ function AccountForm({
     editing?.switchNumber != null ? String(editing.switchNumber) : '',
   );
   const [isDefault, setIsDefault] = useState(editing?.isDefault ?? false);
+  const [purpose, setPurpose] = useState<Purpose>(editing?.purpose ?? 'GENERAL');
   const [saving, setSaving] = useState(false);
 
   async function save() {
@@ -284,6 +335,7 @@ function AccountForm({
         name: name.trim(),
         locationId: locationId.trim(),
         isDefault,
+        purpose,
       };
       if (apiKey.trim()) body.apiKey = apiKey.trim();
       if (parsedSwitch !== undefined) body.switchNumber = parsedSwitch;
@@ -342,6 +394,36 @@ function AccountForm({
             />
             <div className="text-[10px] text-mute mt-1">
               Solo para que vos lo identifiques en este panel.
+            </div>
+          </div>
+
+          <div>
+            <label className="label">Propósito</label>
+            <div className="grid grid-cols-3 gap-2">
+              {(['BILLING', 'OPERATIONAL', 'GENERAL'] as const).map((p) => {
+                const meta = PURPOSE_META[p];
+                const active = purpose === p;
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setPurpose(p)}
+                    className={`text-left px-3 py-2 rounded-lg border-2 transition ${
+                      active
+                        ? 'border-brand bg-brand/5'
+                        : 'border-line bg-white hover:border-mute'
+                    }`}
+                  >
+                    <div className="text-base">{meta.emoji}</div>
+                    <div className={`text-xs font-semibold mt-0.5 ${active ? 'text-brand' : 'text-ink'}`}>
+                      {meta.label}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="text-[10px] text-mute mt-1">
+              {PURPOSE_META[purpose].description}
             </div>
           </div>
 
