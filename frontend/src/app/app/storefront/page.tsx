@@ -358,7 +358,7 @@ export default function StorefrontEditor() {
               target="_blank"
               className="text-brand hover:underline"
             >
-              Ver los 5 estilos →
+              Ver los 8 estilos →
             </a>
           </p>
           <div className="grid grid-cols-2 gap-2">
@@ -578,6 +578,7 @@ export default function StorefrontEditor() {
           blocksCount={sf.blocks?.length ?? 0}
           savedAt={savedAt}
           mainLabel={mainLabel}
+          menuLayout={sf.menuLayout ?? 'CLASSIC'}
         />
       </div>
     </div>
@@ -721,6 +722,7 @@ function StorefrontPreview({
   blocksCount,
   savedAt,
   mainLabel,
+  menuLayout,
 }: {
   publicHref: string;
   publicUrl: string;
@@ -730,14 +732,29 @@ function StorefrontPreview({
   blocksCount: number;
   savedAt: Date | null;
   mainLabel: string;
+  menuLayout: MenuLayout;
 }) {
-  const [mode, setMode] = useState<'sim' | 'live'>('sim');
+  // Default a 'live' cuando el negocio ya tiene slug: es el único modo
+  // que refleja el layout real (premium / FLIPBOOK / SECTIONS / colores
+  // de header). El SimPreview es un mock genérico estilo CLASSIC y se
+  // queda como fallback informativo si el slug aún no existe.
+  const [mode, setMode] = useState<'sim' | 'live'>(
+    tenantSlug ? 'live' : 'sim',
+  );
   const [iframeKey, setIframeKey] = useState(0);
 
   // Recarga el iframe cada vez que se publica (savedAt cambia).
   useEffect(() => {
     if (mode === 'live' && savedAt) setIframeKey((k) => k + 1);
   }, [savedAt, mode]);
+
+  // Si el layout activo no es CLASSIC, la simulación no lo refleja.
+  // Mostramos un aviso para evitar que el user crea que su menú se ve
+  // así en producción.
+  const simIsFaithful = menuLayout === 'CLASSIC';
+  const layoutLabel = (
+    MENU_LAYOUTS.find((l) => l.id === menuLayout)?.label ?? menuLayout
+  );
 
   // Hora "viva" para que el iPhone se sienta real
   const [now, setNow] = useState<string>('11:42');
@@ -821,12 +838,20 @@ function StorefrontPreview({
 
             <div className="pt-[34px] h-full overflow-hidden">
               {mode === 'sim' ? (
-                <SimPreview
-                  brandName={brandName}
-                  description={description}
-                  blocksCount={blocksCount}
-                  mainLabel={mainLabel}
-                />
+                <div className="h-full overflow-hidden">
+                  {!simIsFaithful && (
+                    <div className="bg-amber-50 border-b border-amber-200 px-2 py-1.5 text-[9px] text-amber-900 leading-snug text-center">
+                      ⚠ La simulación muestra estilo Clásico. Cambiá a{' '}
+                      <strong>En vivo</strong> para ver "{layoutLabel}".
+                    </div>
+                  )}
+                  <SimPreview
+                    brandName={brandName}
+                    description={description}
+                    blocksCount={blocksCount}
+                    mainLabel={mainLabel}
+                  />
+                </div>
               ) : tenantSlug ? (
                 <iframe
                   key={iframeKey}
