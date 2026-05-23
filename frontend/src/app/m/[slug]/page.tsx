@@ -58,6 +58,9 @@ type Storefront = {
   ordersEnabled?: boolean;
   ordersDeliveryEnabled?: boolean;
   pageBackgroundColor?: string | null;
+  logoBgColor?: string | null;
+  titleColor?: string | null;
+  descriptionColor?: string | null;
   backButtonConfig?: BackButtonConfig | null;
   popup?: { imageUrl: string; cardId: string | null; delaySeconds?: number } | null;
   planName?: string | null;
@@ -348,13 +351,24 @@ export default function StorefrontPublic() {
         <div className="px-5 pt-10 pb-6 max-w-2xl mx-auto">
           <div className="flex flex-col items-center text-center gap-3">
             {s.logoUrl ? (
-              <div className="bg-white rounded-2xl shadow-sm ring-1 ring-black/5 px-5 py-4 flex items-center justify-center max-w-[180px] w-fit overflow-visible">
-                <img
-                  src={s.logoUrl}
-                  alt={s.brandName}
-                  className="max-w-[140px] w-auto h-auto max-h-[110px] object-contain block"
-                />
-              </div>
+              (() => {
+                const logoBg = s.logoBgColor || '#FFFFFF';
+                const isTransparent = logoBg === 'transparent';
+                return (
+                  <div
+                    className={`rounded-2xl px-5 py-4 flex items-center justify-center max-w-[180px] w-fit overflow-visible ${
+                      isTransparent ? '' : 'shadow-sm ring-1 ring-black/5'
+                    }`}
+                    style={{ background: logoBg }}
+                  >
+                    <img
+                      src={s.logoUrl}
+                      alt={s.brandName}
+                      className="max-w-[140px] w-auto h-auto max-h-[110px] object-contain block"
+                    />
+                  </div>
+                );
+              })()
             ) : (
               <div
                 className="w-20 h-20 rounded-2xl flex items-center justify-center text-white font-bold text-3xl ring-4 ring-white shadow-sm"
@@ -364,12 +378,24 @@ export default function StorefrontPublic() {
               </div>
             )}
             <div className="w-full min-w-0">
-              <div className="font-bold text-2xl tracking-tight">{s.brandName}</div>
+              <div
+                className="font-bold text-2xl tracking-tight"
+                style={s.titleColor ? { color: s.titleColor } : undefined}
+              >
+                {s.brandName}
+              </div>
               {s.description && (
                 <div
                   className={`text-sm leading-snug whitespace-pre-line mt-1 ${
-                    isCluvi ? 'text-white/70' : 'text-mute'
+                    s.descriptionColor
+                      ? ''
+                      : isCluvi
+                      ? 'text-white/70'
+                      : 'text-mute'
                   }`}
+                  style={
+                    s.descriptionColor ? { color: s.descriptionColor } : undefined
+                  }
                 >
                   {s.description}
                 </div>
