@@ -207,6 +207,68 @@ export class IndustriesService {
     return row;
   }
 
+  /**
+   * Asegura que la industria tenga al menos UNA Presentation "default"
+   * y devuelve sus datos básicos. Si la industria no tiene ninguna, la
+   * crea on-demand con slug = industry.slug, title = industry.name,
+   * sortOrder=0, isActive=true.
+   *
+   * Usado por el admin frontend para colapsar la UX:
+   * /admin/industries/{id} ahora redirige directo al editor de slides
+   * de esta presentation default — sin pantalla intermedia "lista de
+   * presentations". Conceptualmente cada industria tiene un solo deck;
+   * Presentation queda como detalle de implementación interno.
+   *
+   * Idempotente: si ya existe una presentation, devuelve la primera por
+   * sortOrder sin crear nada.
+   */
+  async ensureDefaultPresentation(user: AuthUser, industryId: string) {
+    this.ensureSuperAdmin(user);
+    const industry = await this.prisma.industry.findUnique({
+      where: { id: industryId },
+      select: { id: true, name: true, slug: true, themeColor: true },
+    });
+    if (!industry) throw new NotFoundException('Industria no encontrada');
+
+    const existing = await this.prisma.presentation.findFirst({
+      where: { industryId },
+      orderBy: { sortOrder: 'asc' },
+      select: { id: true, slug: true, title: true },
+    });
+    if (existing) return existing;
+
+    // Slug derivado del industry.slug. Si por raro motivo ya existe una
+    // Presentation con ese slug en esta industria (ej: el usuario la
+    // creó manualmente y luego la desactivó), sufijamos para no
+    // colisionar con el unique compuesto (industryId, slug).
+    let candidateSlug = industry.slug;
+    let attempt = 1;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const clash = await this.prisma.presentation.findUnique({
+        where: {
+          industryId_slug: { industryId, slug: candidateSlug },
+        },
+        select: { id: true },
+      });
+      if (!clash) break;
+      attempt += 1;
+      candidateSlug = `${industry.slug}-${attempt}`;
+    }
+
+    return this.prisma.presentation.create({
+      data: {
+        industryId,
+        title: industry.name,
+        slug: candidateSlug,
+        themeColor: industry.themeColor,
+        isActive: true,
+        sortOrder: 0,
+      },
+      select: { id: true, slug: true, title: true },
+    });
+  }
+
   async create(user: AuthUser, dto: CreateIndustryDto) {
     this.ensureSuperAdmin(user);
     const name = (dto.name || '').trim();

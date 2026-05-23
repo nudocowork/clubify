@@ -52,6 +52,13 @@ export class IndustriesAdminController {
     return this.svc.getById(user, id);
   }
 
+  /** Asegura que la industria tenga una Presentation "default" y la devuelve.
+   *  El admin lo usa para colapsar la UX (industria → editor de slides). */
+  @Post(':id/ensure-default-presentation')
+  ensureDefault(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.ensureDefaultPresentation(user, id);
+  }
+
   @Patch(':id')
   update(
     @CurrentUser() user: AuthUser,
