@@ -288,13 +288,22 @@ function PageSlide({
   page: Page & { sectionId: string };
   onClick: () => void;
 }) {
+  // Sin aspect-ratio fijo ni object-cover. La imagen se muestra completa
+  // (object-contain) centrada vertical+horizontalmente dentro de un slide
+  // de altura fluida basada en viewport (descuenta chips superiores +
+  // controles inferiores ≈ 160-180px). Si la imagen es vertical (típico
+  // menú restaurante), se ve completa sin recortar; si es horizontal,
+  // también — queda con espacio arriba/abajo en lugar de recortarse.
   return (
-    <div className="flex-none w-full snap-start snap-always px-2">
+    <div
+      className="flex-none w-full snap-start snap-always px-2 flex items-center justify-center"
+      style={{ height: 'calc(100vh - 180px)', minHeight: 320 }}
+    >
       <button
         type="button"
         onClick={onClick}
         disabled={!page.popup}
-        className="relative w-full aspect-[3/4] rounded-xl overflow-hidden bg-white shadow-sm"
+        className="relative max-w-full max-h-full rounded-xl overflow-hidden shadow-sm bg-white inline-flex"
         style={{ cursor: page.popup ? 'pointer' : 'default' }}
       >
         <img
@@ -302,7 +311,7 @@ function PageSlide({
           alt=""
           loading="lazy"
           decoding="async"
-          className="w-full h-full object-cover"
+          className="block max-w-full max-h-full w-auto h-auto object-contain"
           draggable={false}
         />
         {page.popup && (
