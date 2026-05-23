@@ -46,6 +46,8 @@ type Product = {
   name: string;
   description: string;
   basePrice: number;
+  priceMode?: 'FIXED' | 'RANGE';
+  priceMax?: number | null;
   imageUrl: string | null;
   tags: string[];
   isAvailable: boolean;
@@ -282,6 +284,8 @@ export default function MenuEditor() {
       name: '',
       description: '',
       basePrice: 0,
+      priceMode: 'FIXED',
+      priceMax: null,
       imageUrl: '',
       tags: [],
       isAvailable: true,
@@ -301,6 +305,11 @@ export default function MenuEditor() {
       name: p.name,
       description: p.description ?? '',
       basePrice: Number(p.basePrice ?? 0),
+      priceMode: p.priceMode ?? 'FIXED',
+      priceMax:
+        p.priceMode === 'RANGE' && p.priceMax != null
+          ? Number(p.priceMax)
+          : null,
       imageUrl: p.imageUrl || undefined,
       tags: p.tags ?? [],
       isAvailable: p.isAvailable ?? true,
@@ -1599,13 +1608,79 @@ function ProductDrawer({
               )}
           </div>
           <div>
-            <label className="label">Precio base</label>
-            <input
-              type="number"
-              className="input"
-              value={form.basePrice ?? 0}
-              onChange={(e) => update('basePrice', Number(e.target.value))}
-            />
+            <label className="label">Tipo de precio</label>
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              {(['FIXED', 'RANGE'] as const).map((mode) => {
+                const active = (form.priceMode ?? 'FIXED') === mode;
+                return (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => {
+                      update('priceMode', mode);
+                      if (mode === 'FIXED') update('priceMax', null);
+                    }}
+                    className={`px-3 py-2 rounded-md text-sm font-semibold border-2 transition ${
+                      active
+                        ? 'border-brand bg-brand/10 text-brand'
+                        : 'border-line bg-white text-mute hover:border-mute'
+                    }`}
+                  >
+                    {mode === 'FIXED' ? '🏷 Precio fijo' : '📊 Rango'}
+                  </button>
+                );
+              })}
+            </div>
+            {(form.priceMode ?? 'FIXED') === 'FIXED' ? (
+              <div>
+                <label className="label">Precio base</label>
+                <input
+                  type="number"
+                  className="input"
+                  value={form.basePrice ?? 0}
+                  onChange={(e) => update('basePrice', Number(e.target.value))}
+                />
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="label">Mínimo</label>
+                  <input
+                    type="number"
+                    className="input"
+                    value={form.basePrice ?? 0}
+                    onChange={(e) =>
+                      update('basePrice', Number(e.target.value))
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="label">Máximo</label>
+                  <input
+                    type="number"
+                    className="input"
+                    value={form.priceMax ?? ''}
+                    onChange={(e) =>
+                      update(
+                        'priceMax',
+                        e.target.value === '' ? null : Number(e.target.value),
+                      )
+                    }
+                    placeholder="Hasta…"
+                  />
+                </div>
+                <div className="col-span-2 text-[11px] text-mute">
+                  Se muestra como{' '}
+                  <strong>
+                    {fmt(Number(form.basePrice ?? 0))} —{' '}
+                    {form.priceMax != null
+                      ? fmt(Number(form.priceMax))
+                      : '?'}
+                  </strong>
+                  . El carrito usa el mínimo como referencia.
+                </div>
+              </div>
+            )}
           </div>
           <div>
             <label className="label">Descripción</label>

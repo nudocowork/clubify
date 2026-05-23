@@ -8,7 +8,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { IsArray, IsBoolean, IsNumber, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsNumber, IsOptional, IsString, IsUUID, ValidateIf } from 'class-validator';
 import { ProductsService } from './products.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -18,6 +18,10 @@ class ProductBody {
   @IsString() name!: string;
   @IsOptional() @IsString() description?: string;
   @IsNumber() basePrice!: number;
+  @IsOptional() @IsIn(['FIXED', 'RANGE']) priceMode?: 'FIXED' | 'RANGE';
+  // priceMax solo válido cuando priceMode='RANGE'. Aceptamos null
+  // explícito para limpiar (volver al modo FIXED).
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsNumber() priceMax?: number | null;
   @IsOptional() @IsString() imageUrl?: string;
   @IsOptional() @IsArray() tags?: string[];
   @IsOptional() @IsBoolean() isAvailable?: boolean;
