@@ -375,6 +375,8 @@ export default function TenantDetail() {
 
         <ReviewAlertsAccountCard tenant={t} onSaved={load} />
 
+        <BillingAlertsAccountCard tenant={t} onSaved={load} />
+
         <ReviewAlertsLogsCard tenantId={t.id} />
 
         <BillingNotificationsCard tenant={t} />
@@ -419,12 +421,13 @@ type ReviewAlertEvent = {
 };
 
 // ============================================================
-//   Asignación de subcuenta SMS global para alertas de reseñas
+//   Asignación de subcuenta SMS global por propósito
 // ============================================================
 
 type GbAccountOption = {
   id: string;
   name: string;
+  purpose: string;
   isDefault: boolean;
   lastTestOk: boolean | null;
 };
@@ -436,15 +439,68 @@ function ReviewAlertsAccountCard({
   tenant: any;
   onSaved: () => void;
 }) {
-  const [accounts, setAccounts] = useState<GbAccountOption[] | null>(null);
-  const [selected, setSelected] = useState<string>(
-    tenant.reviewAlertsAccountId ?? '',
+  return (
+    <AlertsAccountCard
+      tenant={tenant}
+      onSaved={onSaved}
+      field="reviewAlertsAccountId"
+      title="📲 Subcuenta SMS para alertas de reseñas"
+      description="Elegí qué subcuenta Grow Business usar para los SMS cuando un cliente deje una reseña baja en este negocio."
+      preferredPurpose="OPERATIONAL"
+      radioName="gb-review-account"
+    />
   );
+}
+
+function BillingAlertsAccountCard({
+  tenant,
+  onSaved,
+}: {
+  tenant: any;
+  onSaved: () => void;
+}) {
+  return (
+    <AlertsAccountCard
+      tenant={tenant}
+      onSaved={onSaved}
+      field="billingAlertsAccountId"
+      title="💳 Subcuenta SMS para recordatorios de pago"
+      description="Elegí qué subcuenta Grow Business usar para los SMS administrativos (D-1 recordatorio, impago, suspensión)."
+      preferredPurpose="BILLING"
+      radioName="gb-billing-account"
+    />
+  );
+}
+
+/** Componente reusable: card con radio buttons para elegir subcuenta
+ *  global asignada a un campo específico del tenant. Las subcuentas se
+ *  ordenan poniendo primero las del `preferredPurpose` (BILLING para
+ *  billing card, OPERATIONAL para reviews card) — pero igual mostramos
+ *  todas para no bloquear al admin. */
+function AlertsAccountCard({
+  tenant,
+  onSaved,
+  field,
+  title,
+  description,
+  preferredPurpose,
+  radioName,
+}: {
+  tenant: any;
+  onSaved: () => void;
+  field: 'reviewAlertsAccountId' | 'billingAlertsAccountId';
+  title: string;
+  description: string;
+  preferredPurpose: 'BILLING' | 'OPERATIONAL';
+  radioName: string;
+}) {
+  const [accounts, setAccounts] = useState<GbAccountOption[] | null>(null);
+  const [selected, setSelected] = useState<string>(tenant[field] ?? '');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    setSelected(tenant.reviewAlertsAccountId ?? '');
-  }, [tenant.reviewAlertsAccountId]);
+    setSelected(tenant[field] ?? '');
+  }, [tenant, field]);
 
   useEffect(() => {
     api<GbAccountOption[]>('/admin/integrations/grow-business-accounts')
@@ -453,12 +509,15 @@ function ReviewAlertsAccountCard({
           data.map((a: any) => ({
             id: a.id,
             name: a.name,
+            purpose: a.purpose ?? 'GENERAL',
             isDefault: a.isDefault,
             lastTestOk: a.lastTestOk,
           })),
         ),
       )
-      .catch((e: any) => toast(e.message || 'No se cargaron las subcuentas', 'error'));
+      .catch((e: any) =>
+        toast(e.message || 'No se cargaron las subcuentas', 'error'),
+      );
   }, []);
 
   async function save() {
@@ -466,9 +525,7 @@ function ReviewAlertsAccountCard({
     try {
       await api(`/tenants/${tenant.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({
-          reviewAlertsAccountId: selected || null,
-        }),
+        body: JSON.stringify({ [field]: selected || null }),
       });
       toast('Subcuenta asignada', 'success');
       onSaved();
@@ -479,23 +536,30 @@ function ReviewAlertsAccountCard({
     }
   }
 
-  const dirty = (selected || '') !== (tenant.reviewAlertsAccountId ?? '');
+  const dirty = (selected || '') !== (tenant[field] ?? '');
+
+  // Ordena: preferredPurpose primero, después el resto.
+  const sortedAccounts = accounts
+    ? [...accounts].sort((a, b) => {
+        const aPref = a.purpose === preferredPurpose ? 0 : 1;
+        const bPref = b.purpose === preferredPurpose ? 0 : 1;
+        return aPref - bPref;
+      })
+    : null;
 
   return (
     <div className="card card-pad">
       <h3 className="text-base font-semibold m-0 flex items-center gap-2">
-        📲 Subcuenta SMS para alertas de reseñas
+        {title}
       </h3>
       <p className="text-xs text-mute mt-1 leading-relaxed">
-        Elegí qué subcuenta Grow Business usar para los SMS de este
-        negocio. Las subcuentas se gestionan en{' '}
+        {description}{' '}
         <Link
           href="/admin/integrations"
           className="text-brand hover:underline"
         >
-          Integraciones SMS
+          Gestionar subcuentas →
         </Link>
-        .
       </p>
 
       {accounts === null && (
@@ -511,13 +575,13 @@ function ReviewAlertsAccountCard({
         </div>
       )}
 
-      {accounts && accounts.length > 0 && (
+      {sortedAccounts && sortedAccounts.length > 0 && (
         <>
           <div className="mt-3 space-y-1">
             <label className="flex items-center gap-2 p-2 rounded hover:bg-bg2/40 cursor-pointer">
               <input
                 type="radio"
-                name="gb-account"
+                name={radioName}
                 checked={selected === ''}
                 onChange={() => setSelected('')}
                 className="accent-brand"
@@ -527,45 +591,61 @@ function ReviewAlertsAccountCard({
                   Usar credenciales propias del negocio
                 </div>
                 <div className="text-[11px] text-mute">
-                  Comportamiento legacy — usa las credenciales pegadas en
-                  el card Grow Business arriba.
+                  Fallback al card Grow Business arriba (creds pegadas
+                  individualmente para este tenant).
                 </div>
               </div>
             </label>
-            {accounts.map((acc) => (
-              <label
-                key={acc.id}
-                className="flex items-center gap-2 p-2 rounded hover:bg-bg2/40 cursor-pointer"
-              >
-                <input
-                  type="radio"
-                  name="gb-account"
-                  checked={selected === acc.id}
-                  onChange={() => setSelected(acc.id)}
-                  className="accent-brand"
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium flex items-center gap-2">
-                    {acc.name}
-                    {acc.isDefault && (
-                      <span className="text-[9px] uppercase tracking-wider font-bold bg-brand/15 text-brand px-1.5 py-0.5 rounded">
-                        Default
+            {sortedAccounts.map((acc) => {
+              const isPref = acc.purpose === preferredPurpose;
+              return (
+                <label
+                  key={acc.id}
+                  className="flex items-center gap-2 p-2 rounded hover:bg-bg2/40 cursor-pointer"
+                >
+                  <input
+                    type="radio"
+                    name={radioName}
+                    checked={selected === acc.id}
+                    onChange={() => setSelected(acc.id)}
+                    className="accent-brand"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium flex items-center gap-2 flex-wrap">
+                      {acc.name}
+                      <span
+                        className={`text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded ${
+                          isPref
+                            ? 'bg-brand/15 text-brand'
+                            : 'bg-bg2 text-mute'
+                        }`}
+                      >
+                        {acc.purpose === 'BILLING'
+                          ? 'Billing'
+                          : acc.purpose === 'OPERATIONAL'
+                          ? 'Operativa'
+                          : 'General'}
                       </span>
-                    )}
-                    {acc.lastTestOk === true && (
-                      <span className="text-[9px] uppercase tracking-wider font-bold bg-ok/15 text-ok px-1.5 py-0.5 rounded">
-                        OK
-                      </span>
-                    )}
-                    {acc.lastTestOk === false && (
-                      <span className="text-[9px] uppercase tracking-wider font-bold bg-bad/15 text-bad px-1.5 py-0.5 rounded">
-                        Falló
-                      </span>
-                    )}
+                      {acc.isDefault && (
+                        <span className="text-[9px] uppercase tracking-wider font-bold bg-brand/15 text-brand px-1.5 py-0.5 rounded">
+                          Default
+                        </span>
+                      )}
+                      {acc.lastTestOk === true && (
+                        <span className="text-[9px] uppercase tracking-wider font-bold bg-ok/15 text-ok px-1.5 py-0.5 rounded">
+                          OK
+                        </span>
+                      )}
+                      {acc.lastTestOk === false && (
+                        <span className="text-[9px] uppercase tracking-wider font-bold bg-bad/15 text-bad px-1.5 py-0.5 rounded">
+                          Falló
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </label>
-            ))}
+                </label>
+              );
+            })}
           </div>
 
           {dirty && (
