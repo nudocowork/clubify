@@ -205,6 +205,9 @@ export default function ReviewsPage() {
         )}
       </div>
 
+      {/* Alertas SMS por reseñas negativas */}
+      <ReviewAlertsCard tenant={tenant} onSaved={load} />
+
       {/* Link público para compartir */}
       <div className="card card-pad mb-5">
         <h3 className="text-base font-semibold m-0">
@@ -402,6 +405,263 @@ export default function ReviewsPage() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const DEFAULT_TEMPLATE =
+  '⚠️ Nueva reseña privada en {businessName}\n\n' +
+  'Cliente: {customerName}\n' +
+  'Teléfono: {customerPhone}\n' +
+  'Calificación: {rating}/5\n\n' +
+  'Comentario:\n{feedback}\n\n' +
+  'Revisar en Clubify:\n{feedbackUrl}';
+
+const TOKENS = [
+  '{businessName}',
+  '{customerName}',
+  '{customerPhone}',
+  '{rating}',
+  '{feedback}',
+  '{date}',
+  '{feedbackUrl}',
+];
+
+function ReviewAlertsCard({
+  tenant,
+  onSaved,
+}: {
+  tenant: any;
+  onSaved: () => void;
+}) {
+  // Estado local sin guardar — se commitea con el botón "Guardar".
+  const [enabled, setEnabled] = useState<boolean>(false);
+  const [threshold, setThreshold] = useState<number>(3);
+  const [phone, setPhone] = useState<string>('');
+  const [template, setTemplate] = useState<string>('');
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  // Sincroniza estado local con el tenant cuando cambia (load inicial /
+  // refresh post-save).
+  useEffect(() => {
+    if (!tenant) return;
+    setEnabled(!!tenant.reviewAlertsEnabled);
+    setThreshold(tenant.reviewAlertsThreshold ?? 3);
+    setPhone(tenant.reviewAlertsPhone ?? '');
+    setTemplate(tenant.reviewAlertsTemplate ?? '');
+    if (tenant.reviewAlertsEnabled) setOpen(true);
+  }, [tenant]);
+
+  const growConnected = !!(
+    tenant?.growBusinessLocationId && tenant?.growBusinessApiKey
+  );
+
+  async function save() {
+    setSaving(true);
+    try {
+      await api('/tenants/me', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          reviewAlertsEnabled: enabled,
+          reviewAlertsThreshold: threshold,
+          reviewAlertsPhone: phone.trim() || null,
+          reviewAlertsTemplate: template.trim() || null,
+        }),
+      });
+      toast('Alertas de reseñas guardadas', 'success');
+      onSaved();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo guardar', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function test() {
+    setTesting(true);
+    try {
+      const res = await api<{ ok: boolean; toPhone: string; response: any }>(
+        '/tenants/me/review-alerts/test',
+        { method: 'POST' },
+      );
+      if (res.ok) {
+        toast(`SMS de prueba enviado a ${res.toPhone}`, 'success');
+      } else {
+        toast(
+          `Falló: ${res.response?.message || 'sin detalle'}`,
+          'error',
+        );
+      }
+    } catch (e: any) {
+      toast(e.message || 'No se pudo probar', 'error');
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  function insertToken(t: string) {
+    setTemplate((curr) => (curr || DEFAULT_TEMPLATE) + ` ${t}`);
+  }
+
+  const ratingThresholdLabel =
+    threshold === 1 ? '1 ⭐' : threshold === 2 ? '1 y 2 ⭐' : '1, 2 y 3 ⭐';
+
+  return (
+    <div className="card card-pad mb-5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-3 text-left"
+      >
+        <div>
+          <h3 className="text-base font-semibold m-0 flex items-center gap-2">
+            📲 Alertas SMS por reseñas negativas
+            {tenant?.reviewAlertsEnabled ? (
+              <span className="text-[10px] font-bold uppercase tracking-wider bg-ok/15 text-ok px-2 py-0.5 rounded-full">
+                Activo
+              </span>
+            ) : (
+              <span className="text-[10px] font-bold uppercase tracking-wider bg-bg2 text-mute px-2 py-0.5 rounded-full">
+                Inactivo
+              </span>
+            )}
+          </h3>
+          <p className="text-xs text-mute mt-1 leading-relaxed">
+            Recibí un SMS al instante cuando un cliente deje una reseña baja —
+            podés contactarlo antes de que se vuelva pública.
+          </p>
+        </div>
+        <span
+          className={`text-mute text-sm shrink-0 transition-transform ${
+            open ? '' : '-rotate-90'
+          }`}
+        >
+          ▾
+        </span>
+      </button>
+
+      {open && (
+        <div className="mt-4 space-y-4 pt-4 border-t border-line">
+          {!growConnected && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-900 leading-snug">
+              ⚠ Grow Business no está conectado para tu negocio. Pedile al
+              super admin que active la integración antes de probar.
+            </div>
+          )}
+
+          <label className="flex items-center gap-3 cursor-pointer p-3 rounded-lg bg-bg2/40">
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(e) => setEnabled(e.target.checked)}
+              className="w-5 h-5 accent-brand"
+            />
+            <div>
+              <div className="font-semibold text-sm">Activar alertas SMS</div>
+              <div className="text-[11px] text-mute leading-snug">
+                Si está prendido, cada reseña con {ratingThresholdLabel} dispara
+                un SMS automático.
+              </div>
+            </div>
+          </label>
+
+          <div>
+            <label className="label">
+              Disparar para reseñas con rating menor o igual a
+            </label>
+            <div className="flex items-center gap-2">
+              {[1, 2, 3].map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setThreshold(n)}
+                  className={`flex-1 px-3 py-2 rounded-md text-sm font-semibold border-2 transition ${
+                    threshold === n
+                      ? 'border-brand bg-brand/10 text-brand'
+                      : 'border-line bg-white text-mute hover:border-mute'
+                  }`}
+                >
+                  {n} ⭐ {n > 1 ? `y menos` : 'solamente'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="label">
+              Teléfono destino del SMS
+              <span className="text-mute font-normal ml-2 text-[10px]">
+                (opcional · default: tu teléfono de WhatsApp)
+              </span>
+            </label>
+            <input
+              type="tel"
+              className="input"
+              placeholder="+57 300 123 4567"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              maxLength={40}
+            />
+          </div>
+
+          <div>
+            <label className="label">
+              Mensaje del SMS
+              <span className="text-mute font-normal ml-2 text-[10px]">
+                (opcional · default: plantilla Clubify)
+              </span>
+            </label>
+            <textarea
+              className="input min-h-[150px] font-mono text-xs leading-relaxed"
+              placeholder={DEFAULT_TEMPLATE}
+              value={template}
+              onChange={(e) => setTemplate(e.target.value)}
+              maxLength={800}
+            />
+            <div className="flex gap-1 flex-wrap mt-2">
+              <span className="text-[10px] uppercase tracking-wider text-mute font-semibold self-center mr-1">
+                Insertar:
+              </span>
+              {TOKENS.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => insertToken(t)}
+                  className="text-[10px] font-mono px-2 py-1 rounded bg-bg2 text-ink hover:bg-brand/10 hover:text-brand transition"
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-2 pt-3 border-t border-line">
+            <button
+              type="button"
+              onClick={test}
+              disabled={testing || !growConnected}
+              className="btn-ghost text-sm disabled:opacity-50"
+              title={
+                !growConnected
+                  ? 'Necesita Grow Business conectado'
+                  : 'Manda un SMS de prueba ya mismo'
+              }
+            >
+              {testing ? 'Enviando…' : '📤 Probar SMS'}
+            </button>
+            <button
+              type="button"
+              onClick={save}
+              disabled={saving}
+              className="btn-primary text-sm"
+            >
+              {saving ? 'Guardando…' : 'Guardar cambios'}
+            </button>
+          </div>
         </div>
       )}
     </div>
