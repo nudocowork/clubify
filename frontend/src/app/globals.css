@@ -545,3 +545,13 @@
   text-transform: uppercase;
   font-weight: 700;
 }
+
+
+/* Ocultar scrollbar para sliders/snap horizontales (flipbook viewer, chips) */
+.no-scrollbar {
+  scrollbar-width: none;          /* Firefox */
+  -ms-overflow-style: none;       /* IE/Edge legacy */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;                  /* Chrome/Safari */
+}
