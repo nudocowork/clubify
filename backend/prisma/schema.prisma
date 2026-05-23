@@ -375,13 +375,14 @@ model Tenant {
   growBusinessLocationId      String?
   growBusinessApiKey          String?
   growBusinessConnectedAt     DateTime?
-  /// Número de "Switch" que GHL usa para enrutar el mensaje al
-  /// sub-account correcto. Se prepone al body como "#Switch{N}\n\n".
+  /// Número de "Switch" que Grow Business usa para enrutar el mensaje
+  /// al sub-account correcto. Se prepone al body como "#Switch{N}\n\n".
   /// Cada tenant tiene su propio número (1, 2, 3, ...). Null = no se
   /// prepone prefijo (mensaje plano).
   growBusinessSwitchNumber    Int?
   /// Alertas SMS por reseñas negativas (1-3 ⭐). Si enabled=true y
-  /// growBusiness está conectado, al recibir una reseña con rating <=
+  /// Grow Business está conectado (o hay reviewAlertsAccountId apuntando
+  /// a una subcuenta global), al recibir una reseña con rating <=
   /// threshold se envía un SMS al teléfono configurado (o al owner
   /// fallback) con el detalle del feedback. Aditivo — los tenants
   /// existentes quedan con enabled=false hasta configurarlo.
@@ -397,6 +398,13 @@ model Tenant {
   /// {customerPhone} {rating} {feedback} {date} {feedbackUrl}. Null =
   /// usa la plantilla default del backend.
   reviewAlertsTemplate        String?
+  /// Subcuenta global compartida para enviar las alertas SMS de
+  /// reseñas. Cuando está seteado, se usan esas credenciales en lugar
+  /// de las growBusiness* del propio tenant. Permite que el super
+  /// admin conecte UNA subcuenta y la asigne a múltiples negocios.
+  /// Null = usa creds del tenant directo (comportamiento legacy).
+  reviewAlertsAccountId       String?
+  reviewAlertsAccount         GrowBusinessAccount? @relation(fields: [reviewAlertsAccountId], references: [id], onDelete: SetNull)
   createdAt                   DateTime     @default(now())
 
   users               User[]
@@ -2044,4 +2052,29 @@ model Quote {
   @@index([templateSlug])
   @@index([createdAt])
   @@index([archivedAt])
+}
+
+/// Subcuenta global de Grow Business gestionada por el super admin.
+/// Permite que múltiples tenants compartan el mismo subaccount para
+/// enviar SMS, sin que cada negocio tenga que pegar sus credenciales.
+/// `name` es lo único visible al admin ("Subcuenta principal", "Backup",
+/// etc). `locationId` + `apiKey` se guardan en plano (la app necesita
+/// usarlas en cada request HTTP; encriptar aquí no añade seguridad real
+/// frente al runtime). `isDefault` marca cuál se sugiere por default
+/// cuando un tenant nuevo se vincula. `deletedAt` soft delete para no
+/// romper FKs en `Tenant.reviewAlertsAccountId` (SetNull al borrar).
+model GrowBusinessAccount {
+  id            String   @id @default(uuid())
+  name          String
+  locationId    String
+  apiKey        String
+  /// Switch number opcional, prepone "#Switch{N}\n\n" al body si está.
+  switchNumber  Int?
+  isDefault     Boolean  @default(false)
+  lastTestAt    DateTime?
+  lastTestOk    Boolean?
+  createdAt     DateTime @default(now())
+  deletedAt     DateTime?
+
+  tenants Tenant[]
 }

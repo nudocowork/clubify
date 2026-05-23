@@ -77,16 +77,46 @@ export class TenantMeController {
         reviewAlertsEnabled: true,
         reviewAlertsPhone: true,
         reviewAlertsTemplate: true,
+        reviewAlertsAccountId: true,
         growBusinessLocationId: true,
         growBusinessApiKey: true,
+        growBusinessSwitchNumber: true,
       },
     });
     if (!tenant) throw new ForbiddenException();
-    if (!tenant.growBusinessLocationId || !tenant.growBusinessApiKey) {
+
+    // Mismo orden que reviews.service: subcuenta global > creds tenant.
+    let creds: {
+      locationId: string;
+      apiKey: string;
+      switchNumber: number | null;
+    } | null = null;
+    if (tenant.reviewAlertsAccountId) {
+      const account = await this.prisma.growBusinessAccount.findFirst({
+        where: { id: tenant.reviewAlertsAccountId, deletedAt: null },
+        select: { locationId: true, apiKey: true, switchNumber: true },
+      });
+      if (account) {
+        creds = {
+          locationId: account.locationId,
+          apiKey: account.apiKey,
+          switchNumber: account.switchNumber,
+        };
+      }
+    }
+    if (!creds && tenant.growBusinessLocationId && tenant.growBusinessApiKey) {
+      creds = {
+        locationId: tenant.growBusinessLocationId,
+        apiKey: tenant.growBusinessApiKey,
+        switchNumber: tenant.growBusinessSwitchNumber,
+      };
+    }
+    if (!creds) {
       throw new BadRequestException(
-        'Grow Business no está conectado para este negocio.',
+        'No hay subcuenta Grow Business asignada ni credenciales propias para este negocio.',
       );
     }
+
     let toPhone = tenant.reviewAlertsPhone?.trim() || '';
     if (!toPhone) {
       const owner = await this.prisma.user.findFirst({
@@ -108,7 +138,11 @@ export class TenantMeController {
       '🧪 Test de alerta de reseñas\n\n' +
       `Negocio: ${tenant.brandName}\n` +
       'Si recibís este SMS, la conexión está lista. Activala con el toggle.';
-    const result = await this.growBusiness.sendSms(tenant.id, toPhone, body);
+    const result = await this.growBusiness.sendSmsWithCreds(
+      creds,
+      toPhone,
+      body,
+    );
     return {
       ok: result.ok,
       toPhone,

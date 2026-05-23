@@ -126,15 +126,48 @@ export class ReviewsService {
         reviewAlertsThreshold: true,
         reviewAlertsPhone: true,
         reviewAlertsTemplate: true,
+        reviewAlertsAccountId: true,
         growBusinessLocationId: true,
         growBusinessApiKey: true,
+        growBusinessSwitchNumber: true,
       },
     });
     if (!tenant) return;
     if (!tenant.reviewAlertsEnabled) return;
-    if (!tenant.growBusinessLocationId || !tenant.growBusinessApiKey) {
+
+    // Prioridad de creds para SMS:
+    //   1) Subcuenta global asignada (reviewAlertsAccountId) — permite
+    //      que el super admin conecte una sola Grow Business y la use
+    //      para alertas de varios negocios.
+    //   2) Credenciales propias del tenant — comportamiento legacy.
+    let creds: {
+      locationId: string;
+      apiKey: string;
+      switchNumber: number | null;
+    } | null = null;
+    if (tenant.reviewAlertsAccountId) {
+      const account = await this.prisma.growBusinessAccount.findFirst({
+        where: { id: tenant.reviewAlertsAccountId, deletedAt: null },
+        select: { locationId: true, apiKey: true, switchNumber: true },
+      });
+      if (account) {
+        creds = {
+          locationId: account.locationId,
+          apiKey: account.apiKey,
+          switchNumber: account.switchNumber,
+        };
+      }
+    }
+    if (!creds && tenant.growBusinessLocationId && tenant.growBusinessApiKey) {
+      creds = {
+        locationId: tenant.growBusinessLocationId,
+        apiKey: tenant.growBusinessApiKey,
+        switchNumber: tenant.growBusinessSwitchNumber,
+      };
+    }
+    if (!creds) {
       this.log.warn(
-        `[review-alert] tenant=${tenantId} enabled pero sin credenciales Grow Business`,
+        `[review-alert] tenant=${tenantId} enabled pero sin credenciales (ni subcuenta global ni propias)`,
       );
       return;
     }
@@ -200,7 +233,11 @@ export class ReviewsService {
       feedbackUrl,
     });
 
-    const result = await this.growBusiness.sendSms(tenantId, toPhone, body);
+    const result = await this.growBusiness.sendSmsWithCreds(
+      creds,
+      toPhone,
+      body,
+    );
 
     await this.prisma.event.create({
       data: {
