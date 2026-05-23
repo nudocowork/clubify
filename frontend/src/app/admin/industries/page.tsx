@@ -258,7 +258,7 @@ export default function AdminIndustriesPage() {
         </p>
       </div>
 
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
         <input
           type="search"
           className="input flex-1 max-w-sm"
@@ -266,6 +266,31 @@ export default function AdminIndustriesPage() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
+        <a
+          href="/industrias"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn-secondary inline-flex items-center gap-1.5 whitespace-nowrap"
+          title="Abrir la página pública de Industrias en otra pestaña"
+        >
+          🔗 Ver enlace
+        </a>
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              const url = `${window.location.origin}/industrias`;
+              await navigator.clipboard.writeText(url);
+              toast('Enlace copiado al portapapeles', 'success');
+            } catch {
+              toast('No se pudo copiar — copialo manualmente', 'error');
+            }
+          }}
+          className="btn-ghost inline-flex items-center gap-1.5 whitespace-nowrap"
+          title="Copiar https://soyclubify.com/industrias al portapapeles"
+        >
+          📋 Copiar
+        </button>
         <button onClick={openCreate} className="btn-primary">
           + Industria
         </button>
