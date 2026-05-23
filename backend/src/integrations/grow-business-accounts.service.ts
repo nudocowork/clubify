@@ -41,7 +41,13 @@ export class GrowBusinessAccountsService {
       where: { deletedAt: null },
       orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
       include: {
-        _count: { select: { reviewTenants: true, billingTenants: true } },
+        _count: {
+          select: {
+            reviewTenants: true,
+            billingTenants: true,
+            deliveryTenants: true,
+          },
+        },
       },
     });
     // Sanitizar: no devolver apiKey completa en la lista (solo prefijo).
@@ -58,9 +64,12 @@ export class GrowBusinessAccountsService {
       lastTestAt: a.lastTestAt,
       lastTestOk: a.lastTestOk,
       tenantsCount:
-        a._count.reviewTenants + a._count.billingTenants,
+        a._count.reviewTenants +
+        a._count.billingTenants +
+        a._count.deliveryTenants,
       reviewTenantsCount: a._count.reviewTenants,
       billingTenantsCount: a._count.billingTenants,
+      deliveryTenantsCount: a._count.deliveryTenants,
       createdAt: a.createdAt,
     }));
   }
@@ -155,6 +164,10 @@ export class GrowBusinessAccountsService {
       this.prisma.tenant.updateMany({
         where: { billingAlertsAccountId: id },
         data: { billingAlertsAccountId: null },
+      }),
+      this.prisma.tenant.updateMany({
+        where: { deliveryAlertsAccountId: id },
+        data: { deliveryAlertsAccountId: null },
       }),
       this.prisma.growBusinessAccount.update({
         where: { id },

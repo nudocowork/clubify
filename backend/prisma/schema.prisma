@@ -417,6 +417,23 @@ model Tenant {
   /// fallback a credenciales propias del tenant (legacy).
   billingAlertsAccountId      String?
   billingAlertsAccount        GrowBusinessAccount? @relation("BillingAlertsAccount", fields: [billingAlertsAccountId], references: [id], onDelete: SetNull)
+  /// SMS automáticos a empresas de domicilio cuando un pedido delivery
+  /// cambia de estado. Default false (feature opt-in — sino spamearíamos
+  /// a tenants existentes que no la pidieron).
+  deliveryAlertsEnabled       Boolean      @default(false)
+  /// Array JSON de teléfonos destino. Permite mandar la misma alerta a
+  /// varias empresas/personas en paralelo. Cuando no hay nada, se cae
+  /// al whatsappDeliveryPhone histórico si está configurado.
+  /// Ejemplo: ["+57 300 111 1111", "+57 300 222 2222"].
+  deliveryAlertsPhones        Json?
+  /// Eventos del pedido delivery que disparan SMS. Valores: 'created',
+  /// 'confirmed', 'ready', 'delivered'. Default ['created'] cuando
+  /// enabled=true. JSON array.
+  deliveryAlertsEvents        Json?
+  /// Subcuenta global compartida para SMS de delivery. Mismo patrón
+  /// que review/billing. Null = creds del tenant.
+  deliveryAlertsAccountId     String?
+  deliveryAlertsAccount       GrowBusinessAccount? @relation("DeliveryAlertsAccount", fields: [deliveryAlertsAccountId], references: [id], onDelete: SetNull)
   createdAt                   DateTime     @default(now())
 
   users               User[]
@@ -2115,6 +2132,7 @@ model GrowBusinessAccount {
   createdAt     DateTime @default(now())
   deletedAt     DateTime?
 
-  reviewTenants  Tenant[] @relation("ReviewAlertsAccount")
-  billingTenants Tenant[] @relation("BillingAlertsAccount")
+  reviewTenants   Tenant[] @relation("ReviewAlertsAccount")
+  billingTenants  Tenant[] @relation("BillingAlertsAccount")
+  deliveryTenants Tenant[] @relation("DeliveryAlertsAccount")
 }

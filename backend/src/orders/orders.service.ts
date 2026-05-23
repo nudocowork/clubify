@@ -20,6 +20,7 @@ import { AutomationsService } from '../automations/automations.service';
 import { OrdersGateway } from './orders.gateway';
 import { EmailService } from '../email/email.service';
 import { WalletService } from '../wallet/wallet.service';
+import { GrowBusinessService } from '../integrations/grow-business.service';
 import {
   orderConfirmedTemplate,
   orderCreatedTemplate,
@@ -63,7 +64,179 @@ export class OrdersService {
     private email: EmailService,
     private wallet: WalletService,
     private appConfig: AppConfigService,
+    private growBusiness: GrowBusinessService,
   ) {}
+
+  /** Lista de eventos del pedido delivery que pueden disparar SMS al
+   *  courier. El tenant elige cuáles activar desde su panel. */
+  private readonly DELIVERY_EVENTS = [
+    'created',
+    'confirmed',
+    'ready',
+    'delivered',
+  ] as const;
+
+  /**
+   * Dispara SMS a empresa(s) de domicilio cuando un pedido DELIVERY
+   * pasa por un estado suscrito. Fire-and-forget: errores se loguean y
+   * persisten como Event para audit. NUNCA bloquea el flujo del pedido.
+   *
+   * Eventos posibles: 'created' (al crearse el pedido), 'confirmed',
+   * 'ready', 'delivered'. El tenant configura cuáles disparan.
+   */
+  private async maybeNotifyDeliveryAlert(
+    tenantId: string,
+    orderId: string,
+    eventKey: 'created' | 'confirmed' | 'ready' | 'delivered',
+  ) {
+    try {
+      const tenant = await this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: {
+          id: true,
+          brandName: true,
+          whatsappDeliveryPhone: true,
+          deliveryAlertsEnabled: true,
+          deliveryAlertsPhones: true,
+          deliveryAlertsEvents: true,
+          deliveryAlertsAccountId: true,
+          growBusinessLocationId: true,
+          growBusinessApiKey: true,
+          growBusinessSwitchNumber: true,
+        },
+      });
+      if (!tenant || !tenant.deliveryAlertsEnabled) return;
+
+      // Eventos suscritos: si nada está configurado, default a ['created'].
+      const events = Array.isArray(tenant.deliveryAlertsEvents)
+        ? (tenant.deliveryAlertsEvents as string[])
+        : ['created'];
+      if (!events.includes(eventKey)) return;
+
+      // Solo aplica a pedidos DELIVERY.
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: { customer: { select: { fullName: true, phone: true } } },
+      });
+      if (!order || order.fulfillment !== 'DELIVERY') return;
+
+      // Resolver teléfonos destino. Si nadie configuró el array nuevo,
+      // fallback al whatsappDeliveryPhone histórico.
+      const phones: string[] = Array.isArray(tenant.deliveryAlertsPhones)
+        ? (tenant.deliveryAlertsPhones as string[]).filter(
+            (p) => typeof p === 'string' && p.trim().length >= 6,
+          )
+        : [];
+      if (phones.length === 0 && tenant.whatsappDeliveryPhone) {
+        phones.push(tenant.whatsappDeliveryPhone);
+      }
+      if (phones.length === 0) return;
+
+      // Resolver creds: subcuenta global > tenant.
+      let creds: {
+        locationId: string;
+        apiKey: string;
+        switchNumber: number | null;
+      } | null = null;
+      if (tenant.deliveryAlertsAccountId) {
+        const acc = await this.prisma.growBusinessAccount.findFirst({
+          where: { id: tenant.deliveryAlertsAccountId, deletedAt: null },
+          select: { locationId: true, apiKey: true, switchNumber: true },
+        });
+        if (acc) {
+          creds = {
+            locationId: acc.locationId,
+            apiKey: acc.apiKey,
+            switchNumber: acc.switchNumber,
+          };
+        }
+      }
+      if (!creds && tenant.growBusinessLocationId && tenant.growBusinessApiKey) {
+        creds = {
+          locationId: tenant.growBusinessLocationId,
+          apiKey: tenant.growBusinessApiKey,
+          switchNumber: tenant.growBusinessSwitchNumber,
+        };
+      }
+      if (!creds) {
+        this.logger.warn(
+          `[delivery-alert] tenant=${tenantId} enabled pero sin creds (ni subcuenta ni propias)`,
+        );
+        return;
+      }
+
+      const addr =
+        order.deliveryAddress &&
+        typeof order.deliveryAddress === 'object' &&
+        'address' in (order.deliveryAddress as any)
+          ? String((order.deliveryAddress as any).address)
+          : '';
+
+      const eventLabel: Record<typeof eventKey, string> = {
+        created: '🛵 NUEVO PEDIDO DELIVERY',
+        confirmed: '✅ Pedido CONFIRMADO',
+        ready: '📦 Pedido LISTO PARA RECOGER',
+        delivered: '✔️ Pedido ENTREGADO',
+      };
+
+      const body =
+        `${eventLabel[eventKey]}\n\n` +
+        `Negocio: ${tenant.brandName}\n` +
+        `Pedido: #${order.code}\n` +
+        `Total: $${Number(order.total).toLocaleString('es-CO')}\n` +
+        `Cliente: ${order.customer?.fullName ?? 'Anónimo'}\n` +
+        (order.customer?.phone ? `Tel: ${order.customer.phone}\n` : '') +
+        (addr ? `Dirección: ${addr}\n` : '') +
+        (order.customerNote ? `\nNota: ${order.customerNote}` : '');
+
+      // Idempotencia: si ya mandamos este eventKey para este order, skip.
+      const existing = await this.prisma.event.findFirst({
+        where: {
+          tenantId,
+          type: `delivery.sms_alert_sent`,
+          payload: {
+            path: ['orderId'],
+            equals: orderId,
+          },
+        },
+        select: { id: true, payload: true },
+      });
+      if (existing && (existing.payload as any)?.eventKey === eventKey) return;
+
+      // Mandar a cada destino, registrar como un único evento con
+      // resumen de éxitos/fallos para no inflar la tabla.
+      const results = await Promise.all(
+        phones.map(async (phone) => {
+          const r = await this.growBusiness
+            .sendSmsWithCreds(creds!, phone, body)
+            .catch((e) => ({ ok: false as const, message: e?.message }));
+          return { phone, ok: r.ok, message: !r.ok ? (r as any).message : null };
+        }),
+      );
+      const okCount = results.filter((r) => r.ok).length;
+
+      await this.prisma.event.create({
+        data: {
+          tenantId,
+          type:
+            okCount > 0
+              ? 'delivery.sms_alert_sent'
+              : 'delivery.sms_alert_failed',
+          payload: {
+            orderId,
+            eventKey,
+            results,
+            okCount,
+            total: results.length,
+          },
+        },
+      });
+    } catch (e: any) {
+      this.logger.warn(
+        `[delivery-alert] order=${orderId} ev=${eventKey} err=${e?.message}`,
+      );
+    }
+  }
 
   private async broadcast(orderId: string) {
     const o = await this.prisma.order.findUnique({
@@ -238,6 +411,12 @@ export class OrdersService {
         payload: { orderId: order.id, total, channel: 'WHATSAPP_LINK' },
       },
     });
+
+    // SMS opcional a empresas de domicilio (solo si fulfillment=DELIVERY
+    // y el tenant suscribió el evento 'created').
+    this.maybeNotifyDeliveryAlert(tenant.id, order.id, 'created').catch(
+      () => null,
+    );
 
     this.broadcast(order.id).catch(() => null);
 
@@ -627,6 +806,20 @@ export class OrdersService {
         payload: { orderId: id },
       },
     });
+
+    // SMS opcional a empresas de domicilio. Solo aplica si el tenant
+    // suscribió este evento — el helper filtra internamente.
+    if (
+      next === 'CONFIRMED' ||
+      next === 'READY' ||
+      next === 'DELIVERED'
+    ) {
+      this.maybeNotifyDeliveryAlert(
+        o.tenantId,
+        id,
+        next.toLowerCase() as 'confirmed' | 'ready' | 'delivered',
+      ).catch(() => null);
+    }
 
     this.broadcast(id).catch(() => null);
 
