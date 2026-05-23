@@ -34,38 +34,25 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const dynamicEntries: MetadataRoute.Sitemap = [];
   // Best-effort — si el backend no responde, devolvemos solo las estáticas.
   // No queremos que sitemap.xml falle si el API está caído.
+  //
+  // Solo listamos /industria/{slug} — el flow está colapsado y cada
+  // industria abre su deck completo en esa URL. /industria/{slug}/{pSlug}
+  // existe como deep-link backward-compat pero no lo publicamos en el
+  // sitemap para no diluir SEO con URLs paralelas al mismo contenido.
   try {
     const res = await fetch(`${API}/api/public/industries`, {
       next: { revalidate: 600 }, // 10 min de cache
     });
     if (res.ok) {
       const industries: Array<{ slug: string }> = await res.json();
-      // Detalle de cada industria + sus presentaciones, en paralelo.
-      const details = await Promise.all(
-        industries.map((i) =>
-          fetch(`${API}/api/public/industries/${i.slug}`, {
-            next: { revalidate: 600 },
-          })
-            .then((r) => (r.ok ? r.json() : null))
-            .catch(() => null),
-        ),
-      );
-      for (const ind of details) {
-        if (!ind) continue;
+      for (const ind of industries) {
+        if (!ind?.slug) continue;
         dynamicEntries.push({
           url: `${SITE}/industria/${ind.slug}`,
           lastModified: now,
           changeFrequency: 'weekly',
           priority: 0.85,
         });
-        for (const p of ind.presentations ?? []) {
-          dynamicEntries.push({
-            url: `${SITE}/industria/${ind.slug}/${p.slug}`,
-            lastModified: now,
-            changeFrequency: 'monthly',
-            priority: 0.8,
-          });
-        }
       }
     }
   } catch {

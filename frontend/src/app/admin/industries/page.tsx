@@ -200,7 +200,7 @@ export default function AdminIndustriesPage() {
   async function remove(i: Industry) {
     if (
       !confirm(
-        `¿Eliminar "${i.name}"? Si tiene presentaciones, se eliminan también (CASCADE).`,
+        `¿Eliminar "${i.name}"? El deck y sus slides se eliminan también.`,
       )
     )
       return;
@@ -252,9 +252,9 @@ export default function AdminIndustriesPage() {
           🏢 Catálogo de industrias (sales decks)
         </h3>
         <p className="text-sm text-mute mt-2 leading-relaxed">
-          Cada industria agrupa presentaciones y slides específicos para esa
+          Cada industria tiene su propio deck con slides específicos para esa
           vertical. Después de crear una industria, hacé click en su card
-          para gestionar las <b>presentaciones</b> que viven adentro.
+          para abrir el <b>editor de slides</b>.
         </p>
       </div>
 
@@ -335,7 +335,7 @@ export default function AdminIndustriesPage() {
                     href={`/admin/industries/${i.id}`}
                     className="text-xs text-brand font-semibold hover:underline"
                   >
-                    Ver presentaciones →
+                    Editar slides →
                   </Link>
                   <div className="flex items-center gap-1">
                     <button
