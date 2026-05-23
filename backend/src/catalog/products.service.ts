@@ -24,6 +24,10 @@ export type ProductDto = {
   name: string;
   description?: string;
   basePrice: number;
+  /** "FIXED" (default) o "RANGE". RANGE muestra "Desde X — hasta Y". */
+  priceMode?: 'FIXED' | 'RANGE';
+  /** Solo aplica cuando priceMode='RANGE'. null = sin máximo (fallback FIXED). */
+  priceMax?: number | null;
   imageUrl?: string;
   tags?: string[];
   isAvailable?: boolean;
@@ -78,6 +82,11 @@ export class ProductsService {
         name: dto.name,
         description: dto.description ?? '',
         basePrice: dto.basePrice,
+        priceMode: dto.priceMode ?? 'FIXED',
+        priceMax:
+          dto.priceMode === 'RANGE' && dto.priceMax != null
+            ? dto.priceMax
+            : null,
         imageUrl: dto.imageUrl,
         tags: dto.tags ?? [],
         isAvailable: dto.isAvailable ?? true,
@@ -122,6 +131,16 @@ export class ProductsService {
           name: dto.name ?? undefined,
           description: dto.description ?? undefined,
           basePrice: dto.basePrice ?? undefined,
+          priceMode: dto.priceMode ?? undefined,
+          // priceMax depende del modo elegido: si el caller pisó priceMode
+          // a FIXED, limpiamos el max; si pasó RANGE con un número, lo
+          // guardamos; si no tocó nada, undefined deja el valor previo.
+          priceMax:
+            dto.priceMode === 'FIXED'
+              ? null
+              : dto.priceMax === undefined
+              ? undefined
+              : dto.priceMax,
           imageUrl: dto.imageUrl ?? undefined,
           tags: dto.tags ?? undefined,
           isAvailable: dto.isAvailable ?? undefined,

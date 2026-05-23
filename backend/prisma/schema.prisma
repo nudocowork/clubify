@@ -848,6 +848,16 @@ model Product {
   name          String
   description   String   @default("")
   basePrice     Decimal  @db.Decimal(10, 2)
+  /// Modo del precio en el storefront público:
+  ///  - "FIXED" (default): muestra basePrice como precio único.
+  ///  - "RANGE": muestra "Desde basePrice — hasta priceMax". Útil para
+  ///    servicios variables (barbería, spa) o productos con tamaños
+  ///    sin variantes formales. basePrice queda como mínimo del rango.
+  priceMode     String   @default("FIXED")
+  /// Precio máximo del rango. Solo se usa cuando priceMode='RANGE'.
+  /// Null cuando FIXED. Si priceMode='RANGE' y priceMax es null, el
+  /// frontend trata como FIXED de fallback.
+  priceMax      Decimal? @db.Decimal(10, 2)
   imageUrl      String?
   tags          String[]
   isAvailable   Boolean  @default(true)
