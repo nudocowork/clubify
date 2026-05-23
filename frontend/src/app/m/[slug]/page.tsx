@@ -242,7 +242,27 @@ export default function StorefrontPublic() {
       </div>
     );
   }
-  if (!s) return <div className="p-8 text-mute">{tt('common.loading')}</div>;
+  if (!s) {
+    // Skeleton de carga mientras llega /public/m/:slug. Antes era un texto
+    // "Cargando…" plano que se veía pobre en mobile — ahora un skeleton
+    // visual con avatar + tabs + cards placeholder.
+    return (
+      <div className="min-h-screen bg-[#FAFBFC] animate-in fade-in duration-200">
+        <div className="px-5 pt-10 pb-6 max-w-2xl mx-auto">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-20 h-20 rounded-2xl bg-bg2 animate-pulse" />
+            <div className="w-32 h-6 rounded-md bg-bg2 animate-pulse" />
+          </div>
+          <div className="mt-6 w-full max-w-md mx-auto h-12 rounded-full bg-bg2 animate-pulse" />
+          <div className="mt-6 space-y-3">
+            <div className="h-24 rounded-xl bg-bg2 animate-pulse" />
+            <div className="h-24 rounded-xl bg-bg2 animate-pulse" />
+            <div className="h-24 rounded-xl bg-bg2 animate-pulse" />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const totals = cartTotals(cart);
   const primary = s.primaryColor;
