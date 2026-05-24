@@ -21,6 +21,66 @@ export class GrowBusinessService {
 
   constructor(private prisma: PrismaService) {}
 
+  /**
+   * Upsert (find or create) de contacto en Grow Business y devuelve el
+   * contactId. El endpoint /conversations/messages requiere contactId
+   * desde 2025 (antes aceptaba toNumber directo). Si no existe el
+   * contacto, lo crea con el phone como única data.
+   *
+   * Best-effort: si falla, devuelve null para que el caller decida
+   * abortar el SMS sin crashear el flow principal.
+   */
+  private async upsertContact(
+    locationId: string,
+    apiKey: string,
+    phone: string,
+  ): Promise<string | null> {
+    try {
+      // Normalizamos a E.164 si no viene con + adelante (el endpoint
+      // tolera ambas formas pero "phone": "+57..." es lo seguro).
+      const phoneE164 = phone.trim().startsWith('+')
+        ? phone.trim()
+        : `+${phone.replace(/\D/g, '')}`;
+      const res = await fetch(`${this.API_BASE}/contacts/upsert`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          Version: this.API_VERSION,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          locationId,
+          phone: phoneE164,
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        this.logger.warn(
+          `upsertContact failed status=${res.status} body=${text.slice(0, 200)}`,
+        );
+        return null;
+      }
+      const data = await res.json().catch(() => null as any);
+      // El response puede venir como { contact: {id} } o { id } según versión.
+      const id =
+        data?.contact?.id ??
+        data?.id ??
+        data?.contactId ??
+        null;
+      if (!id) {
+        this.logger.warn(
+          `upsertContact OK pero sin id en response: ${JSON.stringify(data).slice(0, 200)}`,
+        );
+        return null;
+      }
+      return id;
+    } catch (e: any) {
+      this.logger.warn(`upsertContact threw: ${e?.message ?? e}`);
+      return null;
+    }
+  }
+
   async getStatus(tenantId: string) {
     const t = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
@@ -155,7 +215,7 @@ export class GrowBusinessService {
    * `{ok:false, message}`. Used internamente por el motor de mensajes.
    */
   async sendSms(tenantId: string, toPhone: string, body: string) {
-    const creds = await this.prisma.tenant.findUnique({
+    const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
       select: {
         growBusinessLocationId: true,
@@ -163,44 +223,18 @@ export class GrowBusinessService {
         growBusinessSwitchNumber: true,
       },
     });
-    if (!creds?.growBusinessLocationId || !creds.growBusinessApiKey) {
+    if (!tenant?.growBusinessLocationId || !tenant.growBusinessApiKey) {
       return { ok: false as const, message: 'Negocio no conectado a Grow Business' };
     }
-    // Si el tenant tiene un switchNumber configurado, lo preponemos al
-    // body para que el workflow de GHL pueda enrutar a su sub-canal.
-    // Formato: "#Switch{N}\n\n{cuerpo}". Si está null, va sin prefijo.
-    // Defensive: si el caller ya armó el mensaje con #SwitchN, NO lo
-    // duplicamos (evita "#Switch1\n\n#Switch1\n\nHola").
-    const alreadyHasPrefix = /^#Switch\d+\s*\n/i.test(body);
-    const messageBody =
-      creds.growBusinessSwitchNumber != null && !alreadyHasPrefix
-        ? `#Switch${creds.growBusinessSwitchNumber}\n\n${body}`
-        : body;
-    try {
-      const res = await fetch(`${this.API_BASE}/conversations/messages`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${creds.growBusinessApiKey}`,
-          Version: this.API_VERSION,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        body: JSON.stringify({
-          type: 'SMS',
-          locationId: creds.growBusinessLocationId,
-          message: messageBody,
-          toNumber: toPhone,
-        }),
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        return { ok: false as const, status: res.status, message: text.slice(0, 200) };
-      }
-      const data = await res.json().catch(() => ({}));
-      return { ok: true as const, id: data?.messageId ?? data?.id ?? null };
-    } catch (e: any) {
-      return { ok: false as const, message: e?.message ?? 'Error enviando SMS' };
-    }
+    return this.sendSmsWithCreds(
+      {
+        locationId: tenant.growBusinessLocationId,
+        apiKey: tenant.growBusinessApiKey,
+        switchNumber: tenant.growBusinessSwitchNumber,
+      },
+      toPhone,
+      body,
+    );
   }
 
   /**
@@ -222,6 +256,23 @@ export class GrowBusinessService {
       creds.switchNumber != null && !alreadyHasPrefix
         ? `#Switch${creds.switchNumber}\n\n${body}`
         : body;
+
+    // Grow Business / LeadConnector cambió la API: /conversations/messages
+    // ya no acepta `toNumber` directo (devuelve 404 "Contact id not given").
+    // Hay que hacer upsert del contacto primero y mandar con `contactId`.
+    const contactId = await this.upsertContact(
+      creds.locationId,
+      creds.apiKey,
+      toPhone,
+    );
+    if (!contactId) {
+      return {
+        ok: false as const,
+        message:
+          'No se pudo crear/buscar el contacto en Grow Business. Revisá API key, location y formato del teléfono.',
+      };
+    }
+
     try {
       const res = await fetch(`${this.API_BASE}/conversations/messages`, {
         method: 'POST',
@@ -233,9 +284,8 @@ export class GrowBusinessService {
         },
         body: JSON.stringify({
           type: 'SMS',
-          locationId: creds.locationId,
+          contactId,
           message: messageBody,
-          toNumber: toPhone,
         }),
       });
       if (!res.ok) {
