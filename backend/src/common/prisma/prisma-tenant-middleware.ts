@@ -19,6 +19,7 @@ import { TenantContext } from '../tenant/tenant-context';
  *
  * Comportamiento bypass:
  *   - role === SUPER_ADMIN  → no actúa (puede leer cualquier tenant)
+ *   - role === MARKETING    → no actúa (marketing/diseño cross-tenant)
  *   - contexto inactivo     → no actúa (background jobs, cron, scripts)
  *   - bypass = true         → no actúa (super admin tools opt-in)
  *

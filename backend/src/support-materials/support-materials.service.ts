@@ -10,6 +10,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { hasAdminBypass } from '../common/roles/admin-bypass';
 
 export type CreateSupportMaterialDto = {
   title: string;
@@ -32,7 +33,7 @@ export class SupportMaterialsService {
 
   /** Lista todos los materiales — solo super admin. */
   async listAll(user: AuthUser) {
-    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    if (!hasAdminBypass(user.role)) throw new ForbiddenException();
     return this.prisma.supportMaterial.findMany({
       orderBy: [{ category: 'asc' }, { order: 'asc' }, { createdAt: 'desc' }],
       include: {
@@ -45,7 +46,7 @@ export class SupportMaterialsService {
 
   /** Lista categorías únicas — útil para autocomplete en el editor admin. */
   async listCategories(user: AuthUser) {
-    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    if (!hasAdminBypass(user.role)) throw new ForbiddenException();
     const rows = await this.prisma.supportMaterial.findMany({
       select: { category: true },
       distinct: ['category'],
@@ -113,7 +114,7 @@ export class SupportMaterialsService {
   }
 
   async getById(user: AuthUser, id: string) {
-    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    if (!hasAdminBypass(user.role)) throw new ForbiddenException();
     const m = await this.prisma.supportMaterial.findUnique({
       where: { id },
       include: {
@@ -127,7 +128,7 @@ export class SupportMaterialsService {
   }
 
   async create(user: AuthUser, dto: CreateSupportMaterialDto) {
-    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    if (!hasAdminBypass(user.role)) throw new ForbiddenException();
     // Validación defensiva: al menos una de fileUrl/externalUrl/scriptBody.
     // Sin esto, un material vacío rompería el render del front.
     if (!dto.fileUrl && !dto.externalUrl && !dto.scriptBody) {
@@ -159,7 +160,7 @@ export class SupportMaterialsService {
     id: string,
     dto: Partial<CreateSupportMaterialDto>,
   ) {
-    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    if (!hasAdminBypass(user.role)) throw new ForbiddenException();
     await this.getById(user, id);
     return this.prisma.supportMaterial.update({
       where: { id },
@@ -184,7 +185,7 @@ export class SupportMaterialsService {
   }
 
   async remove(user: AuthUser, id: string) {
-    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    if (!hasAdminBypass(user.role)) throw new ForbiddenException();
     await this.getById(user, id);
     await this.prisma.supportMaterial.delete({ where: { id } });
     return { ok: true };
@@ -192,7 +193,7 @@ export class SupportMaterialsService {
 
   /** Reordena materiales — recibe array de {id, order} para batch update. */
   async reorder(user: AuthUser, items: Array<{ id: string; order: number }>) {
-    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    if (!hasAdminBypass(user.role)) throw new ForbiddenException();
     await this.prisma.$transaction(
       items.map((it) =>
         this.prisma.supportMaterial.update({

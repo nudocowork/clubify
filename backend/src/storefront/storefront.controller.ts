@@ -58,7 +58,7 @@ class StorefrontBody {
 }
 
 @Controller('storefront')
-@Roles('TENANT_OWNER', 'SUPER_ADMIN')
+@Roles('TENANT_OWNER', 'SUPER_ADMIN', 'MARKETING')
 export class StorefrontController {
   constructor(private svc: StorefrontService) {}
 

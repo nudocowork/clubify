@@ -8,6 +8,7 @@ import {
 import { Prisma, SlideAnimation, SlideLayout } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { hasAdminBypass } from '../common/roles/admin-bypass';
 
 export type CreatePresentationDto = {
   industryId: string;
@@ -57,7 +58,7 @@ export class PresentationsService {
   constructor(private prisma: PrismaService) {}
 
   private ensureSuperAdmin(user: AuthUser) {
-    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    if (!hasAdminBypass(user.role)) throw new ForbiddenException();
   }
 
   // ───────────── Presentations CRUD ───────────── //

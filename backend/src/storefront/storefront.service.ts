@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import { MenuLayout } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { hasAdminBypass } from '../common/roles/admin-bypass';
 
 export type StorefrontDto = {
   description?: string;
@@ -32,7 +33,7 @@ export class StorefrontService {
   constructor(private prisma: PrismaService) {}
 
   private tid(user: AuthUser, override?: string) {
-    if (user.role === 'SUPER_ADMIN') {
+    if (hasAdminBypass(user.role)) {
       if (!override) throw new ForbiddenException('tenantId required');
       return override;
     }

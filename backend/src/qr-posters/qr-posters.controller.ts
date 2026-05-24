@@ -41,7 +41,7 @@ class UpdateDto {
 export class QrPostersController {
   constructor(private svc: QrPostersService) {}
 
-  @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
+  @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN', 'MARKETING')
   @Get()
   list(@CurrentUser() user: AuthUser, @Query('tenantId') tenantId?: string) {
     return this.svc.listMine(user, tenantId);
@@ -49,7 +49,7 @@ export class QrPostersController {
 
   // ───────── nuevos endpoints por id (multi-QR) ───────── //
 
-  @Roles('TENANT_OWNER', 'SUPER_ADMIN')
+  @Roles('TENANT_OWNER', 'SUPER_ADMIN', 'MARKETING')
   @Post()
   create(
     @CurrentUser() user: AuthUser,
@@ -63,7 +63,7 @@ export class QrPostersController {
   // (by-type/:type) sino captura sus URLs como id literal "by-type". El
   // Patch/Delete por id no chocan porque /by-type/:type usa Put/Delete.
   // Ver feedback_nestjs_route_order.md para el patrón.
-  @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
+  @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN', 'MARKETING')
   @Get('by-type/:type')
   getByType(
     @CurrentUser() user: AuthUser,
@@ -73,7 +73,7 @@ export class QrPostersController {
     return this.svc.getByType(user, type, tenantId);
   }
 
-  @Roles('TENANT_OWNER', 'SUPER_ADMIN')
+  @Roles('TENANT_OWNER', 'SUPER_ADMIN', 'MARKETING')
   @Put('by-type/:type')
   upsertByType(
     @CurrentUser() user: AuthUser,
@@ -84,7 +84,7 @@ export class QrPostersController {
     return this.svc.upsertByType(user, type, body, tenantId);
   }
 
-  @Roles('TENANT_OWNER', 'SUPER_ADMIN')
+  @Roles('TENANT_OWNER', 'SUPER_ADMIN', 'MARKETING')
   @Delete('by-type/:type')
   removeByType(
     @CurrentUser() user: AuthUser,
@@ -96,13 +96,13 @@ export class QrPostersController {
 
   // Endpoints por id — declarados DESPUÉS de los by-type para que el
   // route matching no se confunda.
-  @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
+  @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN', 'MARKETING')
   @Get(':id')
   getById(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.getById(user, id);
   }
 
-  @Roles('TENANT_OWNER', 'SUPER_ADMIN')
+  @Roles('TENANT_OWNER', 'SUPER_ADMIN', 'MARKETING')
   @Patch(':id')
   updateById(
     @CurrentUser() user: AuthUser,
@@ -112,7 +112,7 @@ export class QrPostersController {
     return this.svc.updateById(user, id, body);
   }
 
-  @Roles('TENANT_OWNER', 'SUPER_ADMIN')
+  @Roles('TENANT_OWNER', 'SUPER_ADMIN', 'MARKETING')
   @Delete(':id')
   removeById(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.removeById(user, id);
