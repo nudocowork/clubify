@@ -11,6 +11,7 @@ import { Role } from '@prisma/client';
  *
  * Reglas:
  *   - role === SUPER_ADMIN  → bypass total (puede consultar cualquier tenant)
+ *   - role === MARKETING    → bypass total (marketing/diseño cross-tenant)
  *   - tenantId === null    → contexto inactivo (sin enforcement)
  *   - Background jobs/crons → no setean contexto → sin enforcement
  *
@@ -57,7 +58,7 @@ export const TenantContext = {
     const ctx = storage.getStore();
     if (!ctx) return null;
     if (ctx.bypass) return null;
-    if (ctx.role === 'SUPER_ADMIN') return null;
+    if (ctx.role === 'SUPER_ADMIN' || ctx.role === 'MARKETING') return null;
     return ctx.tenantId;
   },
 };

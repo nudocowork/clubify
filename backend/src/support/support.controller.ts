@@ -100,25 +100,25 @@ export class SupportController {
 
   // ----- Admin CRUD del knowledge base ----- //
 
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'MARKETING')
   @Get('admin/knowledge')
   list() {
     return this.svc.list();
   }
 
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'MARKETING')
   @Post('admin/knowledge')
   create(@Body() body: KnowledgeBody) {
     return this.svc.create(body);
   }
 
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'MARKETING')
   @Patch('admin/knowledge/:id')
   update(@Param('id') id: string, @Body() body: KnowledgeUpdateBody) {
     return this.svc.update(id, body);
   }
 
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'MARKETING')
   @Delete('admin/knowledge/:id')
   remove(@Param('id') id: string) {
     return this.svc.remove(id);
@@ -128,7 +128,7 @@ export class SupportController {
    *  sections (## headers), paragraphs, whole. Item 29 del spec —
    *  permite al admin subir un brief largo y partirlo en KnowledgeEntry
    *  sin tipear cada uno. */
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'MARKETING')
   @Post('admin/knowledge/bulk-import')
   bulkImport(@Body() body: BulkImportBody) {
     return this.svc.bulkImport(body);

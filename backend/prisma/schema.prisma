@@ -15,6 +15,9 @@ enum Role {
   SUPER_ADMIN
   TENANT_OWNER
   TENANT_STAFF
+  // Rol global con acceso solo a marketing y diseño en todos los negocios.
+  // Sin scanner, sin financiero, sin crear negocios, sin gestión de admins.
+  MARKETING
   // Roles para el panel de afiliados (/affiliate). Cada User con uno
   // de estos roles está vinculado vía User.referralCodeId a SU código
   // y solo ve sus propios clientes/comisiones (scoped en AffiliateService).

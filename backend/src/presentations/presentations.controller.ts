@@ -31,7 +31,7 @@ import { Public } from '../common/decorators/public.decorator';
  * paramétricas (/:id). Ver feedback_nestjs_route_order.md.
  */
 @Controller('admin/presentations')
-@Roles('SUPER_ADMIN')
+@Roles('SUPER_ADMIN', 'MARKETING')
 export class PresentationsAdminController {
   constructor(private svc: PresentationsService) {}
 

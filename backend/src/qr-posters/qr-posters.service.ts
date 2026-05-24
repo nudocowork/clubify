@@ -6,13 +6,14 @@ import {
 import { QrPosterType } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { hasAdminBypass } from '../common/roles/admin-bypass';
 
 @Injectable()
 export class QrPostersService {
   constructor(private prisma: PrismaService) {}
 
   private tid(user: AuthUser, override?: string) {
-    if (user.role === 'SUPER_ADMIN') {
+    if (hasAdminBypass(user.role)) {
       if (!override) throw new ForbiddenException('tenantId required');
       return override;
     }
@@ -95,7 +96,7 @@ export class QrPostersService {
   async getById(user: AuthUser, id: string) {
     const found = await this.prisma.qrPoster.findUnique({ where: { id } });
     if (!found) throw new NotFoundException();
-    if (user.role !== 'SUPER_ADMIN' && found.tenantId !== user.tenantId) {
+    if (!hasAdminBypass(user.role) && found.tenantId !== user.tenantId) {
       throw new ForbiddenException();
     }
     return found;

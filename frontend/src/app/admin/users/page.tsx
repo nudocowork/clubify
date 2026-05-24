@@ -11,11 +11,14 @@ import { useEffect, useState } from 'react';
 import { api, getUser } from '@/lib/api';
 import { toast } from '@/components/Toast';
 
+type AdminRole = 'SUPER_ADMIN' | 'MARKETING';
+
 type AdminUser = {
   id: string;
   email: string;
   fullName: string;
   phone: string | null;
+  role: AdminRole;
   isActive: boolean;
   lastLoginAt: string | null;
   createdAt: string;
@@ -24,16 +27,34 @@ type AdminUser = {
 
 type CreateResponse = AdminUser & { tempPassword: string };
 
+const ROLE_LABEL: Record<AdminRole, string> = {
+  SUPER_ADMIN: 'Super Admin',
+  MARKETING: 'Marketing',
+};
+
+const ROLE_DESC: Record<AdminRole, string> = {
+  SUPER_ADMIN: 'Acceso total al panel /admin.',
+  MARKETING:
+    'Solo marketing y diseño. Sin acceso a financiero, escáner, crear negocios ni gestionar admins.',
+};
+
 export default function AdminUsersPage() {
   const me = getUser();
   const [users, setUsers] = useState<AdminUser[] | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [createForm, setCreateForm] = useState({
+  const [createForm, setCreateForm] = useState<{
+    fullName: string;
+    email: string;
+    phone: string;
+    password: string;
+    role: AdminRole;
+  }>({
     fullName: '',
     email: '',
     phone: '',
     password: '',
+    role: 'SUPER_ADMIN',
   });
   const [creating, setCreating] = useState(false);
   const [lastCreated, setLastCreated] = useState<CreateResponse | null>(null);
@@ -68,6 +89,7 @@ export default function AdminUsersPage() {
       const body: any = {
         fullName: createForm.fullName.trim(),
         email: createForm.email.trim().toLowerCase(),
+        role: createForm.role,
       };
       if (createForm.phone.trim()) body.phone = createForm.phone.trim();
       if (createForm.password.trim()) body.password = createForm.password.trim();
@@ -77,7 +99,13 @@ export default function AdminUsersPage() {
       });
       setLastCreated(created);
       setShowCreate(false);
-      setCreateForm({ fullName: '', email: '', phone: '', password: '' });
+      setCreateForm({
+        fullName: '',
+        email: '',
+        phone: '',
+        password: '',
+        role: 'SUPER_ADMIN',
+      });
       await load();
       toast('Administrador creado', 'success');
     } catch (e: any) {
@@ -174,9 +202,10 @@ export default function AdminUsersPage() {
       </div>
 
       <p className="text-sm text-mute mb-4 max-w-2xl leading-relaxed">
-        Cada usuario aquí tiene rol <strong>SUPER_ADMIN</strong> con acceso
-        total al panel /admin. El nuevo usuario debe habilitar 2FA en su
-        primer inicio de sesión.
+        Dos roles disponibles: <strong>SUPER_ADMIN</strong> con acceso total
+        al panel /admin, y <strong>MARKETING</strong> con acceso solo a
+        marketing y diseño (sin financiero, sin escáner, sin crear negocios).
+        El nuevo usuario debe habilitar 2FA en su primer inicio de sesión.
       </p>
 
       {loadErr && (
@@ -284,6 +313,7 @@ export default function AdminUsersPage() {
               <tr className="text-left">
                 <th className="px-4 py-3 font-semibold">Nombre</th>
                 <th className="px-4 py-3 font-semibold">Email</th>
+                <th className="px-4 py-3 font-semibold">Rol</th>
                 <th className="px-4 py-3 font-semibold">2FA</th>
                 <th className="px-4 py-3 font-semibold">Último login</th>
                 <th className="px-4 py-3 font-semibold">Estado</th>
@@ -309,6 +339,18 @@ export default function AdminUsersPage() {
                       )}
                     </td>
                     <td className="px-4 py-3 font-mono text-xs">{u.email}</td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={
+                          'text-xs px-2 py-0.5 rounded-pill ' +
+                          (u.role === 'MARKETING'
+                            ? 'bg-violet-50 text-violet-700 border border-violet-200'
+                            : 'bg-brand-soft text-brand-ink')
+                        }
+                      >
+                        {ROLE_LABEL[u.role]}
+                      </span>
+                    </td>
                     <td className="px-4 py-3">
                       {u.totpEnabledAt ? (
                         <span className="text-ok text-xs">✓ Activo</span>
@@ -393,10 +435,38 @@ export default function AdminUsersPage() {
               Nuevo administrador
             </h2>
             <p className="text-xs text-mute mb-4 leading-relaxed">
-              Rol <strong>SUPER_ADMIN</strong>. El nuevo usuario va a tener
-              que habilitar 2FA en su primer login.
+              El nuevo usuario va a tener que habilitar 2FA en su primer
+              login.
             </p>
             <div className="grid gap-3">
+              <div>
+                <label className="label">Rol</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {(['SUPER_ADMIN', 'MARKETING'] as AdminRole[]).map((r) => {
+                    const active = createForm.role === r;
+                    return (
+                      <button
+                        key={r}
+                        type="button"
+                        onClick={() => setCreateForm({ ...createForm, role: r })}
+                        className={
+                          'text-left rounded-md border p-3 transition ' +
+                          (active
+                            ? 'border-brand bg-brand-soft'
+                            : 'border-line hover:border-brand/40')
+                        }
+                      >
+                        <div className="text-sm font-semibold">
+                          {ROLE_LABEL[r]}
+                        </div>
+                        <div className="text-[11px] text-mute mt-1 leading-snug">
+                          {ROLE_DESC[r]}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
               <div>
                 <label className="label">Nombre completo</label>
                 <input

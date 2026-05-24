@@ -8,6 +8,7 @@ import {
 import { IndustryCoverStyle, Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { hasAdminBypass } from '../common/roles/admin-bypass';
 
 export type CreateIndustryDto = {
   name: string;
@@ -42,7 +43,7 @@ export class IndustriesService {
   constructor(private prisma: PrismaService) {}
 
   private ensureSuperAdmin(user: AuthUser) {
-    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    if (!hasAdminBypass(user.role)) throw new ForbiddenException();
   }
 
   /** Admin — lista todas (activas e inactivas) ordenadas por sortOrder. */

@@ -27,6 +27,9 @@ type NavItem = {
   /** Si está seteado, el item solo se muestra si la categoría del negocio
    *  habilita ese módulo. Sin module = visible siempre. */
   module?: BusinessModule;
+  /** Si está true, el item NO se muestra para usuarios con rol MARKETING.
+   *  Aplica solo al sidebar admin (financiero, admins, infra). */
+  hideForMarketing?: boolean;
 };
 type NavGroup = { section: string; items: NavItem[] };
 
@@ -157,10 +160,30 @@ export default function AppShell({
       router.push('/login?expired=1');
       return;
     }
-    if (variant === 'admin' && u.role !== 'SUPER_ADMIN') router.push('/app');
-    if (variant === 'app' && u.role === 'SUPER_ADMIN') router.push('/admin');
+    const isAdminRole = u.role === 'SUPER_ADMIN' || u.role === 'MARKETING';
+    if (variant === 'admin' && !isAdminRole) router.push('/app');
+    if (variant === 'app' && isAdminRole) router.push('/admin');
     setUser(u);
   }, [router, variant]);
+
+  // Route guard MARKETING: bloquea rutas admin no permitidas (financiero,
+  // gestión de admins, infra). Lista mantenida en paralelo con el sidebar:
+  // si agregás un item con hideForMarketing acá también va el prefijo.
+  useEffect(() => {
+    if (!user || variant !== 'admin') return;
+    if (user.role !== 'MARKETING') return;
+    const blocked = [
+      '/admin/users',
+      '/admin/referrals',
+      '/admin/integrations',
+      '/admin/maintenance',
+      '/admin/audit',
+      '/admin/tenants/new',
+    ];
+    if (blocked.some((p) => pathname === p || pathname.startsWith(p + '/'))) {
+      router.replace('/admin');
+    }
+  }, [pathname, user, variant, router]);
 
   // Cargar plan del tenant para mostrar badges Pro en sidebar y detectar
   // si todavía falta verificar la tarjeta en Hotmart (lockscreen).
@@ -193,42 +216,53 @@ export default function AppShell({
     };
   }, [navOpen]);
 
+  const isMarketing = user?.role === 'MARKETING';
+
   const groups: NavGroup[] =
     variant === 'admin'
-      ? [
-          {
-            section: 'Principal',
-            items: [
-              { href: '/admin', label: 'Dashboard', icon: 'grid' },
-              { href: '/admin/tenants', label: 'Negocios', icon: 'store' },
-            ],
-          },
-          {
-            section: 'Programa',
-            items: [
-              { href: '/admin/referrals', label: 'Referidos', icon: 'gift' },
-              { href: '/admin/support-materials', label: 'Material de apoyo', icon: 'spark' },
-            ],
-          },
-          {
-            section: 'Ventas',
-            items: [
-              { href: '/admin/industries', label: 'Industrias', icon: 'grid' },
-            ],
-          },
-          {
-            section: 'Sistema',
-            items: [
-              { href: '/admin/users', label: 'Administradores', icon: 'users' },
-              { href: '/admin/business-categories', label: 'Categorías', icon: 'grid' },
-              { href: '/admin/ai-knowledge', label: 'IA · Knowledge', icon: 'spark' },
-              { href: '/admin/branding', label: 'Branding', icon: 'spark' },
-              { href: '/admin/integrations', label: 'Integraciones SMS', icon: 'spark' },
-              { href: '/admin/maintenance', label: 'Mantenimiento', icon: 'grid' },
-              { href: '/admin/audit', label: 'Audit log', icon: 'history' },
-            ],
-          },
-        ]
+      ? (() => {
+          const adminGroups: NavGroup[] = [
+            {
+              section: 'Principal',
+              items: [
+                { href: '/admin', label: 'Dashboard', icon: 'grid' },
+                { href: '/admin/tenants', label: 'Negocios', icon: 'store' },
+              ],
+            },
+            {
+              section: 'Programa',
+              items: [
+                { href: '/admin/referrals', label: 'Referidos', icon: 'gift', hideForMarketing: true },
+                { href: '/admin/support-materials', label: 'Material de apoyo', icon: 'spark' },
+              ],
+            },
+            {
+              section: 'Ventas',
+              items: [
+                { href: '/admin/industries', label: 'Industrias', icon: 'grid' },
+              ],
+            },
+            {
+              section: 'Sistema',
+              items: [
+                { href: '/admin/users', label: 'Administradores', icon: 'users', hideForMarketing: true },
+                { href: '/admin/business-categories', label: 'Categorías', icon: 'grid' },
+                { href: '/admin/ai-knowledge', label: 'IA · Knowledge', icon: 'spark' },
+                { href: '/admin/branding', label: 'Branding', icon: 'spark' },
+                { href: '/admin/integrations', label: 'Integraciones SMS', icon: 'spark', hideForMarketing: true },
+                { href: '/admin/maintenance', label: 'Mantenimiento', icon: 'grid', hideForMarketing: true },
+                { href: '/admin/audit', label: 'Audit log', icon: 'history', hideForMarketing: true },
+              ],
+            },
+          ];
+          if (!isMarketing) return adminGroups;
+          return adminGroups
+            .map((g) => ({
+              ...g,
+              items: g.items.filter((it) => !it.hideForMarketing),
+            }))
+            .filter((g) => g.items.length > 0);
+        })()
       : (() => {
           const catSlug = tenantInfo?.businessCategorySlug;
           const cat = getCategoryBySlug(catSlug);

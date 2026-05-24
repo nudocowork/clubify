@@ -55,17 +55,28 @@ export class SettingsController {
     return this.svc.getBranding();
   }
 
-  /** Super admin lee TODO incluyendo el PIN del escáner (sensitive). */
+  /** Lectura admin del branding global. SUPER_ADMIN ve TODO (incluyendo
+   *  el PIN sensible del escáner). MARKETING solo ve los campos de diseño
+   *  — el PIN se filtra para no exponerlo al rol de marketing. */
   @Get('admin/branding')
-  @Roles('SUPER_ADMIN')
-  getBrandingAdmin() {
+  @Roles('SUPER_ADMIN', 'MARKETING')
+  getBrandingAdmin(@CurrentUser() user: AuthUser) {
+    if (user.role === 'MARKETING') {
+      return this.svc.getBranding();
+    }
     return this.svc.getBrandingAdmin();
   }
 
-  /** Solo super admin puede cambiar el branding global. */
+  /** SUPER_ADMIN y MARKETING pueden cambiar el branding global. MARKETING
+   *  NO puede setear el scannerStaffPin — se descarta del body si lo manda. */
   @Patch('admin/branding')
-  @Roles('SUPER_ADMIN')
-  setBranding(@Body() body: BrandingDto) {
+  @Roles('SUPER_ADMIN', 'MARKETING')
+  setBranding(@CurrentUser() user: AuthUser, @Body() body: BrandingDto) {
+    if (user.role === 'MARKETING') {
+      const { scannerStaffPin: _omit, ...safe } = body;
+      void _omit;
+      return this.svc.setBranding(safe);
+    }
     return this.svc.setBranding(body);
   }
 

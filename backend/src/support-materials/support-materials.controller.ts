@@ -16,7 +16,7 @@ import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorat
 import { Roles } from '../common/decorators/roles.decorator';
 
 @Controller('admin/support-materials')
-@Roles('SUPER_ADMIN')
+@Roles('SUPER_ADMIN', 'MARKETING')
 export class SupportMaterialsAdminController {
   constructor(
     private svc: SupportMaterialsService,

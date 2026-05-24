@@ -25,7 +25,7 @@ import { Public } from '../common/decorators/public.decorator';
  * Ver feedback_nestjs_route_order.md.
  */
 @Controller('admin/industries')
-@Roles('SUPER_ADMIN')
+@Roles('SUPER_ADMIN', 'MARKETING')
 export class IndustriesAdminController {
   constructor(private svc: IndustriesService) {}
 

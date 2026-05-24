@@ -55,7 +55,7 @@ class UpdateTenantBody {
 }
 
 @Controller('tenants')
-@Roles('SUPER_ADMIN')
+@Roles('SUPER_ADMIN', 'MARKETING')
 export class TenantsController {
   constructor(
     private svc: TenantsService,
@@ -73,31 +73,37 @@ export class TenantsController {
   }
 
   @Post()
+  @Roles('SUPER_ADMIN')
   create(@Body() body: CreateTenantBody) {
     return this.svc.create(body);
   }
 
   @Patch(':id')
+  @Roles('SUPER_ADMIN')
   update(@Param('id') id: string, @Body() body: UpdateTenantBody) {
     return this.svc.update(id, body);
   }
 
   @Patch(':id/status')
+  @Roles('SUPER_ADMIN')
   status(@Param('id') id: string, @Body() body: { status: TenantStatus }) {
     return this.svc.setStatus(id, body.status);
   }
 
   @Post(':id/extend-trial')
+  @Roles('SUPER_ADMIN')
   extendTrial(@Param('id') id: string, @Body() body: { days?: number }) {
     return this.svc.extendTrial(id, body?.days ?? 7);
   }
 
   @Patch(':id/billing')
+  @Roles('SUPER_ADMIN')
   billing(@Param('id') id: string, @Body() body: BillingBody) {
     return this.svc.updateBilling(id, body);
   }
 
   @Post(':id/impersonate')
+  @Roles('SUPER_ADMIN')
   impersonate(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.svc.impersonate(id, user.id);
   }
@@ -107,6 +113,7 @@ export class TenantsController {
    *  ese tenant — pensado para cuentas demo que los embajadores muestran
    *  a prospects sin riesgo. Invalida cache del guard al toque. */
   @Patch(':id/lock')
+  @Roles('SUPER_ADMIN')
   async setLock(
     @Param('id') id: string,
     @Body() body: { locked: boolean; reason?: string | null },
@@ -120,6 +127,7 @@ export class TenantsController {
   }
 
   @Delete(':id')
+  @Roles('SUPER_ADMIN')
   remove(@Param('id') id: string) {
     return this.svc.remove(id);
   }
