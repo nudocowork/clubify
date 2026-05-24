@@ -1,0 +1,13 @@
+{
+  "name": "clubify-monorepo",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Workspace root para Vercel — solo expone next como devDep para que la detección automática del framework no falle. El build real se ejecuta dentro de frontend/ via el buildCommand del vercel.json.",
+  "scripts": {
+    "build": "cd frontend && npm install && npm run build",
+    "dev": "cd frontend && npm run dev"
+  },
+  "devDependencies": {
+    "next": "^14.2.5"
+  }
+}
