@@ -12,6 +12,7 @@ import {
 import {
   IsBoolean,
   IsEmail,
+  IsIn,
   IsOptional,
   IsString,
   MinLength,
@@ -22,11 +23,15 @@ import { AuthService } from '../auth/auth.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 
+type AdminRole = 'SUPER_ADMIN' | 'MARKETING';
+const ADMIN_ROLES: AdminRole[] = ['SUPER_ADMIN', 'MARKETING'];
+
 class CreateAdminBody {
   @IsString() fullName!: string;
   @IsEmail() email!: string;
   @IsOptional() @IsString() phone?: string;
   @IsOptional() @IsString() @MinLength(8) password?: string;
+  @IsOptional() @IsIn(ADMIN_ROLES) role?: AdminRole;
 }
 
 class UpdateAdminBody {
@@ -60,13 +65,14 @@ export class AdminUsersController {
   @Get()
   async list() {
     return this.prisma.user.findMany({
-      where: { role: 'SUPER_ADMIN' },
-      orderBy: [{ createdAt: 'asc' }],
+      where: { role: { in: ADMIN_ROLES } },
+      orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
       select: {
         id: true,
         email: true,
         fullName: true,
         phone: true,
+        role: true,
         isActive: true,
         lastLoginAt: true,
         createdAt: true,
@@ -90,7 +96,7 @@ export class AdminUsersController {
         fullName: body.fullName.trim(),
         phone: body.phone?.trim() || null,
         passwordHash,
-        role: 'SUPER_ADMIN',
+        role: body.role ?? 'SUPER_ADMIN',
         tenantId: null,
         isActive: true,
       },
@@ -99,6 +105,7 @@ export class AdminUsersController {
         email: true,
         fullName: true,
         phone: true,
+        role: true,
         isActive: true,
         createdAt: true,
       },
@@ -116,14 +123,19 @@ export class AdminUsersController {
     @Body() body: UpdateAdminBody,
   ) {
     const target = await this.prisma.user.findUnique({ where: { id } });
-    if (!target || target.role !== 'SUPER_ADMIN') {
+    if (!target || !ADMIN_ROLES.includes(target.role as AdminRole)) {
       throw new NotFoundException();
     }
     if (target.id === user.id && body.isActive === false) {
       throw new BadRequestException('No puedes desactivarte a ti mismo');
     }
-    // Si vamos a desactivar, asegurarse de que queda al menos un admin activo.
-    if (body.isActive === false && target.isActive) {
+    // Si desactivamos un SUPER_ADMIN, garantizamos que queda al menos otro
+    // SUPER_ADMIN activo (MARKETING no cuenta — no puede gestionar admins).
+    if (
+      body.isActive === false &&
+      target.isActive &&
+      target.role === 'SUPER_ADMIN'
+    ) {
       const remainingActive = await this.prisma.user.count({
         where: { role: 'SUPER_ADMIN', isActive: true, id: { not: id } },
       });
@@ -145,6 +157,7 @@ export class AdminUsersController {
         email: true,
         fullName: true,
         phone: true,
+        role: true,
         isActive: true,
         lastLoginAt: true,
       },
@@ -157,7 +170,7 @@ export class AdminUsersController {
     @Body() body: ResetAdminPasswordBody,
   ) {
     const target = await this.prisma.user.findUnique({ where: { id } });
-    if (!target || target.role !== 'SUPER_ADMIN') {
+    if (!target || !ADMIN_ROLES.includes(target.role as AdminRole)) {
       throw new NotFoundException();
     }
     const tempPassword = body.newPassword?.trim() || genTempPassword();
@@ -175,16 +188,20 @@ export class AdminUsersController {
       throw new BadRequestException('No puedes eliminarte a ti mismo');
     }
     const target = await this.prisma.user.findUnique({ where: { id } });
-    if (!target || target.role !== 'SUPER_ADMIN') {
+    if (!target || !ADMIN_ROLES.includes(target.role as AdminRole)) {
       throw new NotFoundException();
     }
-    const remainingActive = await this.prisma.user.count({
-      where: { role: 'SUPER_ADMIN', isActive: true, id: { not: id } },
-    });
-    if (remainingActive === 0) {
-      throw new BadRequestException(
-        'No puedes eliminar el último SUPER_ADMIN activo del sistema',
-      );
+    // Solo bloqueamos el delete si dejaría 0 SUPER_ADMIN activos. Eliminar
+    // un MARKETING no compromete el acceso al panel admin.
+    if (target.role === 'SUPER_ADMIN') {
+      const remainingActive = await this.prisma.user.count({
+        where: { role: 'SUPER_ADMIN', isActive: true, id: { not: id } },
+      });
+      if (remainingActive === 0) {
+        throw new BadRequestException(
+          'No puedes eliminar el último SUPER_ADMIN activo del sistema',
+        );
+      }
     }
     await this.prisma.user.delete({ where: { id } });
     return { ok: true };
