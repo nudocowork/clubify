@@ -50,7 +50,7 @@ export default function Onboarding() {
       router.push('/login');
       return;
     }
-    if (u.role === 'SUPER_ADMIN') {
+    if (u.role === 'SUPER_ADMIN' || u.role === 'MARKETING') {
       router.push('/admin');
       return;
     }

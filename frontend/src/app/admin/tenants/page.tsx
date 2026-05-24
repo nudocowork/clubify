@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { api, startImpersonation } from '@/lib/api';
+import { api, getUser, startImpersonation } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 
@@ -26,6 +26,8 @@ export default function TenantsPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'ALL' | 'ACTIVE' | 'TRIAL' | 'SUSPENDED'>('ALL');
   const [enteringId, setEnteringId] = useState<string | null>(null);
+  const me = getUser();
+  const isMarketing = me?.role === 'MARKETING';
 
   async function enterTenant(t: any) {
     if (enteringId) return;
@@ -84,9 +86,11 @@ export default function TenantsPage() {
           Negocios <span className="page-crumb">/ {list.length} registros</span>
         </h1>
         <div className="flex gap-2 flex-wrap">
-          <Link className="btn-primary" href="/admin/tenants/new">
-            <Icon name="plus" /> Nuevo negocio
-          </Link>
+          {!isMarketing && (
+            <Link className="btn-primary" href="/admin/tenants/new">
+              <Icon name="plus" /> Nuevo negocio
+            </Link>
+          )}
         </div>
       </div>
 
@@ -148,7 +152,8 @@ export default function TenantsPage() {
               </tr>
             )}
             {visible.map((t) => {
-              const canEnter = t.status !== 'SUSPENDED' && enteringId !== t.id;
+              const canEnter =
+                !isMarketing && t.status !== 'SUSPENDED' && enteringId !== t.id;
               const stop = (e: React.MouseEvent) => e.stopPropagation();
               return (
               <tr
@@ -160,9 +165,11 @@ export default function TenantsPage() {
                     : 'opacity-70'
                 }`}
                 title={
-                  t.status === 'SUSPENDED'
-                    ? 'Reactiva el negocio para entrar'
-                    : `Entrar como ${t.brandName}`
+                  isMarketing
+                    ? 'Solo lectura · sin impersonación'
+                    : t.status === 'SUSPENDED'
+                      ? 'Reactiva el negocio para entrar'
+                      : `Entrar como ${t.brandName}`
                 }
               >
                 <td className="px-4 py-3.5">
@@ -225,55 +232,58 @@ export default function TenantsPage() {
                 </td>
                 <td className="px-4 py-3.5">{t._count?.customers ?? 0}</td>
                 <td className="px-4 py-3.5 text-right whitespace-nowrap" onClick={stop}>
-                  <button
-                    onClick={(e) => {
-                      stop(e);
-                      enterTenant(t);
-                    }}
-                    disabled={!canEnter}
-                    className="inline-flex items-center gap-1.5 bg-brand text-white text-xs font-semibold px-3 py-1.5 rounded-pill hover:bg-brand-700 transition disabled:opacity-40 disabled:cursor-not-allowed"
-                    title={
-                      t.status === 'SUSPENDED'
-                        ? 'Reactiva el negocio para entrar'
-                        : 'Entrar al panel del negocio'
-                    }
-                  >
-                    {enteringId === t.id ? (
-                      <>… Entrando</>
-                    ) : (
-                      <>
-                        <Icon name="arrow-right" size={13} /> Entrar
-                      </>
-                    )}
-                  </button>
+                  {!isMarketing && (
+                    <button
+                      onClick={(e) => {
+                        stop(e);
+                        enterTenant(t);
+                      }}
+                      disabled={!canEnter}
+                      className="inline-flex items-center gap-1.5 bg-brand text-white text-xs font-semibold px-3 py-1.5 rounded-pill hover:bg-brand-700 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                      title={
+                        t.status === 'SUSPENDED'
+                          ? 'Reactiva el negocio para entrar'
+                          : 'Entrar al panel del negocio'
+                      }
+                    >
+                      {enteringId === t.id ? (
+                        <>… Entrando</>
+                      ) : (
+                        <>
+                          <Icon name="arrow-right" size={13} /> Entrar
+                        </>
+                      )}
+                    </button>
+                  )}
                   <Link
-                    className="ml-2.5 btn-link text-xs"
+                    className={`${isMarketing ? '' : 'ml-2.5'} btn-link text-xs`}
                     href={`/admin/tenants/${t.id}`}
                     onClick={stop}
                   >
                     Ver
                   </Link>
-                  {t.status === 'ACTIVE' ? (
-                    <button
-                      onClick={(e) => {
-                        stop(e);
-                        setStatus(t.id, 'SUSPENDED');
-                      }}
-                      className="ml-2.5 text-bad underline text-xs"
-                    >
-                      Suspender
-                    </button>
-                  ) : (
-                    <button
-                      onClick={(e) => {
-                        stop(e);
-                        setStatus(t.id, 'ACTIVE');
-                      }}
-                      className="ml-2.5 text-ok underline text-xs"
-                    >
-                      Activar
-                    </button>
-                  )}
+                  {!isMarketing &&
+                    (t.status === 'ACTIVE' ? (
+                      <button
+                        onClick={(e) => {
+                          stop(e);
+                          setStatus(t.id, 'SUSPENDED');
+                        }}
+                        className="ml-2.5 text-bad underline text-xs"
+                      >
+                        Suspender
+                      </button>
+                    ) : (
+                      <button
+                        onClick={(e) => {
+                          stop(e);
+                          setStatus(t.id, 'ACTIVE');
+                        }}
+                        className="ml-2.5 text-ok underline text-xs"
+                      >
+                        Activar
+                      </button>
+                    ))}
                 </td>
               </tr>
               );
