@@ -208,6 +208,9 @@ export default function ReviewsPage() {
       {/* Alertas SMS por reseñas negativas */}
       <ReviewAlertsCard tenant={tenant} onSaved={load} />
 
+      {/* WhatsApp opcional al final del feedback negativo */}
+      <WhatsappFeedbackCard tenant={tenant} onSaved={load} />
+
       {/* Link público para compartir */}
       <div className="card card-pad mb-5">
         <h3 className="text-base font-semibold m-0">
@@ -691,6 +694,206 @@ function Kpi({
         {label}
       </div>
       <div className={`text-2xl font-bold mt-1 ${toneCls}`}>{value}</div>
+    </div>
+  );
+}
+
+const WSP_DEFAULT_MESSAGE =
+  'Hola {businessName}, acabo de dejar una reseña y me gustaría hablar con ustedes.';
+
+const WSP_TOKENS = ['{businessName}', '{customerName}', '{rating}'];
+
+/** Card en /app/reviews para configurar el botón WhatsApp que aparece al
+ *  final del feedback negativo en /r/[slug]. Sin esta config, el botón
+ *  no se muestra al cliente. */
+function WhatsappFeedbackCard({
+  tenant,
+  onSaved,
+}: {
+  tenant: any;
+  onSaved: () => void;
+}) {
+  const [enabled, setEnabled] = useState<boolean>(false);
+  const [phone, setPhone] = useState<string>('');
+  const [message, setMessage] = useState<string>('');
+  const [saving, setSaving] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!tenant) return;
+    setEnabled(!!tenant.whatsappFeedbackEnabled);
+    setPhone(tenant.whatsappFeedbackNumber ?? '');
+    setMessage(tenant.whatsappFeedbackMessage ?? '');
+    if (tenant.whatsappFeedbackEnabled) setOpen(true);
+  }, [tenant]);
+
+  async function save() {
+    if (enabled && !phone.trim()) {
+      toast('Agregá un número antes de activar el botón', 'error');
+      return;
+    }
+    setSaving(true);
+    try {
+      await api('/tenants/me', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          whatsappFeedbackEnabled: enabled,
+          whatsappFeedbackNumber: phone.trim() || null,
+          whatsappFeedbackMessage: message.trim() || null,
+        }),
+      });
+      toast('WhatsApp de feedback guardado', 'success');
+      onSaved();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo guardar', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function test() {
+    const num = phone.trim().replace(/\D/g, '');
+    if (!num || num.length < 6) {
+      toast('Agregá un número válido antes de probar', 'error');
+      return;
+    }
+    const tpl = message.trim() || WSP_DEFAULT_MESSAGE;
+    const rendered = tpl
+      .replace(/\{businessName\}/g, tenant?.brandName ?? '—')
+      .replace(/\{customerName\}/g, 'Cliente de prueba')
+      .replace(/\{rating\}/g, '3');
+    const url = `https://wa.me/${num}?text=${encodeURIComponent(rendered)}`;
+    window.open(url, '_blank', 'noopener');
+  }
+
+  function insertToken(t: string) {
+    setMessage((curr) => (curr || WSP_DEFAULT_MESSAGE) + ` ${t}`);
+  }
+
+  return (
+    <div className="card card-pad mb-5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-3 text-left"
+      >
+        <div>
+          <h3 className="text-base font-semibold m-0 flex items-center gap-2">
+            💬 WhatsApp para feedback (al final de la reseña baja)
+            {tenant?.whatsappFeedbackEnabled ? (
+              <span className="text-[10px] font-bold uppercase tracking-wider bg-ok/15 text-ok px-2 py-0.5 rounded-full">
+                Activo
+              </span>
+            ) : (
+              <span className="text-[10px] font-bold uppercase tracking-wider bg-bg2 text-mute px-2 py-0.5 rounded-full">
+                Inactivo
+              </span>
+            )}
+          </h3>
+          <p className="text-xs text-mute mt-1 leading-relaxed">
+            Cuando un cliente termina una reseña privada (1-3 ⭐), aparece un
+            botón "Hablar por WhatsApp" para que te escriba directo y puedas
+            resolver el problema antes de que se vuelva pública.
+          </p>
+        </div>
+        <span
+          className={`text-mute text-sm shrink-0 transition-transform ${
+            open ? '' : '-rotate-90'
+          }`}
+        >
+          ▾
+        </span>
+      </button>
+
+      {open && (
+        <div className="mt-4 space-y-4 pt-4 border-t border-line">
+          <label className="flex items-center gap-3 cursor-pointer p-3 rounded-lg bg-bg2/40">
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(e) => setEnabled(e.target.checked)}
+              className="w-5 h-5 accent-brand"
+            />
+            <div>
+              <div className="font-semibold text-sm">Mostrar botón de WhatsApp</div>
+              <div className="text-[11px] text-mute leading-snug">
+                Sin esto, el cliente solo ve "Gracias por tu feedback" al final.
+              </div>
+            </div>
+          </label>
+
+          <div>
+            <label className="label">Número de WhatsApp</label>
+            <input
+              type="tel"
+              className="input"
+              placeholder="+57 300 000 0000"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              maxLength={40}
+            />
+            <div className="text-[10px] text-mute mt-1">
+              Usá formato internacional con +. Solo dígitos del número (sin
+              espacios) se mantienen en el link wa.me.
+            </div>
+          </div>
+
+          <div>
+            <label className="label">
+              Mensaje predeterminado
+              <span className="text-mute font-normal ml-2 text-[10px]">
+                (opcional · default: "Hola, acabo de dejar una reseña…")
+              </span>
+            </label>
+            <textarea
+              className="input min-h-[80px] font-mono text-xs leading-relaxed"
+              placeholder={WSP_DEFAULT_MESSAGE}
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              maxLength={400}
+            />
+            <div className="flex gap-1 flex-wrap mt-2">
+              <span className="text-[10px] uppercase tracking-wider text-mute font-semibold self-center mr-1">
+                Insertar:
+              </span>
+              {WSP_TOKENS.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => insertToken(t)}
+                  className="text-[10px] font-mono px-2 py-1 rounded bg-bg2 text-ink hover:bg-brand/10 hover:text-brand transition"
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-2 pt-3 border-t border-line">
+            <button
+              type="button"
+              onClick={test}
+              disabled={!phone.trim()}
+              className="btn-ghost text-sm disabled:opacity-50"
+              title={
+                !phone.trim()
+                  ? 'Agregá un número antes de probar'
+                  : 'Abre WhatsApp con el número y mensaje configurados'
+              }
+            >
+              📤 Enviar mensaje de prueba
+            </button>
+            <button
+              type="button"
+              onClick={save}
+              disabled={saving}
+              className="btn-primary text-sm"
+            >
+              {saving ? 'Guardando…' : 'Guardar cambios'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

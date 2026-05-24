@@ -292,6 +292,19 @@ model Tenant {
   // Usado por /r/{slug} review filter: clientes con 4-5★ van directo
   // a Google; <4★ se redirigen a feedback privado en /api/public/r/.
   googleReviewUrl             String?
+  // WhatsApp opcional al cierre del feedback negativo (1-3 ⭐) en /r/:slug.
+  // Cuando el dueño lo configura, el cliente ve un botón "Hablar por
+  // WhatsApp" al final del formulario privado para escalar quejas
+  // directamente. Independiente de whatsappPhone (que es el WhatsApp
+  // general del negocio para pedidos/contacto).
+  whatsappFeedbackEnabled     Boolean      @default(false)
+  /// Número en formato libre (E.164 recomendado: +57...). Si vacío con
+  /// enabled=true, el botón no se muestra.
+  whatsappFeedbackNumber      String?
+  /// Mensaje predeterminado que se carga en el chat al tocar el botón.
+  /// Tokens soportados: {businessName} {customerName} {rating}. Null =
+  /// mensaje default del frontend ("Hola, acabo de dejar una reseña...").
+  whatsappFeedbackMessage     String?
   // Mensajería del flujo de pedidos (Pro-only):
   // - whatsappOrdersPhone: número del NEGOCIO/CAJA donde el cliente envía
   //   sus pedidos desde el menú (mesa o delivery). Si está vacío usa
