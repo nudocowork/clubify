@@ -37,7 +37,7 @@ class UpdateAccountDto {
 }
 
 @Controller('admin/integrations/grow-business-accounts')
-@Roles('SUPER_ADMIN')
+@Roles('SUPER_ADMIN', 'MARKETING')
 export class GrowBusinessAccountsController {
   constructor(private svc: GrowBusinessAccountsService) {}
 

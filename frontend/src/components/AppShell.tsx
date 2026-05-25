@@ -175,7 +175,6 @@ export default function AppShell({
     const blocked = [
       '/admin/users',
       '/admin/referrals',
-      '/admin/integrations',
       '/admin/maintenance',
       '/admin/audit',
       '/admin/tenants/new',
@@ -249,7 +248,7 @@ export default function AppShell({
                 { href: '/admin/business-categories', label: 'Categorías', icon: 'grid' },
                 { href: '/admin/ai-knowledge', label: 'IA · Knowledge', icon: 'spark' },
                 { href: '/admin/branding', label: 'Branding', icon: 'spark' },
-                { href: '/admin/integrations', label: 'Integraciones SMS', icon: 'spark', hideForMarketing: true },
+                { href: '/admin/integrations', label: 'Integraciones SMS', icon: 'spark' },
                 { href: '/admin/maintenance', label: 'Mantenimiento', icon: 'grid', hideForMarketing: true },
                 { href: '/admin/audit', label: 'Audit log', icon: 'history', hideForMarketing: true },
               ],
