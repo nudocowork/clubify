@@ -21,6 +21,7 @@ import {
   CategoryPopupController,
   CategoryPopupBadge,
 } from '@/components/menu/CategoryPopupController';
+import { CategoryUrlSync } from '@/components/menu/CategoryUrlSync';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -199,9 +200,14 @@ function SubsectionHeader({
 export default function StorefrontPublic() {
   const tt = useT();
   const [locale] = useLocale();
-  const params = useParams<{ slug: string; sectionSlug?: string }>();
+  const params = useParams<{
+    slug: string;
+    sectionSlug?: string;
+    subSlug?: string;
+  }>();
   const slug = params.slug;
   const initialSectionSlug = params.sectionSlug;
+  const initialSubSlug = params.subSlug;
   const [s, setS] = useState<Storefront | null>(null);
   const [menu, setMenu] = useState<Category[]>([]);
   const [tab, setTab] = useState<'menu' | 'promos'>('menu');
@@ -632,6 +638,18 @@ export default function StorefrontPublic() {
               renderiza CategoryPopupBadge. Único punto de montaje para
               todos los layouts (FLIPBOOK tiene su propio sistema). */}
           <CategoryPopupController categories={localizedMenu} />
+          {/* Deep-linking por categoría: URL ↔ scroll bidireccional.
+              No aplica a SECTIONS (tiene su propio active state que se
+              sincroniza inline en LayoutSections) ni a FLIPBOOK (que
+              tiene early return arriba con MenuBookViewer + sync propia). */}
+          {(s.menuLayout ?? 'CLASSIC') !== 'SECTIONS' && (
+            <CategoryUrlSync
+              storefrontSlug={slug}
+              categories={localizedMenu}
+              initialSectionSlug={initialSectionSlug}
+              initialSubSlug={initialSubSlug}
+            />
+          )}
         </div>
       )}
 
@@ -2231,9 +2249,50 @@ function LayoutSections({
   backButtonConfig,
 }: LP & { backButtonConfig?: BackButtonConfig | null }) {
   const tt = useT();
+  const params = useParams<{
+    slug: string;
+    sectionSlug?: string;
+    subSlug?: string;
+  }>();
+  const storefrontSlug = params.slug;
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [activeSub, setActiveSub] = useState<string | null>(null);
   const [transitioning, setTransitioning] = useState(false);
+
+  // ── Deep-link: al cargar, resolver IDs desde slugs de la URL.
+  useEffect(() => {
+    if (menu.length === 0) return;
+    if (!params.sectionSlug) return;
+    const cat = menu.find((c) => c.slug === params.sectionSlug);
+    if (!cat) return;
+    setActiveSection(cat.id);
+    if (params.subSlug) {
+      const sub = (cat.subsections ?? []).find(
+        (s) => s.slug === params.subSlug,
+      );
+      if (sub) setActiveSub(sub.id);
+    }
+  }, [menu, params.sectionSlug, params.subSlug]);
+
+  // ── Sync URL ← state. Cuando el usuario entra/sale de una sección
+  // o sub, actualizamos el path sin inflar el back-button (replaceState).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!storefrontSlug) return;
+    let target = `/m/${storefrontSlug}`;
+    if (activeSection) {
+      const cat = menu.find((c) => c.id === activeSection);
+      if (cat?.slug) {
+        target += `/${cat.slug}`;
+        if (activeSub) {
+          const sub = (cat.subsections ?? []).find((s) => s.id === activeSub);
+          if (sub?.slug) target += `/${sub.slug}`;
+        }
+      }
+    }
+    if (window.location.pathname === target) return;
+    window.history.replaceState({}, '', target);
+  }, [activeSection, activeSub, menu, storefrontSlug]);
 
   // Estilo aplicado al botón "Volver". Defaults reproducen el estilo
   // histórico (negro a 40% + flecha blanca + sombra md + 40px) si el
