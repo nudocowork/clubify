@@ -3,23 +3,30 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
+  Ip,
+  NotFoundException,
   Param,
   Patch,
   Post,
   Put,
   Query,
+  Redirect,
 } from '@nestjs/common';
 import { QrPosterType } from '@prisma/client';
 import {
+  IsBoolean,
   IsEnum,
   IsObject,
   IsOptional,
   IsString,
   MaxLength,
+  ValidateIf,
 } from 'class-validator';
 import { QrPostersService } from './qr-posters.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
+import { Public } from '../common/decorators/public.decorator';
 
 class UpsertDto {
   @IsOptional() @IsString() @MaxLength(120) name?: string;
@@ -30,11 +37,22 @@ class CreateDto {
   @IsEnum(QrPosterType) type!: QrPosterType;
   @IsOptional() @IsString() @MaxLength(120) name?: string;
   @IsOptional() @IsObject() config?: Record<string, any>;
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(500)
+  targetUrl?: string | null;
+  @IsOptional() @IsBoolean() isActive?: boolean;
 }
 
 class UpdateDto {
   @IsOptional() @IsString() @MaxLength(120) name?: string;
   @IsOptional() @IsObject() config?: Record<string, any>;
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(500)
+  targetUrl?: string | null;
+  @IsOptional() @IsBoolean() isActive?: boolean;
+}
+
+class LogExportDto {
+  @IsString() @MaxLength(8) format!: string;
+  @IsOptional() sizeBytes?: number;
 }
 
 @Controller('qr-posters')
@@ -116,5 +134,53 @@ export class QrPostersController {
   @Delete(':id')
   removeById(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.removeById(user, id);
+  }
+
+  /** El frontend dispara esto cuando el dueño descarga el cartel
+   *  (PNG/PDF/SVG). Loguea el evento para mostrar "descargado N veces"
+   *  en el card del poster. */
+  @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN', 'MARKETING')
+  @Post(':id/export-log')
+  logExport(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: LogExportDto,
+  ) {
+    return this.svc.logExport(user, id, body);
+  }
+}
+
+/**
+ * Controller PÚBLICO separado para el redirect dinámico `/q/<id>`.
+ * El QR impreso codifica esta URL — al escanear, el usuario llega acá,
+ * el servicio loguea la visita y retorna un 302 al targetUrl resuelto
+ * (override o default por tipo).
+ *
+ * Si el poster no existe o está inactivo, devuelve 404 limpio (sin
+ * leak del tenant). NO requiere auth.
+ */
+@Controller('q')
+export class QrPosterPublicRedirectController {
+  constructor(private svc: QrPostersService) {}
+
+  @Public()
+  @Get(':id')
+  @Redirect()
+  async redirect(
+    @Param('id') id: string,
+    @Headers('user-agent') userAgent?: string,
+    @Headers('referer') referer?: string,
+    @Headers('cf-ipcountry') country?: string,
+    @Ip() ip?: string,
+  ) {
+    const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
+    const target = await this.svc.resolvePublicUrl(id, appUrl, {
+      ip,
+      userAgent,
+      country,
+      referer,
+    });
+    if (!target) throw new NotFoundException('QR no disponible');
+    return { url: target, statusCode: 302 };
   }
 }

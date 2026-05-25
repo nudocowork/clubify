@@ -1,12 +1,17 @@
 /**
- * QR Poster — configuración compartida entre los 4 tipos (MENU,
- * COUNTER, DISCOUNT, REVIEWS). El JSON se persiste tal cual en
- * QrPoster.config (Prisma). El editor visual de Konva consume/produce
+ * QR Poster — configuración compartida entre los 5 tipos (MENU,
+ * COUNTER, DISCOUNT, REVIEWS, INFOLINK). El JSON se persiste tal cual
+ * en QrPoster.config (Prisma). El editor visual de Konva consume/produce
  * este shape. La URL destino del QR NO va acá — se calcula en render
  * time según el `type` para que el QR siga siendo dinámico.
  */
 
-export type QrPosterType = 'MENU' | 'COUNTER' | 'DISCOUNT' | 'REVIEWS';
+export type QrPosterType =
+  | 'MENU'
+  | 'COUNTER'
+  | 'DISCOUNT'
+  | 'REVIEWS'
+  | 'INFOLINK';
 
 /** Configuración de fondo. Puede ser sólido, gradiente o imagen.
  *  Las tres variantes admiten ajustes finos comunes (opacity, overlay,

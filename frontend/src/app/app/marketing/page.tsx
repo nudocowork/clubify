@@ -16,13 +16,17 @@ type QrTool = {
   type: QrPosterType;
 };
 
-type QrPosterType = 'MENU' | 'COUNTER' | 'DISCOUNT' | 'REVIEWS';
+type QrPosterType = 'MENU' | 'COUNTER' | 'DISCOUNT' | 'REVIEWS' | 'INFOLINK';
 
 type QrPoster = {
   id: string;
   type: QrPosterType;
   name: string;
   config: any;
+  isActive: boolean;
+  targetUrl: string | null;
+  visitCount: number;
+  exportCount: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -58,6 +62,13 @@ const TYPE_META: Record<
     href: '/app/marketing/qr-reviews',
     description:
       'Cartel para incentivar reseñas de Google. Filtro inteligente 4-5★ → Google, 1-3★ → privado.',
+  },
+  INFOLINK: {
+    emoji: '🔗',
+    label: 'QR Infolink',
+    href: '/app/marketing/qr-infolink',
+    description:
+      'Cartel para el mini-sitio tipo Linktree del negocio. Redes, eventos, promos en un solo link dinámico.',
   },
 };
 
@@ -142,12 +153,25 @@ export default function MarketingHub() {
     }
   }
 
+  async function toggleActive(p: QrPoster) {
+    try {
+      await api(`/qr-posters/${p.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive: !p.isActive }),
+      });
+      reload();
+    } catch (e: any) {
+      toast(e?.message || 'No se pudo actualizar', 'error');
+    }
+  }
+
   // Agrupamos los carteles por tipo para mostrar la galería ordenada.
   const byType: Record<QrPosterType, QrPoster[]> = {
     MENU: [],
     COUNTER: [],
     DISCOUNT: [],
     REVIEWS: [],
+    INFOLINK: [],
   };
   for (const p of posters ?? []) byType[p.type]?.push(p);
 
@@ -210,6 +234,7 @@ export default function MarketingHub() {
                         poster={p}
                         onRename={() => rename(p)}
                         onRemove={() => remove(p)}
+                        onToggleActive={() => toggleActive(p)}
                       />
                     ))}
                   </div>
@@ -267,35 +292,55 @@ export default function MarketingHub() {
 
 /** Card individual de un cartel — preview + nombre + acciones. Click en
  *  el preview o nombre lleva al editor por id; los botones renombrar/
- *  eliminar abren prompts. */
+ *  eliminar/pausar abren prompts. Muestra stats de escaneos y descargas. */
 function PosterCard({
   poster,
   onRename,
   onRemove,
+  onToggleActive,
 }: {
   poster: QrPoster;
   onRename: () => void;
   onRemove: () => void;
+  onToggleActive: () => void;
 }) {
   const meta = TYPE_META[poster.type];
+  const inactive = !poster.isActive;
   return (
     <div className="group flex flex-col gap-2">
       <Link
         href={`/app/marketing/edit/${poster.id}`}
-        className="block"
-        title="Editar este cartel"
+        className={`block relative ${inactive ? 'opacity-60 grayscale' : ''}`}
+        title={inactive ? 'Cartel pausado — clic para editar' : 'Editar este cartel'}
       >
         <QrPosterThumbnail config={poster.config} type={poster.type} />
+        {inactive && (
+          <span className="absolute top-1.5 left-1.5 bg-bad text-white text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">
+            Pausado
+          </span>
+        )}
       </Link>
       <div className="px-1 flex items-start gap-1">
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold truncate">
             {poster.name?.trim() || meta.label}
           </div>
-          <div className="text-[11px] text-mute mt-0.5">
-            Editado {timeAgo(poster.updatedAt)}
+          <div className="text-[11px] text-mute mt-0.5 flex items-center gap-2">
+            <span title="Escaneos del QR">👁 {poster.visitCount ?? 0}</span>
+            <span title="Descargas del cartel">⬇ {poster.exportCount ?? 0}</span>
+            <span>· {timeAgo(poster.updatedAt)}</span>
           </div>
         </div>
+        <button
+          type="button"
+          onClick={onToggleActive}
+          className={`p-0.5 transition opacity-0 group-hover:opacity-100 ${
+            inactive ? 'text-brand hover:text-brand-700' : 'text-mute hover:text-amber-600'
+          }`}
+          title={inactive ? 'Reactivar cartel' : 'Pausar cartel'}
+        >
+          {inactive ? '▶' : '⏸'}
+        </button>
         <button
           type="button"
           onClick={onRename}
