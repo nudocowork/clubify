@@ -89,6 +89,7 @@ export class CampaignsService {
       influencerCode = await this.prisma.referralCode.create({
         data: {
           code,
+          slug: code.toLowerCase(),
           ownerName: dto.influencerName,
           ownerEmail: email,
           ownerWhatsapp: dto.influencerWhatsapp,
@@ -274,6 +275,7 @@ export class CampaignsService {
     const ambassadorCode = await this.prisma.referralCode.create({
       data: {
         code,
+        slug: code.toLowerCase(),
         ownerName: dto.fullName.trim(),
         ownerEmail: email,
         ownerWhatsapp: dto.whatsapp,
@@ -463,6 +465,7 @@ export class CampaignsService {
       ambassadorCode = await this.prisma.referralCode.create({
         data: {
           code,
+          slug: code.toLowerCase(),
           ownerName: dto.fullName.trim(),
           ownerEmail: email,
           ownerWhatsapp: dto.whatsapp.trim(),
