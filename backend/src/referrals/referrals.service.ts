@@ -1150,6 +1150,7 @@ export class ReferralsService {
       code = await this.prisma.referralCode.create({
         data: {
           code: codeText,
+          slug: codeText.toLowerCase(),
           ownerName: dto.fullName,
           ownerEmail: email,
           ownerWhatsapp: dto.whatsapp,

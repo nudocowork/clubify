@@ -301,9 +301,14 @@ export class AffiliateService {
       code = codeGen();
     }
 
+    // Slug por default = lowercase(code). Sin esto el row queda con
+    // slug=null y `/ref/<lowercase>` daría 404 (sin el fallback al code
+    // del F4). Defensa para que el slug esté siempre seteado.
+    const slug = code.toLowerCase();
     const ambassador = await this.prisma.referralCode.create({
       data: {
         code,
+        slug,
         ownerName: dto.fullName.trim(),
         ownerEmail: email,
         ownerWhatsapp: dto.whatsapp,
