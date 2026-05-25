@@ -722,7 +722,17 @@ export default function QrPosterEditor({
   }, [type, brandName, idMode, posterIdProp]);
 
   const meta = cfg.meta ?? {};
-  const effectiveUrl = typeof qrUrl === 'function' ? qrUrl(meta) : qrUrl;
+  const staticUrl = typeof qrUrl === 'function' ? qrUrl(meta) : qrUrl;
+  // Una vez que el poster tiene id (cargado del server o recién creado por
+  // autosave), el QR codifica /q/<id> en vez de la URL directa. Esto activa
+  // el redirect dinámico backend (loguea visita + permite cambiar destino
+  // sin reimprimir). Si todavía no hay id (creación inicial), cae al
+  // staticUrl como fallback. El usuario no necesita ver el URL en pantalla
+  // — el QR igual escanea bien una vez guardado.
+  const effectiveUrl =
+    posterId && typeof window !== 'undefined'
+      ? `${window.location.origin}/q/${posterId}`
+      : staticUrl;
 
   useEffect(() => {
     let cancelled = false;

@@ -83,6 +83,8 @@ export default function MenuEditor() {
   const [coverRecommendedOpen, setCoverRecommendedOpen] = useState(false);
   const [ordersDeliveryEnabled, setOrdersDeliveryEnabled] = useState<boolean | null>(null);
   const [togglingOrders, setTogglingOrders] = useState(false);
+  const [digitalMenuEnabled, setDigitalMenuEnabled] = useState<boolean | null>(null);
+  const [togglingDigital, setTogglingDigital] = useState(false);
   const [tenantSlug, setTenantSlug] = useState<string | null>(null);
   const [mainLabel, setMainLabel] = useState<string>('Menú');
 
@@ -127,14 +129,49 @@ export default function MenuEditor() {
       const sf = await api<{
         ordersEnabled: boolean;
         ordersDeliveryEnabled?: boolean;
+        digitalMenuEnabled?: boolean;
       }>('/storefront');
       // Backend devuelve ordersDeliveryEnabled gateado por ordersEnabled.
       // Fallback al master para storefronts viejos sin la columna nueva.
       setOrdersDeliveryEnabled(
         sf.ordersDeliveryEnabled ?? sf.ordersEnabled ?? true,
       );
+      setDigitalMenuEnabled(sf.digitalMenuEnabled ?? true);
     } catch {
       setOrdersDeliveryEnabled(true);
+      setDigitalMenuEnabled(true);
+    }
+  }
+
+  async function toggleDigitalMenu() {
+    if (digitalMenuEnabled === null) return;
+    const next = !digitalMenuEnabled;
+    if (
+      !next &&
+      !confirm(
+        `Apagar el ${mainLabel.toLowerCase()} digital: /m/<negocio> dejará de mostrar productos. Si tenés el menú libro activado, redirige automático a /book/<negocio>. ¿Continuar?`,
+      )
+    ) {
+      return;
+    }
+    setTogglingDigital(true);
+    setDigitalMenuEnabled(next);
+    try {
+      await api('/storefront', {
+        method: 'PATCH',
+        body: JSON.stringify({ digitalMenuEnabled: next }),
+      });
+      toast(
+        next
+          ? `${mainLabel} digital activo en el público`
+          : `${mainLabel} digital desactivado`,
+        'success',
+      );
+    } catch (e: any) {
+      setDigitalMenuEnabled(!next);
+      toast(e.message || 'No se pudo actualizar', 'error');
+    } finally {
+      setTogglingDigital(false);
     }
   }
 
@@ -378,6 +415,23 @@ export default function MenuEditor() {
           </span>
         </h1>
         <div className="flex gap-2 flex-wrap">
+          {digitalMenuEnabled !== null && (
+            <button
+              type="button"
+              onClick={toggleDigitalMenu}
+              disabled={togglingDigital}
+              className={`btn-ghost ${digitalMenuEnabled ? 'text-ok' : 'text-amber-600'}`}
+              title={
+                digitalMenuEnabled
+                  ? `${mainLabel} digital visible en /m/<negocio>. Apagalo si solo vas a usar el menú libro.`
+                  : `${mainLabel} digital apagado — /m/<negocio> redirige a /book/<negocio> si el libro está activado.`
+              }
+            >
+              {digitalMenuEnabled
+                ? `📋 ${mainLabel} digital: ON`
+                : `🚫 ${mainLabel} digital: OFF`}
+            </button>
+          )}
           {ordersDeliveryEnabled !== null && (
             <button
               type="button"
