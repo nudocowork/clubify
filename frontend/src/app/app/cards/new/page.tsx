@@ -525,6 +525,15 @@ function Step3Configure({
   err: string | null;
   locations: LocationLite[];
 }) {
+  // Buffer raw del input multiRewards — preservar texto crudo mientras
+  // el user tipea "5:" o "5" (sin reward todavía). form.multiRewards
+  // solo guarda entradas válidas (at + reward).
+  const [multiRewardsRaw, setMultiRewardsRaw] = useState(
+    (form.multiRewards ?? [])
+      .map((m: { at: number; reward: string }) => `${m.at}:${m.reward}`)
+      .join(', '),
+  );
+
   function set<K extends keyof typeof form>(k: K, v: any) {
     setForm({ ...form, [k]: v });
   }
@@ -615,11 +624,11 @@ function Step3Configure({
               <input
                 className="input"
                 placeholder="Ej: 5:5% off, 10:10% off"
-                value={(form.multiRewards ?? [])
-                  .map((m) => `${m.at}:${m.reward}`)
-                  .join(', ')}
+                value={multiRewardsRaw}
                 onChange={(e) => {
-                  const parsed = e.target.value
+                  const raw = e.target.value;
+                  setMultiRewardsRaw(raw);
+                  const parsed = raw
                     .split(',')
                     .map((s) => s.trim())
                     .filter(Boolean)

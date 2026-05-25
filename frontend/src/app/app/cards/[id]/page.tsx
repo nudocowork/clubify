@@ -732,6 +732,17 @@ function EditCardModal({
     multiRewards: card.multiRewards ?? [],
     activeLinks: card.activeLinks ?? [],
   });
+  // Buffer raw del input de multiRewards: el array `form.multiRewards`
+  // solo guarda entradas válidas (at>0 + reward no vacío), pero mientras
+  // el user escribe "5:" o "5", el input necesita preservar el texto
+  // crudo sino se borra en cada keystroke. Sincronizamos los dos: el
+  // raw refleja lo tipeado, form.multiRewards guarda lo parseado limpio
+  // (que es lo que persiste el backend).
+  const [multiRewardsRaw, setMultiRewardsRaw] = useState(
+    (card.multiRewards ?? [])
+      .map((m) => `${m.at}:${m.reward}`)
+      .join(', '),
+  );
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [showAdvancedColors, setShowAdvancedColors] = useState(false);
@@ -961,9 +972,14 @@ function EditCardModal({
                 <input
                   className="input"
                   placeholder="Ej: 5:5% off, 10:10% off"
-                  value={form.multiRewards.map((m) => `${m.at}:${m.reward}`).join(', ')}
+                  value={multiRewardsRaw}
                   onChange={(e) => {
-                    const parsed = e.target.value
+                    const raw = e.target.value;
+                    setMultiRewardsRaw(raw);
+                    // Parseo defensivo en paralelo: solo entradas válidas
+                    // (at>0 + reward no vacío) terminan en form, que es
+                    // lo que se persiste al guardar.
+                    const parsed = raw
                       .split(',')
                       .map((s) => s.trim())
                       .filter(Boolean)
