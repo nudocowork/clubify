@@ -118,6 +118,47 @@ export class InfoLinksService {
     return { ok: true };
   }
 
+  /**
+   * Clona un InfoLink: copia estructura (sections, buttons, theme, hero,
+   * gallery, popups, todo lo persistido en el row). NO copia stats:
+   * views=0, sin InfoLinkEvent asociados. Genera slug único auto.
+   * Title nuevo = "<original> (copia)".
+   */
+  async duplicate(user: AuthUser, id: string) {
+    const src = await this.get(user, id);
+    const tid = src.tenantId;
+    const baseSlug = slugify(`${src.slug}-copia`);
+    let slug = baseSlug;
+    let suffix = 2;
+    while (
+      await this.prisma.infoLink.findFirst({
+        where: { tenantId: tid, slug },
+      })
+    ) {
+      slug = `${baseSlug}-${suffix++}`;
+      if (suffix > 50) {
+        slug = `${baseSlug}-${Date.now().toString(36).slice(-4)}`;
+        break;
+      }
+    }
+    return this.prisma.infoLink.create({
+      data: {
+        tenantId: tid,
+        slug,
+        title: `${src.title} (copia)`,
+        subtitle: src.subtitle,
+        heroImageUrl: src.heroImageUrl,
+        gallery: src.gallery as any,
+        sections: src.sections as any,
+        buttons: src.buttons as any,
+        theme: src.theme as any,
+        isActive: src.isActive,
+        // views queda en 0 (default schema), sin InfoLinkEvent — cada copia
+        // arranca su propio tracking limpio.
+      },
+    });
+  }
+
   async stats(user: AuthUser, id: string) {
     await this.get(user, id);
     const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);

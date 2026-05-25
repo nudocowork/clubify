@@ -67,6 +67,15 @@ export default function InfoLinksList() {
     load();
   }
 
+  async function duplicate(l: InfoLink) {
+    const r = await api<{ id: string }>(`/info-links/${l.id}/duplicate`, {
+      method: 'POST',
+    });
+    // Vamos directo al editor del duplicado para que el dueño le ajuste
+    // título/slug/etc. La lista se ve cuando vuelve.
+    router.push(`/app/info-links/${r.id}`);
+  }
+
   return (
     <div>
       <div className="page-head">
@@ -149,6 +158,13 @@ export default function InfoLinksList() {
                 </Link>
                 <button className="btn-link text-xs" onClick={() => toggle(l)}>
                   {l.isActive ? 'Pausar' : 'Activar'}
+                </button>
+                <button
+                  className="btn-link text-xs"
+                  onClick={() => duplicate(l)}
+                  title="Crear una copia con la misma estructura y diseño (sin estadísticas)"
+                >
+                  ⎘ Duplicar
                 </button>
                 <a
                   href={`/i/${tenant?.slug}/${l.slug}`}

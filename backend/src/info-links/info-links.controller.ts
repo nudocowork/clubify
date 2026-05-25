@@ -73,4 +73,12 @@ export class InfoLinksController {
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.remove(user, id);
   }
+
+  /** Duplica el InfoLink — clona toda la estructura visual y de
+   *  botones, genera un slug único, y resetea stats (views=0, sin
+   *  events). Devuelve el nuevo row. */
+  @Post(':id/duplicate')
+  duplicate(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.duplicate(user, id);
+  }
 }
