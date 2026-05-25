@@ -304,6 +304,7 @@ export default function AppShell({
                 { href: '/app/marketing/qr-counter', label: 'QR Mostrador', icon: 'card' },
                 { href: '/app/marketing/qr-discount', label: 'QR Descuento', icon: 'gift' },
                 { href: '/app/marketing/qr-reviews', label: 'QR Reseñas', icon: 'spark' },
+                { href: '/app/marketing/qr-infolink', label: 'QR Infolink', icon: 'spark' },
               ],
             },
             {
