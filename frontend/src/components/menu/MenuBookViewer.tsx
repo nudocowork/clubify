@@ -211,6 +211,32 @@ export function MenuBookViewer({
     }
   }, [allPages, pageIdx]);
 
+  // ── activeSectionId computed BEFORE early returns (rules of hooks).
+  // Vale empty string cuando data aún no cargó.
+  const activeSectionId = useMemo(() => {
+    if (!data) return '';
+    let id = data.sections[0]?.id ?? '';
+    for (const s of data.sections) {
+      if (sectionStarts[s.id] <= pageIdx) id = s.id;
+    }
+    return id;
+  }, [data, sectionStarts, pageIdx]);
+
+  // ── Sincronizar URL con sección activa — replaceState para no inflar el
+  // historial con cada swipe. Hook ANTES de los early returns para no
+  // violar reglas (sino React tira error #310 cuando data pasa de
+  // null → loaded y este hook empieza a ejecutarse).
+  useEffect(() => {
+    if (!initialUrlSetRef.current) return;
+    if (typeof window === 'undefined') return;
+    if (!activeSectionId) return;
+    const activeSlug = slugBySectionId[activeSectionId];
+    if (!activeSlug) return;
+    const targetPath = `/m/${slug}/${activeSlug}`;
+    if (window.location.pathname === targetPath) return;
+    window.history.replaceState({}, '', targetPath);
+  }, [activeSectionId, slugBySectionId, slug]);
+
   // ── Loading / error / empty
   if (loadErr) {
     return (
@@ -247,28 +273,9 @@ export function MenuBookViewer({
     );
   }
 
-  // Cuál sección corresponde al pageIdx actual
-  const activeSectionId = (() => {
-    let id = data.sections[0]?.id ?? '';
-    for (const s of data.sections) {
-      if (sectionStarts[s.id] <= pageIdx) id = s.id;
-    }
-    return id;
-  })();
-
-  // Sincronizar URL con sección activa — replaceState para no inflar el
-  // historial con cada swipe (solo si querés "back" botón a otra sección,
-  // hay que cambiarlo a pushState; replaceState es más limpio para deck
-  // continuo). No corre antes del initial scroll para no pisar la URL.
-  useEffect(() => {
-    if (!initialUrlSetRef.current) return;
-    if (typeof window === 'undefined') return;
-    const activeSlug = slugBySectionId[activeSectionId];
-    if (!activeSlug) return;
-    const targetPath = `/m/${slug}/${activeSlug}`;
-    if (window.location.pathname === targetPath) return;
-    window.history.replaceState({}, '', targetPath);
-  }, [activeSectionId, slugBySectionId, slug]);
+  // activeSectionId + useEffect de URL sync ya fueron movidos ARRIBA
+  // de los early returns (~líneas 214-238) para no violar las reglas
+  // de hooks. Acá solo usamos el valor ya computado.
 
   return (
     <div
