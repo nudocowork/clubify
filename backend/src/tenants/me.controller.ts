@@ -60,6 +60,10 @@ class UpdateMyBody {
   @IsOptional() deliveryAlertsPhones?: string[] | null;
   // Array de eventos suscritos: 'created' | 'confirmed' | 'ready' | 'delivered'.
   @IsOptional() deliveryAlertsEvents?: string[] | null;
+  // WhatsApp opcional al cierre del feedback negativo (/r/:slug).
+  @IsOptional() @IsBoolean() whatsappFeedbackEnabled?: boolean;
+  @IsOptional() @IsString() whatsappFeedbackNumber?: string | null;
+  @IsOptional() @IsString() whatsappFeedbackMessage?: string | null;
 }
 
 @Controller('tenants/me')

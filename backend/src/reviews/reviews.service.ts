@@ -51,12 +51,21 @@ export class ReviewsService {
         secondaryColor: true,
         whatsappPhone: true,
         googleReviewUrl: true,
+        whatsappFeedbackEnabled: true,
+        whatsappFeedbackNumber: true,
+        whatsappFeedbackMessage: true,
         status: true,
       },
     });
     if (!t || t.status === 'SUSPENDED')
       throw new NotFoundException('Negocio no disponible');
-    return t;
+    // Solo exponemos el número del WhatsApp feedback si está habilitado
+    // y tiene número. Sino, frontend no muestra el botón.
+    return {
+      ...t,
+      whatsappFeedbackEnabled:
+        !!(t.whatsappFeedbackEnabled && t.whatsappFeedbackNumber?.trim()),
+    };
   }
 
   /**

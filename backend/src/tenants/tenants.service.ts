@@ -88,6 +88,9 @@ export type UpdateMyTenantDto = Partial<{
   deliveryAlertsEnabled: boolean;
   deliveryAlertsPhones: string[] | null;
   deliveryAlertsEvents: string[] | null;
+  whatsappFeedbackEnabled: boolean;
+  whatsappFeedbackNumber: string | null;
+  whatsappFeedbackMessage: string | null;
 }>;
 
 @Injectable()
