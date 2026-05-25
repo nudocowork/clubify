@@ -22,13 +22,23 @@ export class QrPostersService {
   }
 
   /** Devuelve TODOS los carteles del tenant — usado por la página
-   *  /app/marketing (sección "Mis QRs") para mostrar la galería. */
+   *  /app/marketing (sección "Mis QRs") para mostrar la galería.
+   *  Cada poster trae counts de visits/exports para mostrar en el card. */
   async listMine(user: AuthUser, override?: string) {
     const tid = this.tid(user, override);
-    return this.prisma.qrPoster.findMany({
+    const posters = await this.prisma.qrPoster.findMany({
       where: { tenantId: tid },
       orderBy: [{ type: 'asc' }, { updatedAt: 'desc' }],
+      include: {
+        _count: { select: { visits: true, exports: true } },
+      },
     });
+    return posters.map((p) => ({
+      ...p,
+      visitCount: p._count.visits,
+      exportCount: p._count.exports,
+      _count: undefined,
+    }));
   }
 
   /**
@@ -105,7 +115,13 @@ export class QrPostersService {
   /** Crea un cartel nuevo. Para editar uno existente usar updateById. */
   async create(
     user: AuthUser,
-    body: { type: QrPosterType; name?: string; config?: any },
+    body: {
+      type: QrPosterType;
+      name?: string;
+      config?: any;
+      targetUrl?: string | null;
+      isActive?: boolean;
+    },
     override?: string,
   ) {
     const tid = this.tid(user, override);
@@ -115,6 +131,8 @@ export class QrPostersService {
         type: body.type,
         name: body.name ?? '',
         config: body.config ?? {},
+        targetUrl: body.targetUrl ?? null,
+        isActive: body.isActive ?? true,
       },
     });
   }
@@ -124,7 +142,12 @@ export class QrPostersService {
   async updateById(
     user: AuthUser,
     id: string,
-    body: { name?: string; config?: any },
+    body: {
+      name?: string;
+      config?: any;
+      targetUrl?: string | null;
+      isActive?: boolean;
+    },
   ) {
     await this.getById(user, id); // valida ownership
     return this.prisma.qrPoster.update({
@@ -132,6 +155,8 @@ export class QrPostersService {
       data: {
         name: body.name ?? undefined,
         config: body.config ?? undefined,
+        targetUrl: body.targetUrl === undefined ? undefined : body.targetUrl,
+        isActive: body.isActive ?? undefined,
       },
     });
   }
@@ -139,6 +164,94 @@ export class QrPostersService {
   async removeById(user: AuthUser, id: string) {
     await this.getById(user, id); // valida ownership
     await this.prisma.qrPoster.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  // ───────── Endpoint público /q/<id> ───────── //
+
+  /**
+   * Resuelve un QR poster a su URL destino y loguea la visita. Es lo que
+   * el QR impreso codifica — al escanear, el usuario llega a /q/<id> que
+   * dispara este método.
+   *
+   * Si targetUrl está seteado: lo usa directo.
+   * Si no: arma la URL default según el tipo del poster.
+   *   - MENU      → /m/<slug>
+   *   - COUNTER   → /m/<slug>?counter=1  (placeholder — la lógica real
+   *                  vive en el storefront)
+   *   - DISCOUNT  → /m/<slug>?promo=1
+   *   - REVIEWS   → /r/<slug>
+   *   - INFOLINK  → /i/<slug>
+   *
+   * Si el poster no existe o está inactivo, retorna null — el caller
+   * (controller) decide el response (404 vs landing).
+   */
+  async resolvePublicUrl(
+    id: string,
+    appUrl: string,
+    ctx: { ip?: string; userAgent?: string; country?: string; referer?: string },
+  ): Promise<string | null> {
+    const poster = await this.prisma.qrPoster.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        type: true,
+        targetUrl: true,
+        isActive: true,
+        tenant: { select: { slug: true } },
+      },
+    });
+    if (!poster || !poster.isActive) return null;
+
+    // Loguear visita fire-and-forget (no bloquear redirect si falla).
+    this.prisma.qrPosterVisit
+      .create({
+        data: {
+          posterId: poster.id,
+          ip: ctx.ip?.slice(0, 60) ?? null,
+          userAgent: ctx.userAgent?.slice(0, 500) ?? null,
+          country: ctx.country?.slice(0, 8) ?? null,
+          referer: ctx.referer?.slice(0, 1000) ?? null,
+        },
+      })
+      .catch(() => null);
+
+    // Override explícito gana.
+    if (poster.targetUrl) return poster.targetUrl;
+
+    const slug = poster.tenant.slug;
+    const base = appUrl.replace(/\/+$/, '');
+    switch (poster.type) {
+      case 'MENU':
+        return `${base}/m/${slug}`;
+      case 'COUNTER':
+        return `${base}/m/${slug}`;
+      case 'DISCOUNT':
+        return `${base}/m/${slug}?promo=1`;
+      case 'REVIEWS':
+        return `${base}/r/${slug}`;
+      case 'INFOLINK':
+        return `${base}/i/${slug}`;
+      default:
+        return `${base}/m/${slug}`;
+    }
+  }
+
+  /** Loguea un export del cartel (PNG/PDF/SVG). El frontend dispara
+   *  este endpoint cuando el dueño descarga el archivo. */
+  async logExport(
+    user: AuthUser,
+    id: string,
+    body: { format: string; sizeBytes?: number },
+  ) {
+    await this.getById(user, id); // valida ownership
+    await this.prisma.qrPosterExport.create({
+      data: {
+        posterId: id,
+        format: body.format.toUpperCase().slice(0, 8),
+        sizeBytes: body.sizeBytes ?? null,
+      },
+    });
     return { ok: true };
   }
 }

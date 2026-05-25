@@ -1858,6 +1858,7 @@ enum QrPosterType {
   COUNTER
   DISCOUNT
   REVIEWS
+  INFOLINK // mini-page tipo Linktree (apunta a /i/<slug>)
 }
 
 model QrPoster {
@@ -1871,13 +1872,57 @@ model QrPoster {
   // Último export subido a R2 (PNG/PDF). Se llena en H3 cuando se
   // implementa el export profesional para imprenta.
   lastExportUrl String?
+  // Si false, el QR sigue siendo editable en el panel pero el endpoint
+  // público `/q/<id>` devuelve 404 (cartel "pausado"). Útil para campañas
+  // estacionales sin tener que borrar el diseño.
+  isActive      Boolean      @default(true)
+  // URL override por-poster. Si está seteado, el redirect dinámico
+  // (/q/<id>) usa este target en vez del default del tipo. Permite que
+  // un mismo tenant tenga varios QR del mismo tipo apuntando a campañas
+  // distintas (ej: 1 QR Descuento → /signup?promo=A, otro → /signup?promo=B).
+  // Si es null, /q/<id> resuelve al default que corresponda al `type`
+  // (ej: MENU → /m/<slug>, INFOLINK → /i/<slug>).
+  targetUrl     String?
+  visits        QrPosterVisit[]
+  exports       QrPosterExport[]
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
   // Antes era @@unique([tenantId, type]) — limitaba a 1 cartel por tipo
   // por tenant. Ahora se permite N variantes (cada tenant puede tener
-  // varios MENU/COUNTER/DISCOUNT/REVIEWS con diseños distintos).
+  // varios MENU/COUNTER/DISCOUNT/REVIEWS/INFOLINK con diseños distintos).
   @@index([tenantId, type])
+}
+
+// Tracking de scans (cuando alguien escanea un QR y dispara /q/<id>).
+// El redirect dinámico crea un row acá y reenvía al targetUrl resuelto.
+// Permite que cada poster tenga estadísticas individuales sin tocar el
+// resto del schema. IP/UA/country se limitan en length para no explotar.
+model QrPosterVisit {
+  id        String   @id @default(uuid())
+  posterId  String
+  poster    QrPoster @relation(fields: [posterId], references: [id], onDelete: Cascade)
+  ip        String?
+  userAgent String?
+  country   String?
+  referer   String?
+  createdAt DateTime @default(now())
+
+  @@index([posterId, createdAt])
+}
+
+// Tracking de descargas/exports del cartel. Cuando el dueño descarga el
+// PNG/PDF se crea un row acá. Permite reportar "descargado N veces" en
+// el card del poster.
+model QrPosterExport {
+  id        String   @id @default(uuid())
+  posterId  String
+  poster    QrPoster @relation(fields: [posterId], references: [id], onDelete: Cascade)
+  format    String   // 'PNG' | 'PDF' | 'SVG'
+  sizeBytes Int?
+  createdAt DateTime @default(now())
+
+  @@index([posterId, createdAt])
 }
 
 // ============================================================

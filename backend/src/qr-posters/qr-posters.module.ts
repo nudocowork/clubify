@@ -1,9 +1,12 @@
 import { Module } from '@nestjs/common';
 import { QrPostersService } from './qr-posters.service';
-import { QrPostersController } from './qr-posters.controller';
+import {
+  QrPostersController,
+  QrPosterPublicRedirectController,
+} from './qr-posters.controller';
 
 @Module({
   providers: [QrPostersService],
-  controllers: [QrPostersController],
+  controllers: [QrPostersController, QrPosterPublicRedirectController],
 })
 export class QrPostersModule {}
