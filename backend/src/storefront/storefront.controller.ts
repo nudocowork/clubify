@@ -53,6 +53,8 @@ class StorefrontBody {
   @ValidateIf((_, v) => v !== null) @IsOptional() @IsObject()
   recommendedCoverConfig?: Record<string, any> | null;
   @IsOptional() @IsEnum(MenuLayout) menuLayout?: MenuLayout;
+  @IsOptional() @IsBoolean() digitalMenuEnabled?: boolean;
+  @IsOptional() @IsBoolean() bookMenuEnabled?: boolean;
   @ValidateIf((_, v) => v !== null) @IsOptional() @IsString()
   customDomain?: string | null;
 }

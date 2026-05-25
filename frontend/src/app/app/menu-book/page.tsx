@@ -1,6 +1,5 @@
 'use client';
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { ImageUploader } from '@/components/ImageUploader';
@@ -46,16 +45,40 @@ export default function MenuBookAdminPage() {
   const [newTitle, setNewTitle] = useState('');
   const [popupPage, setPopupPage] = useState<BookPage | null>(null);
   const [tenantSlug, setTenantSlug] = useState<string | null>(null);
-  const [menuLayout, setMenuLayout] = useState<string | null>(null);
+  const [bookMenuEnabled, setBookMenuEnabled] = useState<boolean | null>(null);
+  const [storefrontId, setStorefrontId] = useState<string | null>(null);
+  const [togglingBook, setTogglingBook] = useState(false);
 
   useEffect(() => {
     api<any>('/tenants/me')
       .then((t) => setTenantSlug(t?.slug ?? null))
       .catch(() => {});
     api<any>('/storefront')
-      .then((sf) => setMenuLayout(sf?.menuLayout ?? null))
+      .then((sf) => {
+        setBookMenuEnabled(sf?.bookMenuEnabled ?? false);
+        setStorefrontId(sf?.id ?? null);
+      })
       .catch(() => {});
   }, []);
+
+  async function toggleBook(next: boolean) {
+    setTogglingBook(true);
+    try {
+      await api('/storefront', {
+        method: 'PATCH',
+        body: JSON.stringify({ bookMenuEnabled: next }),
+      });
+      setBookMenuEnabled(next);
+      toast(next ? 'Menú libro activado' : 'Menú libro desactivado', 'success');
+    } catch (e: any) {
+      toast(e.message || 'No se pudo actualizar', 'error');
+    } finally {
+      setTogglingBook(false);
+    }
+  }
+  // (storefrontId no se usa aún — placeholder para futuras acciones que
+  // requieran el id sin re-fetch del storefront.)
+  void storefrontId;
 
   async function reload() {
     setLoading(true);
@@ -112,28 +135,41 @@ export default function MenuBookAdminPage() {
           </h1>
           <p className="text-sm text-mute mt-1 max-w-xl leading-relaxed">
             Menú visual tipo libro / flipbook. Organizá las páginas-imagen
-            por sección. Para activarlo en el público, andá a{' '}
-            <Link href="/app/storefront" className="text-brand hover:underline">
-              Storefront → Layout
-            </Link>{' '}
-            y elegí <strong>📖 Libro / Flipbook</strong>.
+            por sección. Vive en su propia URL pública{' '}
+            <code className="text-[12px] px-1 py-0.5 bg-bg2 rounded">/book/&lt;negocio&gt;</code>{' '}
+            — independiente del menú digital tradicional.
           </p>
-          {menuLayout && menuLayout !== 'FLIPBOOK' && (
-            <div className="mt-2 inline-flex items-center gap-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-1.5">
-              ⚠️ El layout activo en público es <strong>{menuLayout}</strong>,
-              no FLIPBOOK. El cliente todavía no verá el libro.
+          {bookMenuEnabled !== null && (
+            <div className="mt-3 flex items-center gap-3">
+              <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={!!bookMenuEnabled}
+                  disabled={togglingBook}
+                  onChange={(e) => toggleBook(e.target.checked)}
+                  className="accent-brand"
+                />
+                <span className="text-sm font-semibold">
+                  Activar menú libro en el público
+                </span>
+              </label>
+              {!bookMenuEnabled && (
+                <span className="text-xs text-mute">
+                  Cuando esté apagado, <code>/book/{tenantSlug ?? '...'}</code> no abre.
+                </span>
+              )}
             </div>
           )}
         </div>
-        {tenantSlug && (
+        {tenantSlug && bookMenuEnabled && (
           <a
-            href={`/m/${tenantSlug}`}
+            href={`/book/${tenantSlug}`}
             target="_blank"
             rel="noopener noreferrer"
             className="btn-primary text-sm whitespace-nowrap inline-flex items-center gap-2"
-            title="Abre el menú público en otra pestaña"
+            title="Abre el menú libro público en otra pestaña"
           >
-            👀 Ver menú público
+            👀 Ver menú libro
           </a>
         )}
       </header>

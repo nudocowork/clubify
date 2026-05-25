@@ -60,6 +60,8 @@ type Storefront = {
   description: string;
   heroImageUrl: string | null;
   menuLayout?: MenuLayout;
+  digitalMenuEnabled?: boolean;
+  bookMenuEnabled?: boolean;
   ordersEnabled?: boolean;
   ordersDeliveryEnabled?: boolean;
   pageBackgroundColor?: string | null;
@@ -387,32 +389,19 @@ export default function StorefrontPublic() {
   // si el dueño decide cambiarlo (por ej a un negro más claro).
   const pageBg = s.pageBackgroundColor || (isCluvi ? '#0a0a0a' : '#FAFBFC');
 
-  // FLIPBOOK es full-screen catálogo visual: sin header, sin tabs, sin
-  // chrome del storefront tradicional. El viewer ya integra chips, slider
-  // y controles. La marca Clubify queda como microbadge discreto en la
-  // esquina (regla feedback_clubify_branding_locked exige presencia pero
-  // sin protagonismo).
-  if (s.menuLayout === 'FLIPBOOK') {
-    return (
-      <div
-        className="min-h-screen relative"
-        style={{ background: pageBg }}
-      >
-        <MenuBookViewer
-          slug={slug}
-          primary={primary}
-          initialSectionSlug={initialSectionSlug}
-        />
-        <a
-          href="https://soyclubify.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="fixed bottom-2 right-2 z-10 text-[9px] text-mute/70 hover:text-mute font-medium tracking-tight select-none px-1.5 py-0.5 rounded bg-white/60 backdrop-blur-sm"
-        >
-          Clubify
-        </a>
-      </div>
-    );
+  // Si el menú digital está apagado y el libro flipbook prendido, /m/<slug>
+  // redirige a /book/<slug> (el modo libro vive en su propia ruta desde
+  // F5.2). También cubre el caso legacy menuLayout=FLIPBOOK pre-migration:
+  // si todavía vemos FLIPBOOK como layout (no migrado), redirigimos igual
+  // para que no quede una pantalla rota.
+  const shouldRedirectToBook =
+    s.menuLayout === 'FLIPBOOK' ||
+    (s.bookMenuEnabled === true && s.digitalMenuEnabled === false);
+  if (shouldRedirectToBook) {
+    if (typeof window !== 'undefined') {
+      window.location.replace(`/book/${slug}${initialSectionSlug ? `/${initialSectionSlug}` : ''}`);
+    }
+    return null;
   }
 
   return (
