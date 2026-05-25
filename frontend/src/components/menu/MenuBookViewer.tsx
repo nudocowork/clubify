@@ -65,12 +65,17 @@ export function MenuBookViewer({
   slug,
   primary,
   initialSectionSlug,
+  urlPrefix = '/book',
 }: {
   slug: string;
   primary: string;
   /** Si viene, arranca el viewer en la primera página de esa sección y
    *  no actualiza la URL al cargar. Cualquier cambio posterior sí. */
   initialSectionSlug?: string;
+  /** Prefijo de URL para deep-links a sección. Default `/book` (modo libro
+   *  vive en su propia ruta desde F5.2). Para backwards-compat se acepta
+   *  `/m` cuando todavía se monte desde el storefront principal. */
+  urlPrefix?: '/book' | '/m';
 }) {
   const [data, setData] = useState<BookData | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -232,10 +237,10 @@ export function MenuBookViewer({
     if (!activeSectionId) return;
     const activeSlug = slugBySectionId[activeSectionId];
     if (!activeSlug) return;
-    const targetPath = `/m/${slug}/${activeSlug}`;
+    const targetPath = `${urlPrefix}/${slug}/${activeSlug}`;
     if (window.location.pathname === targetPath) return;
     window.history.replaceState({}, '', targetPath);
-  }, [activeSectionId, slugBySectionId, slug]);
+  }, [activeSectionId, slugBySectionId, slug, urlPrefix]);
 
   // ── Loading / error / empty
   if (loadErr) {

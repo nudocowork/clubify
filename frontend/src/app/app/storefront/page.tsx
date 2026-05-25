@@ -29,7 +29,6 @@ type MenuLayout =
   | 'CLEAN'
   | 'COMPACT'
   | 'CLUVI'
-  | 'FLIPBOOK'
   | 'SECTIONS';
 
 type Storefront = {
@@ -125,7 +124,9 @@ const MENU_LAYOUTS: { id: MenuLayout; emoji: string; label: string; sub: string 
   { id: 'COMPACT', emoji: '📱', label: 'Compacto', sub: 'Lista + modal con variantes (DoorDash)' },
   { id: 'CLUVI', emoji: '🌙', label: 'Fondo oscuro', sub: 'Fondo negro + cards blancas + acentos color de marca' },
   { id: 'SECTIONS', emoji: '✨', label: 'Secciones premium', sub: 'Banners grandes por sección con portada editable (Apps premium)' },
-  { id: 'FLIPBOOK', emoji: '📖', label: 'Libro / Flipbook', sub: 'Catálogo visual de imágenes pasables como hojas — premium gastronómico' },
+  // FLIPBOOK ya no es un layout — el menú libro vive en su propia ruta
+  // (/book/<slug>) y se administra desde /app/menu-book con su propio
+  // toggle bookMenuEnabled. Ver F5.2.
 ];
 
 export default function StorefrontEditor() {
@@ -735,9 +736,9 @@ function StorefrontPreview({
   menuLayout: MenuLayout;
 }) {
   // Default a 'live' cuando el negocio ya tiene slug: es el único modo
-  // que refleja el layout real (premium / FLIPBOOK / SECTIONS / colores
-  // de header). El SimPreview es un mock genérico estilo CLASSIC y se
-  // queda como fallback informativo si el slug aún no existe.
+  // que refleja el layout real (premium / SECTIONS / colores de header).
+  // El SimPreview es un mock genérico estilo CLASSIC y se queda como
+  // fallback informativo si el slug aún no existe.
   const [mode, setMode] = useState<'sim' | 'live'>(
     tenantSlug ? 'live' : 'sim',
   );

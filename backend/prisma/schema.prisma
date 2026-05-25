@@ -1238,6 +1238,12 @@ model Storefront {
   // null = sin banner custom (se muestra un default minimal).
   recommendedTagline      String?
   recommendedCoverConfig  Json?
+  // Modos de menú: digital tradicional (productos/servicios en `/m/<slug>`)
+  // y libro flipbook (imágenes en `/book/<slug>`). Independientes — un
+  // tenant puede tener activos los 2, uno solo, o ninguno. Reemplazan la
+  // semántica vieja donde `menuLayout=FLIPBOOK` excluía al digital.
+  digitalMenuEnabled Boolean @default(true)
+  bookMenuEnabled    Boolean @default(false)
   isPublished   Boolean    @default(true)
   createdAt     DateTime   @default(now())
 }

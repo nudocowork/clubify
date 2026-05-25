@@ -25,6 +25,8 @@ export type StorefrontDto = {
   recommendedTagline?: string | null;
   recommendedCoverConfig?: Record<string, any> | null;
   menuLayout?: MenuLayout;
+  digitalMenuEnabled?: boolean;
+  bookMenuEnabled?: boolean;
   customDomain?: string | null;
 };
 
@@ -111,6 +113,8 @@ export class StorefrontService {
             ? undefined
             : (dto.recommendedCoverConfig as any),
         menuLayout: dto.menuLayout ?? undefined,
+        digitalMenuEnabled: dto.digitalMenuEnabled ?? undefined,
+        bookMenuEnabled: dto.bookMenuEnabled ?? undefined,
         customDomain: dto.customDomain === undefined ? undefined : customDomain,
       },
     });

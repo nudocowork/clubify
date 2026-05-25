@@ -187,6 +187,12 @@ export class PublicMenuController {
       blocks: t.storefront?.blocks ?? [],
       theme: t.storefront?.theme ?? {},
       menuLayout: t.storefront?.menuLayout ?? 'CLASSIC',
+      // Modos de menú independientes (digital tradicional + libro flipbook).
+      // Default conservador: digital ON / book OFF mientras la columna no
+      // exista en DB (instalación nueva); migration 20260625 setea valores
+      // reales y vuelve `?? defaults` un no-op.
+      digitalMenuEnabled: t.storefront?.digitalMenuEnabled ?? true,
+      bookMenuEnabled: t.storefront?.bookMenuEnabled ?? false,
       ordersEnabled: t.storefront?.ordersEnabled ?? true,
       // Solo aplica a la vista delivery (link público sin ?mesa). La vista
       // mesa SIEMPRE se renderiza informativa, sin importar este flag.
