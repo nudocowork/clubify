@@ -579,11 +579,7 @@ export default async function Landing() {
                     href={igLink}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-xs text-white px-3 py-1.5 rounded-pill hover:opacity-90 transition inline-flex items-center gap-1.5"
-                    style={{
-                      background:
-                        'linear-gradient(135deg, #F58529, #DD2A7B, #8134AF, #515BD4)',
-                    }}
+                    className="text-xs bg-bg2 text-ink px-3 py-1.5 rounded-pill hover:bg-line inline-flex items-center gap-1.5"
                   >
                     <svg
                       width="12"

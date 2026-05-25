@@ -655,7 +655,7 @@ export default function StorefrontPublic() {
 
       {/* Promos */}
       {tab === 'promos' && (
-        <div className="max-w-2xl mx-auto mt-4 px-5 space-y-3">
+        <div className="max-w-2xl mx-auto mt-4 px-5 pb-24 space-y-3">
           {s.promotions.length === 0 && (
             <div className="text-center py-16 animate-in fade-in duration-300">
               <div className="text-5xl mb-3">🎁</div>
@@ -703,25 +703,56 @@ export default function StorefrontPublic() {
                       {p.description}
                     </div>
                   )}
-                  {(p.originalPrice || p.value) && (
-                    <div className="mt-2.5 flex items-baseline gap-2">
-                      {p.originalPrice && (
-                        <span className="text-mute line-through text-sm">
-                          {fmt(Number(p.originalPrice), s.currency)}
-                        </span>
-                      )}
-                      {p.value > 0 && p.type === 'DISCOUNT_AMOUNT' && (
-                        <span className="text-xl font-bold text-bad">
-                          {fmt(Number(p.value), s.currency)}
-                        </span>
-                      )}
-                      {p.value > 0 && p.type === 'DISCOUNT_PCT' && (
-                        <span className="text-xl font-bold text-bad">
-                          -{Number(p.value)}%
-                        </span>
-                      )}
-                    </div>
-                  )}
+                  {(() => {
+                    // value se interpreta segun admin: para DISCOUNT_AMOUNT
+                    // value = precio final que paga el cliente.
+                    // Para DISCOUNT_PCT value = porcentaje off.
+                    // Para BUY_X_GET_Y / COMBO / FREE_ITEM no hay
+                    // before/after natural, mostramos badge.
+                    const orig = p.originalPrice ? Number(p.originalPrice) : null;
+                    const val = p.value ? Number(p.value) : 0;
+                    let finalPrice: number | null = null;
+                    let badge: string | null = null;
+
+                    if (p.type === 'DISCOUNT_AMOUNT' && val > 0) {
+                      finalPrice = val;
+                      if (orig && orig > val) {
+                        const off = Math.round(((orig - val) / orig) * 100);
+                        if (off > 0) badge = `-${off}%`;
+                      }
+                    } else if (p.type === 'DISCOUNT_PCT' && val > 0) {
+                      badge = `-${val}%`;
+                      if (orig) finalPrice = Math.round(orig * (1 - val / 100));
+                    } else if (p.type === 'BUY_X_GET_Y') {
+                      badge = tt('storefront.promo_buy_x_get_y');
+                    } else if (p.type === 'FREE_ITEM') {
+                      badge = tt('storefront.promo_free_item');
+                    } else if (p.type === 'COMBO') {
+                      badge = tt('storefront.promo_combo');
+                    }
+
+                    if (!orig && finalPrice === null && !badge) return null;
+
+                    return (
+                      <div className="mt-2.5 flex items-baseline gap-2 flex-wrap">
+                        {orig && (
+                          <span className="text-mute line-through text-sm shrink-0">
+                            {fmt(orig, s.currency)}
+                          </span>
+                        )}
+                        {finalPrice !== null && (
+                          <span className="text-xl font-bold text-bad shrink-0">
+                            {fmt(finalPrice, s.currency)}
+                          </span>
+                        )}
+                        {badge && (
+                          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-bad/10 text-bad shrink-0">
+                            {badge}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
                   {p.validUntil && (
                     <div className="text-xs text-mute mt-2 flex items-center gap-1">
                       ⏰ {tt('storefront.promo_until', { date: new Date(p.validUntil).toLocaleDateString(undefined, { day: 'numeric', month: 'long' }) })}
