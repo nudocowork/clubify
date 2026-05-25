@@ -150,19 +150,31 @@ export class ReferralsService {
     const clean = (slug || '').toLowerCase().trim().slice(0, 80);
     if (!clean) throw new BadRequestException('slug required');
 
-    const code = await this.prisma.referralCode.findUnique({
+    const select = {
+      id: true,
+      code: true,
+      slug: true,
+      ownerName: true,
+      isActive: true,
+      approvedAt: true,
+      role: true,
+      campaign: { select: { id: true, name: true, status: true } },
+    } as const;
+
+    // 1) Buscar por slug (el caso normal).
+    let code = await this.prisma.referralCode.findUnique({
       where: { slug: clean },
-      select: {
-        id: true,
-        code: true,
-        slug: true,
-        ownerName: true,
-        isActive: true,
-        approvedAt: true,
-        role: true,
-        campaign: { select: { id: true, name: true, status: true } },
-      },
+      select,
     });
+
+    // 2) Fallback: si alguien comparte el código (uppercase) como URL en vez
+    // del slug, lo aceptamos. También cubre registros legacy sin slug seteado.
+    if (!code) {
+      code = await this.prisma.referralCode.findUnique({
+        where: { code: clean.toUpperCase() },
+        select,
+      });
+    }
 
     // Loguear visita siempre (incluso si slug no existe) — fire-and-forget.
     this.prisma.referralVisit
