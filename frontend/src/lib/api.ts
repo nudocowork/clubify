@@ -232,7 +232,18 @@ async function apiWithRefresh<T>(
     throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
   }
   if (res.status === 204) return undefined as unknown as T;
-  return res.json();
+  // NestJS serializa `null` como body VACÍO (no como string "null"), así
+  // que cualquier endpoint que devuelva null cuando no hay datos (ej.
+  // findFirst sin row) rompía con "Unexpected end of JSON input" al
+  // intentar res.json() directo. Leemos como texto y parseamos defensivo
+  // — vacío → null, "null" → null, JSON válido → parse OK.
+  const text = await res.text();
+  if (!text) return null as unknown as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return text as unknown as T;
+  }
 }
 
 /** Descarga un archivo desde un endpoint protegido por JWT y lo guarda con `filename`. */
