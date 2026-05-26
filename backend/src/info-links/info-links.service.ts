@@ -128,6 +128,13 @@ export class InfoLinksService {
     const src = await this.get(user, id);
     const tid = src.tenantId;
     const baseSlug = slugify(`${src.slug}-copia`);
+
+    // Primer intento: probar slugs secuenciales (`-copia`, `-copia-2`, ...)
+    // hasta encontrar uno libre. findFirst + create NO es atómico — dos
+    // duplicates simultáneos del mismo source pueden detectar libre el
+    // mismo slug y el segundo create tira P2002 contra
+    // `@@unique([tenantId, slug])`. En ese caso reintentamos con sufijo
+    // random hasta 3 veces para resolver la race.
     let slug = baseSlug;
     let suffix = 2;
     while (
@@ -141,22 +148,39 @@ export class InfoLinksService {
         break;
       }
     }
-    return this.prisma.infoLink.create({
-      data: {
-        tenantId: tid,
-        slug,
-        title: `${src.title} (copia)`,
-        subtitle: src.subtitle,
-        heroImageUrl: src.heroImageUrl,
-        gallery: src.gallery as any,
-        sections: src.sections as any,
-        buttons: src.buttons as any,
-        theme: src.theme as any,
-        isActive: src.isActive,
-        // views queda en 0 (default schema), sin InfoLinkEvent — cada copia
-        // arranca su propio tracking limpio.
-      },
-    });
+
+    const data = {
+      tenantId: tid,
+      title: `${src.title} (copia)`,
+      subtitle: src.subtitle,
+      heroImageUrl: src.heroImageUrl,
+      gallery: src.gallery as any,
+      sections: src.sections as any,
+      buttons: src.buttons as any,
+      theme: src.theme as any,
+      isActive: src.isActive,
+      // views queda en 0 (default schema), sin InfoLinkEvent — cada copia
+      // arranca su propio tracking limpio.
+    };
+
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const trySlug =
+        attempt === 0
+          ? slug
+          : `${baseSlug}-${Date.now().toString(36).slice(-4)}${Math.random()
+              .toString(36)
+              .slice(-3)}`;
+      try {
+        return await this.prisma.infoLink.create({
+          data: { ...data, slug: trySlug },
+        });
+      } catch (e: any) {
+        if (e?.code !== 'P2002') throw e;
+        // P2002 = race condition con otro duplicate. Próximo intento usa
+        // sufijo random.
+      }
+    }
+    throw new Error('No se pudo generar un slug único para la copia. Intentá de nuevo.');
   }
 
   async stats(user: AuthUser, id: string) {
