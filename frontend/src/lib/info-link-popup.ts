@@ -41,6 +41,19 @@ export type PopupConfig = {
   /** Si true, el cliente puede cerrar tocando fuera del card (default
    *  true). El botón X siempre está disponible. */
   closeOnOutside: boolean;
+  /** Card de fidelización opcional. Si está seteada, el modal renderea
+   *  un botón "Instalar tarjeta" que abre /c/<walletCardId> en nueva
+   *  pestaña. Pensado para convertir el popup en herramienta comercial
+   *  (G3): "Antes de reservar, instala nuestra tarjeta y recibe
+   *  beneficios". null = sin botón wallet. */
+  walletCardId?: string | null;
+  /** Label custom del botón wallet. Si vacío usa default "🎁 Instalar
+   *  tarjeta de fidelización". */
+  walletCardLabel?: string;
+  /** Segundos antes de cerrar el popup automáticamente. 0/null = sin
+   *  auto-close (manual con X o outside-click). Útil para avisos
+   *  efímeros tipo toast modal. */
+  autoCloseSeconds?: number | null;
 };
 
 export const DEFAULT_POPUP_CONFIG: PopupConfig = {
@@ -56,6 +69,9 @@ export const DEFAULT_POPUP_CONFIG: PopupConfig = {
   shadow: 'xl',
   size: 'md',
   closeOnOutside: true,
+  walletCardId: null,
+  walletCardLabel: '',
+  autoCloseSeconds: null,
 };
 
 /** Templates pre-armados para casos típicos. El usuario los aplica

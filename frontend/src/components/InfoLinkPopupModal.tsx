@@ -59,6 +59,17 @@ export function InfoLinkPopupModal({
     };
   }, [popup, onClose]);
 
+  // Auto-close timer (G3): si la config trae autoCloseSeconds > 0, el
+  // popup se cierra solo después de N segundos. Útil para avisos tipo
+  // "toast modal". El user puede cerrar antes con X / Esc / outside.
+  useEffect(() => {
+    if (!popup) return;
+    const secs = popup.autoCloseSeconds ?? 0;
+    if (!secs || secs <= 0) return;
+    const t = window.setTimeout(onClose, secs * 1000);
+    return () => window.clearTimeout(t);
+  }, [popup, onClose]);
+
   if (!popup) return null;
   const maxW = popupMaxWidthPx(popup.size);
   const ctaColor = popup.ctaColor || primary;
@@ -137,6 +148,27 @@ export function InfoLinkPopupModal({
               style={{ background: ctaColor }}
             >
               {popup.ctaText}
+            </a>
+          )}
+
+          {/* Botón wallet (G3): si el popup tiene walletCardId, abre
+              /c/<id> en nueva pestaña — el cliente puede agregar la
+              tarjeta de fidelización ahí mismo. Cierra el popup tras
+              clickear así no queda tapando la nueva tab. */}
+          {popup.walletCardId && (
+            <a
+              href={`/c/${popup.walletCardId}`}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() => onClose()}
+              className="mt-3 inline-flex items-center justify-center w-full px-4 py-3 rounded-xl text-sm font-semibold border-2 hover:opacity-90 transition"
+              style={{
+                borderColor: ctaColor,
+                color: ctaColor,
+                background: 'transparent',
+              }}
+            >
+              {popup.walletCardLabel || '🎁 Instalar tarjeta de fidelización'}
             </a>
           )}
 
