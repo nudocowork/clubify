@@ -216,11 +216,17 @@ export class QrPostersService {
       })
       .catch(() => null);
 
-    // Override explícito gana.
-    if (poster.targetUrl) return poster.targetUrl;
+    const base = appUrl.replace(/\/+$/, '');
+
+    // Override explícito gana — pero validamos contra whitelist para evitar
+    // open redirect a phishing. Los QR son impresos e irreversibles; un admin
+    // comprometido podría apuntar masivamente a sitios maliciosos. Si la URL
+    // no pasa el check, cae al default por type (safer than sorry).
+    if (poster.targetUrl && isSafeTargetUrl(poster.targetUrl, base)) {
+      return poster.targetUrl;
+    }
 
     const slug = poster.tenant.slug;
-    const base = appUrl.replace(/\/+$/, '');
     switch (poster.type) {
       case 'MENU':
         return `${base}/m/${slug}`;
@@ -254,4 +260,57 @@ export class QrPostersService {
     });
     return { ok: true };
   }
+}
+
+// Hosts permitidos para `targetUrl` además del mismo origin del appUrl.
+// Limitado a destinos comerciales legítimos donde el negocio querría apuntar
+// un QR: WhatsApp, Maps, redes sociales, plataformas de reservas comunes.
+// NO incluye redirectores genéricos (bit.ly, etc.) — esos rompen el propósito
+// de validar contra open redirect.
+const QR_TARGET_HOST_WHITELIST = new Set([
+  'wa.me',
+  'api.whatsapp.com',
+  'instagram.com',
+  'www.instagram.com',
+  'facebook.com',
+  'www.facebook.com',
+  'm.facebook.com',
+  'fb.me',
+  'tiktok.com',
+  'www.tiktok.com',
+  'vm.tiktok.com',
+  'twitter.com',
+  'x.com',
+  'youtube.com',
+  'www.youtube.com',
+  'youtu.be',
+  'maps.google.com',
+  'maps.app.goo.gl',
+  'goo.gl',
+  'google.com',
+  'www.google.com',
+  'linktr.ee',
+]);
+
+function isSafeTargetUrl(targetUrl: string, appUrl: string): boolean {
+  const t = targetUrl.trim();
+  if (!t) return false;
+  // Protocolos non-http aceptados directamente (no son redirects web).
+  if (/^(mailto:|tel:|sms:)/i.test(t)) return true;
+  let url: URL;
+  try {
+    url = new URL(t);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return false;
+  // Same-origin con appUrl.
+  try {
+    const app = new URL(appUrl);
+    if (url.host === app.host) return true;
+  } catch {
+    /* ignore */
+  }
+  // Whitelist explícita de hosts comerciales.
+  return QR_TARGET_HOST_WHITELIST.has(url.host.toLowerCase());
 }
