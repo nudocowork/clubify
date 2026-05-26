@@ -807,6 +807,47 @@ export default function InfoLinkEditor() {
                       />
                     </div>
                   )}
+                  {/* Popup PRE-ACCIÓN (G2): cualquier botón que NO sea
+                      type='POPUP' puede mostrar un popup ANTES de abrir
+                      su link. Toggle on/off + cuando está on, mismo
+                      PopupEditor reusado. UX típica: "Antes de reservar,
+                      instala nuestra tarjeta y recibe beneficios". */}
+                  {b.type !== 'POPUP' && (
+                    <div className="col-span-full border-t border-line2 pt-3">
+                      <label className="flex items-center gap-2 text-sm font-semibold cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={!!b.popup}
+                          onChange={(e) =>
+                            updateButton(i, {
+                              popup: e.target.checked
+                                ? DEFAULT_POPUP_CONFIG
+                                : null,
+                            })
+                          }
+                          className="accent-brand"
+                        />
+                        Mostrar popup antes de abrir
+                      </label>
+                      <p className="text-[11px] text-mute mt-1 leading-relaxed">
+                        Cuando esté activado, al hacer click el cliente verá
+                        un mensaje con tu CTA antes de ejecutar la acción
+                        (ej: "Antes de reservar, instala nuestra tarjeta").
+                        Hay 2 botones: continuar al link o cancelar.
+                      </p>
+                      {b.popup && (
+                        <div className="mt-3">
+                          <PopupEditor
+                            value={b.popup}
+                            primary={primary}
+                            onChange={(next) =>
+                              updateButton(i, { popup: next })
+                            }
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
                 );
               }}

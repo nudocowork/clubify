@@ -79,8 +79,14 @@ export default function PublicInfoLink() {
   const [err, setErr] = useState<string | null>(null);
   const [menu, setMenu] = useState<any[]>([]);
   const [storefront, setStorefront] = useState<any>(null);
-  /** Popup activo (botón type='POPUP' fue clickeado). null = cerrado. */
-  const [openPopup, setOpenPopup] = useState<PopupConfig | null>(null);
+  /** Popup activo. `config` viene del botón. `continueAction` aparece
+   *  cuando el botón NO es type='POPUP' — el popup es PRE-ACCIÓN y el
+   *  modal renderea botón "Continuar →" que ejecuta el link original
+   *  (caso: "Antes de reservar, instala tu tarjeta", G2). */
+  const [openPopup, setOpenPopup] = useState<{
+    config: PopupConfig;
+    continueAction?: { onContinue: () => void; label?: string };
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -223,22 +229,42 @@ export default function PublicInfoLink() {
       const bgStyle =
         b.bgStyle ?? (b.style === 'secondary' ? 'outline' : 'solid');
       const isPopupBtn = b.type === 'POPUP';
+      const newTab =
+        b.type === 'EXTERNAL' ||
+        b.type === 'INSTAGRAM' ||
+        b.type === 'MAPS' ||
+        b.type === 'WHATSAPP';
       return {
         label: b.label,
         href,
-        newTab:
-          b.type === 'EXTERNAL' ||
-          b.type === 'INSTAGRAM' ||
-          b.type === 'MAPS' ||
-          b.type === 'WHATSAPP',
+        newTab,
         isPrimary: b.style !== 'secondary',
         bgStyle,
         onClick: (e?: React.MouseEvent) => {
-          if (isPopupBtn) {
-            e?.preventDefault();
-            setOpenPopup(b.popup ?? null);
-          }
           trackClick(b.label);
+          // Cualquier botón con `popup` configurado intercepta el click:
+          //   - type='POPUP': el popup ES la acción (no continúa a ningún link).
+          //   - otros: popup PRE-ACCIÓN — modal con botón "Continuar" que
+          //     ejecuta el link original. Cancelar = solo cierra (G2).
+          if (b.popup) {
+            e?.preventDefault();
+            if (isPopupBtn) {
+              setOpenPopup({ config: b.popup });
+            } else {
+              setOpenPopup({
+                config: b.popup,
+                continueAction: {
+                  onContinue: () => {
+                    if (newTab) {
+                      window.open(href, '_blank', 'noopener,noreferrer');
+                    } else {
+                      window.location.href = href;
+                    }
+                  },
+                },
+              });
+            }
+          }
         },
         cover: useCover ? b.cover : null,
         tagline: (useCover ? b.tagline ?? null : null) as string | null,
@@ -400,9 +426,10 @@ export default function PublicInfoLink() {
         sectionsNode={sectionsNode}
       />
       <InfoLinkPopupModal
-        popup={openPopup}
+        popup={openPopup?.config ?? null}
         primary={primary}
         onClose={() => setOpenPopup(null)}
+        continueAction={openPopup?.continueAction}
       />
     </>
   );

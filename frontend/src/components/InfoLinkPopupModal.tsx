@@ -13,16 +13,33 @@ import { useEffect } from 'react';
 import type { PopupConfig } from '@/lib/info-link-popup';
 import { popupMaxWidthPx, popupShadowCss } from '@/lib/info-link-popup';
 
+export type PopupContinueAction = {
+  /** Label del botón primario. Default: "Continuar →". */
+  label?: string;
+  /** Label del botón secundario de cancelar. Default: "Cancelar". */
+  cancelLabel?: string;
+  /** Callback al confirmar. El modal lo invoca y cierra a continuación
+   *  — el caller se encarga de window.open / window.location. */
+  onContinue: () => void;
+};
+
 export function InfoLinkPopupModal({
   popup,
   primary,
   onClose,
+  continueAction,
 }: {
   popup: PopupConfig | null;
   /** Color de marca del InfoLink — fallback para CTA si ctaColor está
    *  vacío. */
   primary: string;
   onClose: () => void;
+  /** Si está presente, el popup es PRE-ACCIÓN: muestra botón "Continuar"
+   *  que ejecuta la acción original del botón, + botón "Cancelar" que
+   *  solo cierra. El CTA tradicional (ctaText/ctaUrl del config) sigue
+   *  apareciendo como link adicional si existe — caso típico: "Antes
+   *  de reservar, instala tu tarjeta" con dos opciones distintas. */
+  continueAction?: PopupContinueAction;
 }) {
   // Esc cierra. Solo se activa cuando hay un popup montado para no
   // interferir con otros componentes de la página.
@@ -108,6 +125,9 @@ export function InfoLinkPopupModal({
             </p>
           )}
 
+          {/* CTA tradicional (ctaText + ctaUrl del config). Aparece como
+              botón secundario cuando hay continueAction (caso popup
+              pre-acción con CTA extra tipo "Instalar tarjeta wallet"). */}
           {popup.ctaText && popup.ctaUrl && (
             <a
               href={popup.ctaUrl}
@@ -118,6 +138,30 @@ export function InfoLinkPopupModal({
             >
               {popup.ctaText}
             </a>
+          )}
+
+          {/* Botones pre-acción: continuar (primario) + cancelar */}
+          {continueAction && (
+            <div className="mt-4 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  continueAction.onContinue();
+                  onClose();
+                }}
+                className="inline-flex items-center justify-center w-full px-4 py-3 rounded-xl text-sm font-semibold text-white shadow-sm hover:opacity-90 transition"
+                style={{ background: ctaColor }}
+              >
+                {continueAction.label ?? 'Continuar →'}
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="inline-flex items-center justify-center w-full px-4 py-2.5 rounded-xl text-sm font-medium opacity-70 hover:opacity-100 transition"
+              >
+                {continueAction.cancelLabel ?? 'Cancelar'}
+              </button>
+            </div>
           )}
         </div>
       </div>
