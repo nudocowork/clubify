@@ -155,6 +155,9 @@ export default function InfoLinkEditor() {
   const [busy, setBusy] = useState(false);
   const [stats, setStats] = useState<any>(null);
   const [locations, setLocations] = useState<Array<{ id: string; name: string }>>([]);
+  // Tarjetas de fidelización del tenant — pobladas async para el
+  // selector wallet del PopupEditor (G3).
+  const [cards, setCards] = useState<Array<{ id: string; name: string }>>([]);
   // Índice del botón al que se le está editando el cover en modal.
   // null = modal cerrado.
   const [coverEditingIdx, setCoverEditingIdx] = useState<number | null>(null);
@@ -167,6 +170,9 @@ export default function InfoLinkEditor() {
     setStats(await api(`/info-links/${id}/stats`).catch(() => null));
     setLocations(
       await api<Array<{ id: string; name: string }>>('/locations').catch(() => []),
+    );
+    setCards(
+      await api<Array<{ id: string; name: string }>>('/cards').catch(() => []),
     );
   }
   useEffect(() => {
@@ -804,6 +810,7 @@ export default function InfoLinkEditor() {
                         value={b.popup ?? null}
                         primary={primary}
                         onChange={(next) => updateButton(i, { popup: next })}
+                        cards={cards}
                       />
                     </div>
                   )}
@@ -843,6 +850,7 @@ export default function InfoLinkEditor() {
                             onChange={(next) =>
                               updateButton(i, { popup: next })
                             }
+                            cards={cards}
                           />
                         </div>
                       )}
@@ -2040,10 +2048,15 @@ function PopupEditor({
   value,
   primary,
   onChange,
+  cards,
 }: {
   value: PopupConfig | null;
   primary: string;
   onChange: (next: PopupConfig) => void;
+  /** Tarjetas de fidelización del tenant para el selector wallet (G3).
+   *  Si el array está vacío, el selector muestra texto explicativo
+   *  pidiendo crear una tarjeta primero. */
+  cards?: Array<{ id: string; name: string }>;
 }) {
   const cfg = value ?? DEFAULT_POPUP_CONFIG;
   function patch(p: Partial<PopupConfig>) {
@@ -2206,6 +2219,79 @@ function PopupEditor({
             />
             Permitir cerrar tocando fuera del popup
           </label>
+
+          {/* G3: selector de tarjeta de fidelización. Cuando está
+              seleccionada, el modal renderea un botón "Instalar tarjeta"
+              que abre /c/<cardId>. Pensado para convertir el popup en
+              herramienta comercial ("Antes de reservar, instala nuestra
+              tarjeta"). */}
+          <div className="pt-3 border-t border-line2">
+            <label className="label text-xs">Tarjeta de fidelización (opcional)</label>
+            {(cards ?? []).length === 0 ? (
+              <p className="text-[11px] text-mute leading-relaxed">
+                No tenés tarjetas creadas. Crea una desde{' '}
+                <a href="/app/cards" className="underline text-brand">
+                  Tarjetas
+                </a>{' '}
+                y volvés acá para conectarla.
+              </p>
+            ) : (
+              <>
+                <select
+                  className="input"
+                  value={cfg.walletCardId ?? ''}
+                  onChange={(e) =>
+                    patch({ walletCardId: e.target.value || null })
+                  }
+                >
+                  <option value="">Sin tarjeta (oculto)</option>
+                  {(cards ?? []).map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-mute mt-1 leading-relaxed">
+                  Aparece como botón secundario en el popup → abre la
+                  página de instalación de la tarjeta en otra pestaña.
+                </p>
+                {cfg.walletCardId && (
+                  <input
+                    className="input mt-2"
+                    placeholder="🎁 Instalar tarjeta de fidelización"
+                    value={cfg.walletCardLabel ?? ''}
+                    onChange={(e) =>
+                      patch({ walletCardLabel: e.target.value })
+                    }
+                    maxLength={60}
+                  />
+                )}
+              </>
+            )}
+          </div>
+
+          {/* G3: auto-close timer. 0 = manual close only. */}
+          <div className="pt-3 border-t border-line2">
+            <label className="label text-xs">Cierre automático (opcional)</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={0}
+                max={60}
+                className="input w-24"
+                value={cfg.autoCloseSeconds ?? 0}
+                onChange={(e) => {
+                  const n = parseInt(e.target.value, 10);
+                  patch({
+                    autoCloseSeconds: !isNaN(n) && n > 0 ? n : null,
+                  });
+                }}
+              />
+              <span className="text-xs text-mute">
+                segundos (0 = sin auto-close)
+              </span>
+            </div>
+          </div>
         </div>
 
         {/* Preview mini */}
