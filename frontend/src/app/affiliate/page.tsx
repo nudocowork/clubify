@@ -257,6 +257,15 @@ export default function AffiliatePanel() {
           >
             💵 Comisiones
           </button>
+          {/* CRM (Bloque C) — link a /affiliate/crm. Es ruta separada
+              porque el kanban necesita su propio espacio + drag&drop
+              fluido sin la barra de tabs encima. */}
+          <Link
+            href="/affiliate/crm"
+            className="tab"
+          >
+            🎯 CRM de Ventas
+          </Link>
           <button
             className={`tab ${tab === 'materials' ? 'tab-active' : ''}`}
             onClick={() => setTab('materials')}
