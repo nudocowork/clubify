@@ -96,6 +96,21 @@ export class TenantsController {
     return this.svc.extendTrial(id, body?.days ?? 7);
   }
 
+  /**
+   * Convierte el tenant en cliente pagante (status=ACTIVE,
+   * currentPeriodEnd=now+30d, trialEndsAt=null). Dispara backfill de
+   * comisión si tiene asignación a INFLUENCER/AMBASSADOR.
+   * Útil cuando el cliente paga por fuera de Hotmart.
+   */
+  @Post(':id/convert-to-paying')
+  @Roles('SUPER_ADMIN')
+  convertToPaying(
+    @Param('id') id: string,
+    @Body() body: { periodDays?: number },
+  ) {
+    return this.svc.convertToPaying(id, body?.periodDays ?? 30);
+  }
+
   @Patch(':id/billing')
   @Roles('SUPER_ADMIN')
   billing(@Param('id') id: string, @Body() body: BillingBody) {
