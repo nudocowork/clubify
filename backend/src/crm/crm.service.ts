@@ -402,4 +402,312 @@ export class CrmService {
     await this.prisma.crmContact.delete({ where: { id } });
     return { ok: true };
   }
+
+  // =============================================================
+  //                    BOTONES AUTOMÁTICOS (C5)
+  // =============================================================
+
+  async listButtons(user: AuthUser) {
+    return this.prisma.crmButton.findMany({
+      where: { ownerUserId: user.id },
+      orderBy: { order: 'asc' },
+      include: {
+        moveToStage: { select: { id: true, name: true, color: true } },
+      },
+    });
+  }
+
+  async createButton(
+    user: AuthUser,
+    body: {
+      name: string;
+      color?: string;
+      icon?: string;
+      channel: 'SMS' | 'WHATSAPP' | 'EMAIL' | 'NOTE';
+      messageBody?: string;
+      attachmentUrl?: string;
+      attachmentName?: string;
+      moveToStageId?: string | null;
+      addTags?: string[];
+      delaySeconds?: number;
+      requiresConfirmation?: boolean;
+    },
+  ) {
+    if (!body.name?.trim()) {
+      throw new BadRequestException('El nombre del botón es obligatorio');
+    }
+    if (!['SMS', 'WHATSAPP', 'EMAIL', 'NOTE'].includes(body.channel)) {
+      throw new BadRequestException('Canal inválido');
+    }
+    // Validamos que moveToStageId (si está set) pertenece al pipeline del user.
+    if (body.moveToStageId) {
+      await this.assertStageBelongsToUser(user, body.moveToStageId);
+    }
+    const last = await this.prisma.crmButton.findFirst({
+      where: { ownerUserId: user.id },
+      orderBy: { order: 'desc' },
+      select: { order: true },
+    });
+    const nextOrder = (last?.order ?? -1) + 1;
+    return this.prisma.crmButton.create({
+      data: {
+        ownerUserId: user.id,
+        name: body.name.trim().slice(0, 80),
+        color: normalizeColor(body.color, '#6366F1'),
+        icon: body.icon?.trim().slice(0, 8) || null,
+        channel: body.channel,
+        messageBody: body.messageBody?.trim().slice(0, 4000) || null,
+        attachmentUrl: body.attachmentUrl?.trim() || null,
+        attachmentName: body.attachmentName?.trim().slice(0, 200) || null,
+        moveToStageId: body.moveToStageId ?? null,
+        addTags: (Array.isArray(body.addTags)
+          ? body.addTags.slice(0, 10)
+          : []) as any,
+        delaySeconds: Math.max(0, Math.min(3600, body.delaySeconds ?? 0)),
+        requiresConfirmation: body.requiresConfirmation ?? true,
+        order: nextOrder,
+      },
+    });
+  }
+
+  private async loadOwnedButton(user: AuthUser, buttonId: string) {
+    const btn = await this.prisma.crmButton.findUnique({
+      where: { id: buttonId },
+    });
+    if (!btn) throw new NotFoundException('Botón no encontrado');
+    if (btn.ownerUserId !== user.id) {
+      throw new ForbiddenException('No podés tocar botones ajenos');
+    }
+    return btn;
+  }
+
+  private async assertStageBelongsToUser(user: AuthUser, stageId: string) {
+    const pipeline = await this.ensureMyPipeline(user);
+    const stage = await this.prisma.stage.findUnique({
+      where: { id: stageId },
+      select: { pipelineId: true },
+    });
+    if (!stage || stage.pipelineId !== pipeline.id) {
+      throw new ForbiddenException('El stage no pertenece a tu pipeline');
+    }
+  }
+
+  async updateButton(
+    user: AuthUser,
+    id: string,
+    body: Partial<{
+      name: string;
+      color: string;
+      icon: string | null;
+      channel: 'SMS' | 'WHATSAPP' | 'EMAIL' | 'NOTE';
+      messageBody: string | null;
+      attachmentUrl: string | null;
+      attachmentName: string | null;
+      moveToStageId: string | null;
+      addTags: string[];
+      delaySeconds: number;
+      requiresConfirmation: boolean;
+    }>,
+  ) {
+    await this.loadOwnedButton(user, id);
+    if (body.moveToStageId) {
+      await this.assertStageBelongsToUser(user, body.moveToStageId);
+    }
+    return this.prisma.crmButton.update({
+      where: { id },
+      data: {
+        name:
+          body.name === undefined
+            ? undefined
+            : body.name.trim().slice(0, 80) || undefined,
+        color:
+          body.color === undefined
+            ? undefined
+            : normalizeColor(body.color, '#6366F1'),
+        icon:
+          body.icon === undefined
+            ? undefined
+            : body.icon?.trim().slice(0, 8) || null,
+        channel: body.channel ?? undefined,
+        messageBody:
+          body.messageBody === undefined
+            ? undefined
+            : body.messageBody?.trim().slice(0, 4000) || null,
+        attachmentUrl:
+          body.attachmentUrl === undefined
+            ? undefined
+            : body.attachmentUrl?.trim() || null,
+        attachmentName:
+          body.attachmentName === undefined
+            ? undefined
+            : body.attachmentName?.trim().slice(0, 200) || null,
+        moveToStageId:
+          body.moveToStageId === undefined ? undefined : body.moveToStageId,
+        addTags:
+          body.addTags === undefined
+            ? undefined
+            : (body.addTags.slice(0, 10) as any),
+        delaySeconds:
+          body.delaySeconds === undefined
+            ? undefined
+            : Math.max(0, Math.min(3600, body.delaySeconds)),
+        requiresConfirmation:
+          body.requiresConfirmation === undefined
+            ? undefined
+            : body.requiresConfirmation,
+      },
+    });
+  }
+
+  async deleteButton(user: AuthUser, id: string) {
+    await this.loadOwnedButton(user, id);
+    await this.prisma.crmButton.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  async reorderButtons(user: AuthUser, ids: string[]) {
+    if (!Array.isArray(ids) || ids.length === 0) {
+      throw new BadRequestException('ids debe ser un array no vacío');
+    }
+    const owned = await this.prisma.crmButton.findMany({
+      where: { ownerUserId: user.id },
+      select: { id: true },
+    });
+    const ownedSet = new Set(owned.map((b) => b.id));
+    for (const id of ids) {
+      if (!ownedSet.has(id)) {
+        throw new ForbiddenException(
+          `Botón ${id} no te pertenece`,
+        );
+      }
+    }
+    await this.prisma.$transaction(
+      ids.map((id, idx) =>
+        this.prisma.crmButton.update({
+          where: { id },
+          data: { order: idx },
+        }),
+      ),
+    );
+    return { ok: true };
+  }
+
+  /**
+   * Ejecuta un botón sobre un contacto. Aplica side effects (move stage,
+   * agregar tags, actualizar lastActivityAt) y devuelve un payload que
+   * el frontend usa para completar la acción según el channel:
+   *
+   *   - WHATSAPP: el response trae `whatsappUrl` (wa.me/<phone>?text=...)
+   *     y el frontend lo abre en nueva tab.
+   *   - SMS:     pending=true (la integración real con Grow Business
+   *     llega en C7). El side-effect SÍ se aplica.
+   *   - EMAIL:   pending=true (mismo motivo).
+   *   - NOTE:    no envía nada — solo aplica side effects.
+   *
+   * El historial completo de actividades (C6) será populado por este
+   * mismo método cuando llegue C6 — ya dejamos el hook listo.
+   */
+  async executeButton(user: AuthUser, buttonId: string, contactId: string) {
+    const btn = await this.loadOwnedButton(user, buttonId);
+    const contact = await this.getContact(user, contactId);
+
+    // Aplicar side effects en transaction para que sea atómico.
+    const updates: any = {
+      lastActivityAt: new Date(),
+    };
+    if (btn.moveToStageId) {
+      // Validamos otra vez por las dudas (la stage puede haber sido
+      // borrada después de configurar el botón → moveToStageId
+      // quedó SetNull). Si quedó null no movemos.
+      const stage = await this.prisma.stage.findUnique({
+        where: { id: btn.moveToStageId },
+        select: { id: true },
+      });
+      if (stage) updates.stageId = btn.moveToStageId;
+    }
+    // Tags: merge sin duplicados.
+    const existingTags = Array.isArray(contact.tags)
+      ? (contact.tags as string[])
+      : [];
+    const btnTags = Array.isArray(btn.addTags)
+      ? (btn.addTags as string[])
+      : [];
+    const mergedTags = Array.from(new Set([...existingTags, ...btnTags]));
+    if (btnTags.length > 0) {
+      updates.tags = mergedTags as any;
+    }
+    const updatedContact = await this.prisma.crmContact.update({
+      where: { id: contactId },
+      data: updates,
+    });
+
+    // Compute message body con tokens.
+    const message = renderMessageTemplate(btn.messageBody ?? '', updatedContact);
+
+    // Channel-specific response.
+    switch (btn.channel) {
+      case 'WHATSAPP': {
+        const phone = (updatedContact.phone ?? '').replace(/\D/g, '');
+        if (!phone) {
+          return {
+            ok: false,
+            channel: 'WHATSAPP',
+            error: 'El contacto no tiene teléfono — no se puede abrir WhatsApp',
+            contact: updatedContact,
+          };
+        }
+        const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+        return {
+          ok: true,
+          channel: 'WHATSAPP',
+          whatsappUrl: url,
+          message,
+          contact: updatedContact,
+        };
+      }
+      case 'SMS':
+        // Integración real con Grow Business llega en C7. Por ahora
+        // aplicamos los side effects + devolvemos `pending=true`.
+        return {
+          ok: true,
+          channel: 'SMS',
+          pending: true,
+          message,
+          note: 'Envío SMS server-side llega cuando conectes Grow Business al equipo (C7).',
+          contact: updatedContact,
+        };
+      case 'EMAIL':
+        return {
+          ok: true,
+          channel: 'EMAIL',
+          pending: true,
+          message,
+          note: 'Envío de email server-side llega en la próxima iteración.',
+          contact: updatedContact,
+        };
+      case 'NOTE':
+      default:
+        return {
+          ok: true,
+          channel: 'NOTE',
+          contact: updatedContact,
+        };
+    }
+  }
+}
+
+/**
+ * Reemplaza tokens del messageBody con datos del contacto.
+ * Tokens soportados: {{name}}, {{phone}}, {{instagram}}.
+ * Si un token no tiene valor, queda vacío (no mostramos "null").
+ */
+function renderMessageTemplate(
+  template: string,
+  contact: { name: string | null; phone: string | null; instagram: string | null },
+): string {
+  if (!template) return '';
+  return template
+    .replace(/\{\{\s*name\s*\}\}/gi, contact.name ?? '')
+    .replace(/\{\{\s*phone\s*\}\}/gi, contact.phone ?? '')
+    .replace(/\{\{\s*instagram\s*\}\}/gi, contact.instagram ?? '');
 }

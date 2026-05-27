@@ -65,6 +65,47 @@ class ContactMoveBody {
   @IsString() stageId!: string;
 }
 
+class ButtonCreateBody {
+  @IsString() @MaxLength(80) name!: string;
+  @IsOptional() @IsString() @MaxLength(20) color?: string;
+  @IsOptional() @IsString() @MaxLength(8) icon?: string;
+  @IsString() channel!: 'SMS' | 'WHATSAPP' | 'EMAIL' | 'NOTE';
+  @IsOptional() @IsString() @MaxLength(4000) messageBody?: string;
+  @IsOptional() @IsString() @MaxLength(500) attachmentUrl?: string;
+  @IsOptional() @IsString() @MaxLength(200) attachmentName?: string;
+  @IsOptional() @IsString() moveToStageId?: string | null;
+  @IsOptional() @IsArray() @IsString({ each: true }) addTags?: string[];
+  @IsOptional() delaySeconds?: number;
+  @IsOptional() requiresConfirmation?: boolean;
+}
+
+class ButtonUpdateBody {
+  @IsOptional() @IsString() @MaxLength(80) name?: string;
+  @IsOptional() @IsString() @MaxLength(20) color?: string;
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(8)
+  icon?: string | null;
+  @IsOptional() @IsString() channel?: 'SMS' | 'WHATSAPP' | 'EMAIL' | 'NOTE';
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(4000)
+  messageBody?: string | null;
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(500)
+  attachmentUrl?: string | null;
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(200)
+  attachmentName?: string | null;
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString()
+  moveToStageId?: string | null;
+  @IsOptional() @IsArray() @IsString({ each: true }) addTags?: string[];
+  @IsOptional() delaySeconds?: number;
+  @IsOptional() requiresConfirmation?: boolean;
+}
+
+class ButtonReorderBody {
+  @IsArray() @IsString({ each: true }) ids!: string[];
+}
+
+class ButtonExecuteBody {
+  @IsString() contactId!: string;
+}
+
 /**
  * CRM (Bloque C — C1). Endpoints scoped al user actual: cada afiliado
  * tiene SU propio pipeline + stages. No hay path params de userId — el
@@ -180,5 +221,52 @@ export class CrmController {
   @Delete('contacts/:id')
   deleteContact(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.deleteContact(user, id);
+  }
+
+  // ────────────── Botones automáticos (C5) ──────────────
+
+  @Get('buttons')
+  listButtons(@CurrentUser() user: AuthUser) {
+    return this.svc.listButtons(user);
+  }
+
+  @Post('buttons')
+  createButton(
+    @CurrentUser() user: AuthUser,
+    @Body() body: ButtonCreateBody,
+  ) {
+    return this.svc.createButton(user, body);
+  }
+
+  // Reorder ANTES de :id por shadowing.
+  @Patch('buttons/reorder')
+  reorderButtons(
+    @CurrentUser() user: AuthUser,
+    @Body() body: ButtonReorderBody,
+  ) {
+    return this.svc.reorderButtons(user, body.ids);
+  }
+
+  @Patch('buttons/:id')
+  updateButton(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: ButtonUpdateBody,
+  ) {
+    return this.svc.updateButton(user, id, body);
+  }
+
+  @Delete('buttons/:id')
+  deleteButton(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.deleteButton(user, id);
+  }
+
+  @Post('buttons/:id/execute')
+  executeButton(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: ButtonExecuteBody,
+  ) {
+    return this.svc.executeButton(user, id, body.contactId);
   }
 }
