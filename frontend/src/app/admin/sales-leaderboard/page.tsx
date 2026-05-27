@@ -89,12 +89,22 @@ export default function SalesLeaderboardPage() {
         <table className="w-full text-sm">
           <thead className="text-[11px] uppercase tracking-wider text-mute">
             <tr className="border-b border-line">
-              <th className="text-left px-3 py-2 w-10">#</th>
-              <th className="text-left px-3 py-2">Afiliado</th>
-              <th className="text-left px-3 py-2">Rol</th>
-              <th className="text-right px-3 py-2">Contactos</th>
-              <th className="text-right px-3 py-2">Clientes</th>
-              <th className="text-right px-3 py-2">Conversión</th>
+              <th className="text-left px-2 sm:px-3 py-2 w-8 sm:w-10">#</th>
+              <th className="text-left px-2 sm:px-3 py-2">Afiliado</th>
+              {/* "Rol" ocupa mucho en mobile y los AFFILIATE_X son largos —
+                  lo ocultamos < sm y volvemos a mostrarlo en tablet+. */}
+              <th className="hidden sm:table-cell text-left px-3 py-2">Rol</th>
+              <th className="text-right px-2 sm:px-3 py-2">Contactos</th>
+              {/* Clientes y Conversión se ven mejor con headers cortos en
+                  pantallas muy chicas para no romper el wrap. */}
+              <th className="text-right px-2 sm:px-3 py-2">
+                <span className="sm:hidden">Cli.</span>
+                <span className="hidden sm:inline">Clientes</span>
+              </th>
+              <th className="text-right px-2 sm:px-3 py-2">
+                <span className="sm:hidden">Conv.</span>
+                <span className="hidden sm:inline">Conversión</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -107,19 +117,23 @@ export default function SalesLeaderboardPage() {
             )}
             {sortedUsers.map((u, idx) => (
               <tr key={u.userId} className="border-b border-line hover:bg-bg2/30">
-                <td className="px-3 py-2 text-mute">{idx + 1}</td>
-                <td className="px-3 py-2">
-                  <div className="font-medium">{u.fullName}</div>
-                  <div className="text-[11px] text-mute">{u.email}</div>
+                <td className="px-2 sm:px-3 py-2 text-mute">{idx + 1}</td>
+                <td className="px-2 sm:px-3 py-2">
+                  <div className="font-medium leading-tight">{u.fullName}</div>
+                  <div className="text-[11px] text-mute truncate max-w-[160px] sm:max-w-none">
+                    {u.email}
+                  </div>
                 </td>
-                <td className="px-3 py-2 text-xs">{u.role.replace('AFFILIATE_', '')}</td>
-                <td className="px-3 py-2 text-right font-semibold">
+                <td className="hidden sm:table-cell px-3 py-2 text-xs">
+                  {u.role.replace('AFFILIATE_', '')}
+                </td>
+                <td className="px-2 sm:px-3 py-2 text-right font-semibold">
                   {u.totalContacts}
                 </td>
-                <td className="px-3 py-2 text-right text-ok-ink font-semibold">
+                <td className="px-2 sm:px-3 py-2 text-right text-ok-ink font-semibold">
                   {u.clientCount}
                 </td>
-                <td className="px-3 py-2 text-right">{u.conversionRate}%</td>
+                <td className="px-2 sm:px-3 py-2 text-right">{u.conversionRate}%</td>
               </tr>
             ))}
           </tbody>
@@ -132,12 +146,20 @@ export default function SalesLeaderboardPage() {
         <table className="w-full text-sm">
           <thead className="text-[11px] uppercase tracking-wider text-mute">
             <tr className="border-b border-line">
-              <th className="text-left px-3 py-2 w-10">#</th>
-              <th className="text-left px-3 py-2">Equipo</th>
-              <th className="text-right px-3 py-2">Miembros</th>
-              <th className="text-right px-3 py-2">Contactos</th>
-              <th className="text-right px-3 py-2">Clientes</th>
-              <th className="text-right px-3 py-2">Conversión</th>
+              <th className="text-left px-2 sm:px-3 py-2 w-8 sm:w-10">#</th>
+              <th className="text-left px-2 sm:px-3 py-2">Equipo</th>
+              {/* "Miembros" se oculta < sm para dejar espacio a las
+                  columnas de números. */}
+              <th className="hidden sm:table-cell text-right px-3 py-2">Miembros</th>
+              <th className="text-right px-2 sm:px-3 py-2">Contactos</th>
+              <th className="text-right px-2 sm:px-3 py-2">
+                <span className="sm:hidden">Cli.</span>
+                <span className="hidden sm:inline">Clientes</span>
+              </th>
+              <th className="text-right px-2 sm:px-3 py-2">
+                <span className="sm:hidden">Conv.</span>
+                <span className="hidden sm:inline">Conversión</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -150,16 +172,18 @@ export default function SalesLeaderboardPage() {
             )}
             {sortedTeams.map((t, idx) => (
               <tr key={t.teamId} className="border-b border-line hover:bg-bg2/30">
-                <td className="px-3 py-2 text-mute">{idx + 1}</td>
-                <td className="px-3 py-2 font-medium">{t.name}</td>
-                <td className="px-3 py-2 text-right text-xs">{t.memberCount}</td>
-                <td className="px-3 py-2 text-right font-semibold">
+                <td className="px-2 sm:px-3 py-2 text-mute">{idx + 1}</td>
+                <td className="px-2 sm:px-3 py-2 font-medium">{t.name}</td>
+                <td className="hidden sm:table-cell px-3 py-2 text-right text-xs">
+                  {t.memberCount}
+                </td>
+                <td className="px-2 sm:px-3 py-2 text-right font-semibold">
                   {t.totalContacts}
                 </td>
-                <td className="px-3 py-2 text-right text-ok-ink font-semibold">
+                <td className="px-2 sm:px-3 py-2 text-right text-ok-ink font-semibold">
                   {t.clientCount}
                 </td>
-                <td className="px-3 py-2 text-right">{t.conversionRate}%</td>
+                <td className="px-2 sm:px-3 py-2 text-right">{t.conversionRate}%</td>
               </tr>
             ))}
           </tbody>
