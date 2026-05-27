@@ -530,6 +530,8 @@ model User {
   // via SalesTeamMember).
   salesTeamsAsLead    SalesTeam[]          @relation("SalesTeamLead")
   salesTeamMembers    SalesTeamMember[]    @relation("SalesTeamMember")
+  // CRM (C5): botones automáticos configurados por el afiliado.
+  crmButtons          CrmButton[]          @relation("CrmButtonOwner")
 
   @@index([tenantId])
   @@index([role])
@@ -2284,7 +2286,11 @@ model Stage {
   kind       StageKind @default(CUSTOM)
   createdAt  DateTime  @default(now())
 
-  contacts CrmContact[]
+  contacts             CrmContact[]
+  // Botones que mueven contactos hacia este stage (C5). onDelete
+  // SetNull → si la stage se borra, los botones quedan sin destino
+  // (el frontend lo muestra como "Sin movimiento de stage").
+  buttonsThatMoveToThis CrmButton[]  @relation("CrmButtonMoveStage")
 
   @@index([pipelineId, order])
 }
@@ -2357,4 +2363,54 @@ model SalesTeamMember {
 
   @@unique([teamId, userId])
   @@index([userId])
+}
+
+// Canal de envío del botón automático del CRM (C5).
+// - SMS:      envío server-side via Grow Business (integración real
+//             llega en C7; por ahora se aplican solo los side effects).
+// - WHATSAPP: el backend prepara el URL wa.me y el frontend lo abre en
+//             nueva tab (no es envío real, es deep-link al WhatsApp
+//             del afiliado).
+// - EMAIL:    envío server-side via Resend (también pendiente full
+//             integración).
+// - NOTE:     no envía nada — solo aplica los side effects (mover
+//             stage, agregar tags, lastActivityAt).
+enum CrmButtonChannel {
+  SMS
+  WHATSAPP
+  EMAIL
+  NOTE
+}
+
+// Botón automático del CRM. Cada afiliado configura sus propios botones
+// (decisión confirmada en planning). Ejemplo: "Reunión finalizada" que
+// envía un PDF, mueve a "Seguimiento" y coloca etiqueta
+// [reunion-finalizada]. Tokens soportados en messageBody:
+// {{name}}, {{phone}}, {{instagram}}, {{stage}}.
+model CrmButton {
+  id                   String           @id @default(uuid())
+  ownerUserId          String
+  ownerUser            User             @relation("CrmButtonOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  name                 String
+  color                String           @default("#6366F1")
+  icon                 String?          // emoji o texto corto
+  order                Int
+  channel              CrmButtonChannel
+  messageBody          String?          @db.Text
+  attachmentUrl        String?          // URL R2
+  attachmentName       String?          // nombre original mostrable
+  // Side effects al ejecutar.
+  moveToStageId        String?          // si está set, mueve el contacto a esta stage
+  moveToStage          Stage?           @relation("CrmButtonMoveStage", fields: [moveToStageId], references: [id], onDelete: SetNull)
+  addTags              Json             @default("[]")
+  // Delay en segundos antes de ejecutar (default 0 = inmediato).
+  // En C5 el delay se guarda pero NO se respeta — la ejecución es
+  // inmediata. Implementar delay con BullMQ se posterga a una
+  // iteración posterior cuando haya queue infrastructure.
+  delaySeconds         Int              @default(0)
+  requiresConfirmation Boolean          @default(true)
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  @@index([ownerUserId, order])
 }

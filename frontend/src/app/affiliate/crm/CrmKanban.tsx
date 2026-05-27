@@ -216,6 +216,9 @@ export function CrmKanban() {
           <Link href="/affiliate" className="btn-ghost text-sm">
             ← Dashboard
           </Link>
+          <Link href="/affiliate/crm/buttons" className="btn-ghost text-sm">
+            ⚡ Botones
+          </Link>
           <button
             className="btn-ghost text-sm"
             onClick={() => setAddingStage(true)}
@@ -644,6 +647,17 @@ function NewContactModal({
 //                  DRAWER: EDITAR CONTACTO
 // ============================================================
 
+type CrmActionButton = {
+  id: string;
+  name: string;
+  color: string;
+  icon: string | null;
+  channel: 'SMS' | 'WHATSAPP' | 'EMAIL' | 'NOTE';
+  requiresConfirmation: boolean;
+  moveToStage: { id: string; name: string; color: string } | null;
+  addTags: string[];
+};
+
 function ContactDrawer({
   contactId,
   stages,
@@ -660,6 +674,9 @@ function ContactDrawer({
   const [contact, setContact] = useState<Contact | null>(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<Partial<Contact>>({});
+  const [buttons, setButtons] = useState<CrmActionButton[]>([]);
+  const [confirmingBtn, setConfirmingBtn] = useState<CrmActionButton | null>(null);
+  const [executing, setExecuting] = useState(false);
 
   useEffect(() => {
     api<Contact>(`/crm/contacts/${contactId}`).then((c) => {
@@ -673,7 +690,50 @@ function ContactDrawer({
         stageId: c.stageId,
       });
     });
+    api<CrmActionButton[]>('/crm/buttons')
+      .then(setButtons)
+      .catch(() => setButtons([]));
   }, [contactId]);
+
+  async function executeButton(btn: CrmActionButton) {
+    if (!contact) return;
+    setExecuting(true);
+    try {
+      const res = await api<any>(`/crm/buttons/${btn.id}/execute`, {
+        method: 'POST',
+        body: JSON.stringify({ contactId: contact.id }),
+      });
+      if (res?.channel === 'WHATSAPP' && res?.whatsappUrl) {
+        window.open(res.whatsappUrl, '_blank', 'noopener,noreferrer');
+        toast('WhatsApp abierto', 'success');
+      } else if (res?.pending) {
+        toast(
+          res?.note ||
+            'Acción aplicada — el envío real llega en una próxima iteración',
+          'success',
+        );
+      } else if (res?.error) {
+        toast(res.error, 'error');
+      } else {
+        toast('Acción aplicada', 'success');
+      }
+      onChanged();
+      onClose();
+    } catch (err: any) {
+      toast(err?.message || 'No se pudo ejecutar el botón', 'error');
+    } finally {
+      setExecuting(false);
+      setConfirmingBtn(null);
+    }
+  }
+
+  function onClickButton(btn: CrmActionButton) {
+    if (btn.requiresConfirmation) {
+      setConfirmingBtn(btn);
+    } else {
+      executeButton(btn);
+    }
+  }
 
   async function save() {
     if (!contact) return;
@@ -803,9 +863,100 @@ function ContactDrawer({
               </button>
             </div>
           </div>
+
+          {/* Botones automáticos (C5) — solo si el user configuró alguno */}
+          {buttons.length > 0 && (
+            <div className="border-t border-line pt-3 mt-3">
+              <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
+                ⚡ Acciones rápidas
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {buttons.map((b) => (
+                  <button
+                    key={b.id}
+                    type="button"
+                    onClick={() => onClickButton(b)}
+                    disabled={executing}
+                    className="px-3 py-2 rounded-lg text-white text-xs font-medium text-left hover:opacity-90 transition disabled:opacity-50"
+                    style={{ background: b.color }}
+                  >
+                    <span className="mr-1.5">{b.icon || '⚡'}</span>
+                    <span className="truncate">{b.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
+
+      {/* Modal confirm de botón */}
+      {confirmingBtn && (
+        <ConfirmButtonExecutionModal
+          btn={confirmingBtn}
+          onCancel={() => setConfirmingBtn(null)}
+          onConfirm={() => executeButton(confirmingBtn)}
+          executing={executing}
+        />
+      )}
     </ModalShell>
+  );
+}
+
+function ConfirmButtonExecutionModal({
+  btn,
+  onCancel,
+  onConfirm,
+  executing,
+}: {
+  btn: CrmActionButton;
+  onCancel: () => void;
+  onConfirm: () => void;
+  executing: boolean;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4"
+      onClick={onCancel}
+    >
+      <div
+        className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="text-base font-semibold mb-2">
+          ¿Ejecutar "{btn.name}"?
+        </div>
+        <div className="text-sm text-mute leading-relaxed mb-4">
+          {btn.channel === 'WHATSAPP' && 'Se abrirá WhatsApp con el mensaje precargado.'}
+          {btn.channel === 'SMS' && 'Se enviará un SMS al contacto (próximamente integrado con Grow Business).'}
+          {btn.channel === 'EMAIL' && 'Se enviará un email (próximamente).'}
+          {btn.channel === 'NOTE' && 'Se aplicarán los cambios sin enviar mensaje.'}
+          {btn.moveToStage && (
+            <div className="mt-1">
+              También se moverá a <strong>{btn.moveToStage.name}</strong>.
+            </div>
+          )}
+          {btn.addTags.length > 0 && (
+            <div className="mt-1">
+              Etiquetas: {btn.addTags.map((t) => `[${t}]`).join(' ')}.
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-2">
+          <button className="btn-ghost" onClick={onCancel} disabled={executing}>
+            Cancelar
+          </button>
+          <button
+            className="btn-primary"
+            onClick={onConfirm}
+            disabled={executing}
+            style={{ background: btn.color }}
+          >
+            {executing ? 'Ejecutando…' : 'Confirmar'}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
