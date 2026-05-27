@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { IsOptional, IsString, MaxLength } from 'class-validator';
 import { SalesTeamsService } from './sales-teams.service';
+import { CrmService } from '../crm/crm.service';
 import { Roles } from '../common/decorators/roles.decorator';
 
 class TeamCreateBody {
@@ -37,11 +38,22 @@ class MemberAddBody {
 @Controller('admin/sales-teams')
 @Roles('SUPER_ADMIN')
 export class SalesTeamsController {
-  constructor(private svc: SalesTeamsService) {}
+  constructor(
+    private svc: SalesTeamsService,
+    private crm: CrmService,
+  ) {}
 
   @Get()
   list() {
     return this.svc.list();
+  }
+
+  /** Leaderboard global (C8): rankings de usuarios y equipos por
+   *  totalContacts / clientCount / conversionRate. Path fijo ANTES de
+   *  :id para no chocar con get(:id). */
+  @Get('leaderboard')
+  leaderboard() {
+    return this.crm.getLeaderboard();
   }
 
   /** Users elegibles para sumar al equipo (afiliados activos). El query

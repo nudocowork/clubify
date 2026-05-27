@@ -240,6 +240,7 @@ export default function AppShell({
               items: [
                 { href: '/admin/industries', label: 'Industrias', icon: 'grid' },
                 { href: '/admin/sales-teams', label: 'Equipos de ventas', icon: 'users', hideForMarketing: true },
+                { href: '/admin/sales-leaderboard', label: 'Leaderboard CRM', icon: 'trend-up', hideForMarketing: true },
               ],
             },
             {
