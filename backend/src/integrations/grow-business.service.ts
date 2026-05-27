@@ -251,10 +251,24 @@ export class GrowBusinessService {
     if (!creds.locationId || !creds.apiKey) {
       return { ok: false as const, message: 'Credenciales incompletas' };
     }
-    const alreadyHasPrefix = /^#Switch\d+\s*\n/i.test(body);
+    // Switch prefix (Grow Business multi-number).
+    //
+    // Formato actualizado (2026-05): `#switch_unique|<priority>|<message>`
+    // - El backend de GHL/LeadConnector parsea el prefijo y enruta el SMS
+    //   por el número de WhatsApp de prioridad indicada (cada subcuenta
+    //   puede tener múltiples números con prioridades distintas).
+    // - Si switchNumber es null/undefined → no se agrega prefijo (un solo
+    //   número de envío).
+    // - Si switchNumber tiene valor → `#switch_unique|<n>|<body>` inline.
+    //
+    // Mantenemos compat para mensajes que ya vienen con el prefijo del
+    // caller (no doble-prefixing). Aceptamos también el formato legacy
+    // `#Switch<n>\n` por si quedó algún mensaje viejo encolado.
+    const alreadyHasPrefix =
+      /^#switch_unique\|\d+\|/i.test(body) || /^#Switch\d+\s*\n/i.test(body);
     const messageBody =
       creds.switchNumber != null && !alreadyHasPrefix
-        ? `#Switch${creds.switchNumber}\n\n${body}`
+        ? `#switch_unique|${creds.switchNumber}|${body}`
         : body;
 
     // Grow Business / LeadConnector cambió la API: /conversations/messages
