@@ -8,7 +8,7 @@ import { StageKind } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { GrowBusinessService } from '../integrations/grow-business.service';
-import { SequencesService } from '../sequences/sequences.service';
+import { SequencesService, renderTemplate } from '../sequences/sequences.service';
 import { QueueService } from '../jobs/queue.service';
 
 /**
@@ -769,8 +769,21 @@ export class CrmService {
       data: updates,
     });
 
-    // Compute message body con tokens.
-    const message = renderMessageTemplate(btn.messageBody ?? '', updatedContact);
+    // Compute message body con tokens. Usamos `renderTemplate` de
+    // sequences.service que soporta ES + EN tanto {var} como {{var}}
+    // (unifica el templating CRM + secuencias en una sola implementación).
+    const currentStage = await this.prisma.stage.findUnique({
+      where: { id: updatedContact.stageId },
+      select: { name: true },
+    });
+    const message = renderTemplate(btn.messageBody ?? '', {
+      name: updatedContact.name,
+      phone: updatedContact.phone,
+      instagram: updatedContact.instagram,
+      address: updatedContact.address,
+      pipeline: currentStage?.name ?? null,
+      date: new Date().toLocaleDateString('es-CO'),
+    });
 
     // C6: log BUTTON_EXECUTED (siempre, independiente del channel).
     // metadata: payload completo para auditar el envío.
@@ -1546,18 +1559,5 @@ async function fetchGbContacts(
   }
 }
 
-/**
- * Reemplaza tokens del messageBody con datos del contacto.
- * Tokens soportados: {{name}}, {{phone}}, {{instagram}}.
- * Si un token no tiene valor, queda vacío (no mostramos "null").
- */
-function renderMessageTemplate(
-  template: string,
-  contact: { name: string | null; phone: string | null; instagram: string | null },
-): string {
-  if (!template) return '';
-  return template
-    .replace(/\{\{\s*name\s*\}\}/gi, contact.name ?? '')
-    .replace(/\{\{\s*phone\s*\}\}/gi, contact.phone ?? '')
-    .replace(/\{\{\s*instagram\s*\}\}/gi, contact.instagram ?? '');
-}
+// (renderMessageTemplate eliminado en F5 — unificado con renderTemplate
+// de sequences.service que soporta ES + EN y {var} + {{var}}).

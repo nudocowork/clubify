@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { FileUploader } from '@/components/FileUploader';
+import { MessageEditor } from '@/components/MessageEditor';
 import {
   type MessageType,
   type SequenceStep,
@@ -102,21 +103,15 @@ export function StepEditor({
               </div>
             </div>
 
-            <label className="block">
-              <div className="text-xs text-mute mb-1">
-                Mensaje{' '}
-                <span className="text-mute/70">
-                  · variables: {'{nombre}'} {'{telefono}'} {'{pipeline}'} {'{fecha}'}
-                </span>
-              </div>
-              <textarea
+            <div>
+              <div className="text-xs text-mute mb-1">Mensaje</div>
+              <MessageEditor
                 value={draft.messageBody ?? ''}
-                onChange={(e) => update({ messageBody: e.target.value })}
-                className="input w-full"
+                onChange={(next) => update({ messageBody: next })}
                 rows={4}
                 placeholder="Ej. Hola {nombre} 👋 gracias por sumarte!"
               />
-            </label>
+            </div>
 
             {draft.messageType && draft.messageType !== 'TEXT' && (
               <div>
