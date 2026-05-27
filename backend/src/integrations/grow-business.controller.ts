@@ -15,7 +15,7 @@ class SwitchDto {
 }
 
 @Controller('admin/tenants/:id/grow-business')
-@Roles('SUPER_ADMIN')
+@Roles('SUPER_ADMIN', 'MARKETING')
 export class GrowBusinessController {
   constructor(private svc: GrowBusinessService) {}
 

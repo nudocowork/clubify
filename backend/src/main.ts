@@ -21,7 +21,7 @@ import { NestFactory, HttpAdapterHost } from '@nestjs/core';
 import { ValidationPipe, Logger, type INestApplication } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
-import type { Request, Response, NextFunction } from 'express';
+import { json, urlencoded, type Request, type Response, type NextFunction } from 'express';
 import { timingSafeEqual } from 'crypto';
 // eslint-disable-next-line no-console
 console.log('[Boot] main.ts before AppModule import');
@@ -149,6 +149,13 @@ async function bootstrap() {
   // eslint-disable-next-line no-console
   console.log('[Boot] >>> NestFactory.create');
   const app = await NestFactory.create(AppModule, {
+    // Desactivamos el body parser default de Nest (limit 100kb) y lo
+    // reemplazamos abajo con un limit mayor. El editor de QR posters guarda
+    // imágenes como base64 inline en el config → payloads de varios MB que
+    // antes daban 413 "Request entity too large" en TODOS los QR (menú,
+    // reseñas, infolink, descuento, mostrador). 15MB cubre el caso real
+    // (Konva data URLs + imágenes de fondo) sin abrir a abuso.
+    bodyParser: false,
     cors: {
       origin: (origin, cb) => {
         if (!origin) return cb(null, true);
@@ -157,6 +164,8 @@ async function bootstrap() {
       credentials: true,
     },
   });
+  app.use(json({ limit: '15mb' }));
+  app.use(urlencoded({ limit: '15mb', extended: true }));
   app.use(helmet());
   // Compat versioning + Swagger gating se conectan ANTES del global prefix
   // porque tocan la URL en bruto del request.
