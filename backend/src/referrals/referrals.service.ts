@@ -1676,8 +1676,15 @@ export class ReferralsService {
    * Endpoint público admin: fuerza el backfill para la asignación
    * actual del tenant. Útil cuando se asignó antes del fix y la
    * comisión nunca se generó.
+   *
+   * `force=true` saltea el chequeo de `currentPeriodEnd` (tenants
+   * creados manualmente sin billing tracking). El precio del plan
+   * sigue siendo obligatorio.
    */
-  async backfillCommissionForCurrentAssignment(tenantId: string) {
+  async backfillCommissionForCurrentAssignment(
+    tenantId: string,
+    force = false,
+  ) {
     const use = await this.prisma.referralUse.findFirst({
       where: {
         tenantId,
@@ -1694,6 +1701,7 @@ export class ReferralsService {
       use.id,
       tenantId,
       use.referralCodeId,
+      force,
     );
     const commissions = await this.prisma.commission.findMany({
       where: { referralUseId: use.id },
@@ -1732,16 +1740,24 @@ export class ReferralsService {
     useId: string,
     tenantId: string,
     codeId: string,
+    force = false,
   ): Promise<void> {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
       select: {
         currentPeriodEnd: true,
+        suspendedAt: true,
         plan: { select: { priceMonthly: true } },
       },
     });
-    if (!tenant?.currentPeriodEnd) return;
-    if (new Date(tenant.currentPeriodEnd) <= new Date()) return; // ciclo vencido
+    if (!tenant) return;
+    // Si el tenant está suspendido, NO generar comisión incluso con force.
+    if (tenant.suspendedAt) return;
+    // Sin force: requerir ciclo de pago vigente (currentPeriodEnd futuro).
+    if (!force) {
+      if (!tenant.currentPeriodEnd) return;
+      if (new Date(tenant.currentPeriodEnd) <= new Date()) return;
+    }
     const price = Number(tenant.plan?.priceMonthly ?? 0);
     if (!price || price <= 0) return;
 

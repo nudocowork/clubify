@@ -212,21 +212,37 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
  */
 function BackfillCommissionButton({ tenantId }: { tenantId: string }) {
   const [busy, setBusy] = useState(false);
-  async function run() {
+  async function run(force = false) {
     setBusy(true);
     try {
+      const url = force
+        ? `/referrals/tenants/${tenantId}/backfill-commission?force=true`
+        : `/referrals/tenants/${tenantId}/backfill-commission`;
       const res = await api<{
         ok: boolean;
         commissions: Array<{ amount: number; status: string }>;
-      }>(`/referrals/tenants/${tenantId}/backfill-commission`, {
-        method: 'POST',
-      });
+      }>(url, { method: 'POST' });
       const count = res.commissions?.length ?? 0;
       if (count === 0) {
-        toast(
-          'No se generó comisión (sin ciclo de pago activo o ya estaba creada)',
-          'info',
-        );
+        // Sin ciclo activo y sin force → ofrecer forzar.
+        if (!force) {
+          const ok = confirm(
+            'No se generó comisión porque el tenant no tiene un ciclo de pago activo (currentPeriodEnd).\n\n' +
+              '¿Generar igual? Solo confirmá si sabés que este tenant efectivamente paga (ej. fue creado manualmente o vino de un canal sin tracking de billing).\n\n' +
+              'La comisión se va a crear como PENDING al influencer/embajador.',
+          );
+          if (ok) {
+            setBusy(false);
+            return run(true);
+          }
+        } else {
+          // Force = true y no creó nada → probablemente ya estaba creada
+          // o tenant suspendido.
+          toast(
+            'No se generó comisión (ya estaba creada recientemente o el tenant está suspendido)',
+            'info',
+          );
+        }
       } else {
         const total = res.commissions.reduce((s, c) => s + c.amount, 0);
         toast(
@@ -244,7 +260,7 @@ function BackfillCommissionButton({ tenantId }: { tenantId: string }) {
     <button
       type="button"
       className="text-xs text-brand hover:underline ml-auto"
-      onClick={run}
+      onClick={() => run(false)}
       disabled={busy}
       title="Generar la comisión PENDIENTE de este ciclo si el tenant ya pagó. Idempotente."
     >

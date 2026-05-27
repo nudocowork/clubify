@@ -293,10 +293,20 @@ export class ReferralsController {
    * actual del tenant. Útil cuando se asignó antes del fix y la
    * comisión nunca se generó (no llegó un pago Hotmart después).
    * Idempotente: no-op si ya hay commission reciente (<25 días).
+   *
+   * `?force=true` saltea el chequeo de currentPeriodEnd — útil para
+   * tenants creados manualmente sin ciclo de billing tracking.
+   * SUPER_ADMIN responsable de saber que el tenant efectivamente paga.
    */
   @Roles('SUPER_ADMIN')
   @Post('tenants/:tenantId/backfill-commission')
-  backfillCommission(@Param('tenantId') tenantId: string) {
-    return this.svc.backfillCommissionForCurrentAssignment(tenantId);
+  backfillCommission(
+    @Param('tenantId') tenantId: string,
+    @Query('force') force?: string,
+  ) {
+    return this.svc.backfillCommissionForCurrentAssignment(
+      tenantId,
+      force === 'true' || force === '1',
+    );
   }
 }

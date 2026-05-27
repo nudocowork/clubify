@@ -75,6 +75,20 @@ const STATUS_CLS: Record<string, string> = {
   CHURNED: 'bg-red-100 text-red-800',
 };
 
+// Labels en español para los enums de status. El raw enum (PAYING,
+// SIGNED_UP, etc.) es confuso para el afiliado — confundía PAYING
+// con "pago pendiente" cuando en realidad significa "activo/al día".
+const STATUS_LABEL: Record<string, string> = {
+  PENDING: 'Pendiente',
+  APPROVED: 'Aprobada',
+  PAID: 'Pagada',
+  REJECTED: 'Rechazada',
+  SIGNED_UP: 'Registrado',
+  ACTIVE: 'Activo',
+  PAYING: 'Activo',
+  CHURNED: 'Dado de baja',
+};
+
 function fmtUsd(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
 }
@@ -1009,7 +1023,7 @@ function ClientsList() {
                       STATUS_CLS[r.status] ?? 'bg-bg2 text-mute'
                     }`}
                   >
-                    {r.status}
+                    {STATUS_LABEL[r.status] ?? r.status}
                   </span>
                 </td>
                 <td className="px-4 py-3 text-xs text-mute">{fmtDate(r.signedUpAt)}</td>
@@ -1075,7 +1089,7 @@ function CommissionsList() {
                           STATUS_CLS[c.status] ?? 'bg-bg2 text-mute'
                         }`}
                       >
-                        {c.status}
+                        {STATUS_LABEL[c.status] ?? c.status}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-xs text-mute">{fmtDate(c.createdAt)}</td>
