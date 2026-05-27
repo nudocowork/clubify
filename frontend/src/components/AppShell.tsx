@@ -239,6 +239,7 @@ export default function AppShell({
               section: 'Ventas',
               items: [
                 { href: '/admin/industries', label: 'Industrias', icon: 'grid' },
+                { href: '/admin/sales-teams', label: 'Equipos de ventas', icon: 'users', hideForMarketing: true },
               ],
             },
             {

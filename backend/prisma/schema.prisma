@@ -525,6 +525,11 @@ model User {
   // CRM (C2): contactos propios del afiliado. onDelete Cascade en
   // CrmContact → si se elimina el User, los contactos también.
   crmContacts         CrmContact[]
+  // CRM (C4): equipos de ventas. Un user puede ser lead de varios
+  // equipos (relación 1:N) y miembro de varios equipos (relación N:M
+  // via SalesTeamMember).
+  salesTeamsAsLead    SalesTeam[]          @relation("SalesTeamLead")
+  salesTeamMembers    SalesTeamMember[]    @relation("SalesTeamMember")
 
   @@index([tenantId])
   @@index([role])
@@ -2315,4 +2320,41 @@ model CrmContact {
 
   @@index([ownerUserId, stageId])
   @@index([ownerUserId, lastActivityAt])
+}
+
+// Equipo de ventas (C4). Agrupación administrativa de afiliados/users
+// gestionada por el super admin. NO comparte pipeline ni contactos —
+// cada miembro mantiene su CRM propio (decisión confirmada por el user
+// en planning: "solo ve sus contactos"). El equipo sirve para:
+//   1. Métricas agregadas (C8: top equipos, conversiones por equipo).
+//   2. Asignación a tenants (B3 + B5 pueden referirse a un equipo).
+//   3. Lead del equipo puede ver dashboard agregado (C8).
+//
+// leadUserId es opcional — un equipo puede no tener lead designado
+// (gestionado solo por super admin). onDelete SetNull preserva el
+// equipo si el lead user es eliminado.
+model SalesTeam {
+  id          String   @id @default(uuid())
+  name        String
+  leadUserId  String?
+  leadUser    User?    @relation("SalesTeamLead", fields: [leadUserId], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  members SalesTeamMember[]
+
+  @@index([leadUserId])
+}
+
+// Membresía m2m User ↔ SalesTeam. Un user puede pertenecer a varios
+// equipos (raro pero posible). joinedAt para auditoría.
+model SalesTeamMember {
+  id       String    @id @default(uuid())
+  teamId   String
+  team     SalesTeam @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User      @relation("SalesTeamMember", fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt DateTime  @default(now())
+
+  @@unique([teamId, userId])
+  @@index([userId])
 }
