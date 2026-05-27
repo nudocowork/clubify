@@ -19,12 +19,18 @@ type CodeOption = {
   code: string;
   ownerName: string;
   role: 'INFLUENCER' | 'AMBASSADOR';
-  campaign?: { id: string; name: string } | null;
+  campaignName?: string | null;
 };
 
 type Assignment = {
   referralUseId: string;
-  code: CodeOption;
+  code: {
+    id: string;
+    code: string;
+    ownerName: string;
+    role: 'INFLUENCER' | 'AMBASSADOR';
+    campaign?: { id: string; name: string } | null;
+  };
   status: string;
   createdAt: string;
 };
@@ -40,16 +46,37 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
   async function load() {
     setLoading(true);
     try {
-      const [assignmentRes, influencersRes, ambassadorsRes] = await Promise.all([
+      // Los endpoints /referrals/influencers y /ambassadors devuelven el
+      // array directo (no {items: [...]}). Cada item tiene `campaignName`
+      // string (no nested `campaign: {id, name}` como en /assignment).
+      // Inyectamos `role` al normalizar — el filtro del endpoint ya lo
+      // garantiza pero el shape devuelto no lo incluye explícito.
+      const [assignmentRes, influencersArr, ambassadorsArr] = await Promise.all([
         api<{ assignment: Assignment | null }>(
           `/referrals/tenants/${tenantId}/assignment`,
         ),
-        api<{ items: CodeOption[] }>('/referrals/influencers'),
-        api<{ items: CodeOption[] }>('/referrals/ambassadors'),
+        api<any[]>('/referrals/influencers'),
+        api<any[]>('/referrals/ambassadors'),
       ]);
-      const codes = [
-        ...(influencersRes.items ?? []),
-        ...(ambassadorsRes.items ?? []),
+      const codes: CodeOption[] = [
+        ...(Array.isArray(influencersArr) ? influencersArr : []).map(
+          (c: any) => ({
+            id: c.id,
+            code: c.code,
+            ownerName: c.ownerName,
+            role: 'INFLUENCER' as const,
+            campaignName: c.campaignName ?? null,
+          }),
+        ),
+        ...(Array.isArray(ambassadorsArr) ? ambassadorsArr : []).map(
+          (c: any) => ({
+            id: c.id,
+            code: c.code,
+            ownerName: c.ownerName,
+            role: 'AMBASSADOR' as const,
+            campaignName: c.campaignName ?? null,
+          }),
+        ),
       ].sort((a, b) => a.ownerName.localeCompare(b.ownerName));
       setOptions(codes);
       setCurrent(assignmentRes.assignment);
@@ -142,7 +169,7 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
             {options.map((o) => (
               <option key={o.id} value={o.id}>
                 {o.ownerName} · {o.role} · {o.code}
-                {o.campaign ? ` · ${o.campaign.name}` : ''}
+                {o.campaignName ? ` · ${o.campaignName}` : ''}
               </option>
             ))}
           </select>

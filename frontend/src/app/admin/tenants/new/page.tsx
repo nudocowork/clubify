@@ -32,7 +32,7 @@ export default function NewTenant() {
     referralCodeId: '',
   });
   const [affiliateOptions, setAffiliateOptions] = useState<
-    { id: string; ownerName: string; code: string; role: string; campaign: { name: string } | null }[]
+    { id: string; ownerName: string; code: string; role: string; campaignName: string | null }[]
   >([]);
   const [result, setResult] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -45,17 +45,19 @@ export default function NewTenant() {
     });
     // Cargar afiliados (influencer + embajadores) para el dropdown de
     // asignación. Si falla (raro), el campo queda vacío — no crítico.
+    // Los endpoints devuelven array directo (no {items}) y sin `role`
+    // en cada item (el filtro del endpoint lo garantiza). Lo inyectamos
+    // al normalizar para que el dropdown muestre la badge correctamente.
     Promise.all([
-      api<{ items: any[] }>('/referrals/influencers').catch(() => ({
-        items: [],
-      })),
-      api<{ items: any[] }>('/referrals/ambassadors').catch(() => ({
-        items: [],
-      })),
+      api<any[]>('/referrals/influencers').catch(() => [] as any[]),
+      api<any[]>('/referrals/ambassadors').catch(() => [] as any[]),
     ]).then(([inf, amb]) => {
-      const codes = [...(inf.items ?? []), ...(amb.items ?? [])].sort((a, b) =>
-        a.ownerName.localeCompare(b.ownerName),
-      );
+      const infArr = Array.isArray(inf) ? inf : [];
+      const ambArr = Array.isArray(amb) ? amb : [];
+      const codes = [
+        ...infArr.map((c) => ({ ...c, role: 'INFLUENCER' as const })),
+        ...ambArr.map((c) => ({ ...c, role: 'AMBASSADOR' as const })),
+      ].sort((a, b) => a.ownerName.localeCompare(b.ownerName));
       setAffiliateOptions(codes as any);
     });
   }, []);
@@ -241,7 +243,7 @@ export default function NewTenant() {
             {affiliateOptions.map((o) => (
               <option key={o.id} value={o.id}>
                 {o.ownerName} · {o.role} · {o.code}
-                {o.campaign ? ` · ${o.campaign.name}` : ''}
+                {o.campaignName ? ` · ${o.campaignName}` : ''}
               </option>
             ))}
           </select>
