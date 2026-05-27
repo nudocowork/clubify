@@ -219,6 +219,9 @@ export function CrmKanban() {
           <Link href="/affiliate/crm/buttons" className="btn-ghost text-sm">
             ⚡ Botones
           </Link>
+          <Link href="/affiliate/crm/integrations" className="btn-ghost text-sm">
+            🔗 Integraciones
+          </Link>
           <button
             className="btn-ghost text-sm"
             onClick={() => setAddingStage(true)}

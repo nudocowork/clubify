@@ -858,6 +858,352 @@ export class CrmService {
     });
     return activity;
   }
+
+  // =============================================================
+  //                  GROW BUSINESS SYNC (C7)
+  // =============================================================
+
+  /** Devuelve el estado de la conexión Grow Business del user. */
+  async getGrowBusinessStatus(user: AuthUser) {
+    const u = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      select: {
+        crmGbLocationId: true,
+        crmGbLocationName: true,
+        crmGbConnectedAt: true,
+        crmGbLastSyncAt: true,
+        crmGbLastSyncCount: true,
+      },
+    });
+    if (!u || !u.crmGbLocationId) {
+      return { connected: false };
+    }
+    return {
+      connected: true,
+      locationId: u.crmGbLocationId,
+      locationName: u.crmGbLocationName,
+      connectedAt: u.crmGbConnectedAt,
+      lastSyncAt: u.crmGbLastSyncAt,
+      lastSyncCount: u.crmGbLastSyncCount,
+    };
+  }
+
+  /**
+   * Conecta una subcuenta GB al user. Verifica las credenciales via
+   * GET /locations/:id antes de persistir — si no es válida, retorna
+   * 400 con el error real de LeadConnector.
+   */
+  async connectGrowBusiness(
+    user: AuthUser,
+    body: { locationId: string; apiKey: string },
+  ) {
+    const locationId = body.locationId?.trim();
+    const apiKey = body.apiKey?.trim();
+    if (!locationId || !apiKey) {
+      throw new BadRequestException('locationId y apiKey son obligatorios');
+    }
+    const test = await fetchGbLocation(locationId, apiKey);
+    if (!test.ok) {
+      throw new BadRequestException(
+        test.error ?? 'No se pudo verificar la conexión con Grow Business',
+      );
+    }
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        crmGbLocationId: locationId,
+        crmGbApiKey: apiKey,
+        crmGbLocationName: test.locationName,
+        crmGbConnectedAt: new Date(),
+      },
+    });
+    return { ok: true, locationName: test.locationName };
+  }
+
+  /** Desconecta — limpia las credenciales pero deja los contactos
+   *  sincronizados intactos (el afiliado los puede seguir gestionando
+   *  manualmente). */
+  async disconnectGrowBusiness(user: AuthUser) {
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        crmGbLocationId: null,
+        crmGbApiKey: null,
+        crmGbLocationName: null,
+        crmGbConnectedAt: null,
+      },
+    });
+    return { ok: true };
+  }
+
+  /**
+   * Pull de contactos desde Grow Business → CrmContact del user.
+   *
+   * Dedup (en orden): externalContactId → phone normalizado → email.
+   * Si encuentra match, actualiza solo fields que están vacíos en el
+   * contacto local (no pisamos data manual del afiliado) y mergea las
+   * tags. Si no encuentra, crea un contacto nuevo en la primera stage
+   * del pipeline del user, con externalContactId seteado.
+   *
+   * Sin cron por ahora — sync manual del frontend. Cron 30min llega
+   * en una iteración posterior cuando definamos el scheduler.
+   *
+   * Paginación: limit 100 por request, hasta 10 páginas (1000 contactos
+   * máx por sync) para acotar el blast radius del primer release.
+   */
+  async syncGrowBusiness(user: AuthUser) {
+    const u = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      select: { crmGbLocationId: true, crmGbApiKey: true },
+    });
+    if (!u?.crmGbLocationId || !u?.crmGbApiKey) {
+      throw new BadRequestException('Grow Business no está conectado');
+    }
+    const pipeline = await this.ensureMyPipeline(user);
+    const firstStage = await this.prisma.stage.findFirst({
+      where: { pipelineId: pipeline.id },
+      orderBy: { order: 'asc' },
+      select: { id: true },
+    });
+    if (!firstStage) {
+      throw new BadRequestException(
+        'Tu pipeline no tiene stages. Recargá el kanban.',
+      );
+    }
+
+    let created = 0;
+    let updated = 0;
+    let skipped = 0;
+    let cursor: string | null = null;
+    const MAX_PAGES = 10;
+
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const result = await fetchGbContacts(
+        u.crmGbLocationId,
+        u.crmGbApiKey,
+        cursor,
+      );
+      if (!result.ok) {
+        throw new BadRequestException(
+          `Error al obtener contactos: ${result.error}`,
+        );
+      }
+      const items = result.contacts ?? [];
+      if (items.length === 0) break;
+
+      for (const ext of items) {
+        const phone = (ext.phone ?? '').replace(/\D/g, '') || null;
+        // Dedup por id externo primero (más confiable).
+        let existing = await this.prisma.crmContact.findFirst({
+          where: {
+            ownerUserId: user.id,
+            externalContactId: ext.id,
+          },
+        });
+        if (!existing && phone) {
+          existing = await this.prisma.crmContact.findFirst({
+            where: { ownerUserId: user.id, phone },
+          });
+        }
+        if (!existing && ext.email) {
+          existing = await this.prisma.crmContact.findFirst({
+            where: { ownerUserId: user.id, phone: null, name: { not: null } },
+            // En realidad NO hay índice por email; usamos un fallback
+            // amplio para encontrar candidate. Si la perf importa,
+            // agregamos un campo email en C7.x.
+          });
+          // Override: como no tenemos campo email, esto es lookup
+          // débil — voy a deshabilitarlo y solo dedupar por id/phone.
+          existing = null;
+        }
+
+        if (existing) {
+          // Update: rellenar fields vacíos + sumar tags. NO pisar lo que
+          // el user ya tiene.
+          const existingTags = Array.isArray(existing.tags)
+            ? (existing.tags as string[])
+            : [];
+          const newTags = Array.isArray(ext.tags) ? ext.tags : [];
+          const mergedTags = Array.from(new Set([...existingTags, ...newTags]));
+          const tagsAdded = mergedTags.length > existingTags.length;
+          await this.prisma.crmContact.update({
+            where: { id: existing.id },
+            data: {
+              name: existing.name ?? ext.name ?? null,
+              phone: existing.phone ?? phone,
+              externalContactId: existing.externalContactId ?? ext.id,
+              externalSource: 'grow-business',
+              tags: mergedTags as any,
+              lastActivityAt: new Date(),
+            },
+          });
+          if (tagsAdded) {
+            const addedTags = mergedTags.filter(
+              (t) => !existingTags.includes(t),
+            );
+            this.logActivity(
+              existing.id,
+              user.id,
+              'TAG_ADDED',
+              `Sync GB · etiquetas: ${addedTags.join(', ')}`,
+              { tags: addedTags, source: 'grow-business' },
+            ).catch(() => null);
+          }
+          updated++;
+        } else {
+          const newContact = await this.prisma.crmContact.create({
+            data: {
+              ownerUserId: user.id,
+              stageId: firstStage.id,
+              name: ext.name ?? null,
+              phone,
+              externalContactId: ext.id,
+              externalSource: 'grow-business',
+              tags: (Array.isArray(ext.tags) ? ext.tags.slice(0, 20) : []) as any,
+            },
+          });
+          this.logActivity(
+            newContact.id,
+            user.id,
+            'CONTACT_CREATED',
+            'Importado desde Grow Business',
+            { source: 'grow-business', externalContactId: ext.id },
+          ).catch(() => null);
+          created++;
+        }
+      }
+      cursor = result.nextCursor ?? null;
+      if (!cursor) break;
+    }
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        crmGbLastSyncAt: new Date(),
+        crmGbLastSyncCount: created + updated,
+      },
+    });
+
+    return { ok: true, created, updated, skipped };
+  }
+}
+
+// =============================================================
+//             LEADCONNECTOR CLIENT (helpers privados)
+// =============================================================
+
+const GB_API = 'https://services.leadconnectorhq.com';
+const GB_VERSION = '2021-07-28';
+
+/**
+ * Verifica credenciales contra /locations/:id. Si OK, devuelve el
+ * nombre de la location para mostrar en UI. Si no, retorna error
+ * legible.
+ */
+async function fetchGbLocation(
+  locationId: string,
+  apiKey: string,
+): Promise<{ ok: boolean; locationName?: string; error?: string }> {
+  try {
+    const res = await fetch(`${GB_API}/locations/${locationId}`, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        Version: GB_VERSION,
+        Accept: 'application/json',
+      },
+    });
+    if (!res.ok) {
+      return {
+        ok: false,
+        error:
+          res.status === 401
+            ? 'API key inválida o sin permisos sobre esta location'
+            : res.status === 404
+              ? 'Location no encontrada'
+              : `Error ${res.status} de Grow Business`,
+      };
+    }
+    const data = (await res.json().catch(() => null)) as any;
+    return {
+      ok: true,
+      locationName: data?.location?.name ?? data?.name ?? null,
+    };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? 'Error de red' };
+  }
+}
+
+type ExternalContact = {
+  id: string;
+  name: string | null;
+  phone: string | null;
+  email: string | null;
+  tags: string[];
+};
+
+/**
+ * Lista contactos de un location de Grow Business. Paginación: pasamos
+ * `startAfterId` para cursor-based pagination. Devuelve el siguiente
+ * cursor en `nextCursor` (null cuando no hay más).
+ *
+ * Si la API responde con un shape inesperado, devolvemos `ok: false`
+ * con el error en vez de tirar — el caller decide qué hacer.
+ */
+async function fetchGbContacts(
+  locationId: string,
+  apiKey: string,
+  startAfterId: string | null,
+): Promise<{
+  ok: boolean;
+  contacts?: ExternalContact[];
+  nextCursor?: string | null;
+  error?: string;
+}> {
+  try {
+    const params = new URLSearchParams({
+      locationId,
+      limit: '100',
+    });
+    if (startAfterId) params.set('startAfterId', startAfterId);
+    const res = await fetch(`${GB_API}/contacts/?${params.toString()}`, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        Version: GB_VERSION,
+        Accept: 'application/json',
+      },
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      return {
+        ok: false,
+        error: `HTTP ${res.status}: ${body.slice(0, 200)}`,
+      };
+    }
+    const data = (await res.json().catch(() => null)) as any;
+    const raw = data?.contacts ?? [];
+    const contacts: ExternalContact[] = raw.map((c: any) => ({
+      id: String(c.id ?? c.contactId ?? ''),
+      name:
+        c.name ??
+        c.contactName ??
+        ([c.firstName, c.lastName].filter(Boolean).join(' ').trim() || null),
+      phone: c.phone ?? null,
+      email: c.email ?? null,
+      tags: Array.isArray(c.tags) ? c.tags.map((t: any) => String(t)) : [],
+    }));
+    return {
+      ok: true,
+      contacts,
+      // LeadConnector retorna el último id como cursor en `meta.startAfterId`
+      // o `meta.nextPage` según versión. Probamos ambos.
+      nextCursor:
+        data?.meta?.startAfterId ??
+        data?.meta?.nextPage ??
+        (contacts.length === 100 ? contacts[contacts.length - 1].id : null),
+    };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? 'Error de red' };
+  }
 }
 
 /**

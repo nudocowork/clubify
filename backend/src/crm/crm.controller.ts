@@ -110,6 +110,11 @@ class NoteAddBody {
   @IsString() @MaxLength(4000) body!: string;
 }
 
+class GbConnectBody {
+  @IsString() @MaxLength(80) locationId!: string;
+  @IsString() @MaxLength(500) apiKey!: string;
+}
+
 /**
  * CRM (Bloque C — C1). Endpoints scoped al user actual: cada afiliado
  * tiene SU propio pipeline + stages. No hay path params de userId — el
@@ -294,5 +299,27 @@ export class CrmController {
     @Body() body: NoteAddBody,
   ) {
     return this.svc.addNote(user, id, body.body);
+  }
+
+  // ────────────── Grow Business sync (C7) ──────────────
+
+  @Get('integrations/grow-business')
+  getGbStatus(@CurrentUser() user: AuthUser) {
+    return this.svc.getGrowBusinessStatus(user);
+  }
+
+  @Post('integrations/grow-business')
+  connectGb(@CurrentUser() user: AuthUser, @Body() body: GbConnectBody) {
+    return this.svc.connectGrowBusiness(user, body);
+  }
+
+  @Delete('integrations/grow-business')
+  disconnectGb(@CurrentUser() user: AuthUser) {
+    return this.svc.disconnectGrowBusiness(user);
+  }
+
+  @Post('integrations/grow-business/sync')
+  syncGb(@CurrentUser() user: AuthUser) {
+    return this.svc.syncGrowBusiness(user);
   }
 }
