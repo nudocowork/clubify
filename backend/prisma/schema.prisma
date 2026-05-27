@@ -545,6 +545,11 @@ model User {
   crmGbLastSyncAt     DateTime?
   crmGbLastSyncCount  Int?
 
+  // Secuencias / Automatizaciones (F2): el afiliado puede definir sus
+  // propias secuencias y un step puede asignar contactos a otro user.
+  sequences                Sequence[]       @relation("SequenceOwner")
+  sequenceStepsAsAssignee  SequenceStep[]   @relation("SequenceStepAssignee")
+
   @@index([tenantId])
   @@index([role])
 }
@@ -2303,6 +2308,8 @@ model Stage {
   // SetNull → si la stage se borra, los botones quedan sin destino
   // (el frontend lo muestra como "Sin movimiento de stage").
   buttonsThatMoveToThis CrmButton[]  @relation("CrmButtonMoveStage")
+  // F2: steps de secuencias que mueven a este stage.
+  sequenceStepsThatMoveToThis SequenceStep[] @relation("SequenceStepMoveStage")
 
   @@index([pipelineId, order])
 }
@@ -2337,6 +2344,9 @@ model CrmContact {
   createdAt      DateTime @default(now())
 
   activities CrmActivity[]
+
+  // F2: enrollments del contacto en secuencias del afiliado.
+  sequenceEnrollments SequenceEnrollment[]
 
   // C7: si el contacto fue sincronizado desde una fuente externa
   // (Grow Business), guardamos el id externo para dedup en próximas
@@ -2470,4 +2480,205 @@ model CrmActivity {
   createdAt DateTime        @default(now())
 
   @@index([contactId, createdAt])
+}
+
+// ============================================================
+// SECUENCIAS / AUTOMATIZACIONES (Sequences)
+// ============================================================
+// Workflows tipo GHL / ActiveCampaign / Manychat: el afiliado define
+// una secuencia de pasos (enviar mensaje → esperar 1h → enviar PDF →
+// esperar 1 día → mover de stage → ...) y cuando un contacto cumple
+// un trigger (entró al CRM, se movió a stage X, etc.) se enrolla y
+// el engine ejecuta paso por paso con delay vía BullMQ.
+//
+// Decisiones:
+// - Cada afiliado tiene SUS secuencias (ownerUserId). No se comparten.
+// - Una secuencia tiene N steps ordenados (order int).
+// - Un contacto puede estar enrollado en varias secuencias en paralelo.
+// - El engine guarda `currentStepId` en el enrollment + un BullMQ jobId
+//   por si necesitamos cancelar el delay programado.
+
+enum SequenceTriggerKind {
+  MANUAL             // Disparado desde la UI (botón "Inscribir")
+  CONTACT_CREATED    // Al crearse un contacto del afiliado
+  STAGE_CHANGED      // Al moverse a una stage específica (config: {stageId})
+  TAG_ADDED          // Al agregar una tag específica (config: {tag})
+  CONTACT_FROM_GB    // Al sincronizar desde Grow Business
+}
+
+enum SequenceStepKind {
+  SEND_MESSAGE
+  WAIT
+  MOVE_STAGE
+  ADD_TAG
+  REMOVE_TAG
+  ASSIGN_USER
+  END
+}
+
+enum SequenceMessageType {
+  TEXT
+  AUDIO
+  VIDEO
+  PDF
+  IMAGE
+}
+
+// Canal de envío del mensaje. Email queda intencionalmente fuera —
+// el user decidió quitarlo. WhatsApp por server-side via Grow Business
+// llega en F6; por ahora ambos canales usan el mismo flujo (SMS real).
+enum SequenceMessageChannel {
+  SMS
+  WHATSAPP
+}
+
+enum SequenceWaitUnit {
+  MINUTES
+  HOURS
+  DAYS
+  WEEKS
+}
+
+enum SequenceEnrollmentStatus {
+  ACTIVE      // En curso o esperando próximo step
+  PAUSED      // El user pausó manualmente
+  COMPLETED   // Llegó a END o ejecutó último step
+  CANCELED    // El user canceló
+  FAILED      // Error fatal (contacto sin teléfono, GB no conectado, etc.)
+}
+
+model Sequence {
+  id          String   @id @default(uuid())
+  ownerUserId String
+  ownerUser   User     @relation("SequenceOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  name        String
+  description String?  @db.Text
+  // isActive=false → no se enrollan nuevos contactos. Los enrollments
+  // ya activos siguen corriendo (el user puede pausarlos individualmente).
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  steps       SequenceStep[]
+  triggers    SequenceTrigger[]
+  enrollments SequenceEnrollment[]
+
+  @@index([ownerUserId, isActive])
+}
+
+// Un nodo del flow builder. `nextStepId` apunta al siguiente — esto
+// permite branching futuro (un step podría tener múltiples siguientes
+// según condición), por ahora linear. nodeX/nodeY son posición visual
+// en el canvas del builder.
+model SequenceStep {
+  id         String           @id @default(uuid())
+  sequenceId String
+  sequence   Sequence         @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  order      Int
+  kind       SequenceStepKind
+
+  // SEND_MESSAGE specific
+  messageChannel SequenceMessageChannel?
+  messageType    SequenceMessageType?
+  messageBody    String?                 @db.Text
+  attachmentUrl  String?
+  attachmentName String?
+
+  // WAIT specific
+  waitAmount Int?
+  waitUnit   SequenceWaitUnit?
+
+  // MOVE_STAGE specific. SetNull → si la stage se borra, el step queda
+  // sin destino y al ejecutarse hace skip.
+  moveToStageId String?
+  moveToStage   Stage?  @relation("SequenceStepMoveStage", fields: [moveToStageId], references: [id], onDelete: SetNull)
+
+  // ADD_TAG / REMOVE_TAG specific. Array de strings.
+  tags Json @default("[]")
+
+  // ASSIGN_USER specific. SetNull → si el user assignee se borra, skip.
+  assignToUserId String?
+  assignToUser   User?   @relation("SequenceStepAssignee", fields: [assignToUserId], references: [id], onDelete: SetNull)
+
+  // Posición visual en el flow builder (canvas xyflow).
+  nodeX Float?
+  nodeY Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  enrollmentsHere SequenceEnrollment[] @relation("SequenceEnrollmentCurrentStep")
+
+  @@index([sequenceId, order])
+}
+
+// Cuándo se enrolla automáticamente un contacto a la secuencia.
+// config Json soporta:
+//   STAGE_CHANGED → {stageId: string}
+//   TAG_ADDED     → {tag: string}
+// Otros triggers son self-contained (no requieren config).
+model SequenceTrigger {
+  id         String              @id @default(uuid())
+  sequenceId String
+  sequence   Sequence            @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  kind       SequenceTriggerKind
+  config     Json                @default("{}")
+  isActive   Boolean             @default(true)
+  createdAt  DateTime            @default(now())
+
+  @@index([sequenceId])
+  @@index([kind, isActive])
+}
+
+// Un contacto enrollado en una secuencia. Si el contacto ya estaba
+// enrollado y completó, puede volver a enrollarse (no hay unique
+// [sequenceId, contactId] — el service decide si re-enrollar). El
+// currentStepId apunta al PRÓXIMO step a ejecutar. jobId guarda el
+// BullMQ job en cola por si hay que cancelar el delay.
+model SequenceEnrollment {
+  id            String                   @id @default(uuid())
+  sequenceId    String
+  sequence      Sequence                 @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  contactId     String
+  contact       CrmContact               @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  status        SequenceEnrollmentStatus @default(ACTIVE)
+  currentStepId String?
+  currentStep   SequenceStep?            @relation("SequenceEnrollmentCurrentStep", fields: [currentStepId], references: [id], onDelete: SetNull)
+  // Próxima ejecución programada. null cuando completó/canceló.
+  nextRunAt     DateTime?
+  // ID del job BullMQ programado. Cancelar con queue.remove(jobId).
+  jobId         String?
+  // Cómo se enrolló (manual o trigger automático).
+  triggerKind   SequenceTriggerKind      @default(MANUAL)
+  // Último error si FAILED.
+  lastError     String?                  @db.Text
+  enrolledAt    DateTime                 @default(now())
+  completedAt   DateTime?
+  updatedAt     DateTime                 @updatedAt
+
+  executions SequenceExecution[]
+
+  @@index([contactId])
+  @@index([status, nextRunAt])
+  @@index([sequenceId, status])
+}
+
+// Log auditable de cada step ejecutado. Sirve para mostrar timeline
+// en la UI del contacto ("Recibió mensaje 'Bienvenida' el X de Y").
+model SequenceExecution {
+  id           String             @id @default(uuid())
+  enrollmentId String
+  enrollment   SequenceEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  stepId       String
+  stepKind     SequenceStepKind
+  // OK | FAILED | SKIPPED
+  status       String
+  // Mensaje renderizado al ejecutarse (post-substitución de variables).
+  message      String?            @db.Text
+  error        String?            @db.Text
+  // Payload extra (added tags, moved-from-stage, etc.).
+  metadata     Json               @default("{}")
+  executedAt   DateTime           @default(now())
+
+  @@index([enrollmentId, executedAt])
 }
