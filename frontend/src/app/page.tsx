@@ -204,7 +204,7 @@ export default async function Landing() {
           </nav>
 
           <div className="flex gap-2 items-center">
-            <Link className="hidden sm:inline-flex text-sm text-mute hover:text-ink" href="/login">
+            <Link className="inline-flex text-sm text-mute hover:text-ink" href="/login">
               Ingresar
             </Link>
             <Link

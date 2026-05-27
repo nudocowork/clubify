@@ -61,8 +61,9 @@ export class ReviewsController {
   }
 
   /** Logs de envíos de SMS por reseñas negativas para un tenant.
-   *  Solo SUPER_ADMIN — usado desde /admin/tenants/[id]. */
-  @Roles('SUPER_ADMIN')
+   *  Usado desde /admin/tenants/[id]. SUPER_ADMIN + MARKETING (rol
+   *  marketing gestiona campañas/comms y necesita ver estos logs). */
+  @Roles('SUPER_ADMIN', 'MARKETING')
   @Get('admin/tenants/:id/review-alerts/logs')
   reviewAlertLogs(@Param('id') id: string) {
     return this.svc.listReviewAlertLogs(id);
