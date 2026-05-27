@@ -25,7 +25,15 @@ export default function NewTenant() {
     trialDays: 7,
     nextChargeDate: '',
     hotmartSubscriberCode: '',
+    // B5: asignar este negocio (al crearlo) a un INFLUENCER/AMBASSADOR.
+    // string vacío = sin asignación. El POST inicial no acepta esto, así
+    // que después de crear el tenant disparamos PATCH al endpoint de
+    // assignment (B3).
+    referralCodeId: '',
   });
+  const [affiliateOptions, setAffiliateOptions] = useState<
+    { id: string; ownerName: string; code: string; role: string; campaign: { name: string } | null }[]
+  >([]);
   const [result, setResult] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -34,6 +42,21 @@ export default function NewTenant() {
       const seen = new Map();
       arr.forEach((t) => seen.set(t.plan.id, t.plan));
       setPlans(Array.from(seen.values()));
+    });
+    // Cargar afiliados (influencer + embajadores) para el dropdown de
+    // asignación. Si falla (raro), el campo queda vacío — no crítico.
+    Promise.all([
+      api<{ items: any[] }>('/referrals/influencers').catch(() => ({
+        items: [],
+      })),
+      api<{ items: any[] }>('/referrals/ambassadors').catch(() => ({
+        items: [],
+      })),
+    ]).then(([inf, amb]) => {
+      const codes = [...(inf.items ?? []), ...(amb.items ?? [])].sort((a, b) =>
+        a.ownerName.localeCompare(b.ownerName),
+      );
+      setAffiliateOptions(codes as any);
     });
   }, []);
 
@@ -64,10 +87,23 @@ export default function NewTenant() {
         if (form.hotmartSubscriberCode.trim())
           body.hotmartSubscriberCode = form.hotmartSubscriberCode.trim();
       }
-      const res = await api('/tenants', {
+      const res = await api<any>('/tenants', {
         method: 'POST',
         body: JSON.stringify(body),
       });
+      // B5: si el admin eligió un afiliado, lo asignamos en una segunda
+      // request al endpoint de assignment (B3). No bloqueamos la creación
+      // del tenant si la asignación falla — solo warneamos.
+      if (form.referralCodeId && res?.tenant?.id) {
+        try {
+          await api(`/referrals/tenants/${res.tenant.id}/assignment`, {
+            method: 'PATCH',
+            body: JSON.stringify({ referralCodeId: form.referralCodeId }),
+          });
+        } catch (assignErr: any) {
+          console.warn('Asignación referral falló:', assignErr?.message);
+        }
+      }
       setResult(res);
     } catch (e: any) {
       setErr(e.message);
@@ -191,6 +227,31 @@ export default function NewTenant() {
             ))}
           </select>
         </div>
+        <div className="col-span-2">
+          <label className="label">
+            Asignar a embajador / influencer{' '}
+            <span className="text-mute font-normal">— opcional</span>
+          </label>
+          <select
+            className="input"
+            value={form.referralCodeId}
+            onChange={(e) => set('referralCodeId', e.target.value)}
+          >
+            <option value="">— Sin asignar —</option>
+            {affiliateOptions.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.ownerName} · {o.role} · {o.code}
+                {o.campaign ? ` · ${o.campaign.name}` : ''}
+              </option>
+            ))}
+          </select>
+          <div className="text-[11px] text-mute mt-1 leading-snug">
+            Si el negocio fue traído por un afiliado offline, elegilo acá.
+            Las comisiones futuras se atribuyen automáticamente. Podés
+            cambiar esto después desde la página del negocio.
+          </div>
+        </div>
+
         <div className="col-span-2">
           <label className="label">Categoría del negocio</label>
           <select

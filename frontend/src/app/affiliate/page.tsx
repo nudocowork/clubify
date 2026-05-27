@@ -400,9 +400,11 @@ function Overview({ me }: { me: Me }) {
         />
       )}
 
-      {/* Material de apoyo: scripts WA + copies IG + tips. Siempre visible
-          excepto para SOCIO (que no necesita "vender" su código). */}
-      {!isSocio && <ResourcesPanel me={me} />}
+      {/* B4: Material de apoyo movido al tab dedicado "📚 Material de apoyo"
+          (SupportMaterialsList — biblioteca admin cargable desde
+          /admin/support-materials). El panel viejo hardcoded con templates
+          WhatsApp + copies IG + tips se removió para evitar duplicación y
+          desorden — todo el material ahora vive en un solo lugar. */}
     </div>
   );
 }
@@ -595,128 +597,6 @@ function initials(name: string): string {
   );
 }
 
-function ResourcesPanel({ me }: { me: Me }) {
-  const link =
-    typeof window !== 'undefined' && me.myCode
-      ? `${window.location.origin}/ref/${me.myCode.slug}`
-      : '';
-  const role = me.role;
-
-  const waTemplates = [
-    {
-      title: 'Mensaje frío (primer contacto)',
-      text: `Hola 👋 vi tu negocio y se me ocurrió compartirte Clubify: una plataforma que combina pedidos por WhatsApp, tarjetas de fidelización en Apple/Google Wallet y automatizaciones — todo en una sola cuenta. Si te interesa probarlo, te dejo mi link: ${link}`,
-    },
-    {
-      title: 'Mensaje cálido (alguien que ya te conoce)',
-      text: `Hola! Te quería compartir Clubify, lo estoy usando con varios negocios locales y los resultados son muy buenos: más pedidos por WhatsApp y clientes que vuelven más seguido. Te dejo mi link para que lo veas: ${link}`,
-    },
-    {
-      title: 'Mensaje seguimiento (no me contestaron)',
-      text: `Hola! ¿Pudiste mirar Clubify? Si querés te muestro una demo de 5 min sin compromiso — me decís y coordinamos. Acá el link por si lo quisieras explorar primero: ${link}`,
-    },
-  ];
-
-  const igCopies = [
-    {
-      title: 'Story bloque 1: gancho',
-      text: '¿Sabías que tus clientes pueden tener tu tarjeta de fidelización en su Apple Wallet sin descargar nada? 👀',
-    },
-    {
-      title: 'Story bloque 2: solución',
-      text: 'Con Clubify vendés por WhatsApp, premiás clientes recurrentes y todo automático. Sin apps, sin tarjetas físicas. 💳',
-    },
-    {
-      title: 'CTA final',
-      text: `Activá tu cuenta hoy 👇 ${link}`,
-    },
-  ];
-
-  const tips =
-    role === 'AFFILIATE_AMBASSADOR'
-      ? [
-          'Tu cuota mensual es realista: 2-3 negocios al mes con seguimiento.',
-          'Foco: pedile referidos a los dueños que ya cerraste. Es el canal #1.',
-          'Cuando alguien diga "está caro", llevá la conversación al ROI: 1 cliente que vuelve más seguido cubre 6 meses de Clubify.',
-        ]
-      : [
-          'Tu link corto /ref/<tu-slug> tiene tracking de visitas — vas a ver el click-through en este panel.',
-          'Compartilo en Stories de Instagram con sticker de link — funciona mejor que en posts.',
-          'Para tu equipo de embajadores: armá un grupo de WhatsApp y compartí resultados semanales — incentivá la competencia sana.',
-        ];
-
-  return (
-    <div className="space-y-5">
-      <div>
-        <div className="font-semibold text-base mb-1">📚 Material de apoyo</div>
-        <div className="text-xs text-mute">
-          Scripts, copies y tips para vender Clubify. Copialos y editalos a tu estilo.
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div className="card card-pad">
-          <div className="font-semibold text-sm mb-2 flex items-center gap-2">
-            💬 Templates WhatsApp
-          </div>
-          <div className="space-y-3">
-            {waTemplates.map((t) => (
-              <CopyableSnippet key={t.title} title={t.title} text={t.text} />
-            ))}
-          </div>
-        </div>
-
-        <div className="card card-pad">
-          <div className="font-semibold text-sm mb-2 flex items-center gap-2">
-            📸 Copies Instagram
-          </div>
-          <div className="space-y-3">
-            {igCopies.map((t) => (
-              <CopyableSnippet key={t.title} title={t.title} text={t.text} />
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="card card-pad">
-        <div className="font-semibold text-sm mb-2">💡 Tips para vender</div>
-        <ul className="text-sm text-ink/85 space-y-1.5 leading-relaxed list-disc pl-5">
-          {tips.map((t) => (
-            <li key={t}>{t}</li>
-          ))}
-        </ul>
-      </div>
-    </div>
-  );
-}
-
-function CopyableSnippet({ title, text }: { title: string; text: string }) {
-  return (
-    <div className="bg-bg2/50 rounded-lg p-3 border border-line2">
-      <div className="flex items-start justify-between gap-2 mb-1">
-        <div className="text-[11px] uppercase tracking-wider text-mute font-semibold flex-1">
-          {title}
-        </div>
-        <button
-          className="text-[11px] text-brand hover:underline whitespace-nowrap"
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(text);
-              toast('Copiado', 'success');
-            } catch {
-              toast('No se pudo copiar', 'error');
-            }
-          }}
-        >
-          Copiar
-        </button>
-      </div>
-      <div className="text-xs text-ink/85 leading-relaxed whitespace-pre-wrap">
-        {text}
-      </div>
-    </div>
-  );
-}
 
 function InfluencerAmbassadorsPanel({
   ambassadors: initial,
