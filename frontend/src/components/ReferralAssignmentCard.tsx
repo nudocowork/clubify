@@ -153,6 +153,7 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
               · campaña {current.code.campaign.name}
             </span>
           )}
+          <BackfillCommissionButton tenantId={tenantId} />
         </div>
       )}
 
@@ -200,5 +201,54 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Botón "Generar comisión ahora": dispara el backfill retroactivo.
+ * Idempotente — el backend hace no-op si ya hay commission reciente.
+ * Útil cuando el tenant ya está pagando pero se asignó después del
+ * último pago (no llegará un webhook Hotmart en 30 días).
+ */
+function BackfillCommissionButton({ tenantId }: { tenantId: string }) {
+  const [busy, setBusy] = useState(false);
+  async function run() {
+    setBusy(true);
+    try {
+      const res = await api<{
+        ok: boolean;
+        commissions: Array<{ amount: number; status: string }>;
+      }>(`/referrals/tenants/${tenantId}/backfill-commission`, {
+        method: 'POST',
+      });
+      const count = res.commissions?.length ?? 0;
+      if (count === 0) {
+        toast(
+          'No se generó comisión (sin ciclo de pago activo o ya estaba creada)',
+          'info',
+        );
+      } else {
+        const total = res.commissions.reduce((s, c) => s + c.amount, 0);
+        toast(
+          `Comisión generada: $${total.toFixed(2)} (${count} entrada${count > 1 ? 's' : ''})`,
+          'success',
+        );
+      }
+    } catch (e: any) {
+      toast(e?.message || 'No se pudo generar la comisión', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <button
+      type="button"
+      className="text-xs text-brand hover:underline ml-auto"
+      onClick={run}
+      disabled={busy}
+      title="Generar la comisión PENDIENTE de este ciclo si el tenant ya pagó. Idempotente."
+    >
+      {busy ? '…' : '⚡ Generar comisión ahora'}
+    </button>
   );
 }
