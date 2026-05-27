@@ -522,6 +522,9 @@ model User {
   // en C4 puede haber pipelines de equipos compartidos como relación
   // separada.
   pipeline            Pipeline?
+  // CRM (C2): contactos propios del afiliado. onDelete Cascade en
+  // CrmContact → si se elimina el User, los contactos también.
+  crmContacts         CrmContact[]
 
   @@index([tenantId])
   @@index([role])
@@ -2276,5 +2279,40 @@ model Stage {
   kind       StageKind @default(CUSTOM)
   createdAt  DateTime  @default(now())
 
+  contacts CrmContact[]
+
   @@index([pipelineId, order])
+}
+
+// Contacto/prospecto del CRM. Pertenece a UN afiliado (ownerUserId).
+// Vive en UNA stage del kanban (stageId). Todos los campos opcionales
+// para no generar fricción al registrar — el user puede crear contactos
+// con solo un nombre y completar después.
+//
+// Eliminar el Stage NO borra los contactos (onDelete Restrict): el
+// service.deleteStage los mueve a otra stage primero. Borrar el User
+// SÍ borra los contactos (Cascade) porque son su data privada.
+model CrmContact {
+  id             String   @id @default(uuid())
+  ownerUserId    String
+  ownerUser      User     @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  stageId        String
+  stage          Stage    @relation(fields: [stageId], references: [id], onDelete: Restrict)
+  // Todos opcionales por diseño — "no generar fricción al registrar".
+  name           String?
+  phone          String?
+  instagram      String?
+  address        String?
+  description    String?  @db.Text
+  // Etiquetas libres del afiliado (string[]). En C7 también traemos las
+  // tags de Grow Business acá para automatizaciones de cambio de stage.
+  tags           Json     @default("[]")
+  // Timestamp de última actividad — se actualiza al crear, editar, mover
+  // de stage, o al ejecutar un botón automático (C5). Sirve para ordenar
+  // el kanban por "más reciente" y para mostrar el badge "Última actividad".
+  lastActivityAt DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  @@index([ownerUserId, stageId])
+  @@index([ownerUserId, lastActivityAt])
 }

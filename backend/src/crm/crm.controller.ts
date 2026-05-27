@@ -6,8 +6,15 @@ import {
   Param,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
-import { IsArray, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsArray,
+  IsOptional,
+  IsString,
+  MaxLength,
+  ValidateIf,
+} from 'class-validator';
 import { CrmService } from './crm.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -28,6 +35,34 @@ class StageReorderBody {
 
 class PipelineRenameBody {
   @IsString() @MaxLength(80) name!: string;
+}
+
+class ContactCreateBody {
+  @IsOptional() @IsString() stageId?: string;
+  @IsOptional() @IsString() @MaxLength(120) name?: string;
+  @IsOptional() @IsString() @MaxLength(40) phone?: string;
+  @IsOptional() @IsString() @MaxLength(80) instagram?: string;
+  @IsOptional() @IsString() @MaxLength(200) address?: string;
+  @IsOptional() @IsString() @MaxLength(4000) description?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) tags?: string[];
+}
+
+class ContactUpdateBody {
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(120)
+  name?: string | null;
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(40)
+  phone?: string | null;
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(80)
+  instagram?: string | null;
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(200)
+  address?: string | null;
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(4000)
+  description?: string | null;
+  @IsOptional() @IsArray() @IsString({ each: true }) tags?: string[];
+}
+
+class ContactMoveBody {
+  @IsString() stageId!: string;
 }
 
 /**
@@ -95,5 +130,55 @@ export class CrmController {
   @Delete('stages/:id')
   deleteStage(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.deleteStage(user, id);
+  }
+
+  // ────────────── Contactos (C2) ──────────────
+
+  /** Lista los contactos del user. Opcionalmente filtra por stageId
+   *  (query param). El frontend del kanban (C3) puede usar esto para
+   *  cargar todos a la vez y agruparlos client-side, o paginar por
+   *  columna. */
+  @Get('contacts')
+  listContacts(
+    @CurrentUser() user: AuthUser,
+    @Query('stageId') stageId?: string,
+  ) {
+    return this.svc.listMyContacts(user, stageId);
+  }
+
+  @Get('contacts/:id')
+  getContact(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.getContact(user, id);
+  }
+
+  @Post('contacts')
+  createContact(
+    @CurrentUser() user: AuthUser,
+    @Body() body: ContactCreateBody,
+  ) {
+    return this.svc.createContact(user, body);
+  }
+
+  @Patch('contacts/:id/stage')
+  moveContact(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: ContactMoveBody,
+  ) {
+    return this.svc.moveContactToStage(user, id, body.stageId);
+  }
+
+  @Patch('contacts/:id')
+  updateContact(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: ContactUpdateBody,
+  ) {
+    return this.svc.updateContact(user, id, body);
+  }
+
+  @Delete('contacts/:id')
+  deleteContact(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.deleteContact(user, id);
   }
 }
