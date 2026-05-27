@@ -44,6 +44,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { ContactSequencesPanel } from '@/components/sequences/ContactSequencesPanel';
 
 type StageKind =
   | 'CONTACTS'
@@ -250,6 +251,12 @@ export function CrmKanban() {
             ⚡ Botones
           </Link>
           <Link
+            href="/affiliate/crm/sequences"
+            className="hidden sm:inline-flex btn-ghost text-sm"
+          >
+            🤖 Secuencias
+          </Link>
+          <Link
             href="/affiliate/crm/integrations"
             className="hidden sm:inline-flex btn-ghost text-sm"
           >
@@ -285,6 +292,12 @@ export function CrmKanban() {
           className="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border border-line text-mute hover:text-ink bg-bg2/40"
         >
           ⚡ Botones
+        </Link>
+        <Link
+          href="/affiliate/crm/sequences"
+          className="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border border-line text-mute hover:text-ink bg-bg2/40"
+        >
+          🤖 Secuencias
         </Link>
         <Link
           href="/affiliate/crm/integrations"
@@ -1042,6 +1055,9 @@ function ContactDrawer({
               </div>
             </div>
           )}
+
+          {/* F6: Secuencias activas + historial de enrollments */}
+          <ContactSequencesPanel contactId={contactId} />
 
           {/* Historial / timeline (C6) */}
           <div className="border-t border-line pt-3 mt-3">
