@@ -34,6 +34,7 @@ import { AutomationsModule } from './automations/automations.module';
 import { MediaModule } from './media/media.module';
 import { InfoLinksModule } from './info-links/info-links.module';
 import { CrmModule } from './crm/crm.module';
+import { SequencesModule } from './sequences/sequences.module';
 import { SalesTeamsModule } from './sales-teams/sales-teams.module';
 import { EmailModule } from './email/email.module';
 import { JobsModule } from './jobs/jobs.module';
@@ -95,6 +96,7 @@ import { AdminUsersModule } from './admin-users/admin-users.module';
     MediaModule,
     InfoLinksModule,
     CrmModule,
+    SequencesModule,
     SalesTeamsModule,
     EmailModule,
     JobsModule,

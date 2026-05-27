@@ -6,7 +6,15 @@ import {
 } from '@nestjs/common';
 import { Queue, Worker, JobsOptions, ConnectionOptions } from 'bullmq';
 
-export type JobName = 'wallet.push' | 'email.send' | 'cleanup.expired_passes';
+export type JobName =
+  | 'wallet.push'
+  | 'email.send'
+  | 'cleanup.expired_passes'
+  // F2: secuencias / automatizaciones del CRM. process_step ejecuta UN
+  // step del enrollment (con delay si está programado). start_enrollment
+  // crea el enrollment y encola el primer step.
+  | 'sequence.process_step'
+  | 'sequence.start_enrollment';
 
 type JobPayload = Record<string, any>;
 
@@ -74,6 +82,28 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
       removeOnFail: 5000,
       ...opts,
     });
+  }
+
+  /**
+   * Cancela un job ya encolado (no ejecutado). Útil para pausar/cancelar
+   * un SequenceEnrollment: queda guardado el jobId en DB y al pausar lo
+   * removemos para que el delay no dispare más. En modo stub no-op.
+   */
+  async removeJob(name: JobName, jobId: string): Promise<boolean> {
+    if (!this.connection) return false;
+    const q = this.queues.get(name);
+    if (!q) return false;
+    try {
+      const job = await q.getJob(jobId);
+      if (!job) return false;
+      await job.remove();
+      return true;
+    } catch (e) {
+      this.logger.warn(
+        `removeJob(${name}, ${jobId}) falló: ${(e as Error).message}`,
+      );
+      return false;
+    }
   }
 
   /**
