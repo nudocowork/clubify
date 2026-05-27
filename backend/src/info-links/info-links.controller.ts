@@ -23,6 +23,9 @@ class InfoLinkBody {
   @IsString() title!: string;
   @IsOptional() @IsString() subtitle?: string;
   @IsOptional() @IsString() slug?: string;
+  // rootSlug vanity (soyclubify.com/<rootSlug>). string vacío o null
+  // significa desasociar. Validación + reserved-paths los hace el service.
+  @IsOptional() rootSlug?: string | null;
   @IsOptional() @IsString() heroImageUrl?: string;
   @IsOptional() @IsArray() gallery?: string[];
   @IsOptional() @IsArray() sections?: any[];

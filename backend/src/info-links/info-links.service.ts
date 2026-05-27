@@ -1,4 +1,10 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import {
@@ -19,10 +25,56 @@ function slugify(s: string) {
   );
 }
 
+// Lista de paths "raíz" del dominio que NO pueden ser usados como rootSlug
+// vanity de un Infolink. Incluye: top-level routes del frontend, paths del
+// backend visibles (api, q), reservas comunes para crecer (dashboard, blog,
+// terms, etc.) y palabras técnicas.
+const ROOT_SLUG_RESERVED = new Set([
+  // Frontend top-level routes existentes
+  'admin', 'affiliate', 'app', 'book', 'c', 'demo-wallet', 'dev-login',
+  'forgot', 'i', 'industria', 'industrias', 'legal', 'login', 'm', 'o',
+  'onboarding', 'preview', 'r', 'ref', 'refer', 'reset', 'scan', 'signup',
+  'w', 'q',
+  // Backend / APIs
+  'api', 'health', 'docs', 'metrics',
+  // Reservas para crecer
+  'dashboard', 'settings', 'billing', 'pricing', 'search', 'help', 'support',
+  'terms', 'privacy', 'about', 'contact', 'blog', 'home', 'index',
+  'sitemap', 'robots', 'favicon', 'manifest',
+  // Files técnicos
+  'static', 'public', 'assets', '_next', 'images', 'img',
+]);
+
+/**
+ * Sanitiza y valida un rootSlug candidato. Retorna el valor normalizado o
+ * tira BadRequestException con razón legible.
+ */
+function normalizeRootSlug(input: string): string {
+  const clean = slugify(input);
+  if (!clean) {
+    throw new BadRequestException('La URL personalizada no puede estar vacía');
+  }
+  if (clean.length < 2) {
+    throw new BadRequestException('La URL debe tener al menos 2 caracteres');
+  }
+  if (clean.length > 40) {
+    throw new BadRequestException('La URL no puede tener más de 40 caracteres');
+  }
+  if (ROOT_SLUG_RESERVED.has(clean)) {
+    throw new BadRequestException(
+      `La URL "/${clean}" está reservada por el sistema. Elegí otra.`,
+    );
+  }
+  return clean;
+}
+
 export type InfoLinkDto = {
   title: string;
   subtitle?: string;
   slug?: string;
+  // rootSlug: URL vanity GLOBAL. Si llega string vacío o null, se limpia
+  // (se desasocia el vanity). Si llega valor, se valida + asigna.
+  rootSlug?: string | null;
   heroImageUrl?: string;
   gallery?: string[];
   sections?: any[];
@@ -97,11 +149,37 @@ export class InfoLinksService {
 
   async update(user: AuthUser, id: string, dto: Partial<InfoLinkDto>) {
     await this.get(user, id);
+
+    // rootSlug: tres casos.
+    //   undefined  → no tocar.
+    //   null/''    → desasociar (vanity off).
+    //   string     → validar + chequear duplicado + asignar.
+    let rootSlugUpdate: string | null | undefined = undefined;
+    if (dto.rootSlug !== undefined) {
+      const raw = (dto.rootSlug ?? '').trim();
+      if (!raw) {
+        rootSlugUpdate = null;
+      } else {
+        const clean = normalizeRootSlug(raw);
+        const existing = await this.prisma.infoLink.findUnique({
+          where: { rootSlug: clean },
+          select: { id: true },
+        });
+        if (existing && existing.id !== id) {
+          throw new ConflictException(
+            `La URL "/${clean}" ya está usada por otro Infolink`,
+          );
+        }
+        rootSlugUpdate = clean;
+      }
+    }
+
     return this.prisma.infoLink.update({
       where: { id },
       data: {
         title: dto.title ?? undefined,
         subtitle: dto.subtitle === undefined ? undefined : dto.subtitle,
+        rootSlug: rootSlugUpdate,
         heroImageUrl: dto.heroImageUrl === undefined ? undefined : dto.heroImageUrl,
         gallery: dto.gallery === undefined ? undefined : (dto.gallery as any),
         sections: dto.sections === undefined ? undefined : (dto.sections as any),
@@ -298,5 +376,31 @@ export class InfoLinksService {
         data: { infoLinkId: linkId, type, metadata },
       })
       .catch(() => null);
+  }
+
+  /**
+   * Resuelve un Infolink por su rootSlug global (vanity URL).
+   * Acceso público: `soyclubify.com/<rootSlug>` → este método.
+   * Devuelve la misma shape que getPublic (tenant + link) para que el
+   * frontend pueda renderearlo igual sin lógica diferenciada.
+   */
+  async getPublicByRoot(rootSlug: string, localeRaw?: string) {
+    const clean = (rootSlug || '').toLowerCase().trim().slice(0, 60);
+    if (!clean) throw new NotFoundException('No disponible');
+    const link = await this.prisma.infoLink.findUnique({
+      where: { rootSlug: clean },
+    });
+    if (!link || !link.isActive) {
+      throw new NotFoundException('No disponible');
+    }
+    // Reutilizamos getPublic para no duplicar la lógica de tenant lookup +
+    // tracking + traducción. Como ya tenemos el link, solo necesitamos el
+    // tenantSlug + linkSlug que getPublic acepta.
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: link.tenantId },
+      select: { slug: true },
+    });
+    if (!tenant) throw new NotFoundException('No disponible');
+    return this.getPublic(tenant.slug, link.slug, localeRaw);
   }
 }

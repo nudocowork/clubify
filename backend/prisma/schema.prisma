@@ -1322,6 +1322,11 @@ model InfoLink {
   tenantId     String
   tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   slug         String
+  // URL "vanity" global del Infolink — si está set, accesible como
+  // soyclubify.com/<rootSlug> en lugar de /i/<tenantSlug>/<linkSlug>.
+  // Unique global (no por tenant) porque vive en la raíz del dominio.
+  // null = sin vanity, sigue accesible solo por /i/<tenant>/<link>.
+  rootSlug     String?  @unique
   title        String
   subtitle     String?
   heroImageUrl String?
