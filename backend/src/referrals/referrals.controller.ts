@@ -260,4 +260,31 @@ export class ReferralsController {
   ) {
     return this.svc.setCommissionNotes(id, body);
   }
+
+  /**
+   * Asignación manual de un tenant existente a un ReferralCode
+   * (influencer/embajador). El super admin lo usa desde la página del
+   * tenant para conectar negocios que se crearon SIN venir de un link
+   * `/ref/<slug>` pero deben atribuirse a alguien.
+   *
+   * GET devuelve el ReferralUse actual del tenant (con role + code +
+   * campaign) o null.
+   * PATCH con `{ referralCodeId: null }` desasigna; con un id, crea o
+   * actualiza el ReferralUse del tenant. La asignación es 1:1 (solo
+   * tenemos el último ReferralUse activo del tenant).
+   */
+  @Roles('SUPER_ADMIN')
+  @Get('tenants/:tenantId/assignment')
+  getTenantAssignment(@Param('tenantId') tenantId: string) {
+    return this.svc.getTenantAssignment(tenantId);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Patch('tenants/:tenantId/assignment')
+  setTenantAssignment(
+    @Param('tenantId') tenantId: string,
+    @Body() body: { referralCodeId: string | null },
+  ) {
+    return this.svc.setTenantAssignment(tenantId, body.referralCodeId ?? null);
+  }
 }

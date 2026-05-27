@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { api, startImpersonation } from '@/lib/api';
 import { GrowBusinessCard } from '@/components/GrowBusinessCard';
+import { ReferralAssignmentCard } from '@/components/ReferralAssignmentCard';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 
@@ -372,6 +373,8 @@ export default function TenantDetail() {
         </div>
 
         <GrowBusinessCard tenantId={t.id} planName={t.plan?.name ?? null} />
+
+        <ReferralAssignmentCard tenantId={t.id} />
 
         <ReviewAlertsAccountCard tenant={t} onSaved={load} />
 
