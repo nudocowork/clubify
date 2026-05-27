@@ -1,9 +1,16 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
 import { TenantStatus } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { invalidateTenantStatusCache } from '../common/guards/tenant-status.guard';
+import { ReferralsService } from '../referrals/referrals.service';
 import { nanoid } from 'nanoid';
 import {
   isValidCategorySlug,
@@ -99,6 +106,8 @@ export class TenantsService {
     private prisma: PrismaService,
     private auth: AuthService,
     private jwt: JwtService,
+    @Inject(forwardRef(() => ReferralsService))
+    private referrals: ReferralsService,
   ) {}
 
   /**
@@ -381,6 +390,47 @@ export class TenantsService {
     if (status === 'SUSPENDED') data.suspendedAt = new Date();
     const updated = await this.prisma.tenant.update({ where: { id }, data });
     invalidateTenantStatusCache(id);
+    return updated;
+  }
+
+  /**
+   * Convierte un tenant en TRIAL (o ACTIVE sin currentPeriodEnd) a
+   * cliente pagante: setea currentPeriodEnd a 30 días desde ahora,
+   * limpia trialEndsAt, marca status ACTIVE. Si tiene asignación a
+   * INFLUENCER/AMBASSADOR, dispara el backfill de comisión.
+   *
+   * Útil cuando el cliente paga por fuera de Hotmart (transferencia,
+   * efectivo) y el admin quiere convertirlo manualmente para que el
+   * afiliado vea su comisión.
+   */
+  async convertToPaying(id: string, periodDays = 30) {
+    const t = await this.prisma.tenant.findUnique({ where: { id } });
+    if (!t) throw new NotFoundException('Tenant');
+    const now = new Date();
+    const newPeriodEnd = new Date(
+      now.getTime() + periodDays * 24 * 60 * 60 * 1000,
+    );
+    const updated = await this.prisma.tenant.update({
+      where: { id },
+      data: {
+        status: 'ACTIVE',
+        suspendedAt: null,
+        trialEndsAt: null,
+        currentPeriodEnd: newPeriodEnd,
+        // Resetear contador de fallos al convertir manual (asumimos que
+        // el pago manual reseta cualquier fallo previo).
+        failedPaymentCount: 0,
+      },
+    });
+    invalidateTenantStatusCache(id);
+
+    // Disparar backfill de comisión si tiene asignación de afiliado.
+    // Fire-and-forget: si falla, no bloqueamos la conversión — el admin
+    // puede usar "Generar comisión ahora" manualmente.
+    this.referrals
+      .backfillCommissionForCurrentAssignment(id, false)
+      .catch(() => null);
+
     return updated;
   }
 

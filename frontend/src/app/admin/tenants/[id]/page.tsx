@@ -92,6 +92,41 @@ export default function TenantDetail() {
     }
   }
 
+  /**
+   * Convierte el tenant a cliente pagante (ACTIVE + currentPeriodEnd
+   * +30d + sin trialEndsAt). Útil cuando paga por fuera de Hotmart.
+   * Automáticamente dispara backfill de comisión si tiene asignación
+   * a INFLUENCER/AMBASSADOR.
+   */
+  async function convertToPaying() {
+    if (
+      !confirm(
+        `¿Convertir ${t?.brandName ?? 'este negocio'} a cliente pagante?\n\n` +
+          'Esto:\n' +
+          '• Marca el negocio como ACTIVE\n' +
+          '• Setea el próximo cobro en 30 días\n' +
+          '• Limpia los días de trial\n' +
+          '• Genera la comisión PENDING al afiliado si lo tiene asignado\n\n' +
+          'Usalo solo si el cliente efectivamente pagó (por fuera de Hotmart).',
+      )
+    ) {
+      return;
+    }
+    setActioning(true);
+    try {
+      await api(`/tenants/${id}/convert-to-paying`, {
+        method: 'POST',
+        body: JSON.stringify({ periodDays: 30 }),
+      });
+      await load();
+      toast('Negocio convertido a cliente pagante', 'success');
+    } catch (e: any) {
+      toast(e.message || 'No se pudo convertir', 'error');
+    } finally {
+      setActioning(false);
+    }
+  }
+
   if (!t) {
     return (
       <div className="space-y-3">
@@ -205,6 +240,14 @@ export default function TenantDetail() {
                   onClick={() => extendTrial(30)}
                 >
                   +30 días
+                </button>
+                <button
+                  className="btn-primary text-sm"
+                  disabled={actioning}
+                  onClick={convertToPaying}
+                  title="El cliente pagó por fuera de Hotmart — convertir a cliente activo y generar comisión"
+                >
+                  💰 Marcar como pagado
                 </button>
               </>
             )}
