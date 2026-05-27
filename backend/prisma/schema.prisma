@@ -518,6 +518,10 @@ model User {
   refreshTokens       RefreshToken[]
   reminders           Reminder[]           @relation("ReminderEmployee")
   quotesCreated       Quote[]              @relation("QuoteAdvisor")
+  // CRM (C1): cada user afiliado tiene su propio pipeline. 1:1 por ahora;
+  // en C4 puede haber pipelines de equipos compartidos como relación
+  // separada.
+  pipeline            Pipeline?
 
   @@index([tenantId])
   @@index([role])
@@ -2227,4 +2231,50 @@ model GrowBusinessAccount {
   reviewTenants   Tenant[] @relation("ReviewAlertsAccount")
   billingTenants  Tenant[] @relation("BillingAlertsAccount")
   deliveryTenants Tenant[] @relation("DeliveryAlertsAccount")
+}
+
+// ============================================================
+//                       CRM (Bloque C)
+// ============================================================
+
+// Tipo semántico de un Stage en el kanban del CRM. Las 5 primeras son
+// las stages default que se auto-crean al inicializar el pipeline. CUSTOM
+// es para stages creadas por el user manualmente (cambio de orden, color,
+// nombre OK; pero no usamos kind=CUSTOM para automatizaciones porque no
+// tiene semántica fija).
+enum StageKind {
+  CONTACTS
+  INTERESTED
+  FOLLOWUP
+  CLIENT
+  NOT_INTERESTED
+  CUSTOM
+}
+
+// Pipeline de CRM. Cada afiliado (AFFILIATE_INFLUENCER, AFFILIATE_AMBASSADOR,
+// AFFILIATE_SOCIO) tiene SU pipeline propio. 1:1 con el User en C1 — en C4
+// agregaremos pipelines de equipo via SalesTeam.
+model Pipeline {
+  id          String   @id @default(uuid())
+  ownerUserId String   @unique
+  ownerUser   User     @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  name        String   @default("Mi pipeline")
+  createdAt   DateTime @default(now())
+
+  stages Stage[]
+}
+
+// Columna del kanban — "Contactos", "Interesados", etc. Cada Stage
+// pertenece a UN pipeline. El order es int para drag&drop visual.
+model Stage {
+  id         String    @id @default(uuid())
+  pipelineId String
+  pipeline   Pipeline  @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  name       String
+  color      String    @default("#94A3B8")
+  order      Int
+  kind       StageKind @default(CUSTOM)
+  createdAt  DateTime  @default(now())
+
+  @@index([pipelineId, order])
 }
