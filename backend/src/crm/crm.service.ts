@@ -7,6 +7,7 @@ import {
 import { StageKind } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { GrowBusinessService } from '../integrations/grow-business.service';
 
 /**
  * Stages default que se crean cuando un afiliado abre su pipeline por
@@ -37,7 +38,10 @@ function normalizeColor(input: string | undefined, fallback = '#94A3B8'): string
 
 @Injectable()
 export class CrmService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private growBusiness: GrowBusinessService,
+  ) {}
 
   /**
    * Devuelve el pipeline del user actual. Si no existe (primer acceso),
@@ -748,17 +752,62 @@ export class CrmService {
           contact: updatedContact,
         };
       }
-      case 'SMS':
-        // Integración real con Grow Business llega en C7. Por ahora
-        // aplicamos los side effects + devolvemos `pending=true`.
+      case 'SMS': {
+        // Envío SMS server-side via Grow Business usando las creds que
+        // el afiliado conectó en /affiliate/crm/integrations (User.crmGb*).
+        // Si no tiene GB conectado o no hay teléfono, retornamos error
+        // claro — los side-effects (move stage, tags) YA se aplicaron
+        // arriba, así que el user no pierde su trabajo.
+        const phoneRaw = (updatedContact.phone ?? '').trim();
+        if (!phoneRaw) {
+          return {
+            ok: false,
+            channel: 'SMS',
+            error: 'El contacto no tiene teléfono — no se puede enviar SMS',
+            contact: updatedContact,
+          };
+        }
+        const userWithGb = await this.prisma.user.findUnique({
+          where: { id: user.id },
+          select: { crmGbLocationId: true, crmGbApiKey: true },
+        });
+        if (!userWithGb?.crmGbLocationId || !userWithGb?.crmGbApiKey) {
+          return {
+            ok: false,
+            channel: 'SMS',
+            error:
+              'Conectá Grow Business en /affiliate/crm/integrations para enviar mensajes.',
+            contact: updatedContact,
+          };
+        }
+        // Si el botón tiene adjunto, agregamos la URL al final del mensaje
+        // — LeadConnector SMS no acepta attachments binarios, así que el
+        // link es lo más cercano que podemos hacer.
+        const finalBody = btn.attachmentUrl
+          ? `${message}\n\n${btn.attachmentUrl}`
+          : message;
+        const result = await this.growBusiness.sendSmsWithCreds(
+          { locationId: userWithGb.crmGbLocationId, apiKey: userWithGb.crmGbApiKey },
+          phoneRaw,
+          finalBody,
+        );
+        if (!result.ok) {
+          return {
+            ok: false,
+            channel: 'SMS',
+            error:
+              (result as any).message ??
+              'No se pudo enviar el mensaje. Revisá la conexión Grow Business.',
+            contact: updatedContact,
+          };
+        }
         return {
           ok: true,
           channel: 'SMS',
-          pending: true,
           message,
-          note: 'Envío SMS server-side llega cuando conectes Grow Business al equipo (C7).',
           contact: updatedContact,
         };
+      }
       case 'EMAIL':
         return {
           ok: true,
