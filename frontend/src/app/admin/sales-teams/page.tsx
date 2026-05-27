@@ -489,19 +489,19 @@ function ModalShell({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4 animate-in fade-in duration-150"
       onClick={onClose}
     >
       <div
-        className={`bg-white rounded-xl shadow-2xl w-full ${wide ? 'max-w-2xl' : 'max-w-md'} max-h-[90vh] overflow-y-auto`}
+        className={`bg-white shadow-2xl w-full ${wide ? 'max-w-2xl' : 'max-w-md'} max-h-[92vh] overflow-y-auto rounded-t-2xl sm:rounded-xl`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 py-3 border-b border-line">
+        <div className="sticky top-0 bg-white z-10 flex items-center justify-between px-5 py-3 border-b border-line">
           <div className="font-semibold">{title}</div>
           <button
             type="button"
             onClick={onClose}
-            className="text-mute hover:text-ink text-xl leading-none"
+            className="text-mute hover:text-ink text-2xl leading-none w-9 h-9 flex items-center justify-center -mr-2"
             aria-label="Cerrar"
           >
             ×

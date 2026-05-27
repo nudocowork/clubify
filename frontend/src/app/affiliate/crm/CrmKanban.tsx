@@ -207,38 +207,74 @@ export function CrmKanban() {
 
   return (
     <div>
-      {/* Header */}
+      {/* Header — en mobile las acciones principales (Dashboard/+Columna/
+          +Contacto) van en el page-head; los links secundarios (Botones,
+          Integraciones, Métricas) bajan a una barra de chips
+          scrolleable. En desktop todo va en línea en el header. */}
       <div className="page-head">
         <h1 className="page-title">
           {pipeline.name} <span className="page-crumb">/ CRM</span>
         </h1>
-        <div className="flex gap-2 flex-wrap">
-          <Link href="/affiliate" className="btn-ghost text-sm">
+        <div className="flex gap-2 flex-wrap items-center">
+          <Link href="/affiliate" className="btn-ghost text-xs sm:text-sm">
             ← Dashboard
           </Link>
-          <Link href="/affiliate/crm/buttons" className="btn-ghost text-sm">
+          {/* Links secundarios — visibles inline solo en desktop */}
+          <Link
+            href="/affiliate/crm/buttons"
+            className="hidden sm:inline-flex btn-ghost text-sm"
+          >
             ⚡ Botones
           </Link>
-          <Link href="/affiliate/crm/integrations" className="btn-ghost text-sm">
+          <Link
+            href="/affiliate/crm/integrations"
+            className="hidden sm:inline-flex btn-ghost text-sm"
+          >
             🔗 Integraciones
           </Link>
-          <Link href="/affiliate/crm/metrics" className="btn-ghost text-sm">
+          <Link
+            href="/affiliate/crm/metrics"
+            className="hidden sm:inline-flex btn-ghost text-sm"
+          >
             📊 Métricas
           </Link>
           <button
-            className="btn-ghost text-sm"
+            className="btn-ghost text-xs sm:text-sm"
             onClick={() => setAddingStage(true)}
             title="Agregar columna"
           >
             ＋ Columna
           </button>
           <button
-            className="btn-primary text-sm"
+            className="btn-primary text-xs sm:text-sm"
             onClick={() => setNewContactStageId(stages[0]?.id ?? null)}
           >
             ＋ Contacto
           </button>
         </div>
+      </div>
+
+      {/* Mobile-only sub-nav: chips scrolleables con los links secundarios.
+          Evita inflar el page-head en pantallas chicas. */}
+      <div className="sm:hidden -mx-2 px-2 mb-2 flex gap-1.5 overflow-x-auto">
+        <Link
+          href="/affiliate/crm/buttons"
+          className="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border border-line text-mute hover:text-ink bg-bg2/40"
+        >
+          ⚡ Botones
+        </Link>
+        <Link
+          href="/affiliate/crm/integrations"
+          className="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border border-line text-mute hover:text-ink bg-bg2/40"
+        >
+          🔗 Integraciones
+        </Link>
+        <Link
+          href="/affiliate/crm/metrics"
+          className="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border border-line text-mute hover:text-ink bg-bg2/40"
+        >
+          📊 Métricas
+        </Link>
       </div>
 
       {/* Mobile stage tabs (visible solo en sm:hidden) */}
@@ -597,7 +633,7 @@ function NewContactModal({
             autoFocus
           />
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="label">Teléfono</label>
             <input
@@ -872,7 +908,7 @@ function ContactDrawer({
               onChange={(e) => setForm({ ...form, name: e.target.value })}
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="label">Teléfono</label>
               <input
@@ -943,11 +979,11 @@ function ContactDrawer({
                     type="button"
                     onClick={() => onClickButton(b)}
                     disabled={executing}
-                    className="px-3 py-2 rounded-lg text-white text-xs font-medium text-left hover:opacity-90 transition disabled:opacity-50"
+                    className="px-3 py-2.5 rounded-lg text-white text-xs font-medium hover:opacity-90 transition disabled:opacity-50 flex items-center gap-1.5 min-w-0"
                     style={{ background: b.color }}
                   >
-                    <span className="mr-1.5">{b.icon || '⚡'}</span>
-                    <span className="truncate">{b.name}</span>
+                    <span className="flex-none">{b.icon || '⚡'}</span>
+                    <span className="truncate text-left flex-1">{b.name}</span>
                   </button>
                 ))}
               </div>
@@ -1283,19 +1319,19 @@ function ModalShell({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4 animate-in fade-in duration-150"
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto"
+        className="bg-white shadow-2xl w-full max-w-md max-h-[92vh] overflow-y-auto rounded-t-2xl sm:rounded-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 py-3 border-b border-line">
+        <div className="sticky top-0 bg-white z-10 flex items-center justify-between px-5 py-3 border-b border-line">
           <div className="font-semibold">{title}</div>
           <button
             type="button"
             onClick={onClose}
-            className="text-mute hover:text-ink text-xl leading-none"
+            className="text-mute hover:text-ink text-2xl leading-none w-9 h-9 flex items-center justify-center -mr-2"
             aria-label="Cerrar"
           >
             ×
