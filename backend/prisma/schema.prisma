@@ -535,6 +535,15 @@ model User {
   // CRM (C6): actividades registradas por el user (historial de
   // contactos). userId apunta al que disparó la acción.
   crmActivities       CrmActivity[]        @relation("CrmActivityUser")
+  // CRM (C7): conexión personal a Grow Business para sync de contactos.
+  // Cada afiliado conecta su propia subcuenta. apiKey se guarda plain
+  // por ahora (TODO: cifrar con KMS en una iteración futura).
+  crmGbLocationId     String?
+  crmGbApiKey         String?
+  crmGbLocationName   String?              // cache del nombre para UI
+  crmGbConnectedAt    DateTime?
+  crmGbLastSyncAt     DateTime?
+  crmGbLastSyncCount  Int?
 
   @@index([tenantId])
   @@index([role])
@@ -2329,8 +2338,16 @@ model CrmContact {
 
   activities CrmActivity[]
 
+  // C7: si el contacto fue sincronizado desde una fuente externa
+  // (Grow Business), guardamos el id externo para dedup en próximas
+  // sincronizaciones. externalSource permite extender a otras integraciones
+  // (HubSpot, Pipedrive, etc.) sin cambiar el schema.
+  externalContactId String?
+  externalSource    String?
+
   @@index([ownerUserId, stageId])
   @@index([ownerUserId, lastActivityAt])
+  @@index([ownerUserId, externalContactId])
 }
 
 // Equipo de ventas (C4). Agrupación administrativa de afiliados/users
