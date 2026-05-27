@@ -106,6 +106,10 @@ class ButtonExecuteBody {
   @IsString() contactId!: string;
 }
 
+class NoteAddBody {
+  @IsString() @MaxLength(4000) body!: string;
+}
+
 /**
  * CRM (Bloque C — C1). Endpoints scoped al user actual: cada afiliado
  * tiene SU propio pipeline + stages. No hay path params de userId — el
@@ -268,5 +272,27 @@ export class CrmController {
     @Body() body: ButtonExecuteBody,
   ) {
     return this.svc.executeButton(user, id, body.contactId);
+  }
+
+  // ────────────── Historial / Actividades (C6) ──────────────
+
+  /** Timeline del contacto: todas las actividades ordenadas por fecha
+   *  desc. Solo el dueño del contacto puede leerlo. */
+  @Get('contacts/:id/activities')
+  listActivities(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    return this.svc.listContactActivities(user, id);
+  }
+
+  /** Agrega una nota manual al contacto. Va al timeline como NOTE_ADDED. */
+  @Post('contacts/:id/notes')
+  addNote(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: NoteAddBody,
+  ) {
+    return this.svc.addNote(user, id, body.body);
   }
 }
