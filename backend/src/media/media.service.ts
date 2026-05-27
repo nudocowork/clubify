@@ -8,14 +8,84 @@ import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { nanoid } from 'nanoid';
 import sharp from 'sharp';
 
-const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+const ALLOWED_IMAGE = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+const ALLOWED_AUDIO = [
+  'audio/mpeg',
+  'audio/mp3',
+  'audio/wav',
+  'audio/x-wav',
+  'audio/wave',
+  'audio/mp4',
+  'audio/m4a',
+  'audio/x-m4a',
+  'audio/aac',
+  'audio/ogg',
+  'audio/webm',
+];
+const ALLOWED_VIDEO = [
+  'video/mp4',
+  'video/quicktime',
+  'video/webm',
+  'video/x-m4v',
+];
+const ALLOWED_DOCUMENT = [
+  'application/pdf',
+];
 const MAX_SIZE = 15 * 1024 * 1024; // 15 MB default — sharp pipeline reencode/resize a 2560px+webp
 // Folders que aceptan archivos más grandes (menús-imagen de alta resolución
 // vienen del diseñador en PDF→PNG y suelen pesar >15 MB sin optimizar).
 // Backend igual los reduce a OPT_MAX_DIMENSION=2560 y WebP 90q antes de
 // subir al bucket, así el archivo final servido es liviano.
 const MAX_SIZE_LARGE = 25 * 1024 * 1024;
+const MAX_SIZE_AUDIO = 50 * 1024 * 1024; // 50 MB — audios largos para secuencias CRM
+const MAX_SIZE_VIDEO = 100 * 1024 * 1024; // 100 MB — videos cortos vertical
+const MAX_SIZE_DOCUMENT = 30 * 1024 * 1024; // 30 MB — PDFs/catálogos
 const LARGE_FOLDERS = new Set(['menu-book', 'menu-book-popup']);
+
+/** Multer limit global tope (cubre el archivo más pesado: video 100MB). */
+export const MEDIA_MULTER_LIMIT_BYTES = MAX_SIZE_VIDEO;
+
+type MediaCategory = 'image' | 'audio' | 'video' | 'document';
+
+function categorize(mimetype: string): MediaCategory | null {
+  if (ALLOWED_IMAGE.includes(mimetype)) return 'image';
+  if (ALLOWED_AUDIO.includes(mimetype)) return 'audio';
+  if (ALLOWED_VIDEO.includes(mimetype)) return 'video';
+  if (ALLOWED_DOCUMENT.includes(mimetype)) return 'document';
+  return null;
+}
+
+/**
+ * Deriva extensión del archivo para non-images. Preferimos la del originalname
+ * sanitizada (preserva m4a/wav/mov etc). Fallback al mimetype default por
+ * categoría si el originalname no trae extensión usable.
+ */
+function extForCategory(
+  file: Express.Multer.File,
+  category: MediaCategory,
+): string {
+  const fromName = (file.originalname.split('.').pop() ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .slice(0, 8);
+  if (fromName) return fromName;
+  if (category === 'audio') {
+    if (file.mimetype.includes('wav')) return 'wav';
+    if (file.mimetype.includes('m4a') || file.mimetype.includes('mp4'))
+      return 'm4a';
+    if (file.mimetype.includes('aac')) return 'aac';
+    if (file.mimetype.includes('ogg')) return 'ogg';
+    if (file.mimetype.includes('webm')) return 'webm';
+    return 'mp3';
+  }
+  if (category === 'video') {
+    if (file.mimetype.includes('quicktime')) return 'mov';
+    if (file.mimetype.includes('webm')) return 'webm';
+    return 'mp4';
+  }
+  if (category === 'document') return 'pdf';
+  return 'bin';
+}
 
 // Umbrales de optimización. Imágenes grandes se resize-an a 2560px max y
 // se reencodean a webp (excepto GIF que conserva animation y PNG con alpha
@@ -93,15 +163,35 @@ export class MediaService {
     tenantId?: string;
     folder?: string;
     file: Express.Multer.File;
-  }): Promise<{ url: string; key: string; size: number; contentType: string }> {
+  }): Promise<{
+    url: string;
+    key: string;
+    size: number;
+    contentType: string;
+    category: MediaCategory;
+  }> {
     if (!opts.file) throw new BadRequestException('No file provided');
     const folder = opts.folder ?? 'products';
-    const maxSize = LARGE_FOLDERS.has(folder) ? MAX_SIZE_LARGE : MAX_SIZE;
-    if (opts.file.size > maxSize) {
-      throw new BadRequestException(`Archivo muy grande (max ${maxSize / 1024 / 1024}MB)`);
-    }
-    if (!ALLOWED.includes(opts.file.mimetype)) {
+
+    const category = categorize(opts.file.mimetype);
+    if (!category) {
       throw new BadRequestException(`Tipo no permitido: ${opts.file.mimetype}`);
+    }
+
+    const maxSize =
+      category === 'audio'
+        ? MAX_SIZE_AUDIO
+        : category === 'video'
+          ? MAX_SIZE_VIDEO
+          : category === 'document'
+            ? MAX_SIZE_DOCUMENT
+            : LARGE_FOLDERS.has(folder)
+              ? MAX_SIZE_LARGE
+              : MAX_SIZE;
+    if (opts.file.size > maxSize) {
+      throw new BadRequestException(
+        `Archivo muy grande (max ${maxSize / 1024 / 1024}MB)`,
+      );
     }
     if (!this.configured && process.env.NODE_ENV === 'production') {
       throw new ServiceUnavailableException(
@@ -111,19 +201,35 @@ export class MediaService {
 
     const tenantPart = opts.tenantId ? `${opts.tenantId}/` : '';
 
-    // Optimización: resize + re-encode si la imagen es grande. Best-effort —
-    // si sharp falla por cualquier razón, subimos el original sin bloquear.
-    const optimized = await this.maybeOptimize(opts.file);
-    const ext = optimized.ext;
-    const key = `${tenantPart}${folder}/${nanoid(16)}.${ext}`;
+    // Para imágenes: pipeline sharp con resize/re-encode. Para audio/video/PDF:
+    // upload directo sin tocar (sharp no aplica y comprimirlos de otra forma
+    // requiere ffmpeg/qpdf que no tenemos en el container).
+    let bodyBuffer: Buffer;
+    let outContentType: string;
+    let outExt: string;
+
+    if (category === 'image') {
+      const optimized = await this.maybeOptimize(opts.file);
+      bodyBuffer = optimized.buffer;
+      outContentType = optimized.contentType;
+      outExt = optimized.ext;
+    } else {
+      bodyBuffer = opts.file.buffer;
+      outContentType = opts.file.mimetype;
+      outExt = extForCategory(opts.file, category);
+    }
+
+    const key = `${tenantPart}${folder}/${nanoid(16)}.${outExt}`;
 
     try {
       await this.s3.send(
         new PutObjectCommand({
           Bucket: this.bucket,
           Key: key,
-          Body: optimized.buffer,
-          ContentType: optimized.contentType,
+          Body: bodyBuffer,
+          ContentType: outContentType,
+          // Imágenes: immutable (nombre incluye hash random, nunca cambia).
+          // Non-images: igual immutable porque el key tiene nanoid único.
           CacheControl: 'public, max-age=31536000, immutable',
         }),
       );
@@ -134,21 +240,21 @@ export class MediaService {
       );
     }
 
-    // URL pública servible al cliente (R2 público o CDN custom)
     const url = `${this.publicUrl.replace(/\/$/, '')}/${key}`;
     const savings =
-      opts.file.size > optimized.buffer.length
-        ? ` -${Math.round((1 - optimized.buffer.length / opts.file.size) * 100)}%`
+      category === 'image' && opts.file.size > bodyBuffer.length
+        ? ` -${Math.round((1 - bodyBuffer.length / opts.file.size) * 100)}%`
         : '';
     this.logger.log(
-      `Uploaded ${key} (${optimized.buffer.length} bytes,` +
-        ` was ${opts.file.size}${savings}, ${optimized.contentType})`,
+      `Uploaded ${key} (${bodyBuffer.length} bytes,` +
+        ` was ${opts.file.size}${savings}, ${outContentType}, cat=${category})`,
     );
     return {
       url,
       key,
-      size: optimized.buffer.length,
-      contentType: optimized.contentType,
+      size: bodyBuffer.length,
+      contentType: outContentType,
+      category,
     };
   }
 
