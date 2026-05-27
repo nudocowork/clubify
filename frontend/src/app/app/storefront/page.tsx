@@ -46,6 +46,9 @@ type Storefront = {
   popupDelaySeconds?: number;
   whatsappButtonEnabled?: boolean;
   pageBackgroundColor?: string | null;
+  pageBackgroundType?: string | null;
+  pageBackgroundGradient?: string | null;
+  pageBackgroundImageUrl?: string | null;
   logoBgColor?: string | null;
   titleColor?: string | null;
   descriptionColor?: string | null;
@@ -206,6 +209,9 @@ export default function StorefrontEditor() {
           popupDelaySeconds: sf.popupDelaySeconds ?? 10,
           whatsappButtonEnabled: sf.whatsappButtonEnabled ?? true,
           pageBackgroundColor: sf.pageBackgroundColor ?? null,
+          pageBackgroundType: sf.pageBackgroundType ?? null,
+          pageBackgroundGradient: sf.pageBackgroundGradient ?? null,
+          pageBackgroundImageUrl: sf.pageBackgroundImageUrl ?? null,
           logoBgColor: sf.logoBgColor ?? null,
           titleColor: sf.titleColor ?? null,
           descriptionColor: sf.descriptionColor ?? null,
@@ -391,21 +397,21 @@ export default function StorefrontEditor() {
             })}
           </div>
 
-          {/* Color de fondo de la página pública. Configurable para todos
-              los layouts pero especialmente útil en SECTIONS donde el
-              cliente quiere matchear el fondo con su brand. NULL = usar
-              default del layout. */}
-          <h3 className="text-base font-semibold mt-6 mb-3">🖌 Color de fondo de la página</h3>
+          {/* Fondo de la página pública: 3 tipos (sólido / gradiente /
+              imagen). El viewer aplica el tipo según pageBackgroundType.
+              Compat: storefronts viejos quedan con type=null → SOLID. */}
+          <h3 className="text-base font-semibold mt-6 mb-3">🖌 Fondo de la página</h3>
           <p className="text-mute text-xs mb-3 leading-relaxed">
-            Color de fondo del {mainLabel.toLowerCase()} público. Por defecto
-            se usa un gris muy claro (o negro en el layout Fondo oscuro).
-            Cambialo si querés que el fondo combine con tu marca — útil sobre
-            todo en <strong>Secciones premium</strong>.
+            Elegí cómo querés el fondo del {mainLabel.toLowerCase()} público:
+            color sólido, gradiente personalizado o imagen.
           </p>
-          <PageBgColorPicker
-            value={sf.pageBackgroundColor ?? ''}
+          <PageBackgroundEditor
+            type={(sf.pageBackgroundType as any) ?? 'SOLID'}
+            color={sf.pageBackgroundColor ?? ''}
+            gradient={sf.pageBackgroundGradient ?? ''}
+            imageUrl={sf.pageBackgroundImageUrl ?? ''}
             isCluvi={(sf.menuLayout ?? 'CLASSIC') === 'CLUVI'}
-            onChange={(v) => setSf({ ...sf, pageBackgroundColor: v })}
+            onChange={(patch) => setSf({ ...sf, ...patch })}
           />
 
           {/* Colores del header público — contenedor del logo + título +
@@ -1309,6 +1315,211 @@ function BackButtonEditor({
 /** Selector del color de fondo de la página pública. value vacío = usar
  *  default del layout. Ofrece swatches con los defaults conocidos +
  *  selector libre + botón "usar default" para limpiar. */
+/**
+ * Editor con tabs para 3 tipos de fondo de la página pública:
+ *   SOLID    → un color (delega a PageBgColorPicker existente)
+ *   GRADIENT → 2 colores + dirección (genera linear-gradient CSS)
+ *   IMAGE    → URL de imagen (ImageUploader → R2)
+ * Incluye un preview grande del fondo final aplicado al final.
+ */
+type PageBgType = 'SOLID' | 'GRADIENT' | 'IMAGE';
+
+function PageBackgroundEditor({
+  type,
+  color,
+  gradient,
+  imageUrl,
+  isCluvi,
+  onChange,
+}: {
+  type: PageBgType;
+  color: string;
+  gradient: string;
+  imageUrl: string;
+  isCluvi: boolean;
+  onChange: (patch: {
+    pageBackgroundType?: string | null;
+    pageBackgroundColor?: string | null;
+    pageBackgroundGradient?: string | null;
+    pageBackgroundImageUrl?: string | null;
+  }) => void;
+}) {
+  // Parseamos el gradient para mostrar el editor amigable. Si el user
+  // pegó algo manual que no matchea nuestro patrón, mostramos sólo el
+  // input raw. Patrón soportado: linear-gradient(<deg>deg, <c1>, <c2>).
+  const parsed = parseGradient(gradient);
+  const [c1, setC1] = useState(parsed?.c1 ?? '#6366F1');
+  const [c2, setC2] = useState(parsed?.c2 ?? '#EC4899');
+  const [deg, setDeg] = useState<number>(parsed?.deg ?? 135);
+
+  // Cuando el user edita los 2 colores + dirección, regeneramos el
+  // gradient y lo guardamos. Esto es controlled — el render del preview
+  // refleja el cambio inmediatamente sin save.
+  function applyGradient(nextC1: string, nextC2: string, nextDeg: number) {
+    setC1(nextC1);
+    setC2(nextC2);
+    setDeg(nextDeg);
+    const next = `linear-gradient(${nextDeg}deg, ${nextC1}, ${nextC2})`;
+    onChange({ pageBackgroundGradient: next });
+  }
+
+  const defaultBg = isCluvi ? '#0a0a0a' : '#FAFBFC';
+  // CSS final aplicado en preview — matchea exactamente la lógica del
+  // viewer (storefront-client.tsx).
+  let previewCss = color || defaultBg;
+  if (type === 'GRADIENT' && gradient) previewCss = gradient;
+  if (type === 'IMAGE' && imageUrl)
+    previewCss = `url("${imageUrl}") center/cover no-repeat ${defaultBg}`;
+
+  const TABS: { id: PageBgType; label: string; icon: string }[] = [
+    { id: 'SOLID', label: 'Color', icon: '🎨' },
+    { id: 'GRADIENT', label: 'Gradiente', icon: '🌈' },
+    { id: 'IMAGE', label: 'Imagen', icon: '🖼️' },
+  ];
+
+  // Presets de gradientes para arranque rápido.
+  const GRADIENT_PRESETS = [
+    { c1: '#6366F1', c2: '#EC4899', deg: 135, label: 'Violeta → Rosa' },
+    { c1: '#22C55E', c2: '#0EA5E9', deg: 135, label: 'Verde → Celeste' },
+    { c1: '#F59E0B', c2: '#EF4444', deg: 135, label: 'Naranja → Rojo' },
+    { c1: '#0F172A', c2: '#475569', deg: 180, label: 'Noche oscura' },
+    { c1: '#FCD34D', c2: '#FB923C', deg: 135, label: 'Atardecer' },
+    { c1: '#A78BFA', c2: '#FBCFE8', deg: 135, label: 'Pastel suave' },
+  ];
+
+  return (
+    <div className="space-y-3">
+      {/* Tabs */}
+      <div className="flex gap-1.5 p-1 bg-bg2 rounded-lg">
+        {TABS.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => onChange({ pageBackgroundType: tab.id })}
+            className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition ${
+              type === tab.id
+                ? 'bg-white shadow-sm text-ink'
+                : 'text-mute hover:text-ink'
+            }`}
+          >
+            {tab.icon} {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Editor por tipo */}
+      {type === 'SOLID' && (
+        <PageBgColorPicker
+          value={color}
+          isCluvi={isCluvi}
+          onChange={(v) => onChange({ pageBackgroundColor: v })}
+        />
+      )}
+
+      {type === 'GRADIENT' && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="label">Color 1</label>
+              <input
+                type="color"
+                className="w-full h-11 rounded-lg border border-line cursor-pointer"
+                value={c1}
+                onChange={(e) => applyGradient(e.target.value, c2, deg)}
+              />
+            </div>
+            <div>
+              <label className="label">Color 2</label>
+              <input
+                type="color"
+                className="w-full h-11 rounded-lg border border-line cursor-pointer"
+                value={c2}
+                onChange={(e) => applyGradient(c1, e.target.value, deg)}
+              />
+            </div>
+            <div>
+              <label className="label">Ángulo · {deg}°</label>
+              <input
+                type="range"
+                min={0}
+                max={360}
+                step={5}
+                value={deg}
+                onChange={(e) =>
+                  applyGradient(c1, c2, Number(e.target.value))
+                }
+                className="w-full mt-2"
+              />
+            </div>
+          </div>
+          <div className="flex gap-1.5 flex-wrap items-center">
+            <span className="text-[10px] uppercase tracking-wider text-mute font-semibold mr-1">
+              Presets:
+            </span>
+            {GRADIENT_PRESETS.map((p) => (
+              <button
+                key={p.label}
+                type="button"
+                onClick={() => applyGradient(p.c1, p.c2, p.deg)}
+                className="w-12 h-7 rounded-md border-2 border-white hover:scale-105 transition"
+                style={{
+                  background: `linear-gradient(${p.deg}deg, ${p.c1}, ${p.c2})`,
+                  boxShadow: '0 0 0 1px rgba(0,0,0,0.1)',
+                }}
+                title={p.label}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {type === 'IMAGE' && (
+        <div className="space-y-2">
+          <ImageUploader
+            value={imageUrl || null}
+            onChange={(url) =>
+              onChange({ pageBackgroundImageUrl: url ?? null })
+            }
+            folder="storefront-bg"
+          />
+          <p className="text-[11px] text-mute leading-snug">
+            Recomendado: 1920×1080 px o mayor. La imagen se renderea con
+            cobertura completa (cover) centrada. El contenido del menú se
+            superpone — usá imágenes con áreas oscuras o difuminadas para
+            mantener legibilidad.
+          </p>
+        </div>
+      )}
+
+      {/* Preview en tiempo real */}
+      <div>
+        <label className="label">Vista previa</label>
+        <div
+          className="rounded-xl border border-line h-24 w-full"
+          style={{ background: previewCss }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// Parsea linear-gradient(<deg>deg, <c1>, <c2>) → { c1, c2, deg }. Si no
+// matchea (gradient custom pegado por el user), devuelve null.
+function parseGradient(
+  gradient: string,
+): { c1: string; c2: string; deg: number } | null {
+  if (!gradient) return null;
+  const m = gradient.match(
+    /^linear-gradient\(\s*(\d+)deg\s*,\s*([^,]+),\s*([^)]+)\)$/i,
+  );
+  if (!m) return null;
+  return {
+    deg: Number(m[1]),
+    c1: m[2].trim(),
+    c2: m[3].trim(),
+  };
+}
+
 function PageBgColorPicker({
   value,
   isCluvi,

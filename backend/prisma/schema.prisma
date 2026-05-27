@@ -1213,6 +1213,16 @@ model Storefront {
   // dueño quiere matchear el fondo con su brand. Cualquier color CSS
   // válido (#hex, rgb(), nombre).
   pageBackgroundColor   String?
+  // Tipo de fondo: 'SOLID' (usa pageBackgroundColor), 'GRADIENT' (usa
+  // pageBackgroundGradient), 'IMAGE' (usa pageBackgroundImageUrl). NULL
+  // = SOLID por compat con storefronts viejos.
+  pageBackgroundType    String?
+  // CSS gradient completo (ej: "linear-gradient(135deg, #6366F1, #EC4899)").
+  // Solo se aplica si pageBackgroundType='GRADIENT'.
+  pageBackgroundGradient String?
+  // URL de imagen R2 para el fondo. Se renderea como background-size cover
+  // + center. Solo se aplica si pageBackgroundType='IMAGE'.
+  pageBackgroundImageUrl String?
   // Color de fondo del contenedor del logo en el header del storefront
   // público. NULL = blanco (default histórico). Cualquier CSS válido,
   // incluyendo "transparent" para logos con fondo propio que deben
