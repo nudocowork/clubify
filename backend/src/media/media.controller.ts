@@ -15,8 +15,19 @@ import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorat
 import { Roles } from '../common/decorators/roles.decorator';
 import { Public } from '../common/decorators/public.decorator';
 
+// Afiliados (INFLUENCER/AMBASSADOR/SOCIO) también suben archivos —
+// adjuntos de botones del CRM (folder=crm-buttons). MARKETING entra
+// para los assets de marketing que gestiona cross-tenant.
 @Controller('media')
-@Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
+@Roles(
+  'TENANT_OWNER',
+  'TENANT_STAFF',
+  'SUPER_ADMIN',
+  'MARKETING',
+  'AFFILIATE_INFLUENCER',
+  'AFFILIATE_AMBASSADOR',
+  'AFFILIATE_SOCIO',
+)
 export class MediaController {
   constructor(private svc: MediaService) {}
 

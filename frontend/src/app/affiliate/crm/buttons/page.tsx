@@ -33,20 +33,6 @@ type CrmButton = {
   requiresConfirmation: boolean;
 };
 
-const CHANNEL_LABEL: Record<Channel, string> = {
-  WHATSAPP: '💬 WhatsApp',
-  SMS: '📱 SMS',
-  EMAIL: '📧 Email',
-  NOTE: '📝 Solo nota',
-};
-
-const CHANNEL_HINT: Record<Channel, string> = {
-  WHATSAPP: 'Abre wa.me con el mensaje precargado en una pestaña nueva.',
-  SMS: 'Envío via Grow Business (próximamente, ahora aplica solo los side-effects).',
-  EMAIL: 'Envío por email (próximamente, ahora aplica solo los side-effects).',
-  NOTE: 'No envía mensaje — solo aplica side-effects (mover stage, etiquetas).',
-};
-
 export default function CrmButtonsPage() {
   const [buttons, setButtons] = useState<CrmButton[] | null>(null);
   const [stages, setStages] = useState<Stage[]>([]);
@@ -140,7 +126,6 @@ export default function CrmButtonsPage() {
               <div className="flex-1 min-w-0">
                 <div className="font-semibold truncate">{b.name}</div>
                 <div className="text-xs text-mute mt-0.5 flex flex-wrap gap-2">
-                  <span>{CHANNEL_LABEL[b.channel]}</span>
                   {b.moveToStage && (
                     <span>
                       → <strong>{b.moveToStage.name}</strong>
@@ -200,7 +185,11 @@ function ButtonFormModal({
     name: initial?.name ?? '',
     color: initial?.color ?? '#6366F1',
     icon: initial?.icon ?? '',
-    channel: (initial?.channel ?? 'WHATSAPP') as Channel,
+    // Channel siempre SMS por decisión del founder — el user no elige
+    // canal y la UI no lo menciona. Mantenemos el field por compat con
+    // botones viejos creados antes del cambio (que pueden tener
+    // WHATSAPP/EMAIL/NOTE). Al guardar siempre va SMS.
+    channel: 'SMS' as Channel,
     messageBody: initial?.messageBody ?? '',
     attachmentUrl: initial?.attachmentUrl ?? '',
     attachmentName: initial?.attachmentName ?? '',
@@ -288,70 +277,44 @@ function ButtonFormModal({
           </div>
         </div>
 
+        {/* Canal de envío oculto al user — siempre SMS internamente.
+            Decisión del founder: simplificar la UX, el usuario no
+            elige canal, el sistema sabe qué hacer. El channel se setea
+            a 'SMS' en el initial state del form y al submit. */}
+
         <div>
-          <label className="label">Canal de envío</label>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-            {(['WHATSAPP', 'SMS', 'EMAIL', 'NOTE'] as Channel[]).map((c) => (
-              <button
-                type="button"
-                key={c}
-                onClick={() => setForm({ ...form, channel: c })}
-                className={`px-2 py-2 rounded-lg border text-xs font-medium transition ${
-                  form.channel === c
-                    ? 'border-ink bg-ink text-white'
-                    : 'border-line text-mute hover:text-ink'
-                }`}
-              >
-                {CHANNEL_LABEL[c]}
-              </button>
-            ))}
-          </div>
-          <p className="text-[11px] text-mute mt-1">{CHANNEL_HINT[form.channel]}</p>
+          <label className="label">
+            Mensaje{' '}
+            <span className="text-mute font-normal">
+              — usá {'{{name}}'}, {'{{phone}}'}, {'{{instagram}}'} para personalizar
+            </span>
+          </label>
+          <textarea
+            className="input"
+            rows={4}
+            value={form.messageBody}
+            onChange={(e) => setForm({ ...form, messageBody: e.target.value })}
+            placeholder="Hola {{name}}, gracias por la reunión..."
+            maxLength={4000}
+          />
         </div>
 
-        {form.channel !== 'NOTE' && (
-          <div>
-            <label className="label">
-              Mensaje{' '}
-              <span className="text-mute font-normal">
-                — usá {'{{name}}'}, {'{{phone}}'}, {'{{instagram}}'} para personalizar
-              </span>
-            </label>
-            <textarea
-              className="input"
-              rows={4}
-              value={form.messageBody}
-              onChange={(e) => setForm({ ...form, messageBody: e.target.value })}
-              placeholder="Hola {{name}}, gracias por la reunión..."
-              maxLength={4000}
-            />
-          </div>
-        )}
-
-        {form.channel !== 'NOTE' && (
-          <div>
-            <label className="label">
-              Adjunto <span className="text-mute font-normal">— opcional</span>
-            </label>
-            <ImageUploader
-              value={form.attachmentUrl || null}
-              onChange={(url) =>
-                setForm({
-                  ...form,
-                  attachmentUrl: url ?? '',
-                  attachmentName: url ? (url.split('/').pop() ?? '') : '',
-                })
-              }
-              folder="crm-buttons"
-            />
-            {form.channel === 'WHATSAPP' && form.attachmentUrl && (
-              <p className="text-[11px] text-mute mt-1">
-                ⓘ WhatsApp Web no acepta archivos vía link. Se adjunta la URL
-                al final del mensaje — el cliente lo descarga desde ahí.
-              </p>
-            )}
-          </div>
-        )}
+        <div>
+          <label className="label">
+            Adjunto <span className="text-mute font-normal">— opcional</span>
+          </label>
+          <ImageUploader
+            value={form.attachmentUrl || null}
+            onChange={(url) =>
+              setForm({
+                ...form,
+                attachmentUrl: url ?? '',
+                attachmentName: url ? (url.split('/').pop() ?? '') : '',
+              })
+            }
+            folder="crm-buttons"
+          />
+        </div>
 
         <div>
           <label className="label">Mover a columna (side effect)</label>
