@@ -10,7 +10,8 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
-import { ImageUploader } from '@/components/ImageUploader';
+import { FileUploader } from '@/components/FileUploader';
+import { MessageEditor } from '@/components/MessageEditor';
 
 type Channel = 'SMS' | 'WHATSAPP' | 'EMAIL' | 'NOTE';
 
@@ -283,36 +284,32 @@ function ButtonFormModal({
             a 'SMS' en el initial state del form y al submit. */}
 
         <div>
-          <label className="label">
-            Mensaje{' '}
-            <span className="text-mute font-normal">
-              — usá {'{{name}}'}, {'{{phone}}'}, {'{{instagram}}'} para personalizar
-            </span>
-          </label>
-          <textarea
-            className="input"
-            rows={4}
+          <label className="label">Mensaje</label>
+          <MessageEditor
             value={form.messageBody}
-            onChange={(e) => setForm({ ...form, messageBody: e.target.value })}
-            placeholder="Hola {{name}}, gracias por la reunión..."
-            maxLength={4000}
+            onChange={(next) => setForm({ ...form, messageBody: next })}
+            rows={4}
+            placeholder="Hola {nombre}, gracias por la reunión..."
           />
         </div>
 
         <div>
           <label className="label">
-            Adjunto <span className="text-mute font-normal">— opcional</span>
+            Adjunto <span className="text-mute font-normal">— imagen, audio, video o PDF</span>
           </label>
-          <ImageUploader
+          <FileUploader
             value={form.attachmentUrl || null}
-            onChange={(url) =>
+            onChange={(url, meta) =>
               setForm({
                 ...form,
                 attachmentUrl: url ?? '',
-                attachmentName: url ? (url.split('/').pop() ?? '') : '',
+                attachmentName: url
+                  ? (url.split('/').pop() ?? '')
+                  : '',
               })
             }
             folder="crm-buttons"
+            kind="any"
           />
         </div>
 
