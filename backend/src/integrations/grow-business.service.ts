@@ -273,29 +273,75 @@ export class GrowBusinessService {
       };
     }
 
+    return this.postChannelMessage(creds.apiKey, contactId, 'SMS', messageBody);
+  }
+
+  /**
+   * Envía un WhatsApp message server-side via Grow Business (F6).
+   * Mismo flujo que sendSmsWithCreds (upsert contact + POST messages)
+   * pero con `type: 'WhatsApp'`. La subcuenta GB del afiliado debe tener
+   * WhatsApp habilitado en LeadConnector — si no, la API devuelve un
+   * 422 con mensaje claro y lo propagamos al user.
+   */
+  async sendWhatsAppWithCreds(
+    creds: { locationId: string; apiKey: string },
+    toPhone: string,
+    body: string,
+  ) {
+    if (!creds.locationId || !creds.apiKey) {
+      return { ok: false as const, message: 'Credenciales incompletas' };
+    }
+    const contactId = await this.upsertContact(
+      creds.locationId,
+      creds.apiKey,
+      toPhone,
+    );
+    if (!contactId) {
+      return {
+        ok: false as const,
+        message:
+          'No se pudo crear/buscar el contacto en Grow Business. Revisá API key, location y formato del teléfono.',
+      };
+    }
+    return this.postChannelMessage(creds.apiKey, contactId, 'WhatsApp', body);
+  }
+
+  /**
+   * Helper interno: POST /conversations/messages con `type` específico.
+   * Devuelve mismo shape que las funciones públicas (ok/status/message/id).
+   */
+  private async postChannelMessage(
+    apiKey: string,
+    contactId: string,
+    type: 'SMS' | 'WhatsApp',
+    message: string,
+  ) {
     try {
       const res = await fetch(`${this.API_BASE}/conversations/messages`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${creds.apiKey}`,
+          Authorization: `Bearer ${apiKey}`,
           Version: this.API_VERSION,
           'Content-Type': 'application/json',
           Accept: 'application/json',
         },
-        body: JSON.stringify({
-          type: 'SMS',
-          contactId,
-          message: messageBody,
-        }),
+        body: JSON.stringify({ type, contactId, message }),
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
-        return { ok: false as const, status: res.status, message: text.slice(0, 200) };
+        return {
+          ok: false as const,
+          status: res.status,
+          message: text.slice(0, 200),
+        };
       }
       const data = await res.json().catch(() => ({}));
       return { ok: true as const, id: data?.messageId ?? data?.id ?? null };
     } catch (e: any) {
-      return { ok: false as const, message: e?.message ?? 'Error enviando SMS' };
+      return {
+        ok: false as const,
+        message: e?.message ?? `Error enviando ${type}`,
+      };
     }
   }
 }

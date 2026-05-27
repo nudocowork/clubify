@@ -762,7 +762,13 @@ export class SequencesService {
       };
     }
 
-    const result = await this.growBusiness.sendSmsWithCreds(
+    // F6: SMS vs WhatsApp según el canal del step. Default a SMS si
+    // no se especificó (botones legacy creados antes de F2).
+    const isWhatsApp = step.messageChannel === 'WHATSAPP';
+    const sendFn = isWhatsApp
+      ? this.growBusiness.sendWhatsAppWithCreds.bind(this.growBusiness)
+      : this.growBusiness.sendSmsWithCreds.bind(this.growBusiness);
+    const result = await sendFn(
       {
         locationId: userCreds.crmGbLocationId,
         apiKey: userCreds.crmGbApiKey,
@@ -773,7 +779,9 @@ export class SequencesService {
     if (!result.ok) {
       return {
         status: 'FAILED',
-        error: (result as any).message ?? 'Envío SMS falló',
+        error:
+          (result as any).message ??
+          `Envío ${isWhatsApp ? 'WhatsApp' : 'SMS'} falló`,
       };
     }
     // Update lastActivityAt
