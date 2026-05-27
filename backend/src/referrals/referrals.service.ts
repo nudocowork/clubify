@@ -1627,6 +1627,16 @@ export class ReferralsService {
 
     if (existing) {
       if (existing.referralCodeId === codeId) {
+        // Mismo código: idempotente, pero igual disparamos el backfill
+        // por si la asignación se hizo antes del fix de comisión
+        // retroactiva (caso del user que asignó sin commission y vuelve
+        // a apretar Asignar). El backfill es no-op si ya hay commission
+        // reciente.
+        await this.backfillCommissionForAssignment(
+          existing.id,
+          tenantId,
+          codeId,
+        ).catch(() => null);
         return { ok: true, assigned: existing.id };
       }
       // Reemplazo: borramos el viejo y creamos uno nuevo (más limpio que
@@ -1641,6 +1651,173 @@ export class ReferralsService {
         convertedAt: new Date(),
       },
     });
+
+    // Backfill de comisión retroactiva: si el tenant tiene un ciclo de
+    // pago vigente (currentPeriodEnd en el futuro = ya pagó este mes),
+    // generamos la Commission inmediatamente para que el afiliado vea su
+    // % desde ya. Sin esto la comisión recién aparecería en el próximo
+    // pago (~30 días). Idempotente: el patrón de hotmart "skip si última
+    // commission < 25 días" se mantiene por separado en el webhook.
+    await this.backfillCommissionForAssignment(created.id, tenantId, codeId).catch(
+      (e) => {
+        // No bloqueamos la asignación si falla el backfill — el admin
+        // puede generar manualmente la comisión desde /admin/referrals.
+        // eslint-disable-next-line no-console
+        console.warn(
+          `backfillCommissionForAssignment falló tenant=${tenantId}: ${(e as Error).message}`,
+        );
+      },
+    );
+
     return { ok: true, assigned: created.id };
+  }
+
+  /**
+   * Endpoint público admin: fuerza el backfill para la asignación
+   * actual del tenant. Útil cuando se asignó antes del fix y la
+   * comisión nunca se generó.
+   */
+  async backfillCommissionForCurrentAssignment(tenantId: string) {
+    const use = await this.prisma.referralUse.findFirst({
+      where: {
+        tenantId,
+        referralCode: { role: { in: ['INFLUENCER', 'AMBASSADOR'] } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!use) {
+      throw new NotFoundException(
+        'Este tenant no tiene asignación a INFLUENCER o AMBASSADOR',
+      );
+    }
+    await this.backfillCommissionForAssignment(
+      use.id,
+      tenantId,
+      use.referralCodeId,
+    );
+    const commissions = await this.prisma.commission.findMany({
+      where: { referralUseId: use.id },
+      orderBy: { createdAt: 'desc' },
+    });
+    return {
+      ok: true,
+      referralUseId: use.id,
+      commissions: commissions.map((c) => ({
+        id: c.id,
+        amount: Number(c.amount),
+        status: c.status,
+        createdAt: c.createdAt,
+      })),
+    };
+  }
+
+  /**
+   * Crea Commission(s) PENDING para una asignación recién hecha si el
+   * tenant ya está pagando este ciclo. Replica la lógica del webhook
+   * Hotmart pero sólo para el caso de asignación manual.
+   *
+   * - Directa: el código asignado (INFLUENCER o AMBASSADOR) cobra su
+   *   commissionPercent del priceMonthly del plan.
+   * - Indirecta: si es AMBASSADOR con parentCode (un influencer), el
+   *   influencer cobra el `referrals.indirectPercent` (default 5%).
+   *   Upsert del ReferralUse del parent si no existe todavía.
+   *
+   * Skip si:
+   * - El tenant no tiene plan o priceMonthly <= 0
+   * - El tenant no tiene currentPeriodEnd o ya venció (no está pagando)
+   * - Ya existe una Commission del último ciclo (<25 días) para este use
+   *   (defensa contra doble asignación si el admin re-asigna mismo code)
+   */
+  private async backfillCommissionForAssignment(
+    useId: string,
+    tenantId: string,
+    codeId: string,
+  ): Promise<void> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        currentPeriodEnd: true,
+        plan: { select: { priceMonthly: true } },
+      },
+    });
+    if (!tenant?.currentPeriodEnd) return;
+    if (new Date(tenant.currentPeriodEnd) <= new Date()) return; // ciclo vencido
+    const price = Number(tenant.plan?.priceMonthly ?? 0);
+    if (!price || price <= 0) return;
+
+    const code = await this.prisma.referralCode.findUnique({
+      where: { id: codeId },
+      include: { parentCode: true },
+    });
+    if (!code) return;
+    if (code.role !== 'INFLUENCER' && code.role !== 'AMBASSADOR') return;
+
+    // Defensa: si ya hay commission reciente para este use, skip.
+    const last = await this.prisma.commission.findFirst({
+      where: { referralUseId: useId },
+      orderBy: { createdAt: 'desc' },
+    });
+    const recent =
+      last &&
+      (Date.now() - new Date(last.createdAt).getTime()) / 86400_000 < 25;
+    if (recent) return;
+
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const pct = Number(code.commissionPercent ?? 25);
+    const direct = round2((price * pct) / 100);
+
+    await this.prisma.commission.create({
+      data: {
+        referralUseId: useId,
+        amount: direct,
+        status: 'PENDING',
+      },
+    });
+
+    // Indirecta: AMBASSADOR con parent INFLUENCER → 5% al influencer.
+    if (code.role === 'AMBASSADOR' && code.parentCode) {
+      const indirectPctRow = await this.prisma.setting.findUnique({
+        where: { key: 'referrals.indirectPercent' },
+      });
+      const indirectPct = indirectPctRow?.value
+        ? Number(indirectPctRow.value)
+        : 5;
+      const indirect = round2((price * indirectPct) / 100);
+
+      // Upsert ReferralUse del parent influencer (uno por tenant+code).
+      let parentUse = await this.prisma.referralUse.findFirst({
+        where: {
+          referralCodeId: code.parentCode.id,
+          tenantId,
+        },
+      });
+      if (!parentUse) {
+        parentUse = await this.prisma.referralUse.create({
+          data: {
+            referralCodeId: code.parentCode.id,
+            tenantId,
+            status: 'PAYING',
+            convertedAt: new Date(),
+          },
+        });
+      }
+      // Mismo guard 25-días para el parent.
+      const lastParent = await this.prisma.commission.findFirst({
+        where: { referralUseId: parentUse.id },
+        orderBy: { createdAt: 'desc' },
+      });
+      const recentParent =
+        lastParent &&
+        (Date.now() - new Date(lastParent.createdAt).getTime()) / 86400_000 < 25;
+      if (!recentParent) {
+        await this.prisma.commission.create({
+          data: {
+            referralUseId: parentUse.id,
+            amount: indirect,
+            status: 'PENDING',
+          },
+        });
+      }
+    }
   }
 }

@@ -287,4 +287,16 @@ export class ReferralsController {
   ) {
     return this.svc.setTenantAssignment(tenantId, body.referralCodeId ?? null);
   }
+
+  /**
+   * Fuerza la generación de comisión retroactiva para la asignación
+   * actual del tenant. Útil cuando se asignó antes del fix y la
+   * comisión nunca se generó (no llegó un pago Hotmart después).
+   * Idempotente: no-op si ya hay commission reciente (<25 días).
+   */
+  @Roles('SUPER_ADMIN')
+  @Post('tenants/:tenantId/backfill-commission')
+  backfillCommission(@Param('tenantId') tenantId: string) {
+    return this.svc.backfillCommissionForCurrentAssignment(tenantId);
+  }
 }
