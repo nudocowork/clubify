@@ -1,0 +1,218 @@
+'use client';
+
+/**
+ * /admin/sales-leaderboard — rankings globales del CRM (C8).
+ * Solo super admin. Muestra top usuarios y top equipos por
+ * totalContacts / clientCount / conversionRate.
+ */
+
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { api } from '@/lib/api';
+import { toast } from '@/components/Toast';
+
+type UserRanking = {
+  userId: string;
+  fullName: string;
+  email: string;
+  role: string;
+  totalContacts: number;
+  clientCount: number;
+  conversionRate: number;
+};
+
+type TeamRanking = {
+  teamId: string;
+  name: string;
+  memberCount: number;
+  totalContacts: number;
+  clientCount: number;
+  conversionRate: number;
+};
+
+type Sort = 'contacts' | 'clients' | 'conversion';
+
+export default function SalesLeaderboardPage() {
+  const [users, setUsers] = useState<UserRanking[] | null>(null);
+  const [teams, setTeams] = useState<TeamRanking[] | null>(null);
+  const [userSort, setUserSort] = useState<Sort>('contacts');
+  const [teamSort, setTeamSort] = useState<Sort>('contacts');
+
+  async function load() {
+    try {
+      const r = await api<{
+        users: UserRanking[];
+        teams: TeamRanking[];
+      }>('/admin/sales-teams/leaderboard');
+      setUsers(r.users);
+      setTeams(r.teams);
+    } catch (e: any) {
+      toast(e?.message || 'Error cargando leaderboard', 'error');
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  if (!users || !teams) {
+    return (
+      <div className="space-y-3">
+        <div className="h-10 bg-bg2 rounded animate-shimmer" />
+        <div className="h-64 bg-bg2 rounded animate-shimmer" />
+      </div>
+    );
+  }
+
+  const sortedUsers = sortRanking(users, userSort);
+  const sortedTeams = sortRanking(teams, teamSort);
+
+  return (
+    <div className="max-w-5xl">
+      <div className="page-head">
+        <h1 className="page-title">Leaderboard CRM</h1>
+        <Link href="/admin/sales-teams" className="btn-ghost text-sm">
+          ← Equipos de ventas
+        </Link>
+      </div>
+
+      <p className="text-mute text-sm mb-4 max-w-prose">
+        Ranking en vivo de afiliados y equipos por contactos, clientes
+        cerrados y tasa de conversión. Calculado on-the-fly desde la
+        base de datos — refleja el estado actual del CRM de cada
+        usuario.
+      </p>
+
+      <h2 className="font-semibold text-base mt-6 mb-3">🥇 Top afiliados</h2>
+      <SortTabs current={userSort} onChange={setUserSort} />
+      <div className="card overflow-x-auto mt-2">
+        <table className="w-full text-sm">
+          <thead className="text-[11px] uppercase tracking-wider text-mute">
+            <tr className="border-b border-line">
+              <th className="text-left px-3 py-2 w-10">#</th>
+              <th className="text-left px-3 py-2">Afiliado</th>
+              <th className="text-left px-3 py-2">Rol</th>
+              <th className="text-right px-3 py-2">Contactos</th>
+              <th className="text-right px-3 py-2">Clientes</th>
+              <th className="text-right px-3 py-2">Conversión</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortedUsers.length === 0 && (
+              <tr>
+                <td colSpan={6} className="text-center py-8 text-mute italic">
+                  Sin afiliados con contactos todavía.
+                </td>
+              </tr>
+            )}
+            {sortedUsers.map((u, idx) => (
+              <tr key={u.userId} className="border-b border-line hover:bg-bg2/30">
+                <td className="px-3 py-2 text-mute">{idx + 1}</td>
+                <td className="px-3 py-2">
+                  <div className="font-medium">{u.fullName}</div>
+                  <div className="text-[11px] text-mute">{u.email}</div>
+                </td>
+                <td className="px-3 py-2 text-xs">{u.role.replace('AFFILIATE_', '')}</td>
+                <td className="px-3 py-2 text-right font-semibold">
+                  {u.totalContacts}
+                </td>
+                <td className="px-3 py-2 text-right text-ok-ink font-semibold">
+                  {u.clientCount}
+                </td>
+                <td className="px-3 py-2 text-right">{u.conversionRate}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <h2 className="font-semibold text-base mt-8 mb-3">🏆 Top equipos</h2>
+      <SortTabs current={teamSort} onChange={setTeamSort} />
+      <div className="card overflow-x-auto mt-2">
+        <table className="w-full text-sm">
+          <thead className="text-[11px] uppercase tracking-wider text-mute">
+            <tr className="border-b border-line">
+              <th className="text-left px-3 py-2 w-10">#</th>
+              <th className="text-left px-3 py-2">Equipo</th>
+              <th className="text-right px-3 py-2">Miembros</th>
+              <th className="text-right px-3 py-2">Contactos</th>
+              <th className="text-right px-3 py-2">Clientes</th>
+              <th className="text-right px-3 py-2">Conversión</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortedTeams.length === 0 && (
+              <tr>
+                <td colSpan={6} className="text-center py-8 text-mute italic">
+                  Sin equipos creados.
+                </td>
+              </tr>
+            )}
+            {sortedTeams.map((t, idx) => (
+              <tr key={t.teamId} className="border-b border-line hover:bg-bg2/30">
+                <td className="px-3 py-2 text-mute">{idx + 1}</td>
+                <td className="px-3 py-2 font-medium">{t.name}</td>
+                <td className="px-3 py-2 text-right text-xs">{t.memberCount}</td>
+                <td className="px-3 py-2 text-right font-semibold">
+                  {t.totalContacts}
+                </td>
+                <td className="px-3 py-2 text-right text-ok-ink font-semibold">
+                  {t.clientCount}
+                </td>
+                <td className="px-3 py-2 text-right">{t.conversionRate}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function sortRanking<T extends { totalContacts: number; clientCount: number; conversionRate: number }>(
+  arr: T[],
+  by: Sort,
+): T[] {
+  const copy = [...arr];
+  switch (by) {
+    case 'clients':
+      return copy.sort((a, b) => b.clientCount - a.clientCount);
+    case 'conversion':
+      return copy.sort((a, b) => b.conversionRate - a.conversionRate);
+    case 'contacts':
+    default:
+      return copy.sort((a, b) => b.totalContacts - a.totalContacts);
+  }
+}
+
+function SortTabs({
+  current,
+  onChange,
+}: {
+  current: Sort;
+  onChange: (s: Sort) => void;
+}) {
+  const OPTIONS: { id: Sort; label: string }[] = [
+    { id: 'contacts', label: 'Por contactos' },
+    { id: 'clients', label: 'Por clientes' },
+    { id: 'conversion', label: 'Por conversión' },
+  ];
+  return (
+    <div className="flex gap-1.5">
+      {OPTIONS.map((o) => (
+        <button
+          key={o.id}
+          type="button"
+          onClick={() => onChange(o.id)}
+          className={`px-3 py-1.5 rounded-full text-xs font-medium transition border ${
+            current === o.id
+              ? 'border-ink text-ink bg-white'
+              : 'border-line text-mute hover:text-ink'
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}

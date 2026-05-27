@@ -1086,6 +1086,232 @@ export class CrmService {
 
     return { ok: true, created, updated, skipped };
   }
+
+  // =============================================================
+  //                      MÉTRICAS (C8)
+  // =============================================================
+
+  /**
+   * Métricas personales del afiliado actual. Calcula on-the-fly desde
+   * CrmContact + CrmActivity — sin tablas adicionales ni caching, así
+   * los números reflejan el estado real instantáneo. Cuando crezca el
+   * volumen (~10k contactos), considerar materialización con un cron
+   * que actualiza una tabla `CrmMetricSnapshot`.
+   */
+  async getMyMetrics(user: AuthUser) {
+    const pipeline = await this.ensureMyPipeline(user);
+    const stages = await this.prisma.stage.findMany({
+      where: { pipelineId: pipeline.id },
+      orderBy: { order: 'asc' },
+    });
+
+    // 1) Contactos por stage.
+    const contactsByStageRaw = await this.prisma.crmContact.groupBy({
+      by: ['stageId'],
+      where: { ownerUserId: user.id },
+      _count: { _all: true },
+    });
+    const byStageMap = new Map(
+      contactsByStageRaw.map((r) => [r.stageId, r._count._all]),
+    );
+    const stagesWithCount = stages.map((s) => ({
+      id: s.id,
+      name: s.name,
+      color: s.color,
+      kind: s.kind,
+      count: byStageMap.get(s.id) ?? 0,
+    }));
+    const totalContacts = stagesWithCount.reduce((sum, s) => sum + s.count, 0);
+
+    // 2) Conversión: contactos en stage kind=CLIENT vs total.
+    const clientCount = stagesWithCount
+      .filter((s) => s.kind === 'CLIENT')
+      .reduce((sum, s) => sum + s.count, 0);
+    const notInterestedCount = stagesWithCount
+      .filter((s) => s.kind === 'NOT_INTERESTED')
+      .reduce((sum, s) => sum + s.count, 0);
+    const conversionRate =
+      totalContacts > 0 ? Math.round((clientCount / totalContacts) * 100) : 0;
+
+    // 3) Tiempo promedio de cierre: para contactos actualmente en stage
+    //    CLIENT, calculamos avg(updatedAt — createdAt) en días. No es
+    //    perfecto (un contacto pudo volver a CLIENT después de salir),
+    //    pero es buena aproximación para C8 sin agregar tracking caro.
+    const clientStageIds = stagesWithCount
+      .filter((s) => s.kind === 'CLIENT')
+      .map((s) => s.id);
+    let avgCloseDays: number | null = null;
+    if (clientStageIds.length > 0) {
+      const clients = await this.prisma.crmContact.findMany({
+        where: {
+          ownerUserId: user.id,
+          stageId: { in: clientStageIds },
+        },
+        select: { createdAt: true, lastActivityAt: true },
+      });
+      if (clients.length > 0) {
+        const totalMs = clients.reduce(
+          (sum, c) =>
+            sum +
+            Math.max(
+              0,
+              c.lastActivityAt.getTime() - c.createdAt.getTime(),
+            ),
+          0,
+        );
+        avgCloseDays = Math.round(totalMs / clients.length / 86400_000);
+      }
+    }
+
+    // 4) Top botones usados (últimos 90 días) — agrupa CrmActivity de
+    //    tipo BUTTON_EXECUTED por buttonId del metadata.
+    const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+    const buttonActivities = await this.prisma.crmActivity.findMany({
+      where: {
+        userId: user.id,
+        type: 'BUTTON_EXECUTED',
+        createdAt: { gte: since },
+      },
+      select: { metadata: true },
+    });
+    const buttonCounts = new Map<string, { name: string; count: number }>();
+    for (const a of buttonActivities) {
+      const meta = a.metadata as any;
+      const id = String(meta?.buttonId ?? '');
+      const name = String(meta?.buttonName ?? 'Sin nombre');
+      if (!id) continue;
+      const cur = buttonCounts.get(id) ?? { name, count: 0 };
+      cur.count++;
+      buttonCounts.set(id, cur);
+    }
+    const topButtons = Array.from(buttonCounts.values())
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    // 5) Contactos creados últimos 30 días (timeline simple).
+    const last30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const createdLast30 = await this.prisma.crmContact.count({
+      where: {
+        ownerUserId: user.id,
+        createdAt: { gte: last30 },
+      },
+    });
+
+    return {
+      totalContacts,
+      clientCount,
+      notInterestedCount,
+      conversionRate,
+      avgCloseDays,
+      createdLast30,
+      byStage: stagesWithCount,
+      topButtons,
+    };
+  }
+
+  /**
+   * Rankings globales (super admin). Para cada user con role AFFILIATE_*:
+   *   - totalContacts
+   *   - clientCount
+   *   - conversionRate
+   *
+   * Y también el ranking de equipos por suma de clientCount entre
+   * sus miembros.
+   */
+  async getLeaderboard() {
+    // Agrupamos contactos por owner + count.
+    const byOwner = await this.prisma.crmContact.groupBy({
+      by: ['ownerUserId'],
+      _count: { _all: true },
+    });
+    const ownerIds = byOwner.map((r) => r.ownerUserId);
+    if (ownerIds.length === 0) {
+      return { users: [], teams: [] };
+    }
+
+    // Para clientCount, necesitamos saber qué stages son kind=CLIENT
+    // por pipeline. Hacemos una query única que trae stage.kind via join.
+    const clientContacts = await this.prisma.crmContact.findMany({
+      where: {
+        ownerUserId: { in: ownerIds },
+        stage: { kind: 'CLIENT' },
+      },
+      select: { ownerUserId: true },
+    });
+    const clientCountByOwner = new Map<string, number>();
+    for (const c of clientContacts) {
+      clientCountByOwner.set(
+        c.ownerUserId,
+        (clientCountByOwner.get(c.ownerUserId) ?? 0) + 1,
+      );
+    }
+
+    // Fetch info user.
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: ownerIds } },
+      select: { id: true, fullName: true, email: true, role: true },
+    });
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    const userRanking = byOwner
+      .map((r) => {
+        const u = userMap.get(r.ownerUserId);
+        if (!u) return null;
+        const total = r._count._all;
+        const clients = clientCountByOwner.get(r.ownerUserId) ?? 0;
+        return {
+          userId: u.id,
+          fullName: u.fullName,
+          email: u.email,
+          role: u.role,
+          totalContacts: total,
+          clientCount: clients,
+          conversionRate: total > 0 ? Math.round((clients / total) * 100) : 0,
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null)
+      .sort((a, b) => b.totalContacts - a.totalContacts)
+      .slice(0, 50);
+
+    // Top equipos: por cada SalesTeam, suma de contactos y clients de
+    // sus miembros (incluyendo el lead).
+    const teams = await this.prisma.salesTeam.findMany({
+      include: {
+        members: { select: { userId: true } },
+      },
+    });
+    const teamRanking = teams
+      .map((t) => {
+        const memberIds = [
+          ...(t.leadUserId ? [t.leadUserId] : []),
+          ...t.members.map((m) => m.userId),
+        ];
+        const uniqMembers = Array.from(new Set(memberIds));
+        let total = 0;
+        let clients = 0;
+        for (const id of uniqMembers) {
+          const u = userRanking.find((r) => r.userId === id);
+          if (u) {
+            total += u.totalContacts;
+            clients += u.clientCount;
+          }
+        }
+        return {
+          teamId: t.id,
+          name: t.name,
+          memberCount: uniqMembers.length,
+          totalContacts: total,
+          clientCount: clients,
+          conversionRate: total > 0 ? Math.round((clients / total) * 100) : 0,
+        };
+      })
+      .sort((a, b) => b.totalContacts - a.totalContacts);
+
+    return {
+      users: userRanking,
+      teams: teamRanking,
+    };
+  }
 }
 
 // =============================================================

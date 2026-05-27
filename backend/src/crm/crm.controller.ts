@@ -322,4 +322,13 @@ export class CrmController {
   syncGb(@CurrentUser() user: AuthUser) {
     return this.svc.syncGrowBusiness(user);
   }
+
+  // ────────────── Métricas (C8) ──────────────
+
+  /** KPIs personales del afiliado: contactos por stage, conversión%,
+   *  tiempo promedio cierre, top botones usados, creados últimos 30d. */
+  @Get('metrics')
+  metrics(@CurrentUser() user: AuthUser) {
+    return this.svc.getMyMetrics(user);
+  }
 }
