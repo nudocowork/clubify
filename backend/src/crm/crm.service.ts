@@ -8,6 +8,8 @@ import { StageKind } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { GrowBusinessService } from '../integrations/grow-business.service';
+import { SequencesService } from '../sequences/sequences.service';
+import { QueueService } from '../jobs/queue.service';
 
 /**
  * Stages default que se crean cuando un afiliado abre su pipeline por
@@ -41,6 +43,8 @@ export class CrmService {
   constructor(
     private prisma: PrismaService,
     private growBusiness: GrowBusinessService,
+    private sequences: SequencesService,
+    private queue: QueueService,
   ) {}
 
   /**
@@ -331,6 +335,14 @@ export class CrmService {
     });
     // C6: log al timeline (fire-and-forget, no bloquea respuesta).
     this.logActivity(created.id, user.id, 'CONTACT_CREATED', 'Contacto creado').catch(() => null);
+    // F3: auto-enroll en secuencias con trigger CONTACT_CREATED (fire-and-forget).
+    this.sequences.enrollMatching('CONTACT_CREATED', created.id).catch(() => null);
+    // Si vinieron tags, también dispara TAG_ADDED por cada una.
+    if (Array.isArray(body.tags)) {
+      for (const tag of body.tags) {
+        this.sequences.enrollMatching('TAG_ADDED', created.id, { tag }).catch(() => null);
+      }
+    }
     return created;
   }
 
@@ -418,6 +430,10 @@ export class CrmService {
         `Etiquetas agregadas: ${addedTags.join(', ')}`,
         { tags: addedTags },
       ).catch(() => null);
+      // F3: auto-enroll en secuencias con trigger TAG_ADDED, una por tag agregada.
+      for (const tag of addedTags) {
+        this.sequences.enrollMatching('TAG_ADDED', id, { tag }).catch(() => null);
+      }
     }
     return updated;
   }
@@ -460,6 +476,10 @@ export class CrmService {
           toStageName: stage.name,
         },
       ).catch(() => null);
+      // F3: auto-enroll en secuencias con trigger STAGE_CHANGED matching.
+      this.sequences
+        .enrollMatching('STAGE_CHANGED', id, { stageId })
+        .catch(() => null);
     }
     return updated;
   }
@@ -676,7 +696,48 @@ export class CrmService {
    */
   async executeButton(user: AuthUser, buttonId: string, contactId: string) {
     const btn = await this.loadOwnedButton(user, buttonId);
-    const contact = await this.getContact(user, contactId);
+    await this.getContact(user, contactId); // ownership check
+
+    // F3: si el botón tiene delaySeconds configurado, encolar la
+    // ejecución en BullMQ en lugar de correrla inmediato. Side effects
+    // y mensaje se aplican al ejecutarse el job. Si no hay Redis, fall
+    // back a ejecución inmediata para no romper la UX.
+    if (btn.delaySeconds && btn.delaySeconds > 0) {
+      const job = await this.queue.enqueue(
+        'crm.execute_button_delayed',
+        { userId: user.id, buttonId, contactId },
+        { delay: btn.delaySeconds * 1000 },
+      );
+      if (job?.id) {
+        return {
+          ok: true,
+          scheduled: true,
+          channel: btn.channel,
+          delaySeconds: btn.delaySeconds,
+          scheduledAt: new Date(Date.now() + btn.delaySeconds * 1000),
+          jobId: String(job.id),
+        };
+      }
+      // Sin Redis (stub) — caer a ejecución inmediata.
+    }
+
+    return this.executeButtonImmediate(user.id, buttonId, contactId);
+  }
+
+  /**
+   * Ejecuta el botón ya — sin verificar delaySeconds. Llamado tanto por
+   * executeButton(immediate path) como por el worker BullMQ tras el delay.
+   * Recibe `userId` en vez de AuthUser porque el worker no tiene el JWT.
+   */
+  async executeButtonImmediate(
+    userId: string,
+    buttonId: string,
+    contactId: string,
+  ) {
+    // Reconstruir AuthUser mínimo para reusar loadOwnedButton/getContact.
+    const userFake = { id: userId } as AuthUser;
+    const btn = await this.loadOwnedButton(userFake, buttonId);
+    const contact = await this.getContact(userFake, contactId);
 
     // Aplicar side effects en transaction para que sea atómico.
     const updates: any = {
@@ -715,7 +776,7 @@ export class CrmService {
     // metadata: payload completo para auditar el envío.
     this.logActivity(
       contactId,
-      user.id,
+      userId,
       'BUTTON_EXECUTED',
       `Ejecutado "${btn.name}"`,
       {
@@ -768,7 +829,7 @@ export class CrmService {
           };
         }
         const userWithGb = await this.prisma.user.findUnique({
-          where: { id: user.id },
+          where: { id: userId },
           select: { crmGbLocationId: true, crmGbApiKey: true },
         });
         if (!userWithGb?.crmGbLocationId || !userWithGb?.crmGbApiKey) {
@@ -1118,6 +1179,10 @@ export class CrmService {
             'Importado desde Grow Business',
             { source: 'grow-business', externalContactId: ext.id },
           ).catch(() => null);
+          // F3: auto-enroll en secuencias con trigger CONTACT_FROM_GB.
+          this.sequences
+            .enrollMatching('CONTACT_FROM_GB', newContact.id)
+            .catch(() => null);
           created++;
         }
       }
