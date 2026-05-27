@@ -532,6 +532,9 @@ model User {
   salesTeamMembers    SalesTeamMember[]    @relation("SalesTeamMember")
   // CRM (C5): botones automáticos configurados por el afiliado.
   crmButtons          CrmButton[]          @relation("CrmButtonOwner")
+  // CRM (C6): actividades registradas por el user (historial de
+  // contactos). userId apunta al que disparó la acción.
+  crmActivities       CrmActivity[]        @relation("CrmActivityUser")
 
   @@index([tenantId])
   @@index([role])
@@ -2324,6 +2327,8 @@ model CrmContact {
   lastActivityAt DateTime @default(now())
   createdAt      DateTime @default(now())
 
+  activities CrmActivity[]
+
   @@index([ownerUserId, stageId])
   @@index([ownerUserId, lastActivityAt])
 }
@@ -2413,4 +2418,39 @@ model CrmButton {
   updatedAt            DateTime         @updatedAt
 
   @@index([ownerUserId, order])
+}
+
+// Tipo de actividad registrada en el timeline de un contacto.
+// El frontend renderea cada tipo con un ícono + label distintos.
+enum CrmActivityType {
+  CONTACT_CREATED   // contacto creado (auto al crearse)
+  CONTACT_UPDATED   // edición de campos básicos (name/phone/instagram/etc)
+  STAGE_CHANGED     // movido de columna (drag&drop o select)
+  BUTTON_EXECUTED   // botón automático ejecutado (C5)
+  NOTE_ADDED        // nota manual del afiliado
+  TAG_ADDED         // tag agregado (manual o via botón)
+}
+
+// Historial completo del contacto (C6). Cada interacción se registra
+// como una row separada para preservar el timeline auditable. Las
+// CrmActivity se borran en cascade si se borra el contacto (data
+// privada del afiliado) o si se borra el user que las generó. El
+// frontend pinta esto como timeline vertical en el ContactDrawer.
+model CrmActivity {
+  id        String          @id @default(uuid())
+  contactId String
+  contact   CrmContact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User            @relation("CrmActivityUser", fields: [userId], references: [id], onDelete: Cascade)
+  type      CrmActivityType
+  title     String
+  body      String?         @db.Text
+  // metadata: payload específico según el type. Ejemplos:
+  //   STAGE_CHANGED  → { fromStageId, fromStageName, toStageId, toStageName }
+  //   BUTTON_EXECUTED → { buttonId, buttonName, channel, message, addedTags[] }
+  //   TAG_ADDED      → { tags: [...] }
+  metadata  Json            @default("{}")
+  createdAt DateTime        @default(now())
+
+  @@index([contactId, createdAt])
 }

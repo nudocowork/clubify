@@ -658,6 +658,31 @@ type CrmActionButton = {
   addTags: string[];
 };
 
+type CrmActivity = {
+  id: string;
+  type:
+    | 'CONTACT_CREATED'
+    | 'CONTACT_UPDATED'
+    | 'STAGE_CHANGED'
+    | 'BUTTON_EXECUTED'
+    | 'NOTE_ADDED'
+    | 'TAG_ADDED';
+  title: string;
+  body: string | null;
+  metadata: any;
+  createdAt: string;
+  user: { id: string; fullName: string };
+};
+
+const ACTIVITY_ICON: Record<CrmActivity['type'], string> = {
+  CONTACT_CREATED: '✨',
+  CONTACT_UPDATED: '✏️',
+  STAGE_CHANGED: '🔄',
+  BUTTON_EXECUTED: '⚡',
+  NOTE_ADDED: '📝',
+  TAG_ADDED: '🏷️',
+};
+
 function ContactDrawer({
   contactId,
   stages,
@@ -677,6 +702,18 @@ function ContactDrawer({
   const [buttons, setButtons] = useState<CrmActionButton[]>([]);
   const [confirmingBtn, setConfirmingBtn] = useState<CrmActionButton | null>(null);
   const [executing, setExecuting] = useState(false);
+  const [activities, setActivities] = useState<CrmActivity[]>([]);
+  const [noteText, setNoteText] = useState('');
+  const [addingNote, setAddingNote] = useState(false);
+
+  async function reloadActivities() {
+    try {
+      const a = await api<CrmActivity[]>(`/crm/contacts/${contactId}/activities`);
+      setActivities(a);
+    } catch {
+      /* timeline silenciosamente vacío si falla */
+    }
+  }
 
   useEffect(() => {
     api<Contact>(`/crm/contacts/${contactId}`).then((c) => {
@@ -693,7 +730,26 @@ function ContactDrawer({
     api<CrmActionButton[]>('/crm/buttons')
       .then(setButtons)
       .catch(() => setButtons([]));
+    reloadActivities();
   }, [contactId]);
+
+  async function addNote() {
+    if (!noteText.trim()) return;
+    setAddingNote(true);
+    try {
+      await api(`/crm/contacts/${contactId}/notes`, {
+        method: 'POST',
+        body: JSON.stringify({ body: noteText.trim() }),
+      });
+      setNoteText('');
+      await reloadActivities();
+      toast('Nota guardada', 'success');
+    } catch (err: any) {
+      toast(err?.message || 'No se pudo guardar la nota', 'error');
+    } finally {
+      setAddingNote(false);
+    }
+  }
 
   async function executeButton(btn: CrmActionButton) {
     if (!contact) return;
@@ -717,8 +773,12 @@ function ContactDrawer({
       } else {
         toast('Acción aplicada', 'success');
       }
+      // No cerramos el drawer al ejecutar — el user puede querer ver
+      // el timeline actualizado o seguir trabajando con el contacto.
+      // Solo recargamos las activities (que ya incluyen el botón
+      // ejecutado) y notificamos al parent del cambio.
+      await reloadActivities();
       onChanged();
-      onClose();
     } catch (err: any) {
       toast(err?.message || 'No se pudo ejecutar el botón', 'error');
     } finally {
@@ -887,6 +947,71 @@ function ContactDrawer({
               </div>
             </div>
           )}
+
+          {/* Historial / timeline (C6) */}
+          <div className="border-t border-line pt-3 mt-3">
+            <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
+              📜 Historial
+            </div>
+
+            {/* Form para nota manual */}
+            <div className="flex gap-2 mb-3">
+              <input
+                className="input flex-1"
+                placeholder="Agregar una nota…"
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    addNote();
+                  }
+                }}
+                maxLength={4000}
+                disabled={addingNote}
+              />
+              <button
+                type="button"
+                className="btn-primary text-xs"
+                onClick={addNote}
+                disabled={addingNote || !noteText.trim()}
+              >
+                {addingNote ? '…' : 'Guardar'}
+              </button>
+            </div>
+
+            {activities.length === 0 ? (
+              <div className="text-xs text-mute italic">
+                Sin actividad todavía.
+              </div>
+            ) : (
+              <ul className="space-y-2.5 relative">
+                {activities.map((a, idx) => (
+                  <li key={a.id} className="flex gap-3 text-sm">
+                    <div className="flex-none">
+                      <div className="w-7 h-7 rounded-full bg-bg2 flex items-center justify-center text-xs">
+                        {ACTIVITY_ICON[a.type] ?? '·'}
+                      </div>
+                      {idx < activities.length - 1 && (
+                        <div className="w-px h-3 bg-line ml-3.5 mt-0.5" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0 pb-1">
+                      <div className="text-sm leading-tight">{a.title}</div>
+                      {a.body && (
+                        <div className="text-xs text-mute mt-1 whitespace-pre-wrap">
+                          {a.body}
+                        </div>
+                      )}
+                      <div className="text-[10px] text-mute/70 mt-1">
+                        {timeAgo(a.createdAt)} · {a.user.fullName}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       )}
 

@@ -313,7 +313,7 @@ export class CrmService {
       }
       stageId = firstStage.id;
     }
-    return this.prisma.crmContact.create({
+    const created = await this.prisma.crmContact.create({
       data: {
         ownerUserId: user.id,
         stageId,
@@ -325,6 +325,9 @@ export class CrmService {
         tags: (Array.isArray(body.tags) ? body.tags.slice(0, 20) : []) as any,
       },
     });
+    // C6: log al timeline (fire-and-forget, no bloquea respuesta).
+    this.logActivity(created.id, user.id, 'CONTACT_CREATED', 'Contacto creado').catch(() => null);
+    return created;
   }
 
   /**
@@ -343,8 +346,8 @@ export class CrmService {
       tags?: string[];
     },
   ) {
-    await this.getContact(user, id); // ownership check
-    return this.prisma.crmContact.update({
+    const previous = await this.getContact(user, id); // ownership check
+    const updated = await this.prisma.crmContact.update({
       where: { id },
       data: {
         name:
@@ -374,6 +377,45 @@ export class CrmService {
         lastActivityAt: new Date(),
       },
     });
+    // C6: detectar qué cambió y loggear. Si solo tags cambió pero los
+    // de body son superset, lo loggeamos como TAG_ADDED en lugar de
+    // CONTACT_UPDATED para tener mejor semántica.
+    const fieldsChanged: string[] = [];
+    if (body.name !== undefined && previous.name !== updated.name)
+      fieldsChanged.push('nombre');
+    if (body.phone !== undefined && previous.phone !== updated.phone)
+      fieldsChanged.push('teléfono');
+    if (body.instagram !== undefined && previous.instagram !== updated.instagram)
+      fieldsChanged.push('Instagram');
+    if (body.address !== undefined && previous.address !== updated.address)
+      fieldsChanged.push('dirección');
+    if (body.description !== undefined && previous.description !== updated.description)
+      fieldsChanged.push('notas');
+    if (fieldsChanged.length > 0) {
+      this.logActivity(
+        id,
+        user.id,
+        'CONTACT_UPDATED',
+        `Editado: ${fieldsChanged.join(', ')}`,
+      ).catch(() => null);
+    }
+    const prevTags = Array.isArray(previous.tags)
+      ? (previous.tags as string[])
+      : [];
+    const nextTags = Array.isArray(updated.tags)
+      ? (updated.tags as string[])
+      : [];
+    const addedTags = nextTags.filter((t) => !prevTags.includes(t));
+    if (addedTags.length > 0) {
+      this.logActivity(
+        id,
+        user.id,
+        'TAG_ADDED',
+        `Etiquetas agregadas: ${addedTags.join(', ')}`,
+        { tags: addedTags },
+      ).catch(() => null);
+    }
+    return updated;
   }
 
   /**
@@ -382,19 +424,40 @@ export class CrmService {
    * de otro pipeline robe el contacto).
    */
   async moveContactToStage(user: AuthUser, id: string, stageId: string) {
-    await this.getContact(user, id); // ownership check
+    const previous = await this.getContact(user, id); // ownership check
     const pipeline = await this.ensureMyPipeline(user);
     const stage = await this.prisma.stage.findUnique({
       where: { id: stageId },
-      select: { pipelineId: true },
+      select: { pipelineId: true, name: true },
     });
     if (!stage || stage.pipelineId !== pipeline.id) {
       throw new ForbiddenException('El stage no pertenece a tu pipeline');
     }
-    return this.prisma.crmContact.update({
+    const updated = await this.prisma.crmContact.update({
       where: { id },
       data: { stageId, lastActivityAt: new Date() },
     });
+    // C6: solo loggeamos si efectivamente cambió de stage (evita log
+    // duplicado si el drag&drop sobre la misma stage llamó esto).
+    if (previous.stageId !== stageId) {
+      const fromStage = await this.prisma.stage.findUnique({
+        where: { id: previous.stageId },
+        select: { name: true },
+      });
+      this.logActivity(
+        id,
+        user.id,
+        'STAGE_CHANGED',
+        `Movido a "${stage.name}"`,
+        {
+          fromStageId: previous.stageId,
+          fromStageName: fromStage?.name ?? null,
+          toStageId: stageId,
+          toStageName: stage.name,
+        },
+      ).catch(() => null);
+    }
+    return updated;
   }
 
   async deleteContact(user: AuthUser, id: string) {
@@ -644,6 +707,26 @@ export class CrmService {
     // Compute message body con tokens.
     const message = renderMessageTemplate(btn.messageBody ?? '', updatedContact);
 
+    // C6: log BUTTON_EXECUTED (siempre, independiente del channel).
+    // metadata: payload completo para auditar el envío.
+    this.logActivity(
+      contactId,
+      user.id,
+      'BUTTON_EXECUTED',
+      `Ejecutado "${btn.name}"`,
+      {
+        buttonId: btn.id,
+        buttonName: btn.name,
+        channel: btn.channel,
+        message,
+        attachmentUrl: btn.attachmentUrl,
+        addedTags: btnTags,
+        movedToStage: updates.stageId
+          ? { id: updates.stageId as string }
+          : null,
+      },
+    ).catch(() => null);
+
     // Channel-specific response.
     switch (btn.channel) {
       case 'WHATSAPP': {
@@ -693,6 +776,87 @@ export class CrmService {
           contact: updatedContact,
         };
     }
+  }
+
+  // =============================================================
+  //                      HISTORIAL (C6)
+  // =============================================================
+
+  /**
+   * Helper interno: crea una row en CrmActivity. Llamado fire-and-forget
+   * desde los hooks de create/update/move/execute para no bloquear la
+   * respuesta del endpoint principal. Si falla (DB issue), solo se
+   * pierde la entrada del log — no rompe la acción.
+   *
+   * Importante: NO verifica ownership del contacto porque los callers
+   * ya hicieron getContact() / loadOwned() antes.
+   */
+  private async logActivity(
+    contactId: string,
+    userId: string,
+    type:
+      | 'CONTACT_CREATED'
+      | 'CONTACT_UPDATED'
+      | 'STAGE_CHANGED'
+      | 'BUTTON_EXECUTED'
+      | 'NOTE_ADDED'
+      | 'TAG_ADDED',
+    title: string,
+    metadata: any = {},
+    body: string | null = null,
+  ) {
+    return this.prisma.crmActivity.create({
+      data: {
+        contactId,
+        userId,
+        type,
+        title: title.slice(0, 200),
+        body: body?.slice(0, 4000) ?? null,
+        metadata: (metadata ?? {}) as any,
+      },
+    });
+  }
+
+  /**
+   * Timeline del contacto. Solo el dueño del contacto puede leerlo
+   * (la ownership ya viene de getContact). Devuelve actividades ordenadas
+   * por createdAt desc — el frontend muestra las más recientes arriba.
+   */
+  async listContactActivities(user: AuthUser, contactId: string) {
+    await this.getContact(user, contactId); // ownership check
+    return this.prisma.crmActivity.findMany({
+      where: { contactId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        user: { select: { id: true, fullName: true } },
+      },
+    });
+  }
+
+  /**
+   * Nota manual del afiliado sobre un contacto. Va al historial como
+   * NOTE_ADDED. Texto libre hasta 4000 chars. También bump
+   * lastActivityAt del contacto (es interacción real).
+   */
+  async addNote(user: AuthUser, contactId: string, body: string) {
+    await this.getContact(user, contactId); // ownership check
+    const text = (body ?? '').trim();
+    if (!text) {
+      throw new BadRequestException('La nota no puede estar vacía');
+    }
+    const activity = await this.logActivity(
+      contactId,
+      user.id,
+      'NOTE_ADDED',
+      'Nota agregada',
+      {},
+      text.slice(0, 4000),
+    );
+    await this.prisma.crmContact.update({
+      where: { id: contactId },
+      data: { lastActivityAt: new Date() },
+    });
+    return activity;
   }
 }
 
