@@ -1553,4 +1553,94 @@ export class ReferralsService {
       holdDays: HOLD_DAYS,
     };
   }
+
+  /**
+   * Devuelve la asignación referral actual de un tenant.
+   * Retornamos el ReferralUse más reciente vinculado a un INFLUENCER/
+   * AMBASSADOR. Los de role SOCIO son atribuciones globales internas,
+   * no la asignación "del dueño del negocio".
+   */
+  async getTenantAssignment(tenantId: string) {
+    const use = await this.prisma.referralUse.findFirst({
+      where: {
+        tenantId,
+        referralCode: { role: { in: ['INFLUENCER', 'AMBASSADOR'] } },
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        referralCode: {
+          select: {
+            id: true,
+            code: true,
+            ownerName: true,
+            ownerEmail: true,
+            role: true,
+            campaignId: true,
+            campaign: { select: { id: true, name: true } },
+          },
+        },
+      },
+    });
+    if (!use) return { assignment: null };
+    return {
+      assignment: {
+        referralUseId: use.id,
+        code: use.referralCode,
+        status: use.status,
+        createdAt: use.createdAt,
+      },
+    };
+  }
+
+  /**
+   * Asigna un tenant a un ReferralCode. Si `codeId` es null, desasigna.
+   * Si ya hay una asignación, la borramos primero (1:1).
+   * No-op si ya está asignado a ese mismo code.
+   * Las Commissions históricas viven aparte — no las tocamos.
+   */
+  async setTenantAssignment(tenantId: string, codeId: string | null) {
+    const existing = await this.prisma.referralUse.findFirst({
+      where: {
+        tenantId,
+        referralCode: { role: { in: ['INFLUENCER', 'AMBASSADOR'] } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (codeId === null) {
+      if (existing) {
+        await this.prisma.referralUse.delete({ where: { id: existing.id } });
+      }
+      return { ok: true, assigned: null };
+    }
+
+    const code = await this.prisma.referralCode.findUnique({
+      where: { id: codeId },
+      select: { id: true, role: true, isActive: true },
+    });
+    if (!code) throw new NotFoundException('Código referral no encontrado');
+    if (code.role !== 'INFLUENCER' && code.role !== 'AMBASSADOR') {
+      throw new BadRequestException(
+        'Solo se pueden asignar códigos de tipo INFLUENCER o AMBASSADOR',
+      );
+    }
+
+    if (existing) {
+      if (existing.referralCodeId === codeId) {
+        return { ok: true, assigned: existing.id };
+      }
+      // Reemplazo: borramos el viejo y creamos uno nuevo (más limpio que
+      // update porque resetea status/convertedAt).
+      await this.prisma.referralUse.delete({ where: { id: existing.id } });
+    }
+    const created = await this.prisma.referralUse.create({
+      data: {
+        referralCodeId: codeId,
+        tenantId,
+        status: 'PAYING', // asignación manual del super admin = ya cliente
+        convertedAt: new Date(),
+      },
+    });
+    return { ok: true, assigned: created.id };
+  }
 }

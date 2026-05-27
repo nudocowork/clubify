@@ -117,6 +117,9 @@ type Button = {
 type InfoLink = {
   id: string;
   slug: string;
+  /** URL "vanity" GLOBAL en la raíz del dominio. soyclubify.com/<rootSlug>.
+   *  null = sin vanity, accesible solo por /i/<tenantSlug>/<linkSlug>. */
+  rootSlug: string | null;
   title: string;
   subtitle: string | null;
   heroImageUrl: string | null;
@@ -188,6 +191,9 @@ export default function InfoLinkEditor() {
         body: JSON.stringify({
           title: link.title,
           subtitle: link.subtitle,
+          // rootSlug: enviamos siempre — string limpio o '' para
+          // desasociar. El backend valida reserved + duplicados.
+          rootSlug: link.rootSlug ?? '',
           heroImageUrl: link.heroImageUrl,
           gallery: link.gallery,
           sections: link.sections,
@@ -197,6 +203,13 @@ export default function InfoLinkEditor() {
         }),
       });
       setSavedAt(new Date());
+    } catch (e: any) {
+      // Validación del rootSlug (reservado, duplicado, etc.) viene como
+      // mensaje claro del backend — lo mostramos al user con alert
+      // (la página usa toasts en otros lados pero acá no tengo el hook).
+      // Re-throw para que el botón quede en estado normal.
+      const msg = e?.message || 'No se pudo guardar';
+      alert(msg);
     } finally {
       setBusy(false);
     }
@@ -420,6 +433,39 @@ export default function InfoLinkEditor() {
                 onChange={(e) => update('subtitle', e.target.value)}
               />
             </div>
+
+            {/* URL personalizada (vanity) — soyclubify.com/<slug>. */}
+            <div className="mt-3">
+              <label className="label">
+                URL personalizada{' '}
+                <span className="text-mute font-normal">— opcional</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <span className="text-[13px] text-mute select-none whitespace-nowrap">
+                  soyclubify.com/
+                </span>
+                <input
+                  className="input flex-1"
+                  value={link.rootSlug ?? ''}
+                  placeholder="mi-marca"
+                  onChange={(e) => {
+                    // Normalizamos: lowercase + solo letras/números/guiones.
+                    // El backend valida la forma final + reserved + duplicados.
+                    const v = e.target.value
+                      .toLowerCase()
+                      .replace(/[^a-z0-9-]/g, '');
+                    update('rootSlug', v.length === 0 ? null : v);
+                  }}
+                  maxLength={40}
+                />
+              </div>
+              <p className="text-[11px] text-mute mt-1 leading-snug">
+                Si está vacío, el link se accede como <code>/i/{tenant.slug}/{link.slug}</code>.
+                Al asignar una URL personalizada, queda accesible directamente
+                como <code>soyclubify.com/{link.rootSlug || 'tu-slug'}</code>.
+              </p>
+            </div>
+
             <div className="mt-3">
               <label className="label">Imagen de portada (hero)</label>
               <ImageUploader

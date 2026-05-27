@@ -200,6 +200,9 @@ export class PublicMenuController {
         (t.storefront?.ordersEnabled ?? true) &&
         (t.storefront?.ordersDeliveryEnabled ?? true),
       pageBackgroundColor: t.storefront?.pageBackgroundColor ?? null,
+      pageBackgroundType: t.storefront?.pageBackgroundType ?? null,
+      pageBackgroundGradient: t.storefront?.pageBackgroundGradient ?? null,
+      pageBackgroundImageUrl: t.storefront?.pageBackgroundImageUrl ?? null,
       logoBgColor: t.storefront?.logoBgColor ?? null,
       titleColor: t.storefront?.titleColor ?? null,
       descriptionColor: t.storefront?.descriptionColor ?? null,

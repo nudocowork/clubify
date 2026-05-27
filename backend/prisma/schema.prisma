@@ -1213,6 +1213,16 @@ model Storefront {
   // dueño quiere matchear el fondo con su brand. Cualquier color CSS
   // válido (#hex, rgb(), nombre).
   pageBackgroundColor   String?
+  // Tipo de fondo: 'SOLID' (usa pageBackgroundColor), 'GRADIENT' (usa
+  // pageBackgroundGradient), 'IMAGE' (usa pageBackgroundImageUrl). NULL
+  // = SOLID por compat con storefronts viejos.
+  pageBackgroundType    String?
+  // CSS gradient completo (ej: "linear-gradient(135deg, #6366F1, #EC4899)").
+  // Solo se aplica si pageBackgroundType='GRADIENT'.
+  pageBackgroundGradient String?
+  // URL de imagen R2 para el fondo. Se renderea como background-size cover
+  // + center. Solo se aplica si pageBackgroundType='IMAGE'.
+  pageBackgroundImageUrl String?
   // Color de fondo del contenedor del logo en el header del storefront
   // público. NULL = blanco (default histórico). Cualquier CSS válido,
   // incluyendo "transparent" para logos con fondo propio que deben
@@ -1322,6 +1332,11 @@ model InfoLink {
   tenantId     String
   tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   slug         String
+  // URL "vanity" global del Infolink — si está set, accesible como
+  // soyclubify.com/<rootSlug> en lugar de /i/<tenantSlug>/<linkSlug>.
+  // Unique global (no por tenant) porque vive en la raíz del dominio.
+  // null = sin vanity, sigue accesible solo por /i/<tenant>/<link>.
+  rootSlug     String?  @unique
   title        String
   subtitle     String?
   heroImageUrl String?

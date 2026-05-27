@@ -65,6 +65,9 @@ type Storefront = {
   ordersEnabled?: boolean;
   ordersDeliveryEnabled?: boolean;
   pageBackgroundColor?: string | null;
+  pageBackgroundType?: string | null;
+  pageBackgroundGradient?: string | null;
+  pageBackgroundImageUrl?: string | null;
   logoBgColor?: string | null;
   titleColor?: string | null;
   descriptionColor?: string | null;
@@ -383,11 +386,21 @@ export default function StorefrontPublic() {
     (s.ordersDeliveryEnabled ?? true);
 
   const isCluvi = (s.menuLayout ?? 'CLASSIC') === 'CLUVI';
-  // pageBackgroundColor (configurable desde /app/storefront) pisa el
-  // default del layout. Útil sobre todo para SECTIONS donde el dueño
-  // quiere matchear el fondo con su brand. Para CLUVI también se respeta
-  // si el dueño decide cambiarlo (por ej a un negro más claro).
-  const pageBg = s.pageBackgroundColor || (isCluvi ? '#0a0a0a' : '#FAFBFC');
+  // Fondo de la página: tipo SOLID|GRADIENT|IMAGE. El dueño elige desde
+  // /app/storefront. Default histórico (sin configurar): color sólido del
+  // layout. Si pageBackgroundType está set, gana sobre pageBackgroundColor
+  // para el render — pero pageBackgroundColor sigue como fallback si el
+  // tipo es 'SOLID'.
+  const defaultBgColor = isCluvi ? '#0a0a0a' : '#FAFBFC';
+  const bgType = (s.pageBackgroundType ?? 'SOLID').toUpperCase();
+  let pageBg: string;
+  if (bgType === 'GRADIENT' && s.pageBackgroundGradient) {
+    pageBg = s.pageBackgroundGradient;
+  } else if (bgType === 'IMAGE' && s.pageBackgroundImageUrl) {
+    pageBg = `url("${s.pageBackgroundImageUrl}") center/cover no-repeat fixed ${defaultBgColor}`;
+  } else {
+    pageBg = s.pageBackgroundColor || defaultBgColor;
+  }
 
   // Si el menú digital está apagado y el libro flipbook prendido, /m/<slug>
   // redirige a /book/<slug> (el modo libro vive en su propia ruta desde

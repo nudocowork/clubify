@@ -35,6 +35,17 @@ class StorefrontBody {
   // Color CSS válido (#hex, rgb(), nombre). null = usar default del layout.
   @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(40)
   pageBackgroundColor?: string | null;
+  // Tipo de fondo de la página pública. 'SOLID' | 'GRADIENT' | 'IMAGE' o
+  // null (default SOLID).
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(16)
+  pageBackgroundType?: string | null;
+  // CSS gradient completo. Hasta 300 caracteres por seguridad — los
+  // gradients reales tienen <100.
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(300)
+  pageBackgroundGradient?: string | null;
+  // URL R2 de la imagen de fondo. null = sin imagen.
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(500)
+  pageBackgroundImageUrl?: string | null;
   // Color de fondo del contenedor del logo (#hex, rgb(), "transparent"...).
   // null = blanco (default histórico).
   @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(40)
