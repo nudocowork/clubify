@@ -329,6 +329,74 @@ export class SequencesService {
     return enrollment;
   }
 
+  /**
+   * Auto-enroll desde un trigger automático. Llamado por los hooks
+   * del CrmService cuando ocurre un evento (createContact, moveToStage,
+   * addTag, etc.). Busca todas las sequences ACTIVAS del owner del
+   * contacto que tengan un trigger del kind dado y matcheen el criterio,
+   * y las inscribe.
+   *
+   * Idempotente — si el contacto ya está enrollado ACTIVE en alguna de
+   * esas sequences, enroll() devuelve el existente sin duplicar.
+   *
+   * Fire-and-forget desde los hooks — no bloquea la operación principal.
+   * Errores se loguean pero no propagan.
+   */
+  async enrollMatching(
+    kind: SequenceTriggerKind,
+    contactId: string,
+    criteria?: { stageId?: string; tag?: string },
+  ): Promise<void> {
+    try {
+      const contact = await this.prisma.crmContact.findUnique({
+        where: { id: contactId },
+        select: { ownerUserId: true },
+      });
+      if (!contact) return;
+
+      const triggers = await this.prisma.sequenceTrigger.findMany({
+        where: {
+          kind,
+          isActive: true,
+          sequence: {
+            ownerUserId: contact.ownerUserId,
+            isActive: true,
+          },
+        },
+        include: { sequence: { select: { id: true } } },
+      });
+
+      for (const trig of triggers) {
+        // Aplicar filtro de config según kind.
+        const cfg = (trig.config as any) ?? {};
+        if (kind === 'STAGE_CHANGED' && criteria?.stageId) {
+          // Si el trigger tiene stageId, solo dispara si matchea. Si
+          // no tiene, matchea cualquier cambio.
+          if (cfg.stageId && cfg.stageId !== criteria.stageId) continue;
+        }
+        if (kind === 'TAG_ADDED' && criteria?.tag) {
+          if (cfg.tag && cfg.tag !== criteria.tag) continue;
+        }
+
+        try {
+          await this.enroll({
+            sequenceId: trig.sequenceId,
+            contactId,
+            triggerKind: kind,
+          });
+        } catch (e) {
+          this.logger.warn(
+            `enrollMatching: enroll falló (seq=${trig.sequenceId}, contact=${contactId}): ${(e as Error).message}`,
+          );
+        }
+      }
+    } catch (e) {
+      this.logger.warn(
+        `enrollMatching(${kind}, ${contactId}) falló: ${(e as Error).message}`,
+      );
+    }
+  }
+
   async listEnrollmentsForContact(contactId: string) {
     return this.prisma.sequenceEnrollment.findMany({
       where: { contactId },

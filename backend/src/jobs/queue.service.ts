@@ -14,7 +14,10 @@ export type JobName =
   // step del enrollment (con delay si está programado). start_enrollment
   // crea el enrollment y encola el primer step.
   | 'sequence.process_step'
-  | 'sequence.start_enrollment';
+  | 'sequence.start_enrollment'
+  // F3: ejecutar un CrmButton con delaySeconds > 0. El worker llama
+  // executeButtonImmediate después del delay.
+  | 'crm.execute_button_delayed';
 
 type JobPayload = Record<string, any>;
 
