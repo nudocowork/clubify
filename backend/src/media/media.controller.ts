@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { MediaService } from './media.service';
+import { MediaService, MEDIA_MULTER_LIMIT_BYTES } from './media.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Public } from '../common/decorators/public.decorator';
@@ -37,7 +37,15 @@ export class MediaController {
   }
 
   @Post('upload')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      // Tope global multer = max video 100 MB. La validación fina por
+      // categoría (imagen 15/25, audio 50, video 100, pdf 30) corre dentro
+      // del service para devolver mensaje claro. Sin este limit explícito
+      // multer trunca silencioso archivos grandes.
+      limits: { fileSize: MEDIA_MULTER_LIMIT_BYTES },
+    }),
+  )
   upload(
     @CurrentUser() user: AuthUser,
     @UploadedFile() file: Express.Multer.File,
