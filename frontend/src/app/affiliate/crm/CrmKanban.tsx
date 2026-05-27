@@ -92,6 +92,10 @@ export function CrmKanban() {
   // En mobile mostramos UNA columna por vez (tab activa). En desktop
   // se muestran todas lado a lado scrollables.
   const [mobileStageIdx, setMobileStageIdx] = useState(0);
+  // Buscador del pipeline — filtra los contactos por nombre, teléfono,
+  // instagram y etiquetas. Filtro CLIENT-side sin pegar al API (la
+  // dataset entera ya está cargada).
+  const [searchQuery, setSearchQuery] = useState('');
 
   async function load() {
     setLoading(true);
@@ -122,15 +126,34 @@ export function CrmKanban() {
     }),
   );
 
+  // Filtramos contactos por el buscador antes de agruparlos. Match es
+  // case-insensitive y revisa name/phone/instagram/description + tags.
+  const filteredContacts = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return contacts;
+    return contacts.filter((c) => {
+      if (c.name && c.name.toLowerCase().includes(q)) return true;
+      if (c.phone && c.phone.toLowerCase().includes(q)) return true;
+      if (c.instagram && c.instagram.toLowerCase().includes(q)) return true;
+      if (c.description && c.description.toLowerCase().includes(q)) return true;
+      if (
+        Array.isArray(c.tags) &&
+        c.tags.some((t) => String(t).toLowerCase().includes(q))
+      )
+        return true;
+      return false;
+    });
+  }, [contacts, searchQuery]);
+
   const contactsByStage = useMemo(() => {
     const map = new Map<string, Contact[]>();
     for (const s of pipeline?.stages ?? []) map.set(s.id, []);
-    for (const c of contacts) {
+    for (const c of filteredContacts) {
       const arr = map.get(c.stageId);
       if (arr) arr.push(c);
     }
     return map;
-  }, [pipeline?.stages, contacts]);
+  }, [pipeline?.stages, filteredContacts]);
 
   function onDragStart(e: DragStartEvent) {
     setActiveDragId(String(e.active.id));
@@ -276,6 +299,39 @@ export function CrmKanban() {
           📊 Métricas
         </Link>
       </div>
+
+      {/* Buscador del pipeline — filtra contactos por nombre, teléfono,
+          IG, etiquetas y notas. Filtro CLIENT-side, instantáneo. */}
+      <div className="mb-3 relative">
+        <input
+          type="search"
+          placeholder="Buscar contactos…"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="input w-full pl-10 pr-3 text-sm"
+          aria-label="Buscar contactos del pipeline"
+        />
+        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-mute pointer-events-none">
+          🔍
+        </div>
+        {searchQuery && (
+          <button
+            type="button"
+            onClick={() => setSearchQuery('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-mute hover:text-ink text-sm"
+            aria-label="Limpiar búsqueda"
+          >
+            ×
+          </button>
+        )}
+      </div>
+      {searchQuery && (
+        <div className="text-xs text-mute mb-2">
+          {filteredContacts.length === 0
+            ? `Sin resultados para "${searchQuery}"`
+            : `${filteredContacts.length} ${filteredContacts.length === 1 ? 'contacto encontrado' : 'contactos encontrados'}`}
+        </div>
+      )}
 
       {/* Mobile stage tabs (visible solo en sm:hidden) */}
       <div className="sm:hidden flex gap-1.5 overflow-x-auto pb-2 mb-2 -mx-2 px-2">
@@ -801,16 +857,13 @@ function ContactDrawer({
         method: 'POST',
         body: JSON.stringify({ contactId: contact.id }),
       });
+      // Mantenemos el comportamiento real (WHATSAPP abre wa.me para
+      // botones legacy con ese channel) sin mostrar al user de qué
+      // canal se trata — la UX nueva oculta el concepto de canal.
       if (res?.channel === 'WHATSAPP' && res?.whatsappUrl) {
         window.open(res.whatsappUrl, '_blank', 'noopener,noreferrer');
-        toast('WhatsApp abierto', 'success');
-      } else if (res?.pending) {
-        toast(
-          res?.note ||
-            'Acción aplicada — el envío real llega en una próxima iteración',
-          'success',
-        );
-      } else if (res?.error) {
+      }
+      if (res?.error) {
         toast(res.error, 'error');
       } else {
         toast('Acción aplicada', 'success');
@@ -1094,13 +1147,10 @@ function ConfirmButtonExecutionModal({
           ¿Ejecutar "{btn.name}"?
         </div>
         <div className="text-sm text-mute leading-relaxed mb-4">
-          {btn.channel === 'WHATSAPP' && 'Se abrirá WhatsApp con el mensaje precargado.'}
-          {btn.channel === 'SMS' && 'Se enviará un SMS al contacto (próximamente integrado con Grow Business).'}
-          {btn.channel === 'EMAIL' && 'Se enviará un email (próximamente).'}
-          {btn.channel === 'NOTE' && 'Se aplicarán los cambios sin enviar mensaje.'}
+          Se aplicarán las acciones configuradas para este botón.
           {btn.moveToStage && (
             <div className="mt-1">
-              También se moverá a <strong>{btn.moveToStage.name}</strong>.
+              Mover a <strong>{btn.moveToStage.name}</strong>.
             </div>
           )}
           {btn.addTags.length > 0 && (
