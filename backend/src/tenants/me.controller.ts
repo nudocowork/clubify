@@ -285,9 +285,17 @@ export class TenantMeController {
     };
   }
 
+  /**
+   * Devuelve los datos del tenant del user actual. SUPER_ADMIN y MARKETING
+   * acceden también — retornan null silenciosamente porque NO tienen
+   * tenantId. Esto evita el 403 espurio que ensuciaba consola del panel
+   * admin (useMainSectionLabel lo llama incondicionalmente). El frontend
+   * trata null como "sin tenant context" y cae al default.
+   */
   @Get()
+  @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN', 'MARKETING')
   get(@CurrentUser() user: AuthUser) {
-    if (!user.tenantId) throw new ForbiddenException();
+    if (!user.tenantId) return null;
     return this.svc.getMine(user.tenantId);
   }
 
