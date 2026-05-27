@@ -140,13 +140,12 @@ export class CrmService {
   }
 
   /**
-   * Borra una stage. Se permite borrar incluso las default (CONTACTS,
-   * INTERESTED, etc.) — el user puede armar su flow propio. La única
-   * restricción: no podés quedarte sin ninguna stage en el pipeline.
+   * Borra una stage. Si tiene contactos asociados, los movemos a la
+   * primera stage del pipeline que NO sea la borrada — preservamos
+   * la data del afiliado. La FK Stage→CrmContact es RESTRICT así que
+   * el move es obligatorio antes del delete.
    *
-   * NOTA: cuando agreguemos CrmContact en C2, habrá que decidir qué
-   * pasa con los contactos asociados (move a otra stage vs. delete).
-   * Por ahora no hay contactos así que es seguro borrar.
+   * Restricción: no podés quedarte sin ninguna stage en el pipeline.
    */
   async deleteStage(user: AuthUser, stageId: string) {
     const stage = await this.loadOwnedStage(user, stageId);
@@ -158,8 +157,33 @@ export class CrmService {
         'No podés borrar la última stage del pipeline',
       );
     }
-    await this.prisma.stage.delete({ where: { id: stageId } });
-    return { ok: true };
+    const contactsCount = await this.prisma.crmContact.count({
+      where: { stageId },
+    });
+    await this.prisma.$transaction(async (tx) => {
+      if (contactsCount > 0) {
+        const fallback = await tx.stage.findFirst({
+          where: {
+            pipelineId: stage.pipelineId,
+            id: { not: stageId },
+          },
+          orderBy: { order: 'asc' },
+          select: { id: true },
+        });
+        if (!fallback) {
+          // Defensa adicional — count > 1 ya lo asegura, pero por si acaso.
+          throw new BadRequestException(
+            'No hay otra stage para mover los contactos',
+          );
+        }
+        await tx.crmContact.updateMany({
+          where: { stageId },
+          data: { stageId: fallback.id, lastActivityAt: new Date() },
+        });
+      }
+      await tx.stage.delete({ where: { id: stageId } });
+    });
+    return { ok: true, movedContacts: contactsCount };
   }
 
   /**
@@ -212,5 +236,170 @@ export class CrmService {
       where: { id: pipeline.id },
       data: { name: name.trim().slice(0, 80) },
     });
+  }
+
+  // =============================================================
+  //                        CONTACTOS (C2)
+  // =============================================================
+
+  /**
+   * Lista todos los contactos del user. Devuelve ordenados por
+   * lastActivityAt desc para que el kanban muestre los más recientes
+   * arriba en cada columna. Opcionalmente filtra por stageId.
+   */
+  async listMyContacts(user: AuthUser, stageId?: string) {
+    return this.prisma.crmContact.findMany({
+      where: {
+        ownerUserId: user.id,
+        ...(stageId ? { stageId } : {}),
+      },
+      orderBy: { lastActivityAt: 'desc' },
+    });
+  }
+
+  /** Detalle de un contacto. Tira 404 si no existe; ForbiddenException
+   *  si pertenece a otro user (sin filtrar antes — evita leak de
+   *  existencia). */
+  async getContact(user: AuthUser, id: string) {
+    const c = await this.prisma.crmContact.findUnique({ where: { id } });
+    if (!c) throw new NotFoundException('Contacto no encontrado');
+    if (c.ownerUserId !== user.id) {
+      throw new ForbiddenException('No podés ver contactos ajenos');
+    }
+    return c;
+  }
+
+  /**
+   * Crea un contacto. Todos los fields opcionales — el contacto puede
+   * crearse con solo un nombre y completar después. Si no se pasa
+   * stageId, va a la stage de menor `order` del pipeline (la primera
+   * columna, típicamente "Contactos").
+   */
+  async createContact(
+    user: AuthUser,
+    body: {
+      stageId?: string;
+      name?: string;
+      phone?: string;
+      instagram?: string;
+      address?: string;
+      description?: string;
+      tags?: string[];
+    },
+  ) {
+    const pipeline = await this.ensureMyPipeline(user);
+    let stageId = body.stageId;
+    if (stageId) {
+      // Validar ownership: el stage debe pertenecer al pipeline del user.
+      const stage = await this.prisma.stage.findUnique({
+        where: { id: stageId },
+        select: { pipelineId: true },
+      });
+      if (!stage || stage.pipelineId !== pipeline.id) {
+        throw new ForbiddenException('El stage no pertenece a tu pipeline');
+      }
+    } else {
+      const firstStage = await this.prisma.stage.findFirst({
+        where: { pipelineId: pipeline.id },
+        orderBy: { order: 'asc' },
+        select: { id: true },
+      });
+      if (!firstStage) {
+        // No debería pasar — ensureMyPipeline siempre crea stages — pero
+        // defensa por las dudas.
+        throw new BadRequestException(
+          'Tu pipeline no tiene stages. Recargá la página.',
+        );
+      }
+      stageId = firstStage.id;
+    }
+    return this.prisma.crmContact.create({
+      data: {
+        ownerUserId: user.id,
+        stageId,
+        name: body.name?.trim().slice(0, 120) || null,
+        phone: body.phone?.trim().slice(0, 40) || null,
+        instagram: body.instagram?.trim().slice(0, 80) || null,
+        address: body.address?.trim().slice(0, 200) || null,
+        description: body.description?.trim().slice(0, 4000) || null,
+        tags: (Array.isArray(body.tags) ? body.tags.slice(0, 20) : []) as any,
+      },
+    });
+  }
+
+  /**
+   * Edita campos del contacto. Patrón "undefined = no tocar" para que
+   * el frontend pueda enviar updates parciales sin perder data.
+   */
+  async updateContact(
+    user: AuthUser,
+    id: string,
+    body: {
+      name?: string | null;
+      phone?: string | null;
+      instagram?: string | null;
+      address?: string | null;
+      description?: string | null;
+      tags?: string[];
+    },
+  ) {
+    await this.getContact(user, id); // ownership check
+    return this.prisma.crmContact.update({
+      where: { id },
+      data: {
+        name:
+          body.name === undefined
+            ? undefined
+            : body.name?.trim().slice(0, 120) || null,
+        phone:
+          body.phone === undefined
+            ? undefined
+            : body.phone?.trim().slice(0, 40) || null,
+        instagram:
+          body.instagram === undefined
+            ? undefined
+            : body.instagram?.trim().slice(0, 80) || null,
+        address:
+          body.address === undefined
+            ? undefined
+            : body.address?.trim().slice(0, 200) || null,
+        description:
+          body.description === undefined
+            ? undefined
+            : body.description?.trim().slice(0, 4000) || null,
+        tags:
+          body.tags === undefined
+            ? undefined
+            : (body.tags.slice(0, 20) as any),
+        lastActivityAt: new Date(),
+      },
+    });
+  }
+
+  /**
+   * Mueve un contacto a otra stage. Validamos que la stage destino
+   * pertenezca al pipeline del user (evita que cualquier ID válido
+   * de otro pipeline robe el contacto).
+   */
+  async moveContactToStage(user: AuthUser, id: string, stageId: string) {
+    await this.getContact(user, id); // ownership check
+    const pipeline = await this.ensureMyPipeline(user);
+    const stage = await this.prisma.stage.findUnique({
+      where: { id: stageId },
+      select: { pipelineId: true },
+    });
+    if (!stage || stage.pipelineId !== pipeline.id) {
+      throw new ForbiddenException('El stage no pertenece a tu pipeline');
+    }
+    return this.prisma.crmContact.update({
+      where: { id },
+      data: { stageId, lastActivityAt: new Date() },
+    });
+  }
+
+  async deleteContact(user: AuthUser, id: string) {
+    await this.getContact(user, id); // ownership check
+    await this.prisma.crmContact.delete({ where: { id } });
+    return { ok: true };
   }
 }
