@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
-import { api, startImpersonation } from '@/lib/api';
+import { api, getUser, startImpersonation } from '@/lib/api';
 import { toast } from './Toast';
 
 const RECENTS_KEY = 'clubify:tenant_switcher:recents';
@@ -144,6 +144,24 @@ export function TenantSwitcher() {
 
   async function enter(t: Tenant) {
     if (enteringId || t.status === 'SUSPENDED') return;
+
+    // MARKETING no tiene permiso para impersonate (eso es full-access al
+    // tenant). En su lugar lo llevamos al detail del super admin, que
+    // SÍ puede ver (branding, info general, no financiero). Bloque A
+    // 2026-05-27: agregamos MARKETING a /admin/tenants/:id/* endpoints.
+    const u = getUser();
+    if (u?.role === 'MARKETING') {
+      // Guardar en recents igual para que aparezca en "Acceso reciente".
+      const newRecents = [t.id, ...recents.filter((r) => r !== t.id)].slice(
+        0,
+        RECENT_LIMIT,
+      );
+      saveIds(RECENTS_KEY, newRecents);
+      setOpen(false);
+      router.push(`/admin/tenants/${t.id}`);
+      return;
+    }
+
     setEnteringId(t.id);
     try {
       const res = await api<any>(`/tenants/${t.id}/impersonate`, {
