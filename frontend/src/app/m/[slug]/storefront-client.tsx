@@ -1,6 +1,6 @@
 'use client';
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import {
   addToCart,
   cartTotals,
@@ -213,6 +213,9 @@ export default function StorefrontPublic() {
   const slug = params.slug;
   const initialSectionSlug = params.sectionSlug;
   const initialSubSlug = params.subSlug;
+  // Search params reactivos (?mesa=N, ?promo=1, ?counter=1) — leídos
+  // vía Next hook para consistencia SSR/CSR. Ver comentario en `isTableMode`.
+  const searchParams = useSearchParams();
   const [s, setS] = useState<Storefront | null>(null);
   const [menu, setMenu] = useState<Category[]>([]);
   const [tab, setTab] = useState<'menu' | 'promos'>('menu');
@@ -377,9 +380,16 @@ export default function StorefrontPublic() {
   // sin carrito. El cliente sentado en mesa no debería poder lanzar
   // pedidos por el menú (los toma el mesero). Solo la vista delivery
   // respeta el toggle del admin.
+  //
+  // Importante: usar `useSearchParams` de Next/navigation — leer
+  // `window.location.search` durante el render era inconsistente entre
+  // SSR (window undefined → false) y CSR (después del hydration, true),
+  // y como `isTableMode` es una variable derivada (no state), el
+  // hydration NO disparaba re-render → ordersAllowed quedaba como `true`
+  // aunque la URL tuviera `?mesa=1` y el botón "agregar al carrito"
+  // aparecía erróneamente.
   const isTableMode =
-    typeof window !== 'undefined' &&
-    (new URLSearchParams(window.location.search).get('mesa') ?? '').trim().length > 0;
+    (searchParams.get('mesa') ?? '').trim().length > 0;
   const ordersAllowed =
     !isTableMode &&
     s.ordersEnabled !== false &&
@@ -1154,10 +1164,10 @@ function CheckoutSheet({
   // Si la URL trae ?mesa=N (escaneo de QR de mesa), pre-rellenamos y
   // forzamos fulfillment a DINE_IN. El número de mesa SIEMPRE viene del
   // QR — el cliente nunca lo escribe a mano.
-  const tableFromQr =
-    typeof window !== 'undefined'
-      ? new URLSearchParams(window.location.search).get('mesa') ?? ''
-      : '';
+  // Usar useSearchParams para consistencia SSR/CSR (sino se quedaba en
+  // '' tras hydration y el form arrancaba con DELIVERY incorrectamente).
+  const searchParams = useSearchParams();
+  const tableFromQr = searchParams.get('mesa') ?? '';
   const lockedTable = tableFromQr.trim().length > 0;
 
   // Sin QR de mesa → default DELIVERY (a domicilio). PICKUP fue removido.
