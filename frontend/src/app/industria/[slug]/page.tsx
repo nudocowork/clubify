@@ -58,8 +58,8 @@ export default function IndustryDeckPublicPage() {
         <div className="card card-pad text-center max-w-md">
           <div className="text-4xl mb-2">⚠️</div>
           <div className="font-semibold mb-1">Industria no encontrada</div>
-          <Link href="/" className="btn-primary inline-block mt-4">
-            ← Volver al inicio
+          <Link href="/industrias" className="btn-primary inline-block mt-4">
+            ← Ver todas las industrias
           </Link>
         </div>
       </div>
@@ -71,7 +71,7 @@ export default function IndustryDeckPublicPage() {
       slides={data.slides}
       themeColor={data.themeColor}
       industryThemeColor={data.themeColor}
-      backHref="/"
+      backHref="/industrias"
       emptyMessage={`${data.name} todavía no tiene slides publicados`}
     />
   );
