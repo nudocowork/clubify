@@ -188,10 +188,15 @@ export class SequencesController {
 
   @Get('enrollments/by-contact/:contactId')
   enrollmentsForContact(
-    @CurrentUser() _user: AuthUser,
+    @CurrentUser() user: AuthUser,
     @Param('contactId') contactId: string,
   ) {
-    return this.svc.listEnrollmentsForContact(contactId);
+    // SUPER_ADMIN puede ver enrollments de cualquier contacto (audit).
+    // AFFILIATE_* solo los del contacto que pertenece a ellos.
+    if (user.role === 'SUPER_ADMIN') {
+      return this.svc.listEnrollmentsForContactAdmin(contactId);
+    }
+    return this.svc.listEnrollmentsForContact(user.id, contactId);
   }
 
   @Post('enrollments/:enrollmentId/pause')

@@ -1553,9 +1553,15 @@ model Commission {
   // Marca de contacto al cliente cuando hubo pago fallido — se setea
   // desde la tab "Pendientes por pagar" para llevar registro.
   clientContactedAt DateTime?
+  // Dedup key: transactionId externo (Hotmart `transaction` / `subscriber_code`,
+  // manual=null). Si llega un webhook con el mismo externalTxId que ya
+  // existe en Commission, skip (evita doble-pay con convertToPaying
+  // manual + webhook Hotmart posterior del mismo ciclo).
+  externalTxId      String?
   createdAt         DateTime         @default(now())
 
   @@index([status])
+  @@index([externalTxId])
 }
 
 // ============================================================
