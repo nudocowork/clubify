@@ -315,10 +315,12 @@ export class SequencesService {
       },
     });
 
+    // attempts=1: SEND_MESSAGE no es idempotente; un retry mandaría
+    // el SMS/WhatsApp 2-3 veces. Ver sequence-worker.service.ts.
     const job = await this.queue.enqueue(
       'sequence.process_step',
       { enrollmentId: enrollment.id },
-      { delay: 0 },
+      { delay: 0, attempts: 1 },
     );
     if (job?.id) {
       await this.prisma.sequenceEnrollment.update({
@@ -397,7 +399,18 @@ export class SequencesService {
     }
   }
 
-  async listEnrollmentsForContact(contactId: string) {
+  async listEnrollmentsForContact(userId: string, contactId: string) {
+    // Auth: validar que el contacto pertenezca al user que pregunta.
+    // Sino cualquier afiliado autenticado podía leer enrollments de
+    // contactos ajenos pasando el contactId en la URL.
+    const contact = await this.prisma.crmContact.findUnique({
+      where: { id: contactId },
+      select: { ownerUserId: true },
+    });
+    if (!contact) throw new NotFoundException('Contacto no encontrado');
+    if (contact.ownerUserId !== userId) {
+      throw new ForbiddenException('No tenés acceso a este contacto');
+    }
     return this.prisma.sequenceEnrollment.findMany({
       where: { contactId },
       orderBy: { enrolledAt: 'desc' },
@@ -406,8 +419,25 @@ export class SequencesService {
         currentStep: { select: { id: true, order: true, kind: true } },
         executions: {
           orderBy: { executedAt: 'asc' },
-          include: { /* nada extra por ahora */ },
+          // (nada extra por ahora)
         },
+      },
+    });
+  }
+
+  /**
+   * Wrapper para super admin que quiere ver enrollments de cualquier
+   * contacto sin pasar por el guard del owner. Llamado solo desde
+   * el dashboard admin (no expuesto al frontend del afiliado).
+   */
+  async listEnrollmentsForContactAdmin(contactId: string) {
+    return this.prisma.sequenceEnrollment.findMany({
+      where: { contactId },
+      orderBy: { enrolledAt: 'desc' },
+      include: {
+        sequence: { select: { id: true, name: true } },
+        currentStep: { select: { id: true, order: true, kind: true } },
+        executions: { orderBy: { executedAt: 'asc' } },
       },
     });
   }
@@ -445,7 +475,7 @@ export class SequencesService {
     const job = await this.queue.enqueue(
       'sequence.process_step',
       { enrollmentId },
-      { delay: 0 },
+      { delay: 0, attempts: 1 }, // no retry — ver sequence-worker.
     );
     return this.prisma.sequenceEnrollment.update({
       where: { id: enrollmentId },
@@ -514,9 +544,10 @@ export class SequencesService {
       return;
     }
     if (!enrollment.currentStep) {
-      // currentStep null → completar.
-      await this.prisma.sequenceEnrollment.update({
-        where: { id: enrollmentId },
+      // currentStep null → completar. Optimistic lock: solo update si
+      // el enrollment sigue ACTIVE (no fue pausado/cancelado mid-flight).
+      await this.prisma.sequenceEnrollment.updateMany({
+        where: { id: enrollmentId, status: 'ACTIVE' },
         data: {
           status: 'COMPLETED',
           completedAt: new Date(),
@@ -648,8 +679,9 @@ export class SequencesService {
     );
 
     if (execStatus === 'FAILED') {
-      await this.prisma.sequenceEnrollment.update({
-        where: { id: enrollmentId },
+      // Optimistic lock: solo marcar FAILED si seguía ACTIVE.
+      await this.prisma.sequenceEnrollment.updateMany({
+        where: { id: enrollmentId, status: 'ACTIVE' },
         data: {
           status: 'FAILED',
           lastError: execError,
@@ -681,17 +713,27 @@ export class SequencesService {
     const job = await this.queue.enqueue(
       'sequence.process_step',
       { enrollmentId },
-      { delay: delayMs },
+      { delay: delayMs, attempts: 1 }, // no retry — ver sequence-worker.
     );
 
-    await this.prisma.sequenceEnrollment.update({
-      where: { id: enrollmentId },
+    // Optimistic lock: solo avanzar currentStep si seguía ACTIVE.
+    // Si pause/cancel cambió el status, este update afecta 0 rows y
+    // el siguiente step en la queue no encontrará ACTIVE → no-op.
+    const advanced = await this.prisma.sequenceEnrollment.updateMany({
+      where: { id: enrollmentId, status: 'ACTIVE' },
       data: {
         currentStepId: next.id,
         nextRunAt,
         jobId: job?.id ? String(job.id) : null,
       },
     });
+    // Si NO se actualizó (status cambió mid-flight), removemos el job
+    // encolado para evitar que se ejecute sobre un enrollment pausado.
+    if (advanced.count === 0 && job?.id) {
+      await this.queue
+        .removeJob('sequence.process_step', String(job.id))
+        .catch(() => null);
+    }
   }
 
   // =============================================================
@@ -801,8 +843,10 @@ export class SequencesService {
   }
 
   private async completeEnrollment(enrollmentId: string) {
-    await this.prisma.sequenceEnrollment.update({
-      where: { id: enrollmentId },
+    // Optimistic lock: solo COMPLETED si seguía ACTIVE. Si pause/cancel
+    // cambió el status, no sobrescribimos.
+    await this.prisma.sequenceEnrollment.updateMany({
+      where: { id: enrollmentId, status: 'ACTIVE' },
       data: {
         status: 'COMPLETED',
         completedAt: new Date(),

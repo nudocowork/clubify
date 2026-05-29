@@ -32,10 +32,16 @@ export class SequenceWorker implements OnModuleInit {
       try {
         await this.sequences.processStep(enrollmentId);
       } catch (e) {
+        // CRITICAL: NO re-throw. BullMQ retry sería peligroso porque
+        // SEND_MESSAGE no es idempotente — si el SMS ya se mandó pero
+        // processStep falló al actualizar lastActivityAt, el retry
+        // mandaría el SMS DE NUEVO (2-3 veces al mismo cliente). El
+        // enrollment ya se marca FAILED dentro de processStep si el
+        // step falla; el log queda en SequenceExecution para auditar.
+        // El user puede pause/resume para re-intentar manualmente.
         this.logger.error(
           `processStep(${enrollmentId}) falló: ${(e as Error).message}`,
         );
-        throw e; // que BullMQ haga retry según attempts
       }
     });
   }

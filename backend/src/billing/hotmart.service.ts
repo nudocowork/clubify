@@ -483,7 +483,24 @@ export class HotmartService {
       const last = use.commissions[0];
       const recent = last && (Date.now() - new Date(last.createdAt).getTime()) / 86400_000 < 25;
 
-      if (!recent) {
+      // Dedup por transactionId: si ya hay una Commission con el mismo
+      // externalTxId (mismo evento Hotmart procesado dos veces, o el
+      // backfill manual de convertToPaying generó esta misma comisión),
+      // skip silencioso. Si no hay transactionId, el guard "<25 días"
+      // sigue cubriendo el caso normal.
+      let duplicateByTx = false;
+      if (opts.transactionId) {
+        const existingTx = await this.prisma.commission.findFirst({
+          where: {
+            externalTxId: opts.transactionId,
+            referralUseId: use.id,
+          },
+          select: { id: true },
+        });
+        if (existingTx) duplicateByTx = true;
+      }
+
+      if (!recent && !duplicateByTx) {
         const pct = Number(use.referralCode.commissionPercent ?? 25);
         const direct = round2((referralBase * pct) / 100);
 
@@ -494,7 +511,12 @@ export class HotmartService {
           });
         }
         await this.prisma.commission.create({
-          data: { referralUseId: use.id, amount: direct, status: 'PENDING' },
+          data: {
+            referralUseId: use.id,
+            amount: direct,
+            status: 'PENDING',
+            externalTxId: opts.transactionId ?? null,
+          },
         });
         this.logger.log(
           `Comisión directa: ${use.referralCode.role} ${use.referralCode.code} $${direct} (${pct}% sobre $${referralBase})`,
@@ -536,7 +558,12 @@ export class HotmartService {
             });
           });
           await this.prisma.commission.create({
-            data: { referralUseId: parentUse.id, amount: indirect, status: 'PENDING' },
+            data: {
+              referralUseId: parentUse.id,
+              amount: indirect,
+              status: 'PENDING',
+              externalTxId: opts.transactionId ?? null,
+            },
           });
           this.logger.log(
             `Comisión indirecta INFLUENCER ${parent.code}: $${indirect} (${indirectPct}%)`,
