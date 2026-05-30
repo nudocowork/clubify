@@ -90,18 +90,22 @@ function MenuPhone({
 
 export function HeroBanner({
   waLink,
+  demoLink,
   mailLink,
   igLink,
   menuItems,
   brandName,
 }: {
   waLink: string;
+  /** URL del botón "Agendar una Demo" — embed Calendly de soyclubify.lat/demo. */
+  demoLink?: string;
   mailLink?: string | null;
   igLink?: string | null;
   menuItems?: MenuItem[];
   brandName?: string;
 } = {
-  waLink: 'https://wa.me/573000000000',
+  waLink: 'https://wa.me/573189367158',
+  demoLink: 'https://soyclubify.lat/demo',
   mailLink: null,
   igLink: null,
 }) {
@@ -140,24 +144,16 @@ export function HeroBanner({
                 Ver plan y empezar
               </Link>
               <a
-                href={waLink}
+                href={demoLink ?? 'https://soyclubify.lat/demo'}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center justify-center gap-2 px-6 sm:px-7 py-3 sm:py-3.5 rounded-full bg-white text-ink border-2 border-ink/90 font-semibold hover:bg-ink/5 transition text-sm sm:text-base"
               >
-                Agenda una demo
+                Agendar una Demo
               </a>
-              {/* Instagram CTA movido al footer al lado de WhatsApp/Email
-                  para no competir visualmente con los CTAs primarios del
-                  hero (Ver plan + Agenda una demo). */}
-              {mailLink && (
-                <a
-                  href={mailLink}
-                  className="inline-flex items-center justify-center gap-2 px-5 sm:px-6 py-3 sm:py-3.5 rounded-full bg-bg2 text-ink font-semibold hover:bg-line transition text-sm sm:text-base"
-                >
-                  ✉️ Email
-                </a>
-              )}
+              {/* Email/Instagram CTAs movidos al footer para no competir
+                  visualmente con los CTAs primarios del hero
+                  (Ver plan + Agendar una Demo). */}
             </div>
           </div>
 
