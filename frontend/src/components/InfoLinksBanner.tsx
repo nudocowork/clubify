@@ -26,9 +26,12 @@ function Phone({
 }
 
 // ─── Mockups de InfoLinks ───
+// Ambos representan negocios REALES creados con Clubify (Nudo Cowork
+// y Motilart). El botón "Ver ejemplo" debajo de cada phone abre el
+// infolink público.
 
-// 1. AURORA — gradient mesh, Nudo Cowork (coworking + eventos)
-function ScreenAurora() {
+// 1. NUDO COWORK — coworking + eventos, gradient mesh aurora
+function ScreenNudoCowork() {
   return (
     <div
       className="h-full p-3 pt-7 text-white"
@@ -64,34 +67,43 @@ function ScreenAurora() {
   );
 }
 
-// 2. NEON — dark + glow, "Mezcal" coctelería de autor
-function ScreenNeon() {
+// 2. MOTILART — taller / customización de motos
+function ScreenMotilart() {
   return (
-    <div className="h-full p-3 pt-7 text-white" style={{ background: '#0a0a0f' }}>
+    <div
+      className="h-full p-3 pt-7 text-white"
+      style={{
+        background:
+          'radial-gradient(circle at 50% 0%, #F97316 0%, transparent 35%), linear-gradient(180deg, #18181b 0%, #0a0a0a 100%)',
+      }}
+    >
       <div className="text-center mt-2">
         <div
           className="w-12 h-12 rounded-2xl mx-auto mb-2 flex items-center justify-center text-xl"
           style={{
-            background: 'linear-gradient(135deg, #FB7185, #FB923C)',
-            boxShadow: '0 0 22px rgba(251,113,133,0.55)',
+            background: 'linear-gradient(135deg, #F97316, #FACC15)',
+            boxShadow: '0 0 20px rgba(249,115,22,0.6)',
           }}
         >
-          🥃
+          🏍
         </div>
         <div
           className="font-bold text-sm tracking-tight"
-          style={{ textShadow: '0 0 8px #FB7185' }}
+          style={{ color: '#FACC15' }}
         >
-          Mezcal
+          Motilart
         </div>
-        <div className="text-[9px] text-rose-300">Coctelería de autor · Bogotá</div>
+        <div className="text-[9px] text-orange-200/80">
+          Taller · Customización · Repuestos
+        </div>
       </div>
       <div className="space-y-2 mt-4">
         {[
-          { label: '🎟 Reservar mesa', color: '#FB7185' },
-          { label: '🍸 Carta de cócteles', color: '#A78BFA' },
-          { label: '🎵 Eventos en vivo', color: '#34D399' },
-          { label: '📸 @mezcalbogota', color: '#FB923C' },
+          { label: '🛠 Agendar servicio', color: '#F97316' },
+          { label: '🎨 Galería de trabajos', color: '#FACC15' },
+          { label: '📦 Catálogo repuestos', color: '#FB7185' },
+          { label: '📍 Llegar al taller', color: '#34D399' },
+          { label: '📲 WhatsApp', color: '#22D3EE' },
         ].map((item) => (
           <div
             key={item.label}
@@ -147,61 +159,81 @@ export function InfoLinksBanner() {
             </div>
           </div>
 
-          {/* Columna derecha: 2 iPhones tilted juntos (Aurora + Neon)
-              Layout flex centrado con leve overlap. Cada phone tiene
-              su propio wrapper para separar transform (rotación) de
-              animation (translateY) y evitar que se pisen. */}
-          <div className="relative h-[420px] sm:h-[480px] lg:h-[520px] flex items-center justify-center">
-            {/* Aurora — rotado -8°, animation float 0s */}
-            <div
-              className="relative"
-              style={{ transform: 'rotate(-8deg)', zIndex: 1 }}
+          {/* Columna derecha: 2 iPhones tilted con infolinks reales
+              (Nudo Cowork + Motilart). Cada phone va dentro de una
+              columna que incluye un botón "Ver ejemplo" debajo que
+              abre el infolink público real en nueva pestaña. */}
+          <div className="relative flex items-end justify-center gap-2 sm:gap-4 lg:gap-6">
+            {/* Nudo Cowork */}
+            <InfolinkCard
+              rotate={-8}
+              floatDelay={0}
+              brandName="Nudo Cowork"
+              demoHref="https://soyclubify.com/i/nudo-cowork"
             >
-              <div style={{ animation: 'clb-info-floaty 4s ease-in-out 0s infinite' }}>
-                <div className="hidden lg:block">
-                  <Phone width={200}>
-                    <ScreenAurora />
-                  </Phone>
-                </div>
-                <div className="hidden sm:block lg:hidden">
-                  <Phone width={170}>
-                    <ScreenAurora />
-                  </Phone>
-                </div>
-                <div className="block sm:hidden">
-                  <Phone width={140}>
-                    <ScreenAurora />
-                  </Phone>
-                </div>
-              </div>
-            </div>
+              <ScreenNudoCowork />
+            </InfolinkCard>
 
-            {/* Neon — rotado +8°, animation float 1s, overlap negativo */}
-            <div
-              className="relative -ml-6 sm:-ml-8 lg:-ml-10"
-              style={{ transform: 'rotate(8deg)', zIndex: 2 }}
+            {/* Motilart */}
+            <InfolinkCard
+              rotate={8}
+              floatDelay={1}
+              brandName="Motilart"
+              demoHref="https://soyclubify.com/i/motilart"
             >
-              <div style={{ animation: 'clb-info-floaty 4s ease-in-out 1s infinite' }}>
-                <div className="hidden lg:block">
-                  <Phone width={200}>
-                    <ScreenNeon />
-                  </Phone>
-                </div>
-                <div className="hidden sm:block lg:hidden">
-                  <Phone width={170}>
-                    <ScreenNeon />
-                  </Phone>
-                </div>
-                <div className="block sm:hidden">
-                  <Phone width={140}>
-                    <ScreenNeon />
-                  </Phone>
-                </div>
-              </div>
-            </div>
+              <ScreenMotilart />
+            </InfolinkCard>
           </div>
         </div>
       </section>
     </>
+  );
+}
+
+/** Card que envuelve un iPhone tilted + label "Ver ejemplo" debajo.
+ *  Mantiene el ratio del phone responsivo (200/170/140 según breakpoint). */
+function InfolinkCard({
+  rotate,
+  floatDelay,
+  brandName,
+  demoHref,
+  children,
+}: {
+  rotate: number;
+  floatDelay: number;
+  brandName: string;
+  demoHref: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-3">
+      <div
+        className="relative"
+        style={{ transform: `rotate(${rotate}deg)`, zIndex: 1 }}
+      >
+        <div style={{ animation: `clb-info-floaty 4s ease-in-out ${floatDelay}s infinite` }}>
+          <div className="hidden lg:block">
+            <Phone width={200}>{children}</Phone>
+          </div>
+          <div className="hidden sm:block lg:hidden">
+            <Phone width={170}>{children}</Phone>
+          </div>
+          <div className="block sm:hidden">
+            <Phone width={140}>{children}</Phone>
+          </div>
+        </div>
+      </div>
+
+      <a
+        href={demoHref}
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-ink hover:text-brand transition"
+        title={`Abrir el infolink real de ${brandName}`}
+      >
+        <span className="text-mute font-medium">{brandName}</span>
+        <span className="text-brand">· Ver ejemplo →</span>
+      </a>
+    </div>
   );
 }
