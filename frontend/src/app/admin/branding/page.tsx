@@ -126,7 +126,7 @@ export default function AdminBrandingPage() {
         <p className="text-xs text-mute mt-1 leading-relaxed">
           Datos que se usan en los botones de la landing{' '}
           <code className="bg-bg2 px-1 rounded">soyclubify.com</code> —
-          "Hablar con ventas" (WhatsApp), botón de email y botón de
+          "Agenda una demo" (WhatsApp), botón de email y botón de
           Instagram. Si dejás un campo vacío, el botón correspondiente
           se oculta automáticamente.
         </p>

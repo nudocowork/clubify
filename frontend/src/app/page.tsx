@@ -277,7 +277,7 @@ export default async function Landing() {
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Hablar con ventas
+                  Agenda una demo
                 </a>
               </div>
 
