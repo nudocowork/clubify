@@ -228,7 +228,7 @@ export function FidelizacionBanner({
                 rel="noreferrer"
                 className="inline-flex items-center justify-center gap-2 px-6 sm:px-7 py-3 sm:py-3.5 rounded-full bg-white text-ink border-2 border-ink/90 font-semibold hover:bg-ink/5 transition text-sm sm:text-base"
               >
-                Hablar con ventas
+                Agenda una demo
               </a>
             </div>
           </div>
