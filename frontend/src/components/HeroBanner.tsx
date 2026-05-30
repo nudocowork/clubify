@@ -147,17 +147,9 @@ export function HeroBanner({
               >
                 Agenda una demo
               </a>
-              {/* Instagram CTA movido al footer al lado de WhatsApp/Email
-                  para no competir visualmente con los CTAs primarios del
-                  hero (Ver plan + Agenda una demo). */}
-              {mailLink && (
-                <a
-                  href={mailLink}
-                  className="inline-flex items-center justify-center gap-2 px-5 sm:px-6 py-3 sm:py-3.5 rounded-full bg-bg2 text-ink font-semibold hover:bg-line transition text-sm sm:text-base"
-                >
-                  ✉️ Email
-                </a>
-              )}
+              {/* Email/Instagram CTAs movidos al footer para no competir
+                  visualmente con los CTAs primarios del hero
+                  (Ver plan + Agenda una demo). */}
             </div>
           </div>
 
