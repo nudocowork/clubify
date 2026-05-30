@@ -174,11 +174,17 @@ export default async function Landing() {
   const { sales, stats } = branding;
   const waLink = sales.whatsapp
     ? `https://wa.me/${sales.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent('Hola, quiero saber más de Clubify')}`
-    : 'https://wa.me/573000000000?text=Hola%2C%20quiero%20saber%20m%C3%A1s%20de%20Clubify';
+    : 'https://wa.me/573189367158?text=' +
+      encodeURIComponent('Hola, quiero saber más de Clubify');
   const mailLink = sales.email
     ? `mailto:${sales.email}?subject=${encodeURIComponent('Quiero saber más de Clubify')}`
-    : null;
-  const igLink = sales.instagram ?? null;
+    : 'mailto:Soyclubify@gmail.com';
+  const igLink = sales.instagram ?? 'https://www.instagram.com/clubify.oficial';
+  // CTAs de "Agendar una Demo" — link fijo al embed de Calendly, NO al
+  // WhatsApp (decisión del founder: separar consulta comercial general
+  // del booking de demo). Sin override por Settings — si se quiere
+  // cambiar, modificar acá.
+  const demoLink = 'https://soyclubify.lat/demo';
 
   // Stats: usa lo seteado en admin si está, sino el fallback hardcoded.
   const STATS = [
@@ -273,11 +279,11 @@ export default async function Landing() {
                 </Link>
                 <a
                   className="inline-flex items-center gap-2 bg-white border border-line text-ink font-semibold text-base px-6 py-3.5 rounded-pill hover:border-ink/30 transition"
-                  href={waLink}
+                  href={demoLink}
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Agenda una demo
+                  Agendar una Demo
                 </a>
               </div>
 
@@ -348,11 +354,12 @@ export default async function Landing() {
       </section>
 
       {/* ─────────── Bloque Fidelización (va arriba de Menús IA) ─────────── */}
-      <FidelizacionBanner waLink={waLink} />
+      <FidelizacionBanner waLink={waLink} demoLink={demoLink} />
 
       {/* ─────────── Hero secundario "Menús con IA" (estilo Cluvi) ─────────── */}
       <HeroBanner
         waLink={waLink}
+        demoLink={demoLink}
         mailLink={mailLink}
         igLink={igLink}
         menuItems={nudoMenuItems.length > 0 ? nudoMenuItems : undefined}
@@ -569,7 +576,7 @@ export default async function Landing() {
                   💬 WhatsApp
                 </a>
                 <a
-                  href="mailto:hola@soyclubify.com"
+                  href={mailLink ?? 'mailto:Soyclubify@gmail.com'}
                   className="text-xs bg-bg2 text-ink px-3 py-1.5 rounded-pill hover:bg-line"
                 >
                   ✉ Email
