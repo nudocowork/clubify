@@ -652,9 +652,12 @@ function NewOrderModal({
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Cargar productos disponibles una sola vez
+  // Cargar productos disponibles una sola vez.
+  // FIX: el endpoint vive en /catalog/products, no /products — el path
+  // viejo daba 404 silencioso y el modal mostraba "Sin productos para
+  // mostrar" en cualquier tenant.
   useEffect(() => {
-    api<ProductLite[]>('/products')
+    api<ProductLite[]>('/catalog/products')
       .then((all) => setProducts(all.filter((p) => p.isAvailable)))
       .catch(() => setProducts([]));
   }, []);
