@@ -510,6 +510,10 @@ model User {
   // Timestamp del último cambio de password. Usado para forzar logout
   // global: cualquier token emitido antes de esta fecha queda inválido.
   passwordChangedAt DateTime?
+  // Marca cuándo se le envió la alerta SMS de preregistro al equipo
+  // (PreregAlertsService). Evita doble envío si el cron de reintentos
+  // re-procesa este user. null = sin alerta enviada (todavía o nunca).
+  preregAlertedAt   DateTime?
 
   stampsOperated      Stamp[]              @relation("operator")
   referralCodes       ReferralCode[]

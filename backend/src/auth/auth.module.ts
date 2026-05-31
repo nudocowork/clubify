@@ -10,12 +10,14 @@ import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
 import { RefreshTokenService } from './refresh-token.service';
 import { TwoFactorService } from './two-factor.service';
+import { PreregAlertsService } from './prereg-alerts.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { TenantStatusGuard } from '../common/guards/tenant-status.guard';
 import { TenantLockGuard } from '../common/guards/tenant-lock.guard';
 import { MaintenanceGuard } from '../maintenance/maintenance.guard';
 import { MaintenanceModule } from '../maintenance/maintenance.module';
+import { IntegrationsModule } from '../integrations/integrations.module';
 
 @Module({
   imports: [
@@ -23,6 +25,7 @@ import { MaintenanceModule } from '../maintenance/maintenance.module';
     EmailModule,
     PassportModule,
     MaintenanceModule,
+    IntegrationsModule,
     JwtModule.registerAsync({
       inject: [AppConfigService],
       useFactory: (appConfig: AppConfigService) => ({
@@ -36,6 +39,7 @@ import { MaintenanceModule } from '../maintenance/maintenance.module';
     JwtStrategy,
     RefreshTokenService,
     TwoFactorService,
+    PreregAlertsService,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: TenantStatusGuard },

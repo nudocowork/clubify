@@ -9,6 +9,7 @@ import { EmailService } from '../email/email.service';
 import { AppConfigService } from '../common/config/app-config.service';
 import { RefreshTokenService } from './refresh-token.service';
 import { TwoFactorService } from './two-factor.service';
+import { PreregAlertsService } from './prereg-alerts.service';
 import {
   welcomeOwnerTemplate,
   passwordResetTemplate,
@@ -62,6 +63,7 @@ export class AuthService {
     private appConfig: AppConfigService,
     private refreshTokens: RefreshTokenService,
     private twoFactor: TwoFactorService,
+    private preregAlerts: PreregAlertsService,
   ) {
     const clientId = appConfig.get('GOOGLE_CLIENT_ID');
     this.googleClient = clientId ? new OAuth2Client(clientId) : null;
@@ -692,6 +694,42 @@ export class AuthService {
         appUrl: this.appConfig.APP_URL,
       }),
     });
+
+    // SMS al equipo (Javier/Jhon) avisando del nuevo preregistro.
+    // Fire-and-forget — el service captura sus propios errores y no
+    // propaga. Si la subcuenta GB falla o los Settings están mal, el
+    // signup no se rompe. Resolve referrer/campaign si vino con código.
+    let referrerName: string | null = null;
+    let campaignName: string | null = null;
+    if (attributedReferralCodeId) {
+      const code = await this.prisma.referralCode
+        .findUnique({
+          where: { id: attributedReferralCodeId },
+          select: {
+            ownerName: true,
+            ownerOfCampaign: { select: { name: true } },
+          },
+        })
+        .catch(() => null);
+      referrerName = code?.ownerName ?? null;
+      campaignName = code?.ownerOfCampaign?.name ?? null;
+    }
+    const source = attributedReferralCodeId
+      ? 'Afiliado'
+      : dto.attribution?.viaSlug
+        ? `Landing (/ref/${dto.attribution.viaSlug})`
+        : 'Landing principal';
+    this.preregAlerts
+      .alertSignup({
+        userId: user.id,
+        customerName: dto.fullName.trim(),
+        customerEmail: email,
+        customerPhone: dto.whatsappPhone ?? null,
+        source,
+        referrerName,
+        campaignName,
+      })
+      .catch(() => null);
 
     // Atribución a Quote (signup vino vía /q/<token>). Fire-and-forget:
     // si el token no existe o la cotización ya estaba convertida, el
