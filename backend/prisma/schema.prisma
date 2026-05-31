@@ -1020,6 +1020,11 @@ model Order {
   items           Json
   subtotal        Decimal      @db.Decimal(10, 2)
   discount        Decimal      @default(0) @db.Decimal(10, 2)
+  // Monto del delivery sumado al total. null = no aplica (pickup,
+  // dine-in, o delivery "acordado con el proveedor" desde el menú
+  // público — el cliente y el negocio coordinan el monto por WhatsApp
+  // sin que el panel lo cobre automáticamente).
+  deliveryAmount  Decimal?     @db.Decimal(10, 2)
   total           Decimal      @db.Decimal(10, 2)
   status          OrderStatus  @default(PENDING)
   channel         OrderChannel @default(WHATSAPP_LINK)

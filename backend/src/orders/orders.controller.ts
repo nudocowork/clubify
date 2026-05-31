@@ -14,6 +14,7 @@ import {
   IsArray,
   IsEnum,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   Min,
@@ -50,6 +51,7 @@ class ManualOrderBody {
   @IsOptional() @IsEnum(OrderStatus) status?: OrderStatus;
   @IsOptional() @IsString() paymentStatus?: 'PAID' | 'PENDING' | 'NOT_REQUIRED';
   @IsOptional() @IsString() paymentMethod?: string;
+  @IsOptional() @IsNumber() @Min(0) deliveryAmount?: number | null;
 }
 
 @Controller('orders')

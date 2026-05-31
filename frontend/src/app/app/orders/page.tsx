@@ -649,6 +649,9 @@ function NewOrderModal({
   >('PAID');
   const [tableNumber, setTableNumber] = useState('');
   const [customerNote, setCustomerNote] = useState('');
+  // Monto de delivery: input numérico simple. Vacío = no aplica.
+  // El total se recalcula client-side para preview; backend valida.
+  const [deliveryAmount, setDeliveryAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -725,10 +728,15 @@ function NewOrderModal({
     );
   }
 
-  const total = useMemo(
+  const subtotal = useMemo(
     () => cart.reduce((acc, c) => acc + c.unitPrice * c.qty, 0),
     [cart],
   );
+  const deliveryNumber = useMemo(() => {
+    const n = parseFloat(deliveryAmount.replace(',', '.'));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }, [deliveryAmount]);
+  const total = subtotal + deliveryNumber;
 
   async function submit() {
     if (!pickedCustomer) {
@@ -753,6 +761,7 @@ function NewOrderModal({
           fulfillment: tableNumber.trim() ? 'DINE_IN' : 'PICKUP',
           tableNumber: tableNumber.trim() || undefined,
           customerNote: customerNote.trim() || undefined,
+          deliveryAmount: deliveryNumber > 0 ? deliveryNumber : undefined,
         }),
       });
       toast('Pedido creado', 'success');
@@ -991,6 +1000,42 @@ function NewOrderModal({
                 onChange={(e) => setTableNumber(e.target.value)}
               />
             </div>
+          </div>
+
+          {/* Monto de delivery — opcional, se suma al total si > 0. */}
+          <div>
+            <label className="label">
+              Monto de delivery{' '}
+              <span className="text-mute font-normal">
+                — opcional, se suma al total
+              </span>
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                className="input flex-1"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="Vacío = no aplica"
+                value={deliveryAmount}
+                onChange={(e) => setDeliveryAmount(e.target.value)}
+              />
+              {deliveryAmount && deliveryNumber > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setDeliveryAmount('')}
+                  className="text-xs text-mute hover:text-ink"
+                >
+                  Quitar
+                </button>
+              )}
+            </div>
+            {deliveryNumber > 0 && (
+              <div className="text-xs text-mute mt-1">
+                Subtotal {fmt(subtotal)} + delivery {fmt(deliveryNumber)} ={' '}
+                <strong className="text-ink">{fmt(total)}</strong>
+              </div>
+            )}
           </div>
 
           <div>
