@@ -1388,6 +1388,15 @@ function CheckoutSheet({
                 <div className="text-xs uppercase tracking-wider text-mute font-semibold">
                   {tt('checkout.shipping_title')}
                 </div>
+                {/* Aviso de "el monto del delivery se acuerda con el
+                    proveedor" — el storefront público NO cobra delivery
+                    fijo; el cliente y el negocio coordinan por WhatsApp
+                    después de recibir el pedido. */}
+                <div className="rounded-md bg-amber-50 border border-amber-200 px-2.5 py-1.5 text-[11px] text-amber-900 leading-snug">
+                  💡 El costo del domicilio se{' '}
+                  <strong>acuerda con el proveedor</strong> al confirmar
+                  el pedido — no se cobra aquí.
+                </div>
                 <div>
                   <label className="label">{tt('checkout.dept')} *</label>
                   <select

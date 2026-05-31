@@ -490,6 +490,8 @@ export class OrdersService {
       status?: OrderStatus;
       paymentStatus?: 'PAID' | 'PENDING' | 'NOT_REQUIRED';
       paymentMethod?: string;
+      /** Monto del delivery sumado al total. null/undefined = no aplica. */
+      deliveryAmount?: number | null;
     },
   ) {
     const tid = this.tid(user, override);
@@ -549,7 +551,13 @@ export class OrdersService {
       subtotal,
       items,
     );
-    const total = Math.max(0, subtotal - discount);
+    // Sumar monto de delivery al total si vino. Validamos: si es número
+    // y > 0 lo persistimos; null/undefined o <= 0 → no aplica.
+    const deliveryAmount =
+      typeof dto.deliveryAmount === 'number' && dto.deliveryAmount > 0
+        ? Math.round(dto.deliveryAmount * 100) / 100
+        : null;
+    const total = Math.max(0, subtotal - discount + (deliveryAmount ?? 0));
 
     let code = codeGen();
     while (await this.prisma.order.findUnique({ where: { code } })) {
@@ -568,6 +576,7 @@ export class OrdersService {
         items: items as any,
         subtotal,
         discount,
+        deliveryAmount,
         total,
         appliedPromos: applied as any,
         fulfillment: dto.fulfillment ?? 'PICKUP',
