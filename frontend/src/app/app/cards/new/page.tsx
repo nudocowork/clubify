@@ -72,6 +72,9 @@ const FROM_SCRATCH_DEFAULTS = {
   rewardEarnedMessage: '¡Has ganado tu recompensa!',
   multiRewards: [] as Array<{ at: number; reward: string }>,
   activeLinks: [] as Array<{ type: string; url: string; label: string }>,
+  // COUPON/DISCOUNT/GIFT: tarjeta de sellos destino al redeem. null
+  // = auto (primera stamps activa, o se crea).
+  transformIntoCardId: null as string | null,
 };
 
 type LocationLite = { id: string; name: string };
@@ -789,6 +792,16 @@ function Step3Configure({
             metric={form.tierMetric}
             onChangeTiers={(t) => set('tiers', t)}
             onChangeMetric={(m) => set('tierMetric', m)}
+          />
+        )}
+
+        {/* COUPON/DISCOUNT/GIFT: elegir la tarjeta de sellos destino. */}
+        {(form.type === 'COUPON' ||
+          form.type === 'DISCOUNT' ||
+          form.type === 'GIFT') && (
+          <CouponTransformTargetPicker
+            value={form.transformIntoCardId}
+            onChange={(id) => set('transformIntoCardId', id)}
           />
         )}
 
@@ -1550,6 +1563,72 @@ function TiersEditor({
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Selector de la tarjeta de SELLOS destino para COUPON/DISCOUNT/GIFT.
+ * Al redeem del cupón, el pass se transforma in-place en una stamps
+ * card. Por default (null) usa la primera stamps activa del tenant, o
+ * la crea si no existe. El user puede elegir explícitamente otra para
+ * conectar el cupón a una tarjeta de fidelización específica.
+ */
+function CouponTransformTargetPicker({
+  value,
+  onChange,
+}: {
+  value: string | null;
+  onChange: (id: string | null) => void;
+}) {
+  const [options, setOptions] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api<Array<{ id: string; name: string; type: string; isActive: boolean }>>(
+      '/cards',
+    )
+      .then((all) => {
+        const stamps = all
+          .filter((c) => c.type === 'STAMPS' && c.isActive)
+          .map((c) => ({ id: c.id, name: c.name }));
+        setOptions(stamps);
+      })
+      .catch(() => setOptions([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  return (
+    <div className="mt-3 pt-3 border-t border-line">
+      <label className="label">
+        Al redimirse, transformar en:{' '}
+        <span className="text-mute font-normal">
+          (tarjeta de sellos destino)
+        </span>
+      </label>
+      <select
+        className="input"
+        value={value ?? ''}
+        onChange={(e) => onChange(e.target.value || null)}
+        disabled={loading}
+      >
+        <option value="">
+          Auto · usar la primera tarjeta de sellos activa
+        </option>
+        {options.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.name}
+          </option>
+        ))}
+      </select>
+      <div className="text-[11px] text-mute mt-1 leading-snug">
+        El mismo wallet pass del cliente cambia de cupón a tarjeta de
+        sellos sin pedir instalar nada nuevo. Si dejas "Auto", se usa la
+        primera tarjeta de sellos activa del negocio (o se crea una
+        genérica si no existe ninguna).
+      </div>
     </div>
   );
 }

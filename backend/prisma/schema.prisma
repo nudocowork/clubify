@@ -672,6 +672,16 @@ model Card {
   socialLinks         Json      @default("{}")
   googleClassId       String?
   isActive            Boolean   @default(true)
+  // COUPON/DISCOUNT/GIFT: id de la Card de STAMPS destino a la que se
+  // transforma este cupón al hacer REDEEM. null = comportamiento auto
+  // (usar la primera STAMPS card activa del tenant, o crearla si no
+  // existe). El dueño elige el destino explícito en el wizard de
+  // creación del cupón. SetNull si la stamps card destino se elimina —
+  // el cupón cae al modo "auto" en lugar de romperse.
+  transformIntoCardId String?
+  transformIntoCard   Card?     @relation("CouponTransformTarget", fields: [transformIntoCardId], references: [id], onDelete: SetNull)
+  // Relación inversa (cards que apuntan a esta como destino del transform).
+  transformedFrom     Card[]    @relation("CouponTransformTarget")
   // v2: si está activa la integración orders→sello
   autoStampOnOrder    Boolean   @default(true)
   autoStampAmount     Int       @default(1)

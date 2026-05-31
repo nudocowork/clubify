@@ -49,6 +49,7 @@ export type CardDto = {
   socialLinks?: Record<string, string>;
   stampIcon?: string;
   isActive?: boolean;
+  transformIntoCardId?: string | null;
 };
 
 @Injectable()
@@ -175,6 +176,7 @@ export class CardsService {
         activeLinks: (dto.activeLinks ?? []) as any,
         socialLinks: dto.socialLinks ?? {},
         stampIcon: dto.stampIcon ?? '☕',
+        transformIntoCardId: dto.transformIntoCardId ?? undefined,
       },
     });
   }
@@ -213,6 +215,7 @@ export class CardsService {
       'cashbackMinPurchase',
       'minAmountPerStamp',
       'visitsRequired',
+      'transformIntoCardId',
     ] as const) {
       if (k in dto) data[k] = dto[k] ?? null;
     }

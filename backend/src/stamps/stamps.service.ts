@@ -494,6 +494,33 @@ export class StampsService {
     tenantId: string,
     sourceCouponCardId: string,
   ): Promise<{ id: string }> {
+    // Prioridad 1: el dueño eligió explícitamente la stamps card destino
+    // al crear el cupón (Card.transformIntoCardId). Si la card destino
+    // todavía existe + es STAMPS activa + del mismo tenant, usarla.
+    const sourceCoupon = await this.prisma.card.findUnique({
+      where: { id: sourceCouponCardId },
+      select: { transformIntoCardId: true },
+    });
+    if (sourceCoupon?.transformIntoCardId) {
+      const explicit = await this.prisma.card.findFirst({
+        where: {
+          id: sourceCoupon.transformIntoCardId,
+          tenantId,
+          type: 'STAMPS',
+          isActive: true,
+        },
+        select: { id: true },
+      });
+      if (explicit) return explicit;
+      // Si fue seteada pero ya no califica (eliminada/desactivada/tipo
+      // cambió), caemos al fallback auto y loggeamos.
+      this.logger.warn(
+        `Coupon ${sourceCouponCardId} tenía transformIntoCardId=${sourceCoupon.transformIntoCardId} pero ya no es válida — fallback auto`,
+      );
+    }
+
+    // Prioridad 2: usar la primera STAMPS card activa del tenant
+    // (comportamiento histórico).
     const existing = await this.prisma.card.findFirst({
       where: { tenantId, type: 'STAMPS', isActive: true },
       orderBy: { createdAt: 'asc' },

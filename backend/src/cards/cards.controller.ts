@@ -60,6 +60,12 @@ class CardBody {
   @IsOptional() socialLinks?: Record<string, string>;
   @IsOptional() @IsString() stampIcon?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
+  // Cupón → stamps card target al redeem. null = auto. Solo aplica
+  // cuando type=COUPON/DISCOUNT/GIFT (el backend no enforza el matching
+  // de tipo aquí — el frontend solo muestra el selector para esos
+  // tipos).
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString()
+  transformIntoCardId?: string | null;
 }
 
 @Controller('cards')
