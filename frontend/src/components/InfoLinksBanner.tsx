@@ -1,6 +1,8 @@
 /* eslint-disable @next/next/no-img-element */
-// Banner promocional del feature InfoLinks: trío de iPhones tilted con
-// 3 mockups de mini-páginas (estilo Linktree) + descripción + beneficios.
+// Banner promocional del feature InfoLinks: dos iPhones tilted con
+// capturas reales (iframes scaled) de menús creados con Clubify
+// (Nudo Cowork + Motilart). Botón "Ver ejemplo →" debajo de cada
+// uno abre el link público real en una nueva pestaña.
 
 import Link from 'next/link';
 
@@ -18,110 +20,69 @@ function Phone({
       style={{ width, height }}
     >
       <div className="absolute top-[7px] left-1/2 -translate-x-1/2 w-[80px] h-[20px] bg-black rounded-b-[14px] z-20" />
-      <div className="w-full h-full rounded-[28px] overflow-hidden relative">
+      <div className="w-full h-full rounded-[28px] overflow-hidden relative bg-white">
         {children}
       </div>
     </div>
   );
 }
 
-// ─── Mockups de InfoLinks ───
-// Ambos representan negocios REALES creados con Clubify (Nudo Cowork
-// y Motilart). El botón "Ver ejemplo" debajo de cada phone abre el
-// infolink público.
-
-// 1. NUDO COWORK — coworking + eventos, gradient mesh aurora
-function ScreenNudoCowork() {
+/**
+ * Iframe escalado al tamaño del Phone. Renderiza la URL real con un
+ * viewport mobile (375×812 ~ iPhone Pro) y usa transform scale para
+ * encajarlo dentro del frame chico de la landing. Cada visitante de
+ * la landing carga 2 iframes; usamos `loading="lazy"` para diferir el
+ * fetch hasta que el banner entra en viewport y NO bloquear LCP.
+ *
+ * El ?mesa=1 que pasa el user en las URLs activa el modo informativo
+ * del storefront (sin botón "agregar al carrito"), ideal para preview
+ * comercial.
+ */
+function ScreenIframe({
+  src,
+  phoneWidth,
+  title,
+}: {
+  src: string;
+  phoneWidth: number;
+  title: string;
+}) {
+  // Phone interior (sin border padding): width-14, height-14
+  const innerW = phoneWidth - 14;
+  const innerH = (phoneWidth * 640) / 320 - 14;
+  // Viewport mobile real
+  const realW = 375;
+  const realH = (realW * innerH) / innerW;
+  const scale = innerW / realW;
   return (
     <div
-      className="h-full p-3 pt-7 text-white"
-      style={{
-        background:
-          'radial-gradient(circle at 20% 0%, #A78BFA 0%, transparent 45%), radial-gradient(circle at 90% 25%, #F472B6 0%, transparent 50%), radial-gradient(circle at 50% 100%, #60A5FA 0%, transparent 55%), #1A1145',
-      }}
+      className="absolute inset-0 overflow-hidden"
+      // pointer-events-none evita que el iframe capture scroll/click
+      // de los visitantes — el botón "Ver ejemplo" abajo es el CTA real.
+      style={{ pointerEvents: 'none' }}
     >
-      <div className="text-center mt-2">
-        <div className="w-12 h-12 rounded-2xl bg-white/15 backdrop-blur mx-auto mb-2 flex items-center justify-center text-xl ring-2 ring-white/20">
-          🌐
-        </div>
-        <div className="font-bold text-sm tracking-tight">Nudo Cowork</div>
-        <div className="text-[9px] opacity-80">Espacios · Eventos · Comunidad</div>
-      </div>
-      <div className="space-y-2 mt-4">
-        {[
-          '📅 Reservar sala',
-          '🎉 Eventos del mes',
-          '☕ Carta del café',
-          '💼 Membresías',
-          '📍 Cómo llegar',
-        ].map((label) => (
-          <div
-            key={label}
-            className="bg-white/15 backdrop-blur border border-white/25 rounded-xl py-2 text-center text-[10px] font-semibold"
-          >
-            {label}
-          </div>
-        ))}
-      </div>
+      <iframe
+        src={src}
+        title={title}
+        loading="lazy"
+        sandbox="allow-scripts allow-same-origin"
+        scrolling="no"
+        style={{
+          width: realW,
+          height: realH,
+          transform: `scale(${scale})`,
+          transformOrigin: 'top left',
+          border: 0,
+          background: '#fff',
+        }}
+      />
     </div>
   );
 }
 
-// 2. MOTILART — taller / customización de motos
-function ScreenMotilart() {
-  return (
-    <div
-      className="h-full p-3 pt-7 text-white"
-      style={{
-        background:
-          'radial-gradient(circle at 50% 0%, #F97316 0%, transparent 35%), linear-gradient(180deg, #18181b 0%, #0a0a0a 100%)',
-      }}
-    >
-      <div className="text-center mt-2">
-        <div
-          className="w-12 h-12 rounded-2xl mx-auto mb-2 flex items-center justify-center text-xl"
-          style={{
-            background: 'linear-gradient(135deg, #F97316, #FACC15)',
-            boxShadow: '0 0 20px rgba(249,115,22,0.6)',
-          }}
-        >
-          🏍
-        </div>
-        <div
-          className="font-bold text-sm tracking-tight"
-          style={{ color: '#FACC15' }}
-        >
-          Motilart
-        </div>
-        <div className="text-[9px] text-orange-200/80">
-          Taller · Customización · Repuestos
-        </div>
-      </div>
-      <div className="space-y-2 mt-4">
-        {[
-          { label: '🛠 Agendar servicio', color: '#F97316' },
-          { label: '🎨 Galería de trabajos', color: '#FACC15' },
-          { label: '📦 Catálogo repuestos', color: '#FB7185' },
-          { label: '📍 Llegar al taller', color: '#34D399' },
-          { label: '📲 WhatsApp', color: '#22D3EE' },
-        ].map((item) => (
-          <div
-            key={item.label}
-            className="rounded-xl py-2 text-center text-[10px] font-semibold"
-            style={{
-              background: 'rgba(0,0,0,0.55)',
-              border: `1px solid ${item.color}`,
-              boxShadow: `0 0 10px ${item.color}40`,
-              color: item.color,
-            }}
-          >
-            {item.label}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+// Los mockups CSS (ScreenNudoCowork / ScreenMotilart) fueron
+// reemplazados por iframes reales con el contenido del menú publicado
+// — ver `ScreenIframe` arriba.
 
 export function InfoLinksBanner() {
   return (
@@ -169,20 +130,18 @@ export function InfoLinksBanner() {
               rotate={-8}
               floatDelay={0}
               brandName="Nudo Cowork"
-              demoHref="https://soyclubify.com/i/nudo-cowork"
-            >
-              <ScreenNudoCowork />
-            </InfolinkCard>
+              demoHref="https://soyclubify.com/m/nudocowork?mesa=1"
+              title="Menú de Nudo Cowork"
+            />
 
             {/* Motilart */}
             <InfolinkCard
               rotate={8}
               floatDelay={1}
               brandName="Motilart"
-              demoHref="https://soyclubify.com/i/motilart"
-            >
-              <ScreenMotilart />
-            </InfolinkCard>
+              demoHref="https://soyclubify.com/m/motilart?mesa=1"
+              title="Menú de Motilart"
+            />
           </div>
         </div>
       </section>
@@ -190,20 +149,22 @@ export function InfoLinksBanner() {
   );
 }
 
-/** Card que envuelve un iPhone tilted + label "Ver ejemplo" debajo.
- *  Mantiene el ratio del phone responsivo (200/170/140 según breakpoint). */
+/** Card que envuelve un iPhone tilted con iframe del menú real + label
+ *  "Ver ejemplo →" debajo. Renderea 3 iframes (uno por breakpoint) — el
+ *  iframe oculto via `hidden` no se monta DOM tampoco no carga el src.
+ *  Eso evita 6 cargas paralelas; lazy + sandbox completan el budget. */
 function InfolinkCard({
   rotate,
   floatDelay,
   brandName,
   demoHref,
-  children,
+  title,
 }: {
   rotate: number;
   floatDelay: number;
   brandName: string;
   demoHref: string;
-  children: React.ReactNode;
+  title: string;
 }) {
   return (
     <div className="flex flex-col items-center gap-3">
@@ -211,15 +172,25 @@ function InfolinkCard({
         className="relative"
         style={{ transform: `rotate(${rotate}deg)`, zIndex: 1 }}
       >
-        <div style={{ animation: `clb-info-floaty 4s ease-in-out ${floatDelay}s infinite` }}>
+        <div
+          style={{
+            animation: `clb-info-floaty 4s ease-in-out ${floatDelay}s infinite`,
+          }}
+        >
           <div className="hidden lg:block">
-            <Phone width={200}>{children}</Phone>
+            <Phone width={200}>
+              <ScreenIframe src={demoHref} phoneWidth={200} title={title} />
+            </Phone>
           </div>
           <div className="hidden sm:block lg:hidden">
-            <Phone width={170}>{children}</Phone>
+            <Phone width={170}>
+              <ScreenIframe src={demoHref} phoneWidth={170} title={title} />
+            </Phone>
           </div>
           <div className="block sm:hidden">
-            <Phone width={140}>{children}</Phone>
+            <Phone width={140}>
+              <ScreenIframe src={demoHref} phoneWidth={140} title={title} />
+            </Phone>
           </div>
         </div>
       </div>
@@ -229,7 +200,7 @@ function InfolinkCard({
         target="_blank"
         rel="noreferrer"
         className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-ink hover:text-brand transition"
-        title={`Abrir el infolink real de ${brandName}`}
+        title={`Abrir el menú real de ${brandName}`}
       >
         <span className="text-mute font-medium">{brandName}</span>
         <span className="text-brand">· Ver ejemplo →</span>
