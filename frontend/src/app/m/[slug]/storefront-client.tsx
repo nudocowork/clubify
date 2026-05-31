@@ -64,6 +64,7 @@ type Storefront = {
   bookMenuEnabled?: boolean;
   ordersEnabled?: boolean;
   ordersDeliveryEnabled?: boolean;
+  ordersWhatsappEnabled?: boolean;
   pageBackgroundColor?: string | null;
   pageBackgroundType?: string | null;
   pageBackgroundGradient?: string | null;
@@ -394,6 +395,16 @@ export default function StorefrontPublic() {
     !isTableMode &&
     s.ordersEnabled !== false &&
     (s.ordersDeliveryEnabled ?? true);
+  // Mostrar el botón "pedir/contactar por WhatsApp" en el storefront
+  // público. Regla de negocio:
+  // - Mesa (?mesa=N): NUNCA muestra WA. El cliente sentado en mesa el
+  //   mozo le toma el pedido — el WA distraería.
+  // - Delivery: respeta el toggle ordersWhatsappEnabled del admin
+  //   (default true para no romper tenants existentes).
+  const showWhatsappButton =
+    !isTableMode &&
+    !!s.whatsappPhone &&
+    s.ordersWhatsappEnabled !== false;
 
   const isCluvi = (s.menuLayout ?? 'CLASSIC') === 'CLUVI';
   // Fondo de la página: tipo SOLID|GRADIENT|IMAGE. El dueño elige desde
@@ -517,9 +528,9 @@ export default function StorefrontPublic() {
             </div>
           </div>
           <div className="flex gap-2 flex-wrap justify-center mt-4">
-            {s.whatsappPhone && (
+            {showWhatsappButton && (
               <a
-                href={`https://wa.me/${s.whatsappPhone.replace(/\D/g, '')}`}
+                href={`https://wa.me/${s.whatsappPhone!.replace(/\D/g, '')}`}
                 target="_blank"
                 className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-white text-sm font-semibold shadow-sm hover:opacity-90 transition"
                 style={{ background: '#25D366' }}
@@ -625,9 +636,9 @@ export default function StorefrontPublic() {
               <div className={`text-sm mt-1 max-w-xs mx-auto ${isCluvi ? 'text-white/70' : 'text-mute'}`}>
                 {tt('storefront.menu_empty_sub')}
               </div>
-              {s.whatsappPhone && (
+              {showWhatsappButton && (
                 <a
-                  href={`https://wa.me/${s.whatsappPhone.replace(/\D/g, '')}`}
+                  href={`https://wa.me/${s.whatsappPhone!.replace(/\D/g, '')}`}
                   target="_blank"
                   className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-pill text-white font-semibold text-sm hover:opacity-90 active:scale-95 transition"
                   style={{ background: '#25D366' }}
