@@ -83,6 +83,8 @@ export default function MenuEditor() {
   const [coverRecommendedOpen, setCoverRecommendedOpen] = useState(false);
   const [ordersDeliveryEnabled, setOrdersDeliveryEnabled] = useState<boolean | null>(null);
   const [togglingOrders, setTogglingOrders] = useState(false);
+  const [ordersWhatsappEnabled, setOrdersWhatsappEnabled] = useState<boolean | null>(null);
+  const [togglingWhatsapp, setTogglingWhatsapp] = useState(false);
   const [tenantSlug, setTenantSlug] = useState<string | null>(null);
   const [mainLabel, setMainLabel] = useState<string>('Menú');
 
@@ -127,14 +129,41 @@ export default function MenuEditor() {
       const sf = await api<{
         ordersEnabled: boolean;
         ordersDeliveryEnabled?: boolean;
+        ordersWhatsappEnabled?: boolean;
       }>('/storefront');
       // Backend devuelve ordersDeliveryEnabled gateado por ordersEnabled.
       // Fallback al master para storefronts viejos sin la columna nueva.
       setOrdersDeliveryEnabled(
         sf.ordersDeliveryEnabled ?? sf.ordersEnabled ?? true,
       );
+      setOrdersWhatsappEnabled(sf.ordersWhatsappEnabled ?? true);
     } catch {
       setOrdersDeliveryEnabled(true);
+      setOrdersWhatsappEnabled(true);
+    }
+  }
+
+  async function toggleOrdersWhatsapp() {
+    if (ordersWhatsappEnabled === null) return;
+    const next = !ordersWhatsappEnabled;
+    setTogglingWhatsapp(true);
+    setOrdersWhatsappEnabled(next);
+    try {
+      await api('/storefront', {
+        method: 'PATCH',
+        body: JSON.stringify({ ordersWhatsappEnabled: next }),
+      });
+      toast(
+        next
+          ? 'Botón WhatsApp activado en delivery — los clientes pueden contactarte directo'
+          : 'Botón WhatsApp oculto en delivery — la vista mesa siempre fue informativa',
+        'success',
+      );
+    } catch (e: any) {
+      toast(e.message || 'Error', 'error');
+      setOrdersWhatsappEnabled(!next);
+    } finally {
+      setTogglingWhatsapp(false);
     }
   }
 
@@ -393,6 +422,23 @@ export default function MenuEditor() {
               {ordersDeliveryEnabled
                 ? '🛒 Pedidos delivery: ON'
                 : '📋 Delivery informativo'}
+            </button>
+          )}
+          {ordersWhatsappEnabled !== null && (
+            <button
+              type="button"
+              onClick={toggleOrdersWhatsapp}
+              disabled={togglingWhatsapp}
+              className={`btn-ghost ${ordersWhatsappEnabled ? 'text-ok' : 'text-mute'}`}
+              title={
+                ordersWhatsappEnabled
+                  ? 'Botón "WhatsApp" visible en el link delivery. Mesa siempre informativo.'
+                  : 'Botón "WhatsApp" oculto en delivery. Mesa siempre informativo.'
+              }
+            >
+              {ordersWhatsappEnabled
+                ? '💬 WhatsApp delivery: ON'
+                : '💬 WhatsApp delivery: OFF'}
             </button>
           )}
           <button className="btn-ghost" onClick={() => setShowCatForm(!showCatForm)}>

@@ -1230,6 +1230,12 @@ model Storefront {
   // Si el dueño quiere dejar el menú delivery como solo-precios sin tocar
   // mesa, apaga este flag.
   ordersDeliveryEnabled Boolean @default(true)
+  // Toggle del botón "pedir por WhatsApp" en la vista DELIVERY. La vista
+  // de MESA (?mesa=N) siempre es informativa — NUNCA muestra el botón
+  // WhatsApp independiente del valor de este flag (regla de negocio:
+  // cliente sentado en mesa el mozo le toma el pedido). Default true
+  // para no romper tenants existentes con WA configurado.
+  ordersWhatsappEnabled Boolean @default(true)
   // Popup que aparece después de N segundos de abrir el menú público. Si
   // tiene imagen + está enabled + popupCardId, hace click en la imagen y
   // lleva al cliente a /c/{popupCardId} para inscribirse a la tarjeta.
