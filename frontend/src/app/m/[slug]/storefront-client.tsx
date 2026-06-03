@@ -756,24 +756,38 @@ export default function StorefrontPublic() {
 
                     if (!orig && finalPrice === null && !badge) return null;
 
+                    // Valor ahorrado en pesos cuando hay precios concretos
+                    // (item #4 del pack: mostrar precio original, promo,
+                    // valor ahorrado y % de descuento).
+                    const saved =
+                      orig && finalPrice !== null && orig > finalPrice
+                        ? orig - finalPrice
+                        : null;
                     return (
-                      <div className="mt-2.5 flex items-baseline gap-2 flex-wrap">
-                        {orig && (
-                          <span className="text-mute line-through text-sm shrink-0">
-                            {fmt(orig, s.currency)}
-                          </span>
+                      <>
+                        <div className="mt-2.5 flex items-baseline gap-2 flex-wrap">
+                          {orig && (
+                            <span className="text-mute line-through text-sm shrink-0">
+                              {fmt(orig, s.currency)}
+                            </span>
+                          )}
+                          {finalPrice !== null && (
+                            <span className="text-xl font-bold text-bad shrink-0">
+                              {fmt(finalPrice, s.currency)}
+                            </span>
+                          )}
+                          {badge && (
+                            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-bad/10 text-bad shrink-0">
+                              {badge}
+                            </span>
+                          )}
+                        </div>
+                        {saved !== null && (
+                          <div className="text-[11px] text-bad font-semibold mt-1">
+                            Ahorrás {fmt(saved, s.currency)}
+                          </div>
                         )}
-                        {finalPrice !== null && (
-                          <span className="text-xl font-bold text-bad shrink-0">
-                            {fmt(finalPrice, s.currency)}
-                          </span>
-                        )}
-                        {badge && (
-                          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-bad/10 text-bad shrink-0">
-                            {badge}
-                          </span>
-                        )}
-                      </div>
+                      </>
                     );
                   })()}
                   {p.validUntil && (
@@ -930,15 +944,44 @@ function ProductModal({
       <div className="absolute inset-0 bg-ink/60" onClick={onClose} />
       <div className="relative w-full sm:max-w-md bg-white sm:rounded-card rounded-t-3xl max-h-[90vh] overflow-auto text-ink animate-in slide-in-from-bottom-6 sm:slide-in-from-bottom-2 duration-200">
         {product.imageUrl && (
-          <img src={product.imageUrl} alt="" className="w-full h-48 object-cover" />
+          // Contenedor cuadrado adaptable: la imagen se muestra completa
+          // (object-contain) sin recorte ni zoom forzado. El fondo gris
+          // suave llena los bordes cuando la foto NO es cuadrada (paisaje
+          // o retrato). Reemplaza el h-48 + object-cover anterior que
+          // recortaba detalles importantes de la foto.
+          <div className="w-full aspect-square bg-bg2 flex items-center justify-center">
+            <img
+              src={product.imageUrl}
+              alt=""
+              className="w-full h-full object-contain"
+            />
+          </div>
         )}
         <div className="p-5">
           <div className="flex items-start justify-between gap-3">
-            <div>
+            <div className="min-w-0 flex-1">
               <h2 className="text-xl font-bold">{product.name}</h2>
-              <p className="text-sm text-mute mt-1">{product.description}</p>
+              {/* Etiquetas (Nuevo, Recomendado, Más vendido, Promoción,
+                  Oferta especial, Limitado, etc.). Hasta el item #7 del
+                  pack solo aparecían en algunos layouts del grid y nunca
+                  en el detalle. Acá las mostramos como badges visibles
+                  al cliente. */}
+              {Array.isArray(product.tags) && product.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {product.tags.map((t) => (
+                    <span
+                      key={t}
+                      className="text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-full"
+                      style={{ background: `${primary}1A`, color: primary }}
+                    >
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <p className="text-sm text-mute mt-2">{product.description}</p>
             </div>
-            <button onClick={onClose} aria-label={tt('common.close')} className="text-mute text-2xl hover:text-ink active:scale-90 transition">
+            <button onClick={onClose} aria-label={tt('common.close')} className="text-mute text-2xl hover:text-ink active:scale-90 transition flex-shrink-0">
               ✕
             </button>
           </div>

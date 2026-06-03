@@ -110,6 +110,23 @@ export class PromotionsService {
     for (const p of promos) {
       const cond = (p.conditions as any) || {};
 
+      // Skip "descuento fantasma": una promo de tipo DISCOUNT_AMOUNT/PCT
+      // con `originalPrice` set es una promo de PRODUCTO (precio antes/
+      // después para mostrar en el menú público) — NO un descuento
+      // auto-aplicable al carrito completo. Antes, este case
+      // aplicaba `saved = min(value, subtotal)` y descontaba el precio
+      // promo de cada pedido, generando descuentos inexplicables en
+      // Nudo Cowork y otros tenants con promos de producto. Para que
+      // un descuento se aplique al carrito el dueño debe usar productIds
+      // explícito en conditions o un tipo distinto sin originalPrice.
+      if (
+        (p.type === 'DISCOUNT_AMOUNT' || p.type === 'DISCOUNT_PCT') &&
+        p.originalPrice !== null &&
+        !cond.productIds?.length
+      ) {
+        continue;
+      }
+
       // Condiciones simples
       if (cond.minSubtotal && subtotal < Number(cond.minSubtotal)) continue;
       if (cond.daysOfWeek && Array.isArray(cond.daysOfWeek) && cond.daysOfWeek.length) {
