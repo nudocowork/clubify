@@ -779,4 +779,256 @@ export class AuthService {
       },
     };
   }
+
+  /**
+   * Registro al MODO PRUEBA — 5 días gratis. Diferencias con `signup`:
+   *  - `trialEndsAt = now + 5d` (signup normal lo deja null porque la
+   *    puerta real es Hotmart).
+   *  - Dedup estricto: email + phone + brandName derivado de empresa o
+   *    fullName. Mensaje único para no filtrar cuál campo colisionó.
+   *  - Captura `trialSource`, `trialCompany`, `trialCity` en el tenant.
+   *  - Si el `source` no viene explícito y SÍ trae `referralCode`,
+   *    infiere AMBASSADOR/INFLUENCER del rol del code.
+   *  - No cobra ni dispara checkout — el dueño accede directo al panel
+   *    y al expirar el trial cae en el lockscreen "Activar ahora" (F3).
+   */
+  async trialSignup(
+    dto: {
+      email: string;
+      password: string;
+      firstName: string;
+      lastName: string;
+      phone: string;
+      company?: string;
+      city?: string;
+      referralCode?: string;
+      source?: 'LANDING' | 'AMBASSADOR' | 'INFLUENCER' | 'CAMPAIGN' | 'DIRECT';
+      attribution?: {
+        viaSlug?: string;
+        utmSource?: string;
+        utmMedium?: string;
+        utmCampaign?: string;
+        referer?: string;
+      };
+    },
+    ip?: string,
+  ) {
+    const email = dto.email.toLowerCase().trim();
+    const phoneRaw = (dto.phone ?? '').replace(/[^\d+]/g, '');
+    const firstName = dto.firstName.trim();
+    const lastName = dto.lastName.trim();
+    const fullName = `${firstName} ${lastName}`.trim();
+    const company = dto.company?.trim() || '';
+    const city = dto.city?.trim() || null;
+    const brandName = company || fullName;
+    if (!brandName) {
+      throw new BadRequestException('Empresa o nombre requerido');
+    }
+
+    // Dedup estricto: email (User), phone (User), email (Tenant), brandName
+    // (Tenant). Mensaje único para no filtrar cuál campo colisionó —
+    // protección anti-enumeration + mensaje legible para el dueño.
+    const dupUser = await this.prisma.user.findFirst({
+      where: phoneRaw
+        ? { OR: [{ email }, { phone: phoneRaw }] }
+        : { email },
+      select: { id: true },
+    });
+    if (dupUser) {
+      throw new ConflictException(
+        'Ya existe una prueba asociada a esta información.',
+      );
+    }
+    const dupTenant = await this.prisma.tenant.findFirst({
+      where: { OR: [{ email }, { brandName }] },
+      select: { id: true },
+    });
+    if (dupTenant) {
+      throw new ConflictException(
+        'Ya existe una prueba asociada a esta información.',
+      );
+    }
+
+    let slug = slugify(brandName) || `prueba-${Date.now()}`;
+    let suffix = 0;
+    while (
+      RESERVED_SLUGS.has(slug) ||
+      (await this.prisma.tenant.findUnique({ where: { slug } }))
+    ) {
+      suffix += 1;
+      slug = `${slugify(brandName)}-${suffix}`;
+    }
+
+    const defaultPlan =
+      (await this.prisma.plan.findUnique({ where: { name: 'Elite' } })) ??
+      (await this.prisma.plan.findFirst({
+        where: { isActive: true },
+        orderBy: { priceMonthly: 'asc' },
+      }));
+    if (!defaultPlan) {
+      throw new BadRequestException('No hay planes configurados');
+    }
+
+    const passwordHash = await this.hashPassword(dto.password);
+
+    // Trial 5 días exactos. trialEndsAt → 23:59:59 del día 5 para que
+    // no expire mid-jornada por una diferencia de minutos.
+    const trialStartedAt = new Date();
+    const trialEndsAt = new Date(trialStartedAt.getTime());
+    trialEndsAt.setDate(trialEndsAt.getDate() + 5);
+    trialEndsAt.setHours(23, 59, 59, 999);
+
+    // Si el frontend mandó source explícito, lo usamos. Si vino referralCode
+    // pero no source, lo inferimos del rol (INFLUENCER/AMBASSADOR). Sin
+    // info: DIRECT.
+    let trialSource: string = dto.source ?? 'DIRECT';
+    let attributedReferralCodeId: string | null = null;
+    if (dto.referralCode) {
+      const code = await this.prisma.referralCode
+        .findUnique({
+          where: { code: dto.referralCode.trim().toUpperCase() },
+          select: { id: true, role: true },
+        })
+        .catch(() => null);
+      if (code) {
+        attributedReferralCodeId = code.id;
+        if (!dto.source) {
+          trialSource = code.role === 'INFLUENCER' ? 'INFLUENCER' : 'AMBASSADOR';
+        }
+      }
+    }
+
+    let tenant: Awaited<ReturnType<typeof this.prisma.tenant.create>>;
+    let user: Awaited<ReturnType<typeof this.prisma.user.create>>;
+    try {
+      const result = await this.prisma.$transaction(async (tx) => {
+        const t = await tx.tenant.create({
+          data: {
+            name: brandName,
+            brandName,
+            slug,
+            email,
+            whatsappPhone: phoneRaw || null,
+            status: 'TRIAL',
+            planId: defaultPlan.id,
+            trialStartedAt,
+            trialEndsAt,
+            trialSource,
+            trialCompany: company || null,
+            trialCity: city,
+          },
+        });
+        const u = await tx.user.create({
+          data: {
+            email,
+            passwordHash,
+            fullName,
+            phone: phoneRaw || null,
+            role: 'TENANT_OWNER',
+            tenantId: t.id,
+          },
+        });
+        return { t, u };
+      });
+      tenant = result.t;
+      user = result.u;
+    } catch (e: any) {
+      if (e?.code === 'P2002') {
+        throw new ConflictException(
+          'Ya existe una prueba asociada a esta información.',
+        );
+      }
+      throw e;
+    }
+
+    this.audit.log({
+      actorId: user.id,
+      tenantId: tenant.id,
+      action: 'auth.trial_signup',
+      resource: `tenant:${tenant.id}`,
+      ip,
+      metadata: { trialSource, hasReferral: !!attributedReferralCodeId },
+    });
+
+    // Registrar ReferralUse para que /admin/affiliates vea el trial igual
+    // que un signup normal. Fire-and-forget; el trial signup no se rompe.
+    if (attributedReferralCodeId) {
+      this.prisma.referralUse
+        .create({
+          data: {
+            referralCodeId: attributedReferralCodeId,
+            tenantId: tenant.id,
+            status: 'SIGNED_UP',
+            viaSlug: dto.attribution?.viaSlug ?? null,
+            utmSource: dto.attribution?.utmSource ?? null,
+            utmMedium: dto.attribution?.utmMedium ?? null,
+            utmCampaign: dto.attribution?.utmCampaign ?? null,
+            referer: dto.attribution?.referer ?? null,
+          },
+        })
+        .catch(() => null);
+    }
+
+    // SMS interno a Javier + Jhon (no al dueño del trial — eso lo
+    // gestiona el equipo comercial con seguimiento manual). El método
+    // captura sus propios errores y no propaga.
+    let referrerName: string | null = null;
+    let campaignName: string | null = null;
+    if (attributedReferralCodeId) {
+      const code = await this.prisma.referralCode
+        .findUnique({
+          where: { id: attributedReferralCodeId },
+          select: {
+            ownerName: true,
+            ownerOfCampaign: { select: { name: true } },
+          },
+        })
+        .catch(() => null);
+      referrerName = code?.ownerName ?? null;
+      campaignName = code?.ownerOfCampaign?.name ?? null;
+    }
+    this.preregAlerts
+      .alertSignup({
+        userId: user.id,
+        customerName: fullName,
+        customerEmail: email,
+        customerPhone: phoneRaw || null,
+        source: `Trial (${trialSource})`,
+        referrerName,
+        campaignName,
+      })
+      .catch(() => null);
+
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      tenantId: user.tenantId,
+    };
+    const accessToken = this.jwt.sign(payload);
+    const refreshToken = await this.refreshTokens.issue({
+      userId: user.id,
+      payload,
+      ip: ip ?? null,
+      userAgent: null,
+    });
+
+    return {
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        role: user.role,
+        tenantId: user.tenantId,
+      },
+      tenant: {
+        id: tenant.id,
+        slug: tenant.slug,
+        brandName: tenant.brandName,
+        trialEndsAt: tenant.trialEndsAt,
+      },
+    };
+  }
 }

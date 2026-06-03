@@ -64,6 +64,24 @@ class SignupDto {
   @IsOptional() attribution?: SignupAttributionDto;
 }
 
+/** Registro al modo prueba (5 días gratis). Endpoint público pero el link
+ *  /prueba o /trial NO se publicita — solo embajadores/equipo comercial. */
+class TrialSignupDto {
+  @IsEmail() email!: string;
+  @IsString() @MinLength(8) password!: string;
+  @IsString() @MinLength(1) @MaxLength(60) firstName!: string;
+  @IsString() @MinLength(1) @MaxLength(60) lastName!: string;
+  @IsString() @MinLength(6) @MaxLength(20) phone!: string;
+  @IsOptional() @IsString() @MaxLength(120) company?: string;
+  @IsOptional() @IsString() @MaxLength(80) city?: string;
+  // Atribución: si vino con un código de embajador/influencer en URL,
+  // el frontend lo manda acá. También sirve para campañas (?campaign=X).
+  @IsOptional() @IsString() @MaxLength(80) referralCode?: string;
+  @IsOptional() @IsIn(['LANDING', 'AMBASSADOR', 'INFLUENCER', 'CAMPAIGN', 'DIRECT'])
+  source?: 'LANDING' | 'AMBASSADOR' | 'INFLUENCER' | 'CAMPAIGN' | 'DIRECT';
+  @IsOptional() attribution?: SignupAttributionDto;
+}
+
 class TotpCodeDto {
   // TOTP RFC 6238 estándar: 6 dígitos. Aceptamos espacios opcionales y los
   // strip en el service.
@@ -138,6 +156,19 @@ export class AuthController {
   @Post('signup')
   signup(@Body() dto: SignupDto, @Ip() ip: string) {
     return this.auth.signup(dto, ip);
+  }
+
+  /** Modo prueba — 5 días gratis. Crea tenant en TRIAL con trialEndsAt
+   *  set + dedup estricto (email/teléfono/brandName). Reuso de la lógica
+   *  de signup pero con campos específicos del prospect (firstName/
+   *  lastName separados, ciudad y empresa opcionales). El throttle es más
+   *  estricto que signup público (2/hora) porque solo embajadores
+   *  comparten el link. */
+  @Public()
+  @Throttle({ default: { ttl: 3_600_000, limit: 2 } })
+  @Post('trial-signup')
+  trialSignup(@Body() dto: TrialSignupDto, @Ip() ip: string) {
+    return this.auth.trialSignup(dto, ip);
   }
 
   // Forgot: 3 por hora por IP (defensa contra email-enumeration spam).
