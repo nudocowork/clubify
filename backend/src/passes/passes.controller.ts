@@ -51,7 +51,18 @@ export class PassesController {
   async getEnrollCard(
     @Param('cardId') cardId: string,
     @Query('locale') localeRaw?: string,
+    @Res({ passthrough: true }) res?: any,
   ) {
+    // Cache HTTP agresivo: el contenido depende solo de cardId + locale
+    // (ambos en la URL), no del usuario. Vercel/Cloudflare edge sirve sin
+    // pegarle al backend; el browser sirve en memoria. stale-while-revalidate
+    // mantiene el form instantáneo aunque el cache haya vencido.
+    if (res?.setHeader) {
+      res.setHeader(
+        'Cache-Control',
+        'public, max-age=60, s-maxage=300, stale-while-revalidate=3600',
+      );
+    }
     const locale = normalizeLocale(localeRaw);
     const card = await this.prisma.card.findUnique({
       where: { id: cardId },
