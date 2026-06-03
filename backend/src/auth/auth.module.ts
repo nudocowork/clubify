@@ -56,6 +56,7 @@ import { IntegrationsModule } from '../integrations/integrations.module';
     RefreshTokenService,
     TwoFactorService,
     TenantLockGuard,
+    PreregAlertsService,
   ],
 })
 export class AuthModule {}

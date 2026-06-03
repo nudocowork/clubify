@@ -235,6 +235,7 @@ export default function AppShell({
               items: [
                 { href: '/admin', label: 'Dashboard', icon: 'grid' },
                 { href: '/admin/tenants', label: 'Negocios', icon: 'store' },
+                { href: '/admin/trials', label: 'Trials', icon: 'gift' },
               ],
             },
             {

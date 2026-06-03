@@ -104,6 +104,53 @@ export class PreregAlertsService {
   }
 
   /**
+   * Envía un SMS arbitrario al equipo (Javier + Jhon o teléfonos
+   * configurados via Setting `prereg.alertPhones`) usando la misma
+   * subcuenta GB que las alertas de signup. Reusable desde otros
+   * servicios — el cron de trial F4 lo usa para recordatorios.
+   *
+   * Fire-and-forget: captura sus propios errores y devuelve void.
+   */
+  async sendTeamAlert(body: string): Promise<{
+    ok: boolean;
+    sent: number;
+    total: number;
+  }> {
+    try {
+      const account = await this.resolveAccount();
+      if (!account) {
+        this.logger.warn('sendTeamAlert: sin GrowBusinessAccount');
+        return { ok: false, sent: 0, total: 0 };
+      }
+      const phones = await this.resolvePhones();
+      if (phones.length === 0) {
+        return { ok: false, sent: 0, total: 0 };
+      }
+      const results = await Promise.all(
+        phones.map(async (p) => {
+          const r = await this.growBusiness
+            .sendSmsWithCreds(
+              {
+                locationId: account.locationId,
+                apiKey: account.apiKey,
+                switchNumber: account.switchNumber,
+              },
+              p.phone,
+              body,
+            )
+            .catch((e) => ({ ok: false, message: (e as Error).message }));
+          return r.ok;
+        }),
+      );
+      const sent = results.filter(Boolean).length;
+      return { ok: sent > 0, sent, total: phones.length };
+    } catch (e) {
+      this.logger.warn(`sendTeamAlert falló: ${(e as Error).message}`);
+      return { ok: false, sent: 0, total: 0 };
+    }
+  }
+
+  /**
    * Resuelve la GrowBusinessAccount a usar. Prioridad:
    * 1. Setting `prereg.alertAccountId` si apunta a una válida.
    * 2. Primera account con `purpose='GENERAL'` no eliminada.
