@@ -353,6 +353,20 @@ model Tenant {
   // Editable por el dueño en /app/settings. Solo afecta texto visible —
   // los slugs internos siguen siendo "menu".
   mainSectionLabelOverride    String?
+  // Trial público (registro vía /prueba o /trial). Captura intent del
+  // prospect. trialSource: LANDING|AMBASSADOR|INFLUENCER|CAMPAIGN|DIRECT
+  // (texto libre — el frontend restringe). Usado por /admin/trials para
+  // filtrar y métricas por canal de adquisición. La atribución a un
+  // ReferralCode específico va por ReferralUse como en signup normal.
+  trialSource                 String?
+  // Campos opcionales que el prospect llena en el form de /prueba.
+  // Sirven al equipo comercial para hacer follow-up.
+  trialCompany                String?
+  trialCity                   String?
+  // Tracking de recordatorios SMS internos al equipo (Javier+Jhon) cuando
+  // un trial está a 5/3/1/0.5 días de expirar. Idempotencia: cada
+  // threshold se envía 1 vez. Valor: "5"|"3"|"1"|"h12"|"expired".
+  trialReminderLastSent       String?
   // Trial / billing
   trialStartedAt              DateTime?
   trialEndsAt                 DateTime?
