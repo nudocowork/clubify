@@ -1168,36 +1168,74 @@ function EditCardModal({
             <div className="text-xs uppercase tracking-wider text-mute font-semibold">
               Información (reverso)
             </div>
-            <input
-              className="input"
-              placeholder="Cómo ganar un sello"
-              value={form.howToEarnText}
-              onChange={(e) => setForm({ ...form, howToEarnText: e.target.value })}
-            />
-            <input
-              className="input"
-              placeholder="Nombre de empresa"
-              value={form.businessName}
-              onChange={(e) => setForm({ ...form, businessName: e.target.value })}
-            />
-            <input
-              className="input"
-              placeholder="Descripción de la recompensa"
-              value={form.rewardDescText}
-              onChange={(e) => setForm({ ...form, rewardDescText: e.target.value })}
-            />
-            <input
-              className="input"
-              placeholder="Mensaje de sello ganado (usa [#] para sellos restantes)"
-              value={form.stampEarnedMessage}
-              onChange={(e) => setForm({ ...form, stampEarnedMessage: e.target.value })}
-            />
-            <input
-              className="input"
-              placeholder="Mensaje de recompensa ganada"
-              value={form.rewardEarnedMessage}
-              onChange={(e) => setForm({ ...form, rewardEarnedMessage: e.target.value })}
-            />
+            {(() => {
+              const isCoupon =
+                card.type === 'COUPON' ||
+                card.type === 'DISCOUNT' ||
+                card.type === 'GIFT';
+              return (
+                <>
+                  <input
+                    className="input"
+                    placeholder={
+                      isCoupon
+                        ? 'Cómo canjear un cupón'
+                        : 'Cómo ganar un sello'
+                    }
+                    value={form.howToEarnText}
+                    onChange={(e) =>
+                      setForm({ ...form, howToEarnText: e.target.value })
+                    }
+                  />
+                  <input
+                    className="input"
+                    placeholder="Nombre de empresa"
+                    value={form.businessName}
+                    onChange={(e) =>
+                      setForm({ ...form, businessName: e.target.value })
+                    }
+                  />
+                  <input
+                    className="input"
+                    placeholder="Descripción de la recompensa"
+                    value={form.rewardDescText}
+                    onChange={(e) =>
+                      setForm({ ...form, rewardDescText: e.target.value })
+                    }
+                  />
+                  {/* Mensaje de sello ganado: oculto para cupones (no
+                      hay "sello en progreso", se canjea una vez). */}
+                  {!isCoupon && (
+                    <input
+                      className="input"
+                      placeholder="Mensaje de sello ganado (usa [#] para sellos restantes)"
+                      value={form.stampEarnedMessage}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          stampEarnedMessage: e.target.value,
+                        })
+                      }
+                    />
+                  )}
+                  <input
+                    className="input"
+                    placeholder={
+                      isCoupon
+                        ? '¡Felicidades por canjear tu cupón! Empieza a acumular sellos para seguir obteniendo recompensas.'
+                        : 'Mensaje de recompensa ganada'
+                    }
+                    value={form.rewardEarnedMessage}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        rewardEarnedMessage: e.target.value,
+                      })
+                    }
+                  />
+                </>
+              );
+            })()}
           </div>
 
           <div className="pt-3 border-t border-line">
