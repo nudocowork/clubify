@@ -183,6 +183,15 @@ export class CardsService {
 
   async update(user: AuthUser, id: string, dto: Partial<CardDto>) {
     const existing = await this.get(user, id);
+    // Defensivo: un POST manual podría dejar el cupón apuntando a sí mismo.
+    // resolveOrCreateStampsCard filtra por type='STAMPS' (el cupón nunca
+    // matchea), pero ya que estamos, rechazamos la auto-referencia para
+    // evitar confusión en futuras refactors.
+    if (dto.transformIntoCardId === id) {
+      throw new ForbiddenException(
+        'transformIntoCardId no puede apuntar al mismo card',
+      );
+    }
     if (dto.locationId) {
       const loc = await this.prisma.location.findUnique({
         where: { id: dto.locationId },
