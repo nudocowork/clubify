@@ -9,6 +9,7 @@ import { TrialBanner } from './TrialBanner';
 import { CommandPalette, CommandHint } from './CommandPalette';
 import { QuickCreateFAB } from './QuickCreateFAB';
 import { CardVerificationLockscreen } from './CardVerificationLockscreen';
+import { TrialExpiredLockscreen } from './TrialExpiredLockscreen';
 import { Logo } from './Logo';
 import { TenantSwitcher } from './TenantSwitcher';
 import { SupportWidget } from './SupportWidget';
@@ -75,6 +76,11 @@ export default function AppShell({
     businessCategorySlug?: string | null;
     mainSectionLabelOverride?: string | null;
     isLocked?: boolean;
+    // Trial nuevo (/prueba o /trial): si trialEndsAt está set, este tenant
+    // no pasó por Hotmart antes del primer login — el lockscreen normal
+    // de "completar pago" NO aplica hasta que el trial expire.
+    trialEndsAt?: string | null;
+    status?: string | null;
   } | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
     new Set(),
@@ -196,6 +202,9 @@ export default function AppShell({
           hotmartSubscriberCode: t?.hotmartSubscriberCode ?? null,
           businessCategorySlug: t?.businessCategorySlug ?? null,
           mainSectionLabelOverride: t?.mainSectionLabelOverride ?? null,
+          isLocked: t?.isLocked ?? false,
+          trialEndsAt: t?.trialEndsAt ?? null,
+          status: t?.status ?? null,
         });
       })
       .catch(() => null);
@@ -348,10 +357,15 @@ export default function AppShell({
 
   if (!user) return null;
 
-  // Lockscreen: tenant aún no completó la verificación de tarjeta en Hotmart.
-  // Aplica solo a TENANT_OWNER (los staff entran con tenant ya activo) y solo
-  // si ya tenemos data del tenant cargada (no parpadear lockscreen mientras
-  // /tenants/me responde).
+  // Lockscreen: tenant aún no completó el pago. Hay 3 caminos posibles:
+  //   1. Trial nuevo (/prueba) activo → trialEndsAt > now → NO lockscreen,
+  //      el dueño accede al panel + TrialBanner muestra countdown.
+  //   2. Trial nuevo expirado → trialEndsAt < now + sin hotmart code →
+  //      TrialExpiredLockscreen ("Tu prueba terminó · Activar").
+  //   3. Signup legacy Hotmart (sin trialEndsAt set) → flujo viejo:
+  //      CardVerificationLockscreen ("Falta confirmar tu pago").
+  // Solo aplica a TENANT_OWNER (staff entra con tenant ya activo) y solo
+  // cuando tenantInfo ya cargó (no parpadear lockscreen pre-fetch).
   if (
     variant === 'app' &&
     user.role === 'TENANT_OWNER' &&
@@ -359,12 +373,30 @@ export default function AppShell({
     !tenantInfo.hotmartSubscriberCode &&
     planName === 'Elite'
   ) {
-    return (
-      <CardVerificationLockscreen
-        brandName={tenantInfo.brandName}
-        planName={planName}
-      />
-    );
+    const trialEnd = tenantInfo.trialEndsAt
+      ? new Date(tenantInfo.trialEndsAt)
+      : null;
+    const trialActive = trialEnd && trialEnd.getTime() > Date.now();
+    const trialExpired = trialEnd && trialEnd.getTime() <= Date.now();
+    if (trialExpired) {
+      return (
+        <TrialExpiredLockscreen
+          brandName={tenantInfo.brandName}
+          trialEndsAt={tenantInfo.trialEndsAt ?? null}
+        />
+      );
+    }
+    if (!trialActive) {
+      // Sin trial set Y sin hotmart → signup legacy (lockscreen Hotmart).
+      return (
+        <CardVerificationLockscreen
+          brandName={tenantInfo.brandName}
+          planName={planName}
+        />
+      );
+    }
+    // Trial activo: dejamos pasar al panel. El TrialBanner abajo muestra
+    // el countdown de días restantes.
   }
 
   const brandTitle =
