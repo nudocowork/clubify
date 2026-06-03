@@ -14,7 +14,7 @@ import { readFileSync, existsSync } from 'fs';
  * Renovar Apple cert requiere ~24h de coordinación con Apple Developer.
  *
  * Google Wallet service account JSON no tiene expiry (a menos que rotes
- * manualmente la key), por eso no se monitorea acá. Si en el futuro
+ * manualmente la key), por eso no se monitorea aquí. Si en el futuro
  * agregamos JWT-signed keys con expiry, se extiende este servicio.
  */
 @Injectable()

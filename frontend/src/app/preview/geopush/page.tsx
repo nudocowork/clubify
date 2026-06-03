@@ -58,7 +58,7 @@ export default function GeopushPreviewPage() {
           <p className="text-mute mt-3 max-w-2xl mx-auto leading-relaxed">
             Cada opción reemplazaría los elementos GeoPush actuales en el
             bloque <code className="bg-bg2 px-1 rounded">Fidelización</code> de
-            la landing. Decime el número y la dejo live.
+            la landing. Dime el número y la dejo live.
           </p>
         </div>
 
@@ -498,7 +498,7 @@ function V5ExpandedPush() {
           ☕ ¡Hoy es 2x1 en cafés!
         </div>
         <div className="text-[12px] text-black/70 leading-snug mt-1">
-          Estás a una cuadra. Pasá ahora y completá tu tarjeta —
+          Estás a una cuadra. Pasá ahora y completa tu tarjeta —
           te faltan 3 sellos.
         </div>
 

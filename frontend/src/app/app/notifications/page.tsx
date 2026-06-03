@@ -73,7 +73,7 @@ const TEMPLATE_GROUPS: TemplateGroup[] = [
       {
         id: 'inactive_30d',
         title: 'Te extrañamos',
-        body: 'Hace tiempo no te vemos por acá. Vuelve esta semana y te regalamos 2 sellos extra.',
+        body: 'Hace tiempo no te vemos por aquí. Vuelve esta semana y te regalamos 2 sellos extra.',
       },
       {
         id: 'flash_promo',
@@ -229,7 +229,7 @@ export default function NotificationsPage() {
     setForm((f) => ({ ...f, title: t.title, body: t.body }));
     if (typeof window !== 'undefined')
       window.scrollTo({ top: 0, behavior: 'smooth' });
-    toast('Plantilla cargada · editá lo que quieras antes de enviar', 'info');
+    toast('Plantilla cargada · edita lo que quieras antes de enviar', 'info');
   }
 
   return (
@@ -754,7 +754,7 @@ function PushPreview({
   const showTitle = title.trim() || 'Tu título aparece aquí';
   const showBody =
     body.trim() ||
-    'Escribe el cuerpo del mensaje y vas a ver acá cómo se verá en la pantalla de bloqueo del iPhone de tu cliente.';
+    'Escribe el cuerpo del mensaje y vas a ver aquí cómo se verá en la pantalla de bloqueo del iPhone de tu cliente.';
   const initial = (brandName?.[0] || 'C').toUpperCase();
 
   // Hora "ahora" simulada para que se vea real en lock screen.

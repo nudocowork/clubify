@@ -206,7 +206,7 @@ export default function InfoLinkEditor() {
     } catch (e: any) {
       // Validación del rootSlug (reservado, duplicado, etc.) viene como
       // mensaje claro del backend — lo mostramos al user con alert
-      // (la página usa toasts en otros lados pero acá no tengo el hook).
+      // (la página usa toasts en otros lados pero aquí no tengo el hook).
       // Re-throw para que el botón quede en estado normal.
       const msg = e?.message || 'No se pudo guardar';
       alert(msg);
@@ -1437,7 +1437,7 @@ function VisualSection({
       <div>
         <h3 className="font-semibold m-0 mb-1">Personalización visual</h3>
         <div className="text-xs text-mute leading-relaxed">
-          Elegí un "look completo" abajo para aplicar logo + banner + tipografía
+          Elige un "look completo" abajo para aplicar logo + banner + tipografía
           coherentes en un click, o ajustá cada sección individualmente más abajo.
         </div>
       </div>
@@ -1582,7 +1582,7 @@ function LogoContainerPanel({
       {!enabled && (
         <div className="text-xs text-mute leading-relaxed">
           Sin personalizar — el contenedor del logo usa el estilo del
-          template activo. Activá la opción de arriba para elegir un look
+          template activo. Activa la opción de arriba para elegir un look
           o ajustarlo fino.
         </div>
       )}
@@ -1767,7 +1767,7 @@ function LogoContainerPanel({
                 </div>
               ) : (
                 <div className="text-xs text-mute italic">
-                  Subí un logo en Configuración → Marca para ver el preview
+                  Sube un logo en Configuración → Marca para ver el preview
                 </div>
               )}
             </div>
@@ -1820,7 +1820,7 @@ function SliderRow({
 //
 // Aplica al template SHOP (único shell que renderea heroImageUrl hoy).
 // Si bannerConfig=null, el hero se renderea con el overlay negro 15%
-// histórico (legible pero sin tunear). Activá "Personalizar" para
+// histórico (legible pero sin tunear). Activa "Personalizar" para
 // elegir preset o tunear fino.
 function BannerPanel({
   value,
@@ -1862,14 +1862,14 @@ function BannerPanel({
 
       {!heroImageUrl && (
         <div className="text-xs text-mute italic mb-3">
-          Subí una imagen de portada arriba para ver el preview.
+          Sube una imagen de portada arriba para ver el preview.
         </div>
       )}
 
       {!enabled && (
         <div className="text-xs text-mute leading-relaxed">
           Sin personalizar — el banner muestra la foto con un overlay
-          oscuro suave para que el contenido encima quede legible. Activá
+          oscuro suave para que el contenido encima quede legible. Activa
           arriba para tunear overlay, posición, zoom o blur.
         </div>
       )}
@@ -2072,7 +2072,7 @@ function BannerPanel({
                 </>
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center text-xs text-mute italic bg-bg2">
-                  Subí una imagen primero
+                  Sube una imagen primero
                 </div>
               )}
             </div>
@@ -2275,11 +2275,11 @@ function PopupEditor({
             <label className="label text-xs">Tarjeta de fidelización (opcional)</label>
             {(cards ?? []).length === 0 ? (
               <p className="text-[11px] text-mute leading-relaxed">
-                No tenés tarjetas creadas. Crea una desde{' '}
+                No tienes tarjetas creadas. Crea una desde{' '}
                 <a href="/app/cards" className="underline text-brand">
                   Tarjetas
                 </a>{' '}
-                y volvés acá para conectarla.
+                y vuelves aquí para conectarla.
               </p>
             ) : (
               <>

@@ -305,7 +305,7 @@ export default function Onboarding() {
                 placeholder="+57 300 000 0000"
               />
               <div className="text-xs text-mute mt-1.5">
-                Acá te van a llegar los pedidos automáticamente.
+                Aquí te van a llegar los pedidos automáticamente.
               </div>
             </div>
             <div className="mt-4">

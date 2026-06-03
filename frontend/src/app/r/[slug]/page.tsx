@@ -137,7 +137,7 @@ export default function ReviewPage() {
           <div className="text-5xl mb-3">📡</div>
           <h1 className="text-xl font-bold">Conexión lenta</h1>
           <p className="text-mute mt-2 text-sm">
-            No pudimos cargar la página. Revisá tu conexión y reintentá.
+            No pudimos cargar la página. Revisa tu conexión y reintenta.
           </p>
           <button
             type="button"

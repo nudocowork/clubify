@@ -105,7 +105,7 @@ export default function EditQrPosterPage() {
         </div>
         {cards.length === 0 ? (
           <div className="text-[11px] text-mute leading-relaxed">
-            Aún no tenés tarjetas. Creá una en{' '}
+            Aún no tienes tarjetas. Crea una en{' '}
             <Link href="/app/cards/new" className="text-brand underline">
               Tarjetas
             </Link>{' '}
@@ -174,9 +174,9 @@ export default function EditQrPosterPage() {
       </div>
 
       <p className="text-sm text-mute max-w-2xl mb-5 leading-relaxed">
-        Editás una variante de <strong>{meta.label}</strong>. Cada variante
+        Editas una variante de <strong>{meta.label}</strong>. Cada variante
         tiene su propio diseño y se guarda automáticamente. El nombre lo
-        cambiás desde la lista en{' '}
+        cambias desde la lista en{' '}
         <Link href="/app/marketing" className="text-brand underline">
           Marketing
         </Link>

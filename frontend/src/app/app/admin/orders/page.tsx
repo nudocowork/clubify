@@ -533,7 +533,7 @@ export default function OrdersGeneratorPage() {
             ))}
             {suppliers.length === 0 && (
               <div className="text-sm text-mute text-center py-8 border-2 border-dashed border-line rounded-lg">
-                Aún no hay proveedores. Cargá el primero arriba ↑
+                Aún no hay proveedores. Carga el primero arriba ↑
               </div>
             )}
           </div>

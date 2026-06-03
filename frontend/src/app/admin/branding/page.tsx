@@ -127,7 +127,7 @@ export default function AdminBrandingPage() {
           Datos que se usan en los botones de la landing{' '}
           <code className="bg-bg2 px-1 rounded">soyclubify.com</code> —
           "Agendar una Demo" (Calendly), botón de email y botón de
-          Instagram. Si dejás un campo vacío, el botón correspondiente
+          Instagram. Si dejas un campo vacío, el botón correspondiente
           se oculta automáticamente.
         </p>
         <div className="mt-3.5 grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -171,7 +171,7 @@ export default function AdminBrandingPage() {
         <p className="text-xs text-mute mt-1 leading-relaxed">
           Contadores que se muestran en la sección de números de{' '}
           <code className="bg-bg2 px-1 rounded">soyclubify.com</code>.
-          Editables sin redeploy. Si dejás un campo vacío, se usa el valor
+          Editables sin redeploy. Si dejas un campo vacío, se usa el valor
           por defecto. Aceptan cualquier texto (ej: <code>+150</code>,{' '}
           <code>30K+</code>, <code>4.9 / 5</code>).
         </p>
@@ -238,7 +238,7 @@ export default function AdminBrandingPage() {
         <p className="text-xs text-mute mt-1 leading-relaxed">
           PIN que el cajero/staff debe ingresar en <code>/scan</code> cuando
           quiere agregar <b>más de 1 sello</b> en una sola escaneada (anti-abuso).
-          Cada escaneada normal agrega 1 sello sin pedir nada. Si dejás vacío,
+          Cada escaneada normal agrega 1 sello sin pedir nada. Si dejas vacío,
           se permite agregar cualquier cantidad sin PIN. Recomendado: 4–6 dígitos.
         </p>
         <div className="mt-3.5 max-w-sm">
@@ -291,7 +291,7 @@ export default function AdminBrandingPage() {
             navegador cachea iconos. Refrescar (Cmd/Ctrl+Shift+R) lo fuerza.
           </li>
           <li>
-            Si dejás un campo vacío, se usan los defaults de Clubify
+            Si dejas un campo vacío, se usan los defaults de Clubify
             (clubify-logo.png y favicon.png en /public).
           </li>
         </ul>

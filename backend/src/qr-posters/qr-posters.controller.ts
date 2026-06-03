@@ -152,7 +152,7 @@ export class QrPostersController {
 
 /**
  * Controller PÚBLICO separado para el redirect dinámico `/q/<id>`.
- * El QR impreso codifica esta URL — al escanear, el usuario llega acá,
+ * El QR impreso codifica esta URL — al escanear, el usuario llega aquí,
  * el servicio loguea la visita y retorna un 302 al targetUrl resuelto
  * (override o default por tipo).
  *

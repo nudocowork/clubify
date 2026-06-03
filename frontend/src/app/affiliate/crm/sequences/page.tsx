@@ -4,7 +4,7 @@
  * /affiliate/crm/sequences — Lista de secuencias automatizadas (F4).
  *
  * El user define workflows tipo "Cuando entra un contacto, mandale
- * bienvenida, esperá 1h, mandale PDF, esperá 1d, etc.". El builder
+ * bienvenida, espera 1h, mandale PDF, espera 1d, etc.". El builder
  * visual está en /affiliate/crm/sequences/[id].
  */
 
@@ -139,7 +139,7 @@ export default function SequencesListPage() {
         <div className="rounded-input border border-line bg-bg2/40 p-8 text-center">
           <div className="text-4xl mb-3">🤖</div>
           <h2 className="text-lg font-semibold mb-2">
-            Todavía no tenés secuencias
+            Todavía no tienes secuencias
           </h2>
           <p className="text-sm text-mute mb-4 max-w-md mx-auto leading-relaxed">
             Crea tu primera secuencia para automatizar follow-ups: ej. enviar

@@ -3,7 +3,7 @@
 // genere propuestas visualmente diferenciadas según el rubro del prospect.
 // El slug se persiste en `Quote.templateSlug` y se usa para filtrar/agrupar
 // en el CRM. Si más adelante se quiere agregar plantillas por categoría
-// hay que agregarlas acá — no hay tabla en DB.
+// hay que agregarlas aquí — no hay tabla en DB.
 
 export type QuoteTemplate = {
   slug: string;

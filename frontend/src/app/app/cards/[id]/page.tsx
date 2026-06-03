@@ -955,7 +955,7 @@ function EditCardModal({
                 <p className="text-xs text-mute leading-relaxed -mt-1 mb-2.5">
                   Foto de fondo en Apple y Google Wallet. Los sellos van encima
                   con overlay oscuro. Recomendado <b>800×400 px</b> o más.
-                  Si la quitás, vuelve al gradiente con tus colores.
+                  Si la quitas, vuelve al gradiente con tus colores.
                 </p>
                 <ImageUploader
                   value={form.heroImageUrl}

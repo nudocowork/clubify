@@ -167,7 +167,7 @@ export default function TranslationsPage() {
       <header>
         <h1 className="text-2xl font-bold text-text">Traducciones del menú</h1>
         <p className="text-sm text-mute mt-1">
-          Tus textos en español se traducen automáticamente al inglés y portugués cuando un cliente extranjero abre tu menú. Acá podés revisar, ajustar o regenerar las traducciones.
+          Tus textos en español se traducen automáticamente al inglés y portugués cuando un cliente extranjero abre tu menú. Aquí puedes revisar, ajustar o regenerar las traducciones.
         </p>
       </header>
 

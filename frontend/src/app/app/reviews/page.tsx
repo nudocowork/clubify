@@ -132,7 +132,7 @@ export default function ReviewsPage() {
             (la reseña se publica en Google).
           </li>
           <li>
-            <b>1, 2 o 3 estrellas</b> · capturamos el feedback acá privado, no
+            <b>1, 2 o 3 estrellas</b> · capturamos el feedback aquí privado, no
             llega a Google. Lo ves abajo y reaccionas antes de que se vuelva
             público.
           </li>
@@ -535,7 +535,7 @@ function ReviewAlertsCard({
           </h3>
           <p className="text-xs text-mute mt-1 leading-relaxed">
             Recibí un SMS al instante cuando un cliente deje una reseña baja —
-            podés contactarlo antes de que se vuelva pública.
+            puedes contactarlo antes de que se vuelva pública.
           </p>
         </div>
         <span
@@ -551,7 +551,7 @@ function ReviewAlertsCard({
         <div className="mt-4 space-y-4 pt-4 border-t border-line">
           {!growConnected && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-900 leading-snug">
-              ⚠ Grow Business no está conectado para tu negocio. Pedile al
+              ⚠ Grow Business no está conectado para tu negocio. Pídele al
               super admin que active la integración antes de probar.
             </div>
           )}
@@ -729,7 +729,7 @@ function WhatsappFeedbackCard({
 
   async function save() {
     if (enabled && !phone.trim()) {
-      toast('Agregá un número antes de activar el botón', 'error');
+      toast('Agrega un número antes de activar el botón', 'error');
       return;
     }
     setSaving(true);
@@ -754,7 +754,7 @@ function WhatsappFeedbackCard({
   function test() {
     const num = phone.trim().replace(/\D/g, '');
     if (!num || num.length < 6) {
-      toast('Agregá un número válido antes de probar', 'error');
+      toast('Agrega un número válido antes de probar', 'error');
       return;
     }
     const tpl = message.trim() || WSP_DEFAULT_MESSAGE;
@@ -833,7 +833,7 @@ function WhatsappFeedbackCard({
               maxLength={40}
             />
             <div className="text-[10px] text-mute mt-1">
-              Usá formato internacional con +. Solo dígitos del número (sin
+              Usa formato internacional con +. Solo dígitos del número (sin
               espacios) se mantienen en el link wa.me.
             </div>
           </div>
@@ -877,7 +877,7 @@ function WhatsappFeedbackCard({
               className="btn-ghost text-sm disabled:opacity-50"
               title={
                 !phone.trim()
-                  ? 'Agregá un número antes de probar'
+                  ? 'Agrega un número antes de probar'
                   : 'Abre WhatsApp con el número y mensaje configurados'
               }
             >

@@ -17,7 +17,7 @@ import {
 
 // Forma exacta del tenant con sus relaciones para el storefront público.
 // Mantener este `include` en sync con el findUnique de storefront() — si
-// agregás una relación nueva, sumala acá también para que TS la vea.
+// agregas una relación nueva, sumala aquí también para que TS la vea.
 const STOREFRONT_TENANT_INCLUDE = {
   storefront: true,
   locations: { where: { isActive: true } },
@@ -231,7 +231,7 @@ export class PublicMenuController {
    * Menú visual tipo libro / flipbook. Devuelve las secciones activas
    * del tenant con sus páginas (imageUrl + popup config) en el orden
    * en que se deben renderizar. El frontend storefront detecta
-   * `menuLayout=FLIPBOOK` y llama acá en lugar de `/menu`.
+   * `menuLayout=FLIPBOOK` y llama aquí en lugar de `/menu`.
    *
    * Páginas inactivas y secciones inactivas se filtran server-side.
    * Si no hay secciones, devuelve { sections: [] } — el frontend cae

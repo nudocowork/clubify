@@ -41,7 +41,7 @@ export default function QrMenuPage() {
 
       <p className="text-sm text-mute max-w-2xl mb-5 leading-relaxed">
         Diseñá tu cartel QR para imprimir. El QR apunta automáticamente a tu{' '}
-        {mainLabel.toLowerCase()} digital — si lo cambiás, el cartel impreso
+        {mainLabel.toLowerCase()} digital — si lo cambias, el cartel impreso
         sigue funcionando.
       </p>
 

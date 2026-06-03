@@ -258,7 +258,7 @@ Rules:
       // rápido y el caller hace fallback al sourceText (ES). El default
       // del SDK (timeout 10min, 2 retries) podía colgar un request
       // público al menú por minutos. Próximo request al menú re-intenta
-      // la cache miss sin esperar acá.
+      // la cache miss sin esperar aquí.
       { timeout: 8000, maxRetries: 0 },
     );
 

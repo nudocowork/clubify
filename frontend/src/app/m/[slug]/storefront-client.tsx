@@ -197,7 +197,7 @@ function SubsectionHeader({
 // poder exportarlo y reusarlo desde 2 routes distintas:
 //   - /m/[slug]/page.tsx          (entrada normal al menú)
 //   - /m/[slug]/[sectionSlug]/    (deep-link a una sección específica)
-// Next.js 14.2.x rechaza named exports en page.tsx; por eso vive acá y
+// Next.js 14.2.x rechaza named exports en page.tsx; por eso vive aquí y
 // las dos page.tsx son re-exports minimal de este default.
 //
 // La detección de sectionSlug se hace via useParams: si la URL es
@@ -621,7 +621,7 @@ export default function StorefrontPublic() {
         </div>
       </div>
 
-      {/* Menú — FLIPBOOK se renderiza arriba con early return; acá solo
+      {/* Menú — FLIPBOOK se renderiza arriba con early return; aquí solo
           los layouts tradicionales por productos. */}
       {tab === 'menu' && (
         <div className="max-w-2xl mx-auto mt-4 px-5">
@@ -964,7 +964,7 @@ function ProductModal({
               {/* Etiquetas (Nuevo, Recomendado, Más vendido, Promoción,
                   Oferta especial, Limitado, etc.). Hasta el item #7 del
                   pack solo aparecían en algunos layouts del grid y nunca
-                  en el detalle. Acá las mostramos como badges visibles
+                  en el detalle. Aquí las mostramos como badges visibles
                   al cliente. */}
               {Array.isArray(product.tags) && product.tags.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-2">

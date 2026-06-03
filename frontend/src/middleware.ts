@@ -90,7 +90,7 @@ async function isMaintenanceEnabled(): Promise<boolean> {
 
 /** Decodifica el payload del JWT sin verificar firma — solo para leer
  *  el role en el middleware edge. La verificación criptográfica corre
- *  en el backend; acá solo decidimos qué UI mostrar. Un usuario que
+ *  en el backend; aquí solo decidimos qué UI mostrar. Un usuario que
  *  fragua role=SUPER_ADMIN en el cookie igual NO accede a nada porque
  *  el backend rechaza el JWT inválido. */
 function decodeJwtRole(token: string | undefined): string | null {
@@ -146,7 +146,7 @@ export async function middleware(req: NextRequest) {
   //  - /login (para que SUPER_ADMIN pueda autenticarse).
   //  - La propia página /maintenance (sino loop infinito de rewrite).
   //  - Activos estáticos (/_next, /icons, /favicon, /sw.js).
-  //  - El backend NO se rutea por acá, no afecta.
+  //  - El backend NO se rutea por aquí, no afecta.
   const isMaintenanceBypass =
     url.pathname === '/maintenance' ||
     url.pathname.startsWith('/_next') ||

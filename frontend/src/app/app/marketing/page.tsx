@@ -185,7 +185,7 @@ export default function MarketingHub() {
 
       <p className="text-sm text-mute max-w-2xl mb-6 leading-relaxed">
         Crea carteles QR profesionales para imprimir y usar en tu negocio.
-        Podés tener varias variantes del mismo tipo — cada una con su
+        Puedes tener varias variantes del mismo tipo — cada una con su
         diseño. Cada QR es dinámico: si cambias menú, wallet o reseñas, el
         QR sigue funcionando automáticamente.
       </p>
@@ -246,7 +246,7 @@ export default function MarketingHub() {
       )}
 
       <h2 className="text-lg font-bold text-ink m-0 mb-3">
-        {hasAny ? 'Crear nuevo' : 'Empezá creando uno'}
+        {hasAny ? 'Crear nuevo' : 'Empieza creando uno'}
       </h2>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

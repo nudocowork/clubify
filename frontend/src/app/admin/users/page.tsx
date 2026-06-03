@@ -81,7 +81,7 @@ export default function AdminUsersPage() {
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!createForm.fullName.trim() || !createForm.email.trim()) {
-      toast('Completá nombre y email', 'error');
+      toast('Completa nombre y email', 'error');
       return;
     }
     setCreating(true);
@@ -117,7 +117,7 @@ export default function AdminUsersPage() {
 
   async function toggleActive(u: AdminUser) {
     if (u.id === me?.id && u.isActive) {
-      toast('No podés desactivarte a vos mismo', 'error');
+      toast('No puedes desactivarte a vos mismo', 'error');
       return;
     }
     if (
@@ -163,7 +163,7 @@ export default function AdminUsersPage() {
 
   async function remove(u: AdminUser) {
     if (u.id === me?.id) {
-      toast('No podés eliminarte a vos mismo', 'error');
+      toast('No puedes eliminarte a vos mismo', 'error');
       return;
     }
     if (
@@ -223,7 +223,7 @@ export default function AdminUsersPage() {
             ✅ Administrador creado
           </div>
           <div className="text-xs text-mute mb-2">
-            Compartí estas credenciales por canal seguro (Slack/WhatsApp). No
+            Comparte estas credenciales por canal seguro (Slack/WhatsApp). No
             se vuelven a mostrar.
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
@@ -517,12 +517,12 @@ export default function AdminUsersPage() {
                   onChange={(e) =>
                     setCreateForm({ ...createForm, password: e.target.value })
                   }
-                  placeholder="Si la dejás vacía, generamos una"
+                  placeholder="Si la dejas vacía, generamos una"
                   minLength={8}
                   autoComplete="new-password"
                 />
                 <p className="text-[11px] text-mute mt-1">
-                  Mínimo 8 caracteres. Si la dejás vacía, generamos una
+                  Mínimo 8 caracteres. Si la dejas vacía, generamos una
                   contraseña aleatoria de 10 chars y te la mostramos una sola
                   vez.
                 </p>

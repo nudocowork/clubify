@@ -88,7 +88,7 @@ function TrialInner() {
     e.preventDefault();
     setErr(null);
     if (!form.accept) {
-      setErr('Tenés que aceptar los términos para continuar.');
+      setErr('Tienes que aceptar los términos para continuar.');
       return;
     }
     if (form.password.length < 8) {
@@ -147,10 +147,10 @@ function TrialInner() {
               🎁 Modo prueba · 5 días
             </div>
             <h1 className="mt-3 text-2xl sm:text-3xl font-bold tracking-tight">
-              Probá Clubify gratis
+              Prueba Clubify gratis
             </h1>
             <p className="mt-1.5 text-sm text-mute leading-relaxed">
-              Sin tarjeta. Sin compromiso. Activá tu cuenta al final de los 5 días
+              Sin tarjeta. Sin compromiso. Activa tu cuenta al final de los 5 días
               si te convence.
             </p>
           </div>
@@ -274,7 +274,7 @@ function TrialInner() {
                     placeholder="Café del barrio, Pizzería La Nona, etc."
                   />
                   <div className="text-[11px] text-mute mt-1">
-                    Si no la ponés, usamos tu nombre completo como marca.
+                    Si no la pones, usamos tu nombre completo como marca.
                   </div>
                 </div>
                 <div>
@@ -337,9 +337,9 @@ function TrialInner() {
             </button>
 
             <p className="text-center text-xs text-mute">
-              ¿Ya tenés cuenta?{' '}
+              ¿Ya tienes cuenta?{' '}
               <Link href="/login" className="text-brand hover:underline">
-                Iniciá sesión
+                Inicia sesión
               </Link>
             </p>
           </form>

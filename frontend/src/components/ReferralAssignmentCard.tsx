@@ -143,7 +143,7 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
             🎯 Asignación a embajador / influencer
           </h3>
           <p className="text-mute text-xs mt-1 max-w-md">
-            Conectá este negocio a un afiliado responsable de traerlo. Útil
+            Conecta este negocio a un afiliado responsable de traerlo. Útil
             cuando el tenant se creó sin venir de un link <code>/ref/</code>.
             Las comisiones futuras de este tenant van a ese código.
           </p>
@@ -236,7 +236,7 @@ function BackfillCommissionButton({ tenantId }: { tenantId: string }) {
         if (!force) {
           const ok = confirm(
             'No se generó comisión porque el tenant no tiene un ciclo de pago activo (currentPeriodEnd).\n\n' +
-              '¿Generar igual? Solo confirmá si sabés que este tenant efectivamente paga (ej. fue creado manualmente o vino de un canal sin tracking de billing).\n\n' +
+              '¿Generar igual? Solo confirmá si sabes que este tenant efectivamente paga (ej. fue creado manualmente o vino de un canal sin tracking de billing).\n\n' +
               'La comisión se va a crear como PENDING al influencer/embajador.',
           );
           if (ok) {

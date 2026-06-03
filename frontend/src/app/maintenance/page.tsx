@@ -1,6 +1,6 @@
 'use client';
 /**
- * Página pública de mantenimiento. El middleware Next.js rewritea acá
+ * Página pública de mantenimiento. El middleware Next.js rewritea aquí
  * cualquier request mientras el flag está activo (excepto admin panel,
  * SUPER_ADMIN cookie y rutas del sistema).
  *
@@ -104,7 +104,7 @@ export default function MaintenancePage() {
             href="https://wa.me/?text=Hola%2C%20necesito%20soporte"
             className="text-sm text-emerald-700 hover:underline"
           >
-            ¿Algo urgente? Escribinos por WhatsApp →
+            ¿Algo urgente? Escríbenos por WhatsApp →
           </a>
         </div>
       </div>

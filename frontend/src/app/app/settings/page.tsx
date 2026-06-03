@@ -98,7 +98,7 @@ export default function SettingsPage() {
       if (!trimmed) {
         setSectionMsg({
           ok: false,
-          text: 'Escribí el nombre personalizado o elegí otra opción',
+          text: 'Escribe el nombre personalizado o elige otra opción',
         });
         return;
       }
@@ -129,7 +129,7 @@ export default function SettingsPage() {
       );
       setSectionMsg({
         ok: true,
-        text: 'Nombre actualizado. Recargá para verlo en todo el panel.',
+        text: 'Nombre actualizado. Recarga para verlo en todo el panel.',
       });
     } catch (err: any) {
       setSectionMsg({
@@ -438,7 +438,7 @@ export default function SettingsPage() {
         <p className="text-xs text-mute mt-1 leading-relaxed">
           Cambia cómo aparece la palabra "Menú" en tu panel y en la vista
           pública. Útil si vendés servicios (peluquería, autolavado, spa) o
-          tenés algo distinto a una carta tradicional (tratamientos, planes,
+          tienes algo distinto a una carta tradicional (tratamientos, planes,
           paquetes, etc.).
         </p>
         <form onSubmit={saveSectionLabel} className="mt-4 grid gap-3">
@@ -782,11 +782,11 @@ function DeliveryAlertsCard({
 
   async function save() {
     if (enabled && phones.length === 0) {
-      toast('Agregá al menos un teléfono o desactivá las alertas', 'error');
+      toast('Agrega al menos un teléfono o desactiva las alertas', 'error');
       return;
     }
     if (enabled && events.length === 0) {
-      toast('Elegí al menos un evento que dispare el SMS', 'error');
+      toast('Elige al menos un evento que dispare el SMS', 'error');
       return;
     }
     setSaving(true);
@@ -820,7 +820,7 @@ function DeliveryAlertsCard({
       if (res.ok) {
         toast(`SMS enviado a ${res.okCount}/${res.total} destinos`, 'success');
       } else {
-        toast('Ningún SMS pudo enviarse — revisá credenciales y números', 'error');
+        toast('Ningún SMS pudo enviarse — revisa credenciales y números', 'error');
       }
     } catch (e: any) {
       toast(e.message || 'No se pudo probar', 'error');
@@ -851,7 +851,7 @@ function DeliveryAlertsCard({
         )}
       </h2>
       <p className="text-xs text-mute mt-1 leading-relaxed">
-        Mandá un SMS automático a una o varias empresas/personas de
+        Mve un SMS automático a una o varias empresas/personas de
         domicilio cuando un pedido delivery cambia de estado.
       </p>
 
@@ -954,7 +954,7 @@ function DeliveryAlertsCard({
             className="btn-ghost text-sm disabled:opacity-50"
             title={
               phones.length === 0
-                ? 'Agregá al menos un teléfono'
+                ? 'Agrega al menos un teléfono'
                 : 'Manda un SMS de prueba ya mismo'
             }
           >

@@ -247,7 +247,7 @@ export default function SupportMaterialsAdmin() {
       {grouped.length === 0 && (
         <div className="card card-pad text-center text-mute py-10">
           {materials.length === 0
-            ? 'Aún no hay materiales. Subí el primero con "+ Material" arriba.'
+            ? 'Aún no hay materiales. Sube el primero con "+ Material" arriba.'
             : 'Sin resultados para los filtros aplicados.'}
         </div>
       )}
@@ -414,7 +414,7 @@ function EditorModal({
       return;
     }
     if (!form.fileUrl && !form.externalUrl && !form.scriptBody) {
-      toast('Subí un archivo, pegá un link externo o escribí el script', 'error');
+      toast('Sube un archivo, pega un link externo o escribe el script', 'error');
       return;
     }
     setBusy(true);
@@ -610,9 +610,9 @@ function EditorModal({
           </div>
 
           <div className="text-[11px] text-mute leading-relaxed">
-            Tip: si elegís un influencer en "Scope", solo lo verán ese
+            Tip: si eliges un influencer en "Scope", solo lo verán ese
             influencer y sus embajadores. Útil para material exclusivo de
-            equipos. Si dejás "Todos", lo ve cualquiera que matchee la audiencia.
+            equipos. Si dejas "Todos", lo ve cualquiera que matchee la audiencia.
           </div>
 
           <label className="flex items-center gap-2 text-xs cursor-pointer">

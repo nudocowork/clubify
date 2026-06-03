@@ -75,7 +75,7 @@ class TrialSignupDto {
   @IsOptional() @IsString() @MaxLength(120) company?: string;
   @IsOptional() @IsString() @MaxLength(80) city?: string;
   // Atribución: si vino con un código de embajador/influencer en URL,
-  // el frontend lo manda acá. También sirve para campañas (?campaign=X).
+  // el frontend lo manda aquí. También sirve para campañas (?campaign=X).
   @IsOptional() @IsString() @MaxLength(80) referralCode?: string;
   @IsOptional() @IsIn(['LANDING', 'AMBASSADOR', 'INFLUENCER', 'CAMPAIGN', 'DIRECT'])
   source?: 'LANDING' | 'AMBASSADOR' | 'INFLUENCER' | 'CAMPAIGN' | 'DIRECT';

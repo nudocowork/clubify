@@ -85,7 +85,7 @@ export function StampIconPicker({
           {value || '☕'}
         </div>
         <div className="text-xs text-mute leading-snug">
-          Elegí el icono que aparecerá en cada sello dentro de la tarjeta
+          Elige el icono que aparecerá en cada sello dentro de la tarjeta
           wallet del cliente. Inspirado en los iconos más usados (Flaticon).
         </div>
       </div>

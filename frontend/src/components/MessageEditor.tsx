@@ -18,7 +18,7 @@ const EmojiMartPicker = dynamic(
 const ES_I18N = {
   search: 'Buscar',
   search_no_results_1: 'Sin resultados',
-  search_no_results_2: 'Probá con otra palabra',
+  search_no_results_2: 'Prueba con otra palabra',
   categories: {
     activity: 'Actividades',
     custom: 'Personalizados',
@@ -189,7 +189,7 @@ export function MessageEditor({
         placeholder={placeholder}
       />
       <div className="text-xs text-mute mt-1">
-        💡 Tip: hacé click en una variable para insertarla en el cursor.
+        💡 Tip: haz click en una variable para insertarla en el cursor.
       </div>
     </div>
   );

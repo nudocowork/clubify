@@ -183,7 +183,7 @@ export function MapPicker({
         <input
           ref={inputRef}
           className="input w-full pr-10"
-          placeholder="Escribí la dirección o nombre del negocio…"
+          placeholder="Escribe la dirección o nombre del negocio…"
         />
         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-mute pointer-events-none">
           🔍

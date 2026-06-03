@@ -248,8 +248,8 @@ export default function NewTenant() {
             ))}
           </select>
           <div className="text-[11px] text-mute mt-1 leading-snug">
-            Si el negocio fue traído por un afiliado offline, elegilo acá.
-            Las comisiones futuras se atribuyen automáticamente. Podés
+            Si el negocio fue traído por un afiliado offline, elegilo aquí.
+            Las comisiones futuras se atribuyen automáticamente. Puedes
             cambiar esto después desde la página del negocio.
           </div>
         </div>

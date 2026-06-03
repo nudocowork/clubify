@@ -283,7 +283,7 @@ export class GrowBusinessService {
       return {
         ok: false as const,
         message:
-          'No se pudo crear/buscar el contacto en Grow Business. Revisá API key, location y formato del teléfono.',
+          'No se pudo crear/buscar el contacto en Grow Business. Revisa API key, location y formato del teléfono.',
       };
     }
 
@@ -314,7 +314,7 @@ export class GrowBusinessService {
       return {
         ok: false as const,
         message:
-          'No se pudo crear/buscar el contacto en Grow Business. Revisá API key, location y formato del teléfono.',
+          'No se pudo crear/buscar el contacto en Grow Business. Revisa API key, location y formato del teléfono.',
       };
     }
     return this.postChannelMessage(creds.apiKey, contactId, 'WhatsApp', body);

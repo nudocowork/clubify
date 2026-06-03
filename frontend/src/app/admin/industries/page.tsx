@@ -253,7 +253,7 @@ export default function AdminIndustriesPage() {
         </h3>
         <p className="text-sm text-mute mt-2 leading-relaxed">
           Cada industria tiene su propio deck con slides específicos para esa
-          vertical. Después de crear una industria, hacé click en su card
+          vertical. Después de crear una industria, haz click en su card
           para abrir el <b>editor de slides</b>.
         </p>
       </div>
@@ -301,7 +301,7 @@ export default function AdminIndustriesPage() {
       ) : filtered.length === 0 ? (
         <div className="card card-pad text-center py-10 text-mute">
           {items.length === 0
-            ? 'Todavía no hay industrias. Creá la primera arriba.'
+            ? 'Todavía no hay industrias. Crea la primera arriba.'
             : 'Sin resultados para tu búsqueda.'}
         </div>
       ) : (
@@ -531,7 +531,7 @@ export default function AdminIndustriesPage() {
                   aspect={1}
                 />
                 <div className="text-[11px] text-mute mt-1">
-                  Si subís un ícono, se usa en vez del emoji.
+                  Si subes un ícono, se usa en vez del emoji.
                 </div>
               </div>
 

@@ -2323,7 +2323,7 @@ function InfluencerPickerModal({
             }}
             className="btn-primary text-sm disabled:opacity-50"
           >
-            {busy ? 'Aplicando…' : picked ? `Asignar a ${picked.ownerName}` : 'Elegí un influencer'}
+            {busy ? 'Aplicando…' : picked ? `Asignar a ${picked.ownerName}` : 'Elige un influencer'}
           </button>
         </div>
       </div>
@@ -2811,7 +2811,7 @@ function ConfigTab() {
           <h3 className="font-semibold m-0 mb-1">Socio global</h3>
           <div className="text-xs text-mute mb-3">
             El socio recibe el 10% de TODAS las ventas de Clubify, no depende
-            de qué código se use. Solo códigos con rol SOCIO aparecen acá.
+            de qué código se use. Solo códigos con rol SOCIO aparecen aquí.
           </div>
           {socioOptions.length > 0 && (
             <select
@@ -2873,7 +2873,7 @@ function ConfigTab() {
         />
         <NotifToggle
           label="Requerir aprobación manual de embajadores"
-          description="Los embajadores creados por influencers quedan pendientes hasta que los apruebes acá."
+          description="Los embajadores creados por influencers quedan pendientes hasta que los apruebes aquí."
           checked={cfg.requireAmbassadorApproval}
           onChange={(v) => setCfg({ ...cfg, requireAmbassadorApproval: v })}
         />

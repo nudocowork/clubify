@@ -65,7 +65,7 @@ export function CardExpiryPicker({
         Fecha de vencimiento de la tarjeta
         <span
           className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-bg2 text-mute text-[10px] font-bold cursor-help"
-          title="Útil si querés correr una promo temporal: la tarjeta deja de funcionar pasada la fecha."
+          title="Útil si quieres correr una promo temporal: la tarjeta deja de funcionar pasada la fecha."
         >
           i
         </span>

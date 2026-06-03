@@ -62,7 +62,7 @@ export default function QrCounterPage() {
             </div>
             {cards.length === 0 ? (
               <div className="text-[11px] text-mute leading-relaxed">
-                Aún no tenés tarjetas de fidelización. Cree una primero en{' '}
+                Aún no tienes tarjetas de fidelización. Cree una primero en{' '}
                 <Link href="/app/cards/new" className="text-brand underline">
                   Tarjetas
                 </Link>{' '}

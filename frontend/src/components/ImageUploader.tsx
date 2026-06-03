@@ -251,7 +251,7 @@ export function ImageUploader({
  * - Vés la imagen ENTERA dentro del container (más grande que el frame)
  * - El cuadro recortable está fijo en el centro, resaltado con borde
  *   blanco + grid 3x3
- * - Lo que queda FUERA del cuadro se ve oscurecido (sabés qué se va a
+ * - Lo que queda FUERA del cuadro se ve oscurecido (sabes qué se va a
  *   recortar pero seguís viendo el contexto)
  * - Drag mueve la imagen, slider hace zoom
  * - Al confirmar, exportamos solo el área del cuadro vía canvas
@@ -360,14 +360,14 @@ function CropperModal({
 
     // Resolución de salida: tomamos directamente el ancho del crop EN
     // PIXELS DE LA IMAGEN ORIGINAL (sw) para no perder calidad. Antes
-    // usábamos FRAME_W*2 = 560px fijo → para slides full-screen
+    // usabamos FRAME_W*2 = 560px fijo → para slides full-screen
     // (1920×1080+) la imagen quedaba pixelada 3.4x. Ahora:
     //   - Mínimo 1600px ancho (slides en pantalla full quedan nítidos)
     //   - Máximo 4000px ancho (no explota el canvas en imágenes
     //     gigantes ni demoramos el upload por una hora)
     // El backend después re-encodea a WebP 90q con max 2560px (ver
     // OPT_MAX_DIMENSION en media.service.ts), así que ir más arriba de
-    // 2560 acá solo desperdicia ancho de banda — pero por simetría
+    // 2560 aquí solo desperdicia ancho de banda — pero por simetría
     // dejamos margen 4000 por si alguien sube una imagen 4K y quiere
     // conservar full quality si en el futuro el backend sube el max.
     const MIN_OUT = 1600;
@@ -442,7 +442,7 @@ function CropperModal({
       },
       format,
       // 0.95 (era 0.92) — el backend re-encodea a WebP de todos modos.
-      // Subir la calidad de JPEG acá reduce artefactos de doble
+      // Subir la calidad de JPEG aquí reduce artefactos de doble
       // compresión en regiones de alto detalle (texto en imágenes,
       // bordes definidos).
       0.95,
@@ -597,7 +597,7 @@ function CropperModal({
         {!imgLoaded && (
           <div className="mt-3 text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 leading-snug">
             No se pudo cargar la imagen para reajustar (puede ser por
-            permisos del servidor de imágenes). Usá "Cambiar" para subir
+            permisos del servidor de imágenes). Usa "Cambiar" para subir
             una versión nueva.
           </div>
         )}

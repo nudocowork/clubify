@@ -494,7 +494,7 @@ type MaintenanceStatus = {
  * Tarjeta de "Modo mantenimiento". Permite activar/desactivar el flag
  * global que bloquea a TODOS los clientes (excepto SUPER_ADMIN) mientras
  * el sistema se actualiza. El SUPER_ADMIN sigue navegando normal y puede
- * desactivar desde acá cuando termina el deploy.
+ * desactivar desde aquí cuando termina el deploy.
  */
 function MaintenanceToggleCard() {
   const [status, setStatus] = useState<MaintenanceStatus | null>(null);
@@ -597,7 +597,7 @@ function MaintenanceToggleCard() {
           </h2>
           <p className="text-sm text-mute mt-2 leading-relaxed">
             {enabled
-              ? 'Los clientes ven la página "Volvemos en un rato". Vos seguís navegando normal porque sos SUPER_ADMIN. Desactivá cuando termines el deploy.'
+              ? 'Los clientes ven la página "Volvemos en un rato". Vos seguís navegando normal porque sos SUPER_ADMIN. Desactiva cuando termines el deploy.'
               : 'Apretá "Activar" antes de hacer un deploy con migración pesada o downtime. Los clientes ven una página estática mientras tanto.'}
           </p>
         </div>
@@ -624,7 +624,7 @@ function MaintenanceToggleCard() {
             onChange={(e) => setUntilLocal(e.target.value)}
           />
           <div className="text-[11px] text-mute mt-1 leading-relaxed">
-            Si lo dejás vacío, no se muestra countdown. Si lo ponés, los
+            Si lo dejas vacío, no se muestra countdown. Si lo pones, los
             clientes ven "Volvemos en X minutos".
           </div>
         </div>

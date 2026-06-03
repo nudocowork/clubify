@@ -1,6 +1,6 @@
 // Preview de opciones de íconos / formatos de sellos para la wallet.
 // La idea: los emojis renderizan como silueta negra en el .pkpass (limitación
-// de librsvg). Acá comparamos varias alternativas inline-SVG que SIEMPRE se
+// de librsvg). Aquí comparamos varias alternativas inline-SVG que SIEMPRE se
 // ven bien en Apple/Google Wallet.
 
 type StampVariant = {
@@ -269,7 +269,7 @@ export default function WalletStampIconsPreview() {
           <p className="text-sm text-mute mt-2 max-w-2xl leading-relaxed">
             El emoji <strong>🍪</strong> renderiza como silueta negra dentro del
             .pkpass por limitaciones de librsvg. Reemplazándolo por SVG inline
-            podemos garantizar look limpio en cualquier dispositivo. Acá
+            podemos garantizar look limpio en cualquier dispositivo. Aquí
             comparamos opciones. Elige una y la implemento server-side.
           </p>
         </header>
@@ -314,7 +314,7 @@ export default function WalletStampIconsPreview() {
         <section className="mb-10">
           <h2 className="font-bold text-lg mb-4">B · Formatos alternativos (no necesariamente galletas)</h2>
           <p className="text-sm text-mute mb-4 -mt-2">
-            Si querés algo todavía más minimalista — independiente del rubro.
+            Si quieres algo todavía más minimalista — independiente del rubro.
           </p>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             <VariantCard
@@ -331,7 +331,7 @@ export default function WalletStampIconsPreview() {
             </VariantCard>
             <VariantCard
               title="B3 · Letra de la marca"
-              subtitle="Primera letra del nombre del negocio (acá: 'C' de Café)."
+              subtitle="Primera letra del nombre del negocio (aquí: 'C' de Café)."
             >
               <StripRow IconComp={StampLetter} iconProps={{ letter: 'C' }} />
             </VariantCard>

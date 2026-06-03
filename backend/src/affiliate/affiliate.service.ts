@@ -291,7 +291,7 @@ export class AffiliateService {
       throw new BadRequestException(
         `Ya existe un embajador con este email (referralCodeId=${existing.id}). ` +
           `Un mismo usuario no puede ser embajador en más de un lugar. ` +
-          `Si querés reasignarlo, contactá al super admin para hacer el merge.`,
+          `Si quieres reasignarlo, contacta al super admin para hacer el merge.`,
       );
     }
 

@@ -55,7 +55,7 @@ export default function DevLoginPage() {
             `Posibles causas:\n` +
             `1. Backend no está corriendo en ${API}\n` +
             `2. El seed no se aplicó — corré:\n   cd backend && npm run seed\n` +
-            `3. Credenciales cambiaron (acá usamos ${acc.email})`,
+            `3. Credenciales cambiaron (aquí usamos ${acc.email})`,
         );
       });
   }, []);

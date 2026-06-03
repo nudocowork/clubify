@@ -16,7 +16,7 @@ import { GrowBusinessService } from '../integrations/grow-business.service';
  *   (o cualquier no-eliminada en último fallback).
  *
  * Dedup: el endpoint /auth/signup ya rechaza emails duplicados con 409
- * (no se llega acá si el cliente ya existe). Para tracking, agregamos
+ * (no se llega aquí si el cliente ya existe). Para tracking, agregamos
  * el campo `User.preregAlertedAt` para que el cron de reintentos NO
  * envíe el mismo cliente dos veces si fail-retry.
  */

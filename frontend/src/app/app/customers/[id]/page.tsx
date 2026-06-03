@@ -337,7 +337,7 @@ export default function CustomerDetail() {
 
   async function deleteCustomer() {
     if (!c) return;
-    const msg = `¿Eliminar a ${c.fullName}?\n\nEsta acción NO se puede deshacer y borra:\n• Tarjeta wallet del cliente\n• Sellos / saldo / nivel VIP\n• Historial de pedidos (${c.totalOrdersCount})\n• Mensajes asociados\n\nEscribí ELIMINAR para confirmar.`;
+    const msg = `¿Eliminar a ${c.fullName}?\n\nEsta acción NO se puede deshacer y borra:\n• Tarjeta wallet del cliente\n• Sellos / saldo / nivel VIP\n• Historial de pedidos (${c.totalOrdersCount})\n• Mensajes asociados\n\nEscribe ELIMINAR para confirmar.`;
     const confirmText = window.prompt(msg);
     if ((confirmText ?? '').trim().toUpperCase() !== 'ELIMINAR') return;
     setDeleting(true);

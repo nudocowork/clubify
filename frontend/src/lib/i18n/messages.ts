@@ -17,7 +17,7 @@ export const messages = {
     'common.searching': 'Buscando…',
     'common.required': 'Obligatorio',
     'common.optional': 'opcional',
-    'common.error': 'Algo salió mal. Intentá de nuevo.',
+    'common.error': 'Algo salió mal. Intenta de nuevo.',
     'common.back': 'Volver',
     'common.edit': 'Editar',
     'common.add': 'Agregar',
@@ -35,16 +35,16 @@ export const messages = {
     // Storefront
     'storefront.unavailable_title': 'Negocio no disponible',
     'storefront.unavailable_msg':
-      'Esta tienda no está activa en este momento. Contactá directamente al negocio o intentá más tarde.',
+      'Esta tienda no está activa en este momento. Contacta directamente al negocio o intenta más tarde.',
     'storefront.tab_menu': 'Menú',
     'storefront.tab_promos': 'Promociones',
     'storefront.menu_empty_title': 'Pronto publicamos el menú',
     'storefront.menu_empty_sub':
-      'Mientras tanto, escribinos por WhatsApp para hacer tu pedido.',
+      'Mientras tanto, escríbenos por WhatsApp para hacer tu pedido.',
     'storefront.menu_chat_wa': 'Hablar por WhatsApp →',
     'storefront.promos_empty_title': 'No hay promos activas',
     'storefront.promos_empty_sub':
-      'Volvé pronto, siempre estamos lanzando algo nuevo.',
+      'Vuelve pronto, siempre estamos lanzando algo nuevo.',
     'storefront.promo_label': '🎁 Promo',
     'storefront.promo_until': 'Hasta {{date}}',
     'storefront.promo_order_wa': '💬 Ordenar esta promo por WhatsApp',
@@ -56,7 +56,7 @@ export const messages = {
     'storefront.cart_items': '🛒 {{count}} items',
     'storefront.cart_order': 'Pedir →',
     'storefront.promo_captured': 'Cupón capturado',
-    'storefront.promo_captured_sub': 'Presentalo al pagar para activar el descuento.',
+    'storefront.promo_captured_sub': 'Preséntalo al pagar para activar el descuento.',
     'storefront.promo_discard': 'Descartar cupón',
     'storefront.lookup_title': 'Mi tarjeta de fidelización',
     'storefront.lookup_sub': 'Ingresa tu WhatsApp para ver tu progreso y sellos acumulados.',
@@ -93,12 +93,12 @@ export const messages = {
     'checkout.whatsapp': 'WhatsApp',
     'checkout.fulfillment_q': '¿Es para...?',
     'checkout.fulfillment_dinein': '🍽 Mesa',
-    'checkout.fulfillment_dinein_hint': 'Escaneá el QR de tu mesa',
+    'checkout.fulfillment_dinein_hint': 'Escanea el QR de tu mesa',
     'checkout.fulfillment_delivery': '🛵 Domicilio',
     'checkout.fulfillment_delivery_hint': 'A domicilio',
     'checkout.no_options_title': '📍 Para pedir desde aquí',
     'checkout.no_options_sub':
-      'Escaneá el QR de tu mesa, o contáctanos por WhatsApp para hacer tu pedido.',
+      'Escanea el QR de tu mesa, o contáctanos por WhatsApp para hacer tu pedido.',
     'checkout.table_locked': 'Pidiendo desde la mesa {{n}} · entregamos a tu mesa',
     'checkout.shipping_title': '📦 Dirección de envío',
     'checkout.dept': 'Departamento',
@@ -109,11 +109,11 @@ export const messages = {
     'checkout.notes': 'Notas (opcional)',
     'checkout.submit': 'Enviar pedido por WhatsApp',
     'checkout.error_address':
-      'Completá departamento, municipio y dirección para entregar a domicilio.',
+      'Completa departamento, municipio y dirección para entregar a domicilio.',
 
     // Card join (/c/[cardId])
-    'card.join_title': 'Sumate al programa',
-    'card.join_sub': 'Completá tus datos y empezá a acumular',
+    'card.join_title': 'Únete al programa',
+    'card.join_sub': 'Completa tus datos y empieza a acumular',
     'card.full_name': 'Nombre completo',
     'card.phone': 'Teléfono / WhatsApp',
     'card.email': 'Email (opcional)',
@@ -123,15 +123,15 @@ export const messages = {
     'card.submit': 'Quiero mi tarjeta',
     'card.submitting': 'Creando tu tarjeta…',
     'card.success_title': '¡Listo! Tu tarjeta ya está activa',
-    'card.success_sub': 'Mostrala en cada compra para acumular',
+    'card.success_sub': 'Muéstrala en cada compra para acumular',
     'card.unavailable_title': 'Tarjeta no disponible',
     'card.unavailable_msg':
-      'Es posible que el negocio la haya pausado o que el link sea incorrecto. Pedile al negocio uno actualizado.',
+      'Es posible que el negocio la haya pausado o que el link sea incorrecto. Pídele al negocio uno actualizado.',
 
     // Wallet view (/w/[passId])
     'wallet.add_apple': 'Añadir a Apple Wallet',
     'wallet.add_google': 'Añadir a Google Wallet',
-    'wallet.show_at_counter': 'Mostrá este código al cajero',
+    'wallet.show_at_counter': 'Muestra este código al cajero',
     'wallet.stamps_progress': '{{n}} de {{total}}',
     'wallet.points_balance': 'Puntos disponibles',
     'wallet.cashback_balance': 'Saldo cashback',
@@ -141,11 +141,11 @@ export const messages = {
     // Reviews (/r/[slug])
     'review.title': '¿Cómo estuvo tu experiencia?',
     'review.sub': 'Tu opinión nos ayuda a mejorar',
-    'review.5_stars_q': '¿Querés dejarnos tu reseña en Google?',
-    'review.5_stars_cta': 'Dejá tu reseña en Google',
+    'review.5_stars_q': '¿Quieres dejarnos tu reseña en Google?',
+    'review.5_stars_cta': 'Deja tu reseña en Google',
     'review.bad_title': 'Lamentamos lo que pasó',
     'review.bad_sub':
-      'Contanos qué pasó para resolverlo. El dueño del negocio recibe esto al instante.',
+      'Cuéntanos qué pasó para resolverlo. El dueño del negocio recibe esto al instante.',
     'review.your_name': 'Tu nombre',
     'review.your_phone': 'Tu WhatsApp',
     'review.your_message': '¿Qué pasó?',
@@ -154,16 +154,16 @@ export const messages = {
     'review.thanks_sub': 'El dueño del negocio se va a contactar con vos.',
 
     // Signup público
-    'signup.title': 'Creá tu cuenta',
-    'signup.sub': 'Activá Clubify para tu negocio en 1 minuto',
+    'signup.title': 'Crea tu cuenta',
+    'signup.sub': 'Activa Clubify para tu negocio en 1 minuto',
     'signup.business_name': 'Nombre del negocio',
     'signup.your_name': 'Tu nombre',
     'signup.email': 'Email',
     'signup.phone': 'WhatsApp',
     'signup.password': 'Contraseña',
     'signup.submit': 'Crear cuenta',
-    'signup.have_account': '¿Ya tenés cuenta?',
-    'signup.login': 'Ingresá',
+    'signup.have_account': '¿Ya tienes cuenta?',
+    'signup.login': 'Ingresa',
   },
 
   en: {

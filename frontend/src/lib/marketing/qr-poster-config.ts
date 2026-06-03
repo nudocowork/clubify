@@ -2,7 +2,7 @@
  * QR Poster — configuración compartida entre los 5 tipos (MENU,
  * COUNTER, DISCOUNT, REVIEWS, INFOLINK). El JSON se persiste tal cual
  * en QrPoster.config (Prisma). El editor visual de Konva consume/produce
- * este shape. La URL destino del QR NO va acá — se calcula en render
+ * este shape. La URL destino del QR NO va aquí — se calcula en render
  * time según el `type` para que el QR siga siendo dinámico.
  */
 
@@ -63,7 +63,7 @@ export type QrConfig = {
   /** 0..1 — opacidad del QR (default 1) */
   opacity?: number;
   /** Padding blanco alrededor del QR (px). Útil cuando el QR está
-   *  sobre un fondo de color y querés un borde para que escanee
+   *  sobre un fondo de color y quieres un borde para que escanee
    *  mejor. Default 0. */
   padding?: number;
   /** Color del padding/marco (default = bg del QR). */

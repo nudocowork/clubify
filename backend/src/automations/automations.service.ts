@@ -513,7 +513,7 @@ export const AUTOMATION_TEMPLATES: Array<{
       {
         type: 'SEND_PUSH',
         title: '🙌 Gracias por canjear',
-        body: '¡Esperamos que lo disfrutes! Empezá a sumar de nuevo, hay más recompensas esperándote.',
+        body: '¡Esperamos que lo disfrutes! Empieza a sumar de nuevo, hay más recompensas esperandote.',
       },
     ],
   },

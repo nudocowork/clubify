@@ -66,7 +66,7 @@ export default function LocationsPage() {
     e.preventDefault();
     setErr(null);
     if (!picked) {
-      setErr('Buscá tu negocio en el mapa primero');
+      setErr('Busca tu negocio en el mapa primero');
       return;
     }
     try {
@@ -233,7 +233,7 @@ export default function LocationsPage() {
           <button
             className="btn-primary mt-4 w-full justify-center"
             disabled={!picked}
-            title={!picked ? 'Buscá tu negocio primero' : ''}
+            title={!picked ? 'Busca tu negocio primero' : ''}
           >
             <Icon name="plus" /> Agregar ubicación
           </button>

@@ -49,7 +49,7 @@ export type CreateTenantDto = {
   nextChargeDate?: string;
   /**
    * Código de suscriptor Hotmart (de su panel). Si admin lo conoce, lo
-   * enlaza acá; si no, generamos uno manual `manual-<id>` para que el
+   * enlaza aquí; si no, generamos uno manual `manual-<id>` para que el
    * lockscreen no dispare.
    */
   hotmartSubscriberCode?: string;

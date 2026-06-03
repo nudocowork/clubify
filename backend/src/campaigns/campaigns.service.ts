@@ -440,7 +440,7 @@ export class CampaignsService {
         message: isPending
           ? 'Tu solicitud sigue en revisión por el admin. Te avisaremos por email cuando se apruebe.'
           : usingPreset
-          ? 'Ya tenías cuenta. Actualizamos tu contraseña — ya podés entrar a tu panel.'
+          ? 'Ya tenías cuenta. Actualizamos tu contraseña — ya puedes entrar a tu panel.'
           : 'Ya estabas inscripto como embajador de esta campaña. Te re-enviamos las instrucciones por email.',
       };
     }
@@ -521,7 +521,7 @@ export class CampaignsService {
       message: requireApproval
         ? '¡Listo! Tu solicitud está en revisión. Recibirás un email cuando se apruebe.'
         : usingPreset
-        ? '¡Bienvenido! Tu cuenta está activa — ya podés entrar con el email y la contraseña que elegiste.'
+        ? '¡Bienvenido! Tu cuenta está activa — ya puedes entrar con el email y la contraseña que elegiste.'
         : '¡Bienvenido! Te enviamos un email con tu código y el acceso al panel.',
     };
   }

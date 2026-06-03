@@ -722,7 +722,7 @@ export default function MenusPreview() {
             title="Libro / Flipbook"
             best="Restaurantes con menú diseñado en PDF/imagen (sushi, pizza, carta cócteles)"
             pros={[
-              'Subís páginas-imagen del menú impreso',
+              'Subes páginas-imagen del menú impreso',
               'Swipe horizontal nativo + chips por sección',
               'Popup opcional por imagen (precio, promo)',
             ]}
@@ -735,7 +735,7 @@ export default function MenusPreview() {
           <div className="inline-flex items-center gap-2 bg-white border border-line rounded-full px-4 py-2 shadow-sm">
             💡 Sugerencia:{' '}
             <strong className="text-ink">opción 5 o 7</strong>
-            {' '}— 5 si tenés variantes/extras; 7 si querés look editorial premium
+            {' '}— 5 si tienes variantes/extras; 7 si quieres look editorial premium
           </div>
         </div>
       </div>

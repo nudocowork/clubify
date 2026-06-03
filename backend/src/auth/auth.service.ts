@@ -212,7 +212,7 @@ export class AuthService {
         secret: this.appConfig.JWT_REFRESH_SECRET,
       });
     } catch {
-      throw new UnauthorizedException('Challenge expirado, volvé a hacer login');
+      throw new UnauthorizedException('Challenge expirado, vuelve a hacer login');
     }
     if (payload?.purpose !== '2fa_challenge' || !payload?.sub) {
       throw new UnauthorizedException('Challenge inválido');

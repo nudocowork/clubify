@@ -79,7 +79,7 @@ export function TrialExpiredLockscreen({
                 {' '}Tu prueba venció el <strong>{expiredOn}</strong>.
               </>
             )}{' '}
-            Activá tu cuenta para seguir usando la plataforma — mantenés
+            Activa tu cuenta para seguir usando la plataforma — mantienes
             todos tus menús, tarjetas, clientes y configuración.
           </p>
 
@@ -106,8 +106,8 @@ export function TrialExpiredLockscreen({
 
           <div className="mt-6 pt-5 border-t border-line2 text-xs text-mute leading-relaxed">
             <p>
-              Pago seguro vía Hotmart. Apenas se apruebe entrás al panel con
-              todo desbloqueado. Cancelás cuando quieras.
+              Pago seguro vía Hotmart. Apenas se apruebe entras al panel con
+              todo desbloqueado. Cancelas cuando quieras.
             </p>
           </div>
 

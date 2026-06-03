@@ -174,7 +174,7 @@ export default function AppShell({
 
   // Route guard MARKETING: bloquea rutas admin no permitidas (financiero,
   // gestión de admins, infra). Lista mantenida en paralelo con el sidebar:
-  // si agregás un item con hideForMarketing acá también va el prefijo.
+  // si agregas un item con hideForMarketing aquí también va el prefijo.
   useEffect(() => {
     if (!user || variant !== 'admin') return;
     if (user.role !== 'MARKETING') return;
@@ -587,7 +587,7 @@ export default function AppShell({
           <div className="bg-violet-600 text-white px-4 py-2 text-[13px] flex items-center gap-2 flex-wrap">
             <span className="font-semibold">🔒 Cuenta demo · solo lectura</span>
             <span className="opacity-90">
-              Esta cuenta está bloqueada para demostración. Podés navegar todo el panel
+              Esta cuenta está bloqueada para demostración. Puedes navegar todo el panel
               pero no se puede modificar ni eliminar contenido.
             </span>
           </div>

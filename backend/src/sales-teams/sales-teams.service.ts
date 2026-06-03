@@ -151,7 +151,7 @@ export class SalesTeamsService {
    * Lista usuarios elegibles para ser miembros — afiliados que
    * todavía NO están en este equipo. Filtramos por role AFFILIATE_*
    * por ahora (cuando agreguemos vendedores internos en una iteración
-   * futura, agregamos esos roles acá). Excluye al lead user del team
+   * futura, agregamos esos roles aquí). Excluye al lead user del team
    * de la lista de members elegibles (puede ser lead pero no necesita
    * ser miembro adicionalmente).
    */

@@ -47,10 +47,10 @@ export function TrialBanner() {
     text = 'text-orange-900';
     label =
       g > 1
-        ? `Tu trial venció. Tenés ${g} días de gracia restantes antes de que se suspenda tu cuenta.`
+        ? `Tu trial venció. Tienes ${g} días de gracia restantes antes de que se suspenda tu cuenta.`
         : g === 1
         ? 'Tu trial venció. Te queda 1 día de gracia antes de que se suspenda tu cuenta.'
-        : 'Tu trial venció. Tu cuenta se suspende hoy si no activás la suscripción.';
+        : 'Tu trial venció. Tu cuenta se suspende hoy si no activas la suscripción.';
   } else if (s.status === 'TRIAL') {
     const d = s.daysLeftInTrial ?? 0;
     if (d > 0) {
@@ -59,11 +59,11 @@ export function TrialBanner() {
       text = 'text-brand-700';
       label =
         d === 1
-          ? '⏰ Tu modo prueba termina mañana. Activá tu cuenta para no perder acceso.'
+          ? '⏰ Tu modo prueba termina mañana. Activa tu cuenta para no perder acceso.'
           : `🎁 Estás usando Clubify en modo prueba. Te quedan ${d} días para activar tu cuenta.`;
       cta = 'Activar ahora';
     } else {
-      label = 'Tu modo prueba está por terminar. Activá tu cuenta ahora.';
+      label = 'Tu modo prueba está por terminar. Activa tu cuenta ahora.';
       cta = 'Activar ahora';
     }
   } else if (s.status === 'PAST_DUE') {

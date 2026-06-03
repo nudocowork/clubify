@@ -672,7 +672,7 @@ export default function QrPosterEditor({
               localStorage.removeItem(key);
             } else {
               const yes = window.confirm(
-                'Tenés cambios sin guardar de la sesión anterior. ¿Restaurar ahora?\n\n(Cancelar = descartar el backup local)',
+                'Tienes cambios sin guardar de la sesión anterior. ¿Restaurar ahora?\n\n(Cancelar = descartar el backup local)',
               );
               if (yes) {
                 replaceHistory(normalizeConfig(localCfgRaw, brandName));
@@ -705,7 +705,7 @@ export default function QrPosterEditor({
         if (cancelled) return;
         setEditorLoadError(
           e?.message?.toString() ||
-            'No se pudo cargar el diseño guardado. Revisá tu conexión y recargá la página.',
+            'No se pudo cargar el diseño guardado. Revisa tu conexión y recarga la página.',
         );
       })
       .finally(() => {
@@ -836,7 +836,7 @@ export default function QrPosterEditor({
     setAutosaveState('saving');
     // Log diagnóstico — útil cuando el cliente reporta "todo a 0,0":
     // miramos console y vemos qué cfg se está mandando. Si los textos o
-    // capas están en (0,0) acá, sabemos que el bug está ANTES del save
+    // capas están en (0,0) aquí, sabemos que el bug está ANTES del save
     // (no en el server). Solo en dev / cuando el usuario active debug.
     if (typeof window !== 'undefined' && (window as any).__QR_DEBUG__) {
       // eslint-disable-next-line no-console
@@ -880,7 +880,7 @@ export default function QrPosterEditor({
     } catch (e: any) {
       setSaveError(
         e?.message?.toString() ||
-          'No se pudo guardar. Revisá tu conexión y volvé a intentar.',
+          'No se pudo guardar. Revisa tu conexión y vuelve a intentar.',
       );
       setAutosaveState('error');
     } finally {
@@ -1596,7 +1596,7 @@ export default function QrPosterEditor({
               ⚠ El backup local está lleno (imágenes grandes). Tu auto-save
               al servidor sigue funcionando pero <strong>no</strong> hay
               respaldo local — si refrescás antes del próximo guardado,
-              podrías perder cambios. Subí imágenes más livianas.
+              podrías perder cambios. Sube imágenes más livianas.
             </div>
           )}
           <div className="text-[11px] text-mute leading-relaxed">
@@ -2548,7 +2548,7 @@ export default function QrPosterEditor({
 // ────────── helpers UI ────────── //
 
 /** Botón candado reutilizable. Cuando una capa está bloqueada, el editor
- *  desactiva drag/listening en el canvas — el cliente sigue editándola
+ *  desactiva drag/listening en el canvas — el cliente sigue editandola
  *  desde el sidebar pero ya no se mueve por accidente. */
 function LockButton({
   locked,
@@ -2594,7 +2594,7 @@ function LockRow({
             ? 'border-brand bg-brand-soft text-brand-700 font-semibold'
             : 'border-line hover:border-mute'
         }`}
-        title={locked ? 'Tocá para permitir mover' : 'Tocá para fijar posición'}
+        title={locked ? 'Toca para permitir mover' : 'Toca para fijar posición'}
       >
         {locked ? '🔒 Bloqueado' : '🔓 Bloquear'}
       </button>
@@ -4935,7 +4935,7 @@ function CropButton({
             <div className="p-4 flex flex-col items-center gap-3">
               {loadError ? (
                 <div className="text-sm text-bad py-8">
-                  No se pudo cargar la imagen para recortar. Probá eliminarla y subirla de nuevo.
+                  No se pudo cargar la imagen para recortar. Prueba eliminarla y subirla de nuevo.
                 </div>
               ) : !naturalSize || !crop ? (
                 <div className="text-sm text-mute py-8">Cargando imagen…</div>
@@ -5102,7 +5102,7 @@ function PatternsSection({
       ) : (
         <div className="space-y-2 border border-line rounded p-2 bg-bg2/30">
           <div className="flex items-center justify-between">
-            <div className="text-[11px] font-semibold">Elegí emojis para el patrón</div>
+            <div className="text-[11px] font-semibold">Elige emojis para el patrón</div>
             <div
               className={`text-[10px] tabular-nums ${
                 draftEmojis.length >= 8
@@ -5135,7 +5135,7 @@ function PatternsSection({
           />
           {draftEmojis.length >= 8 && (
             <div className="text-[10px] text-amber-700 leading-relaxed">
-              Llegaste al máximo de 8 emojis por patrón. Quitá uno para
+              Llegaste al máximo de 8 emojis por patrón. Quita uno para
               agregar otro.
             </div>
           )}
@@ -5317,7 +5317,7 @@ function ShapesSection({
       </div>
       {shapes.length === 0 && (
         <div className="text-[11px] text-mute leading-relaxed text-center py-2">
-          Tocá un tipo para agregar. El{' '}
+          Toca un tipo para agregar. El{' '}
           <strong>Sticker</strong> trae "10% off" precargado — útil para
           carteles promocionales.
         </div>

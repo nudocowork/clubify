@@ -60,7 +60,7 @@ export class BillingService {
   /**
    * Resuelve credenciales + teléfono destino para enviar un SMS de
    * billing al tenant. Centraliza la lógica para que billing.service y
-   * hotmart.service consuman desde acá.
+   * hotmart.service consuman desde aquí.
    *
    * Retorna null cuando: alertas apagadas explícitamente, sin creds
    * disponibles (ni subcuenta global ni propias del tenant), o sin

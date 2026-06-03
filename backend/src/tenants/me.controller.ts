@@ -108,7 +108,7 @@ export class TenantMeController {
     }
     if (phones.length === 0) {
       throw new BadRequestException(
-        'Sin teléfonos destino — agregá al menos uno antes de probar.',
+        'Sin teléfonos destino — agrega al menos uno antes de probar.',
       );
     }
 
@@ -139,7 +139,7 @@ export class TenantMeController {
     }
     if (!creds) {
       throw new BadRequestException(
-        'Sin credenciales — asigná una subcuenta o conectá Grow Business para el negocio.',
+        'Sin credenciales — asigná una subcuenta o conecta Grow Business para el negocio.',
       );
     }
 
@@ -170,7 +170,7 @@ export class TenantMeController {
     if (!target) {
       throw new BadRequestException(
         'No hay credenciales / teléfono configurado para alertas de pago. ' +
-          'Revisá que la subcuenta esté asignada (o que tu negocio tenga ' +
+          'Revisa que la subcuenta esté asignada (o que tu negocio tenga ' +
           'su propia conexión Grow Business) y que las alertas estén activadas.',
       );
     }

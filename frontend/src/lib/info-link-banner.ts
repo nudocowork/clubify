@@ -178,7 +178,7 @@ export function getBannerBackgroundStyle(
     (style as any).filter = `blur(${cfg.blur}px)`;
     // Compensamos el "edge bleed" del blur con scale visual extra; pero
     // como background-size ya escala, usamos transform: scale en el caller
-    // si quiere. Acá dejamos solo el filter para minimizar capas.
+    // si quiere. Aquí dejamos solo el filter para minimizar capas.
   }
   return style;
 }

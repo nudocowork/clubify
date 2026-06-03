@@ -253,7 +253,7 @@ export default function BadgesPage() {
             <strong>Sistema de gamificación.</strong> Cada vez que un cliente
             scaneá su tarjeta gana XP, sube de nivel (Bronce → Plata → Oro →
             Platino → Diamante) y desbloquea insignias automáticamente.
-            Configurá las insignias acá; los criterios se chequean al instante
+            Configura las insignias aquí; los criterios se chequean al instante
             con cada scan.
           </div>
         </div>
@@ -274,7 +274,7 @@ export default function BadgesPage() {
           <div className="text-5xl mb-3">🏅</div>
           <div className="font-semibold text-lg">Sin insignias configuradas</div>
           <div className="text-sm text-mute mt-1.5 max-w-md mx-auto leading-relaxed">
-            Empezá con una plantilla pre-armada o crea la tuya desde cero. Tus
+            Empieza con una plantilla pre-armada o crea la tuya desde cero. Tus
             clientes las desbloquean automáticamente al alcanzar los criterios.
           </div>
           <div className="mt-5 flex gap-2 justify-center">

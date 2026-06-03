@@ -64,7 +64,7 @@ export function TriggersSection({
         <div className="border-t border-line p-3 space-y-2">
           {triggers.length === 0 && (
             <p className="text-xs text-mute py-2">
-              Sin triggers automáticos. Podés agregar uno para que los
+              Sin triggers automáticos. Puedes agregar uno para que los
               contactos se enrollen solos cuando se cree, cambien de etapa,
               etc.
             </p>

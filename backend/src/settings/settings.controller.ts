@@ -48,7 +48,7 @@ export class SettingsController {
     private prisma: PrismaService,
   ) {}
 
-  /** Público — el frontend del panel y landing leen branding desde acá. */
+  /** Público — el frontend del panel y landing leen branding desde aquí. */
   @Public()
   @Get('branding')
   getBranding() {

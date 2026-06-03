@@ -66,7 +66,7 @@ type BackButtonCfg = {
 };
 
 /** Lista curada de países (LATAM-first) con dial code y longitud típica
- *  del número local. Si necesitamos más, sumarlos acá — el formato es
+ *  del número local. Si necesitamos más, sumarlos aquí — el formato es
  *  estable. dial sin "+" para que `+${dial}${local}` sea trivial. */
 const COUNTRY_CODES: {
   code: string;
@@ -142,7 +142,7 @@ export default function StorefrontEditor() {
   const [mainLabel, setMainLabel] = useState<string>('Menú');
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [logoDirty, setLogoDirty] = useState(false);
-  // Campos del tenant editables desde acá. Se persisten contra
+  // Campos del tenant editables desde aquí. Se persisten contra
   // PATCH /tenants/me en save() — separados del PATCH a /storefront.
   const [whatsappPhone, setWhatsappPhone] = useState<string>('');
   const [primaryColor, setPrimaryColor] = useState<string>('#22C55E');
@@ -282,7 +282,7 @@ export default function StorefrontEditor() {
             href={publicHref}
             target="_blank"
             className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
-            title={`Vista del ${mainLabel.toLowerCase()} para domicilio — el link público que enviás a tus clientes`}
+            title={`Vista del ${mainLabel.toLowerCase()} para domicilio — el link público que envías a tus clientes`}
           >
             🛵 Ver {mainLabel.toLowerCase()} delivery
           </Link>
@@ -402,7 +402,7 @@ export default function StorefrontEditor() {
               Compat: storefronts viejos quedan con type=null → SOLID. */}
           <h3 className="text-base font-semibold mt-6 mb-3">🖌 Fondo de la página</h3>
           <p className="text-mute text-xs mb-3 leading-relaxed">
-            Elegí cómo querés el fondo del {mainLabel.toLowerCase()} público:
+            Elige cómo quieres el fondo del {mainLabel.toLowerCase()} público:
             color sólido, gradiente personalizado o imagen.
           </p>
           <PageBackgroundEditor
@@ -428,7 +428,7 @@ export default function StorefrontEditor() {
           <div className="space-y-4">
             <HeaderColorRow
               label="Fondo del logo"
-              hint='Cuadro detrás del logo. Usá "Transparente" si tu logo ya trae fondo propio.'
+              hint='Cuadro detrás del logo. Usa "Transparente" si tu logo ya trae fondo propio.'
               value={sf.logoBgColor ?? ''}
               defaultLabel="Blanco"
               defaultColor="#FFFFFF"
@@ -514,7 +514,7 @@ export default function StorefrontEditor() {
 
           <h3 className="text-base font-semibold mt-6 mb-3">💬 Botón de WhatsApp</h3>
           <p className="text-mute text-xs mb-3 leading-relaxed">
-            Mostrá u ocultá el botón que aparece arriba del{' '}
+            Muestra u ocultá el botón que aparece arriba del{' '}
             {mainLabel.toLowerCase()} público y redirige a tu WhatsApp. El
             número se guarda en la cuenta del negocio aunque desactives el
             botón.
@@ -848,7 +848,7 @@ function StorefrontPreview({
                 <div className="h-full overflow-hidden">
                   {!simIsFaithful && (
                     <div className="bg-amber-50 border-b border-amber-200 px-2 py-1.5 text-[9px] text-amber-900 leading-snug text-center">
-                      ⚠ La simulación muestra estilo Clásico. Cambiá a{' '}
+                      ⚠ La simulación muestra estilo Clásico. Cambia a{' '}
                       <strong>En vivo</strong> para ver "{layoutLabel}".
                     </div>
                   )}
@@ -1485,7 +1485,7 @@ function PageBackgroundEditor({
           <p className="text-[11px] text-mute leading-snug">
             Recomendado: 1920×1080 px o mayor. La imagen se renderea con
             cobertura completa (cover) centrada. El contenido del menú se
-            superpone — usá imágenes con áreas oscuras o difuminadas para
+            superpone — usa imágenes con áreas oscuras o difuminadas para
             mantener legibilidad.
           </p>
         </div>
@@ -1965,7 +1965,7 @@ function WhatsAppConfig({
             )}
           </>
         ) : (
-          'Ingresá el número para previsualizar la redirección.'
+          'Ingresa el número para previsualizar la redirección.'
         )}
         {local && local.length < currentCountry.maxLen && (
           <div className="text-amber-700 mt-1">

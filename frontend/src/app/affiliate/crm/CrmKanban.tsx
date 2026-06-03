@@ -560,7 +560,7 @@ function DroppableEmptySlot({ stageId }: { stageId: string }) {
           : 'border-line2 text-mute/60'
       }`}
     >
-      Soltá un contacto acá
+      Soltá un contacto aquí
     </div>
   );
 }
@@ -747,7 +747,7 @@ function NewContactModal({
           </button>
         </div>
         <p className="text-[11px] text-mute">
-          Todos los campos son opcionales — registrá rápido y completá después.
+          Todos los campos son opcionales — registrá rápido y completa después.
         </p>
       </form>
     </ModalShell>

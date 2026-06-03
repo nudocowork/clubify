@@ -477,7 +477,7 @@ function AmbassadorApplyLink({ code }: { code: string }) {
     }
   }
   const waText = encodeURIComponent(
-    `Sumate como embajador de mi campaña en Clubify y gana comisiones por cada negocio que registres: ${link}`,
+    `Únete como embajador de mi campaña en Clubify y gana comisiones por cada negocio que registres: ${link}`,
   );
   return (
     <div className="mt-3 pt-3 border-t border-line2">
@@ -505,7 +505,7 @@ function AmbassadorApplyLink({ code }: { code: string }) {
       </div>
       <div className="text-[11px] text-mute mt-1.5 leading-relaxed">
         Cualquier persona con este link puede postularse como embajador.
-        Si tenés <code>referrals.requireAmbassadorApproval</code>{' '}
+        Si tienes <code>referrals.requireAmbassadorApproval</code>{' '}
         activado, aparecerá en la lista de pendientes para revisar antes
         de activar.
       </div>

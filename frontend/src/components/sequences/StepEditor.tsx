@@ -179,7 +179,7 @@ export function StepEditor({
             }
             className="input w-full"
           >
-            <option value="">— Elegí una etapa —</option>
+            <option value="">— Elige una etapa —</option>
             {stages.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}

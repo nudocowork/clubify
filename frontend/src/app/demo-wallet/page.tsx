@@ -70,11 +70,11 @@ function DemoWalletInner() {
       if (!res.ok) {
         throw new Error(
           data?.message ??
-            `Error ${res.status}. Intentá de nuevo en unos minutos.`,
+            `Error ${res.status}. Intenta de nuevo en unos minutos.`,
         );
       }
       if (!data?.passId) {
-        throw new Error('No se pudo emitir el pase. Intentá de nuevo.');
+        throw new Error('No se pudo emitir el pase. Intenta de nuevo.');
       }
       router.push(`/w/${data.passId}`);
     } catch (e: any) {
@@ -98,7 +98,7 @@ function DemoWalletInner() {
             Demo en vivo
           </div>
           <h1 className="font-bold text-2xl leading-tight mb-2">
-            Probá una tarjeta de fidelización Clubify en tu celular
+            Prueba una tarjeta de fidelización Clubify en tu celular
           </h1>
           <p className="text-sm text-mute leading-relaxed">
             En 10 segundos vas a tener un pase real en tu Apple Wallet o
@@ -150,7 +150,7 @@ function DemoWalletInner() {
           </form>
 
           <div className="text-[11px] text-mute mt-3 leading-relaxed text-center">
-            Al continuar aceptás recibir tu pase wallet de demostración.
+            Al continuar aceptas recibir tu pase wallet de demostración.
             No vas a recibir mensajes promocionales — esto es solo para
             que veas cómo se ve en tu teléfono.
           </div>
@@ -164,7 +164,7 @@ function DemoWalletInner() {
               Apple Wallet</strong> y <strong>Save to Google Wallet</strong>.
             </li>
             <li>
-              Tocás el de tu teléfono y el pase queda guardado en tu wallet
+              Tocas el de tu teléfono y el pase queda guardado en tu wallet
               real, como cualquier tarjeta de boleto de avión.
             </li>
             <li>

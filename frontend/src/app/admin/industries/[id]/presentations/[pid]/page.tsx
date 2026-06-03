@@ -139,7 +139,7 @@ export default function PresentationEditorPage() {
   // patch que dispara el autosave captura `slides` del render previo (sin
   // el cambio nuevo) → el PATCH envía valores stale al backend.
   //
-  // Bug histórico: el usuario subía una imagen en el editor, el thumbnail
+  // Bug histórico: el usuario subea una imagen en el editor, el thumbnail
   // se veía en el admin (porque el state local sí tenía la URL), pero el
   // backend recibía imageUrl: null. La página pública mostraba un slide
   // vacío con placeholder gris. Mismo patrón que cfgRef en QrPosterEditor.
@@ -348,7 +348,7 @@ export default function PresentationEditorPage() {
             </div>
             {slides.length === 0 ? (
               <div className="text-xs text-mute py-4 text-center">
-                Empezá agregando el primer slide.
+                Empieza agregando el primer slide.
               </div>
             ) : (
               <div className="space-y-1.5">
@@ -451,8 +451,8 @@ export default function PresentationEditorPage() {
           {!selected ? (
             <div className="card card-pad text-center py-16 text-mute">
               {slides.length === 0
-                ? 'Agregá un slide para empezar a editar.'
-                : 'Seleccioná un slide a la izquierda.'}
+                ? 'Agrega un slide para empezar a editar.'
+                : 'Selecciona un slide a la izquierda.'}
             </div>
           ) : (
             <div className="space-y-3">
@@ -695,7 +695,7 @@ export default function PresentationEditorPage() {
                 </summary>
                 <div className="mt-3 space-y-2">
                   <div className="text-[11px] text-mute leading-relaxed">
-                    Bag JSON del slide. Para STATS y COMPARISON ya tenés
+                    Bag JSON del slide. Para STATS y COMPARISON ya tienes
                     editor visual arriba — este textarea es para casos
                     custom o debug.
                   </div>
@@ -769,7 +769,7 @@ function StatsEditor({
       </div>
       {stats.length === 0 ? (
         <div className="text-xs text-mute py-3 text-center">
-          Agregá métricas tipo "+50% en visitas" o "2.5x retención".
+          Agrega métricas tipo "+50% en visitas" o "2.5x retención".
         </div>
       ) : (
         <div className="space-y-2">

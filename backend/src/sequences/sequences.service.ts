@@ -97,7 +97,7 @@ export class SequencesService {
     });
     if (!seq) throw new NotFoundException('Secuencia no encontrada');
     if (seq.ownerUserId !== userId) {
-      throw new ForbiddenException('No tenés acceso a esta secuencia');
+      throw new ForbiddenException('No tienes acceso a esta secuencia');
     }
     return seq;
   }
@@ -271,7 +271,7 @@ export class SequencesService {
     });
     if (!seq) throw new NotFoundException('Secuencia no encontrada');
     if (opts.actorUserId && seq.ownerUserId !== opts.actorUserId) {
-      throw new ForbiddenException('No tenés acceso a esta secuencia');
+      throw new ForbiddenException('No tienes acceso a esta secuencia');
     }
     if (!seq.isActive && opts.triggerKind !== 'MANUAL') {
       // Triggers automáticos respetan el switch isActive.
@@ -409,7 +409,7 @@ export class SequencesService {
     });
     if (!contact) throw new NotFoundException('Contacto no encontrado');
     if (contact.ownerUserId !== userId) {
-      throw new ForbiddenException('No tenés acceso a este contacto');
+      throw new ForbiddenException('No tienes acceso a este contacto');
     }
     return this.prisma.sequenceEnrollment.findMany({
       where: { contactId },
@@ -800,7 +800,7 @@ export class SequencesService {
       return {
         status: 'FAILED',
         error:
-          'Conectá Grow Business en /affiliate/crm/integrations para enviar mensajes.',
+          'Conecta Grow Business en /affiliate/crm/integrations para enviar mensajes.',
       };
     }
 
@@ -891,7 +891,7 @@ export class SequencesService {
     });
     if (!e) throw new NotFoundException('Enrollment no encontrado');
     if (e.sequence.ownerUserId !== userId) {
-      throw new ForbiddenException('No tenés acceso a este enrollment');
+      throw new ForbiddenException('No tienes acceso a este enrollment');
     }
     return e;
   }

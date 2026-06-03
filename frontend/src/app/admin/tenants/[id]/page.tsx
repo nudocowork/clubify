@@ -502,7 +502,7 @@ function ReviewAlertsAccountCard({
       onSaved={onSaved}
       field="reviewAlertsAccountId"
       title="📲 Subcuenta SMS para alertas de reseñas"
-      description="Elegí qué subcuenta Grow Business usar para los SMS cuando un cliente deje una reseña baja en este negocio."
+      description="Elige qué subcuenta Grow Business usar para los SMS cuando un cliente deje una reseña baja en este negocio."
       preferredPurpose="OPERATIONAL"
       radioName="gb-review-account"
     />
@@ -522,7 +522,7 @@ function BillingAlertsAccountCard({
       onSaved={onSaved}
       field="billingAlertsAccountId"
       title="💳 Subcuenta SMS para recordatorios de pago"
-      description="Elegí qué subcuenta Grow Business usar para los SMS administrativos (D-1 recordatorio, impago, suspensión)."
+      description="Elige qué subcuenta Grow Business usar para los SMS administrativos (D-1 recordatorio, impago, suspensión)."
       preferredPurpose="BILLING"
       radioName="gb-billing-account"
     />
@@ -542,7 +542,7 @@ function DeliveryAlertsAccountCard({
       onSaved={onSaved}
       field="deliveryAlertsAccountId"
       title="🛵 Subcuenta SMS para alertas de domicilio"
-      description="Elegí qué subcuenta Grow Business usar para los SMS a empresas de domicilio cuando un pedido delivery cambia de estado."
+      description="Elige qué subcuenta Grow Business usar para los SMS a empresas de domicilio cuando un pedido delivery cambia de estado."
       preferredPurpose="OPERATIONAL"
       radioName="gb-delivery-account"
     />
@@ -650,7 +650,7 @@ function AlertsAccountCard({
         <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-900">
           No hay subcuentas registradas todavía.{' '}
           <Link href="/admin/integrations" className="font-semibold underline">
-            Creá la primera →
+            Crea la primera →
           </Link>
         </div>
       )}
@@ -951,8 +951,8 @@ function HotmartSimulatorCard({
 
       <div className="mt-3 text-[11px] text-mute leading-relaxed">
         Las simulaciones marcan al tenant con <code>subscriberCode = sim-...</code>{' '}
-        para distinguir de cobros reales. Si querés simular múltiples renovaciones,
-        usá <strong>UPDATE_SUBSCRIPTION_CHARGE_DATE</strong> y después{' '}
+        para distinguir de cobros reales. Si quieres simular múltiples renovaciones,
+        usa <strong>UPDATE_SUBSCRIPTION_CHARGE_DATE</strong> y después{' '}
         <strong>PURCHASE_APPROVED</strong> de nuevo.
       </div>
     </div>
