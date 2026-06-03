@@ -198,10 +198,13 @@ async function apiWithRefresh<T>(
       msg = body?.message ?? text;
     } catch {}
 
-    // Cuenta suspendida: redirige a billing para que reactive
+    // Cuenta suspendida: redirige a billing para que reactive. Salimos
+    // con un promise pendiente — la página está navegando y no queremos
+    // que el throw genere un unhandled rejection en consola.
     if (res.status === 402 || body?.code === 'TENANT_SUSPENDED') {
       if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/app/billing')) {
         window.location.href = '/app/billing?suspended=1';
+        return new Promise<T>(() => {}); // never resolves — page is unloading
       }
     }
     // 401: el JWT default expira a los 15min y la cookie a los 60min.
