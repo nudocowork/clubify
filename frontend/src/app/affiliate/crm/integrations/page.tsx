@@ -137,7 +137,7 @@ export default function CrmIntegrationsPage() {
           <div>
             <h2 className="font-semibold">Grow Business · WhatsApp</h2>
             <p className="text-xs text-mute mt-1 leading-relaxed">
-              Conectá tu subcuenta de Grow Business para importar contactos
+              Conecta tu subcuenta de Grow Business para importar contactos
               automáticamente desde el WhatsApp conectado. Los contactos que
               ya existen en tu CRM se actualizan sin duplicar.
             </p>
@@ -222,7 +222,7 @@ export default function CrmIntegrationsPage() {
                 required
               />
               <p className="text-[11px] text-mute mt-1">
-                Settings → API → Generate API Key. Pegá el token completo.
+                Settings → API → Generate API Key. Pega el token completo.
               </p>
             </div>
             <button type="submit" className="btn-primary" disabled={busy}>

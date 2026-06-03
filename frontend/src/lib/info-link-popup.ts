@@ -2,7 +2,7 @@
  * Config visual del Popup que abre un botón visual del InfoLink.
  *
  * Cuando un botón tiene type='POPUP', al hacer click se abre un modal
- * con el contenido configurado acá (título, descripción, foto, CTA, etc).
+ * con el contenido configurado aquí (título, descripción, foto, CTA, etc).
  * Pensado para casos típicos del local:
  * - Contraseña WiFi
  * - Promo del día
@@ -87,7 +87,7 @@ export const POPUP_TEMPLATES: Record<
     config: {
       ...DEFAULT_POPUP_CONFIG,
       title: 'WiFi del local',
-      description: 'Red: TuRed\nClave: TuClaveAcá',
+      description: 'Red: TuRed\nClave: TuClaveAquí',
       size: 'sm',
     },
   },
@@ -116,7 +116,7 @@ export const POPUP_TEMPLATES: Record<
     config: {
       ...DEFAULT_POPUP_CONFIG,
       title: 'Hacer una reserva',
-      description: 'Reservá tu mesa o espacio por WhatsApp. Te confirmamos en 5 min.',
+      description: 'Reserva tu mesa o espacio por WhatsApp. Te confirmamos en 5 min.',
       ctaText: 'Reservar por WhatsApp',
       ctaUrl: 'https://wa.me/57XXXXXXXXXX?text=Hola,%20quiero%20reservar',
       size: 'md',

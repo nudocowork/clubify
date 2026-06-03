@@ -278,7 +278,7 @@ export function GrowBusinessCard({
             Cada SMS saliente se prefijará con{' '}
             <code className="text-ink">#Switch{switchNumber || 'N'}</code> +
             doble salto, lo que permite que el workflow de Grow Business
-            enrute al sub-canal correcto. Dejá vacío para enviar sin
+            enrute al sub-canal correcto. Deja vacío para enviar sin
             prefijo.
           </div>
         </div>
@@ -338,7 +338,7 @@ export function GrowBusinessCard({
               />
             </div>
             <div className="text-[11px] text-mute mt-1">
-              Si lo configurás, los SMS se prefijan con{' '}
+              Si lo configuras, los SMS se prefijan con{' '}
               <code className="text-ink">#Switch{switchNumber || 'N'}</code>{' '}
               para que el workflow de Grow Business pueda enrutar.
             </div>

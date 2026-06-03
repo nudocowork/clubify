@@ -215,7 +215,7 @@ export default function EnrollPage() {
           <div className="text-5xl mb-3">📡</div>
           <h1 className="text-xl font-bold">Conexión lenta</h1>
           <p className="text-mute text-sm mt-2">
-            No pudimos cargar la tarjeta. Revisá tu conexión y reintentá.
+            No pudimos cargar la tarjeta. Revisa tu conexión y reintenta.
           </p>
           <button
             type="button"

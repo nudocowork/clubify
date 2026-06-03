@@ -5,7 +5,7 @@
  * estilo (bg, colores, fuentes, copy sugerido) pero PRESERVAN el canvas,
  * posiciones de los elementos y meta type-specific del usuario.
  *
- * Para agregar más templates en el futuro, solo añadir entradas acá. Si
+ * Para agregar más templates en el futuro, solo añadir entradas aquí. Si
  * llega un pedido de "templates editables por super admin", migrar a
  * tabla Prisma `QrPosterTemplate` siguiendo el shape de QrTemplate.
  */
@@ -96,7 +96,7 @@ export const QR_TEMPLATES: QrTemplate[] = [
       texts: {
         title: { color: '#3E2723', font: PLAYFAIR, fontLabel: 'Playfair Display', weight: 700 },
         subtitle: { color: '#6B3410', font: PLAYFAIR, fontLabel: 'Playfair Display', weight: 900, text: 'nuestro menú' },
-        cta: { color: '#3E2723', font: INTER, fontLabel: 'Inter', weight: 600, text: 'Escaneá con tu cámara ↑' },
+        cta: { color: '#3E2723', font: INTER, fontLabel: 'Inter', weight: 600, text: 'Escanea con tu cámara ↑' },
         brand: { color: '#3E2723', font: PLAYFAIR, fontLabel: 'Playfair Display', weight: 700 },
       },
     },
@@ -158,7 +158,7 @@ export const QR_TEMPLATES: QrTemplate[] = [
       bg: { type: 'solid', color1: '#F5E6D3' },
       qr: { fg: '#3E2723', bg: '#FFF8E7' },
       texts: {
-        title: { color: '#3E2723', font: PLAYFAIR, fontLabel: 'Playfair Display', weight: 700, text: 'Reservá tu turno' },
+        title: { color: '#3E2723', font: PLAYFAIR, fontLabel: 'Playfair Display', weight: 700, text: 'Reserva tu turno' },
         subtitle: { color: '#8B4513', font: PLAYFAIR, fontLabel: 'Playfair Display', weight: 900, text: 'sin esperar' },
         cta: { color: '#3E2723', font: INTER, fontLabel: 'Inter', weight: 500 },
         brand: { color: '#3E2723', font: PLAYFAIR, fontLabel: 'Playfair Display', weight: 700 },

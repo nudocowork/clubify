@@ -306,7 +306,7 @@ export class PassesService {
     const demoCardId = setting?.value?.trim();
     if (!demoCardId) {
       throw new ServiceUnavailableException(
-        'El modo demo no está configurado todavía. Pedile al super admin que asigne una tarjeta demo desde el panel.',
+        'El modo demo no está configurado todavía. Pídele al super admin que asigne una tarjeta demo desde el panel.',
       );
     }
     // Pasamos el ref como utmSlug para que enrollPublic lo guarde como

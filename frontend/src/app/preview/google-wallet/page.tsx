@@ -52,7 +52,7 @@ export default function GoogleWalletPreviewPage() {
         </div>
 
         <div className="mt-12 text-center text-sm text-mute">
-          Decime el número de la opción que más te guste y migro el generador
+          Dime el número de la opción que más te guste y migro el generador
           real (sin tocar Apple Wallet).
         </div>
       </div>

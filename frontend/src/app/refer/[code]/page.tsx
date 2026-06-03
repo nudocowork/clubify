@@ -71,7 +71,7 @@ export default function ApplyAmbassadorPage() {
     e.preventDefault();
     setErr(null);
     if (!form.fullName.trim() || !form.email.trim() || !form.whatsapp.trim()) {
-      setErr('Completá nombre, email y WhatsApp');
+      setErr('Completa nombre, email y WhatsApp');
       return;
     }
     if (!form.password || form.password.length < 8) {
@@ -104,7 +104,7 @@ export default function ApplyAmbassadorPage() {
       if (!r.ok) {
         throw new Error(
           (data as any)?.message ??
-            `Error ${r.status}. Intentá de nuevo en unos minutos.`,
+            `Error ${r.status}. Intenta de nuevo en unos minutos.`,
         );
       }
       setResult(data);
@@ -123,7 +123,7 @@ export default function ApplyAmbassadorPage() {
           <div className="text-4xl mb-3">🤷</div>
           <div className="font-semibold text-lg mb-1">{loadError}</div>
           <div className="text-sm text-mute mb-4">
-            Revisá el link con quien te invitó o pedile uno nuevo.
+            Revisa el link con quien te invitó o pídele uno nuevo.
           </div>
           <Link href="/" className="text-brand underline text-sm">
             Ir al inicio
@@ -214,11 +214,11 @@ export default function ApplyAmbassadorPage() {
         </div>
 
         <div className="card card-pad mb-4">
-          <h1 className="font-bold text-xl mb-1">Sumate como embajador</h1>
+          <h1 className="font-bold text-xl mb-1">Únete como embajador</h1>
           <p className="text-sm text-mute mb-4 leading-relaxed">
             Recibí <strong>{info.defaultCommissionPercent}% de comisión</strong>{' '}
-            por cada negocio que se suscriba con tu código. Dejá tus datos y te
-            enviamos acceso al panel donde podés trackear tus ventas.
+            por cada negocio que se suscriba con tu código. Deja tus datos y te
+            enviamos acceso al panel donde puedes trackear tus ventas.
           </p>
 
           <form onSubmit={submit} className="space-y-3">
@@ -278,7 +278,7 @@ export default function ApplyAmbassadorPage() {
               <input
                 className="input"
                 type={showPwd ? 'text' : 'password'}
-                placeholder="Repetí la contraseña"
+                placeholder="Repite la contraseña"
                 value={form.confirmPassword}
                 onChange={(e) =>
                   setForm({ ...form, confirmPassword: e.target.value })
@@ -306,8 +306,8 @@ export default function ApplyAmbassadorPage() {
           </form>
 
           <div className="text-[11px] text-mute mt-3 leading-relaxed text-center">
-            Al enviarlo aceptás recibir comunicaciones de Clubify y del equipo
-            de <strong>{info.influencerName}</strong>. Podés darte de baja cuando
+            Al enviarlo aceptas recibir comunicaciones de Clubify y del equipo
+            de <strong>{info.influencerName}</strong>. Puedes darte de baja cuando
             quieras.
           </div>
         </div>

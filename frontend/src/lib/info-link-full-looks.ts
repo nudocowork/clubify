@@ -5,7 +5,7 @@
  * que tunear cada panel.
  *
  * Los 4 looks coinciden conceptualmente con los 4 presets de logo y
- * banner (minimalista/premium/dark/glassmorphism), pero acá se aplican
+ * banner (minimalista/premium/dark/glassmorphism), pero aquí se aplican
  * en conjunto para que el resultado se vea armado.
  */
 

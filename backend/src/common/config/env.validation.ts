@@ -6,7 +6,7 @@
  *   `'dev-secret'` porque la env var no se propagó.
  * - En desarrollo permite ausencias pero igual loguea warning.
  *
- * Cualquier nueva variable que sea "obligatoria-en-prod" debe agregarse acá.
+ * Cualquier nueva variable que sea "obligatoria-en-prod" debe agregarse aquí.
  */
 
 export type AppEnv = {
@@ -94,7 +94,7 @@ function assertSecret(name: string, value: string | null, isProd: boolean) {
   if (!value) {
     if (isProd) {
       throw new Error(
-        `[env] ${name} es obligatorio en producción. Configurá la var en el host (Railway/Vercel/etc).`,
+        `[env] ${name} es obligatorio en producción. Configura la var en el host (Railway/Vercel/etc).`,
       );
     }
     return null;
@@ -149,7 +149,7 @@ export function validateEnv(raw: Record<string, unknown>): AppEnv {
       // eslint-disable-next-line no-console
       console.warn(
         '[env] WARN: DATABASE_URL en prod no especifica connection pool. ' +
-          'Agregá `?connection_limit=20&pool_timeout=20` o configurá PgBouncer.',
+          'Agrega `?connection_limit=20&pool_timeout=20` o configura PgBouncer.',
       );
     }
   }

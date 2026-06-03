@@ -19,7 +19,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const fallback: Metadata = {
     title: 'Presentación · Clubify',
-    description: 'Mirá la demo del sistema Clubify.',
+    description: 'Mira la demo del sistema Clubify.',
   };
   try {
     const res = await fetch(

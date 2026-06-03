@@ -49,7 +49,7 @@ const PURPOSE_META: Record<Purpose, { label: string; emoji: string; description:
   GENERAL: {
     label: 'General',
     emoji: '⚙️',
-    description: 'Subcuenta sin propósito específico — usá para cualquier flujo.',
+    description: 'Subcuenta sin propósito específico — usa para cualquier flujo.',
   },
 };
 
@@ -139,7 +139,7 @@ export default function IntegrationsPage() {
         </h3>
         <p className="text-sm text-mute mt-2 leading-relaxed">
           Cada subcuenta es una cuenta de Grow Business (provider SMS).
-          Conectala una sola vez acá, y después asignala a cualquier
+          Conectala una sola vez aquí, y después asignala a cualquier
           negocio desde su detalle (
           <code className="bg-bg2 px-1.5 py-0.5 rounded text-xs">
             /admin/tenants/[id]
@@ -158,7 +158,7 @@ export default function IntegrationsPage() {
 
       {!loading && accounts?.length === 0 && (
         <div className="card card-pad text-center text-mute">
-          Aún no hay subcuentas registradas. Creá la primera con el botón
+          Aún no hay subcuentas registradas. Crea la primera con el botón
           arriba a la derecha.
         </div>
       )}
@@ -221,7 +221,7 @@ export default function IntegrationsPage() {
                       </div>
                     )}
                     <div>
-                      <span className="font-semibold">Negocios usándola:</span>{' '}
+                      <span className="font-semibold">Negocios usandola:</span>{' '}
                       {acc.tenantsCount}
                       {(acc.reviewTenantsCount != null ||
                         acc.billingTenantsCount != null ||
@@ -443,7 +443,7 @@ function AccountForm({
 
           <div>
             <label className="label">
-              API key {editing && <span className="text-[10px] text-mute">(dejá vacío para mantener la actual)</span>}
+              API key {editing && <span className="text-[10px] text-mute">(deja vacío para mantener la actual)</span>}
             </label>
             <input
               type="password"
@@ -475,7 +475,7 @@ function AccountForm({
             <div className="text-[10px] text-mute mt-1">
               Si esta subcuenta enruta mensajes con prefijo
               <code className="mx-1 bg-bg2 px-1 rounded">#Switch&#123;N&#125;</code>,
-              poné el número acá.
+              poné el número aquí.
             </div>
           </div>
 

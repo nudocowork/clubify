@@ -84,7 +84,7 @@ export default function SalesTeamsPage() {
           <div className="text-3xl mb-2">👥</div>
           <div className="font-semibold mb-1">Aún no hay equipos</div>
           <div className="text-sm">
-            Creá un equipo para agrupar afiliados (Equipo Colombia, Equipo
+            Crea un equipo para agrupar afiliados (Equipo Colombia, Equipo
             Closers, etc.).
           </div>
         </div>
@@ -211,7 +211,7 @@ function TeamFormModal({
             ))}
           </select>
           <p className="text-[11px] text-mute mt-1">
-            El lead va a poder ver métricas agregadas del equipo. Podés
+            El lead va a poder ver métricas agregadas del equipo. Puedes
             cambiarlo después.
           </p>
         </div>
@@ -416,7 +416,7 @@ function TeamDetailModal({
                 value={addUserId}
                 onChange={(e) => setAddUserId(e.target.value)}
               >
-                <option value="">— Elegí un afiliado —</option>
+                <option value="">— Elige un afiliado —</option>
                 {eligible.map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.fullName} · {u.email}

@@ -53,7 +53,7 @@ export class HotmartSimulatorController {
   async simulate(@Body() dto: SimulateWebhookDto) {
     // Doble candado: solo permitido fuera de procesar webhooks reales
     // (esto NO valida HOTTOK, así que limitamos a super admin a través de
-    // @Roles + el guard explícito acá).
+    // @Roles + el guard explícito aquí).
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: dto.tenantId },
       select: {

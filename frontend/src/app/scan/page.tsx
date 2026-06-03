@@ -100,8 +100,8 @@ export default function ScanPage() {
       const msg = e?.message ?? '';
       setErr(
         msg.includes('permission') || e?.name === 'NotAllowedError'
-          ? 'Permiso de cámara denegado. Habilitalo desde el icono del candado en la URL y volvé a intentar.'
-          : 'No se pudo acceder a la cámara. Pegá el código manualmente abajo.',
+          ? 'Permiso de cámara denegado. Habilitalo desde el icono del candado en la URL y vuelve a intentar.'
+          : 'No se pudo acceder a la cámara. Pega el código manualmente abajo.',
       );
       setScanning(false);
     }
@@ -676,14 +676,14 @@ export default function ScanPage() {
               <h3 className="font-semibold text-lg m-0">🔐 Agregar más sellos</h3>
               <p className="text-xs text-mute mt-1.5 leading-relaxed">
                 Cada escaneada normal agrega 1 sello. Para agregar varios
-                ingresá el <b>PIN</b> que te dio el super admin.
+                ingresa el <b>PIN</b> que te dio el super admin.
               </p>
               <form
                 onSubmit={async (e) => {
                   e.preventDefault();
                   setMoreErr(null);
                   if (!moreForm.pin.trim()) {
-                    setMoreErr('Ingresá el PIN');
+                    setMoreErr('Ingresa el PIN');
                     return;
                   }
                   if (moreForm.amount < 2 || moreForm.amount > 30) {
@@ -782,7 +782,7 @@ export default function ScanPage() {
                   setPurchaseErr(null);
                   const amt = Number(purchaseAmount);
                   if (!amt || amt <= 0) {
-                    setPurchaseErr('Ingresá el monto de la compra');
+                    setPurchaseErr('Ingresa el monto de la compra');
                     return;
                   }
                   setBusy(true);

@@ -88,7 +88,7 @@ function ReferInner() {
                     Tu cuenta está lista
                   </div>
                   <p className="text-xs text-mute mb-3">
-                    Ya podés entrar a tu panel con el correo que registraste y la contraseña que elegiste.
+                    Ya puedes entrar a tu panel con el correo que registraste y la contraseña que elegiste.
                   </p>
                   <Link href="/login" className="btn-primary w-full justify-center text-sm">
                     Entrar a mi panel

@@ -309,7 +309,7 @@ export function SequenceBuilder({
             <div className="font-semibold">Pasos del flujo</div>
             <div className="text-xs text-mute">
               {steps.length === 0
-                ? 'Agregá el primer paso'
+                ? 'Agrega el primer paso'
                 : `${steps.length} pasos · se ejecutan en orden`}
             </div>
           </div>
@@ -431,7 +431,7 @@ function StepsListView({
   if (steps.length === 0) {
     return (
       <div className="p-8 text-center text-sm text-mute">
-        Tocá "+ Paso" para empezar
+        Toca "+ Paso" para empezar
       </div>
     );
   }
@@ -562,7 +562,7 @@ function FlowCanvasView({
   if (steps.length === 0) {
     return (
       <div className="h-[400px] flex items-center justify-center text-sm text-mute">
-        Tocá "+ Paso" para empezar
+        Toca "+ Paso" para empezar
       </div>
     );
   }

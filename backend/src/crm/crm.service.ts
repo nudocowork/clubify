@@ -54,7 +54,7 @@ export class CrmService {
    *
    * Solo se ejecuta dentro de @Roles del controller — la validación de
    * que el user PUEDE tener pipeline (AFFILIATE_* + SUPER_ADMIN) ya
-   * pasó cuando llega acá.
+   * pasó cuando llega aquí.
    */
   async ensureMyPipeline(user: AuthUser) {
     const existing = await this.prisma.pipeline.findUnique({
@@ -98,7 +98,7 @@ export class CrmService {
     });
     if (!stage) throw new NotFoundException('Stage no encontrado');
     if (stage.pipeline.ownerUserId !== user.id) {
-      throw new ForbiddenException('No podés modificar stages de otro user');
+      throw new ForbiddenException('No puedes modificar stages de otro user');
     }
     return stage;
   }
@@ -153,7 +153,7 @@ export class CrmService {
    * la data del afiliado. La FK Stage→CrmContact es RESTRICT así que
    * el move es obligatorio antes del delete.
    *
-   * Restricción: no podés quedarte sin ninguna stage en el pipeline.
+   * Restricción: no puedes quedarte sin ninguna stage en el pipeline.
    */
   async deleteStage(user: AuthUser, stageId: string) {
     const stage = await this.loadOwnedStage(user, stageId);
@@ -162,7 +162,7 @@ export class CrmService {
     });
     if (count <= 1) {
       throw new BadRequestException(
-        'No podés borrar la última stage del pipeline',
+        'No puedes borrar la última stage del pipeline',
       );
     }
     const contactsCount = await this.prisma.crmContact.count({
@@ -272,7 +272,7 @@ export class CrmService {
     const c = await this.prisma.crmContact.findUnique({ where: { id } });
     if (!c) throw new NotFoundException('Contacto no encontrado');
     if (c.ownerUserId !== user.id) {
-      throw new ForbiddenException('No podés ver contactos ajenos');
+      throw new ForbiddenException('No puedes ver contactos ajenos');
     }
     return c;
   }
@@ -316,7 +316,7 @@ export class CrmService {
         // No debería pasar — ensureMyPipeline siempre crea stages — pero
         // defensa por las dudas.
         throw new BadRequestException(
-          'Tu pipeline no tiene stages. Recargá la página.',
+          'Tu pipeline no tiene stages. Recarga la página.',
         );
       }
       stageId = firstStage.id;
@@ -563,7 +563,7 @@ export class CrmService {
     });
     if (!btn) throw new NotFoundException('Botón no encontrado');
     if (btn.ownerUserId !== user.id) {
-      throw new ForbiddenException('No podés tocar botones ajenos');
+      throw new ForbiddenException('No puedes tocar botones ajenos');
     }
     return btn;
   }
@@ -850,7 +850,7 @@ export class CrmService {
             ok: false,
             channel: 'SMS',
             error:
-              'Conectá Grow Business en /affiliate/crm/integrations para enviar mensajes.',
+              'Conecta Grow Business en /affiliate/crm/integrations para enviar mensajes.',
             contact: updatedContact,
           };
         }
@@ -871,7 +871,7 @@ export class CrmService {
             channel: 'SMS',
             error:
               (result as any).message ??
-              'No se pudo enviar el mensaje. Revisá la conexión Grow Business.',
+              'No se pudo enviar el mensaje. Revisa la conexión Grow Business.',
             contact: updatedContact,
           };
         }
@@ -1090,7 +1090,7 @@ export class CrmService {
     });
     if (!firstStage) {
       throw new BadRequestException(
-        'Tu pipeline no tiene stages. Recargá el kanban.',
+        'Tu pipeline no tiene stages. Recarga el kanban.',
       );
     }
 

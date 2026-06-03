@@ -89,7 +89,7 @@ export class ReferralsController {
   }
 
   /** Convierte un embajador en influencer. Preserva historial + referidos.
-   *  Útil al crear una campaña: en vez de crear influencer de cero, podés
+   *  Útil al crear una campaña: en vez de crear influencer de cero, puedes
    *  promover a un embajador con track record probado. */
   @Roles('SUPER_ADMIN')
   @Post('ambassadors/:id/promote-to-influencer')

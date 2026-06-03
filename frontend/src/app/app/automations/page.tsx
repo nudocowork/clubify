@@ -156,7 +156,7 @@ export default function AutomationsPage() {
             <span className="text-2xl">⚡</span>
             <div className="flex-1">
               <h3 className="text-base font-semibold m-0">
-                Empezá con una plantilla pre-armada
+                Empieza con una plantilla pre-armada
               </h3>
               <p className="text-mute text-sm mt-1">
                 {templates.length} mensajes automáticos listos para activar con un
@@ -272,7 +272,7 @@ function TemplatesModal({
           <div>
             <h2 className="text-lg font-bold m-0">Plantillas pre-armadas</h2>
             <p className="text-xs text-mute mt-0.5">
-              Activa con un click. Después podés editar el texto y los canales.
+              Activa con un click. Después puedes editar el texto y los canales.
             </p>
           </div>
           <button onClick={onClose} className="text-mute hover:text-ink text-xl leading-none">

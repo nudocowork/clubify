@@ -32,7 +32,7 @@ class MemberAddBody {
  * Path: /admin/sales-teams/* — agrupado bajo admin/ para mantener el
  * patrón del resto del panel super admin.
  *
- * MARKETING NO accede acá por diseño — esto es estructura organizativa
+ * MARKETING NO accede aquí por diseño — esto es estructura organizativa
  * del equipo de ventas, no un asset de marketing.
  */
 @Controller('admin/sales-teams')

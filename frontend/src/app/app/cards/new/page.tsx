@@ -385,9 +385,9 @@ function Step1Templates({
     <div className="card card-pad">
       <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
         <div>
-          <h2 className="text-base font-semibold m-0">Elegí una plantilla</h2>
+          <h2 className="text-base font-semibold m-0">Elige una plantilla</h2>
           <p className="text-xs text-mute mt-1">
-            Plantillas pre-armadas para tu rubro. También podés empezar desde cero.
+            Plantillas pre-armadas para tu rubro. También puedes empezar desde cero.
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -431,7 +431,7 @@ function Step1Templates({
           </div>
           <div className="font-semibold text-sm">Desde cero</div>
           <div className="text-xs text-mute px-3 text-center leading-snug">
-            Configurá todo manualmente
+            Configura todo manualmente
           </div>
         </button>
 
@@ -469,7 +469,7 @@ function Step1Templates({
 
       {filtered.length === 0 && (
         <div className="text-center text-mute text-sm py-8">
-          No encontramos plantillas. Probá con otro filtro o "Desde cero".
+          No encontramos plantillas. Prueba con otro filtro o "Desde cero".
         </div>
       )}
     </div>
@@ -491,7 +491,7 @@ function Step2Type({
 }) {
   return (
     <div className="card card-pad">
-      <h2 className="text-base font-semibold m-0">¿Qué tipo de tarjeta querés crear?</h2>
+      <h2 className="text-base font-semibold m-0">¿Qué tipo de tarjeta quieres crear?</h2>
       <p className="text-xs text-mute mt-1">
         Cambia cómo se acumulan recompensas y qué ven tus clientes en el wallet.
       </p>
@@ -845,7 +845,7 @@ function Step3Configure({
 
         <div className="mt-3 text-[11px] text-mute p-3 rounded-lg bg-bg2/40">
           💡 En el siguiente paso configuras los <b>colores y diseño</b> visual.
-          Acá solo definimos lo funcional (qué hace la tarjeta).
+          Aquí solo definimos lo funcional (qué hace la tarjeta).
         </div>
 
         {err && (
@@ -1022,9 +1022,9 @@ function Step4Design({
           <label className="label">📸 Imagen de portada de la tarjeta</label>
           <p className="text-xs text-mute leading-relaxed -mt-1 mb-2.5">
             Se muestra como fondo del banner en Apple y Google Wallet (estilo
-            premium glassmorphism, con los sellos encima). Subí una foto de tu
+            premium glassmorphism, con los sellos encima). Sube una foto de tu
             producto o local — recomendado <b>800×400 px</b> o más.
-            Si no subís, se usa un gradiente con tus colores.
+            Si no subes, se usa un gradiente con tus colores.
           </p>
           <ImageUploader
             value={form.heroImageUrl}
@@ -1107,7 +1107,7 @@ function Step4Design({
         <div className="card card-pad mt-4 flex items-start gap-3">
           <Icon name="spark" size={18} className="text-brand flex-none mt-0.5" />
           <div className="text-sm">
-            <strong>Tip:</strong> usá los colores exactos de tu identidad de marca. El
+            <strong>Tip:</strong> usa los colores exactos de tu identidad de marca. El
             cliente reconoce tu negocio en su Wallet al primer vistazo.
           </div>
         </div>

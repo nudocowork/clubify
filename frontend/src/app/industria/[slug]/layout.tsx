@@ -33,7 +33,7 @@ export async function generateMetadata({
     const title = `${i.emoji ? `${i.emoji} ` : ''}${i.name} · Clubify`;
     const description =
       i.description ||
-      `Mirá cómo Clubify funciona para ${i.name}: fidelización wallet, menú digital y pedidos a WhatsApp.`;
+      `Mira cómo Clubify funciona para ${i.name}: fidelización wallet, menú digital y pedidos a WhatsApp.`;
     const image =
       i.coverImage || i.iconUrl || `${SITE_URL}/og-image.png`;
     const url = `${SITE_URL}/industria/${i.slug}`;

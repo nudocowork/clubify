@@ -78,17 +78,17 @@ export default function QrInfolinkPage() {
 
       <p className="text-sm text-mute max-w-2xl mb-5 leading-relaxed">
         Cartel para el mini-sitio tipo Linktree de tu negocio. Por default
-        el QR abre la lista completa de links activos. Podés seleccionar un
+        el QR abre la lista completa de links activos. Puedes seleccionar un
         info-link específico abajo para que el QR redirija directo a ese.
       </p>
 
       {links !== null && !hasLinks && (
         <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 mb-5 text-sm">
           <div className="font-semibold text-amber-900">
-            ⚠ Todavía no tenés links activos
+            ⚠ Todavía no tienes links activos
           </div>
           <div className="text-amber-800/90 mt-1">
-            Creá tu primero desde{' '}
+            Crea tu primero desde{' '}
             <Link href="/app/info-links" className="underline font-semibold">
               Info Links
             </Link>{' '}

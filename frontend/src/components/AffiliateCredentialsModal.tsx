@@ -26,7 +26,7 @@ export function AffiliateCredentialsModal({
       ? `${window.location.origin}${credentials.loginUrl}`
       : credentials.loginUrl;
   const message =
-    `Hola! Ya tenés acceso al panel de afiliado de Clubify.\n\n` +
+    `Hola! Ya tienes acceso al panel de afiliado de Clubify.\n\n` +
     `🔗 Entrá aquí: ${loginAbsolute}\n` +
     `📧 Email: ${credentials.email}\n` +
     `🔑 Contraseña: ${credentials.password}\n\n` +

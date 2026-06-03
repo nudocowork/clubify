@@ -33,7 +33,7 @@ export function invalidateMainSectionLabel() {
  * Label visible de sección principal del tenant ("Menú", "Servicios" o
  * texto custom). Fallback "Menú" mientras carga o si falla el fetch.
  *
- * @param singular si true usa el label tal cual ("Menú"); si false podés
+ * @param singular si true usa el label tal cual ("Menú"); si false puedes
  *   pasar variantes (ej: `${label}.toLowerCase()` para "Configurar menú").
  */
 export function useMainSectionLabel(): string {

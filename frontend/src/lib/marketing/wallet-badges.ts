@@ -9,7 +9,7 @@
  *
  * 4 variantes:
  * - Apple Wallet (ES): badge oficial "Agregar a Apple Wallet" — para
- *   prompt de "guardá tu tarjeta de fidelización".
+ *   prompt de "guarda tu tarjeta de fidelización".
  * - Google Wallet (ES): badge oficial es419 "Agregar a Google Wallet"
  *   para Android.
  * - Apple Pay: badge "Pay" con logo Apple — para indicar que el

@@ -204,8 +204,8 @@ export default function MenuBookAdminPage() {
           <div className="text-3xl mb-2">📖</div>
           <div className="font-medium text-ink">Aún no hay secciones</div>
           <div className="text-xs mt-1">
-            Empezá creando una sección arriba (ej: "Entradas frías"). Después
-            subís imágenes-página dentro.
+            Empieza creando una sección arriba (ej: "Entradas frías"). Después
+            subes imágenes-página dentro.
           </div>
         </div>
       ) : (
@@ -388,7 +388,7 @@ function SectionCard({
       <div className="p-4">
         {section.pages.length === 0 ? (
           <div className="text-center text-mute text-sm py-6">
-            Aún no hay páginas en esta sección. Subí la primera abajo.
+            Aún no hay páginas en esta sección. Sube la primera abajo.
           </div>
         ) : (
           <SortableList
@@ -626,7 +626,7 @@ function PopupEditorModal({
                   }
                   maxLength={2000}
                   rows={3}
-                  placeholder="Texto que aparece en el popup. Podés contar ingredientes, historia del plato, o invitar a una reserva."
+                  placeholder="Texto que aparece en el popup. Puedes contar ingredientes, historia del plato, o invitar a una reserva."
                   className="w-full px-3 py-2 text-sm rounded-md border border-line2 resize-none"
                 />
               </div>

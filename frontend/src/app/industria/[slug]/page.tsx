@@ -7,7 +7,7 @@
  * renderiza el SlideDeck unificado. Sin pantalla intermedia de lista de
  * presentations.
  *
- * Si querés ver una presentation puntual, /industria/:slug/:pSlug sigue
+ * Si quieres ver una presentation puntual, /industria/:slug/:pSlug sigue
  * funcionando como deep-link.
  */
 import { useEffect, useState } from 'react';

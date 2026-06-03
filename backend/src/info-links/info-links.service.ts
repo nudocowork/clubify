@@ -62,7 +62,7 @@ function normalizeRootSlug(input: string): string {
   }
   if (ROOT_SLUG_RESERVED.has(clean)) {
     throw new BadRequestException(
-      `La URL "/${clean}" está reservada por el sistema. Elegí otra.`,
+      `La URL "/${clean}" está reservada por el sistema. Elige otra.`,
     );
   }
   return clean;
@@ -258,7 +258,7 @@ export class InfoLinksService {
         // sufijo random.
       }
     }
-    throw new Error('No se pudo generar un slug único para la copia. Intentá de nuevo.');
+    throw new Error('No se pudo generar un slug único para la copia. Intenta de nuevo.');
   }
 
   async stats(user: AuthUser, id: string) {

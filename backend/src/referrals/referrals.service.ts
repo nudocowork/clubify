@@ -1530,7 +1530,7 @@ export class ReferralsService {
 
     // Agregados sobre TODA la base (no filtrada) para que los KPIs no
     // dependan del filtro actual del UI. groupBy en SQL — antes
-    // cargábamos TODA la tabla a memoria para sumar 3 estados.
+    // cargabamos TODA la tabla a memoria para sumar 3 estados.
     const totalsByStatus = await this.prisma.commission.groupBy({
       by: ['status'],
       _sum: { amount: true },

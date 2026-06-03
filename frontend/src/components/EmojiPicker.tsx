@@ -40,7 +40,7 @@ const ES_I18N = {
 export function EmojiPicker({
   value,
   onSelect,
-  placeholder = 'Elegí un emoji',
+  placeholder = 'Elige un emoji',
   size = 'md',
 }: {
   value?: string;

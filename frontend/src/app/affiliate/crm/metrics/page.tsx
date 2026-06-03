@@ -135,11 +135,11 @@ export default function CrmMetricsPage() {
           </h2>
           {m.topButtons.length === 0 ? (
             <div className="text-xs text-mute italic leading-relaxed">
-              Aún no ejecutaste botones. Configurá los tuyos en{' '}
+              Aún no ejecutaste botones. Configura los tuyos en{' '}
               <Link href="/affiliate/crm/buttons" className="text-brand hover:underline">
                 Botones automáticos
               </Link>{' '}
-              para ver el ranking acá.
+              para ver el ranking aquí.
             </div>
           ) : (
             <ol className="space-y-2">

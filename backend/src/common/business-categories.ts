@@ -1,7 +1,7 @@
 /**
  * Misma lista que frontend/src/lib/business-categories.ts. Se duplica
  * intencionalmente para que el backend no dependa del frontend (NestJS
- * no comparte el espacio de imports). Si agregás una categoría aquí,
+ * no comparte el espacio de imports). Si agregas una categoría aquí,
  * agrégala también en el archivo del frontend con los mismos modules.
  */
 

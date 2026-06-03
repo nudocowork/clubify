@@ -122,7 +122,7 @@ export function orderReadyTemplate(args: {
       preheader: '¡Pedido listo para retirar!',
       body: `
         <h2 style="margin:0 0 12px;font-size:22px;font-weight:700">¡Tu pedido está listo! 🎉</h2>
-        <p style="margin:0 0 16px;color:#374151;line-height:1.55">Hola ${args.customerName}, tu pedido <b>#${args.code}</b> ya está esperándote.</p>
+        <p style="margin:0 0 16px;color:#374151;line-height:1.55">Hola ${args.customerName}, tu pedido <b>#${args.code}</b> ya está esperandote.</p>
       `,
     }),
   };
@@ -220,14 +220,14 @@ export function inviteAffiliateTemplate(args: {
 
   return {
     subject: `Bienvenido a Clubify — sos ${roleLabel} 🎉`,
-    text: `Hola ${args.fullName},\n${greeting}.\nTu código: ${args.code} (${args.commissionPercent}% de comisión recurrente).\nActiva tu cuenta acá:\n${args.inviteUrl}\nEl link vence en 7 días.`,
+    text: `Hola ${args.fullName},\n${greeting}.\nTu código: ${args.code} (${args.commissionPercent}% de comisión recurrente).\nActiva tu cuenta aquí:\n${args.inviteUrl}\nEl link vence en 7 días.`,
     html: shell({
       tenant,
       preheader: `Tu código: ${args.code} · ${args.commissionPercent}% recurrente`,
       body: `
         <h2 style="margin:0 0 12px;font-size:22px;font-weight:700">¡Bienvenido a Clubify, ${args.fullName.split(' ')[0]}!</h2>
         <p style="margin:0 0 14px;color:#374151;line-height:1.55">
-          ${greeting}. Acá ganas <b>${args.commissionPercent}% recurrente</b> por cada cliente que se registre con tu código.
+          ${greeting}. Aquí ganas <b>${args.commissionPercent}% recurrente</b> por cada cliente que se registre con tu código.
         </p>
         <div style="margin:18px 0;padding:14px 16px;background:#F8FAFC;border:1px solid #E5E7EB;border-radius:10px">
           <div style="font-size:11px;color:#6B7280;text-transform:uppercase;letter-spacing:0.08em;font-weight:600">Tu código</div>

@@ -6,7 +6,7 @@ const SITE_URL =
 export const metadata: Metadata = {
   title: 'Clubify por industria · Demos por rubro',
   description:
-    'Mirá una demo de 60 segundos del sistema Clubify específica para tu rubro: fidelización, menú digital, pedidos a WhatsApp y automatizaciones.',
+    'Mira una demo de 60 segundos del sistema Clubify específica para tu rubro: fidelización, menú digital, pedidos a WhatsApp y automatizaciones.',
   openGraph: {
     title: 'Clubify por industria',
     description:

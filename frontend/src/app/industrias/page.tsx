@@ -45,7 +45,7 @@ export default function IndustriasPage() {
             Clubify para tu industria
           </h1>
           <p className="text-mute mt-3 md:text-lg max-w-2xl mx-auto leading-relaxed">
-            Elegí tu rubro y mirá una demo en 60 segundos del sistema
+            Elige tu rubro y mira una demo en 60 segundos del sistema
             completo: fidelización, menú digital, pedidos a WhatsApp,
             automatizaciones y más.
           </p>

@@ -366,7 +366,7 @@ function BulkImportButton({ onDone }: { onDone: () => void }) {
 
   async function submit() {
     if (!text.trim()) {
-      toast('Pegá algún contenido primero', 'error');
+      toast('Pega algún contenido primero', 'error');
       return;
     }
     setBusy(true);
@@ -412,9 +412,9 @@ function BulkImportButton({ onDone }: { onDone: () => void }) {
             </div>
             <div className="p-5 space-y-3">
               <div className="text-sm text-mute leading-relaxed">
-                Pegá un documento largo (FAQ, brief, copy de la landing) y la
+                Pega un documento largo (FAQ, brief, copy de la landing) y la
                 IA lo partirá automáticamente en entradas individuales del
-                knowledge base. No tenés que crear cada pregunta-respuesta
+                knowledge base. No tienes que crear cada pregunta-respuesta
                 a mano.
               </div>
 
@@ -467,7 +467,7 @@ function BulkImportButton({ onDone }: { onDone: () => void }) {
                   placeholder={
                     mode === 'sections'
                       ? '## ¿Cómo funcionan las tarjetas wallet?\nClubify genera pkpass para Apple y JWT save links para Google...\n\n## ¿Qué pasa si el cliente cambia de celular?\nEl pass se restaura automáticamente desde iCloud...'
-                      : 'Pegá acá el documento. Será partido automáticamente según el modo elegido.'
+                      : 'Pega aquí el documento. Será partido automáticamente según el modo elegido.'
                   }
                   value={text}
                   onChange={(e) => setText(e.target.value)}
@@ -665,7 +665,7 @@ function AIHealthCard() {
         </span>
         {!h.voyage.configured && (
           <span className="text-amber-700">
-            ⚠ Activá VOYAGE_API_KEY en Railway para retrieval semántico
+            ⚠ Activa VOYAGE_API_KEY en Railway para retrieval semántico
           </span>
         )}
       </div>
@@ -791,7 +791,7 @@ function DocumentsSection({ onChunksChanged }: { onChunksChanged: () => void }) 
             📂 Base de Conocimiento IA
           </h3>
           <p className="text-xs text-mute mt-1 leading-relaxed max-w-2xl">
-            Subí PDF, DOCX, TXT o MD. El sistema los parsea, los corta en
+            Sube PDF, DOCX, TXT o MD. El sistema los parsea, los corta en
             chunks (~1500 chars con overlap), los embebe con Voyage AI (si
             <code className="px-1">VOYAGE_API_KEY</code> está set) y los
             consulta semánticamente. Sin Voyage, el retrieval es lexical.
@@ -819,7 +819,7 @@ function DocumentsSection({ onChunksChanged }: { onChunksChanged: () => void }) 
         <div className="h-16 bg-bg2 rounded animate-shimmer" />
       ) : docs.length === 0 ? (
         <div className="text-center py-8 text-sm text-mute">
-          Sin documentos todavía. Subí el primero para entrenar a la IA con
+          Sin documentos todavía. Sube el primero para entrenar a la IA con
           info de tu negocio (manuales, scripts, plan de compensación, etc).
         </div>
       ) : (
@@ -914,7 +914,7 @@ function UploadDocumentModal({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!file) {
-      toast('Seleccioná un archivo', 'error');
+      toast('Selecciona un archivo', 'error');
       return;
     }
     setBusy(true);

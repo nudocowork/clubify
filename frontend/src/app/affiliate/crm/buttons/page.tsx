@@ -96,7 +96,7 @@ export default function CrmButtonsPage() {
       </div>
 
       <p className="text-mute text-sm mb-4 max-w-prose">
-        Configurá acciones rápidas que aparecen al abrir un contacto del
+        Configura acciones rápidas que aparecen al abrir un contacto del
         kanban. Cada botón puede enviar un mensaje, mover el contacto a
         otra columna y agregar etiquetas — todo con un solo click.
       </p>
@@ -106,7 +106,7 @@ export default function CrmButtonsPage() {
           <div className="text-3xl mb-2">⚡</div>
           <div className="font-semibold mb-1">Sin botones todavía</div>
           <div className="text-sm">
-            Creá tu primer botón — ejemplo: "Reunión finalizada" que mueve
+            Crea tu primer botón — ejemplo: "Reunión finalizada" que mueve
             a Seguimiento y manda un mensaje de gracias por WhatsApp.
           </div>
         </div>

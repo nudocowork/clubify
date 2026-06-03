@@ -280,7 +280,7 @@ export function MenuBookViewer({
 
   // activeSectionId + useEffect de URL sync ya fueron movidos ARRIBA
   // de los early returns (~líneas 214-238) para no violar las reglas
-  // de hooks. Acá solo usamos el valor ya computado.
+  // de hooks. Aquí solo usamos el valor ya computado.
 
   return (
     <div

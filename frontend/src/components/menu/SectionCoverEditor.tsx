@@ -609,7 +609,7 @@ function OverlayPanel({
       {cfg.overlay && (
         <>
           <p className="text-[11px] text-mute">
-            Mejora el contraste del texto sobre fotos claras. Probá los
+            Mejora el contraste del texto sobre fotos claras. Prueba los
             presets:
           </p>
           <div className="grid grid-cols-2 gap-2">

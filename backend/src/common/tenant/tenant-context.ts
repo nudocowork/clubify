@@ -16,7 +16,7 @@ import { Role } from '@prisma/client';
  *   - Background jobs/crons → no setean contexto → sin enforcement
  *
  * Si necesitás operar cross-tenant deliberadamente (super admin tools, batch
- * jobs), usá `runWithoutTenant()` o `runWithTenant({ bypass: true }, fn)`.
+ * jobs), usa `runWithoutTenant()` o `runWithTenant({ bypass: true }, fn)`.
  */
 export type TenantCtx = {
   tenantId: string | null;

@@ -291,7 +291,7 @@ export class SystemHealthService {
     const storagePct = (d.storageEstimateBytes / STORAGE_BUDGET_BYTES) * 100;
 
     // Memoria: la métrica útil es RSS / container_limit (lo que predice
-    // un OOM real). Antes usábamos heapUsed/heapTotal que en Node sano
+    // un OOM real). Antes usabamos heapUsed/heapTotal que en Node sano
     // siempre está cerca del 95% antes del GC — falsos positivos
     // crónicos. Si no podemos detectar container_limit (entorno bare
     // metal / dev), fallback a `null` y no marcamos alarma.
@@ -370,7 +370,7 @@ export class SystemHealthService {
       recs.push({
         level: 'crit',
         text:
-          'RSS del proceso sobre 90% del límite del contenedor — riesgo real de OOM-kill. Subí RAM/replicas en Railway.',
+          'RSS del proceso sobre 90% del límite del contenedor — riesgo real de OOM-kill. Sube RAM/replicas en Railway.',
       });
     } else if (ind.memory.level === 'warn') {
       recs.push({

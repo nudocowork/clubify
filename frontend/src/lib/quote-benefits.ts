@@ -1,5 +1,5 @@
 // Beneficios por plan reutilizables entre el wizard, el preview y el PDF
-// de la cotización. Mantener UNA fuente de verdad acá: cualquier cambio en
+// de la cotización. Mantener UNA fuente de verdad aquí: cualquier cambio en
 // la descripción de qué incluye Elite/Pro se refleja en los 3 lugares.
 
 export type QuotePlan = 'ELITE' | 'PRO';

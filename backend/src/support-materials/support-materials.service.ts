@@ -133,7 +133,7 @@ export class SupportMaterialsService {
     // Sin esto, un material vacío rompería el render del front.
     if (!dto.fileUrl && !dto.externalUrl && !dto.scriptBody) {
       throw new ForbiddenException(
-        'Cargá un archivo, un link externo o el contenido del script.',
+        'Carga un archivo, un link externo o el contenido del script.',
       );
     }
     return this.prisma.supportMaterial.create({

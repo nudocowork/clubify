@@ -51,7 +51,7 @@ export class TwoFactorService {
     if (!user) throw new NotFoundException('User');
     if (user.totpEnabledAt) {
       throw new ConflictException(
-        '2FA ya está activo. Desactivalo primero si querés regenerar el secret.',
+        '2FA ya está activo. Desactivalo primero si quieres regenerar el secret.',
       );
     }
 
@@ -79,7 +79,7 @@ export class TwoFactorService {
       select: { id: true, totpSecret: true, totpEnabledAt: true },
     });
     if (!user || !user.totpSecret) {
-      throw new BadRequestException('Iniciá el setup de 2FA primero.');
+      throw new BadRequestException('Inicia el setup de 2FA primero.');
     }
     if (user.totpEnabledAt) {
       throw new ConflictException('2FA ya está activado.');

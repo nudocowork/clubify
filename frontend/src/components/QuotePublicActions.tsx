@@ -33,7 +33,7 @@ export function QuotePublicActions({
       ? `${window.location.origin}/q/${publicToken}`
       : `https://soyclubify.com/q/${publicToken}`;
 
-  const shareMsg = `Mirá la propuesta de Clubify para ${businessName} (plan ${planLabel}): ${url}`;
+  const shareMsg = `Mira la propuesta de Clubify para ${businessName} (plan ${planLabel}): ${url}`;
   const waHref = `https://wa.me/?text=${encodeURIComponent(shareMsg)}`;
 
   function doPrint() {
@@ -68,7 +68,7 @@ export function QuotePublicActions({
         type="button"
         onClick={doPrint}
         className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-pill bg-white border border-line text-xs font-semibold text-ink shadow-sm hover:border-ink/40 active:scale-[0.97] transition"
-        title="Imprimí o guardá como PDF desde el diálogo del navegador"
+        title="Imprimí o guarda como PDF desde el diálogo del navegador"
       >
         🖨 Imprimir / Guardar PDF
       </button>

@@ -123,7 +123,7 @@ export default function AffiliatePanel() {
   // Defensa doble: role del User Y role del ReferralCode deben coincidir
   // como INFLUENCER. Sin esto, un user con role mal sincronizado podría
   // ver opciones de crear embajadores cuando en realidad es embajador.
-  // El backend también rechaza pero acá frenamos antes de mostrar la UI.
+  // El backend también rechaza pero aquí frenamos antes de mostrar la UI.
   const isInfluencer =
     me.role === 'AFFILIATE_INFLUENCER' && me.myCode?.role === 'INFLUENCER';
   const isSocio = me.role === 'AFFILIATE_SOCIO';
@@ -347,7 +347,7 @@ function Overview({ me }: { me: Me }) {
   // ReferralCode asociado también tenga role=INFLUENCER. Sin esto, un
   // user con role mal sincronizado podría ver opciones de crear
   // embajadores siendo en realidad un embajador. Backend igual rechaza
-  // pero acá evitamos mostrar el botón "+ Embajador" que confunde.
+  // pero aquí evitamos mostrar el botón "+ Embajador" que confunde.
   const isInfluencer =
     me.role === 'AFFILIATE_INFLUENCER' && me.myCode?.role === 'INFLUENCER';
   const isSocio = me.role === 'AFFILIATE_SOCIO';
@@ -762,7 +762,7 @@ function InfluencerAmbassadorsPanel({
             🔗 Link de registro de embajadores
           </div>
           <div className="text-xs text-mute mb-2 leading-snug">
-            Compartí este link con personas que quieras sumar a tu equipo.
+            Comparte este link con personas que quieras sumar a tu equipo.
             Quien lo abra se registra solo y queda automáticamente vinculado
             a vos.
           </div>
@@ -854,7 +854,7 @@ function InfluencerAmbassadorsPanel({
             <input
               type={showPwd ? 'text' : 'password'}
               className="input"
-              placeholder="Mín 8 caracteres (o usá Generar)"
+              placeholder="Mín 8 caracteres (o usa Generar)"
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
               autoComplete="new-password"
@@ -872,7 +872,7 @@ function InfluencerAmbassadorsPanel({
             />
             <div className="text-[11px] text-mute leading-snug">
               El embajador entra a su panel con su email + esta contraseña. Si la
-              dejás vacía, le mandamos un email con instrucciones para crearla.
+              dejas vacía, le mandamos un email con instrucciones para crearla.
             </div>
           </div>
           <button type="submit" disabled={busy} className="btn-primary w-full text-sm">
@@ -1282,8 +1282,8 @@ function SupportMaterialsList() {
         <div className="text-4xl mb-2">📚</div>
         <div className="font-semibold mb-1">Aún no hay materiales</div>
         <div className="text-xs text-mute leading-relaxed max-w-sm mx-auto">
-          El equipo Clubify sube acá scripts, videos, PDFs y plantillas que te
-          ayudan a vender. Volvé en unos días si todavía no hay nada disponible.
+          El equipo Clubify sube aquí scripts, videos, PDFs y plantillas que te
+          ayudan a vender. Vuelve en unos días si todavía no hay nada disponible.
         </div>
       </div>
     );

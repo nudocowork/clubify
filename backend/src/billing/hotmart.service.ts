@@ -42,7 +42,7 @@ export type HotmartWebhookPayload = {
       transaction?: string;
       status?: string;
       approved_date?: number;
-      // Hotmart manda el monto pagado en USD acá. Lo usamos para calcular
+      // Hotmart manda el monto pagado en USD aquí. Lo usamos para calcular
       // la comisión del referido. Si no viene, caemos a plan.priceMonthly.
       price?: { value?: number; currency_code?: string };
     };

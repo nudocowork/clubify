@@ -183,7 +183,7 @@ export default async function Landing() {
   // CTAs de "Agendar una Demo" — link fijo al embed de Calendly, NO al
   // WhatsApp (decisión del founder: separar consulta comercial general
   // del booking de demo). Sin override por Settings — si se quiere
-  // cambiar, modificar acá.
+  // cambiar, modificar aquí.
   const demoLink = 'https://soyclubify.lat/demo';
 
   // Stats: usa lo seteado en admin si está, sino el fallback hardcoded.

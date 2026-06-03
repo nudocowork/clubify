@@ -3,7 +3,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 
 /** Pricing global de los planes Clubify usado por el módulo Cotizaciones
  * (SuperAdmin). Editables sin redeploy. Las cotizaciones congelan el
- * precio en su `priceSnapshot` al crearse, así que cambiar acá no rompe
+ * precio en su `priceSnapshot` al crearse, así que cambiar aquí no rompe
  * cotizaciones viejas. */
 export type PricingSettings = {
   eliteCost: number;

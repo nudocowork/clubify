@@ -32,7 +32,7 @@ const logger = new Logger('PrismaTenantMiddleware');
 
 /**
  * Set de modelos que tienen campo `tenantId` (extraído del DMMF en runtime).
- * Si agregás un modelo nuevo con tenantId, no hay que tocar nada acá.
+ * Si agregas un modelo nuevo con tenantId, no hay que tocar nada aquí.
  */
 const MODELS_WITH_TENANT_ID = new Set<string>(
   Prisma.dmmf.datamodel.models

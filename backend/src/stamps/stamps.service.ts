@@ -377,7 +377,7 @@ export class StampsService {
     //   NEAR_REWARD — al cliente le faltan 1-2 sellos para canjear (regla
     //     anti-churn que lo empuja a volver pronto)
     //   PASS_COMPLETED — alcanzó el target de la card (ya estaba contemplado
-    //     pero no disparado acá; lo añadimos ahora)
+    //     pero no disparado aquí; lo añadimos ahora)
     //   REWARD_REDEEMED — canjeó el premio
     if (dto.action === 'STAMP' || dto.action === 'VISIT') {
       const required =
@@ -442,7 +442,7 @@ export class StampsService {
     // Si fue una redención de cupón, el pass ya quedó transformado a
     // STAMPS arriba. Disparamos el automation event para que el dueño
     // pueda engancharle reglas SEND_PUSH / SEND_WHATSAPP si quiere
-    // mandarle un mensaje "tu cupón fue usado, ahora sumá sellos".
+    // mandarle un mensaje "tu cupón fue usado, ahora suma sellos".
     if (isCouponRedeem) {
       this.automations
         .emit('COUPON_REDEEMED', {

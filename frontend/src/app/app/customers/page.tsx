@@ -505,7 +505,7 @@ export default function CustomersPage() {
           <button
             onClick={async () => {
               const n = selected.size;
-              const msg = `¿Eliminar ${n} cliente${n === 1 ? '' : 's'}?\n\nEsta acción NO se puede deshacer y borra:\n• Tarjeta wallet del cliente\n• Sellos / saldo / nivel VIP\n• Historial de pedidos\n• Mensajes asociados\n\nEscribí ELIMINAR para confirmar.`;
+              const msg = `¿Eliminar ${n} cliente${n === 1 ? '' : 's'}?\n\nEsta acción NO se puede deshacer y borra:\n• Tarjeta wallet del cliente\n• Sellos / saldo / nivel VIP\n• Historial de pedidos\n• Mensajes asociados\n\nEscribe ELIMINAR para confirmar.`;
               const confirmText = window.prompt(msg);
               if ((confirmText ?? '').trim().toUpperCase() !== 'ELIMINAR') return;
               let ok = 0;

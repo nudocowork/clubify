@@ -119,7 +119,7 @@ export class OnboardingController {
     };
   }
 
-  // Welcome: ya teníamos /welcome-popup/dismiss. Lo replicamos acá para
+  // Welcome: ya teníamos /welcome-popup/dismiss. Lo replicamos aquí para
   // tener todos los pasos en /onboarding/* (back-compat: el endpoint
   // viejo sigue activo).
   @Post('welcome/done')

@@ -30,14 +30,14 @@ export function BannerStylePicker({
   if (!industry.coverImage) {
     return (
       <div className="text-xs text-mute italic">
-        Subí una imagen de portada para ver los 5 estilos disponibles.
+        Sube una imagen de portada para ver los 5 estilos disponibles.
       </div>
     );
   }
   return (
     <div className="space-y-2">
       <div className="text-xs font-medium text-mute">
-        Elegí un estilo de portada — los 5 usan la misma imagen.
+        Elige un estilo de portada — los 5 usan la misma imagen.
       </div>
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
         {COVER_STYLES.map((s) => {

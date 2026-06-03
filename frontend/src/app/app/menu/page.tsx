@@ -456,7 +456,7 @@ export default function MenuEditor() {
             href={tenantSlug ? `/m/${tenantSlug}` : '#'}
             target="_blank"
             className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
-            title={`Vista de ${mainLabel.toLowerCase()} para domicilio — el link público que enviás a tus clientes`}
+            title={`Vista de ${mainLabel.toLowerCase()} para domicilio — el link público que envías a tus clientes`}
           >
             🛵 Ver {mainLabel.toLowerCase()} delivery
           </Link>
@@ -1100,7 +1100,7 @@ function RecommendedCoverModal({
         endpoint: '/storefront',
         // El endpoint /storefront acepta nombres específicos
         // (recommendedCoverConfig + recommendedTagline) en lugar del
-        // shape default (coverConfig + tagline). Mapeamos acá.
+        // shape default (coverConfig + tagline). Mapeamos aquí.
         payloadShape: (config, tagline) => ({
           recommendedCoverConfig: config,
           recommendedTagline: tagline,
@@ -1434,7 +1434,7 @@ function PopupPreview({ cfg }: { cfg: PopupConfig }) {
       </div>
       {!hasContent && (
         <div className="px-4 pb-3 text-[10px] text-mute italic text-center">
-          Completá los campos a la izquierda para previsualizar.
+          Completa los campos a la izquierda para previsualizar.
         </div>
       )}
     </div>
@@ -1862,7 +1862,7 @@ function ProductDrawer({
                   }));
                   update('variants', arr);
                 }}
-                title="Editá la palabra (ej: Sabores, Colores, Opciones)"
+                title="Edita la palabra (ej: Sabores, Colores, Opciones)"
               />
               )
             </legend>

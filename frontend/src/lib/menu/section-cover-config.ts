@@ -80,7 +80,7 @@ export type SectionCoverConfig = {
   /** Estilo del tagline opcional. Si null, no se renderea. */
   tagline: CoverTextStyle | null;
   /** Si el template tiene una "etiqueta" arriba del título (ej:
-   *  "ESPECIAL DEL DÍA"), va acá. Opcional. */
+   *  "ESPECIAL DEL DÍA"), va aquí. Opcional. */
   badge: CoverTextStyle | null;
   /** Texto del badge si está activo. */
   badgeText: string | null;

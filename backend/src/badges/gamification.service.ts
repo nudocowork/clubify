@@ -129,7 +129,7 @@ export class GamificationService {
           }
           if (cashbackEarned >= (criteria.threshold ?? 50000)) match = true;
         }
-        // BIRTHDAY se otorga vía cron separado, no acá.
+        // BIRTHDAY se otorga vía cron separado, no aquí.
         // CUSTOM no se auto-otorga.
         if (match) {
           newlyAwarded.push({

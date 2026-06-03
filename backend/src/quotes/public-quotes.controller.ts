@@ -6,7 +6,7 @@ import { QuotesService } from './quotes.service';
 /**
  * Endpoint público de la vista de cliente para una cotización compartida.
  * Separado del controller admin/quotes (SUPER_ADMIN) para mantener el
- * blast-radius del @Roles del otro chico — acá nada está protegido más
+ * blast-radius del @Roles del otro chico — aquí nada está protegido más
  * allá del throttle, el token UUID es la única defensa.
  */
 @Controller()
