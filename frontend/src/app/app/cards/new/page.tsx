@@ -125,9 +125,31 @@ export default function NewCardWizard() {
     setErr(null);
     setSubmitting(true);
     try {
+      // Normalización por type antes del POST. Cupón no tiene "sello
+      // en progreso" → vacía stampEarnedMessage. Si rewardEarnedMessage
+      // sigue siendo el default de sellos, lo cambiamos al default de
+      // cupón.
+      const isCoupon =
+        form.type === 'COUPON' ||
+        form.type === 'DISCOUNT' ||
+        form.type === 'GIFT';
+      const STAMP_DEFAULT_REWARD = '¡Has ganado tu recompensa!';
+      const COUPON_DEFAULT_REWARD =
+        '¡Felicidades por canjear tu cupón! Empieza a acumular sellos para seguir obteniendo recompensas.';
+      const payload = isCoupon
+        ? {
+            ...form,
+            stampEarnedMessage: '',
+            rewardEarnedMessage:
+              form.rewardEarnedMessage.trim() === '' ||
+              form.rewardEarnedMessage.trim() === STAMP_DEFAULT_REWARD
+                ? COUPON_DEFAULT_REWARD
+                : form.rewardEarnedMessage,
+          }
+        : form;
       const created = await api<any>('/cards', {
         method: 'POST',
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
       router.push(`/app/cards/${created.id}`);
     } catch (e: any) {
@@ -1133,56 +1155,94 @@ function Step5Information({
           Esta información va al reverso de la tarjeta wallet del cliente.
         </div>
 
-        <div>
-          <label className="label">Cómo ganar un sello</label>
-          <input
-            className="input"
-            placeholder="Ej: Comprar cualquier producto para obtener un sello"
-            value={form.howToEarnText}
-            onChange={(e) => set('howToEarnText', e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="label">Nombre de empresa</label>
-          <input
-            className="input"
-            placeholder="Como se ve en el reverso"
-            value={form.businessName}
-            onChange={(e) => set('businessName', e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="label">Descripción de la recompensa</label>
-          <input
-            className="input"
-            placeholder="Ej: Café gratis al completar 10 sellos"
-            value={form.rewardDescText}
-            onChange={(e) => set('rewardDescText', e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="label">
-            Mensaje de sello ganado
-            <span className="text-mute font-normal ml-1">
-              ({'['}#{']'} = sellos restantes)
-            </span>
-          </label>
-          <input
-            className="input"
-            placeholder="¡Solo [#] para tu recompensa!"
-            value={form.stampEarnedMessage}
-            onChange={(e) => set('stampEarnedMessage', e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="label">Mensaje de recompensa ganada</label>
-          <input
-            className="input"
-            placeholder="¡Has ganado tu recompensa!"
-            value={form.rewardEarnedMessage}
-            onChange={(e) => set('rewardEarnedMessage', e.target.value)}
-          />
-        </div>
+        {(() => {
+          // Cupón/Descuento/Regalo: separar texts y ocultar campos
+          // exclusivos de sellos. Decisión del founder: el wizard de
+          // cupón NO debe heredar copy/campos de la tarjeta de sellos.
+          const isCoupon =
+            form.type === 'COUPON' ||
+            form.type === 'DISCOUNT' ||
+            form.type === 'GIFT';
+          return (
+            <>
+              <div>
+                <label className="label">
+                  {isCoupon ? 'Cómo canjear un cupón' : 'Cómo ganar un sello'}
+                </label>
+                <input
+                  className="input"
+                  placeholder={
+                    isCoupon
+                      ? 'Ej: Mostrar el QR en caja para canjear'
+                      : 'Ej: Comprar cualquier producto para obtener un sello'
+                  }
+                  value={form.howToEarnText}
+                  onChange={(e) => set('howToEarnText', e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="label">Nombre de empresa</label>
+                <input
+                  className="input"
+                  placeholder="Como se ve en el reverso"
+                  value={form.businessName}
+                  onChange={(e) => set('businessName', e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="label">Descripción de la recompensa</label>
+                <input
+                  className="input"
+                  placeholder={
+                    isCoupon
+                      ? 'Ej: Café gratis al canjear este cupón'
+                      : 'Ej: Café gratis al completar 10 sellos'
+                  }
+                  value={form.rewardDescText}
+                  onChange={(e) => set('rewardDescText', e.target.value)}
+                />
+              </div>
+              {/* Mensaje de sello ganado — solo aplica a STAMPS/VISITS/
+                  HYBRID. Cupón no tiene "sello en progreso", se canjea
+                  una vez. */}
+              {!isCoupon && (
+                <div>
+                  <label className="label">
+                    Mensaje de sello ganado
+                    <span className="text-mute font-normal ml-1">
+                      ({'['}#{']'} = sellos restantes)
+                    </span>
+                  </label>
+                  <input
+                    className="input"
+                    placeholder="¡Solo [#] para tu recompensa!"
+                    value={form.stampEarnedMessage}
+                    onChange={(e) => set('stampEarnedMessage', e.target.value)}
+                  />
+                </div>
+              )}
+              <div>
+                <label className="label">
+                  {isCoupon
+                    ? 'Mensaje al canjear el cupón'
+                    : 'Mensaje de recompensa ganada'}
+                </label>
+                <input
+                  className="input"
+                  placeholder={
+                    isCoupon
+                      ? '¡Felicidades por canjear tu cupón! Empieza a acumular sellos para seguir obteniendo recompensas.'
+                      : '¡Has ganado tu recompensa!'
+                  }
+                  value={form.rewardEarnedMessage}
+                  onChange={(e) =>
+                    set('rewardEarnedMessage', e.target.value)
+                  }
+                />
+              </div>
+            </>
+          );
+        })()}
 
         <div className="pt-3 border-t border-line">
           <label className="label">Enlaces activos</label>
@@ -1258,7 +1318,11 @@ function Step5Information({
           {form.howToEarnText && (
             <div>
               <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
-                Cómo ganar un sello
+                {form.type === 'COUPON' ||
+                form.type === 'DISCOUNT' ||
+                form.type === 'GIFT'
+                  ? 'Cómo canjear un cupón'
+                  : 'Cómo ganar un sello'}
               </div>
               <div>{form.howToEarnText}</div>
             </div>
