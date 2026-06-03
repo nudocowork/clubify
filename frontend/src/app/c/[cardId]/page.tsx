@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ClubifyBadge } from '@/components/ClubifyBadge';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
@@ -59,21 +59,67 @@ const TYPE_LABEL: Record<string, string> = {
   MULTI: 'Múltiple',
 };
 
+// Cache SWR en localStorage: la primera visita paga el fetch; visitas
+// siguientes muestran el form decorado con marca/colores en el primer
+// paint y revalidan en background. TTL 5 min — datos del card cambian
+// raramente y el campo `isActive` lo verificamos vía revalidación.
+const CACHE_TTL_MS = 5 * 60 * 1000;
+const cacheKey = (cardId: string, locale: string) =>
+  `clubify:enroll:${cardId}:${locale}`;
+
+function readCache(cardId: string, locale: string): Card | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(cacheKey(cardId, locale));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.card || typeof parsed.cachedAt !== 'number') return null;
+    if (Date.now() - parsed.cachedAt > CACHE_TTL_MS) return null;
+    return parsed.card as Card;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(cardId: string, locale: string, card: Card) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(
+      cacheKey(cardId, locale),
+      JSON.stringify({ card, cachedAt: Date.now() }),
+    );
+  } catch {
+    // localStorage lleno o bloqueado — no es fatal, seguimos sin cache.
+  }
+}
+
+function clearCache(cardId: string, locale: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem(cacheKey(cardId, locale));
+  } catch {}
+}
+
 export default function EnrollPage() {
   const tt = useT();
   const [locale] = useLocale();
   const router = useRouter();
   const { cardId } = useParams<{ cardId: string }>();
-  const [card, setCard] = useState<Card | null>(null);
-  const [loading, setLoading] = useState(true);
+
+  // El card empieza con cache si hay; sino null. El form se renderiza
+  // SIEMPRE — los campos no esperan al fetch. La cabecera de marca se
+  // anima cuando llegan datos.
+  const [card, setCard] = useState<Card | null>(() =>
+    typeof window !== 'undefined' && cardId
+      ? readCache(cardId as string, locale)
+      : null,
+  );
   const [unavailable, setUnavailable] = useState(false);
   const [networkError, setNetworkError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
-  // Trackeamos primer load para mostrar spinner full-screen solo entonces.
-  // En refetches por cambio de locale ya tenemos el card renderizado —
-  // refrescamos silencioso y evitamos parpadear toda la pantalla.
-  const isFirstLoad = useRef(true);
+  const [verifying, setVerifying] = useState(false);
 
+  // Form state — disponible desde el primer paint, no se gatea por loading.
   const [country, setCountry] = useState('CO');
   const [phone, setPhone] = useState('');
   const [fullName, setFullName] = useState('');
@@ -84,54 +130,125 @@ export default function EnrollPage() {
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // Performance tracking: TTI = tiempo desde mount hasta primer keystroke.
+  // El backend loguea WARN si > 3s para alertar regresiones.
+  const mountedAt = useRef<number>(0);
+  const loadFinishedAt = useRef<number | null>(null);
+  const ttiReported = useRef(false);
+  const initialSource = useRef<'cache' | 'network'>('network');
+
   useEffect(() => {
+    mountedAt.current = performance.now();
+    // Si arrancamos con cache hidratada, el "load" técnicamente terminó
+    // en t=0. Si no, marcamos al recibir respuesta del fetch.
+    if (card) {
+      loadFinishedAt.current = mountedAt.current;
+      initialSource.current = 'cache';
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const reportTti = useCallback(() => {
+    if (ttiReported.current) return;
+    ttiReported.current = true;
+    const now = performance.now();
+    const ttiMs = Math.round(now - (mountedAt.current || now));
+    const loadMs =
+      loadFinishedAt.current !== null
+        ? Math.round(loadFinishedAt.current - mountedAt.current)
+        : undefined;
+    // Beacon fire-and-forget. keepalive permite que el browser lo mande
+    // aún si la página navega antes de que termine el request.
+    try {
+      fetch(`${API}/api/metrics/enroll-perf`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cardId,
+          ttiMs,
+          loadMs,
+          source: initialSource.current,
+          userAgent:
+            typeof navigator !== 'undefined'
+              ? navigator.userAgent.slice(0, 200)
+              : undefined,
+        }),
+        keepalive: true,
+      }).catch(() => null);
+    } catch {
+      // navigator no disponible (SSR) — no es fatal.
+    }
+  }, [cardId]);
+
+  // Fetch del card. Stale-while-revalidate: si hay cache, el form ya está
+  // renderizado decorado — revalidamos silencioso. Si NO hay cache,
+  // mostramos cabecera neutra hasta llegar (el form sigue editable).
+  useEffect(() => {
+    if (!cardId) return;
     let cancelled = false;
     const ctrl = new AbortController();
-    // Timeout 10s para que conexiones malas no dejen al usuario en spinner
-    // infinito creyendo que "no se puede escribir". Después del timeout
-    // mostramos pantalla de error con botón de reintentar.
     const timeoutId = setTimeout(() => ctrl.abort(), 10_000);
-    if (isFirstLoad.current) {
-      setLoading(true);
-      setNetworkError(false);
-    }
+    setNetworkError(false);
+    // Solo mostramos el indicador "verificando" si no hay cache;
+    // visitas repetidas no parpadean.
+    if (!card) setVerifying(true);
     fetch(`${API}/api/passes/enroll/${cardId}?locale=${locale}`, {
       signal: ctrl.signal,
-      cache: 'no-store',
+      // No "no-store" — queremos que el browser/CDN sirvan cache si está
+      // dentro del max-age del backend (60s). El stale-while-revalidate
+      // hace que sea instantáneo.
     })
       .then((r) => r.json())
       .then((data) => {
         if (cancelled) return;
-        if (!data?.available) setUnavailable(true);
-        else setCard(data.card);
+        if (!data?.available) {
+          // Card desactivada/suspendida — invalidamos cache para que el
+          // próximo load no vuelva a mostrarla.
+          clearCache(cardId as string, locale);
+          setUnavailable(true);
+          setCard(null);
+          return;
+        }
+        setCard(data.card);
+        writeCache(cardId as string, locale, data.card);
+        if (loadFinishedAt.current === null) {
+          loadFinishedAt.current = performance.now();
+        }
       })
       .catch((e) => {
         if (cancelled) return;
-        // AbortError (timeout) o falla de red — distinguimos de "tarjeta
-        // no disponible" (status 200 pero available=false). Si la API
-        // tardó >10s probablemente la red está mala, no la card.
         if (e?.name === 'AbortError' || e?.message === 'Failed to fetch') {
-          setNetworkError(true);
-        } else {
+          // Si tenemos cache válido, no mostramos error de red — el form
+          // sigue siendo usable con los datos del cache. Solo bloqueamos
+          // si el cache no existe.
+          if (!card) setNetworkError(true);
+        } else if (!card) {
           setUnavailable(true);
         }
       })
       .finally(() => {
         clearTimeout(timeoutId);
-        if (cancelled) return;
-        setLoading(false);
-        isFirstLoad.current = false;
+        if (!cancelled) setVerifying(false);
       });
     return () => {
       cancelled = true;
       clearTimeout(timeoutId);
       ctrl.abort();
     };
-  }, [cardId, locale, retryCount]);
+  }, [cardId, locale, retryCount]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Onchange handlers — el primero dispara reportTti.
+  const onFirstInput = useCallback(() => {
+    reportTti();
+  }, [reportTti]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
+    if (!card) {
+      setErr('Verificando tu tarjeta, intenta de nuevo en un segundo.');
+      return;
+    }
     if (!accept) {
       setErr('Tienes que aceptar para continuar');
       return;
@@ -143,16 +260,11 @@ export default function EnrollPage() {
       return;
     }
     setSubmitting(true);
-    // Si el cliente vino vía /c/u/{slug} (UTM) el query string trae ?utm=<slug>
-    // y se lo pasamos al backend para aplicar el bonus de bienvenida.
     const utmSlug =
       typeof window !== 'undefined'
         ? new URLSearchParams(window.location.search).get('utm') ?? undefined
         : undefined;
     try {
-      // Birthday: usamos año "ficticio" 2000 para tener una fecha completa
-      // (Customer.birthday es @db.Date). El año NO se usa, solo día/mes —
-      // el cron BIRTHDAY filtra por EXTRACT(MONTH/DAY FROM birthday).
       let birthday: string | undefined;
       if (bdayDay && bdayMonth) {
         const dd = String(bdayDay).padStart(2, '0');
@@ -175,7 +287,6 @@ export default function EnrollPage() {
         throw new Error(j.message || 'No pudimos crear tu tarjeta');
       }
       const data: { passId: string } = await res.json();
-      // Redirect inmediato a /w/[passId] donde puede instalar Wallet
       router.push(`/w/${data.passId}?welcome=1`);
     } catch (e: any) {
       setErr(e.message || 'Error');
@@ -183,32 +294,10 @@ export default function EnrollPage() {
     }
   }
 
-  if (loading) {
-    // Skeleton estructural (header + form) en lugar de "Cargando…" plano.
-    // En conexión lenta el usuario ve la forma de la página y entiende que
-    // está cargando — no piensa "no se puede escribir".
-    return (
-      <main className="min-h-screen bg-bg pb-8">
-        <div className="bg-bg2 animate-shimmer h-48 sm:h-56" />
-        <div className="max-w-md mx-auto px-4 sm:px-5 -mt-10">
-          <div className="card shadow-xl p-4 sm:p-6 space-y-3">
-            <div className="h-5 bg-bg2 rounded animate-shimmer w-2/3" />
-            <div className="h-3 bg-bg2 rounded animate-shimmer w-1/2" />
-            <div className="h-10 bg-bg2 rounded animate-shimmer mt-4" />
-            <div className="h-10 bg-bg2 rounded animate-shimmer" />
-            <div className="h-10 bg-bg2 rounded animate-shimmer" />
-            <div className="h-10 bg-bg2 rounded animate-shimmer w-1/2" />
-            <div className="h-12 bg-bg2 rounded-pill animate-shimmer mt-2" />
-          </div>
-        </div>
-      </main>
-    );
-  }
+  // ---- Render ----
 
-  if (networkError) {
-    // Caso distinto de "tarjeta deshabilitada": el fetch fue abortado por
-    // timeout o falló por red. Permitimos reintentar sin recargar página
-    // (bumpea retryCount → useEffect re-corre).
+  // Caso de error de red SIN cache disponible: pantalla con retry.
+  if (networkError && !card) {
     return (
       <main className="min-h-screen bg-bg flex items-center justify-center px-5">
         <div className="card card-pad text-center max-w-sm animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -221,7 +310,6 @@ export default function EnrollPage() {
             type="button"
             className="btn-primary mt-4 w-full"
             onClick={() => {
-              isFirstLoad.current = true;
               setNetworkError(false);
               setRetryCount((c) => c + 1);
             }}
@@ -234,7 +322,8 @@ export default function EnrollPage() {
     );
   }
 
-  if (unavailable || !card) {
+  // Caso de tarjeta no disponible.
+  if (unavailable) {
     return (
       <main className="min-h-screen bg-bg flex items-center justify-center px-5">
         <div className="card card-pad text-center max-w-sm animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -249,64 +338,71 @@ export default function EnrollPage() {
     );
   }
 
-  const primary = card.primaryColor || card.tenant.primaryColor || '#22C55E';
+  // Render principal: SIEMPRE muestra el form. Si no hay card todavía,
+  // el header se renderiza neutro y se anima al llegar datos.
+  const primary = card?.primaryColor || card?.tenant.primaryColor || '#22C55E';
+  const secondary = card?.secondaryColor || '#15803D';
+  const ready = !!card;
 
   return (
     <main className="min-h-screen bg-bg pb-8 sm:pb-12">
       <div
-        className="px-4 sm:px-5 pt-8 sm:pt-10 pb-14 sm:pb-16 text-white"
+        className="px-4 sm:px-5 pt-8 sm:pt-10 pb-14 sm:pb-16 text-white transition-[background] duration-500"
         style={{
-          background: `linear-gradient(135deg, ${primary}, ${card.secondaryColor || '#15803D'})`,
+          background: ready
+            ? `linear-gradient(135deg, ${primary}, ${secondary})`
+            : 'linear-gradient(135deg, #1F2937, #374151)',
         }}
       >
         <div className="max-w-md mx-auto">
           <div className="flex items-center gap-2.5 sm:gap-3 mb-4 sm:mb-5">
-            {card.tenant.logoUrl ? (
+            {ready && card?.tenant.logoUrl ? (
               <img
                 src={card.tenant.logoUrl}
                 alt=""
-                className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl object-cover bg-white p-1 flex-none"
+                loading="lazy"
+                decoding="async"
+                className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl object-cover bg-white p-1 flex-none animate-in fade-in duration-300"
               />
             ) : (
               <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-white/20 flex items-center justify-center font-bold text-lg sm:text-xl flex-none">
-                {card.tenant.brandName.charAt(0)}
+                {ready ? card!.tenant.brandName.charAt(0) : '·'}
               </div>
             )}
             <div className="flex-1 min-w-0">
               <div className="text-[10px] sm:text-xs uppercase tracking-wider opacity-80">
-                {TYPE_LABEL[card.type] || 'Tarjeta'}
+                {ready
+                  ? TYPE_LABEL[card!.type] || 'Tarjeta'
+                  : 'Programa de fidelización'}
               </div>
               <div className="font-bold text-base sm:text-lg leading-tight truncate">
-                {card.tenant.brandName}
+                {ready ? card!.tenant.brandName : verifying ? 'Verificando…' : ' '}
               </div>
             </div>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight leading-tight break-words">
-            {card.name}
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight leading-tight break-words min-h-[2.25rem]">
+            {ready ? card!.name : ' '}
           </h1>
-          {card.description && (
-            <p className="text-white/85 mt-2 leading-relaxed text-sm sm:text-base break-words">
-              {card.description}
+          {ready && card!.description && (
+            <p className="text-white/85 mt-2 leading-relaxed text-sm sm:text-base break-words animate-in fade-in duration-300">
+              {card!.description}
             </p>
           )}
-          {card.rewardText && (
-            <div className="mt-4 sm:mt-5 inline-flex max-w-full items-center bg-white/15 backdrop-blur rounded-pill px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-medium">
+          {ready && card!.rewardText && (
+            <div className="mt-4 sm:mt-5 inline-flex max-w-full items-center bg-white/15 backdrop-blur rounded-pill px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-medium animate-in fade-in duration-300">
               <span className="mr-1.5 flex-none">🎁</span>
-              <span className="break-words">{card.rewardText}</span>
+              <span className="break-words">{card!.rewardText}</span>
             </div>
           )}
         </div>
       </div>
 
       <div className="max-w-md mx-auto px-4 sm:px-5 -mt-10">
-        <form
-          onSubmit={submit}
-          className="card shadow-xl p-4 sm:p-6"
-        >
-          <h2 className="text-base sm:text-lg font-bold">{tt('card.join_title')}</h2>
-          <p className="text-xs text-mute mt-1">
-            {tt('card.join_sub')}
-          </p>
+        <form onSubmit={submit} className="card shadow-xl p-4 sm:p-6">
+          <h2 className="text-base sm:text-lg font-bold">
+            {tt('card.join_title')}
+          </h2>
+          <p className="text-xs text-mute mt-1">{tt('card.join_sub')}</p>
 
           <div className="mt-4 sm:mt-5 space-y-3">
             <div>
@@ -315,7 +411,10 @@ export default function EnrollPage() {
                 className="input"
                 placeholder={tt('card.full_name')}
                 value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
+                onChange={(e) => {
+                  onFirstInput();
+                  setFullName(e.target.value);
+                }}
                 required
                 autoComplete="name"
               />
@@ -341,7 +440,10 @@ export default function EnrollPage() {
                   inputMode="numeric"
                   placeholder="3001234567"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
+                  onChange={(e) => {
+                    onFirstInput();
+                    setPhone(e.target.value.replace(/\D/g, ''));
+                  }}
                   required
                   autoComplete="tel"
                 />
@@ -360,7 +462,10 @@ export default function EnrollPage() {
                 type="email"
                 placeholder="tucorreo@ejemplo.com"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  onFirstInput();
+                  setEmail(e.target.value);
+                }}
                 autoComplete="email"
               />
             </div>
@@ -418,9 +523,7 @@ export default function EnrollPage() {
                 checked={accept}
                 onChange={(e) => setAccept(e.target.checked)}
               />
-              <span>
-                Acepto recibir notificaciones vía Push.
-              </span>
+              <span>Acepto recibir notificaciones vía Push.</span>
             </label>
 
             {err && (
@@ -431,21 +534,32 @@ export default function EnrollPage() {
 
             <button
               type="submit"
-              disabled={submitting || !fullName || !phone || !accept}
+              disabled={
+                submitting || !fullName || !phone || !accept || !ready
+              }
               className="w-full justify-center text-sm sm:text-base py-3.5 rounded-pill font-semibold text-white shadow-md transition disabled:opacity-50 hover:opacity-95 active:scale-[0.98] mt-1"
               style={{ background: primary }}
+              title={
+                !ready
+                  ? 'Verificando datos del negocio…'
+                  : undefined
+              }
             >
-              {submitting ? tt('card.submitting') : tt('card.submit') + ' →'}
+              {submitting
+                ? tt('card.submitting')
+                : !ready
+                ? 'Verificando…'
+                : tt('card.submit') + ' →'}
             </button>
           </div>
         </form>
 
-        {card.terms && (
-          <details className="mt-4 text-xs text-mute px-2">
+        {ready && card!.terms && (
+          <details className="mt-4 text-xs text-mute px-2 animate-in fade-in duration-300">
             <summary className="cursor-pointer hover:text-ink">
               Términos y condiciones
             </summary>
-            <p className="mt-2 leading-relaxed">{card.terms}</p>
+            <p className="mt-2 leading-relaxed">{card!.terms}</p>
           </details>
         )}
 
