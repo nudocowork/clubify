@@ -83,11 +83,19 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
       setSelected(assignmentRes.assignment?.code.id ?? '');
     } catch (e: any) {
       // Si MARKETING llega aquí, los endpoints van a tirar 403 — ocultamos
-      // el card en silencio en vez de mostrar un error confuso.
-      if (e?.status === 403 || /403/.test(e?.message ?? '')) {
+      // el card en silencio en vez de mostrar un error confuso. Detección
+      // robusta: status (api() helper lo adjunta), texto "403" o mensaje
+      // típico de RolesGuard ("Insufficient permissions", "Forbidden").
+      const msg = e?.message ?? '';
+      if (
+        e?.status === 403 ||
+        /403|forbidden|insufficient permissions|permisos insuficientes/i.test(
+          msg,
+        )
+      ) {
         setHidden(true);
       } else {
-        toast(e?.message || 'Error cargando asignación', 'error');
+        toast(msg || 'Error cargando asignación', 'error');
       }
     } finally {
       setLoading(false);

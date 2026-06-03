@@ -35,9 +35,18 @@ export default function ReviewPage() {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [networkError, setNetworkError] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
-    fetch(`${API}/api/public/r/${slug}`)
+    let cancelled = false;
+    const ctrl = new AbortController();
+    // Timeout 10s — sin esto, en conexión mala el usuario ve "Cargando…"
+    // perpetuo y cree que la página está rota / no puede escribir.
+    const timeoutId = setTimeout(() => ctrl.abort(), 10_000);
+    setNetworkError(false);
+    setErr(null);
+    fetch(`${API}/api/public/r/${slug}`, { signal: ctrl.signal, cache: 'no-store' })
       .then(async (r) => {
         if (!r.ok) {
           const j = await r.json().catch(() => ({}));
@@ -45,9 +54,26 @@ export default function ReviewPage() {
         }
         return r.json();
       })
-      .then(setT)
-      .catch((e: Error) => setErr(e.message || 'No disponible'));
-  }, [slug]);
+      .then((data) => {
+        if (!cancelled) setT(data);
+      })
+      .catch((e: Error) => {
+        if (cancelled) return;
+        if (e?.name === 'AbortError' || e?.message === 'Failed to fetch') {
+          setNetworkError(true);
+        } else {
+          setErr(e.message || 'No disponible');
+        }
+      })
+      .finally(() => {
+        clearTimeout(timeoutId);
+      });
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+      ctrl.abort();
+    };
+  }, [slug, retryCount]);
 
   async function submitNegative() {
     if (rating === 0) return;
@@ -104,6 +130,27 @@ export default function ReviewPage() {
     }
   }
 
+  if (networkError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-6 bg-bg">
+        <div className="card card-pad text-center max-w-sm animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <div className="text-5xl mb-3">📡</div>
+          <h1 className="text-xl font-bold">Conexión lenta</h1>
+          <p className="text-mute mt-2 text-sm">
+            No pudimos cargar la página. Revisá tu conexión y reintentá.
+          </p>
+          <button
+            type="button"
+            className="btn-primary mt-4 w-full"
+            onClick={() => setRetryCount((c) => c + 1)}
+          >
+            🔄 Reintentar
+          </button>
+        </div>
+        <LanguageSwitcher />
+      </div>
+    );
+  }
   if (err) {
     return (
       <div className="min-h-screen flex items-center justify-center px-6 bg-bg">
@@ -120,7 +167,23 @@ export default function ReviewPage() {
       </div>
     );
   }
-  if (!t) return <div className="p-8 text-mute text-center animate-pulse">{tt('common.loading')}</div>;
+  if (!t) {
+    // Skeleton estructural en lugar de "Cargando…" plano.
+    return (
+      <div className="min-h-screen flex flex-col items-center px-6 py-8 bg-bg">
+        <div className="w-full max-w-md flex flex-col items-center">
+          <div className="w-20 h-20 rounded-2xl bg-bg2 animate-shimmer" />
+          <div className="h-7 w-40 mt-4 bg-bg2 rounded animate-shimmer" />
+          <div className="h-4 w-56 mt-3 bg-bg2 rounded animate-shimmer" />
+          <div className="flex gap-2 mt-6">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <div key={n} className="w-12 h-12 bg-bg2 rounded animate-shimmer" />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const primary = t.primaryColor || '#22C55E';
 
