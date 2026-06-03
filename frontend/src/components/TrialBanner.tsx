@@ -57,9 +57,14 @@ export function TrialBanner() {
       bg = 'bg-brand-soft';
       border = 'border-brand/20';
       text = 'text-brand-700';
-      label = `Tu cuenta de cortesía vence en ${d} día${d === 1 ? '' : 's'}. Activa tu suscripción para no perder acceso.`;
+      label =
+        d === 1
+          ? '⏰ Tu modo prueba termina mañana. Activá tu cuenta para no perder acceso.'
+          : `🎁 Estás usando Clubify en modo prueba. Te quedan ${d} días para activar tu cuenta.`;
+      cta = 'Activar ahora';
     } else {
-      label = 'Activa tu suscripción para mantener tu cuenta activa.';
+      label = 'Tu modo prueba está por terminar. Activá tu cuenta ahora.';
+      cta = 'Activar ahora';
     }
   } else if (s.status === 'PAST_DUE') {
     bg = 'bg-orange-50';
