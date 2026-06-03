@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { api, startImpersonation } from '@/lib/api';
+import { api, getUser, startImpersonation } from '@/lib/api';
 import { GrowBusinessCard } from '@/components/GrowBusinessCard';
 import { ReferralAssignmentCard } from '@/components/ReferralAssignmentCard';
 import { Icon } from '@/components/Icon';
@@ -15,6 +15,11 @@ export default function TenantDetail() {
   const [extraLocations, setExtraLocations] = useState<number | ''>('');
   const [saving, setSaving] = useState(false);
   const [actioning, setActioning] = useState(false);
+  // MARKETING ve la página pero sin acciones de billing/impersonate/status —
+  // esos endpoints son SUPER_ADMIN only y mostrarían "Permisos insuficientes"
+  // al click. Esconderlos limpia UX en lugar de fallar fuerte.
+  const me = getUser();
+  const isSuperAdmin = me?.role === 'SUPER_ADMIN';
 
   async function load() {
     try {
@@ -202,30 +207,32 @@ export default function TenantDetail() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button
-              className="btn-primary text-sm"
-              disabled={actioning || t.status === 'SUSPENDED'}
-              onClick={async () => {
-                setActioning(true);
-                try {
-                  const res = await api(`/tenants/${id}/impersonate`, { method: 'POST' });
-                  startImpersonation({
-                    accessToken: res.accessToken,
-                    user: res.user,
-                    tenant: { id: res.tenant.id, brandName: res.tenant.brandName },
-                  });
-                  toast(`Entrando a ${res.tenant.brandName}…`, 'success');
-                  router.push('/app');
-                } catch (e: any) {
-                  toast(e.message || 'No se pudo entrar', 'error');
-                  setActioning(false);
-                }
-              }}
-              title={t.status === 'SUSPENDED' ? 'Reactiva el negocio para entrar' : 'Entrar como dueño del negocio'}
-            >
-              <Icon name="arrow-right" /> Entrar al negocio
-            </button>
-            {t.status === 'TRIAL' && (
+            {isSuperAdmin && (
+              <button
+                className="btn-primary text-sm"
+                disabled={actioning || t.status === 'SUSPENDED'}
+                onClick={async () => {
+                  setActioning(true);
+                  try {
+                    const res = await api(`/tenants/${id}/impersonate`, { method: 'POST' });
+                    startImpersonation({
+                      accessToken: res.accessToken,
+                      user: res.user,
+                      tenant: { id: res.tenant.id, brandName: res.tenant.brandName },
+                    });
+                    toast(`Entrando a ${res.tenant.brandName}…`, 'success');
+                    router.push('/app');
+                  } catch (e: any) {
+                    toast(e.message || 'No se pudo entrar', 'error');
+                    setActioning(false);
+                  }
+                }}
+                title={t.status === 'SUSPENDED' ? 'Reactiva el negocio para entrar' : 'Entrar como dueño del negocio'}
+              >
+                <Icon name="arrow-right" /> Entrar al negocio
+              </button>
+            )}
+            {isSuperAdmin && t.status === 'TRIAL' && (
               <>
                 <button
                   className="btn-ghost text-sm"
@@ -251,7 +258,7 @@ export default function TenantDetail() {
                 </button>
               </>
             )}
-            {t.status === 'SUSPENDED' && (
+            {isSuperAdmin && t.status === 'SUSPENDED' && (
               <button
                 className="btn-primary text-sm"
                 disabled={actioning}
@@ -260,7 +267,7 @@ export default function TenantDetail() {
                 Reactivar (+14d)
               </button>
             )}
-            {t.status === 'ACTIVE' ? (
+            {isSuperAdmin && (t.status === 'ACTIVE' ? (
               <button
                 className="btn-ghost text-sm text-bad"
                 disabled={actioning}
@@ -276,11 +283,11 @@ export default function TenantDetail() {
               >
                 Marcar como activo
               </button>
-            )}
+            ))}
             {/* Demo lock toggle — convierte el tenant en cuenta demo de
                 solo-lectura. Cualquier no-SUPER_ADMIN que entre solo puede
                 ver/navegar. Útil para que los embajadores muestren a prospects. */}
-            <button
+            {isSuperAdmin && (<button
               className={`text-sm ${t.isLocked ? 'btn-primary' : 'btn-ghost'}`}
               disabled={actioning}
               onClick={async () => {
@@ -317,7 +324,7 @@ export default function TenantDetail() {
               }
             >
               {t.isLocked ? '🔓 Desbloquear demo' : '🔒 Bloquear como demo'}
-            </button>
+            </button>)}
           </div>
         </div>
         {t.isLocked && (
@@ -390,48 +397,50 @@ export default function TenantDetail() {
           </div>
         </div>
 
-        <div className="card card-pad">
-          <h2 className="text-base font-semibold m-0">Override de ubicaciones</h2>
-          <p className="mt-1 text-sm text-mute">
-            Plan permite <strong className="text-ink">{t.plan?.maxLocations}</strong> ubicaciones.
-          </p>
-          <div className="mt-4 flex items-end gap-3">
-            <div className="flex-1">
-              <label className="label">Override</label>
-              <input
-                className="input"
-                type="number"
-                min={0}
-                placeholder={`Default ${t.plan?.maxLocations}`}
-                value={extraLocations}
-                onChange={(e) =>
-                  setExtraLocations(e.target.value === '' ? '' : Number(e.target.value))
-                }
-              />
+        {isSuperAdmin && (
+          <div className="card card-pad">
+            <h2 className="text-base font-semibold m-0">Override de ubicaciones</h2>
+            <p className="mt-1 text-sm text-mute">
+              Plan permite <strong className="text-ink">{t.plan?.maxLocations}</strong> ubicaciones.
+            </p>
+            <div className="mt-4 flex items-end gap-3">
+              <div className="flex-1">
+                <label className="label">Override</label>
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  placeholder={`Default ${t.plan?.maxLocations}`}
+                  value={extraLocations}
+                  onChange={(e) =>
+                    setExtraLocations(e.target.value === '' ? '' : Number(e.target.value))
+                  }
+                />
+              </div>
+              <button className="btn-primary" disabled={saving} onClick={save}>
+                {saving ? 'Guardando…' : 'Guardar'}
+              </button>
             </div>
-            <button className="btn-primary" disabled={saving} onClick={save}>
-              {saving ? 'Guardando…' : 'Guardar'}
-            </button>
           </div>
-        </div>
+        )}
 
         <GrowBusinessCard tenantId={t.id} planName={t.plan?.name ?? null} />
 
         <ReferralAssignmentCard tenantId={t.id} />
 
-        <ReviewAlertsAccountCard tenant={t} onSaved={load} />
+        {isSuperAdmin && <ReviewAlertsAccountCard tenant={t} onSaved={load} />}
 
-        <BillingAlertsAccountCard tenant={t} onSaved={load} />
+        {isSuperAdmin && <BillingAlertsAccountCard tenant={t} onSaved={load} />}
 
-        <DeliveryAlertsAccountCard tenant={t} onSaved={load} />
+        {isSuperAdmin && <DeliveryAlertsAccountCard tenant={t} onSaved={load} />}
 
         <ReviewAlertsLogsCard tenantId={t.id} />
 
-        <BillingNotificationsCard tenant={t} />
+        {isSuperAdmin && <BillingNotificationsCard tenant={t} />}
 
-        <BillingCard tenant={t} onChange={load} />
+        {isSuperAdmin && <BillingCard tenant={t} onChange={load} />}
 
-        <HotmartSimulatorCard tenant={t} onChange={load} />
+        {isSuperAdmin && <HotmartSimulatorCard tenant={t} onChange={load} />}
       </div>
     </div>
   );

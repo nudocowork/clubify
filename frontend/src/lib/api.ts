@@ -229,7 +229,12 @@ async function apiWithRefresh<T>(
       }
     }
 
-    throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+    const err: any = new Error(
+      typeof msg === 'string' ? msg : JSON.stringify(msg),
+    );
+    err.status = res.status;
+    err.code = body?.code;
+    throw err;
   }
   if (res.status === 204) return undefined as unknown as T;
   // NestJS serializa `null` como body VACÍO (no como string "null"), así

@@ -67,6 +67,8 @@ export default function EnrollPage() {
   const [card, setCard] = useState<Card | null>(null);
   const [loading, setLoading] = useState(true);
   const [unavailable, setUnavailable] = useState(false);
+  const [networkError, setNetworkError] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   // Trackeamos primer load para mostrar spinner full-screen solo entonces.
   // En refetches por cambio de locale ya tenemos el card renderizado —
   // refrescamos silencioso y evitamos parpadear toda la pantalla.
@@ -84,26 +86,48 @@ export default function EnrollPage() {
 
   useEffect(() => {
     let cancelled = false;
-    if (isFirstLoad.current) setLoading(true);
-    fetch(`${API}/api/passes/enroll/${cardId}?locale=${locale}`)
+    const ctrl = new AbortController();
+    // Timeout 10s para que conexiones malas no dejen al usuario en spinner
+    // infinito creyendo que "no se puede escribir". Después del timeout
+    // mostramos pantalla de error con botón de reintentar.
+    const timeoutId = setTimeout(() => ctrl.abort(), 10_000);
+    if (isFirstLoad.current) {
+      setLoading(true);
+      setNetworkError(false);
+    }
+    fetch(`${API}/api/passes/enroll/${cardId}?locale=${locale}`, {
+      signal: ctrl.signal,
+      cache: 'no-store',
+    })
       .then((r) => r.json())
       .then((data) => {
         if (cancelled) return;
         if (!data?.available) setUnavailable(true);
         else setCard(data.card);
       })
-      .catch(() => {
-        if (!cancelled) setUnavailable(true);
+      .catch((e) => {
+        if (cancelled) return;
+        // AbortError (timeout) o falla de red — distinguimos de "tarjeta
+        // no disponible" (status 200 pero available=false). Si la API
+        // tardó >10s probablemente la red está mala, no la card.
+        if (e?.name === 'AbortError' || e?.message === 'Failed to fetch') {
+          setNetworkError(true);
+        } else {
+          setUnavailable(true);
+        }
       })
       .finally(() => {
+        clearTimeout(timeoutId);
         if (cancelled) return;
         setLoading(false);
         isFirstLoad.current = false;
       });
     return () => {
       cancelled = true;
+      clearTimeout(timeoutId);
+      ctrl.abort();
     };
-  }, [cardId, locale]);
+  }, [cardId, locale, retryCount]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -160,9 +184,52 @@ export default function EnrollPage() {
   }
 
   if (loading) {
+    // Skeleton estructural (header + form) en lugar de "Cargando…" plano.
+    // En conexión lenta el usuario ve la forma de la página y entiende que
+    // está cargando — no piensa "no se puede escribir".
+    return (
+      <main className="min-h-screen bg-bg pb-8">
+        <div className="bg-bg2 animate-shimmer h-48 sm:h-56" />
+        <div className="max-w-md mx-auto px-4 sm:px-5 -mt-10">
+          <div className="card shadow-xl p-4 sm:p-6 space-y-3">
+            <div className="h-5 bg-bg2 rounded animate-shimmer w-2/3" />
+            <div className="h-3 bg-bg2 rounded animate-shimmer w-1/2" />
+            <div className="h-10 bg-bg2 rounded animate-shimmer mt-4" />
+            <div className="h-10 bg-bg2 rounded animate-shimmer" />
+            <div className="h-10 bg-bg2 rounded animate-shimmer" />
+            <div className="h-10 bg-bg2 rounded animate-shimmer w-1/2" />
+            <div className="h-12 bg-bg2 rounded-pill animate-shimmer mt-2" />
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (networkError) {
+    // Caso distinto de "tarjeta deshabilitada": el fetch fue abortado por
+    // timeout o falló por red. Permitimos reintentar sin recargar página
+    // (bumpea retryCount → useEffect re-corre).
     return (
       <main className="min-h-screen bg-bg flex items-center justify-center px-5">
-        <div className="text-mute animate-pulse">{tt('common.loading')}</div>
+        <div className="card card-pad text-center max-w-sm animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <div className="text-5xl mb-3">📡</div>
+          <h1 className="text-xl font-bold">Conexión lenta</h1>
+          <p className="text-mute text-sm mt-2">
+            No pudimos cargar la tarjeta. Revisá tu conexión y reintentá.
+          </p>
+          <button
+            type="button"
+            className="btn-primary mt-4 w-full"
+            onClick={() => {
+              isFirstLoad.current = true;
+              setNetworkError(false);
+              setRetryCount((c) => c + 1);
+            }}
+          >
+            🔄 Reintentar
+          </button>
+        </div>
+        <LanguageSwitcher />
       </main>
     );
   }
