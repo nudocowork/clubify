@@ -1,6 +1,7 @@
 'use client';
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
+import Image from 'next/image';
 import {
   addToCart,
   cartTotals,
@@ -203,6 +204,60 @@ function SubsectionHeader({
 // La detección de sectionSlug se hace via useParams: si la URL es
 // /m/x/y, el param `sectionSlug` viene poblado; si es /m/x, viene
 // undefined. El componente se comporta igual en ambos casos.
+
+/**
+ * Imagen de producto optimizada. Reemplaza el <img> plano con
+ * next/image que automaticamente:
+ *  - Sirve WebP (o AVIF en clientes que lo soporten) cuando la fuente
+ *    es JPG/PNG pesada del R2 — reducción típica 70-85% del peso.
+ *  - Genera srcset responsivo según `sizes`: el browser pide el tamaño
+ *    correcto para el viewport en vez de la imagen original.
+ *  - Cachea en el CDN/edge de Vercel durante 1 año (config global) —
+ *    visitas repetidas son instantáneas.
+ *  - Lazy load por default; `priority` para las primeras 2-3 imágenes
+ *    visibles arriba del fold (precarga vía <link rel="preload">).
+ *  - Fade-in suave al cargar para que el cliente no vea pop-in.
+ *
+ * Requiere parent con `position: relative` + dimensiones fijas
+ * (aspect-square, aspect-[16/9], etc.) para usar el modo `fill`.
+ */
+function ProductImage({
+  src,
+  alt,
+  sizes,
+  priority = false,
+  fit = 'cover',
+  hoverScale = false,
+}: {
+  src: string;
+  alt: string;
+  sizes: string;
+  priority?: boolean;
+  fit?: 'cover' | 'contain';
+  hoverScale?: boolean;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <>
+      {!loaded && (
+        <div className="absolute inset-0 animate-pulse bg-bg2/70" />
+      )}
+      <Image
+        src={src}
+        alt={alt}
+        fill
+        sizes={sizes}
+        priority={priority}
+        onLoad={() => setLoaded(true)}
+        className={`transition-opacity duration-300 ${
+          loaded ? 'opacity-100' : 'opacity-0'
+        } ${fit === 'cover' ? 'object-cover' : 'object-contain'} ${
+          hoverScale ? 'group-hover:scale-105 transition' : ''
+        }`}
+      />
+    </>
+  );
+}
 export default function StorefrontPublic() {
   const tt = useT();
   const [locale] = useLocale();
@@ -702,7 +757,11 @@ export default function StorefrontPublic() {
               >
                 {p.imageUrl && (
                   <div className="relative aspect-[16/9] bg-bg2">
-                    <img src={p.imageUrl} alt="" className="w-full h-full object-cover" />
+                    <ProductImage
+                      src={p.imageUrl}
+                      alt={p.name}
+                      sizes="(max-width: 640px) 100vw, 400px"
+                    />
                     <span
                       className="absolute top-3 left-3 text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded text-white shadow"
                       style={{ background: primary }}
@@ -949,11 +1008,13 @@ function ProductModal({
           // suave llena los bordes cuando la foto NO es cuadrada (paisaje
           // o retrato). Reemplaza el h-48 + object-cover anterior que
           // recortaba detalles importantes de la foto.
-          <div className="w-full aspect-square bg-bg2 flex items-center justify-center">
-            <img
+          <div className="relative w-full aspect-square bg-bg2 flex items-center justify-center">
+            <ProductImage
               src={product.imageUrl}
-              alt=""
-              className="w-full h-full object-contain"
+              alt={product.name}
+              sizes="(max-width: 640px) 100vw, 400px"
+              fit="contain"
+              priority
             />
           </div>
         )}
@@ -1922,7 +1983,13 @@ function LayoutClassic({ menu, primary, currency, onPick }: LP) {
                 className="w-full bg-white border border-line rounded-card overflow-hidden text-left transition hover:shadow-md2 flex"
               >
                 {p.imageUrl ? (
-                  <img src={p.imageUrl} alt="" className="w-24 h-24 object-cover flex-none" />
+                  <div className="relative w-24 h-24 bg-bg2 flex-none">
+                    <ProductImage
+                      src={p.imageUrl}
+                      alt={p.name}
+                      sizes="96px"
+                    />
+                  </div>
                 ) : (
                   <div className="w-24 h-24 bg-bg2 flex-none flex items-center justify-center text-2xl text-mute">
                     🍽
@@ -2000,7 +2067,12 @@ function LayoutGrid({ menu, primary, currency, onPick }: LP) {
               >
                 <div className="aspect-square rounded-2xl overflow-hidden relative bg-bg2">
                   {p.imageUrl ? (
-                    <img src={p.imageUrl} alt="" className="w-full h-full object-cover group-hover:scale-105 transition" />
+                    <ProductImage
+                      src={p.imageUrl}
+                      alt={p.name}
+                      sizes="(max-width: 640px) 50vw, 200px"
+                      hoverScale
+                    />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-4xl text-mute">
                       🍽
@@ -2075,7 +2147,11 @@ function LayoutCarousels({ menu, primary, currency, onPick }: LP) {
                   >
                     <div className="aspect-square rounded-xl overflow-hidden relative bg-bg2">
                       {p.imageUrl ? (
-                        <img src={p.imageUrl} alt="" className="w-full h-full object-cover" />
+                        <ProductImage
+                          src={p.imageUrl}
+                          alt={p.name}
+                          sizes="140px"
+                        />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-3xl text-mute">
                           🍽
@@ -2577,6 +2653,7 @@ function LayoutSections({
                 product={p}
                 currency={currency}
                 onPick={() => onPick(p)}
+                priority={idx < 4}
               />
             </div>
           ))}
@@ -2687,12 +2764,16 @@ function SectionProductCard({
   product,
   currency,
   onPick,
+  priority = false,
 }: {
   product: Product;
   currency: string;
   onPick: () => void;
+  /** Marcar las primeras 2-3 imágenes visibles como priority — Next.js
+   *  inyecta <link rel="preload"> para que carguen ASAP, no esperando
+   *  al IntersectionObserver del lazy load. */
+  priority?: boolean;
 }) {
-  const [imgLoaded, setImgLoaded] = useState(false);
   return (
     <button
       type="button"
@@ -2701,21 +2782,12 @@ function SectionProductCard({
     >
       <div className="aspect-square bg-gradient-to-br from-bg2 to-bg2/60 relative overflow-hidden">
         {product.imageUrl ? (
-          <>
-            {!imgLoaded && (
-              <div className="absolute inset-0 animate-pulse bg-bg2/80" />
-            )}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={product.imageUrl}
-              alt={product.name}
-              loading="lazy"
-              onLoad={() => setImgLoaded(true)}
-              className={`w-full h-full object-cover transition-opacity duration-300 ${
-                imgLoaded ? 'opacity-100' : 'opacity-0'
-              }`}
-            />
-          </>
+          <ProductImage
+            src={product.imageUrl}
+            alt={product.name}
+            sizes="(max-width: 640px) 50vw, 200px"
+            priority={priority}
+          />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-4xl opacity-40">
             🍽
