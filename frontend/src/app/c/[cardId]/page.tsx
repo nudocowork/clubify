@@ -216,6 +216,239 @@ const MONTH_OPTIONS = MONTH_NAMES.map((m, i) => (
   </option>
 ));
 
+// =============================================================
+//  FormFields — TODO el state del formulario vive ACÁ
+// =============================================================
+
+/**
+ * Tipo del payload que FormFields entrega al padre al hacer submit.
+ * El padre solo conoce datos ya normalizados — no la "raw" string del
+ * teléfono ni el country code, sino el `phoneFull` ya con prefijo.
+ */
+type SubmitPayload = {
+  fullName: string;
+  email: string | undefined;
+  phone: string;
+  birthday: string | undefined;
+};
+
+/**
+ * FormFields memoizado: todo el state del formulario (fullName, phone,
+ * email, country, etc.) vive ACÁ adentro. El padre NUNCA se re-renderiza
+ * cuando el cliente tipea, y FormFields NUNCA se re-renderiza por cambios
+ * del padre (fetch del card, verifying, etc.) gracias al memo + props
+ * estables.
+ *
+ * Esto significa: cada keystroke solo re-renderiza FormFields, y dentro
+ * de FormFields React reconcilia solo el input que cambió (~1ms). El
+ * BrandHeader nunca se reconcilia por escritura.
+ *
+ * Props estables (memoizar en el padre con useCallback):
+ *  - onSubmit: callback al padre con el payload normalizado.
+ *  - onFirstInput: callback que marca TTI en el primer keystroke.
+ *
+ * Props que cambian raramente (1 vez cuando llega el card):
+ *  - primary: color del botón submit.
+ *  - ready: gate del submit.
+ */
+const FormFields = memo(function FormFields({
+  primary,
+  ready,
+  onFirstInput,
+  onSubmit,
+}: {
+  primary: string;
+  ready: boolean;
+  onFirstInput: () => void;
+  onSubmit: (data: SubmitPayload) => Promise<void>;
+}) {
+  const tt = useT();
+  const [country, setCountry] = useState('CO');
+  const [phone, setPhone] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [bdayDay, setBdayDay] = useState<string>('');
+  const [bdayMonth, setBdayMonth] = useState<string>('');
+  const [accept, setAccept] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  // País actual (datos read-only del array estático). Recalcular en cada
+  // render es O(20) — irrelevante.
+  const selectedCountry = COUNTRIES.find((c) => c.code === country);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    if (!ready) {
+      setErr('Verificando tu tarjeta, intenta de nuevo en un segundo.');
+      return;
+    }
+    if (!accept) {
+      setErr('Tienes que aceptar para continuar');
+      return;
+    }
+    // Validaciones de submit (NUNCA en cada keystroke). Phone replace
+    // del onChange es cosmético — la validación de longitud va acá.
+    const dial = selectedCountry?.dial ?? '57';
+    const phoneFull = `+${dial}${phone.replace(/\D/g, '')}`;
+    if (phoneFull.length < 10) {
+      setErr('Teléfono inválido');
+      return;
+    }
+    let birthday: string | undefined;
+    if (bdayDay && bdayMonth) {
+      const dd = String(bdayDay).padStart(2, '0');
+      const mm = String(bdayMonth).padStart(2, '0');
+      birthday = `2000-${mm}-${dd}`;
+    }
+    setSubmitting(true);
+    try {
+      await onSubmit({
+        fullName: fullName.trim(),
+        email: email.trim() || undefined,
+        phone: phoneFull,
+        birthday,
+      });
+    } catch (e: any) {
+      setErr(e?.message || 'Error');
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="card shadow-xl p-4 sm:p-6">
+      <h2 className="text-base sm:text-lg font-bold">
+        {tt('card.join_title')}
+      </h2>
+      <p className="text-xs text-mute mt-1">{tt('card.join_sub')}</p>
+
+      <div className="mt-4 sm:mt-5 space-y-3">
+        <div>
+          <label className="label">{tt('card.full_name')}</label>
+          <input
+            className="input"
+            placeholder={tt('card.full_name')}
+            value={fullName}
+            onChange={(e) => {
+              onFirstInput();
+              setFullName(e.target.value);
+            }}
+            required
+            autoComplete="name"
+            autoCapitalize="words"
+            enterKeyHint="next"
+          />
+        </div>
+
+        <div>
+          <label className="label">{tt('card.phone')}</label>
+          <div className="flex gap-2">
+            <select
+              className="input w-24 sm:w-32 flex-none"
+              value={country}
+              onChange={(e) => setCountry(e.target.value)}
+            >
+              {COUNTRY_OPTIONS}
+            </select>
+            <input
+              className="input flex-1 min-w-0"
+              type="tel"
+              inputMode="numeric"
+              placeholder="3001234567"
+              value={phone}
+              onChange={(e) => {
+                onFirstInput();
+                setPhone(e.target.value.replace(/\D/g, ''));
+              }}
+              required
+              autoComplete="tel"
+              enterKeyHint="next"
+            />
+          </div>
+          <div className="text-[11px] text-mute mt-1 truncate">
+            {selectedCountry?.name} · {selectedCountry?.flag} código +
+            {selectedCountry?.dial}
+          </div>
+        </div>
+
+        <div>
+          <label className="label">{tt('card.email')}</label>
+          <input
+            className="input"
+            type="email"
+            placeholder="tucorreo@ejemplo.com"
+            value={email}
+            onChange={(e) => {
+              onFirstInput();
+              setEmail(e.target.value);
+            }}
+            autoComplete="email"
+            inputMode="email"
+            autoCapitalize="none"
+            enterKeyHint="next"
+          />
+        </div>
+
+        <div>
+          <label className="label">🎂 {tt('card.birthday')}</label>
+          <div className="grid grid-cols-2 gap-2">
+            <select
+              className="input"
+              value={bdayDay}
+              onChange={(e) => setBdayDay(e.target.value)}
+            >
+              <option value="">{tt('card.birth_day')}</option>
+              {DAY_OPTIONS}
+            </select>
+            <select
+              className="input"
+              value={bdayMonth}
+              onChange={(e) => setBdayMonth(e.target.value)}
+            >
+              <option value="">{tt('card.birth_month')}</option>
+              {MONTH_OPTIONS}
+            </select>
+          </div>
+          <div className="text-[11px] text-mute mt-1">
+            Te enviamos un regalo el día de tu cumple 🎁
+          </div>
+        </div>
+
+        <label className="flex items-start gap-2 text-xs text-mute pt-1">
+          <input
+            type="checkbox"
+            className="mt-0.5 accent-brand"
+            checked={accept}
+            onChange={(e) => setAccept(e.target.checked)}
+          />
+          <span>Acepto recibir notificaciones vía Push.</span>
+        </label>
+
+        {err && (
+          <div className="rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink">
+            {err}
+          </div>
+        )}
+
+        <button
+          type="submit"
+          disabled={submitting || !fullName || !phone || !accept || !ready}
+          className="w-full justify-center text-sm sm:text-base py-3.5 rounded-pill font-semibold text-white shadow-md transition disabled:opacity-50 hover:opacity-95 active:scale-[0.97] mt-1 touch-manipulation [-webkit-tap-highlight-color:transparent]"
+          style={{ background: primary }}
+          title={!ready ? 'Verificando datos del negocio…' : undefined}
+        >
+          {submitting
+            ? tt('card.submitting')
+            : !ready
+            ? 'Verificando…'
+            : tt('card.submit') + ' →'}
+        </button>
+      </div>
+    </form>
+  );
+});
+
 export default function EnrollPage() {
   const tt = useT();
   const [locale] = useLocale();
@@ -241,17 +474,9 @@ export default function EnrollPage() {
   // el input. Sin esto, en móviles flojos se perdían letras en el
   // momento exacto en que llegaba la respuesta del backend.
   const [, startCardTransition] = useTransition();
-
-  // Form state — disponible desde el primer paint, no se gatea por loading.
-  const [country, setCountry] = useState('CO');
-  const [phone, setPhone] = useState('');
-  const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
-  const [bdayDay, setBdayDay] = useState<string>('');
-  const [bdayMonth, setBdayMonth] = useState<string>('');
-  const [accept, setAccept] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  // OJO: TODO el state del formulario (fullName, phone, email, country,
+  // birthday, etc.) vive ahora dentro de FormFields. EnrollPage NO se
+  // re-renderiza por keystrokes — solo por estados de carga del card.
 
   // Performance tracking: TTI = tiempo desde mount hasta primer keystroke.
   // El backend loguea WARN si > 3s para alertar regresiones.
@@ -369,62 +594,39 @@ export default function EnrollPage() {
     };
   }, [cardId, locale, retryCount]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Onchange handlers — el primero dispara reportTti.
+  // Callback estable pasado a FormFields. La identidad NO cambia entre
+  // renders (deps solo cambian con cardId), así el memo de FormFields
+  // se mantiene válido — el form NUNCA se re-renderiza por cambios del
+  // padre, solo por sus propios setState internos.
   const onFirstInput = useCallback(() => {
     reportTti();
   }, [reportTti]);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setErr(null);
-    if (!card) {
-      setErr('Verificando tu tarjeta, intenta de nuevo en un segundo.');
-      return;
-    }
-    if (!accept) {
-      setErr('Tienes que aceptar para continuar');
-      return;
-    }
-    const dial = COUNTRIES.find((c) => c.code === country)?.dial ?? '57';
-    const phoneFull = `+${dial}${phone.replace(/\D/g, '')}`;
-    if (phoneFull.length < 10) {
-      setErr('Teléfono inválido');
-      return;
-    }
-    setSubmitting(true);
-    const utmSlug =
-      typeof window !== 'undefined'
-        ? new URLSearchParams(window.location.search).get('utm') ?? undefined
-        : undefined;
-    try {
-      let birthday: string | undefined;
-      if (bdayDay && bdayMonth) {
-        const dd = String(bdayDay).padStart(2, '0');
-        const mm = String(bdayMonth).padStart(2, '0');
-        birthday = `2000-${mm}-${dd}`;
-      }
+  /**
+   * Handler de submit estable. Hace la llamada POST y navega al wallet.
+   * Si falla, lanza el Error y FormFields lo captura en su catch interno
+   * (setErr local). Identidad estable: deps solo cardId y router.
+   */
+  const onSubmitForm = useCallback(
+    async (data: SubmitPayload) => {
+      const utmSlug =
+        typeof window !== 'undefined'
+          ? new URLSearchParams(window.location.search).get('utm') ?? undefined
+          : undefined;
       const res = await fetch(`${API}/api/passes/enroll/${cardId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fullName: fullName.trim(),
-          email: email.trim() || undefined,
-          phone: phoneFull,
-          birthday,
-          utmSlug,
-        }),
+        body: JSON.stringify({ ...data, utmSlug }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
         throw new Error(j.message || 'No pudimos crear tu tarjeta');
       }
-      const data: { passId: string } = await res.json();
-      router.push(`/w/${data.passId}?welcome=1`);
-    } catch (e: any) {
-      setErr(e.message || 'Error');
-      setSubmitting(false);
-    }
-  }
+      const body: { passId: string } = await res.json();
+      router.push(`/w/${body.passId}?welcome=1`);
+    },
+    [cardId, router],
+  );
 
   // ---- Render ----
 
@@ -480,136 +682,12 @@ export default function EnrollPage() {
       <BrandHeader card={card} verifying={verifying} />
 
       <div className="max-w-md mx-auto px-4 sm:px-5 -mt-10">
-        <form onSubmit={submit} className="card shadow-xl p-4 sm:p-6">
-          <h2 className="text-base sm:text-lg font-bold">
-            {tt('card.join_title')}
-          </h2>
-          <p className="text-xs text-mute mt-1">{tt('card.join_sub')}</p>
-
-          <div className="mt-4 sm:mt-5 space-y-3">
-            <div>
-              <label className="label">{tt('card.full_name')}</label>
-              <input
-                className="input"
-                placeholder={tt('card.full_name')}
-                value={fullName}
-                onChange={(e) => {
-                  onFirstInput();
-                  setFullName(e.target.value);
-                }}
-                required
-                autoComplete="name"
-              />
-            </div>
-
-            <div>
-              <label className="label">{tt('card.phone')}</label>
-              <div className="flex gap-2">
-                <select
-                  className="input w-24 sm:w-32 flex-none"
-                  value={country}
-                  onChange={(e) => setCountry(e.target.value)}
-                >
-                  {COUNTRY_OPTIONS}
-                </select>
-                <input
-                  className="input flex-1 min-w-0"
-                  type="tel"
-                  inputMode="numeric"
-                  placeholder="3001234567"
-                  value={phone}
-                  onChange={(e) => {
-                    onFirstInput();
-                    setPhone(e.target.value.replace(/\D/g, ''));
-                  }}
-                  required
-                  autoComplete="tel"
-                />
-              </div>
-              <div className="text-[11px] text-mute mt-1 truncate">
-                {COUNTRIES.find((c) => c.code === country)?.name} ·{' '}
-                {COUNTRIES.find((c) => c.code === country)?.flag} código +
-                {COUNTRIES.find((c) => c.code === country)?.dial}
-              </div>
-            </div>
-
-            <div>
-              <label className="label">{tt('card.email')}</label>
-              <input
-                className="input"
-                type="email"
-                placeholder="tucorreo@ejemplo.com"
-                value={email}
-                onChange={(e) => {
-                  onFirstInput();
-                  setEmail(e.target.value);
-                }}
-                autoComplete="email"
-              />
-            </div>
-
-            <div>
-              <label className="label">🎂 {tt('card.birthday')}</label>
-              <div className="grid grid-cols-2 gap-2">
-                <select
-                  className="input"
-                  value={bdayDay}
-                  onChange={(e) => setBdayDay(e.target.value)}
-                >
-                  <option value="">{tt('card.birth_day')}</option>
-                  {DAY_OPTIONS}
-                </select>
-                <select
-                  className="input"
-                  value={bdayMonth}
-                  onChange={(e) => setBdayMonth(e.target.value)}
-                >
-                  <option value="">{tt('card.birth_month')}</option>
-                  {MONTH_OPTIONS}
-                </select>
-              </div>
-              <div className="text-[11px] text-mute mt-1">
-                Te enviamos un regalo el día de tu cumple 🎁
-              </div>
-            </div>
-
-            <label className="flex items-start gap-2 text-xs text-mute pt-1">
-              <input
-                type="checkbox"
-                className="mt-0.5 accent-brand"
-                checked={accept}
-                onChange={(e) => setAccept(e.target.checked)}
-              />
-              <span>Acepto recibir notificaciones vía Push.</span>
-            </label>
-
-            {err && (
-              <div className="rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink">
-                {err}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={
-                submitting || !fullName || !phone || !accept || !ready
-              }
-              className="w-full justify-center text-sm sm:text-base py-3.5 rounded-pill font-semibold text-white shadow-md transition disabled:opacity-50 hover:opacity-95 active:scale-[0.98] mt-1"
-              style={{ background: primary }}
-              title={
-                !ready
-                  ? 'Verificando datos del negocio…'
-                  : undefined
-              }
-            >
-              {submitting
-                ? tt('card.submitting')
-                : !ready
-                ? 'Verificando…'
-                : tt('card.submit') + ' →'}
-            </button>
-          </div>
-        </form>
+        <FormFields
+          primary={primary}
+          ready={ready}
+          onFirstInput={onFirstInput}
+          onSubmit={onSubmitForm}
+        />
 
         {ready && card!.terms && (
           <details className="mt-4 text-xs text-mute px-2 animate-in fade-in duration-300">
