@@ -358,6 +358,13 @@ export default function MenuSectionsPreview() {
               <div className="flex items-center gap-2 overflow-x-auto pb-2 -mx-4 px-4 sticky top-0 z-20 bg-bg/95 backdrop-blur-md py-2 -mt-2">
                 <SubChip
                   label="Todo"
+                  count={
+                    section.products.length +
+                    (section.subsections ?? []).reduce(
+                      (n, s) => n + s.products.length,
+                      0,
+                    )
+                  }
                   active={!activeSub}
                   onClick={() => setActiveSub(null)}
                 />
@@ -379,7 +386,10 @@ export default function MenuSectionsPreview() {
             >
               {(activeSub
                 ? section.subsections?.find((s) => s.id === activeSub)?.products ?? []
-                : section.products
+                : [
+                    ...section.products,
+                    ...(section.subsections ?? []).flatMap((s) => s.products),
+                  ]
               ).map((p, idx) => (
                 <div
                   key={p.id}

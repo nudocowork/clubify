@@ -2493,10 +2493,14 @@ function LayoutSections({
   const hasSubs = subs.length > 0;
 
   // Productos visibles: si hay subsection activa, los de esa sub.
-  // Sino, los de la sección raíz (no de las subs).
+  // Sino ("Todo" pill activo), agregamos productos de la sección padre
+  // + todas las subsecciones. Antes solo mostrábamos section.products
+  // directos, lo que dejaba "Todo" vacío en negocios donde TODOS los
+  // productos viven en subsecciones (caso Motilart: WOMEN → Cortes/
+  // Peinados/Maquillaje, sin productos directos en WOMEN).
   const visibleProducts = activeSub
     ? subs.find((s) => s.id === activeSub)?.products ?? []
-    : section.products;
+    : [...section.products, ...subs.flatMap((s) => s.products)];
 
   return (
     <div
@@ -2531,6 +2535,7 @@ function LayoutSections({
         <div className="flex items-center gap-2 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-none sticky top-0 z-20 bg-bg/95 backdrop-blur-md py-2 -mt-2">
           <SubChip
             label="Todo"
+            count={section.products.length + subs.reduce((n, s) => n + s.products.length, 0)}
             active={!activeSub}
             onClick={() => setActiveSub(null)}
             primary={primary}
