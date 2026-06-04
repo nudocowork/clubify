@@ -15,6 +15,34 @@ import {
 } from '@/lib/info-link-banner';
 
 // =============================================================
+//  Feedback de tap en móvil — fix iOS Safari
+// =============================================================
+
+/**
+ * Clases compartidas para feedback de "hundido" al tocar en móvil.
+ *
+ * Issue en iOS Safari: el pseudo-class `active:` no dispara confiablemente
+ * sobre `<a>` si el browser piensa que es solo un link de navegación.
+ * Resultado: el cliente toca la card y NO siente que se hundió antes de
+ * que cambie la página — parece que "no responde".
+ *
+ * Fix:
+ *  - `cursor-pointer`: WebKit usa esto como hint para activar `:active`.
+ *  - `touch-manipulation`: elimina el delay de 300ms y mejora la respuesta
+ *    al primer touch.
+ *  - `select-none`: evita el menú de selección de texto al hacer long-press.
+ *  - `active:scale-[0.97]`: feedback visible (3% reducción) — `0.99` era
+ *    imperceptible.
+ *  - `transition-transform duration-150`: asegura que la animación de
+ *    scale tenga duración explícita (algunos shells no tenían `transition`
+ *    o tenían transición general que se sentía lenta).
+ *  - `[-webkit-tap-highlight-color:transparent]`: suprime el flash gris
+ *    nativo de iOS que enmascara el scale animation.
+ */
+const TAP_FX =
+  'cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]';
+
+// =============================================================
 //  Tipos compartidos
 // =============================================================
 
@@ -151,7 +179,7 @@ function CoverButtonLink({ b }: { b: ResolvedButton }) {
       target={b.newTab ? '_blank' : undefined}
       rel="noreferrer"
       onClick={b.onClick}
-      className="block w-full rounded-2xl overflow-hidden shadow-md hover:shadow-xl transition active:scale-[0.99]"
+      className={`block w-full rounded-2xl overflow-hidden shadow-md hover:shadow-xl ${TAP_FX}`}
     >
       <SectionCoverPreview
         config={b.cover}
@@ -237,7 +265,7 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode }: Sh
                   target={b.newTab ? '_blank' : undefined}
                   rel="noreferrer"
                   onClick={b.onClick}
-                  className={`block w-full px-4 py-3 rounded-2xl text-center text-sm font-semibold transition backdrop-blur-md ${
+                  className={`block w-full px-4 py-3 rounded-2xl text-center text-sm font-semibold backdrop-blur-md ${TAP_FX} ${
                     auroraSolid
                       ? 'bg-white text-[#1A0E2E] shadow-xl hover:shadow-2xl'
                       : sp.className
@@ -347,7 +375,7 @@ export function MinimalShell({ tenant, link, primary, buttons, sectionsNode }: S
                   target={b.newTab ? '_blank' : undefined}
                   rel="noreferrer"
                   onClick={b.onClick}
-                  className={`block w-full px-4 py-3 rounded-xl text-sm text-center font-medium transition ${sp.className}`}
+                  className={`block w-full px-4 py-3 rounded-xl text-sm text-center font-medium ${TAP_FX} ${sp.className}`}
                   style={sp.style}
                 >
                   {b.label}
@@ -491,7 +519,7 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode }: Shel
                 target={primaryBtn.newTab ? '_blank' : undefined}
                 rel="noreferrer"
                 onClick={primaryBtn.onClick}
-                className={`block w-full mt-5 py-3 rounded-full text-center text-sm font-semibold transition ${
+                className={`block w-full mt-5 py-3 rounded-full text-center text-sm font-semibold ${TAP_FX} ${
                   primaryBtn.bgStyle === 'solid' ? 'shadow-md' : ''
                 } ${sp.className}`}
                 style={sp.style}
@@ -515,7 +543,7 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode }: Shel
                     target={b.newTab ? '_blank' : undefined}
                     rel="noreferrer"
                     onClick={b.onClick}
-                    className={`py-2.5 rounded-lg text-[11px] font-semibold text-center transition ${
+                    className={`py-2.5 rounded-lg text-[11px] font-semibold text-center ${TAP_FX} ${
                       usingDefault
                         ? 'border border-line bg-white text-ink hover:bg-bg2/40'
                         : sp.className
@@ -609,7 +637,7 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode }: S
                     target={b.newTab ? '_blank' : undefined}
                     rel="noreferrer"
                     onClick={b.onClick}
-                    className={`text-[11px] font-semibold px-3 py-1.5 rounded-full transition ${sp.className}`}
+                    className={`text-[11px] font-semibold px-3 py-1.5 rounded-full ${TAP_FX} ${sp.className}`}
                     style={sp.style}
                   >
                     {b.label}
@@ -758,7 +786,7 @@ export function NeonShell({ tenant, link, primary, buttons, sectionsNode }: Shel
                   target={b.newTab ? '_blank' : undefined}
                   rel="noreferrer"
                   onClick={b.onClick}
-                  className={`block w-full px-4 py-3 text-sm text-center font-bold uppercase tracking-wider transition ${cls}`}
+                  className={`block w-full px-4 py-3 text-sm text-center font-bold uppercase tracking-wider ${TAP_FX} ${cls}`}
                   style={style}
                 >
                   {b.label}
