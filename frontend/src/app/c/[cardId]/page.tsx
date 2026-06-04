@@ -1,5 +1,12 @@
 'use client';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+} from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ClubifyBadge } from '@/components/ClubifyBadge';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
@@ -100,6 +107,115 @@ function clearCache(cardId: string, locale: string) {
   } catch {}
 }
 
+/**
+ * Cabecera de marca memoizada. NO se re-renderiza cuando cambia el form
+ * state (fullName, phone, etc.) — solo cuando llega el card del backend.
+ * Sin este memo, cada keystroke re-reconciliaba la cabecera entera
+ * (gradiente, logo, animaciones) y rompía la respuesta del teclado en
+ * móviles flojos.
+ */
+const BrandHeader = memo(function BrandHeader({
+  card,
+  verifying,
+}: {
+  card: Card | null;
+  verifying: boolean;
+}) {
+  const ready = !!card;
+  const primary = card?.primaryColor || card?.tenant.primaryColor || '#22C55E';
+  const secondary = card?.secondaryColor || '#15803D';
+  return (
+    <div
+      className="px-4 sm:px-5 pt-8 sm:pt-10 pb-14 sm:pb-16 text-white transition-[background] duration-500"
+      style={{
+        background: ready
+          ? `linear-gradient(135deg, ${primary}, ${secondary})`
+          : 'linear-gradient(135deg, #1F2937, #374151)',
+      }}
+    >
+      <div className="max-w-md mx-auto">
+        <div className="flex items-center gap-2.5 sm:gap-3 mb-4 sm:mb-5">
+          {ready && card?.tenant.logoUrl ? (
+            <img
+              src={card.tenant.logoUrl}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl object-cover bg-white p-1 flex-none animate-in fade-in duration-300"
+            />
+          ) : (
+            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-white/20 flex items-center justify-center font-bold text-lg sm:text-xl flex-none">
+              {ready ? card!.tenant.brandName.charAt(0) : '·'}
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <div className="text-[10px] sm:text-xs uppercase tracking-wider opacity-80">
+              {ready
+                ? TYPE_LABEL[card!.type] || 'Tarjeta'
+                : 'Programa de fidelización'}
+            </div>
+            <div className="font-bold text-base sm:text-lg leading-tight truncate">
+              {ready ? card!.tenant.brandName : verifying ? 'Verificando…' : ' '}
+            </div>
+          </div>
+        </div>
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight leading-tight break-words min-h-[2.25rem]">
+          {ready ? card!.name : ' '}
+        </h1>
+        {ready && card!.description && (
+          <p className="text-white/85 mt-2 leading-relaxed text-sm sm:text-base break-words animate-in fade-in duration-300">
+            {card!.description}
+          </p>
+        )}
+        {ready && card!.rewardText && (
+          <div className="mt-4 sm:mt-5 inline-flex max-w-full items-center bg-white/15 backdrop-blur rounded-pill px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-medium animate-in fade-in duration-300">
+            <span className="mr-1.5 flex-none">🎁</span>
+            <span className="break-words">{card!.rewardText}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
+
+/**
+ * Las 20 options del dropdown de país son siempre las mismas. Memoizar
+ * el JSX evita re-crearlo en cada keystroke.
+ */
+const COUNTRY_OPTIONS = COUNTRIES.map((c) => (
+  <option key={c.code} value={c.code}>
+    {c.flag} +{c.dial}
+  </option>
+));
+
+/**
+ * Las 31 options de días y 12 de meses también son estáticas.
+ */
+const DAY_OPTIONS = Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+  <option key={d} value={d}>
+    {d}
+  </option>
+));
+const MONTH_NAMES = [
+  'Enero',
+  'Febrero',
+  'Marzo',
+  'Abril',
+  'Mayo',
+  'Junio',
+  'Julio',
+  'Agosto',
+  'Septiembre',
+  'Octubre',
+  'Noviembre',
+  'Diciembre',
+];
+const MONTH_OPTIONS = MONTH_NAMES.map((m, i) => (
+  <option key={m} value={i + 1}>
+    {m}
+  </option>
+));
+
 export default function EnrollPage() {
   const tt = useT();
   const [locale] = useLocale();
@@ -118,6 +234,13 @@ export default function EnrollPage() {
   const [networkError, setNetworkError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [verifying, setVerifying] = useState(false);
+
+  // startTransition marca updates como BAJA PRIORIDAD. Cuando el fetch
+  // del card resuelve mientras el cliente está tipeando, React no
+  // bloquea los keystrokes para reconciliar el header brand: prioriza
+  // el input. Sin esto, en móviles flojos se perdían letras en el
+  // momento exacto en que llegaba la respuesta del backend.
+  const [, startCardTransition] = useTransition();
 
   // Form state — disponible desde el primer paint, no se gatea por loading.
   const [country, setCountry] = useState('CO');
@@ -206,11 +329,16 @@ export default function EnrollPage() {
           // próximo load no vuelva a mostrarla.
           clearCache(cardId as string, locale);
           setUnavailable(true);
-          setCard(null);
+          startCardTransition(() => setCard(null));
           return;
         }
-        setCard(data.card);
-        writeCache(cardId as string, locale, data.card);
+        // setCard como transition: NO bloquea keystrokes del input. El
+        // header brand se renderiza cuando el browser tenga tiempo
+        // libre, no compitiendo con el teclado.
+        startCardTransition(() => setCard(data.card));
+        // writeCache hace JSON.stringify de un objeto grande — diferimos
+        // a la siguiente microtask para no robar tiempo al render actual.
+        queueMicrotask(() => writeCache(cardId as string, locale, data.card));
         if (loadFinishedAt.current === null) {
           loadFinishedAt.current = performance.now();
         }
@@ -341,61 +469,11 @@ export default function EnrollPage() {
   // Render principal: SIEMPRE muestra el form. Si no hay card todavía,
   // el header se renderiza neutro y se anima al llegar datos.
   const primary = card?.primaryColor || card?.tenant.primaryColor || '#22C55E';
-  const secondary = card?.secondaryColor || '#15803D';
   const ready = !!card;
 
   return (
     <main className="min-h-screen bg-bg pb-8 sm:pb-12">
-      <div
-        className="px-4 sm:px-5 pt-8 sm:pt-10 pb-14 sm:pb-16 text-white transition-[background] duration-500"
-        style={{
-          background: ready
-            ? `linear-gradient(135deg, ${primary}, ${secondary})`
-            : 'linear-gradient(135deg, #1F2937, #374151)',
-        }}
-      >
-        <div className="max-w-md mx-auto">
-          <div className="flex items-center gap-2.5 sm:gap-3 mb-4 sm:mb-5">
-            {ready && card?.tenant.logoUrl ? (
-              <img
-                src={card.tenant.logoUrl}
-                alt=""
-                loading="lazy"
-                decoding="async"
-                className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl object-cover bg-white p-1 flex-none animate-in fade-in duration-300"
-              />
-            ) : (
-              <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-white/20 flex items-center justify-center font-bold text-lg sm:text-xl flex-none">
-                {ready ? card!.tenant.brandName.charAt(0) : '·'}
-              </div>
-            )}
-            <div className="flex-1 min-w-0">
-              <div className="text-[10px] sm:text-xs uppercase tracking-wider opacity-80">
-                {ready
-                  ? TYPE_LABEL[card!.type] || 'Tarjeta'
-                  : 'Programa de fidelización'}
-              </div>
-              <div className="font-bold text-base sm:text-lg leading-tight truncate">
-                {ready ? card!.tenant.brandName : verifying ? 'Verificando…' : ' '}
-              </div>
-            </div>
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight leading-tight break-words min-h-[2.25rem]">
-            {ready ? card!.name : ' '}
-          </h1>
-          {ready && card!.description && (
-            <p className="text-white/85 mt-2 leading-relaxed text-sm sm:text-base break-words animate-in fade-in duration-300">
-              {card!.description}
-            </p>
-          )}
-          {ready && card!.rewardText && (
-            <div className="mt-4 sm:mt-5 inline-flex max-w-full items-center bg-white/15 backdrop-blur rounded-pill px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-medium animate-in fade-in duration-300">
-              <span className="mr-1.5 flex-none">🎁</span>
-              <span className="break-words">{card!.rewardText}</span>
-            </div>
-          )}
-        </div>
-      </div>
+      <BrandHeader card={card} verifying={verifying} />
 
       <div className="max-w-md mx-auto px-4 sm:px-5 -mt-10">
         <form onSubmit={submit} className="card shadow-xl p-4 sm:p-6">
@@ -428,11 +506,7 @@ export default function EnrollPage() {
                   value={country}
                   onChange={(e) => setCountry(e.target.value)}
                 >
-                  {COUNTRIES.map((c) => (
-                    <option key={c.code} value={c.code}>
-                      {c.flag} +{c.dial}
-                    </option>
-                  ))}
+                  {COUNTRY_OPTIONS}
                 </select>
                 <input
                   className="input flex-1 min-w-0"
@@ -479,11 +553,7 @@ export default function EnrollPage() {
                   onChange={(e) => setBdayDay(e.target.value)}
                 >
                   <option value="">{tt('card.birth_day')}</option>
-                  {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
-                    <option key={d} value={d}>
-                      {d}
-                    </option>
-                  ))}
+                  {DAY_OPTIONS}
                 </select>
                 <select
                   className="input"
@@ -491,24 +561,7 @@ export default function EnrollPage() {
                   onChange={(e) => setBdayMonth(e.target.value)}
                 >
                   <option value="">{tt('card.birth_month')}</option>
-                  {[
-                    'Enero',
-                    'Febrero',
-                    'Marzo',
-                    'Abril',
-                    'Mayo',
-                    'Junio',
-                    'Julio',
-                    'Agosto',
-                    'Septiembre',
-                    'Octubre',
-                    'Noviembre',
-                    'Diciembre',
-                  ].map((m, i) => (
-                    <option key={m} value={i + 1}>
-                      {m}
-                    </option>
-                  ))}
+                  {MONTH_OPTIONS}
                 </select>
               </div>
               <div className="text-[11px] text-mute mt-1">
