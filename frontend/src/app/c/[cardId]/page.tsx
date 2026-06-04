@@ -356,7 +356,11 @@ export default function EnrollPage() {
       })
       .finally(() => {
         clearTimeout(timeoutId);
-        if (!cancelled) setVerifying(false);
+        // setVerifying es cosmético (solo afecta texto "Verificando…" en
+        // el header). Wrapeado en transition para consistencia con setCard
+        // — los keystrokes mantienen prioridad sobre cualquier flash del
+        // header al terminar el fetch.
+        if (!cancelled) startCardTransition(() => setVerifying(false));
       });
     return () => {
       cancelled = true;
