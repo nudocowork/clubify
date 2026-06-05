@@ -2597,4 +2597,425 @@ export class ReferralsService {
     }
     return { generated, skipped };
   }
+
+  // ============================================================
+  // ADMIN COMMISSIONS PANEL — FASE B2
+  // ============================================================
+
+  /**
+   * Listado avanzado de commissions para el panel /admin/commissions.
+   * Soporta filtros por fecha, estado de pago, rol del recipient,
+   * tenant y código recipient. Incluye agregados totales para los KPIs
+   * (Total, Pendiente, Pagado).
+   *
+   * Por cada commission devolvemos:
+   * - Datos de la commission (amount, amountPaid, paymentStatus, etc.)
+   * - Datos del tenant (brandName, planPeriodicity, currentPeriodEnd)
+   * - Datos del recipient (ownerName, code, role)
+   *
+   * Para la columna "comisión influencer/embajador/vendedor" agrupamos
+   * por transactionId del lado del consumidor (frontend) — esta API
+   * devuelve un row por persona/commission y el frontend decide cómo
+   * presentar el 3-way split.
+   */
+  async listAdminCommissions(
+    user: AuthUser,
+    opts: {
+      dateFrom?: string;
+      dateTo?: string;
+      status?: 'PENDING' | 'PARTIAL' | 'PAID';
+      role?: 'INFLUENCER' | 'AMBASSADOR' | 'VENDOR' | 'SOCIO';
+      tenantId?: string;
+      codeId?: string;
+    },
+  ) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+
+    const where: any = {};
+    if (opts.status) where.paymentStatus = opts.status;
+    if (opts.dateFrom || opts.dateTo) {
+      where.createdAt = {};
+      if (opts.dateFrom) where.createdAt.gte = new Date(opts.dateFrom);
+      if (opts.dateTo) where.createdAt.lte = new Date(opts.dateTo);
+    }
+    if (opts.codeId) where.recipientCodeId = opts.codeId;
+    if (opts.tenantId) where.referralUse = { tenantId: opts.tenantId };
+    if (opts.role) {
+      where.recipientCode = { role: opts.role };
+    }
+
+    const rows = await this.prisma.commission.findMany({
+      where,
+      include: {
+        referralUse: {
+          include: {
+            tenant: {
+              select: {
+                id: true,
+                brandName: true,
+                planPeriodicity: true,
+                currentPeriodEnd: true,
+                plan: { select: { name: true } },
+              },
+            },
+            referralCode: {
+              select: { id: true, code: true, ownerName: true, role: true },
+            },
+          },
+        },
+        recipientCode: {
+          select: {
+            id: true,
+            code: true,
+            ownerName: true,
+            ownerEmail: true,
+            role: true,
+          },
+        },
+        vendorCode: {
+          select: { id: true, code: true, ownerName: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+
+    const items = rows.map((c) => {
+      const amount = Number(c.amount);
+      const amountPaid = Number(c.amountPaid);
+      const outstanding = Math.max(0, amount - amountPaid);
+      return {
+        id: c.id,
+        amount,
+        amountPaid,
+        outstanding: Math.round(outstanding * 100) / 100,
+        currency: c.currency,
+        paymentStatus: c.paymentStatus,
+        status: c.status,
+        createdAt: c.createdAt,
+        paidAt: c.paidAt,
+        notes: c.notes,
+        hotmartTransactionId: c.hotmartTransactionId,
+        tenant: c.referralUse?.tenant
+          ? {
+              id: c.referralUse.tenant.id,
+              brandName: c.referralUse.tenant.brandName,
+              planName: c.referralUse.tenant.plan?.name ?? null,
+              planPeriodicity: c.referralUse.tenant.planPeriodicity ?? null,
+              currentPeriodEnd: c.referralUse.tenant.currentPeriodEnd,
+            }
+          : null,
+        recipient: c.recipientCode
+          ? {
+              id: c.recipientCode.id,
+              code: c.recipientCode.code,
+              ownerName: c.recipientCode.ownerName,
+              ownerEmail: c.recipientCode.ownerEmail,
+              role: c.recipientCode.role,
+            }
+          : null,
+        vendor: c.vendorCode
+          ? {
+              id: c.vendorCode.id,
+              code: c.vendorCode.code,
+              ownerName: c.vendorCode.ownerName,
+            }
+          : null,
+      };
+    });
+
+    // Agregados sobre el resultado filtrado.
+    const round = (n: number) => Math.round(n * 100) / 100;
+    let totalAmount = 0;
+    let totalPaid = 0;
+    let totalOutstanding = 0;
+    for (const it of items) {
+      totalAmount += it.amount;
+      totalPaid += it.amountPaid;
+      totalOutstanding += it.outstanding;
+    }
+
+    return {
+      items,
+      totals: {
+        count: items.length,
+        totalAmount: round(totalAmount),
+        totalPaid: round(totalPaid),
+        totalOutstanding: round(totalOutstanding),
+      },
+    };
+  }
+
+  /**
+   * Marca una commission como pagada (total o parcial).
+   * - Si amount >= commission.amount - amountPaid → paymentStatus PAID
+   *   (y status = PAID + paidAt = now).
+   * - Si amount < outstanding → paymentStatus PARTIAL, amountPaid += amount.
+   *
+   * `note` es opcional y se concatena al campo `notes` con marca de fecha.
+   */
+  async payCommission(
+    user: AuthUser,
+    commissionId: string,
+    body: { amount: number; note?: string },
+  ) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+
+    const amount = Number(body.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException('Monto inválido');
+    }
+
+    const c = await this.prisma.commission.findUnique({
+      where: { id: commissionId },
+      select: {
+        id: true,
+        amount: true,
+        amountPaid: true,
+        paymentStatus: true,
+        notes: true,
+      },
+    });
+    if (!c) throw new NotFoundException('Comisión no encontrada');
+
+    const currentPaid = Number(c.amountPaid);
+    const total = Number(c.amount);
+    const outstanding = Math.max(0, total - currentPaid);
+
+    if (outstanding <= 0) {
+      throw new BadRequestException('La comisión ya está pagada por completo');
+    }
+
+    const newPaid = Math.min(total, currentPaid + amount);
+    const isFullPaid = newPaid >= total - 0.001;
+    const newPaymentStatus: 'PAID' | 'PARTIAL' = isFullPaid ? 'PAID' : 'PARTIAL';
+
+    const stampedNote = body.note?.trim()
+      ? `[${new Date().toISOString().slice(0, 10)}] Pago ${amount}: ${body.note.trim()}`
+      : null;
+    const nextNotes = stampedNote
+      ? c.notes
+        ? `${c.notes}\n${stampedNote}`
+        : stampedNote
+      : c.notes;
+
+    const updated = await this.prisma.commission.update({
+      where: { id: commissionId },
+      data: {
+        amountPaid: newPaid,
+        paymentStatus: newPaymentStatus,
+        ...(isFullPaid
+          ? { status: 'PAID' as CommissionStatus, paidAt: new Date() }
+          : {}),
+        notes: nextNotes,
+      },
+      select: {
+        id: true,
+        amount: true,
+        amountPaid: true,
+        paymentStatus: true,
+        status: true,
+        paidAt: true,
+        notes: true,
+      },
+    });
+
+    return {
+      ok: true,
+      commission: {
+        id: updated.id,
+        amount: Number(updated.amount),
+        amountPaid: Number(updated.amountPaid),
+        paymentStatus: updated.paymentStatus,
+        status: updated.status,
+        paidAt: updated.paidAt,
+        notes: updated.notes,
+      },
+    };
+  }
+
+  /**
+   * Listado de personas con saldo pendiente, agrupado por recipientCodeId.
+   * Para la vista /admin/commissions/payments. Por cada persona devolvemos:
+   * - Total commissions con saldo (PENDING + PARTIAL).
+   * - Suma del outstanding total.
+   * - Datos básicos del recipient (nombre, email, role, código).
+   */
+  async listPendingPayouts(user: AuthUser) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+
+    const rows = await this.prisma.commission.findMany({
+      where: {
+        paymentStatus: { in: ['PENDING', 'PARTIAL'] },
+        recipientCodeId: { not: null },
+      },
+      include: {
+        recipientCode: {
+          select: {
+            id: true,
+            code: true,
+            ownerName: true,
+            ownerEmail: true,
+            ownerWhatsapp: true,
+            role: true,
+          },
+        },
+      },
+    });
+
+    // Agrupar por recipientCodeId
+    const byRecipient = new Map<
+      string,
+      {
+        code: {
+          id: string;
+          code: string;
+          ownerName: string;
+          ownerEmail: string;
+          ownerWhatsapp: string;
+          role: string;
+        };
+        commissionsCount: number;
+        totalOutstanding: number;
+        totalPaid: number;
+        oldestPending: Date | null;
+      }
+    >();
+
+    for (const c of rows) {
+      if (!c.recipientCode) continue;
+      const key = c.recipientCode.id;
+      const amount = Number(c.amount);
+      const paid = Number(c.amountPaid);
+      const outstanding = Math.max(0, amount - paid);
+
+      const cur = byRecipient.get(key);
+      if (cur) {
+        cur.commissionsCount += 1;
+        cur.totalOutstanding += outstanding;
+        cur.totalPaid += paid;
+        if (!cur.oldestPending || c.createdAt < cur.oldestPending) {
+          cur.oldestPending = c.createdAt;
+        }
+      } else {
+        byRecipient.set(key, {
+          code: {
+            id: c.recipientCode.id,
+            code: c.recipientCode.code,
+            ownerName: c.recipientCode.ownerName,
+            ownerEmail: c.recipientCode.ownerEmail,
+            ownerWhatsapp: c.recipientCode.ownerWhatsapp,
+            role: c.recipientCode.role,
+          },
+          commissionsCount: 1,
+          totalOutstanding: outstanding,
+          totalPaid: paid,
+          oldestPending: c.createdAt,
+        });
+      }
+    }
+
+    const round = (n: number) => Math.round(n * 100) / 100;
+    const items = Array.from(byRecipient.values())
+      .map((it) => ({
+        codeId: it.code.id,
+        code: it.code.code,
+        ownerName: it.code.ownerName,
+        ownerEmail: it.code.ownerEmail,
+        ownerWhatsapp: it.code.ownerWhatsapp,
+        role: it.code.role,
+        commissionsCount: it.commissionsCount,
+        totalOutstanding: round(it.totalOutstanding),
+        totalPaid: round(it.totalPaid),
+        oldestPending: it.oldestPending,
+      }))
+      .sort((a, b) => b.totalOutstanding - a.totalOutstanding);
+
+    const grandTotal = items.reduce((acc, it) => acc + it.totalOutstanding, 0);
+
+    return {
+      items,
+      totals: {
+        count: items.length,
+        grandTotalOutstanding: round(grandTotal),
+      },
+    };
+  }
+
+  /**
+   * Marca TODAS las commissions pendientes (PENDING + PARTIAL) de una
+   * persona como pagadas. Útil cuando el admin acaba de transferir el
+   * acumulado y quiere conciliar en bulk.
+   *
+   * Implementación: para cada commission outstanding, setea
+   * amountPaid = amount, paymentStatus = PAID, status = PAID, paidAt = now.
+   * Agrega una nota con marca de bulk para auditoría.
+   */
+  async payAllForPerson(
+    user: AuthUser,
+    codeId: string,
+    note?: string,
+  ): Promise<{ ok: true; paidCount: number; totalPaid: number }> {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+
+    const code = await this.prisma.referralCode.findUnique({
+      where: { id: codeId },
+      select: { id: true, ownerName: true },
+    });
+    if (!code) throw new NotFoundException('Código no encontrado');
+
+    const pending = await this.prisma.commission.findMany({
+      where: {
+        recipientCodeId: codeId,
+        paymentStatus: { in: ['PENDING', 'PARTIAL'] },
+      },
+      select: {
+        id: true,
+        amount: true,
+        amountPaid: true,
+        notes: true,
+      },
+    });
+
+    if (pending.length === 0) {
+      return { ok: true, paidCount: 0, totalPaid: 0 };
+    }
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    const noteTxt = note?.trim()
+      ? `[${stamp}] Pago bulk: ${note.trim()}`
+      : `[${stamp}] Pago bulk a ${code.ownerName}`;
+
+    let totalPaid = 0;
+    const now = new Date();
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const c of pending) {
+        const amount = Number(c.amount);
+        const already = Number(c.amountPaid);
+        const outstanding = Math.max(0, amount - already);
+        if (outstanding <= 0) continue;
+        totalPaid += outstanding;
+
+        const nextNotes = c.notes ? `${c.notes}\n${noteTxt}` : noteTxt;
+
+        await tx.commission.update({
+          where: { id: c.id },
+          data: {
+            amountPaid: amount,
+            paymentStatus: 'PAID',
+            status: 'PAID' as CommissionStatus,
+            paidAt: now,
+            notes: nextNotes,
+          },
+        });
+      }
+    });
+
+    return {
+      ok: true,
+      paidCount: pending.length,
+      totalPaid: Math.round(totalPaid * 100) / 100,
+    };
+  }
 }
