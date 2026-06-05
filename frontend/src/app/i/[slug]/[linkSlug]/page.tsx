@@ -6,6 +6,7 @@ import { resolveTemplate } from '@/lib/info-link-templates';
 import { useLocale } from '@/lib/i18n';
 import { InfoLinkPopupModal } from '@/components/InfoLinkPopupModal';
 import type { PopupConfig } from '@/lib/info-link-popup';
+import { safeUrlOrNull } from '@/lib/safe-url';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
@@ -212,7 +213,11 @@ export default function PublicInfoLink() {
       case 'PROMO':
         return `/m/${tenant.slug}`;
       case 'EXTERNAL':
-        return b.url;
+        // Defense-in-depth contra stored XSS: aunque el backend ya
+        // sanitiza al PATCH, filtramos aquí cualquier scheme exótico
+        // (javascript:, data:, vbscript:) que pudiera haber quedado de
+        // registros viejos pre-fix.
+        return safeUrlOrNull(b.url) ?? undefined;
       case 'POPUP':
         // POPUP no navega — usamos '#' como href neutro; el onClick del
         // botón intercepta con preventDefault y abre el modal.

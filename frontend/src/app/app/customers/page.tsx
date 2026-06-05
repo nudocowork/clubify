@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { api, downloadFile } from '@/lib/api';
 import { Icon } from '@/components/Icon';
@@ -91,6 +91,14 @@ export default function CustomersPage() {
 
   // Búsqueda live debounced (300ms) — re-fetch si cambia search/sede/
   // scanner/fecha. M6: 4 filtros combinables.
+  //
+  // HOTFIX 2026-06-05 (bug I): requestIdRef monotónico para descartar
+  // respuestas de filtros viejos. Sin esto, si el cliente tipea "Juan"
+  // → borra → "Maria" rápido, la respuesta de "Juan" podía llegar
+  // después y pisar la lista de "Maria" → lista incorrecta intermitente.
+  // El api() helper no expone AbortController, así que usamos id que
+  // se invalida en cada nueva request.
+  const requestIdRef = useRef(0);
   useEffect(() => {
     const t = setTimeout(() => load(search), 300);
     return () => clearTimeout(t);
@@ -123,6 +131,7 @@ export default function CustomersPage() {
 
   async function load(term: string = search) {
     setLoading(true);
+    const myId = ++requestIdRef.current;
     try {
       const qs = new URLSearchParams();
       if (term) qs.set('search', term);
@@ -138,11 +147,20 @@ export default function CustomersPage() {
         }
       }
       const params = qs.toString() ? `?${qs}` : '';
-      setList(await api(`/customers${params}`));
+      const res = await api<Customer[]>(`/customers${params}`);
+      // Solo aplicar si seguimos siendo la última request — sino una
+      // respuesta lenta de filtros viejos pisaría la nueva.
+      if (myId === requestIdRef.current) {
+        setList(res);
+      }
     } catch (e: any) {
-      toast(e.message || 'Error cargando clientes', 'error');
+      if (myId === requestIdRef.current) {
+        toast(e.message || 'Error cargando clientes', 'error');
+      }
     } finally {
-      setLoading(false);
+      if (myId === requestIdRef.current) {
+        setLoading(false);
+      }
     }
   }
 

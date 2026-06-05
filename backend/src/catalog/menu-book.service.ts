@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { safeUrlOrNull } from '../common/util/safe-url';
 
 export type SectionDto = {
   title: string;
@@ -86,7 +87,7 @@ export class MenuBookService {
         popupDescription: dto.popupDescription ?? null,
         popupImageUrl: dto.popupImageUrl ?? null,
         popupButtonText: dto.popupButtonText ?? null,
-        popupButtonUrl: dto.popupButtonUrl ?? null,
+        popupButtonUrl: dto.popupButtonUrl ? safeUrlOrNull(dto.popupButtonUrl) ?? null : null,
         popupButtonColor: dto.popupButtonColor ?? null,
       },
     });
@@ -128,7 +129,9 @@ export class MenuBookService {
         popupButtonUrl:
           patch.popupButtonUrl === undefined
             ? section.popupButtonUrl
-            : patch.popupButtonUrl,
+            : patch.popupButtonUrl
+            ? safeUrlOrNull(patch.popupButtonUrl) ?? null
+            : null,
         popupButtonColor:
           patch.popupButtonColor === undefined
             ? section.popupButtonColor
@@ -212,7 +215,7 @@ export class MenuBookService {
         popupDescription: dto.popupDescription ?? null,
         popupImageUrl: dto.popupImageUrl ?? null,
         popupButtonText: dto.popupButtonText ?? null,
-        popupButtonUrl: dto.popupButtonUrl ?? null,
+        popupButtonUrl: dto.popupButtonUrl ? safeUrlOrNull(dto.popupButtonUrl) ?? null : null,
         popupButtonColor: dto.popupButtonColor ?? null,
       },
     });
@@ -242,7 +245,12 @@ export class MenuBookService {
         popupDescription: patch.popupDescription ?? page.popupDescription,
         popupImageUrl: patch.popupImageUrl ?? page.popupImageUrl,
         popupButtonText: patch.popupButtonText ?? page.popupButtonText,
-        popupButtonUrl: patch.popupButtonUrl ?? page.popupButtonUrl,
+        popupButtonUrl:
+          patch.popupButtonUrl === undefined
+            ? page.popupButtonUrl
+            : patch.popupButtonUrl
+            ? safeUrlOrNull(patch.popupButtonUrl) ?? null
+            : null,
         popupButtonColor: patch.popupButtonColor ?? page.popupButtonColor,
       },
     });

@@ -17,6 +17,8 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Length,
+  Matches,
   Max,
   Min,
 } from 'class-validator';
@@ -66,7 +68,10 @@ class UpdateMyBody {
   @IsOptional() @IsString() whatsappFeedbackMessage?: string | null;
   // Moneda de los precios mostrados en el storefront público. ISO 4217
   // (3 letras, ej: COP, USD, MXN, ARS, CLP, PEN, BRL). M1.5 2026-06-04.
-  @IsOptional() @IsString() currency?: string;
+  // HOTFIX 2026-06-05 (bug G): formato estricto para que strings basura
+  // ("", "asdf", "USDOLLAR") no rompan el formateo en storefront público.
+  @IsOptional() @IsString() @Length(3, 3) @Matches(/^[A-Z]{3}$/)
+  currency?: string;
   // M4: máximo de sellos/visitas que un mismo pass puede recibir en 24h.
   // null = 1 (default histórico). Rango razonable 1-10 para evitar abuso.
   @IsOptional() @IsInt() @Min(1) @Max(20) maxStampsPerDay?: number;

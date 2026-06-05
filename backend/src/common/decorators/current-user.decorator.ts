@@ -6,6 +6,10 @@ export type AuthUser = {
   email: string;
   role: Role;
   tenantId: string | null;
+  /** ID del SUPER_ADMIN/MARKETING que originó la impersonación. null si
+   *  la sesión es legítima del owner. Audit logs deben incluirlo cuando
+   *  está presente para que pintarse correctamente "quién hizo qué". */
+  impersonatedBy?: string | null;
 };
 
 export const CurrentUser = createParamDecorator(

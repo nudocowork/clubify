@@ -202,15 +202,34 @@ export class PassesService {
       birthdayDate && !Number.isNaN(birthdayDate.getTime()) ? birthdayDate : null;
 
     if (!customer) {
-      customer = await this.prisma.customer.create({
-        data: {
-          tenantId: card.tenantId,
-          fullName: dto.fullName.trim(),
-          phone: phoneNorm,
-          email: email ?? undefined,
-          birthday: validBday ?? undefined,
-        },
-      });
+      // HOTFIX 2026-06-05 (bug D): el match-or-create de customer no
+      // estaba en transacción. Dos POST simultáneos del mismo teléfono
+      // pasaban ambos por el findUnique → ambos llegaban al create →
+      // uno tiraba P2002 sin handler → 500 al cliente. Con el catch
+      // P2002 re-leemos el customer existente (lo creó el otro request)
+      // y seguimos con ese.
+      try {
+        customer = await this.prisma.customer.create({
+          data: {
+            tenantId: card.tenantId,
+            fullName: dto.fullName.trim(),
+            phone: phoneNorm,
+            email: email ?? undefined,
+            birthday: validBday ?? undefined,
+          },
+        });
+      } catch (e: any) {
+        if (e?.code === 'P2002') {
+          customer = await this.prisma.customer.findUnique({
+            where: {
+              tenantId_phone: { tenantId: card.tenantId, phone: phoneNorm },
+            },
+          });
+          if (!customer) throw e;
+        } else {
+          throw e;
+        }
+      }
     } else if (
       customer.fullName !== dto.fullName.trim() ||
       (email && !customer.email) ||
@@ -257,21 +276,37 @@ export class PassesService {
       }
     }
 
-    // Crear pass nuevo (mismo flujo que issue() pero sin auth check)
+    // Crear pass nuevo (mismo flujo que issue() pero sin auth check).
+    // Mismo handler P2002 que customer.create: si dos enrollments
+    // simultáneos pasan por el findUnique y ambos llegan al create, el
+    // 2do tira P2002 — devolvemos el pass que creó el primero.
     const serial = `CLB-${nanoid(10).toUpperCase()}`;
     const authToken = nanoid(32);
-    const tmp = await this.prisma.pass.create({
-      data: {
-        tenantId: card.tenantId,
-        cardId,
-        customerId: customer.id,
-        serialNumber: serial,
-        qrToken: 'placeholder',
-        authToken,
-        stampsCount: bonusStamps,
-        pointsBalance: bonusPoints,
-      },
-    });
+    let tmp;
+    try {
+      tmp = await this.prisma.pass.create({
+        data: {
+          tenantId: card.tenantId,
+          cardId,
+          customerId: customer.id,
+          serialNumber: serial,
+          qrToken: 'placeholder',
+          authToken,
+          stampsCount: bonusStamps,
+          pointsBalance: bonusPoints,
+        },
+      });
+    } catch (e: any) {
+      if (e?.code === 'P2002') {
+        const winner = await this.prisma.pass.findUnique({
+          where: { cardId_customerId: { cardId, customerId: customer.id } },
+        });
+        if (winner) {
+          return { passId: winner.id, customerId: customer.id, isNew: false };
+        }
+      }
+      throw e;
+    }
     const finalQr = sign(
       { pid: tmp.id, tid: card.tenantId },
       this.appConfig.QR_HMAC_SECRET,

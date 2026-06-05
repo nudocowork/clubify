@@ -279,27 +279,30 @@ export class StampsService {
         pass.card.type === 'GIFT') &&
       dto.action === 'REDEEM';
 
+    // HOTFIX 2026-06-05 (bug E): `completed` ahora excluye explícitamente
+    // isCouponRedeem para que el evento PASS_COMPLETED NO se dispare
+    // cuando un COUPON/DISCOUNT/GIFT se canjea. Antes la flag se calculaba
+    // por type==='STAMPS' (false durante el redeem porque el type es
+    // COUPON), pero si una STAMPS card tuviera stampsRequired=0 quedaba
+    // verdadera y la línea 449 emit `PASS_COMPLETED` igual. Defensa
+    // explícita.
     const completed =
-      (pass.card.type === 'STAMPS' && newStamps >= required) ||
-      (pass.card.type === 'VISITS' && newVisits >= visitsReq);
+      !isCouponRedeem &&
+      ((pass.card.type === 'STAMPS' && newStamps >= required) ||
+        (pass.card.type === 'VISITS' && newVisits >= visitsReq));
     // COUPON/DISCOUNT/GIFT al REDEEM ya no quedan COMPLETED — se
     // transforman al toque en una tarjeta de sellos in-place (mismo
     // passId / serial / wallet pass). El cliente NO recibe link nuevo:
     // su wallet pass instalado se actualiza solo vía push APNs/Google.
 
     // Resolver stamps card target ANTES de la transacción si vamos a
-    // transformar. Si el customer ya tiene un stamps pass orfano (de
-    // backfill anterior), lo borramos para liberar la constraint
-    // composite unique (cardId, customerId) antes del update.
+    // transformar. La query es read-only (resolveOrCreateStampsCard puede
+    // hacer un upsert pero ahora la metemos al tx por consistencia).
     let stampsCardForTransform: { id: string } | null = null;
     if (isCouponRedeem) {
       stampsCardForTransform = await this.resolveOrCreateStampsCard(
         pass.tenantId,
         pass.cardId,
-      );
-      await this.cleanupOrphanStampsPass(
-        pass.customerId,
-        stampsCardForTransform.id,
       );
     }
 
@@ -322,8 +325,23 @@ export class StampsService {
       passUpdateData.status = 'ACTIVE';
     }
 
-    const [stamp, updatedPass] = await this.prisma.$transaction([
-      this.prisma.stamp.create({
+    // HOTFIX 2026-06-05 (bug C): cleanupOrphanStampsPass debe correr
+    // DENTRO del $transaction junto con el update del pass. Antes corría
+    // fuera → si la tx fallaba (P2025, P2002 por race), el pass huérfano
+    // ya estaba borrado sin posibilidad de rollback (data loss). Ahora
+    // todo es atómico: o se borra el huérfano + crea stamp + update pass,
+    // o ninguna de las 3.
+    const [stamp, updatedPass] = await this.prisma.$transaction(async (tx) => {
+      if (isCouponRedeem && stampsCardForTransform) {
+        await tx.pass.deleteMany({
+          where: {
+            customerId: pass.customerId,
+            cardId: stampsCardForTransform.id,
+            id: { not: pass.id }, // no borrar el pass que vamos a transformar
+          },
+        });
+      }
+      const newStampRow = await tx.stamp.create({
         data: {
           tenantId: pass.tenantId,
           passId: pass.id,
@@ -340,12 +358,13 @@ export class StampsService {
             ? (dto.note ?? 'Cupón redimido — transformado a tarjeta de sellos')
             : dto.note,
         },
-      }),
-      this.prisma.pass.update({
+      });
+      const updated = await tx.pass.update({
         where: { id: pass.id },
         data: passUpdateData,
-      }),
-    ]);
+      });
+      return [newStampRow, updated] as const;
+    });
 
     // Encolar push al wallet. Si BullMQ tiene Redis, el worker lo consume
     // y llama wallet.pushPassUpdate(). Si Redis está offline, enqueue

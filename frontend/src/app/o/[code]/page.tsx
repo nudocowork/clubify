@@ -49,16 +49,58 @@ function fmt(n: number) {
 export default function OrderStatus() {
   const { code } = useParams<{ code: string }>();
   const [order, setOrder] = useState<Order | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [refetchTick, setRefetchTick] = useState(0);
 
-  async function load() {
-    const res = await fetch(`${API}/api/public/orders/${code}`);
-    if (res.ok) setOrder(await res.json());
-  }
+  // HOTFIX 2026-06-05 (bug I): fetch sin AbortController + interval cada
+  // 10s. Si el cliente navega o el `code` cambia, las respuestas en
+  // vuelo pueden setear data del code viejo. Además, sin error state, un
+  // 404/500 en el primer fetch dejaba "Cargando…" perpetuo. Ahora cada
+  // request se cancela con el cleanup del effect y mostramos error UI.
+  // `refetchTick` permite a RatingWidget pedir un re-fetch fresh tras
+  // calificar (bump del counter → useEffect re-corre).
   useEffect(() => {
+    let cancelled = false;
+    const ctrl = new AbortController();
+    setLoadErr(null);
+
+    async function load() {
+      try {
+        const res = await fetch(`${API}/api/public/orders/${code}`, {
+          signal: ctrl.signal,
+        });
+        if (cancelled) return;
+        if (res.ok) {
+          setOrder(await res.json());
+        } else if (!order) {
+          setLoadErr(`Pedido no encontrado (${res.status})`);
+        }
+      } catch (e: any) {
+        if (cancelled || e?.name === 'AbortError') return;
+        if (!order) setLoadErr(e?.message || 'Error de red');
+      }
+    }
     load();
     const t = setInterval(load, 10000);
-    return () => clearInterval(t);
-  }, [code]);
+    return () => {
+      cancelled = true;
+      ctrl.abort();
+      clearInterval(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, refetchTick]);
+
+  if (loadErr) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-8 bg-bg">
+        <div className="text-center max-w-sm">
+          <div className="text-4xl mb-2">😔</div>
+          <div className="font-semibold">No pudimos cargar el pedido</div>
+          <div className="text-sm text-mute mt-1">{loadErr}</div>
+        </div>
+      </div>
+    );
+  }
 
   if (!order) return <div className="p-8 text-mute text-center">Cargando…</div>;
 
@@ -150,7 +192,11 @@ export default function OrderStatus() {
         </div>
 
         {(order.status === 'DELIVERED' || order.status === 'READY') && (
-          <RatingWidget order={order} onRated={load} primary={primary} />
+          <RatingWidget
+            order={order}
+            onRated={() => setRefetchTick((t) => t + 1)}
+            primary={primary}
+          />
         )}
 
         <Link

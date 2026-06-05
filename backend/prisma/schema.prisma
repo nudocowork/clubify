@@ -816,11 +816,11 @@ model Stamp {
   customerId     String
   customer       Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
   locationId     String?
-  location       Location?   @relation(fields: [locationId], references: [id])
+  location       Location?   @relation(fields: [locationId], references: [id], onDelete: SetNull)
   operatorId     String?
-  operator       User?       @relation("operator", fields: [operatorId], references: [id])
+  operator       User?       @relation("operator", fields: [operatorId], references: [id], onDelete: SetNull)
   orderId        String?
-  order          Order?      @relation(fields: [orderId], references: [id])
+  order          Order?      @relation(fields: [orderId], references: [id], onDelete: SetNull)
   action         StampAction
   amount         Decimal     @default(1) @db.Decimal(10, 2)
   // Monto que el cliente pagó por la compra que motivó este scan.
@@ -836,6 +836,11 @@ model Stamp {
 
   @@index([passId, createdAt])
   @@index([tenantId, createdAt])
+  // M6 (2026-06-04) introduce filtros por locationId y operatorId en
+  // customers.findMany. Sin estos indices, queries en tenants con
+  // mucho stamp histórico hacen seq scan.
+  @@index([tenantId, locationId, createdAt])
+  @@index([tenantId, operatorId, createdAt])
 }
 
 model Location {
@@ -1073,7 +1078,7 @@ model Order {
   deliveryAddress Json?
   customerNote    String?
   locationId      String?
-  location        Location?    @relation(fields: [locationId], references: [id])
+  location        Location?    @relation(fields: [locationId], references: [id], onDelete: SetNull)
   appliedPromos   Json         @default("[]")
   whatsappLink    String?
 

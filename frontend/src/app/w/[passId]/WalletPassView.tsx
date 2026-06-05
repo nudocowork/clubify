@@ -56,7 +56,7 @@ export function WalletPassView({ passId, data, googleSaveUrl }: Props) {
             stampContourColor={data.card.stampContourColor}
             centerBgColor={data.card.centerBgColor}
             rewardText={data.card.rewardText}
-            customerName={data.customer.fullName.toUpperCase()}
+            customerName={(data.customer?.fullName ?? '').toUpperCase() || '—'}
             barcodeValue={data.serialNumber ?? data.qrToken}
           />
         </div>

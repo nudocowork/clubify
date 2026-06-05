@@ -9,6 +9,10 @@ export type JwtPayload = {
   email: string;
   role: Role;
   tenantId: string | null;
+  // ID del SUPER_ADMIN/MARKETING que está impersonando este tenant. null
+  // si la sesión es legítima del owner. Propagado al AuthUser para
+  // auditar acciones destructivas hechas desde sesión impostada.
+  impersonatedBy?: string | null;
 };
 
 @Injectable()
@@ -27,6 +31,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       email: payload.email,
       role: payload.role,
       tenantId: payload.tenantId,
+      impersonatedBy: payload.impersonatedBy ?? null,
     };
   }
 }
