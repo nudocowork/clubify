@@ -173,6 +173,14 @@ export class AffiliateService {
             maxCommissionPercent: myCode.maxCommissionPercent
               ? Number(myCode.maxCommissionPercent)
               : 25,
+            // Self-register: % por defecto que se aplica a los vendedores
+            // que entran por `/seller/register/<myCode>`. null = usar
+            // fallback (10%).
+            defaultVendorCommissionPercent:
+              myCode.defaultVendorCommissionPercent !== null &&
+              myCode.defaultVendorCommissionPercent !== undefined
+                ? Number(myCode.defaultVendorCommissionPercent)
+                : null,
           }
         : null,
       ambassadors:

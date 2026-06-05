@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, Headers, Ip, Param, Patch, Post, Query } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { IsBoolean, IsEmail, IsNumber, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { CommissionStatus } from '@prisma/client';
 import { ReferralsService } from './referrals.service';
@@ -50,6 +51,24 @@ class VendorPatchBody {
 class VendorConfigBody {
   @IsOptional() @IsBoolean() allowVendors?: boolean;
   @IsOptional() @IsNumber() maxCommissionPercent?: number;
+}
+
+// FASE self-register: el embajador setea el % por defecto que se aplica
+// cuando un vendedor se autoregistra. Hoisted arriba por la temporal
+// dead zone de los @Body() decorators.
+class DefaultVendorCommissionBody {
+  // null para resetear al fallback (10%). Number > 0 para fijar.
+  @IsOptional() @IsNumber() defaultVendorCommissionPercent?: number | null;
+}
+
+// Body del autoregistro público (sin auth). Todo viene del form en
+// /seller/register/<ambassadorCode>.
+class SelfRegisterVendorBody {
+  @IsString() @MinLength(3) @MaxLength(40) ambassadorCode!: string;
+  @IsString() @MinLength(2) @MaxLength(80) fullName!: string;
+  @IsEmail() email!: string;
+  @IsString() @MinLength(6) @MaxLength(20) phone!: string;
+  @IsString() @MinLength(8) @MaxLength(64) password!: string;
 }
 
 // FASE B2: marcado de pago en /admin/commissions. Mismo razón de
@@ -400,6 +419,25 @@ export class ReferralsController {
     return this.svc.setEmbajadorVendorConfig(user, id, body);
   }
 
+  /**
+   * El embajador configura el % por defecto que se aplica cuando un
+   * vendedor se autoregistra desde `/seller/register/<su-code>`.
+   * Auth: SUPER_ADMIN o el embajador dueño del code.
+   */
+  @Roles('SUPER_ADMIN', 'AFFILIATE_AMBASSADOR')
+  @Patch('codes/:id/default-vendor-commission')
+  setDefaultVendorCommission(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: DefaultVendorCommissionBody,
+  ) {
+    const pct =
+      body.defaultVendorCommissionPercent === undefined
+        ? null
+        : body.defaultVendorCommissionPercent;
+    return this.svc.setEmbajadorDefaultVendorCommission(user, id, pct);
+  }
+
   @Roles('SUPER_ADMIN', 'AFFILIATE_AMBASSADOR')
   @Post('vendors')
   createVendor(
@@ -510,5 +548,44 @@ export class AdminCommissionsController {
     @Body() body: PayoutByPersonBody,
   ) {
     return this.svc.payAllForPerson(user, body.codeId, body.note);
+  }
+}
+
+// ============================================================
+// SELLER SELF-REGISTER CONTROLLER (PÚBLICO)
+// ============================================================
+// Endpoints públicos para que vendedores se autoregistren via
+// `/seller/register/<ambassadorCode>` del frontend. Montado en
+// `/seller/*` (NO `/referrals`) para tener un endpoint público
+// estable y con un throttle propio (5/min por IP).
+@Controller('seller')
+export class SellerRegistrationController {
+  constructor(private svc: ReferralsService) {}
+
+  /**
+   * Lookup público: ¿existe el embajador y tiene allowVendors=true?
+   * Lo usa la página del frontend para mostrar el form o el bloqueo.
+   * Throttled menos agresivo porque es un GET barato.
+   */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  @Get('register/lookup/:code')
+  lookup(@Param('code') code: string) {
+    return this.svc.lookupSelfRegisterAmbassador(code);
+  }
+
+  /**
+   * Autoregistro del vendedor. Crea ReferralCode role=VENDOR + User
+   * AFFILIATE_VENDOR y devuelve tokens para auto-login. Rate-limit
+   * estricto (5/min por IP) para bloquear creación masiva.
+   */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @Post('register')
+  register(
+    @Body() body: SelfRegisterVendorBody,
+    @Ip() ip: string,
+  ) {
+    return this.svc.selfRegisterVendor(body, ip);
   }
 }

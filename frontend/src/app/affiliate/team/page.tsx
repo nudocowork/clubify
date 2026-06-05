@@ -45,6 +45,7 @@ type Me = {
     campaignName: string | null;
     allowVendors?: boolean;
     maxCommissionPercent?: number;
+    defaultVendorCommissionPercent?: number | null;
   } | null;
 };
 
@@ -167,8 +168,32 @@ export default function AffiliateTeamPage() {
           </div>
         )}
 
-        {allowed && data && (
+        {allowed && data && me.myCode && (
           <>
+            <SelfRegisterCard
+              ambassadorCode={me.myCode.code}
+              codeId={me.myCode.id}
+              defaultVendorCommissionPercent={
+                me.myCode.defaultVendorCommissionPercent ?? null
+              }
+              maxCommissionPercent={me.myCode.maxCommissionPercent ?? 25}
+              available={data.available}
+              onSaved={(next) => {
+                // Patch in place — sin reload completo.
+                setMe((prev) =>
+                  prev && prev.myCode
+                    ? {
+                        ...prev,
+                        myCode: {
+                          ...prev.myCode,
+                          defaultVendorCommissionPercent: next,
+                        },
+                      }
+                    : prev,
+                );
+              }}
+            />
+
             <SummaryCard data={data} />
 
             <div className="card card-pad mb-5 flex items-center justify-between gap-3 flex-wrap">
@@ -311,6 +336,206 @@ export default function AffiliateTeamPage() {
           onClose={() => setDeleteTarget(null)}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * Card "Link de registro de vendedores" — pegada arriba de SummaryCard.
+ * Muestra la URL `<LANDING>/seller/register/<ambassadorCode>` con botones
+ * de copiar, compartir (Web Share API), ver, y un input para preconfigurar
+ * el % default que se aplica a los vendedores que entran por este link.
+ *
+ * Persistencia: PATCH /referrals/codes/:id/default-vendor-commission.
+ */
+function SelfRegisterCard({
+  ambassadorCode,
+  codeId,
+  defaultVendorCommissionPercent,
+  maxCommissionPercent,
+  available,
+  onSaved,
+}: {
+  ambassadorCode: string;
+  codeId: string;
+  defaultVendorCommissionPercent: number | null;
+  maxCommissionPercent: number;
+  available: number;
+  onSaved: (next: number | null) => void;
+}) {
+  // Fallback al landing público; si no está definido, deja como string
+  // vacía y el browser concatena el path al origin actual (que es el
+  // propio panel /app — no es lo ideal pero evita link roto).
+  const landingBase =
+    process.env.NEXT_PUBLIC_LANDING_URL ||
+    (typeof window !== 'undefined' ? window.location.origin : '');
+  const url = `${landingBase}/seller/register/${ambassadorCode}`;
+
+  // Default % editable. Si null en DB, mostramos placeholder con el
+  // fallback global (10).
+  const [pct, setPct] = useState<string>(
+    defaultVendorCommissionPercent !== null
+      ? String(defaultVendorCommissionPercent)
+      : '',
+  );
+  const [savingPct, setSavingPct] = useState(false);
+
+  // Tope que el embajador puede setear acá: el disponible actual. El
+  // default NO ocupa cupo (no está asignado a ningún vendedor), por eso
+  // no se resta de available. Si quiere uno mayor, primero tiene que
+  // editar/desactivar vendedores.
+  const allowedMax = available;
+  const numericPct = Number(pct);
+  const pctValid =
+    pct === '' ||
+    (!isNaN(numericPct) && numericPct > 0 && numericPct <= allowedMax);
+
+  function copy() {
+    if (!navigator.clipboard) {
+      toast('Tu navegador no permite copiar al portapapeles.', 'error');
+      return;
+    }
+    navigator.clipboard
+      .writeText(url)
+      .then(() => toast('Link copiado', 'success'))
+      .catch(() => toast('No se pudo copiar el link', 'error'));
+  }
+
+  async function share() {
+    const shareData = {
+      title: 'Sumate a mi equipo en Clubify',
+      text: 'Registrate como vendedor de mi equipo en Clubify:',
+      url,
+    };
+    if (typeof navigator !== 'undefined' && (navigator as any).share) {
+      try {
+        await (navigator as any).share(shareData);
+        return;
+      } catch {
+        // user canceled or unsupported — fallback a copy.
+      }
+    }
+    copy();
+  }
+
+  function view() {
+    if (typeof window === 'undefined') return;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+
+  async function savePct() {
+    if (!pctValid) {
+      toast(
+        `El % debe estar entre 0 y ${allowedMax}% (tu disponible).`,
+        'error',
+      );
+      return;
+    }
+    setSavingPct(true);
+    try {
+      const body =
+        pct === ''
+          ? { defaultVendorCommissionPercent: null }
+          : { defaultVendorCommissionPercent: numericPct };
+      const res = await api<{
+        id: string;
+        defaultVendorCommissionPercent: number | null;
+      }>(`/referrals/codes/${codeId}/default-vendor-commission`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+      onSaved(res.defaultVendorCommissionPercent);
+      toast(
+        res.defaultVendorCommissionPercent === null
+          ? 'Volvimos al % por defecto (10%)'
+          : `% por defecto: ${res.defaultVendorCommissionPercent}%`,
+        'success',
+      );
+    } catch (e: any) {
+      toast(e.message || 'No se pudo guardar', 'error');
+    } finally {
+      setSavingPct(false);
+    }
+  }
+
+  return (
+    <div className="card card-pad mb-5 bg-gradient-to-br from-brand-soft/40 to-white">
+      <div className="flex items-start gap-2 mb-3">
+        <div className="text-2xl leading-none">🔗</div>
+        <div className="flex-1 min-w-0">
+          <h3 className="font-semibold m-0">Link de registro de vendedores</h3>
+          <p className="text-xs text-mute mt-0.5 leading-snug">
+            Compartí este link con la gente que querés sumar. Cada uno que se
+            registre queda en tu equipo automáticamente.
+          </p>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-lg border border-line2 px-3 py-2 text-xs sm:text-sm font-mono break-all mb-3">
+        {url}
+      </div>
+
+      <div className="flex flex-wrap gap-2 mb-4">
+        <button
+          type="button"
+          onClick={copy}
+          className="text-xs font-semibold px-3 py-2 rounded-md bg-emerald-100 text-emerald-800 hover:bg-emerald-200 cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"
+        >
+          📋 Copiar enlace
+        </button>
+        <button
+          type="button"
+          onClick={share}
+          className="text-xs font-semibold px-3 py-2 rounded-md bg-sky-100 text-sky-800 hover:bg-sky-200 cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"
+        >
+          📤 Compartir enlace
+        </button>
+        <button
+          type="button"
+          onClick={view}
+          className="text-xs font-semibold px-3 py-2 rounded-md bg-bg2 text-ink hover:bg-line2 cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"
+        >
+          👁 Ver enlace
+        </button>
+      </div>
+
+      <div className="border-t border-line2 pt-3">
+        <label className="label">
+          % por defecto que se aplica a los vendedores que entran por este
+          link
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            className={`input flex-1 max-w-[140px] ${
+              !pctValid ? 'border-red-400' : ''
+            }`}
+            type="number"
+            min={0.5}
+            max={maxCommissionPercent}
+            step={0.5}
+            placeholder="10"
+            value={pct}
+            onChange={(e) => setPct(e.target.value)}
+          />
+          <button
+            type="button"
+            onClick={savePct}
+            disabled={savingPct || !pctValid}
+            className="btn-primary text-sm cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent] disabled:opacity-60"
+          >
+            {savingPct ? 'Guardando…' : 'Guardar'}
+          </button>
+        </div>
+        <div
+          className={`text-[11px] mt-1 leading-snug ${
+            pctValid ? 'text-mute' : 'text-red-700'
+          }`}
+        >
+          {pctValid
+            ? `Dejá vacío para usar el 10% por defecto. Máx disponible ahora: ${allowedMax}% de tu ${maxCommissionPercent}%.`
+            : `El % debe estar entre 0 y ${allowedMax}% (tu disponible).`}
+        </div>
+      </div>
     </div>
   );
 }

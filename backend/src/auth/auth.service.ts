@@ -498,6 +498,54 @@ export class AuthService {
     return { ok: true, userId: user.id, password: null };
   }
 
+  /**
+   * Emite accessToken + refreshToken para un userId existente, saltando
+   * password check. Usado SOLO por flows internos que ya validaron la
+   * autorización por su cuenta (ej: self-register de vendedor desde
+   * `/seller/register/<code>` después de validar el embajador). El user
+   * que se loguea NUNCA es el caller — siempre es el dueño del userId.
+   */
+  async issueAuthTokensForUserId(userId: string, ip: string | null) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        role: true,
+        tenantId: true,
+        isActive: true,
+      },
+    });
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('Usuario no encontrado o inactivo');
+    }
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      tenantId: user.tenantId,
+    };
+    const accessToken = this.jwt.sign(payload);
+    const refreshToken = await this.refreshTokens.issue({
+      userId: user.id,
+      payload,
+      ip,
+      userAgent: null,
+    });
+    return {
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        role: user.role,
+        tenantId: user.tenantId,
+      },
+    };
+  }
+
   /** Helper público: genera una contraseña random legible (10 chars
    *  alfanuméricos sin caracteres ambiguos). Útil para que el admin la
    *  comparta verbalmente sin confusiones de O/0 o l/1/I. */
