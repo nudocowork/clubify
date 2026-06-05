@@ -22,6 +22,26 @@ class CommissionBody {
   @IsString() status!: CommissionStatus;
 }
 
+// HOTFIX 2026-06-05: estas clases tienen que estar declaradas ANTES de
+// ReferralsController. Aunque TS compila si están abajo, en runtime
+// los decoradores @Body() del controller las referencian al evaluar
+// __metadata("design:paramtypes", ...) en el class declaration —
+// temporal dead zone si todavía no se ejecutó la línea de class.
+class VendorBody {
+  @IsString() embajadorCodeId!: string;
+  @IsString() fullName!: string;
+  @IsEmail() email!: string;
+  @IsString() whatsapp!: string;
+  @IsNumber() commissionPercent!: number;
+}
+
+class VendorPatchBody {
+  @IsOptional() @IsString() fullName?: string;
+  @IsOptional() @IsEmail() email?: string;
+  @IsOptional() @IsString() whatsapp?: string;
+  @IsOptional() @IsNumber() commissionPercent?: number;
+}
+
 @Controller('referrals')
 export class ReferralsController {
   constructor(private svc: ReferralsService) {}
@@ -397,19 +417,4 @@ export class ReferralsController {
   ) {
     return this.svc.deleteVendor(user, id);
   }
-}
-
-class VendorBody {
-  @IsString() embajadorCodeId!: string;
-  @IsString() fullName!: string;
-  @IsEmail() email!: string;
-  @IsString() whatsapp!: string;
-  @IsNumber() commissionPercent!: number;
-}
-
-class VendorPatchBody {
-  @IsOptional() @IsString() fullName?: string;
-  @IsOptional() @IsEmail() email?: string;
-  @IsOptional() @IsString() whatsapp?: string;
-  @IsOptional() @IsNumber() commissionPercent?: number;
 }
