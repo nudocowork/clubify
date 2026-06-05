@@ -8,6 +8,7 @@ import {
   BUSINESS_CATEGORIES,
   DEFAULT_CATEGORY_SLUG,
 } from '@/lib/business-categories';
+import { AffiliatePickerSearch } from '@/components/AffiliatePickerSearch';
 
 export default function NewTenant() {
   const router = useRouter();
@@ -34,9 +35,6 @@ export default function NewTenant() {
     // assignment (B3).
     referralCodeId: '',
   });
-  const [affiliateOptions, setAffiliateOptions] = useState<
-    { id: string; ownerName: string; code: string; role: string; campaignName: string | null }[]
-  >([]);
   const [result, setResult] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -45,23 +43,6 @@ export default function NewTenant() {
       const seen = new Map();
       arr.forEach((t) => seen.set(t.plan.id, t.plan));
       setPlans(Array.from(seen.values()));
-    });
-    // Cargar afiliados (influencer + embajadores) para el dropdown de
-    // asignación. Si falla (raro), el campo queda vacío — no crítico.
-    // Los endpoints devuelven array directo (no {items}) y sin `role`
-    // en cada item (el filtro del endpoint lo garantiza). Lo inyectamos
-    // al normalizar para que el dropdown muestre la badge correctamente.
-    Promise.all([
-      api<any[]>('/referrals/influencers').catch(() => [] as any[]),
-      api<any[]>('/referrals/ambassadors').catch(() => [] as any[]),
-    ]).then(([inf, amb]) => {
-      const infArr = Array.isArray(inf) ? inf : [];
-      const ambArr = Array.isArray(amb) ? amb : [];
-      const codes = [
-        ...infArr.map((c) => ({ ...c, role: 'INFLUENCER' as const })),
-        ...ambArr.map((c) => ({ ...c, role: 'AMBASSADOR' as const })),
-      ].sort((a, b) => a.ownerName.localeCompare(b.ownerName));
-      setAffiliateOptions(codes as any);
     });
   }, []);
 
@@ -274,19 +255,11 @@ export default function NewTenant() {
             Asignar a embajador / influencer{' '}
             <span className="text-mute font-normal">— opcional</span>
           </label>
-          <select
-            className="input"
+          <AffiliatePickerSearch
             value={form.referralCodeId}
-            onChange={(e) => set('referralCodeId', e.target.value)}
-          >
-            <option value="">— Sin asignar —</option>
-            {affiliateOptions.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.ownerName} · {o.role} · {o.code}
-                {o.campaignName ? ` · ${o.campaignName}` : ''}
-              </option>
-            ))}
-          </select>
+            onChange={(id) => set('referralCodeId', id)}
+            placeholder="Buscar por nombre, correo, teléfono o código…"
+          />
           <div className="text-[11px] text-mute mt-1 leading-snug">
             Si el negocio fue traído por un afiliado offline, elegilo aquí.
             Las comisiones futuras se atribuyen automáticamente. Puedes

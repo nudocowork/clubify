@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Ip, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Ip, Param, Patch, Post, Query } from '@nestjs/common';
 import { IsEmail, IsNumber, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { CommissionStatus } from '@prisma/client';
 import { ReferralsService } from './referrals.service';
@@ -149,6 +149,35 @@ export class ReferralsController {
   @Get('leaderboard')
   leaderboard(@CurrentUser() user: AuthUser) {
     return this.svc.leaderboard(user);
+  }
+
+  /**
+   * Buscador inteligente de afiliados (INFLUENCER + AMBASSADOR activos)
+   * por nombre, email, whatsapp o código. Usado por
+   * /admin/tenants/new para reemplazar el dropdown estático.
+   * Devuelve hasta 30 resultados ordenados por role + nombre.
+   */
+  @Roles('SUPER_ADMIN')
+  @Get('affiliates/search')
+  searchAffiliates(
+    @CurrentUser() user: AuthUser,
+    @Query('q') q?: string,
+  ) {
+    return this.svc.searchAffiliates(user, q ?? '');
+  }
+
+  /**
+   * Eliminación de un ReferralCode (influencer/embajador/socio).
+   * Valida dependencias activas:
+   *   - Tenants activos atribuidos → 409 con mensaje específico.
+   *   - Embajadores activos debajo (si es INFLUENCER) → 409.
+   *   - Campaign ACTIVE titularizada (si es INFLUENCER) → 409.
+   * Si pasa: soft-delete si tiene historial, hard-delete si está limpio.
+   */
+  @Roles('SUPER_ADMIN')
+  @Delete('codes/:id')
+  deleteCode(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.deleteCode(user, id);
   }
 
   // SUPER_ADMIN entra al panel /affiliate del influencer/embajador como si

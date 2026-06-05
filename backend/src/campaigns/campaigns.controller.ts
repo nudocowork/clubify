@@ -94,6 +94,18 @@ export class CampaignsController {
   removeAmbassador(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.removeAmbassador(user, id);
   }
+
+  /**
+   * Elimina una campaña. Valida que no haya tenants en estado
+   * ACTIVE/PAYING ni en el influencer titular ni en los embajadores
+   * (409 con mensaje "No se puede eliminar: tiene N tenants asociados").
+   * Los embajadores se desactivan; el influencer titular queda como
+   * INFLUENCER sin campaña.
+   */
+  @Delete(':id')
+  removeCampaign(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.deleteCampaign(user, id);
+  }
 }
 
 class PublicApplyBody {

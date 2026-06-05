@@ -1,7 +1,9 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { customAlphabet } from 'nanoid';
@@ -38,11 +40,50 @@ export type CreateAmbassadorDto = {
 
 @Injectable()
 export class CampaignsService {
+  private logger = new Logger(CampaignsService.name);
+
   constructor(private prisma: PrismaService, private auth: AuthService) {}
 
   private assertAdmin(user: AuthUser) {
     if (user.role !== 'SUPER_ADMIN') {
       throw new ForbiddenException('Solo super admin puede gestionar campañas');
+    }
+  }
+
+  /**
+   * Email único global a través de ReferralCode (cualquier role afiliado)
+   * y User con role AFFILIATE_*. Equivalente al helper de
+   * ReferralsService.assertUniqueAffiliateEmail — duplicado acá para
+   * evitar dependencia circular entre módulos.
+   */
+  private async assertUniqueAffiliateEmail(
+    rawEmail: string,
+    opts: { ignoreCodeId?: string } = {},
+  ) {
+    const email = (rawEmail ?? '').trim().toLowerCase();
+    if (!email) return;
+    const dupCode = await this.prisma.referralCode.findFirst({
+      where: {
+        ownerEmail: email,
+        role: { in: ['INFLUENCER', 'AMBASSADOR', 'SOCIO'] },
+        ...(opts.ignoreCodeId ? { id: { not: opts.ignoreCodeId } } : {}),
+      },
+      select: { id: true },
+    });
+    if (dupCode) {
+      throw new ConflictException('Este correo ya se encuentra registrado.');
+    }
+    const dupUser = await this.prisma.user.findUnique({
+      where: { email },
+      select: { id: true, role: true },
+    });
+    if (
+      dupUser &&
+      (dupUser.role === 'AFFILIATE_INFLUENCER' ||
+        dupUser.role === 'AFFILIATE_AMBASSADOR' ||
+        dupUser.role === 'AFFILIATE_SOCIO')
+    ) {
+      throw new ConflictException('Este correo ya se encuentra registrado.');
     }
   }
 
@@ -85,6 +126,11 @@ export class CampaignsService {
     }
 
     if (!influencerCode) {
+      // El email no matchea ningún INFLUENCER existente. Antes de crear
+      // uno nuevo, validar que el email no esté tomado por otro tipo de
+      // afiliado (AMBASSADOR, SOCIO o User AFFILIATE_*). Email único
+      // global entre todos los afiliados.
+      await this.assertUniqueAffiliateEmail(email);
       const code = await this.resolveCode(dto.influencerCustomCode);
       influencerCode = await this.prisma.referralCode.create({
         data: {
@@ -251,25 +297,10 @@ export class CampaignsService {
     if (!camp) throw new NotFoundException('Campaña');
 
     const email = dto.email.trim().toLowerCase();
-    // Cross-flow dedupe: un mismo email no puede tener 2 ReferralCode como
-    // AMBASSADOR (en esta campaña, en otra, o como Directo Empresa). Si ya
-    // existe, no creamos otro — usar scripts/merge-ambassador-accounts.mjs
-    // para reasignar/unificar.
-    const dup = await this.prisma.referralCode.findFirst({
-      where: { ownerEmail: email, role: 'AMBASSADOR' },
-      include: { parentCode: { select: { ownerName: true, code: true } } },
-    });
-    if (dup) {
-      const scope = dup.parentCodeId === camp.ownerCodeId
-        ? 'en esta campaña'
-        : dup.parentCodeId
-          ? `bajo ${dup.parentCode?.ownerName ?? 'otro influencer'} [${dup.parentCode?.code ?? dup.parentCodeId}]`
-          : 'como Embajador Directo Empresa';
-      throw new BadRequestException(
-        `Ya existe un embajador con este email ${scope} (referralCodeId=${dup.id}). ` +
-          `Un mismo usuario no puede ser embajador en más de un lugar.`,
-      );
-    }
+    // Email único global: chequea ReferralCode (cualquier role afiliado)
+    // y User AFFILIATE_*. Si está tomado por otra figura (ambassador,
+    // influencer, socio o user), lanza 409 con mensaje uniforme.
+    await this.assertUniqueAffiliateEmail(email);
 
     const code = await this.resolveCode(dto.customCode);
     const ambassadorCode = await this.prisma.referralCode.create({
@@ -524,6 +555,90 @@ export class CampaignsService {
         ? '¡Bienvenido! Tu cuenta está activa — ya puedes entrar con el email y la contraseña que elegiste.'
         : '¡Bienvenido! Te enviamos un email con tu código y el acceso al panel.',
     };
+  }
+
+  /**
+   * Elimina una campaña con validación de dependencias activas.
+   *
+   * Bloquea si:
+   *   - El INFLUENCER titular tiene tenants atribuidos en estado
+   *     ACTIVE/PAYING (no podemos cortar comisiones recurrentes).
+   *   - Alguno de los embajadores de la campaña tiene tenants
+   *     ACTIVE/PAYING (mismo motivo).
+   *
+   * Si pasa: hard-delete de Campaign (cascade en ReferralCode.campaignId
+   * es SetNull, así el influencer queda libre + embajadores quedan
+   * "huérfanos" — los desactivamos en una transacción para preservar
+   * historial sin colgarlos). El registro del influencer NO se elimina
+   * — queda como INFLUENCER sin campaña.
+   */
+  async deleteCampaign(user: AuthUser, id: string): Promise<{ ok: true }> {
+    this.assertAdmin(user);
+    const camp = await this.prisma.campaign.findUnique({
+      where: { id },
+      include: {
+        ownerCode: {
+          include: {
+            uses: { select: { id: true, status: true, tenantId: true } },
+          },
+        },
+        codes: {
+          include: {
+            uses: { select: { id: true, status: true, tenantId: true } },
+          },
+        },
+      },
+    });
+    if (!camp) throw new NotFoundException('Campaña');
+
+    const ownerActive = camp.ownerCode.uses.filter(
+      (u) =>
+        u.tenantId &&
+        (u.status === 'ACTIVE' || u.status === 'PAYING'),
+    ).length;
+    const ambActive = camp.codes.reduce(
+      (s, c) =>
+        s +
+        c.uses.filter(
+          (u) =>
+            u.tenantId &&
+            (u.status === 'ACTIVE' || u.status === 'PAYING'),
+        ).length,
+      0,
+    );
+    const totalActive = ownerActive + ambActive;
+    if (totalActive > 0) {
+      throw new ConflictException(
+        `No se puede eliminar: tiene ${totalActive} tenant${totalActive === 1 ? '' : 's'} asociado${totalActive === 1 ? '' : 's'}.`,
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      // Desactivar embajadores de la campaña (preservar historial).
+      if (camp.codes.length > 0) {
+        await tx.referralCode.updateMany({
+          where: {
+            id: { in: camp.codes.map((c) => c.id) },
+            isActive: true,
+          },
+          data: { isActive: false },
+        });
+      }
+      // Borrar la Campaign — la FK del influencer titular es Cascade
+      // sobre ownerCodeId, lo que borraría el influencer también; por
+      // eso primero desligamos su ownerOfCampaign con un workaround:
+      // borramos la Campaign desde el lado contrario, no hace falta nada
+      // extra porque Prisma respeta la FK Cascade del schema.
+      // Actualmente Campaign.ownerCodeId tiene onDelete: Cascade — eso
+      // significa que borrar el ownerCode borra la campaña, NO al revés.
+      // Borrar la Campaign no borra al influencer. ✅
+      await tx.campaign.delete({ where: { id } });
+    });
+
+    this.logger.log(
+      `Campaign deleted: id=${id} name="${camp.name}" by ${user.email}`,
+    );
+    return { ok: true };
   }
 
   async removeAmbassador(user: AuthUser, ambassadorId: string) {

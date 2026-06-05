@@ -5,6 +5,7 @@ import { api, startImpersonation } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { AffiliateCredentialsModal } from '@/components/AffiliateCredentialsModal';
+import { ConfirmDeleteModal } from '@/components/ConfirmDeleteModal';
 
 async function enterAffiliatePanel(
   codeId: string,
@@ -1871,6 +1872,7 @@ function InfluencersTab() {
   const [loading, setLoading] = useState(true);
   const [enteringId, setEnteringId] = useState<string | null>(null);
   const [demoteTarget, setDemoteTarget] = useState<any | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
 
   function reload() {
     setLoading(true);
@@ -1949,6 +1951,13 @@ function InfluencersTab() {
                     >
                       {enteringId === r.id ? 'Entrando…' : '→ Panel'}
                     </button>
+                    <button
+                      onClick={() => setDeleteTarget(r)}
+                      className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-red-100 text-red-700 hover:bg-red-200 whitespace-nowrap"
+                      title="Eliminar este influencer (valida que no tenga tenants ni embajadores activos)"
+                    >
+                      🗑 Eliminar
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -1956,6 +1965,41 @@ function InfluencersTab() {
           </tbody>
         </table>
       </div>
+      {deleteTarget && (
+        <ConfirmDeleteModal
+          title={`Eliminar influencer "${deleteTarget.ownerName}"`}
+          description={
+            <>
+              ¿Deseas eliminar este registro? Si tiene tenants atribuidos en
+              estado <strong>activo o pagando</strong>, embajadores debajo
+              suyo o una campaña activa,{' '}
+              <strong>no se podrá eliminar</strong> — recibirás un aviso. Si
+              no tiene historial, se borra por completo; si tenía clientes
+              cancelados o embajadores inactivos, queda desactivado para
+              preservar atribución histórica.
+            </>
+          }
+          onConfirm={async () => {
+            try {
+              const res = await api<any>(
+                `/referrals/codes/${deleteTarget.id}`,
+                { method: 'DELETE' },
+              );
+              toast(
+                res?.mode === 'hard'
+                  ? `Influencer "${deleteTarget.ownerName}" eliminado`
+                  : `Influencer "${deleteTarget.ownerName}" desactivado (tenía historial)`,
+                'success',
+              );
+              setDeleteTarget(null);
+              reload();
+            } catch (e: any) {
+              toast(e.message || 'No se pudo eliminar', 'error');
+            }
+          }}
+          onClose={() => setDeleteTarget(null)}
+        />
+      )}
       {demoteTarget && (
         <InfluencerPickerModal
           title={`Bajar a "${demoteTarget.ownerName}" a embajador`}
@@ -2002,6 +2046,7 @@ function AmbassadorsTab() {
   const [showCreate, setShowCreate] = useState(false);
   const [enteringId, setEnteringId] = useState<string | null>(null);
   const [reassignTarget, setReassignTarget] = useState<any | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
 
   function reload() {
     setLoading(true);
@@ -2156,6 +2201,13 @@ function AmbassadorsTab() {
                       >
                         {enteringId === r.id ? 'Entrando…' : '→ Panel'}
                       </button>
+                      <button
+                        onClick={() => setDeleteTarget(r)}
+                        className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-red-100 text-red-700 hover:bg-red-200 whitespace-nowrap"
+                        title="Eliminar este embajador (valida que no tenga tenants activos)"
+                      >
+                        🗑 Eliminar
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -2164,6 +2216,39 @@ function AmbassadorsTab() {
           </table>
         </div>
       </div>
+      {deleteTarget && (
+        <ConfirmDeleteModal
+          title={`Eliminar embajador "${deleteTarget.ownerName}"`}
+          description={
+            <>
+              ¿Deseas eliminar este registro? Si tiene tenants atribuidos en
+              estado <strong>activo o pagando</strong>,{' '}
+              <strong>no se podrá eliminar</strong> — recibirás un aviso con
+              la cantidad. Si tenía clientes cancelados queda desactivado
+              para preservar atribución histórica.
+            </>
+          }
+          onConfirm={async () => {
+            try {
+              const res = await api<any>(
+                `/referrals/codes/${deleteTarget.id}`,
+                { method: 'DELETE' },
+              );
+              toast(
+                res?.mode === 'hard'
+                  ? `Embajador "${deleteTarget.ownerName}" eliminado`
+                  : `Embajador "${deleteTarget.ownerName}" desactivado (tenía historial)`,
+                'success',
+              );
+              setDeleteTarget(null);
+              reload();
+            } catch (e: any) {
+              toast(e.message || 'No se pudo eliminar', 'error');
+            }
+          }}
+          onClose={() => setDeleteTarget(null)}
+        />
+      )}
       {reassignTarget && (
         <InfluencerPickerModal
           title={`Cambiar influencer de "${reassignTarget.ownerName}"`}
