@@ -833,6 +833,194 @@ export class AffiliateService {
   }
 
   /**
+   * Métricas + detalle de trials atribuidos al afiliado logueado.
+   * Item 4 (2026-06-05) — sistema de prueba 5d con atribución per rol.
+   *
+   * Scope:
+   *   - INFLUENCER: trials de su code + de sus embajadores + de sus vendors.
+   *   - AMBASSADOR: trials de su code + de sus vendors.
+   *   - VENDOR: solo trials de su propio code.
+   *   - SOCIO: solo trials de su propio code.
+   *
+   * KPIs:
+   *   - trialsGenerated: count tenants con ReferralUse de cualquier code
+   *     bajo este scope (cualquier tenant que se registró como TRIAL).
+   *   - trialsActive: status=TRIAL y trialEndsAt > now.
+   *   - trialsExpired: status=TRIAL y trialEndsAt <= now (todavía no convertido).
+   *   - trialsConverted: status=ACTIVE (pagó, conversión exitosa).
+   *   - conversionRate: trialsConverted / trialsGenerated (0..1).
+   *
+   * Tabla "Detalle de clientes" — 1 row por tenant con:
+   *   brandName, createdAt, trialState, trialEndsAt, plan, conversionDate.
+   */
+  async trialStats(user: AuthUser) {
+    this.assertAffiliate(user);
+    const scope = await this.resolveAffiliateScope(user);
+    const codeIds = scope.allDescendantCodeIds;
+    if (!codeIds.length) {
+      return {
+        kpis: {
+          trialsGenerated: 0,
+          trialsActive: 0,
+          trialsExpired: 0,
+          trialsConverted: 0,
+          conversionRate: 0,
+        },
+        rows: [] as Array<Record<string, unknown>>,
+        shareCode: null as string | null,
+      };
+    }
+
+    // Tomamos los uses con tenant — un afiliado solo ve clientes (tenant).
+    // El use es la fuente de verdad para "este tenant fue atribuido a mí".
+    // status del use no afecta — un tenant ACTIVE pero con use SIGNED_UP
+    // sigue siendo conversión (pasó por el funnel del afiliado).
+    const uses = await this.prisma.referralUse.findMany({
+      where: {
+        referralCodeId: { in: codeIds },
+        tenantId: { not: null },
+        // Solo trials atribuidos al afiliado — los signups normales
+        // (Hotmart sin trial) también pasan por aquí, pero los excluimos
+        // del foco de esta vista filtrando por tenant.trialStartedAt
+        // not-null + trialEndsAt not-null. Esos tenants pasaron por
+        // /prueba o /trial.
+        tenant: {
+          is: {
+            trialStartedAt: { not: null },
+            trialEndsAt: { not: null },
+          },
+        },
+      },
+      include: {
+        tenant: {
+          select: {
+            id: true,
+            brandName: true,
+            status: true,
+            createdAt: true,
+            trialStartedAt: true,
+            trialEndsAt: true,
+            trialSource: true,
+            currentPeriodEnd: true,
+            planPeriodicity: true,
+            plan: { select: { name: true } },
+            // El afiliado quiere ver si el cliente convirtió. La conversión
+            // se marca con tenant.status=ACTIVE — pero también con
+            // referralUse.convertedAt si existe (más fiable temporalmente).
+          },
+        },
+        referralCode: {
+          select: { code: true, role: true, ownerName: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const now = new Date();
+    let trialsActive = 0;
+    let trialsExpired = 0;
+    let trialsConverted = 0;
+    // Dedup: si por error de migración un tenant tiene 2 uses, contamos
+    // 1 sola vez (FIRST REFERRAL WINS). Tomamos el use con createdAt más
+    // antiguo como "el ganador" — el .orderBy desc + Map fallback nos da
+    // exactamente eso (el último write gana, que es el más antiguo).
+    const byTenant = new Map<string, (typeof uses)[number]>();
+    for (const u of uses) {
+      if (!u.tenant) continue;
+      const existing = byTenant.get(u.tenant.id);
+      if (!existing || u.createdAt < existing.createdAt) {
+        byTenant.set(u.tenant.id, u);
+      }
+    }
+    const unique = Array.from(byTenant.values());
+
+    const rows = unique.map((u) => {
+      const t = u.tenant!;
+      const isTrial = t.status === 'TRIAL';
+      const trialEndsAt = t.trialEndsAt;
+      const trialExpired =
+        isTrial && trialEndsAt ? trialEndsAt <= now : false;
+      const trialActive = isTrial && !trialExpired;
+      const converted = t.status === 'ACTIVE';
+
+      if (trialActive) trialsActive += 1;
+      if (trialExpired) trialsExpired += 1;
+      if (converted) trialsConverted += 1;
+
+      // Días restantes del trial (negativo si ya venció).
+      const daysLeft = trialEndsAt
+        ? Math.ceil(
+            (trialEndsAt.getTime() - now.getTime()) / (24 * 3600 * 1000),
+          )
+        : null;
+
+      // "Estado de pago" — derivado del estado del tenant.
+      // ACTIVE = pagó. SUSPENDED = pagó alguna vez pero ahora suspendido.
+      // TRIAL = sin pago todavía.
+      let paymentStatus: 'PENDING' | 'PAID' | 'SUSPENDED' = 'PENDING';
+      if (t.status === 'ACTIVE') paymentStatus = 'PAID';
+      else if (t.status === 'SUSPENDED') paymentStatus = 'SUSPENDED';
+
+      return {
+        tenantId: t.id,
+        brandName: t.brandName,
+        createdAt: t.createdAt,
+        trialState: isTrial
+          ? trialExpired
+            ? 'EXPIRED'
+            : 'ACTIVE'
+          : t.status === 'ACTIVE'
+            ? 'CONVERTED'
+            : 'SUSPENDED',
+        trialEndsAt,
+        daysLeft,
+        paymentStatus,
+        planName: t.plan?.name ?? null,
+        planPeriodicity: t.planPeriodicity ?? null,
+        // Fecha de conversión: si pagó, usamos currentPeriodEnd menos 1 ciclo
+        // (aproximado) o referralUse.convertedAt si está. Preferimos convertedAt.
+        convertedAt: u.convertedAt ?? null,
+        attributionCode: u.referralCode.code,
+        attributionRole: u.referralCode.role,
+        attributionOwnerName: u.referralCode.ownerName,
+        trialSource: t.trialSource ?? null,
+      };
+    });
+
+    const trialsGenerated = unique.length;
+    const conversionRate =
+      trialsGenerated > 0
+        ? Math.round((trialsConverted / trialsGenerated) * 10000) / 10000
+        : 0;
+
+    // shareCode: el code propio del afiliado, para construir el link de
+    // trial en el frontend ({LANDING}/trial?ref=<code>). Solo lo
+    // devolvemos si tiene code activo — los SOCIO también pueden compartir
+    // su link de trial (aunque la atribución no le pague indirecto extra,
+    // sí le suma a sus métricas).
+    let shareCode: string | null = null;
+    if (scope.myCodeId) {
+      const myCode = await this.prisma.referralCode.findUnique({
+        where: { id: scope.myCodeId },
+        select: { code: true, isActive: true },
+      });
+      if (myCode?.isActive) shareCode = myCode.code;
+    }
+
+    return {
+      kpis: {
+        trialsGenerated,
+        trialsActive,
+        trialsExpired,
+        trialsConverted,
+        conversionRate,
+      },
+      rows,
+      shareCode,
+    };
+  }
+
+  /**
    * Detalle read-only de un vendor del equipo del embajador logueado.
    * Devuelve sus ventas + commissions. El embajador no puede editar al
    * vendor desde aquí — solo verlo. Para edit usa /referrals/vendors/*.

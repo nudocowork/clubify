@@ -81,8 +81,11 @@ class TrialSignupDto {
   // Atribución: si vino con un código de embajador/influencer en URL,
   // el frontend lo manda aquí. También sirve para campañas (?campaign=X).
   @IsOptional() @IsString() @MaxLength(80) referralCode?: string;
-  @IsOptional() @IsIn(['LANDING', 'AMBASSADOR', 'INFLUENCER', 'CAMPAIGN', 'DIRECT'])
-  source?: 'LANDING' | 'AMBASSADOR' | 'INFLUENCER' | 'CAMPAIGN' | 'DIRECT';
+  // VENDOR agregado al enum — desde 2026-06-05 cada vendor también puede
+  // compartir su link /trial?ref=<code>. El backend infiere VENDOR del
+  // rol del ReferralCode si no se manda source explícito.
+  @IsOptional() @IsIn(['LANDING', 'AMBASSADOR', 'INFLUENCER', 'VENDOR', 'CAMPAIGN', 'DIRECT'])
+  source?: 'LANDING' | 'AMBASSADOR' | 'INFLUENCER' | 'VENDOR' | 'CAMPAIGN' | 'DIRECT';
   @IsOptional() attribution?: SignupAttributionDto;
 }
 

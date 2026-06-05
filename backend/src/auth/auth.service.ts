@@ -819,7 +819,7 @@ export class AuthService {
       company?: string;
       city?: string;
       referralCode?: string;
-      source?: 'LANDING' | 'AMBASSADOR' | 'INFLUENCER' | 'CAMPAIGN' | 'DIRECT';
+      source?: 'LANDING' | 'AMBASSADOR' | 'INFLUENCER' | 'VENDOR' | 'CAMPAIGN' | 'DIRECT';
       attribution?: {
         viaSlug?: string;
         utmSource?: string;
@@ -896,23 +896,38 @@ export class AuthService {
     trialEndsAt.setHours(23, 59, 59, 999);
 
     // Si el frontend mandó source explícito, lo usamos. Si vino referralCode
-    // pero no source, lo inferimos del rol (INFLUENCER/AMBASSADOR). Sin
-    // info: DIRECT.
+    // pero no source, lo inferimos del rol (INFLUENCER/AMBASSADOR/VENDOR).
+    // Sin info: DIRECT.
+    //
+    // VALIDACIÓN ITEM 4 (2026-06-05): si vino referralCode, exigimos que
+    // exista Y esté isActive. Si no existe, lanzamos BadRequest claro
+    // (mejor que silenciosamente atribuir a DIRECT — el embajador no se
+    // entera de que su link está roto). Si no está activo, tampoco
+    // atribuimos (NO bloqueamos el trial — el cliente igual se registra
+    // como DIRECT) pero loggeamos para que el admin sepa.
     let trialSource: string = dto.source ?? 'DIRECT';
     let attributedReferralCodeId: string | null = null;
     if (dto.referralCode) {
       const code = await this.prisma.referralCode
         .findUnique({
           where: { code: dto.referralCode.trim().toUpperCase() },
-          select: { id: true, role: true },
+          select: { id: true, role: true, isActive: true },
         })
         .catch(() => null);
-      if (code) {
+      if (!code) {
+        throw new BadRequestException(
+          'El código de referido no existe. Verifica el link y vuelve a intentar.',
+        );
+      }
+      if (code.isActive) {
         attributedReferralCodeId = code.id;
         if (!dto.source) {
-          trialSource = code.role === 'INFLUENCER' ? 'INFLUENCER' : 'AMBASSADOR';
+          if (code.role === 'INFLUENCER') trialSource = 'INFLUENCER';
+          else if (code.role === 'VENDOR') trialSource = 'VENDOR';
+          else trialSource = 'AMBASSADOR';
         }
       }
+      // Si !isActive: no atribuimos pero el trial sigue (queda como DIRECT).
     }
 
     let tenant: Awaited<ReturnType<typeof this.prisma.tenant.create>>;

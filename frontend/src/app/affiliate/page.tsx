@@ -13,7 +13,14 @@ import { toast } from '@/components/Toast';
 import { PhoneInput } from '@/components/PhoneInput';
 import { SupportWidget } from '@/components/SupportWidget';
 
-type Tab = 'overview' | 'clients' | 'commissions' | 'team' | 'materials' | 'settings';
+type Tab =
+  | 'overview'
+  | 'clients'
+  | 'commissions'
+  | 'team'
+  | 'trial'
+  | 'materials'
+  | 'settings';
 
 type Me = {
   user: { id: string; email: string; fullName: string; role: string; phone?: string | null } | null;
@@ -331,6 +338,12 @@ export default function AffiliatePanel() {
             </Link>
           )}
           <button
+            className={`tab ${tab === 'trial' ? 'tab-active' : ''}`}
+            onClick={() => setTab('trial')}
+          >
+            🎁 Prueba gratis
+          </button>
+          <button
             className={`tab ${tab === 'materials' ? 'tab-active' : ''}`}
             onClick={() => setTab('materials')}
           >
@@ -348,6 +361,7 @@ export default function AffiliatePanel() {
         {tab === 'clients' && <ClientsList isVendor={isVendor} />}
         {tab === 'commissions' && <CommissionsList />}
         {tab === 'team' && isAmbassador && <TeamView me={me} />}
+        {tab === 'trial' && <TrialStatsView />}
         {tab === 'materials' && <SupportMaterialsList />}
         {tab === 'settings' && (
           <SettingsView
@@ -1714,6 +1728,282 @@ function TeamVendorDetailView({
             )}
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+// =====================================================
+// TrialStatsView — Prueba gratis 5 días (item 4, 2026-06-05)
+// =====================================================
+//
+// Cada afiliado (influencer/embajador/vendor) comparte su link de trial
+// /trial?ref=<miCode>. Aquí ve:
+//   - URL del link + Copiar + Compartir (Web Share API).
+//   - 5 KPIs: generados, activos, vencidos, convertidos, tasa de conversión.
+//   - Tabla detalle de tenants atribuidos con estado del trial, vencimiento,
+//     plan y fecha de conversión.
+// Backend: GET /affiliate/trial-stats — scopeado a SU código.
+
+type TrialStatsResp = {
+  kpis: {
+    trialsGenerated: number;
+    trialsActive: number;
+    trialsExpired: number;
+    trialsConverted: number;
+    conversionRate: number; // 0..1
+  };
+  rows: Array<{
+    tenantId: string;
+    brandName: string;
+    createdAt: string;
+    trialState: 'ACTIVE' | 'EXPIRED' | 'CONVERTED' | 'SUSPENDED';
+    trialEndsAt: string | null;
+    daysLeft: number | null;
+    paymentStatus: 'PENDING' | 'PAID' | 'SUSPENDED';
+    planName: string | null;
+    planPeriodicity: string | null;
+    convertedAt: string | null;
+    attributionCode: string;
+    attributionRole: string;
+    attributionOwnerName: string;
+    trialSource: string | null;
+  }>;
+  shareCode: string | null;
+};
+
+const TRIAL_STATE_CLS: Record<string, string> = {
+  ACTIVE: 'bg-ok-soft text-ok',
+  EXPIRED: 'bg-amber-100 text-amber-800',
+  CONVERTED: 'bg-emerald-100 text-emerald-800',
+  SUSPENDED: 'bg-red-100 text-red-800',
+};
+const TRIAL_STATE_LABEL: Record<string, string> = {
+  ACTIVE: 'Activa',
+  EXPIRED: 'Vencida',
+  CONVERTED: 'Convertido',
+  SUSPENDED: 'Suspendido',
+};
+
+const PAYMENT_STATUS_LABEL: Record<string, string> = {
+  PENDING: 'Sin pago',
+  PAID: 'Pagado',
+  SUSPENDED: 'Suspendido',
+};
+
+function TrialStatsView() {
+  const [data, setData] = useState<TrialStatsResp | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api<TrialStatsResp>('/affiliate/trial-stats')
+      .then(setData)
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, []);
+
+  // Construcción del link: usamos NEXT_PUBLIC_LANDING_URL si está set,
+  // sino caemos a soyclubify.com (default de la marca). Lo armamos solo
+  // en cliente para que no haya mismatch SSR/CSR.
+  const trialLink = useMemo(() => {
+    if (!data?.shareCode) return '';
+    const base =
+      process.env.NEXT_PUBLIC_LANDING_URL?.replace(/\/+$/, '') ??
+      'https://soyclubify.com';
+    return `${base}/trial?ref=${data.shareCode}`;
+  }, [data?.shareCode]);
+
+  async function copyLink() {
+    if (!trialLink) return;
+    await navigator.clipboard.writeText(trialLink);
+    toast('Link copiado', 'success');
+  }
+
+  async function shareLink() {
+    if (!trialLink) return;
+    // Web Share API: en mobile abre el sheet nativo (WhatsApp, IG, etc.).
+    // En desktop sin soporte, hacemos fallback al copy.
+    if (typeof navigator !== 'undefined' && (navigator as any).share) {
+      try {
+        await (navigator as any).share({
+          title: 'Prueba Clubify gratis',
+          text: 'Probá Clubify gratis por 5 días — sin tarjeta.',
+          url: trialLink,
+        });
+      } catch {
+        // El usuario canceló — no es error.
+      }
+    } else {
+      await copyLink();
+    }
+  }
+
+  if (loading) return <div className="card card-pad h-32 animate-shimmer" />;
+  if (!data) return null;
+
+  const conversionPct = Math.round(data.kpis.conversionRate * 100);
+
+  return (
+    <div className="space-y-5">
+      {/* Link de trial + acciones */}
+      {data.shareCode ? (
+        <div className="card card-pad">
+          <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
+            Tu link de prueba gratis
+          </div>
+          <div className="text-xs text-mute mt-1 leading-snug">
+            Comparte este link con prospects. Quien se registre por aquí queda
+            atribuido a vos automáticamente — si pagan después de la prueba,
+            la comisión te corresponde.
+          </div>
+          <div className="flex items-center gap-2 mt-3 flex-wrap">
+            <input
+              className="input flex-1 min-w-[200px] text-xs font-mono"
+              readOnly
+              value={trialLink}
+              onClick={(e) => e.currentTarget.select()}
+            />
+            <button
+              onClick={copyLink}
+              className="btn-ghost text-xs cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"
+            >
+              📋 Copiar
+            </button>
+            <button
+              onClick={shareLink}
+              className="btn-primary text-xs cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"
+            >
+              ↗ Compartir
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="card card-pad text-sm text-mute">
+          Tu código está inactivo. Pedile al super admin que lo reactive para
+          generar tu link de prueba.
+        </div>
+      )}
+
+      {/* KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <Stat
+          label="Trials generados"
+          value={String(data.kpis.trialsGenerated)}
+        />
+        <Stat
+          label="Activos"
+          value={String(data.kpis.trialsActive)}
+          tone="ok"
+        />
+        <Stat
+          label="Vencidos"
+          value={String(data.kpis.trialsExpired)}
+          tone="amber"
+        />
+        <Stat
+          label="Convertidos"
+          value={String(data.kpis.trialsConverted)}
+          tone="brand"
+        />
+        <Stat
+          label="Tasa de conversión"
+          value={`${conversionPct}%`}
+          tone="brand"
+        />
+      </div>
+
+      {/* Detalle clientes */}
+      {data.rows.length === 0 ? (
+        <div className="card card-pad text-center py-12">
+          <div className="text-4xl mb-2">🎁</div>
+          <div className="font-semibold">Aún no hay pruebas activas</div>
+          <div className="text-sm text-mute mt-1">
+            Comparte tu link de prueba y empieza a sumar prospects.
+          </div>
+        </div>
+      ) : (
+        <div className="card overflow-hidden p-0">
+          <div className="px-4 py-3 border-b border-line2">
+            <div className="font-semibold text-sm">
+              Detalle de clientes ({data.rows.length})
+            </div>
+            <div className="text-[11px] text-mute">
+              Tenants que se registraron usando tu link de prueba.
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-bg2">
+                <tr>
+                  {[
+                    'Negocio',
+                    'Registro',
+                    'Estado',
+                    'Vencimiento',
+                    'Pago',
+                    'Plan',
+                    'Conversión',
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.rows.map((r) => {
+                  const stateLabel =
+                    r.trialState === 'ACTIVE' && r.daysLeft != null
+                      ? `Activa · ${r.daysLeft}d`
+                      : TRIAL_STATE_LABEL[r.trialState] ?? r.trialState;
+                  return (
+                    <tr
+                      key={r.tenantId}
+                      className="border-t border-line2 hover:bg-[#FAFAFB]"
+                    >
+                      <td className="px-4 py-3 font-medium">
+                        <div>{r.brandName}</div>
+                        <div className="text-[10px] text-mute font-mono">
+                          {r.attributionCode}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-mute">
+                        {fmtDate(r.createdAt)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
+                            TRIAL_STATE_CLS[r.trialState] ?? 'bg-bg2 text-mute'
+                          }`}
+                        >
+                          {stateLabel}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-mute">
+                        {fmtDate(r.trialEndsAt)}
+                      </td>
+                      <td className="px-4 py-3 text-xs">
+                        {PAYMENT_STATUS_LABEL[r.paymentStatus] ?? r.paymentStatus}
+                      </td>
+                      <td className="px-4 py-3 text-xs">
+                        {r.planName ?? '—'}
+                        {r.planPeriodicity && (
+                          <span className="text-mute"> · {r.planPeriodicity}</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-mute">
+                        {fmtDate(r.convertedAt)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
     </div>
   );
