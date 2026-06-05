@@ -1,7 +1,5 @@
 import Link from 'next/link';
-import { headers } from 'next/headers';
 import { Icon } from '@/components/Icon';
-import { detectCountryFromHeaders, getLocalPrice } from '@/lib/pricing';
 import { RefCapture } from '@/components/RefCapture';
 import { FadeIn } from '@/components/FadeIn';
 import { HeroTrio } from '@/components/HeroTrio';
@@ -58,33 +56,6 @@ const STATS_FALLBACK = [
   { value: '50K', label: 'Pedidos procesados / mes' },
   { value: '4.9 / 5', label: 'Calificación de dueños' },
 ];
-
-function buildPricing(country: string | null) {
-  const elite = getLocalPrice(50, country);
-  return [
-    {
-      name: 'Elite',
-      price: elite.display,
-      priceUsd: elite.displayUsd,
-      isUsdCountry: elite.isUsdCountry,
-      note: 'al mes',
-      badge: 'Todo incluido',
-      features: [
-        'Pedidos ilimitados',
-        'Tarjetas wallet (Apple + Google) ilimitadas',
-        'Automatizaciones de WhatsApp',
-        'Mensajes automáticos por evento (sello, cumpleaños, recordatorio, etc.)',
-        'Multi-ubicación + multi-staff',
-        'Dominio propio + analítica',
-        'Email transaccional + scanner PWA',
-        'Soporte por chat',
-      ],
-      cta: 'Empezar ahora →',
-      href: '/signup',
-      primary: true,
-    },
-  ];
-}
 
 type SalesContact = {
   whatsapp: string | null;
