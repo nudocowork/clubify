@@ -9,7 +9,7 @@
 // importantes que necesitan invalidar TODA la cache de los clientes.
 // Cada vez que cambia, el SW activate purga las caches viejas y los clientes
 // vuelven a descargar todo fresh.
-const VERSION = 'v14-2026-05-19-qr-poster-localstorage-corrupt-discard';
+const VERSION = 'v15-2026-06-05-no-reload-first-install-transactional-bypass';
 const SHELL_CACHE = `clubify-shell-${VERSION}`;
 const ASSET_CACHE = `clubify-assets-${VERSION}`;
 
@@ -47,18 +47,31 @@ self.addEventListener('activate', (event) => {
           .map((k) => caches.delete(k)),
       );
       await self.clients.claim();
-      // Forzar reload de TODAS las tabs abiertas — así el cliente ve los
-      // assets nuevos sin tener que cerrar/reabrir o hacer hard-reload
-      // manual. Solo navega tabs http(s) (no devtools, extensions, etc).
+      // Forzar reload de TABs abiertas para que vean los assets nuevos.
+      // CRÍTICO (M8 2026-06-05): NO navegar tabs que están en páginas
+      // transaccionales (/c/, /r/, /q/, /signup) — el cliente está
+      // llenando un form y reloadear le pierde el input. Esas tabs
+      // recibirán el SW nuevo en su próxima visita.
       const allClients = await self.clients.matchAll({
         type: 'window',
         includeUncontrolled: true,
       });
       for (const client of allClients) {
         try {
-          if (client.url && client.url.startsWith('http') && 'navigate' in client) {
-            await client.navigate(client.url);
+          if (!client.url || !client.url.startsWith('http')) continue;
+          if (!('navigate' in client)) continue;
+          const pn = new URL(client.url).pathname;
+          if (
+            pn.startsWith('/c/') ||
+            pn.startsWith('/r/') ||
+            pn.startsWith('/q/') ||
+            pn.startsWith('/signup') ||
+            pn.startsWith('/prueba') ||
+            pn.startsWith('/trial')
+          ) {
+            continue;
           }
+          await client.navigate(client.url);
         } catch {
           /* noop — algunas plataformas restringen navigate */
         }
@@ -76,12 +89,21 @@ self.addEventListener('fetch', (event) => {
   // Mismo origen únicamente
   if (url.origin !== self.location.origin) return;
 
-  // Bypass para datos vivos
+  // Bypass para datos vivos y páginas transaccionales (donde queremos
+  // siempre red fresh — no se cachea HTML que el cliente está
+  // completando como formulario). M8 2026-06-05 agrega /c/, /r/, /q/,
+  // /signup, /prueba, /trial al bypass.
   if (
     url.pathname.startsWith('/api/') ||
     url.pathname.startsWith('/m/') ||
     url.pathname.startsWith('/i/') ||
     url.pathname.startsWith('/o/') ||
+    url.pathname.startsWith('/c/') ||
+    url.pathname.startsWith('/r/') ||
+    url.pathname.startsWith('/q/') ||
+    url.pathname.startsWith('/signup') ||
+    url.pathname.startsWith('/prueba') ||
+    url.pathname.startsWith('/trial') ||
     url.pathname.startsWith('/admin/') ||
     url.pathname.startsWith('/_next/data/')
   ) {
