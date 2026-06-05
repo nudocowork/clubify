@@ -13,6 +13,10 @@ export type PricingSettings = {
 
 export type BrandingSettings = {
   appLogoUrl: string | null;
+  // Logo de la landing pública (soyclubify.com). Si está seteado,
+  // reemplaza el <Logo> texto-default en el header y footer de la
+  // landing. Si está null, se usa el lockup default de Clubify.
+  landingLogoUrl: string | null;
   faviconUrl: string | null;
   supportWhatsapp: string | null;
   // Popup de bienvenida que se muestra al dueño la primera vez que entra
@@ -38,6 +42,7 @@ export type BrandingSettings = {
 
 const KEYS = {
   appLogoUrl: 'branding.appLogoUrl',
+  landingLogoUrl: 'branding.landingLogoUrl',
   faviconUrl: 'branding.faviconUrl',
   supportWhatsapp: 'support.whatsappPhone',
   welcomePopupImageUrl: 'welcomePopup.imageUrl',
@@ -90,6 +95,7 @@ export class SettingsService {
         key: {
           in: [
             KEYS.appLogoUrl,
+            KEYS.landingLogoUrl,
             KEYS.faviconUrl,
             KEYS.supportWhatsapp,
             KEYS.welcomePopupImageUrl,
@@ -115,6 +121,7 @@ export class SettingsService {
     const enabledRaw = map.get(KEYS.welcomePopupEnabled);
     return {
       appLogoUrl: norm(map.get(KEYS.appLogoUrl)),
+      landingLogoUrl: norm(map.get(KEYS.landingLogoUrl)),
       faviconUrl: norm(map.get(KEYS.faviconUrl)),
       supportWhatsapp: norm(map.get(KEYS.supportWhatsapp)),
       welcomePopupImageUrl: norm(map.get(KEYS.welcomePopupImageUrl)),
@@ -134,6 +141,9 @@ export class SettingsService {
     const ops: Promise<unknown>[] = [];
     if (data.appLogoUrl !== undefined) {
       ops.push(this.upsert(KEYS.appLogoUrl, data.appLogoUrl ?? ''));
+    }
+    if (data.landingLogoUrl !== undefined) {
+      ops.push(this.upsert(KEYS.landingLogoUrl, data.landingLogoUrl ?? ''));
     }
     if (data.faviconUrl !== undefined) {
       ops.push(this.upsert(KEYS.faviconUrl, data.faviconUrl ?? ''));

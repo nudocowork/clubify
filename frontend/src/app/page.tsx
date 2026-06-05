@@ -98,6 +98,9 @@ type LandingStats = {
 type BrandingPublic = {
   sales: SalesContact;
   stats: LandingStats;
+  // Logo lockup de la landing pública. Si está seteado, reemplaza el
+  // <Logo> default. Null = usa el logo Clubify built-in.
+  landingLogoUrl: string | null;
 };
 
 // Productos reales del menú de NudoCowork para alimentar la animación del
@@ -141,6 +144,7 @@ async function fetchBranding(): Promise<BrandingPublic> {
   const empty: BrandingPublic = {
     sales: { whatsapp: null, email: null, instagram: null },
     stats: { businesses: null, walletCustomers: null, orders: null, rating: null },
+    landingLogoUrl: null,
   };
   try {
     const r = await fetch(`${API}/api/branding`, { next: { revalidate: 60 } });
@@ -158,6 +162,7 @@ async function fetchBranding(): Promise<BrandingPublic> {
         orders: d?.landingStatOrders ?? null,
         rating: d?.landingStatRating ?? null,
       },
+      landingLogoUrl: d?.landingLogoUrl ?? null,
     };
   } catch {
     return empty;
@@ -171,7 +176,7 @@ export default async function Landing() {
     fetchBranding(),
     fetchNudoMenuItems(),
   ]);
-  const { sales, stats } = branding;
+  const { sales, stats, landingLogoUrl } = branding;
   const waLink = sales.whatsapp
     ? `https://wa.me/${sales.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent('Hola, quiero saber más de Clubify')}`
     : 'https://wa.me/573189367158?text=' +
@@ -201,7 +206,21 @@ export default async function Landing() {
       <header className="sticky top-0 z-30 backdrop-blur-md bg-white/85 border-b border-line/80">
         <div className="mx-auto max-w-7xl px-6 flex items-center justify-between h-16">
           <Link href="/" className="flex items-center" aria-label="Clubify">
-            <Logo size={36} priority />
+            {landingLogoUrl ? (
+              // Logo custom subido desde /admin/branding. Ratio ~3.4:1 esperado.
+              // Si la imagen tiene otra proporción, height fija + width auto
+              // preserva el aspecto sin recortar. Cargado priority igual que
+              // el default para no degradar LCP.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={landingLogoUrl}
+                alt="Logo"
+                height={36}
+                style={{ height: 36, width: 'auto', display: 'block' }}
+              />
+            ) : (
+              <Logo size={36} priority />
+            )}
           </Link>
 
           <nav className="hidden lg:flex items-center gap-8 text-[14px] text-mute">
@@ -560,7 +579,17 @@ export default async function Landing() {
           <div className="grid grid-cols-2 md:grid-cols-5 gap-8 text-sm">
             <div className="col-span-2">
               <div className="flex items-center mb-3">
-                <Logo size={28} />
+                {landingLogoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={landingLogoUrl}
+                    alt="Logo"
+                    height={28}
+                    style={{ height: 28, width: 'auto', display: 'block' }}
+                  />
+                ) : (
+                  <Logo size={28} />
+                )}
               </div>
               <p className="text-mute text-sm leading-relaxed max-w-xs">
                 La plataforma todo-en-uno para negocios locales en LATAM.
