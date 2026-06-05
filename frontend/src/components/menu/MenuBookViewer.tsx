@@ -257,30 +257,41 @@ export function MenuBookViewer({
 
   // ── M3: trigger del popup GLOBAL del libro al cargar (con delay
   // configurado). Se dispara 1 vez por visita — si el cliente lo cierra
-  // y refrescha sí vuelve, pero swipe entre páginas no lo reabre.
+  // y refresca sí vuelve, pero swipe entre páginas no lo reabre.
+  //
+  // HOTFIX 2026-06-05: marcamos `bookPopupShownRef = true` SOLO si
+  // efectivamente abrimos el popup. Si durante el delay otro popup ya
+  // se abrió (ej: popup de página por tap rápido del cliente), bookPopup
+  // queda "consumido" pero nunca se mostró. La marca debe quedar atada
+  // al evento real de apertura. Mismo patrón para sección.
   useEffect(() => {
     if (!data?.bookPopup) return;
     if (bookPopupShownRef.current) return;
     const delay = Math.max(0, data.bookPopup.delaySeconds ?? 5) * 1000;
     const t = setTimeout(() => {
-      // Si hay un popup ya abierto (raro pero posible), no pisamos.
-      setOpenPopup((curr) => curr ?? data.bookPopup);
-      bookPopupShownRef.current = true;
+      setOpenPopup((curr) => {
+        if (curr) return curr; // otro popup ya abierto, no pisamos ni marcamos.
+        bookPopupShownRef.current = true;
+        return data.bookPopup;
+      });
     }, delay);
     return () => clearTimeout(t);
   }, [data]);
 
   // ── M3: trigger del popup por SECCIÓN al entrar — solo 1 vez por
   // sección por visita. No dispara si ya hay otro popup abierto.
+  // Cuando el popup actual se cierre (openPopup → null), el effect
+  // re-evalúa con la sección activa y abre el popup pendiente si lo hay.
   useEffect(() => {
     if (!data) return;
     if (!activeSectionId) return;
     if (sectionsShownRef.current.has(activeSectionId)) return;
+    if (openPopup) return; // esperamos a que se cierre el popup actual.
     const section = data.sections.find((s) => s.id === activeSectionId);
     if (!section?.popup) return;
     sectionsShownRef.current.add(activeSectionId);
-    setOpenPopup((curr) => curr ?? section.popup);
-  }, [activeSectionId, data]);
+    setOpenPopup(section.popup);
+  }, [activeSectionId, data, openPopup]);
 
   // ── Loading / error / empty
   if (loadErr) {

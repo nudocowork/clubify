@@ -228,9 +228,21 @@ export class ReviewsService {
 
     const feedback = await this.prisma.reviewFeedback.findUnique({
       where: { id: feedbackId },
+      include: { reviewTarget: true },
     });
     if (!feedback) return;
-    if (feedback.rating > tenant.reviewAlertsThreshold) return;
+    // HOTFIX 2026-06-05 (Fase 8 follow-up): si el feedback tiene
+    // reviewTarget, su threshold gana sobre tenant.reviewAlertsThreshold
+    // para decidir si dispara SMS. Sino el dueño puede quedarse sin
+    // enterarse de ratings que el frontend marcó como negativos (porque
+    // estaban abajo del threshold del target) pero arriba del threshold
+    // global de alertas. Regla: si NO fue a Google (rating < target
+    // threshold), el dueño quiere enterarse — eso es lo que el target
+    // explícitamente filtra como "para revisar privado".
+    const effectiveSmsThreshold = feedback.reviewTarget
+      ? feedback.reviewTarget.threshold - 1
+      : tenant.reviewAlertsThreshold;
+    if (feedback.rating > effectiveSmsThreshold) return;
 
     // Idempotencia: si ya mandamos alerta para este feedback, no
     // reintentamos (caso reintentos del cliente).

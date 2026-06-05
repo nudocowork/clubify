@@ -70,9 +70,16 @@ export class CustomersService {
       },
       include: {
         _count: { select: { passes: true, stamps: true } },
-        // M6: last stamp con operator + location. Se usa para enriquecer
-        // la tabla con "quién/dónde fue el último escaneo".
+        // M6: último stamp con operator + location para enriquecer la
+        // tabla con "quién/dónde fue el último escaneo".
+        //
+        // HOTFIX 2026-06-05: si hay filtros activos, el include respeta
+        // los mismos para que el "último escaneo" mostrado en la celda
+        // coincida con el filtro. Sin esto, el dueño filtraba por
+        // operatorId=X y la columna mostraba escaneos hechos por Y (el
+        // más reciente absoluto), generando confusión.
         stamps: {
+          where: hasScanFilter ? scanWhere : undefined,
           orderBy: { createdAt: 'desc' },
           take: 1,
           select: {
