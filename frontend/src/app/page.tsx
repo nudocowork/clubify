@@ -10,9 +10,9 @@ import { FidelizacionBanner } from '@/components/FidelizacionBanner';
 import { InfoLinksBanner } from '@/components/InfoLinksBanner';
 import { Logo } from '@/components/Logo';
 import {
-  LandingPricingToggle,
+  LandingPricingCheckout,
   type LandingPlan,
-} from '@/components/LandingPricingToggle';
+} from '@/components/LandingPricingCheckout';
 
 const TESTIMONIALS = [
   {
@@ -513,7 +513,7 @@ export default async function Landing() {
               a vender — cancela cuando quieras desde tu panel.
             </p>
           </div>
-          <LandingPricingToggle plans={landingPlans} />
+          <LandingPricingCheckout plans={landingPlans} />
         </div>
       </section>
 
