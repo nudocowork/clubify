@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Headers, Ip, Param, Patch, Post, Query } from '@nestjs/common';
-import { IsEmail, IsNumber, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsEmail, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { CommissionStatus } from '@prisma/client';
 import { ReferralsService } from './referrals.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
@@ -20,6 +20,10 @@ class CreateReferralBody {
 
 class CommissionBody {
   @IsString() status!: CommissionStatus;
+}
+
+class CommissionPercentBody {
+  @IsNumber() @Min(0) @Max(100) commissionPercent!: number;
 }
 
 @Controller('referrals')
@@ -232,6 +236,20 @@ export class ReferralsController {
     @Body() body: { slug: string | null },
   ) {
     return this.svc.setSlug(id, body.slug);
+  }
+
+  /**
+   * Edita el % de comisión de un afiliado/embajador/influencer/socio
+   * existente. Cambia solo las comisiones futuras — el histórico no se
+   * recalcula. SUPER_ADMIN only.
+   */
+  @Roles('SUPER_ADMIN')
+  @Patch('codes/:id/commission-percent')
+  setCommissionPercent(
+    @Param('id') id: string,
+    @Body() body: CommissionPercentBody,
+  ) {
+    return this.svc.setCommissionPercent(id, body.commissionPercent);
   }
 
   @Roles('SUPER_ADMIN')

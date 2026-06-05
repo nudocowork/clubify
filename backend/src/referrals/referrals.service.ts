@@ -227,6 +227,34 @@ export class ReferralsService {
   }
 
   /**
+   * Edita la comisión (%) de un ReferralCode existente (afiliado, embajador,
+   * influencer, socio o campaña). SUPER_ADMIN only. Aplica solo a comisiones
+   * futuras — las Commission ya creadas mantienen su monto original (no
+   * recalculamos histórico, sería un cambio retroactivo confuso para el
+   * afiliado y para contabilidad).
+   *
+   * Validación: 0 ≤ percent ≤ 100. El schema soporta hasta 999.99 pero
+   * arriba de 100% no tiene sentido económico en un programa de referidos.
+   */
+  async setCommissionPercent(id: string, percent: number) {
+    if (!Number.isFinite(percent)) {
+      throw new BadRequestException('commissionPercent inválido');
+    }
+    if (percent < 0 || percent > 100) {
+      throw new BadRequestException(
+        'commissionPercent debe estar entre 0 y 100',
+      );
+    }
+    const target = await this.prisma.referralCode.findUnique({ where: { id } });
+    if (!target) throw new NotFoundException('code not found');
+    const normalized = Math.round(percent * 100) / 100;
+    return this.prisma.referralCode.update({
+      where: { id },
+      data: { commissionPercent: normalized },
+    });
+  }
+
+  /**
    * Cron diario que reconcilia comisiones recurrentes. Defensa en
    * profundidad por si el webhook Hotmart no llegó en algún ciclo
    * (problemas de red, payload distinto, etc).

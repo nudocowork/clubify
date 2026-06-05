@@ -109,6 +109,105 @@ const PAYOUT_STATUS: Record<PayoutItem['status'], { text: string; cls: string }>
   REJECTED: { text: 'Rechazado', cls: 'bg-red-100 text-red-800' },
 };
 
+/**
+ * Celda de comisión (%) editable inline. Click sobre el chip → input
+ * numérico 0-100. Enter / blur guarda; Esc cancela. Solo afecta a las
+ * comisiones futuras — el histórico no se recalcula.
+ *
+ * `onSaved(value)` se invoca con el nuevo % para que el padre actualice
+ * el row optimísticamente sin recargar la tabla entera.
+ */
+function CommissionPercentCell({
+  codeId,
+  value,
+  onSaved,
+}: {
+  codeId: string;
+  value: number;
+  onSaved?: (newValue: number) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<string>(String(value));
+  const [busy, setBusy] = useState(false);
+
+  // Si el valor del padre cambia (refetch), sincronizamos el draft cuando
+  // no estamos editando — evita pisar lo que el user está tipeando.
+  useEffect(() => {
+    if (!editing) setDraft(String(value));
+  }, [value, editing]);
+
+  async function save() {
+    const num = Number(draft);
+    if (!Number.isFinite(num) || num < 0 || num > 100) {
+      toast('El % debe estar entre 0 y 100', 'error');
+      setDraft(String(value));
+      setEditing(false);
+      return;
+    }
+    if (num === Number(value)) {
+      setEditing(false);
+      return;
+    }
+    setBusy(true);
+    try {
+      await api(`/referrals/codes/${codeId}/commission-percent`, {
+        method: 'PATCH',
+        body: JSON.stringify({ commissionPercent: num }),
+      });
+      toast(`Comisión actualizada a ${num}%`, 'success');
+      onSaved?.(num);
+      setEditing(false);
+    } catch (e: any) {
+      toast(e.message || 'No se pudo guardar', 'error');
+      setDraft(String(value));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        <input
+          autoFocus
+          type="number"
+          min={0}
+          max={100}
+          step={0.01}
+          disabled={busy}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={save}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              save();
+            } else if (e.key === 'Escape') {
+              e.preventDefault();
+              setDraft(String(value));
+              setEditing(false);
+            }
+          }}
+          className="w-16 px-1.5 py-0.5 text-sm border border-line rounded focus:outline-none focus:ring-1 focus:ring-brand"
+        />
+        <span className="text-mute text-xs">%</span>
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => setEditing(true)}
+      title="Click para editar la comisión"
+      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded hover:bg-bg2 cursor-pointer text-sm"
+    >
+      {Number(value)}%
+      <span className="text-mute text-[10px] opacity-0 group-hover:opacity-100">✎</span>
+    </button>
+  );
+}
+
 export default function AdminReferrals() {
   const [tab, setTab] = useState<Tab>('summary');
 
@@ -858,8 +957,22 @@ function CodesTab() {
                   </div>
                 </div>
                 <div className="text-sm flex items-center gap-2 flex-wrap">
-                  <span className="badge badge-info">
-                    {Number(r.commissionPercent)}% comisión
+                  <span
+                    className="badge badge-info"
+                    title="Click sobre el % para editarlo"
+                  >
+                    <CommissionPercentCell
+                      codeId={r.id}
+                      value={Number(r.commissionPercent)}
+                      onSaved={(v) =>
+                        setList((prev) =>
+                          prev.map((row) =>
+                            row.id === r.id ? { ...row, commissionPercent: v } : row,
+                          ),
+                        )
+                      }
+                    />
+                    <span className="ml-1">comisión</span>
                   </span>
                   {r.source && (
                     <span
@@ -1536,11 +1649,23 @@ function CampaignDetailModal({
               </div>
               <div className="font-semibold">{data.ownerCode.ownerName}</div>
               <div className="text-xs text-mute">{data.ownerCode.ownerEmail}</div>
-              <div className="mt-2 font-mono font-bold text-lg bg-white px-3 py-2 rounded inline-block">
-                {data.ownerCode.code}{' '}
-                <span className="text-xs text-mute font-normal">
-                  · {Number(data.ownerCode.commissionPercent)}% directo
-                </span>
+              <div className="mt-2 flex items-center gap-2 flex-wrap">
+                <div className="font-mono font-bold text-lg bg-white px-3 py-2 rounded inline-block">
+                  {data.ownerCode.code}
+                </div>
+                <span className="text-xs text-mute">·</span>
+                <CommissionPercentCell
+                  codeId={data.ownerCode.id}
+                  value={Number(data.ownerCode.commissionPercent)}
+                  onSaved={(v) =>
+                    setData((prev: any) =>
+                      prev
+                        ? { ...prev, ownerCode: { ...prev.ownerCode, commissionPercent: v } }
+                        : prev,
+                    )
+                  }
+                />
+                <span className="text-xs text-mute">directo</span>
               </div>
             </div>
 
@@ -1630,8 +1755,24 @@ function CampaignDetailModal({
                     <div className="font-mono font-bold text-sm bg-bg2 px-2 py-1 rounded">
                       {amb.code}
                     </div>
-                    <div className="text-xs text-mute whitespace-nowrap">
-                      {Number(amb.commissionPercent)}% · {amb.uses?.length ?? 0} clientes
+                    <div className="text-xs text-mute whitespace-nowrap flex items-center gap-1">
+                      <CommissionPercentCell
+                        codeId={amb.id}
+                        value={Number(amb.commissionPercent)}
+                        onSaved={(v) =>
+                          setData((prev: any) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  codes: prev.codes.map((c: any) =>
+                                    c.id === amb.id ? { ...c, commissionPercent: v } : c,
+                                  ),
+                                }
+                              : prev,
+                          )
+                        }
+                      />
+                      · {amb.uses?.length ?? 0} clientes
                     </div>
                     {amb.isActive && (
                       <button
@@ -1917,7 +2058,19 @@ function InfluencersTab() {
                   <div className="text-xs text-mute">{r.ownerEmail}</div>
                 </td>
                 <td className="px-4 py-3 font-mono font-bold">{r.code}</td>
-                <td className="px-4 py-3">{r.commissionPercent}%</td>
+                <td className="px-4 py-3">
+                  <CommissionPercentCell
+                    codeId={r.id}
+                    value={Number(r.commissionPercent)}
+                    onSaved={(v) =>
+                      setRows((prev) =>
+                        prev.map((row) =>
+                          row.id === r.id ? { ...row, commissionPercent: v } : row,
+                        ),
+                      )
+                    }
+                  />
+                </td>
                 <td className="px-4 py-3 text-xs">{r.campaignName ?? '—'}</td>
                 <td className="px-4 py-3 text-center">{r.ambassadorsCount}</td>
                 <td className="px-4 py-3 text-center">
@@ -2093,7 +2246,19 @@ function AmbassadorsTab() {
                     <div className="text-xs text-mute">{r.ownerEmail}</div>
                   </td>
                   <td className="px-4 py-3 font-mono font-bold">{r.code}</td>
-                  <td className="px-4 py-3">{r.commissionPercent}%</td>
+                  <td className="px-4 py-3">
+                    <CommissionPercentCell
+                      codeId={r.id}
+                      value={Number(r.commissionPercent)}
+                      onSaved={(v) =>
+                        setRows((prev) =>
+                          prev.map((row) =>
+                            row.id === r.id ? { ...row, commissionPercent: v } : row,
+                          ),
+                        )
+                      }
+                    />
+                  </td>
                   <td className="px-4 py-3 text-xs">
                     {r.isCompanyDirect ? (
                       <span className="text-violet-700 font-medium">Empresa</span>

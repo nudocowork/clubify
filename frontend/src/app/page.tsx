@@ -527,7 +527,7 @@ export default async function Landing() {
               },
               {
                 q: '¿Hay costos extras?',
-                a: 'No. Pedidos, tarjetas, automatizaciones y clientes son ilimitados con tu suscripción. Sin comisiones por transacción.',
+                a: 'No. Pedidos, tarjetas, automatizaciones y clientes son ilimitados con tu suscripción. Sin cobros por transacción.',
               },
               {
                 q: '¿Funciona si no soy técnico?',
@@ -630,7 +630,6 @@ export default async function Landing() {
             <div>
               <div className="font-semibold mb-3 text-[13px]">Crece</div>
               <ul className="space-y-2 text-mute">
-                <li><Link href="/refer" className="hover:text-ink">Referidos</Link></li>
                 <li><Link href="/#precios" className="hover:text-ink">Empezar ahora</Link></li>
                 <li><Link href="/login" className="hover:text-ink">Ingresar</Link></li>
               </ul>
