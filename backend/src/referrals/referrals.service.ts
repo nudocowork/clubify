@@ -2033,6 +2033,9 @@ export class ReferralsService {
       email: string;
       whatsapp: string;
       commissionPercent: number;
+      /** Si viene, se setea como password del User auto-creado en vez de
+       *  un email de reset. El embajador la comparte por WhatsApp/SMS. */
+      password?: string;
     },
   ) {
     const embajador = await this.prisma.referralCode.findUnique({
@@ -2082,7 +2085,7 @@ export class ReferralsService {
     }
     const slug = await this.allocateSlug(dto.fullName, code);
 
-    return this.prisma.referralCode.create({
+    const created = await this.prisma.referralCode.create({
       data: {
         code,
         slug,
@@ -2095,6 +2098,36 @@ export class ReferralsService {
         isActive: true,
       },
     });
+
+    // Auto-creamos la cuenta AFFILIATE_VENDOR para que el vendedor pueda
+    // entrar a /login y ver su panel. Mismo patrón que createVendor del
+    // embajador via inviteAffiliate. Si la creación falla (email duplicado
+    // que se coló por race, etc), no rompemos — el ReferralCode ya está
+    // creado y el admin puede arreglarlo manualmente.
+    const presetPassword =
+      dto.password?.trim() || this.auth.generateReadablePassword();
+    const inviteResult = await this.auth
+      .inviteAffiliate({
+        email: dto.email,
+        fullName: dto.fullName,
+        role: 'AFFILIATE_VENDOR',
+        referralCodeId: created.id,
+        phone: dto.whatsapp,
+        presetPassword,
+      })
+      .catch((err) => {
+        this.logger.warn(
+          `inviteAffiliate falló para vendor ${dto.email}: ${(err as Error).message}`,
+        );
+        return null;
+      });
+
+    return {
+      ...created,
+      affiliateCredentials: inviteResult?.password
+        ? { email: dto.email, password: inviteResult.password, loginUrl: '/login' }
+        : null,
+    };
   }
 
   /** Lista vendedores de un embajador específico. */

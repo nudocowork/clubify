@@ -196,7 +196,11 @@ export function passwordResetTemplate(args: {
 export function inviteAffiliateTemplate(args: {
   fullName: string;
   inviteUrl: string;
-  role: 'AFFILIATE_INFLUENCER' | 'AFFILIATE_AMBASSADOR' | 'AFFILIATE_SOCIO';
+  role:
+    | 'AFFILIATE_INFLUENCER'
+    | 'AFFILIATE_AMBASSADOR'
+    | 'AFFILIATE_SOCIO'
+    | 'AFFILIATE_VENDOR';
   code: string;
   commissionPercent: number;
   campaignName: string | null;
@@ -211,11 +215,20 @@ export function inviteAffiliateTemplate(args: {
   };
   const isInfluencer = args.role === 'AFFILIATE_INFLUENCER';
   const isSocio = args.role === 'AFFILIATE_SOCIO';
-  const roleLabel = isSocio ? 'socio' : isInfluencer ? 'influencer' : 'embajador';
+  const isVendor = args.role === 'AFFILIATE_VENDOR';
+  const roleLabel = isSocio
+    ? 'socio'
+    : isInfluencer
+    ? 'influencer'
+    : isVendor
+    ? 'vendedor'
+    : 'embajador';
   const greeting = isSocio
     ? `Sos socio de Clubify y recibirás el ${args.commissionPercent}% de TODAS las ventas`
     : isInfluencer
     ? `Te asignamos la campaña ${args.campaignName ?? 'tuya'}`
+    : isVendor
+    ? `Te invitamos a ser vendedor del equipo de ${args.parentName ?? 'tu embajador'}`
     : `Te invitamos a ser embajador de ${args.parentName ?? 'la campaña'}`;
 
   return {
