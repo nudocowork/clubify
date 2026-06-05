@@ -63,8 +63,13 @@ type Vendor = {
 
 type VendorsResp = {
   max: number;
-  used: number;
-  available: number;
+  // CORRECCIÓN LÓGICA 2026-06-05: ya NO usamos available/used —
+  // la comisión es INDIVIDUAL por vendedor, no acumulada. Mantenemos
+  // los campos como opcionales por backwards-compat con responses
+  // viejas (servidor sin redeploy), pero el código UI ya no los lee.
+  used?: number;
+  available?: number;
+  vendorCommissionMax?: number;
   vendors: Vendor[];
 };
 
@@ -186,12 +191,7 @@ export default function AffiliateTeamPage() {
               <button
                 onClick={() => setShowCreate(true)}
                 className="btn-primary text-sm whitespace-nowrap"
-                disabled={data.available <= 0}
-                title={
-                  data.available <= 0
-                    ? `Sin comisión disponible para repartir (${data.used}% de ${data.max}% ya usado).`
-                    : ''
-                }
+                title={`Comisión máxima por vendedor: ${data.max}%. Cada vendedor cobra su % SOLO en SUS ventas.`}
               >
                 + Nuevo vendedor
               </button>
@@ -214,7 +214,6 @@ export default function AffiliateTeamPage() {
       {showCreate && data && codeId && (
         <VendorFormModal
           title="Nuevo vendedor"
-          available={data.available}
           max={data.max}
           onClose={() => setShowCreate(false)}
           onSaved={() => {
@@ -228,7 +227,6 @@ export default function AffiliateTeamPage() {
       {editTarget && data && codeId && (
         <VendorFormModal
           title={`Editar ${editTarget.ownerName}`}
-          available={data.available + editTarget.commissionPercent}
           max={data.max}
           initial={editTarget}
           onClose={() => setEditTarget(null)}
@@ -316,44 +314,31 @@ export default function AffiliateTeamPage() {
 }
 
 function SummaryCard({ data }: { data: VendorsResp }) {
-  // % barra usado vs disponible. usado / max — clamp por si bug.
-  const pct = Math.max(0, Math.min(100, (data.used / Math.max(data.max, 0.001)) * 100));
+  // CORRECCIÓN LÓGICA 2026-06-05: ya no hay "Disponible" — cada vendor
+  // tiene su comisión INDIVIDUAL que se aplica solo en SUS ventas. El
+  // tope es por vendedor (= max del embajador), no acumulado.
+  const activeCount = data.vendors.filter((v) => v.isActive).length;
   return (
     <div className="card card-pad mb-5">
-      <div className="grid grid-cols-3 gap-3 mb-3">
+      <div className="grid grid-cols-2 gap-3 mb-3">
         <Stat
-          label="Comisión máxima"
+          label="Mi comisión máxima"
           value={`${data.max}%`}
-          hint="Tope que el admin te asignó"
+          hint="El admin te asignó este tope"
         />
         <Stat
-          label="Repartido"
-          value={`${data.used}%`}
-          tone="amber"
-          hint="Sumatoria de vendedores activos"
-        />
-        <Stat
-          label="Disponible"
-          value={`${data.available}%`}
-          tone={data.available > 0 ? 'ok' : 'bad'}
-          hint="Para asignar a nuevos vendedores"
-        />
-      </div>
-      <div className="h-2 bg-bg2 rounded overflow-hidden">
-        <div
-          className={`h-full ${
-            data.available <= 0
-              ? 'bg-amber-500'
-              : 'bg-emerald-500'
-          }`}
-          style={{ width: `${pct}%` }}
+          label="Tope por vendedor"
+          value={`${data.max}%`}
+          tone="ok"
+          hint="Ningún vendedor puede cobrar más que tu máximo"
         />
       </div>
       <div className="text-[11px] text-mute mt-2 leading-snug">
-        Cada vez que un cliente referido por un vendedor de tu equipo paga,
-        el vendedor recibe <strong>su %</strong> y vos seguís recibiendo el
-        resto hasta llegar a tu comisión máxima. El 5% indirecto del
-        influencer arriba tuyo (si existe) no cambia.
+        Cada venta de un vendedor de tu equipo: el vendedor recibe{' '}
+        <strong>su %</strong> y vos recibís <strong>{data.max}% − % del vendedor</strong>.
+        Por ejemplo, si vos tenés 25% y el vendedor 18%: él cobra 18% y vos 7%
+        en esa venta. El % de cada vendedor se aplica SOLO en SUS ventas — no
+        se acumula entre vendedores. Tenés {activeCount} vendedor{activeCount === 1 ? '' : 'es'} activo{activeCount === 1 ? '' : 's'}.
       </div>
     </div>
   );
@@ -503,7 +488,6 @@ function VendorsTable({
 
 function VendorFormModal({
   title,
-  available,
   max,
   initial,
   onClose,
@@ -511,10 +495,8 @@ function VendorFormModal({
   embajadorCodeId,
 }: {
   title: string;
-  /** Comisión % disponible para ESTE form. Al editar, sumamos el % del
-   *  propio vendedor — si el embajador subió de 10 a 15, el form debe
-   *  permitir hasta el nuevo `available + own`. */
-  available: number;
+  // CORRECCIÓN LÓGICA 2026-06-05: el tope ahora es INDIVIDUAL por
+  // vendor (= max del embajador). No hay "available" acumulado.
   max: number;
   initial?: Vendor;
   onClose: () => void;
@@ -525,30 +507,30 @@ function VendorFormModal({
   const [email, setEmail] = useState(initial?.ownerEmail ?? '');
   const [whatsapp, setWhatsapp] = useState(initial?.ownerWhatsapp ?? '');
   const [commissionPercent, setCommissionPercent] = useState<number>(
-    initial?.commissionPercent ?? Math.min(5, available),
+    initial?.commissionPercent ?? Math.min(5, max),
   );
   const [busy, setBusy] = useState(false);
 
-  const overLimit = commissionPercent > available;
+  const overLimit = commissionPercent > max;
   const isEdit = !!initial;
 
   const helper = useMemo(() => {
     if (overLimit) {
       return {
         cls: 'text-red-700',
-        text: `Excede tu comisión disponible (${available}% restante de ${max}% máx).`,
+        text: `Excede tu comisión máxima (${max}%).`,
       };
     }
     return {
       cls: 'text-mute',
-      text: `Disponible: ${available}% restante (de ${max}% máx).`,
+      text: `Comisión individual del vendedor. Tope: ${max}%. Se aplica SOLO en SUS ventas.`,
     };
-  }, [overLimit, available, max]);
+  }, [overLimit, max]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (overLimit) {
-      toast('La comisión excede el disponible', 'error');
+      toast(`La comisión excede el máximo (${max}%)`, 'error');
       return;
     }
     if (commissionPercent <= 0) {

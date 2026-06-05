@@ -2138,19 +2138,22 @@ export class ReferralsService {
 
     await this.assertUniqueAffiliateEmail(dto.email);
 
+    // CORRECCIÓN LÓGICA 2026-06-05: la validación correcta es
+    // INDIVIDUAL — cada vendedor tiene su propia comisión que se aplica
+    // SOLO en sus propias ventas. NO se suma entre vendedores. El
+    // embajador puede tener 10 vendedores todos al 18% — cada venta de
+    // un vendedor le saca 18% al embajador (que recibe 25-18=7%). El
+    // único requisito es que ningún vendedor individual exceda el max
+    // del embajador.
     const max = embajador.maxCommissionPercent
       ? Number(embajador.maxCommissionPercent)
       : 25;
-    const used = embajador.childVendors
-      .filter((v) => v.isActive)
-      .reduce((sum, v) => sum + Number(v.commissionPercent ?? 0), 0);
-    const available = max - used;
     if (dto.commissionPercent <= 0) {
       throw new BadRequestException('La comisión debe ser mayor a 0.');
     }
-    if (dto.commissionPercent > available) {
+    if (dto.commissionPercent > max) {
       throw new BadRequestException(
-        `La comisión del vendedor (${dto.commissionPercent}%) excede el disponible del embajador (${available}% restante de ${max}% máx).`,
+        `La comisión del vendedor (${dto.commissionPercent}%) no puede superar la comisión máxima del embajador (${max}%).`,
       );
     }
 
@@ -2230,13 +2233,14 @@ export class ReferralsService {
     const max = embajador.maxCommissionPercent
       ? Number(embajador.maxCommissionPercent)
       : 25;
-    const usedActive = vendors
-      .filter((v) => v.isActive)
-      .reduce((sum, v) => sum + Number(v.commissionPercent ?? 0), 0);
+    // CORRECCIÓN LÓGICA 2026-06-05: ya NO retornamos "available" porque
+    // ese concepto era erróneo. Cada vendor tiene su comisión individual
+    // que sale del % del embajador en SU venta. No hay "pool" compartido.
+    // `vendorCommissionMax` reemplaza el viejo "available" como el tope
+    // por vendedor (igual al max del embajador).
     return {
       max,
-      used: usedActive,
-      available: max - usedActive,
+      vendorCommissionMax: max,
       vendors: vendors.map((v) => ({
         id: v.id,
         code: v.code,
@@ -2281,16 +2285,16 @@ export class ReferralsService {
       await this.assertUniqueAffiliateEmail(patch.email);
     }
 
+    // CORRECCIÓN LÓGICA 2026-06-05: validación INDIVIDUAL del vendor,
+    // no suma acumulada. Cada vendedor tiene su propia comisión y se
+    // aplica solo en sus propias ventas. Ver createVendor.
     if (typeof patch.commissionPercent === 'number') {
       const max = vendor.parentEmbajadorCode.maxCommissionPercent
         ? Number(vendor.parentEmbajadorCode.maxCommissionPercent)
         : 25;
-      const usedExcludingSelf = vendor.parentEmbajadorCode.childVendors
-        .filter((v) => v.isActive && v.id !== vendor.id)
-        .reduce((sum, v) => sum + Number(v.commissionPercent ?? 0), 0);
-      if (patch.commissionPercent <= 0 || patch.commissionPercent > max - usedExcludingSelf) {
+      if (patch.commissionPercent <= 0 || patch.commissionPercent > max) {
         throw new BadRequestException(
-          `Comisión inválida. Disponible: ${max - usedExcludingSelf}%.`,
+          `Comisión inválida. La comisión del vendedor (1-${max}%) no puede superar la comisión máxima del embajador (${max}%).`,
         );
       }
     }
