@@ -33,6 +33,7 @@ class VendorBody {
   @IsEmail() email!: string;
   @IsString() whatsapp!: string;
   @IsNumber() commissionPercent!: number;
+  @IsOptional() @IsString() @MinLength(8) @MaxLength(64) password?: string;
 }
 
 class VendorPatchBody {

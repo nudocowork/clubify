@@ -372,7 +372,11 @@ export class AuthService {
   async inviteAffiliate(opts: {
     email: string;
     fullName: string;
-    role: 'AFFILIATE_INFLUENCER' | 'AFFILIATE_AMBASSADOR' | 'AFFILIATE_SOCIO';
+    role:
+      | 'AFFILIATE_INFLUENCER'
+      | 'AFFILIATE_AMBASSADOR'
+      | 'AFFILIATE_SOCIO'
+      | 'AFFILIATE_VENDOR';
     referralCodeId: string;
     phone?: string;
     /** Si viene, se setea como password del User en vez de un placeholder
@@ -407,7 +411,8 @@ export class AuthService {
       user.role !== opts.role &&
       (user.role === 'AFFILIATE_INFLUENCER' ||
         user.role === 'AFFILIATE_AMBASSADOR' ||
-        user.role === 'AFFILIATE_SOCIO')
+        user.role === 'AFFILIATE_SOCIO' ||
+        user.role === 'AFFILIATE_VENDOR')
     ) {
       // Si ya era affiliate pero con otro rol (ej: era embajador y ahora
       // se vuelve influencer titular), actualizamos el rol.

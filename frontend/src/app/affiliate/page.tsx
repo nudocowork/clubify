@@ -13,11 +13,15 @@ import { toast } from '@/components/Toast';
 import { PhoneInput } from '@/components/PhoneInput';
 import { SupportWidget } from '@/components/SupportWidget';
 
-type Tab = 'overview' | 'clients' | 'commissions' | 'materials' | 'settings';
+type Tab = 'overview' | 'clients' | 'commissions' | 'team' | 'materials' | 'settings';
 
 type Me = {
   user: { id: string; email: string; fullName: string; role: string; phone?: string | null } | null;
-  role: 'AFFILIATE_INFLUENCER' | 'AFFILIATE_AMBASSADOR' | 'AFFILIATE_SOCIO';
+  role:
+    | 'AFFILIATE_INFLUENCER'
+    | 'AFFILIATE_AMBASSADOR'
+    | 'AFFILIATE_SOCIO'
+    | 'AFFILIATE_VENDOR';
   myCode: {
     id: string;
     code: string;
@@ -32,6 +36,16 @@ type Me = {
     maxCommissionPercent?: number;
   } | null;
   ambassadors: Array<{
+    id: string;
+    code: string;
+    slug: string;
+    ownerName: string;
+    commissionPercent: number;
+    isActive: boolean;
+  }>;
+  // Lista de vendors (solo cuando el usuario es AFFILIATE_AMBASSADOR).
+  // El backend devuelve [] cuando no aplica al rol.
+  vendors?: Array<{
     id: string;
     code: string;
     slug: string;
@@ -130,6 +144,10 @@ export default function AffiliatePanel() {
   const isInfluencer =
     me.role === 'AFFILIATE_INFLUENCER' && me.myCode?.role === 'INFLUENCER';
   const isSocio = me.role === 'AFFILIATE_SOCIO';
+  const isVendor =
+    me.role === 'AFFILIATE_VENDOR' && me.myCode?.role === 'VENDOR';
+  const isAmbassador =
+    me.role === 'AFFILIATE_AMBASSADOR' && me.myCode?.role === 'AMBASSADOR';
   // Link corto público `/ref/<slug>`. El backend loguea visita (UTM +
   // referer + país + IP) y redirige a /signup?ref=CODE&via=slug.
   // Compartible en redes, mucho más memorable que /signup?ref=XYZ123.
@@ -175,7 +193,13 @@ export default function AffiliatePanel() {
             <div className="text-xs text-mute hidden sm:block">
               {me.user?.fullName} ·{' '}
               <span className="font-medium">
-                {isSocio ? '💎 Socio' : isInfluencer ? '🌟 Influencer' : '👥 Embajador'}
+                {isSocio
+                  ? '💎 Socio'
+                  : isInfluencer
+                  ? '🌟 Influencer'
+                  : isVendor
+                  ? '🤝 Vendedor'
+                  : '👥 Embajador'}
               </span>
             </div>
             <button onClick={logout} className="text-xs text-mute hover:text-ink">
@@ -195,6 +219,14 @@ export default function AffiliatePanel() {
               Recibes el <strong>{me.myCode?.commissionPercent}%</strong> de
               TODAS las ventas de Clubify, sin importar qué código se use.
             </>
+          ) : isVendor ? (
+            <>
+              Vendedor del equipo de{' '}
+              <strong>{me.myCode?.parentName ?? 'tu embajador'}</strong>. Tu
+              comisión es del{' '}
+              <strong>{me.myCode?.commissionPercent}%</strong> por cada cliente
+              que cierres.
+            </>
           ) : me.myCode?.campaignName ? (
             <>Campaña <strong>{me.myCode.campaignName}</strong></>
           ) : me.myCode?.parentName ? (
@@ -207,7 +239,11 @@ export default function AffiliatePanel() {
           <div className="card card-pad mb-5 flex items-center gap-4 flex-wrap">
             <div>
               <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
-                {isSocio ? 'Tu código (interno)' : 'Tu código'}
+                {isSocio
+                  ? 'Tu código (interno)'
+                  : isVendor
+                  ? 'Tu código de vendedor'
+                  : 'Tu código'}
               </div>
               <div className="font-mono font-bold text-2xl">{me.myCode.code}</div>
               <div className="text-xs text-mute">
@@ -265,7 +301,7 @@ export default function AffiliatePanel() {
               className={`tab ${tab === 'clients' ? 'tab-active' : ''}`}
               onClick={() => setTab('clients')}
             >
-              🏢 Mis clientes
+              🏢 {isVendor ? 'Mis ventas' : 'Mis clientes'}
             </button>
           )}
           <button
@@ -274,6 +310,17 @@ export default function AffiliatePanel() {
           >
             💵 Comisiones
           </button>
+          {/* "Mi equipo" — solo para embajadores con allowVendors=true
+              activado por el super admin. Si el embajador no tiene vendors,
+              entra igual a explicar/onboarding. */}
+          {isAmbassador && (
+            <button
+              className={`tab ${tab === 'team' ? 'tab-active' : ''}`}
+              onClick={() => setTab('team')}
+            >
+              🤝 Mi equipo
+            </button>
+          )}
           {/* CRM (Bloque C) — link a /affiliate/crm. Es ruta separada
               porque el kanban necesita su propio espacio + drag&drop
               fluido sin la barra de tabs encima. */}
@@ -305,8 +352,9 @@ export default function AffiliatePanel() {
         </div>
 
         {tab === 'overview' && <Overview me={me} />}
-        {tab === 'clients' && <ClientsList />}
+        {tab === 'clients' && <ClientsList isVendor={isVendor} />}
         {tab === 'commissions' && <CommissionsList />}
+        {tab === 'team' && isAmbassador && <TeamView me={me} />}
         {tab === 'materials' && <SupportMaterialsList />}
         {tab === 'settings' && (
           <SettingsView
@@ -416,6 +464,10 @@ function Overview({ me }: { me: Me }) {
 
       {/* Timeline 30 días — barra simple inline (sin lib externa) */}
       {data && <ActivitySparkline timeline={data.timeline} />}
+
+      {/* Próximas renovaciones (proyección) — disclaimer prominente.
+          Visible para todos los afiliados con clientes ACTIVE. */}
+      <ProjectedRenewalsCard />
 
       {/* Ranking embajadores estilo Pedro: 5 · Laura: 9 · Camila: 2 */}
       {isInfluencer && data && data.ambassadors.length > 0 && (
@@ -983,7 +1035,7 @@ function Stat({
   );
 }
 
-function ClientsList() {
+function ClientsList({ isVendor = false }: { isVendor?: boolean }) {
   const [rows, setRows] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -995,7 +1047,11 @@ function ClientsList() {
     return (
       <div className="card card-pad text-center py-12">
         <div className="text-4xl mb-2">🌱</div>
-        <div className="font-semibold">Aún no hay clientes inscritos con tu código</div>
+        <div className="font-semibold">
+          {isVendor
+            ? 'Todavía no cerraste ventas con tu código'
+            : 'Aún no hay clientes inscritos con tu código'}
+        </div>
         <div className="text-sm text-mute mt-1">
           Comparte tu link y empieza a sumar referidos.
         </div>
@@ -1181,6 +1237,490 @@ function SettingsView({
         </button>
       </div>
     </form>
+  );
+}
+
+// =====================================================
+// ProjectedRenewalsCard — proyección de comisiones próximas
+// =====================================================
+//
+// Lee /affiliate/projected-renewals que devuelve:
+//  - totalProjectedUsd: suma proyectada en los próximos 90 días
+//  - rows: 1 fila por tenant ACTIVE con currentPeriodEnd próximo
+//  - disclaimer: texto legal "Proyección, no contractual"
+// IMPORTANTE: no es Commission real — solo cálculo. Display only.
+
+type ProjectedRenewalsResp = {
+  disclaimer: string;
+  totalProjectedUsd: number;
+  rows: Array<{
+    tenantId?: string;
+    tenantBrand: string;
+    plan: string;
+    nextRenewalAt: string | null;
+    planPriceUsd: number;
+    effectivePercent: number;
+    projectedCommissionUsd: number;
+    sourceCode: string;
+    sourceOwnerName: string;
+  }>;
+};
+
+function ProjectedRenewalsCard() {
+  const [data, setData] = useState<ProjectedRenewalsResp | null>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    api<ProjectedRenewalsResp>('/affiliate/projected-renewals')
+      .then(setData)
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="card card-pad h-32 animate-shimmer" />;
+  if (!data || data.rows.length === 0) {
+    // No mostrar la card si no hay datos — evita ruido visual cuando el
+    // afiliado todavía no tiene clientes ACTIVE.
+    return null;
+  }
+
+  return (
+    <div className="card overflow-hidden p-0">
+      <div className="px-4 py-3 border-b border-line2 flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <div className="font-semibold text-sm">
+            📅 Próximas renovaciones (proyección)
+          </div>
+          <div className="text-[11px] text-mute leading-snug max-w-md">
+            {data.disclaimer}
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
+            Total proyectado
+          </div>
+          <div className="text-xl font-bold text-brand">
+            {fmtUsd(data.totalProjectedUsd)}
+          </div>
+        </div>
+      </div>
+      <div className="divide-y divide-line2">
+        {data.rows.slice(0, 12).map((r, i) => (
+          <div
+            key={`${r.tenantId ?? i}-${r.nextRenewalAt ?? ''}`}
+            className="px-4 py-3 flex items-center gap-3"
+          >
+            <div className="flex-1 min-w-0">
+              <div className="font-medium truncate">{r.tenantBrand}</div>
+              <div className="text-[11px] text-mute">
+                Plan {r.plan} · {r.effectivePercent}% sobre{' '}
+                {fmtUsd(r.planPriceUsd)}
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-mute">{fmtDate(r.nextRenewalAt)}</div>
+              <div className="font-bold text-sm">
+                {fmtUsd(r.projectedCommissionUsd)}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {data.rows.length > 12 && (
+        <div className="px-4 py-2 text-[11px] text-mute text-center border-t border-line2">
+          + {data.rows.length - 12} renovaciones más en los próximos 90 días.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// =====================================================
+// TeamView — "Mi equipo" para AFFILIATE_AMBASSADOR
+// =====================================================
+//
+// Lee /affiliate/team que devuelve los vendors del embajador con
+// métricas agregadas. Drill-down via /affiliate/team/vendors/:id
+// para ver clientes + comisiones individuales de un vendor.
+
+type TeamResp = {
+  kpis: {
+    vendorsCount: number;
+    activeVendorsCount: number;
+    teamClients: number;
+    teamActiveClients: number;
+    teamRevenueUsd: number;
+    teamCommissionsUsd: number;
+  };
+  vendors: Array<{
+    id: string;
+    code: string;
+    slug: string;
+    ownerName: string;
+    ownerEmail: string;
+    commissionPercent: number;
+    isActive: boolean;
+    createdAt: string;
+    clients: number;
+    activeClients: number;
+    revenueUsd: number;
+    commissionsUsd: number;
+  }>;
+  topVendors: TeamResp['vendors'];
+};
+
+type TeamVendorDetailResp = {
+  vendor: {
+    id: string;
+    code: string;
+    ownerName: string;
+    ownerEmail: string;
+    ownerWhatsapp: string;
+    commissionPercent: number;
+    isActive: boolean;
+  };
+  clients: Array<{
+    id: string;
+    tenantBrand: string;
+    plan: string;
+    status: string;
+    signedUpAt: string;
+    convertedAt: string | null;
+    commissionsCount: number;
+    commissionsTotalUsd: number;
+  }>;
+  commissions: Array<{
+    id: string;
+    amount: number;
+    status: 'PENDING' | 'APPROVED' | 'PAID' | 'REJECTED';
+    createdAt: string;
+    paidAt: string | null;
+    tenantBrand: string;
+  }>;
+};
+
+function TeamView({ me }: { me: Me }) {
+  const [data, setData] = useState<TeamResp | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<TeamResp['vendors'][number] | null>(
+    null,
+  );
+
+  useEffect(() => {
+    api<TeamResp>('/affiliate/team')
+      .then(setData)
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="card card-pad h-32 animate-shimmer" />;
+  if (!data) {
+    return (
+      <div className="card card-pad text-center py-10">
+        <div className="text-4xl mb-2">🤝</div>
+        <div className="font-semibold mb-1">Equipo no disponible</div>
+        <div className="text-xs text-mute">
+          El módulo de vendedores no está habilitado para tu cuenta. Pedile al
+          super admin que active <code>allowVendors</code> en tu código.
+        </div>
+      </div>
+    );
+  }
+
+  if (data.vendors.length === 0) {
+    return (
+      <div className="space-y-4">
+        <div className="card card-pad text-center py-10">
+          <div className="text-4xl mb-2">🤝</div>
+          <div className="font-semibold mb-1">Sumá tu primer vendedor</div>
+          <div className="text-xs text-mute leading-relaxed max-w-md mx-auto">
+            Los vendedores cierran ventas a tu nombre. Tu % se reparte entre
+            vos y ellos por cada cliente que cierren. Pedile al super admin
+            que cree el primer vendedor de tu equipo desde el panel.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (selected) {
+    return (
+      <TeamVendorDetailView
+        vendor={selected}
+        onBack={() => setSelected(null)}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* KPIs equipo */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Stat
+          label="Vendedores activos"
+          value={`${data.kpis.activeVendorsCount}/${data.kpis.vendorsCount}`}
+        />
+        <Stat
+          label="Clientes equipo"
+          value={`${data.kpis.teamActiveClients}/${data.kpis.teamClients}`}
+          tone="ok"
+        />
+        <Stat
+          label="Revenue generado"
+          value={fmtUsd(data.kpis.teamRevenueUsd)}
+          tone="brand"
+        />
+        <Stat
+          label="Pagado a vendedores"
+          value={fmtUsd(data.kpis.teamCommissionsUsd)}
+          tone="amber"
+        />
+      </div>
+
+      {/* Ranking top 3 */}
+      {data.topVendors.length > 0 && (
+        <div className="card overflow-hidden p-0">
+          <div className="px-4 py-3 border-b border-line2">
+            <div className="font-semibold text-sm">
+              🏆 Vendedores top del equipo
+            </div>
+            <div className="text-[11px] text-mute">
+              Ordenados por revenue generado.
+            </div>
+          </div>
+          <div className="divide-y divide-line2">
+            {data.topVendors.map((v, i) => (
+              <div key={v.id} className="px-4 py-3 flex items-center gap-3">
+                <div className="w-6 text-center font-bold text-mute">
+                  {i + 1}
+                </div>
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-100 to-emerald-200 text-emerald-700 flex items-center justify-center font-bold text-sm flex-none">
+                  {initials(v.ownerName)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate">{v.ownerName}</div>
+                  <div className="text-[11px] text-mute font-mono">
+                    {v.code} · {v.commissionPercent}%
+                  </div>
+                </div>
+                <div className="text-right text-xs flex-none w-32">
+                  <div className="font-bold text-base">
+                    {v.activeClients} activos
+                  </div>
+                  <div className="text-mute">{fmtUsd(v.revenueUsd)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Lista completa con drill-down */}
+      <div className="card overflow-hidden p-0">
+        <div className="px-4 py-3 border-b border-line2">
+          <div className="font-semibold text-sm">
+            Todos tus vendedores ({data.vendors.length})
+          </div>
+        </div>
+        <div className="divide-y divide-line2">
+          {data.vendors.map((v) => (
+            <button
+              key={v.id}
+              onClick={() => setSelected(v)}
+              className={`w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-[#FAFAFB] transition cursor-pointer touch-manipulation select-none active:scale-[0.99] transition-transform duration-150 [-webkit-tap-highlight-color:transparent] ${
+                v.isActive ? '' : 'opacity-50'
+              }`}
+            >
+              <div className="w-9 h-9 rounded-full bg-bg2 text-mute flex items-center justify-center font-bold text-sm flex-none">
+                {initials(v.ownerName)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-medium truncate">{v.ownerName}</div>
+                <div className="text-[11px] text-mute font-mono">
+                  {v.code} · {v.commissionPercent}%
+                </div>
+              </div>
+              <div className="text-right text-xs flex-none w-32">
+                <div className="font-bold">
+                  {v.activeClients}/{v.clients}
+                </div>
+                <div className="text-mute">{fmtUsd(v.commissionsUsd)}</div>
+              </div>
+              <div className="text-mute pl-1">›</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TeamVendorDetailView({
+  vendor,
+  onBack,
+}: {
+  vendor: TeamResp['vendors'][number];
+  onBack: () => void;
+}) {
+  const [data, setData] = useState<TeamVendorDetailResp | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api<TeamVendorDetailResp>(`/affiliate/team/vendors/${vendor.id}`)
+      .then(setData)
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, [vendor.id]);
+
+  if (loading) return <div className="card card-pad h-32 animate-shimmer" />;
+
+  return (
+    <div className="space-y-4">
+      <button
+        onClick={onBack}
+        className="text-sm text-mute hover:text-ink flex items-center gap-1 cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"
+      >
+        ← Volver al equipo
+      </button>
+
+      <div className="card card-pad">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-100 to-emerald-200 text-emerald-700 flex items-center justify-center font-bold text-lg flex-none">
+            {initials(vendor.ownerName)}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-bold text-base">{vendor.ownerName}</div>
+            <div className="text-xs text-mute font-mono">
+              {vendor.code} · {vendor.commissionPercent}% comisión
+            </div>
+            <div className="text-[11px] text-mute mt-1">
+              {data?.vendor.ownerEmail} · {data?.vendor.ownerWhatsapp ?? '—'}
+            </div>
+          </div>
+          {!vendor.isActive && (
+            <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-bg2 text-mute">
+              Inactivo
+            </span>
+          )}
+        </div>
+      </div>
+
+      {data && (
+        <>
+          <div className="card overflow-hidden p-0">
+            <div className="px-4 py-3 border-b border-line2 font-semibold text-sm">
+              🏢 Clientes ({data.clients.length})
+            </div>
+            {data.clients.length === 0 ? (
+              <div className="px-4 py-6 text-center text-sm text-mute">
+                Este vendedor todavía no cerró clientes.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-bg2">
+                    <tr>
+                      {['Negocio', 'Plan', 'Estado', 'Inscrito'].map((h) => (
+                        <th
+                          key={h}
+                          className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.clients.map((c) => (
+                      <tr
+                        key={c.id}
+                        className="border-t border-line2 hover:bg-[#FAFAFB]"
+                      >
+                        <td className="px-4 py-3 font-medium">
+                          {c.tenantBrand}
+                        </td>
+                        <td className="px-4 py-3 text-xs">{c.plan}</td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
+                              STATUS_CLS[c.status] ?? 'bg-bg2 text-mute'
+                            }`}
+                          >
+                            {STATUS_LABEL[c.status] ?? c.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-mute">
+                          {fmtDate(c.signedUpAt)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="card overflow-hidden p-0">
+            <div className="px-4 py-3 border-b border-line2 font-semibold text-sm">
+              💵 Comisiones del vendedor ({data.commissions.length})
+            </div>
+            {data.commissions.length === 0 ? (
+              <div className="px-4 py-6 text-center text-sm text-mute">
+                Sin comisiones registradas todavía.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-bg2">
+                    <tr>
+                      {['Cliente', 'Monto', 'Estado', 'Creada', 'Pagada'].map(
+                        (h) => (
+                          <th
+                            key={h}
+                            className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
+                          >
+                            {h}
+                          </th>
+                        ),
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.commissions.map((c) => (
+                      <tr
+                        key={c.id}
+                        className="border-t border-line2 hover:bg-[#FAFAFB]"
+                      >
+                        <td className="px-4 py-3 font-medium">
+                          {c.tenantBrand}
+                        </td>
+                        <td className="px-4 py-3 font-bold">
+                          {fmtUsd(c.amount)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
+                              STATUS_CLS[c.status] ?? 'bg-bg2 text-mute'
+                            }`}
+                          >
+                            {STATUS_LABEL[c.status] ?? c.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-mute">
+                          {fmtDate(c.createdAt)}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-mute">
+                          {fmtDate(c.paidAt)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
