@@ -469,9 +469,15 @@ export default function TenantDetail() {
           </div>
         )}
 
-        <GrowBusinessCard tenantId={t.id} planName={t.plan?.name ?? null} />
+        {/* HOTFIX 2026-06-05 (bug N): estos 3 cards consumen endpoints
+            que el backend gatea como SUPER_ADMIN-only. Antes se mostraban
+            a MARKETING y al click recibía 403 — UX rota. Ahora se gatean
+            con isSuperAdmin como el resto de cards admin. */}
+        {isSuperAdmin && (
+          <GrowBusinessCard tenantId={t.id} planName={t.plan?.name ?? null} />
+        )}
 
-        <ReferralAssignmentCard tenantId={t.id} />
+        {isSuperAdmin && <ReferralAssignmentCard tenantId={t.id} />}
 
         {isSuperAdmin && <ReviewAlertsAccountCard tenant={t} onSaved={load} />}
 
@@ -479,7 +485,7 @@ export default function TenantDetail() {
 
         {isSuperAdmin && <DeliveryAlertsAccountCard tenant={t} onSaved={load} />}
 
-        <ReviewAlertsLogsCard tenantId={t.id} />
+        {isSuperAdmin && <ReviewAlertsLogsCard tenantId={t.id} />}
 
         {isSuperAdmin && <BillingNotificationsCard tenant={t} />}
 

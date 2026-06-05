@@ -1,5 +1,5 @@
 'use client';
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, Suspense, useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import {
@@ -258,7 +258,21 @@ function ProductImage({
     </>
   );
 }
+// HOTFIX 2026-06-05 (bug F): `StorefrontPublic` y `CheckoutSheet` usan
+// `useSearchParams()`. En Next 14 App Router los hooks de search params
+// fuerzan el árbol a CSR si no están envueltos en un Suspense boundary.
+// Sin Suspense, el build con `output: 'export'` o un prerender de page
+// padre falla con "useSearchParams() should be wrapped in a suspense
+// boundary". Mismo patrón ya aplicado en /signup y /r/[slug].
 export default function StorefrontPublic() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-bg" />}>
+      <StorefrontPublicInner />
+    </Suspense>
+  );
+}
+
+function StorefrontPublicInner() {
   const tt = useT();
   const [locale] = useLocale();
   const params = useParams<{

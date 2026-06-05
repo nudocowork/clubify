@@ -160,9 +160,21 @@ export class HotmartService {
         return { ok: true, action: 'activated' };
       }
 
-      case 'PURCHASE_DELAYED':
-      case 'PURCHASE_PROTEST':
       case 'PURCHASE_BILLET_PRINTED': {
+        // HOTFIX 2026-06-05 (bug Q): imprimir un boleto bancario (BR) NO
+        // es un fallo de pago — es modo de pago pendiente. Antes caía
+        // junto con DELAYED/PROTEST y disparaba failedPaymentCount + SMS
+        // "tu pago falló" al cliente que en realidad sí va a pagar.
+        // Ahora solo registra el intento sin marcar PAST_DUE.
+        await this.prisma.tenant.update({
+          where: { id: tenant.id },
+          data: { lastPaymentAttemptAt: new Date() },
+        });
+        return { ok: true, action: 'billet_printed' };
+      }
+
+      case 'PURCHASE_DELAYED':
+      case 'PURCHASE_PROTEST': {
         // No tocamos `status` (el enum solo tiene ACTIVE/TRIAL/SUSPENDED).
         // El derivado PAST_DUE lo calcula billing.service.getStatus()
         // basándose en failedPaymentCount > 0.

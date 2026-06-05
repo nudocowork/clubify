@@ -20,6 +20,7 @@
 // premium con scroll-smooth + snap-mandatory.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { safeUrlOrNull } from '@/lib/safe-url';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
@@ -507,17 +508,23 @@ function PopupOverlay({
             >
               Cerrar
             </button>
-            {popup.buttonText && popup.buttonUrl && (
-              <a
-                href={popup.buttonUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm font-semibold px-4 py-2 rounded-md text-white shadow-sm"
-                style={{ background: popup.buttonColor || '#22c55e' }}
-              >
-                {popup.buttonText}
-              </a>
-            )}
+            {(() => {
+              const safeHref = popup.buttonUrl
+                ? safeUrlOrNull(popup.buttonUrl)
+                : null;
+              if (!popup.buttonText || !safeHref) return null;
+              return (
+                <a
+                  href={safeHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm font-semibold px-4 py-2 rounded-md text-white shadow-sm"
+                  style={{ background: popup.buttonColor || '#22c55e' }}
+                >
+                  {popup.buttonText}
+                </a>
+              );
+            })()}
           </div>
         </div>
       </div>

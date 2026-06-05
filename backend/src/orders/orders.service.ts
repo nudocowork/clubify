@@ -362,32 +362,50 @@ export class OrdersService {
       });
     }
 
-    // Generar código único
+    // Generar código único.
+    // HOTFIX 2026-06-05 (bug O): `findUnique` + `create` no es atómico.
+    // Dos pedidos simultáneos pueden ambos pasar el findUnique con el
+    // mismo code (32^4 = ~1M combos) → el 2do create tira P2002 → 500
+    // al cliente. Ahora reintentamos hasta 3 veces si el create choca.
     let code = codeGen();
     while (await this.prisma.order.findUnique({ where: { code } })) {
       code = codeGen();
     }
 
-    const order = await this.prisma.order.create({
-      data: {
-        tenantId: tenant.id,
-        customerId: customer.id,
-        code,
-        items: items as any,
-        subtotal,
-        discount,
-        total,
-        appliedPromos: applied as any,
-        fulfillment: dto.fulfillment,
-        tableNumber: dto.tableNumber,
-        deliveryAddress: dto.deliveryAddress,
-        customerNote: dto.customerNote,
-        locationId: dto.locationId,
-        events: {
-          create: { type: 'CREATED', metadata: { source: 'public' } },
-        },
-      },
-    });
+    let order;
+    let attempts = 0;
+    while (true) {
+      try {
+        order = await this.prisma.order.create({
+          data: {
+            tenantId: tenant.id,
+            customerId: customer.id,
+            code,
+            items: items as any,
+            subtotal,
+            discount,
+            total,
+            appliedPromos: applied as any,
+            fulfillment: dto.fulfillment,
+            tableNumber: dto.tableNumber,
+            deliveryAddress: dto.deliveryAddress,
+            customerNote: dto.customerNote,
+            locationId: dto.locationId,
+            events: {
+              create: { type: 'CREATED', metadata: { source: 'public' } },
+            },
+          },
+        });
+        break;
+      } catch (e: any) {
+        attempts += 1;
+        if (e?.code === 'P2002' && attempts < 3) {
+          code = codeGen();
+          continue;
+        }
+        throw e;
+      }
+    }
 
     // Decrementar stock + auto-deshabilitar productos agotados (best-effort)
     await this.decrementStock(items as any[]).catch(() => null);

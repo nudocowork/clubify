@@ -455,14 +455,21 @@ export default function EnrollPage() {
   const router = useRouter();
   const { cardId } = useParams<{ cardId: string }>();
 
-  // El card empieza con cache si hay; sino null. El form se renderiza
-  // SIEMPRE — los campos no esperan al fetch. La cabecera de marca se
-  // anima cuando llegan datos.
-  const [card, setCard] = useState<Card | null>(() =>
-    typeof window !== 'undefined' && cardId
-      ? readCache(cardId as string, locale)
-      : null,
-  );
+  // El card empieza siempre null en el primer render para evitar
+  // hydration mismatch (server ve null porque no hay window, client
+  // ve cache → árboles distintos en el primer paint → bug visual).
+  // El useEffect de abajo hidrata desde cache después del mount; el
+  // form se renderiza SIEMPRE — los campos no esperan al fetch.
+  const [card, setCard] = useState<Card | null>(null);
+
+  // HOTFIX 2026-06-05 (bug P): hidratar cache solo POST-mount para
+  // mantener el primer render idéntico entre SSR y CSR.
+  useEffect(() => {
+    if (!cardId) return;
+    const cached = readCache(cardId as string, locale);
+    if (cached) setCard(cached);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [unavailable, setUnavailable] = useState(false);
   const [networkError, setNetworkError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);

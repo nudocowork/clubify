@@ -126,12 +126,19 @@ export class ReviewsService {
     const rating = Math.max(1, Math.min(5, Math.floor(body.rating)));
     const redirected = !!body.redirectedToGoogle;
 
-    // M7.3: validar que el target (si vino) pertenezca al tenant. Si
-    // no, lo descartamos silencioso para no romper el flujo del cliente.
+    // M7.3: validar que el target (si vino) pertenezca al tenant y siga
+    // ACTIVO. Si no, lo descartamos silencioso para no romper el flujo
+    // del cliente.
+    //
+    // HOTFIX 2026-06-05 (bug H): agregamos `isActive: true` para que el
+    // POST no persista un targetId inactivo. Sin esto, el GET ya filtra
+    // inactivos (cliente recibe link genérico) pero el POST sí los aceptaba
+    // → SMS de alerta disparaba con threshold del target viejo que el
+    // dueño ya había desactivado.
     let validTargetId: string | null = null;
     if (body.reviewTargetId) {
       const tg = await this.prisma.reviewQrTarget.findFirst({
-        where: { id: body.reviewTargetId, tenantId: t.id },
+        where: { id: body.reviewTargetId, tenantId: t.id, isActive: true },
         select: { id: true },
       });
       if (tg) validTargetId = tg.id;

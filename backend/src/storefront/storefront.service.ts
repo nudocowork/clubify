@@ -3,6 +3,7 @@ import { MenuLayout } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { hasAdminBypass } from '../common/roles/admin-bypass';
+import { safeUrlOrNull } from '../common/util/safe-url';
 
 export type StorefrontDto = {
   description?: string;
@@ -122,7 +123,7 @@ export class StorefrontService {
         bookPopupButtonUrl:
           dto.bookPopupButtonUrl === undefined
             ? undefined
-            : dto.bookPopupButtonUrl,
+            : safeUrlOrNull(dto.bookPopupButtonUrl) ?? null,
         bookPopupButtonColor:
           dto.bookPopupButtonColor === undefined
             ? undefined

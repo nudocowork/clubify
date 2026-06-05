@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { safeUrlOrNull } from '../common/util/safe-url';
 import {
   TranslatableItem,
   TranslationService,
@@ -117,6 +118,37 @@ export class InfoLinksService {
     return link;
   }
 
+  /**
+   * Sanitiza un array de buttons en el shape del editor, reemplazando
+   * cualquier URL con scheme no permitido por null. Defensa contra
+   * stored XSS — un TENANT_OWNER/STAFF podría guardar `javascript:...`
+   * en `button.url` o `button.popup.buttonUrl` que después se ejecuta
+   * cuando un cliente hace click. Idem para `sections[].coverUrl` etc.
+   *
+   * Aplica al PATCH/POST y también al clone (duplicate).
+   */
+  private sanitizeButtonsUrls(buttons: any): any {
+    if (!Array.isArray(buttons)) return buttons;
+    return buttons.map((b) => {
+      if (!b || typeof b !== 'object') return b;
+      const next: any = { ...b };
+      if (typeof next.url === 'string') {
+        next.url = safeUrlOrNull(next.url) ?? '';
+      }
+      if (next.popup && typeof next.popup === 'object') {
+        const popup: any = { ...next.popup };
+        if (typeof popup.buttonUrl === 'string') {
+          popup.buttonUrl = safeUrlOrNull(popup.buttonUrl) ?? '';
+        }
+        if (typeof popup.continueUrl === 'string') {
+          popup.continueUrl = safeUrlOrNull(popup.continueUrl) ?? '';
+        }
+        next.popup = popup;
+      }
+      return next;
+    });
+  }
+
   async create(user: AuthUser, dto: InfoLinkDto, override?: string) {
     const tid = this.tid(user, override);
     let slug = dto.slug ? slugify(dto.slug) : slugify(dto.title);
@@ -140,7 +172,7 @@ export class InfoLinksService {
         heroImageUrl: dto.heroImageUrl,
         gallery: (dto.gallery ?? []) as any,
         sections: (dto.sections ?? []) as any,
-        buttons: (dto.buttons ?? []) as any,
+        buttons: this.sanitizeButtonsUrls(dto.buttons ?? []) as any,
         theme: (dto.theme ?? {}) as any,
         isActive: dto.isActive ?? true,
       },
@@ -183,7 +215,10 @@ export class InfoLinksService {
         heroImageUrl: dto.heroImageUrl === undefined ? undefined : dto.heroImageUrl,
         gallery: dto.gallery === undefined ? undefined : (dto.gallery as any),
         sections: dto.sections === undefined ? undefined : (dto.sections as any),
-        buttons: dto.buttons === undefined ? undefined : (dto.buttons as any),
+        buttons:
+          dto.buttons === undefined
+            ? undefined
+            : (this.sanitizeButtonsUrls(dto.buttons) as any),
         theme: dto.theme === undefined ? undefined : (dto.theme as any),
         isActive: dto.isActive === undefined ? undefined : dto.isActive,
       },

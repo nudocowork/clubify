@@ -15,6 +15,7 @@ import {
   IsString,
   IsUrl,
   IsUUID,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -36,9 +37,19 @@ class SubmitDto {
   @IsOptional() @IsUUID() reviewTargetId?: string;
 }
 
+// HOTFIX 2026-06-05 (bug T): URL Google Reviews validada con regex
+// estricta (debe ser un host típico de Google Reviews / Maps). Sin esto
+// el dueño podía pegar "no se" y el QR público redirigía a un 404 →
+// reseña perdida.
+const GOOGLE_REVIEW_URL = /^https:\/\/(g\.page|maps\.app\.goo\.gl|search\.google\.com\/local|www\.google\.com\/maps|maps\.google\.com|g\.co)\/[^\s]+$/i;
+
 class TargetBody {
   @IsString() @MaxLength(80) name!: string;
-  @IsUrl({ require_tld: false }) googleReviewUrl!: string;
+  @IsUrl({ require_tld: false }) @Matches(GOOGLE_REVIEW_URL, {
+    message:
+      'googleReviewUrl debe ser un link de Google Reviews válido (g.page, maps.app.goo.gl, search.google.com/local, etc.)',
+  })
+  googleReviewUrl!: string;
   @IsOptional() @IsUUID() locationId?: string | null;
   @IsOptional() @IsInt() @Min(1) @Max(5) threshold?: number;
   @IsOptional() @IsBoolean() isActive?: boolean;
@@ -46,7 +57,11 @@ class TargetBody {
 
 class TargetPatchBody {
   @IsOptional() @IsString() @MaxLength(80) name?: string;
-  @IsOptional() @IsUrl({ require_tld: false }) googleReviewUrl?: string;
+  @IsOptional() @IsUrl({ require_tld: false }) @Matches(GOOGLE_REVIEW_URL, {
+    message:
+      'googleReviewUrl debe ser un link de Google Reviews válido (g.page, maps.app.goo.gl, search.google.com/local, etc.)',
+  })
+  googleReviewUrl?: string;
   @IsOptional() @IsUUID() locationId?: string | null;
   @IsOptional() @IsInt() @Min(1) @Max(5) threshold?: number;
   @IsOptional() @IsBoolean() isActive?: boolean;

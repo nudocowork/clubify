@@ -38,18 +38,31 @@ export default function BookClient() {
   const [s, setS] = useState<Storefront | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
 
+  // HOTFIX 2026-06-05 (bug I): fetch sin cancellation. Si el cliente
+  // navega `/book/a` → `/book/b` rápido, la respuesta de `a` puede
+  // llegar después y pisar el state con storefront equivocada.
   useEffect(() => {
     if (!slug) return;
-    fetch(`${API}/api/public/m/${slug}`)
+    let cancelled = false;
+    const ctrl = new AbortController();
+    fetch(`${API}/api/public/m/${slug}`, { signal: ctrl.signal })
       .then(async (r) => {
+        if (cancelled) return;
         if (!r.ok) {
           setLoadErr(`Negocio no encontrado (${r.status})`);
           return;
         }
         const d = (await r.json()) as Storefront;
-        setS(d);
+        if (!cancelled) setS(d);
       })
-      .catch((e) => setLoadErr(e?.message || 'Error de red'));
+      .catch((e) => {
+        if (cancelled || e?.name === 'AbortError') return;
+        setLoadErr(e?.message || 'Error de red');
+      });
+    return () => {
+      cancelled = true;
+      ctrl.abort();
+    };
   }, [slug]);
 
   // Redirige a /m/<slug> si el dueño desactivó el libro pero tiene digital.

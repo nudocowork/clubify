@@ -9,6 +9,7 @@ import { TenantStatus } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
+import { AuditService } from '../audit/audit.service';
 import { invalidateTenantStatusCache } from '../common/guards/tenant-status.guard';
 import { ReferralsService } from '../referrals/referrals.service';
 import { nanoid } from 'nanoid';
@@ -114,6 +115,7 @@ export class TenantsService {
     private prisma: PrismaService,
     private auth: AuthService,
     private jwt: JwtService,
+    private audit: AuditService,
     @Inject(forwardRef(() => ReferralsService))
     private referrals: ReferralsService,
   ) {}
@@ -152,6 +154,20 @@ export class TenantsService {
       impersonatedBy: superAdminId,
     };
     const accessToken = this.jwt.sign(payload);
+
+    // HOTFIX 2026-06-05: dejamos constancia real en AuditLog. Antes el
+    // comentario decía "queda constancia en logs" pero NUNCA se llamaba
+    // a audit.log → un SUPER_ADMIN/MARKETING podía impersonar tenants
+    // sin rastro auditable. Con MARKETING expandido (M5) la superficie
+    // creció. Ahora cada inicio de impersonación queda registrado con
+    // actor=adminId, tenant=target, action=tenant.impersonate.
+    this.audit.log({
+      actorId: superAdminId,
+      tenantId: tenant.id,
+      action: 'tenant.impersonate',
+      resource: `tenant:${tenant.id}`,
+      metadata: { ownerImpersonated: owner.id, tenantSlug: tenant.slug },
+    });
 
     return {
       accessToken,
