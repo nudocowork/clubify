@@ -52,6 +52,18 @@ class VendorConfigBody {
   @IsOptional() @IsNumber() maxCommissionPercent?: number;
 }
 
+// FASE B2: marcado de pago en /admin/commissions. Mismo razón de
+// hoisting arriba que los DTOs anteriores.
+class PayCommissionBody {
+  @IsNumber() amount!: number;
+  @IsOptional() @IsString() note?: string;
+}
+
+class PayoutByPersonBody {
+  @IsString() codeId!: string;
+  @IsOptional() @IsString() note?: string;
+}
+
 @Controller('referrals')
 export class ReferralsController {
   constructor(private svc: ReferralsService) {}
@@ -441,5 +453,62 @@ export class ReferralsController {
     @Param('id') id: string,
   ) {
     return this.svc.deleteVendor(user, id);
+  }
+}
+
+// ============================================================
+// ADMIN COMMISSIONS CONTROLLER — FASE B2
+// ============================================================
+// Endpoints super admin para gestión avanzada de comisiones.
+// Montado en /admin/commissions/* (NO /referrals) para separar
+// claramente el dominio de "panel admin contable" del de "afiliados".
+@Controller('admin/commissions')
+export class AdminCommissionsController {
+  constructor(private svc: ReferralsService) {}
+
+  @Roles('SUPER_ADMIN')
+  @Get()
+  list(
+    @CurrentUser() user: AuthUser,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('status') status?: string,
+    @Query('role') role?: string,
+    @Query('tenantId') tenantId?: string,
+    @Query('codeId') codeId?: string,
+  ) {
+    return this.svc.listAdminCommissions(user, {
+      dateFrom,
+      dateTo,
+      status: status as any,
+      role: role as any,
+      tenantId,
+      codeId,
+    });
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Patch(':id/pay')
+  pay(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: PayCommissionBody,
+  ) {
+    return this.svc.payCommission(user, id, body);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Get('payouts/pending')
+  pendingPayouts(@CurrentUser() user: AuthUser) {
+    return this.svc.listPendingPayouts(user);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Post('payouts/by-person')
+  bulkPayPerson(
+    @CurrentUser() user: AuthUser,
+    @Body() body: PayoutByPersonBody,
+  ) {
+    return this.svc.payAllForPerson(user, body.codeId, body.note);
   }
 }
