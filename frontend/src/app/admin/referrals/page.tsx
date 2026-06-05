@@ -2047,6 +2047,8 @@ function AmbassadorsTab() {
   const [enteringId, setEnteringId] = useState<string | null>(null);
   const [reassignTarget, setReassignTarget] = useState<any | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
+  // FASE B1: modal de config "Permitir vendedores" + max %.
+  const [vendorConfigTarget, setVendorConfigTarget] = useState<any | null>(null);
 
   function reload() {
     setLoading(true);
@@ -2101,7 +2103,7 @@ function AmbassadorsTab() {
           <table className="w-full text-sm min-w-[1040px]">
             <thead className="bg-bg2">
               <tr>
-                {['Embajador', 'Código', '%', 'Reporta a', 'Campaña', 'Activos', 'Total', 'Pagado', 'Pendiente', ''].map(
+                {['Embajador', 'Código', '%', 'Reporta a', 'Campaña', 'Activos', 'Total', 'Vendedores', 'Pagado', 'Pendiente', ''].map(
                   (h, i) => (
                     <th
                       key={h || `col-${i}`}
@@ -2116,7 +2118,7 @@ function AmbassadorsTab() {
             <tbody>
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="text-center py-12 text-mute">
+                  <td colSpan={11} className="text-center py-12 text-mute">
                     Aún no hay embajadores
                   </td>
                 </tr>
@@ -2154,6 +2156,22 @@ function AmbassadorsTab() {
                   <td className="px-4 py-3 text-xs">{r.campaignName ?? '—'}</td>
                   <td className="px-4 py-3 text-center">{r.activeClients}</td>
                   <td className="px-4 py-3 text-center">{r.clients}</td>
+                  <td className="px-4 py-3 text-center text-xs">
+                    {/* FASE B1: counter de vendedores activos. Si el módulo
+                        no está habilitado, lo mostramos en mute para que
+                        sea obvio. */}
+                    {r.allowVendors ? (
+                      <span className="font-bold">
+                        {r.activeVendorsCount ?? 0}
+                        <span className="text-mute font-normal">
+                          {' '}
+                          / {r.maxCommissionPercent ?? 25}%
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="text-mute">—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-ok font-medium">{fmtUsd(r.paidUsd)}</td>
                   <td className="px-4 py-3 text-amber-700 font-medium">{fmtUsd(r.pendingUsd)}</td>
                   <td className="px-4 py-3 text-right">
@@ -2188,6 +2206,17 @@ function AmbassadorsTab() {
                         title="Cambiar el influencer al que reporta este embajador (preserva clientes y comisiones)"
                       >
                         ↻ Cambiar influencer
+                      </button>
+                      <button
+                        onClick={() => setVendorConfigTarget(r)}
+                        className={`text-xs font-semibold px-2.5 py-1.5 rounded-md whitespace-nowrap ${
+                          r.allowVendors
+                            ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                            : 'bg-bg2 text-mute hover:bg-line2'
+                        }`}
+                        title="Configurar módulo de vendedores (toggle + comisión máxima)"
+                      >
+                        👥 Vendedores
                       </button>
                       <button
                         disabled={enteringId === r.id}
@@ -2291,6 +2320,157 @@ function AmbassadorsTab() {
           }}
         />
       )}
+      {vendorConfigTarget && (
+        <VendorConfigModal
+          embajador={vendorConfigTarget}
+          onClose={() => setVendorConfigTarget(null)}
+          onSaved={() => {
+            setVendorConfigTarget(null);
+            reload();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * FASE B1 — Modal del super admin para togglear el módulo de
+ * vendedores de un embajador y setear cuál es su comisión máxima
+ * (lo que él puede repartir). PATCH /referrals/codes/:id/vendor-config
+ */
+function VendorConfigModal({
+  embajador,
+  onClose,
+  onSaved,
+}: {
+  embajador: any;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [allowVendors, setAllowVendors] = useState<boolean>(
+    !!embajador.allowVendors,
+  );
+  const [maxPct, setMaxPct] = useState<number>(
+    Number(embajador.maxCommissionPercent ?? 25),
+  );
+  const [busy, setBusy] = useState(false);
+
+  const activeCount = Number(embajador.activeVendorsCount ?? 0);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (maxPct <= 0 || maxPct > 100) {
+      toast('La comisión máxima debe ser > 0 y <= 100', 'error');
+      return;
+    }
+    setBusy(true);
+    try {
+      await api(`/referrals/codes/${embajador.id}/vendor-config`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          allowVendors,
+          maxCommissionPercent: maxPct,
+        }),
+      });
+      toast(`Configuración actualizada para ${embajador.ownerName}`, 'success');
+      onSaved();
+    } catch (e: any) {
+      toast(e.message || 'Error al guardar', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+        <div className="px-5 py-4 border-b border-line2 flex items-center justify-between">
+          <div>
+            <div className="font-semibold text-base">
+              Módulo vendedores · {embajador.ownerName}
+            </div>
+            <div className="text-[11px] text-mute mt-0.5">
+              Permite al embajador armar su equipo y repartir parte de su
+              comisión.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-mute hover:text-ink text-xl leading-none"
+            aria-label="Cerrar"
+          >
+            ×
+          </button>
+        </div>
+        <form onSubmit={save} className="px-5 py-4 space-y-4">
+          <label className="flex items-start gap-3 p-3 rounded-lg border border-line cursor-pointer">
+            <input
+              type="checkbox"
+              checked={allowVendors}
+              onChange={(e) => setAllowVendors(e.target.checked)}
+              className="mt-1"
+            />
+            <div className="flex-1">
+              <div className="font-semibold text-sm">
+                Permitir vendedores
+              </div>
+              <div className="text-[11px] text-mute leading-snug mt-0.5">
+                Habilita la página /affiliate/team del embajador para que
+                pueda crear y gestionar sus propios vendedores.
+              </div>
+            </div>
+          </label>
+
+          <div>
+            <label className="label">Comisión máxima %</label>
+            <input
+              className="input"
+              type="number"
+              min={0.5}
+              max={100}
+              step={0.5}
+              required
+              value={maxPct}
+              onChange={(e) => setMaxPct(Number(e.target.value) || 0)}
+            />
+            <div className="text-[11px] text-mute mt-1 leading-snug">
+              Tope que el embajador puede repartir entre todos sus
+              vendedores activos. Default 25%. La suma de los % de sus
+              vendedores no puede superar este número.
+            </div>
+          </div>
+
+          {activeCount > 0 && !allowVendors && (
+            <div className="text-[11px] rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900 leading-snug">
+              ⚠ Este embajador tiene <strong>{activeCount}</strong>{' '}
+              vendedor(es) activo(s). Si desactivás el módulo, dejará de
+              poder gestionarlos desde su panel — pero los vendedores y
+              sus comisiones históricas se preservan. Podés re-activar el
+              módulo cuando quieras sin perder nada.
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="btn-ghost text-sm"
+              disabled={busy}
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              className="btn-primary text-sm"
+              disabled={busy}
+            >
+              {busy ? 'Guardando…' : 'Guardar'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

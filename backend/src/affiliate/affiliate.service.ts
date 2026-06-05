@@ -63,6 +63,13 @@ export class AffiliateService {
             parentCode: myCode.parentCode?.code ?? null,
             parentName: myCode.parentCode?.ownerName ?? null,
             campaignName: myCode.ownerOfCampaign?.name ?? null,
+            // FASE B1 vendors: el embajador necesita saber si tiene
+            // habilitado el módulo y cuál es su comisión máxima para
+            // mostrar / esconder /affiliate/team y validar el form.
+            allowVendors: Boolean(myCode.allowVendors),
+            maxCommissionPercent: myCode.maxCommissionPercent
+              ? Number(myCode.maxCommissionPercent)
+              : 25,
           }
         : null,
       ambassadors:

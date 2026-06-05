@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Headers, Ip, Param, Patch, Post, Query } from '@nestjs/common';
-import { IsEmail, IsNumber, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsNumber, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { CommissionStatus } from '@prisma/client';
 import { ReferralsService } from './referrals.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
@@ -40,6 +40,15 @@ class VendorPatchBody {
   @IsOptional() @IsEmail() email?: string;
   @IsOptional() @IsString() whatsapp?: string;
   @IsOptional() @IsNumber() commissionPercent?: number;
+}
+
+// FASE B1: PATCH /referrals/codes/:id/vendor-config — admin togglea
+// allowVendors + setea maxCommissionPercent. Hoisted arriba por el
+// mismo motivo que VendorBody (decorators @Body() resuelven al class
+// declaration en module init).
+class VendorConfigBody {
+  @IsOptional() @IsBoolean() allowVendors?: boolean;
+  @IsOptional() @IsNumber() maxCommissionPercent?: number;
 }
 
 @Controller('referrals')
@@ -362,6 +371,21 @@ export class ReferralsController {
   // ============================================================
   // VENDOR ENDPOINTS — FASE FOUNDATION
   // ============================================================
+
+  /**
+   * SUPER_ADMIN: togglea el módulo de vendedores de un embajador y
+   * setea la comisión máxima que puede repartir. UI: tab Embajadores
+   * del admin de referrals.
+   */
+  @Roles('SUPER_ADMIN')
+  @Patch('codes/:id/vendor-config')
+  setVendorConfig(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: VendorConfigBody,
+  ) {
+    return this.svc.setEmbajadorVendorConfig(user, id, body);
+  }
 
   @Roles('SUPER_ADMIN', 'AFFILIATE_AMBASSADOR')
   @Post('vendors')

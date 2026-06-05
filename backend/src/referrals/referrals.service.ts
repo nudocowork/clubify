@@ -835,6 +835,9 @@ export class ReferralsService {
         parentCode: { select: { code: true, ownerName: true } },
         campaign: { select: { name: true } },
         uses: { include: { commissions: true } },
+        // FASE B1: counters de vendedores activos por embajador, para
+        // la columna "Vendedores" del tab AmbassadorsTab.
+        childVendors: { select: { id: true, isActive: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -849,6 +852,7 @@ export class ReferralsService {
       // influencer. Mismo % de comisión que un embajador normal pero el
       // 5% indirecto no va a nadie (queda en la empresa).
       const isCompanyDirect = c.parentCodeId == null;
+      const activeVendorsCount = c.childVendors.filter((v) => v.isActive).length;
       return {
         id: c.id,
         code: c.code,
@@ -868,6 +872,13 @@ export class ReferralsService {
         paidUsd: Math.round(paid * 100) / 100,
         pendingUsd: Math.round(pending * 100) / 100,
         createdAt: c.createdAt,
+        // FASE B1 — vendor module flags
+        allowVendors: Boolean(c.allowVendors),
+        maxCommissionPercent: c.maxCommissionPercent
+          ? Number(c.maxCommissionPercent)
+          : 25,
+        vendorsCount: c.childVendors.length,
+        activeVendorsCount,
       };
     });
   }
@@ -2012,6 +2023,69 @@ export class ReferralsService {
   // ============================================================
   // VENDOR HIERARCHY (FASE FOUNDATION 2026-06-05)
   // ============================================================
+
+  /**
+   * SUPER_ADMIN: cambia la config del módulo de vendedores de un
+   * embajador (AMBASSADOR). Permite togglear `allowVendors` y setear
+   * `maxCommissionPercent`. Solo aplica para AMBASSADOR — para otros
+   * roles no tiene sentido y rechazamos.
+   *
+   * Validaciones:
+   *  - El code tiene que ser role=AMBASSADOR.
+   *  - maxCommissionPercent (si viene) debe ser > 0 y <= 100.
+   *  - Si se quiere bajar el max por debajo de lo ya repartido entre
+   *    vendedores activos, rechazamos para evitar inconsistencia.
+   *  - Si se desactiva allowVendors cuando hay vendedores activos,
+   *    pasa pero NO los desactiva (el admin puede re-habilitar sin
+   *    perder data). La UI muestra warning.
+   */
+  async setEmbajadorVendorConfig(
+    user: AuthUser,
+    embajadorCodeId: string,
+    patch: { allowVendors?: boolean; maxCommissionPercent?: number },
+  ) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    const code = await this.prisma.referralCode.findUnique({
+      where: { id: embajadorCodeId },
+      include: { childVendors: true },
+    });
+    if (!code) throw new NotFoundException('Embajador no encontrado');
+    if (code.role !== 'AMBASSADOR') {
+      throw new BadRequestException(
+        'Solo embajadores pueden tener módulo de vendedores.',
+      );
+    }
+    const data: { allowVendors?: boolean; maxCommissionPercent?: number } = {};
+    if (typeof patch.allowVendors === 'boolean') {
+      data.allowVendors = patch.allowVendors;
+    }
+    if (typeof patch.maxCommissionPercent === 'number') {
+      const m = patch.maxCommissionPercent;
+      if (m <= 0 || m > 100) {
+        throw new BadRequestException(
+          'La comisión máxima debe ser > 0 y <= 100.',
+        );
+      }
+      const used = code.childVendors
+        .filter((v) => v.isActive)
+        .reduce((s, v) => s + Number(v.commissionPercent ?? 0), 0);
+      if (m < used) {
+        throw new BadRequestException(
+          `No se puede bajar la comisión máxima a ${m}% — los vendedores activos ya tienen ${used}% repartido.`,
+        );
+      }
+      data.maxCommissionPercent = m;
+    }
+    return this.prisma.referralCode.update({
+      where: { id: embajadorCodeId },
+      data,
+      select: {
+        id: true,
+        allowVendors: true,
+        maxCommissionPercent: true,
+      },
+    });
+  }
 
   /**
    * Crea un vendedor bajo un embajador. Sólo el SUPER_ADMIN o el dueño
