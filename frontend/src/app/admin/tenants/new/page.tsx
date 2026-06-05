@@ -21,6 +21,9 @@ export default function NewTenant() {
     ownerFullName: '',
     ownerPassword: '',
     planId: '',
+    // M9: periodicidad del plan elegida por el admin. Informativo (no
+    // altera billing real). Default vacío hasta que el admin elija.
+    planPeriodicity: '' as '' | 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL',
     businessCategorySlug: DEFAULT_CATEGORY_SLUG,
     trialDays: 7,
     nextChargeDate: '',
@@ -77,6 +80,7 @@ export default function NewTenant() {
         ownerFullName: form.ownerFullName,
         ownerPassword: form.ownerPassword || undefined,
         planId: form.planId,
+        planPeriodicity: form.planPeriodicity || undefined,
         businessCategorySlug: form.businessCategorySlug,
       };
       if (billingMode === 'free') {
@@ -228,6 +232,42 @@ export default function NewTenant() {
               </option>
             ))}
           </select>
+        </div>
+        <div className="col-span-2">
+          <label className="label">
+            Periodicidad{' '}
+            <span className="text-mute font-normal">— informativo, NO altera el billing real (lo dicta Hotmart)</span>
+          </label>
+          <div className="grid grid-cols-4 gap-2">
+            {(
+              [
+                { v: 'MENSUAL', label: 'Mensual' },
+                { v: 'TRIMESTRAL', label: 'Trimestral' },
+                { v: 'SEMESTRAL', label: 'Semestral' },
+                { v: 'ANUAL', label: 'Anual' },
+              ] as const
+            ).map((opt) => {
+              const active = form.planPeriodicity === opt.v;
+              return (
+                <button
+                  type="button"
+                  key={opt.v}
+                  onClick={() => set('planPeriodicity', active ? '' : opt.v)}
+                  className={`rounded-input border-2 p-2.5 text-sm font-semibold transition ${
+                    active
+                      ? 'border-brand bg-brand-soft text-brand-700'
+                      : 'border-line bg-white text-ink hover:border-brand/40'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="text-[11px] text-mute mt-1">
+            Útil para CRM, reporting y filtros. Editable después desde la
+            página del negocio.
+          </div>
         </div>
         <div className="col-span-2">
           <label className="label">

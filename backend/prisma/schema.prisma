@@ -341,6 +341,11 @@ model Tenant {
   businessCategorySlug        String?
   planId                      String
   plan                        Plan         @relation(fields: [planId], references: [id])
+  // Periodicidad del plan (MENSUAL|TRIMESTRAL|SEMESTRAL|ANUAL). NO afecta
+  // billing real (ese lo dicta Hotmart). Solo se usa para CRM / reporting
+  // / filtros en /admin/tenants. Nullable porque tenants pre-2026-06-04
+  // no la tienen seteada.
+  planPeriodicity             String?
   maxLocationsOverride        Int?
   referredByCode              String?
   currency                    String       @default("COP")

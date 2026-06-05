@@ -20,11 +20,30 @@ export default function SignupPage() {
   );
 }
 
+type PlanPeriodId = 'mensual' | 'trimestral' | 'semestral' | 'anual';
+type LandingPlanLite = {
+  id: PlanPeriodId;
+  name: string;
+  price: number;
+  checkoutUrl: string | null;
+};
+
+const PLAN_PERIOD_MAP: Record<PlanPeriodId, { label: string; cadence: string; periodicityCode: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL' }> = {
+  mensual: { label: 'Mensual', cadence: 'cada mes', periodicityCode: 'MENSUAL' },
+  trimestral: { label: 'Trimestral', cadence: 'cada 3 meses', periodicityCode: 'TRIMESTRAL' },
+  semestral: { label: 'Semestral', cadence: 'cada 6 meses', periodicityCode: 'SEMESTRAL' },
+  anual: { label: 'Anual', cadence: 'una vez al año', periodicityCode: 'ANUAL' },
+};
+
 function SignupInner() {
   const router = useRouter();
   const params = useSearchParams();
-  const planLabel = 'Elite';
-  const planPriceUsd = 50;
+
+  // M10 (2026-06-04): el plan elegido en la landing llega como ?plan=<id>.
+  // Lo persistimos en sessionStorage para que sobreviva a refresh y, post-
+  // signup, redirige al checkoutUrl del plan elegido (no a Hotmart genérico).
+  const [planPeriod, setPlanPeriod] = useState<PlanPeriodId | null>(null);
+  const [planData, setPlanData] = useState<LandingPlanLite | null>(null);
 
   const [form, setForm] = useState({
     fullName: '',
@@ -38,6 +57,56 @@ function SignupInner() {
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [showPwd, setShowPwd] = useState(false);
+
+  // Lee ?plan=<id> del URL o sessionStorage. Si llega por URL la persiste,
+  // si no busca en sessionStorage (por si el usuario refrescó o el flow
+  // pasó por OAuth). Default: mensual.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const fromUrl = params.get('plan');
+    const fromCache = (() => {
+      try {
+        return sessionStorage.getItem('clubify:plan-period');
+      } catch {
+        return null;
+      }
+    })();
+    const raw = (fromUrl || fromCache || '').toLowerCase();
+    const valid: PlanPeriodId[] = ['mensual', 'trimestral', 'semestral', 'anual'];
+    const chosen = (valid.includes(raw as PlanPeriodId) ? raw : 'mensual') as PlanPeriodId;
+    setPlanPeriod(chosen);
+    try {
+      sessionStorage.setItem('clubify:plan-period', chosen);
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Fetch landing plans para mostrar precio dinámico en el badge + tener
+  // el checkoutUrl correcto para redirigir post-signup.
+  useEffect(() => {
+    if (!planPeriod) return;
+    let cancelled = false;
+    fetch(`${API}/api/landing-plans`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: any) => {
+        if (cancelled || !d) return;
+        const v = d[planPeriod];
+        if (!v) return;
+        setPlanData({
+          id: planPeriod,
+          name: PLAN_PERIOD_MAP[planPeriod].label,
+          price: Number.isFinite(v.price) && v.price > 0 ? v.price : 0,
+          checkoutUrl:
+            typeof v.checkoutUrl === 'string' && v.checkoutUrl.trim().length > 0
+              ? v.checkoutUrl.trim()
+              : null,
+        });
+      })
+      .catch(() => null);
+    return () => {
+      cancelled = true;
+    };
+  }, [planPeriod]);
 
   // Atribución oculta: el cliente puede haber llegado por un link de
   // afiliado /ref/<slug>?ref=X o tenerlo cached en localStorage. NO
@@ -135,6 +204,9 @@ function SignupInner() {
           businessCategorySlug: form.businessCategorySlug,
           referralCode,
           plan: 'elite',
+          planPeriodicity: planPeriod
+            ? PLAN_PERIOD_MAP[planPeriod].periodicityCode
+            : undefined,
           quoteToken: quoteToken || undefined,
           attribution: Object.keys(attribution).length ? attribution : undefined,
         }),
@@ -149,12 +221,17 @@ function SignupInner() {
         localStorage.removeItem('clubify:utm');
         localStorage.removeItem('clubify:referer');
         sessionStorage.removeItem('clubify:qt');
+        sessionStorage.removeItem('clubify:plan-period');
       } catch {}
 
-      // Tanto Elite como Pro pasan por Hotmart antes de entrar al panel:
-      // Pro → cobro inmediato; Elite → registro de tarjeta para activar el
-      // trial de 10 días gratis. Solo después de dejar la tarjeta entran
-      // oficialmente a la plataforma (lockscreen en AppShell).
+      // M10: redirigir al checkoutUrl del plan elegido en la landing.
+      // Si no hay plan (signup directo /signup sin pasar por landing) o
+      // el checkoutUrl no está configurado, fallback al endpoint genérico
+      // de Hotmart (el legacy de single-plan Elite).
+      if (planData?.checkoutUrl) {
+        window.location.href = planData.checkoutUrl;
+        return;
+      }
       try {
         const c = await api<{ url: string | null }>('/billing/hotmart/checkout-url');
         if (c?.url) {
@@ -162,7 +239,7 @@ function SignupInner() {
           return;
         }
       } catch {}
-      // Fallback: si por alguna razón no hay checkout URL configurada,
+      // Fallback final: si nada de checkout está configurado,
       // mandamos a billing donde verán cómo completar la activación.
       router.push('/app/billing');
     } catch (e: any) {
@@ -196,7 +273,9 @@ function SignupInner() {
           <div className="max-w-md mx-auto lg:mx-0">
             <div className="inline-flex items-center gap-2 bg-brand-soft text-brand-700 text-xs font-semibold px-3 py-1 rounded-full mb-5">
               <span className="w-1.5 h-1.5 rounded-full bg-brand" />
-              Plan {planLabel} · USD {planPriceUsd}/mes · activación inmediata
+              {planPeriod && planData
+                ? `Plan ${PLAN_PERIOD_MAP[planPeriod].label} · USD ${planData.price} · activación inmediata`
+                : 'Plan Elite · activación inmediata'}
             </div>
             <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
               Crea tu negocio en Clubify
@@ -320,9 +399,11 @@ function SignupInner() {
                     Política de privacidad
                   </Link>
                   .{' '}
-                  Al continuar te llevamos al checkout para cobrarte USD {planPriceUsd}/mes
-                  (equivalente en tu moneda local). Apenas se apruebe el pago entras
-                  al panel. Puedes cancelar en cualquier momento desde tu panel.
+                  {planPeriod && planData
+                    ? `Al continuar te llevamos al checkout del plan ${PLAN_PERIOD_MAP[planPeriod].label} por USD ${planData.price} (cobro ${PLAN_PERIOD_MAP[planPeriod].cadence}, equivalente en tu moneda local). `
+                    : 'Al continuar te llevamos al checkout para activar tu plan. '}
+                  Apenas se apruebe el pago entras al panel. Puedes cancelar en
+                  cualquier momento desde tu panel.
                 </span>
               </label>
 

@@ -21,6 +21,10 @@ class CreateTenantBody {
   @IsOptional() @IsInt() @Min(1) trialDays?: number;
   @IsOptional() @IsDateString() nextChargeDate?: string;
   @IsOptional() @IsString() hotmartSubscriberCode?: string;
+  // Periodicidad del plan elegida por el admin (Mensual/Trimestral/
+  // Semestral/Anual). Informativo: NO altera billing real (Hotmart manda).
+  @IsOptional() @IsIn(['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL'])
+  planPeriodicity?: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL';
 }
 
 class BillingBody {
@@ -41,6 +45,8 @@ class UpdateTenantBody {
   @IsOptional() @IsHexColor() secondaryColor?: string;
   @IsOptional() @IsString() status?: TenantStatus;
   @IsOptional() @IsUUID() planId?: string;
+  @IsOptional() @IsIn(['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL'])
+  planPeriodicity?: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL';
   @IsOptional() @IsInt() @Min(1) maxLocationsOverride?: number;
   @IsOptional() @IsInt() @Min(0) gracePeriodDays?: number;
   // Asignar subcuenta global de Grow Business para alertas SMS de

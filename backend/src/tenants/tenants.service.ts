@@ -53,6 +53,11 @@ export type CreateTenantDto = {
    * lockscreen no dispare.
    */
   hotmartSubscriberCode?: string;
+  /**
+   * Periodicidad del plan elegida por el admin. Informativo: NO altera
+   * billing real (ese lo dicta Hotmart). Sirve para CRM y reporting.
+   */
+  planPeriodicity?: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL';
 };
 
 export type UpdateTenantDto = Partial<{
@@ -64,6 +69,7 @@ export type UpdateTenantDto = Partial<{
   secondaryColor: string;
   status: TenantStatus;
   planId: string;
+  planPeriodicity: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL' | null;
   maxLocationsOverride: number | null;
   reviewAlertsAccountId: string | null;
   billingAlertsAccountId: string | null;
@@ -262,6 +268,7 @@ export class TenantsService {
         secondaryColor: dto.secondaryColor ?? '#2E7D5B',
         businessCategorySlug: categorySlug,
         planId: dto.planId,
+        planPeriodicity: dto.planPeriodicity ?? null,
         referredByCode: dto.referredByCode,
         status,
         trialStartedAt,

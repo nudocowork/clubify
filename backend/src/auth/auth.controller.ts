@@ -59,6 +59,10 @@ class SignupDto {
   @IsOptional() @IsString() whatsappPhone?: string;
   @IsOptional() @IsString() referralCode?: string;
   @IsOptional() @IsString() plan?: string;
+  // Periodicidad elegida en la landing (Mensual/Trimestral/Semestral/Anual).
+  // Informativo, NO afecta billing (Hotmart manda). Útil para CRM.
+  @IsOptional() @IsIn(['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL'])
+  planPeriodicity?: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL';
   @IsOptional() @IsString() businessCategorySlug?: string;
   @IsOptional() @IsString() @MinLength(8) @MaxLength(64) quoteToken?: string;
   @IsOptional() attribution?: SignupAttributionDto;

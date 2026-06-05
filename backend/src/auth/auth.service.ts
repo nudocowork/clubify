@@ -544,6 +544,8 @@ export class AuthService {
     whatsappPhone?: string;
     referralCode?: string;
     plan?: string;
+    /** Periodicidad elegida en la landing. Informativo (no afecta billing). */
+    planPeriodicity?: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL';
     businessCategorySlug?: string;
     /** Token público de una Quote — viene del /q/<token> CTA. Si matchea,
      *  marcamos la cotización como convertida con el tenant recién creado. */
@@ -614,6 +616,7 @@ export class AuthService {
             businessCategorySlug,
             status: 'TRIAL',
             planId: defaultPlan.id,
+            planPeriodicity: dto.planPeriodicity ?? null,
             trialStartedAt,
             trialEndsAt,
           },
