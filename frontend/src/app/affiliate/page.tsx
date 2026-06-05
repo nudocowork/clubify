@@ -27,6 +27,9 @@ type Me = {
     parentCode: string | null;
     parentName: string | null;
     campaignName: string | null;
+    // FASE B1: módulo de vendedores. Solo relevante para AMBASSADOR.
+    allowVendors?: boolean;
+    maxCommissionPercent?: number;
   } | null;
   ambassadors: Array<{
     id: string;
@@ -280,6 +283,13 @@ export default function AffiliatePanel() {
           >
             🎯 CRM de Ventas
           </Link>
+          {/* FASE B1: tab "Mi equipo" solo para embajadores con módulo
+              de vendedores habilitado por el super admin. */}
+          {me.role === 'AFFILIATE_AMBASSADOR' && me.myCode?.allowVendors && (
+            <Link href="/affiliate/team" className="tab">
+              👥 Mi equipo
+            </Link>
+          )}
           <button
             className={`tab ${tab === 'materials' ? 'tab-active' : ''}`}
             onClick={() => setTab('materials')}
