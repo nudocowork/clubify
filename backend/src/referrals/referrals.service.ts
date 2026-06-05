@@ -2179,17 +2179,17 @@ export class ReferralsService {
     if (!amb.allowVendors) {
       return { valid: false, reason: 'NOT_ALLOWED' as const };
     }
+    // CORRECCIÓN LÓGICA 2026-06-05: la comisión es INDIVIDUAL por venta,
+    // NO acumulada entre vendedores. Cada vendedor cobra SU % en SUS
+    // ventas. Por eso `hasAvailableCommission` depende sólo de `max > 0`
+    // y `effectivePct` se capa al máximo absoluto (no a un "disponible").
     const max = amb.maxCommissionPercent
       ? Number(amb.maxCommissionPercent)
       : 25;
-    const used = amb.childVendors
-      .filter((v) => v.isActive)
-      .reduce((s, v) => s + Number(v.commissionPercent ?? 0), 0);
-    const available = Math.max(0, max - used);
     const defaultPct = amb.defaultVendorCommissionPercent
       ? Number(amb.defaultVendorCommissionPercent)
       : 10;
-    const effectivePct = Math.min(defaultPct, available);
+    const effectivePct = Math.min(defaultPct, max);
     return {
       valid: true as const,
       ambassador: {
@@ -2197,9 +2197,7 @@ export class ReferralsService {
         ownerName: amb.ownerName,
         slug: amb.slug ?? amb.code.toLowerCase(),
       },
-      // No exponemos el `available` exacto en público para no filtrar
-      // detalles internos — solo si hay cupo o no.
-      hasAvailableCommission: available > 0,
+      hasAvailableCommission: max > 0,
       defaultVendorCommissionPercent: effectivePct,
     };
   }
@@ -2234,7 +2232,6 @@ export class ReferralsService {
 
     const amb = await this.prisma.referralCode.findUnique({
       where: { code: lookup.ambassador.code },
-      include: { childVendors: true },
     });
     if (!amb) {
       throw new NotFoundException('Embajador no encontrado');
@@ -2242,23 +2239,19 @@ export class ReferralsService {
 
     await this.assertUniqueAffiliateEmail(dto.email);
 
-    // Determinamos el % final: el default del embajador (??10) capado a
-    // su disponible. La validación dura sigue siendo la misma del flow
-    // createVendor (acá inline porque ya tenemos `amb`).
+    // CORRECCIÓN LÓGICA 2026-06-05: % final = default del embajador
+    // (??10) capado al máximo absoluto. La comisión es INDIVIDUAL por
+    // venta — cada vendedor cobra SU % en SUS ventas, no se acumula.
     const max = amb.maxCommissionPercent
       ? Number(amb.maxCommissionPercent)
       : 25;
-    const used = amb.childVendors
-      .filter((v) => v.isActive)
-      .reduce((s, v) => s + Number(v.commissionPercent ?? 0), 0);
-    const available = max - used;
     const defaultPct = amb.defaultVendorCommissionPercent
       ? Number(amb.defaultVendorCommissionPercent)
       : 10;
-    const commissionPercent = Math.min(defaultPct, available);
+    const commissionPercent = Math.min(defaultPct, max);
     if (commissionPercent <= 0) {
       throw new BadRequestException(
-        'El embajador no tiene comisión disponible para sumar vendedores.',
+        'Este embajador no tiene comisión configurada para vendedores.',
       );
     }
 

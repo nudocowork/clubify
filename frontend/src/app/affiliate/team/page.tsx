@@ -274,14 +274,13 @@ export default function AffiliateTeamPage() {
             toggleTarget.isActive ? (
               <>
                 El vendedor dejará de poder generar comisiones nuevas. Su
-                historial se preserva y podés reactivarlo cuando quieras.
+                historial se preserva y puedes reactivarlo cuando quieras.
               </>
             ) : (
               <>
                 El vendedor volverá a generar comisiones desde sus próximas
-                ventas. Su comisión de{' '}
-                <strong>{toggleTarget.commissionPercent}%</strong> vuelve a
-                contar contra tu disponible.
+                ventas con su comisión de{' '}
+                <strong>{toggleTarget.commissionPercent}%</strong>.
               </>
             )
           }
