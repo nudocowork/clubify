@@ -3,14 +3,27 @@
  * clientes finales (storefront, wallet, recibos, links públicos). Esta
  * marca NO es desactivable por el dueño del negocio — es un mínimo no
  * negociable del producto.
+ *
+ * variants:
+ *  - "subtle": texto gris en footer (para fondos claros).
+ *  - "pill":   pastilla blanca con sombra (para fondos oscuros / imagen
+ *              / gradient).
+ *  - "auto":   decide entre subtle y pill según `dark`. Default en
+ *              superficies con fondo configurable por el usuario.
  */
 export function ClubifyBadge({
   variant = 'subtle',
+  dark,
 }: {
-  /** "subtle" para footers; "pill" para overlay sobre fondo oscuro. */
-  variant?: 'subtle' | 'pill';
+  variant?: 'subtle' | 'pill' | 'auto';
+  /** Solo se respeta cuando variant='auto'. Si true, renderea como pill
+   *  (claro sobre fondo oscuro); si false, como subtle (oscuro sobre
+   *  fondo claro). Pasalo desde el parent usando `isDarkBackground()`. */
+  dark?: boolean;
 }) {
-  if (variant === 'pill') {
+  const resolved =
+    variant === 'auto' ? (dark ? 'pill' : 'subtle') : variant;
+  if (resolved === 'pill') {
     return (
       <a
         href="https://soyclubify.com?utm_source=storefront&utm_medium=badge"

@@ -1002,6 +1002,46 @@ export default function QrPosterEditor({
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // M7.1 (2026-06-04): si el cliente cierra la pestaña con cambios sin
+  // guardar, le avisamos en vez de perder silenciosamente el trabajo.
+  // La cleanup unmount con keepalive ya manda el save pero ese fetch
+  // puede no llegar a completarse si la red está lenta — el prompt al
+  // menos le da chance de quedarse 1 segundo más. Solo cuando hay dirty
+  // real (cfg != lastSaved) para no spamear al cliente al navegar de
+  // una página guardada.
+  useEffect(() => {
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      if (!hasLoadedRef.current) return;
+      const json = JSON.stringify(cfgRef.current);
+      if (json === lastSavedJsonRef.current) return;
+      e.preventDefault();
+      // Chrome ignora el mensaje custom y muestra su propio prompt — el
+      // string es solo para Firefox legacy. Setear returnValue es lo
+      // que dispara el modal en navegadores modernos.
+      e.returnValue =
+        'Tienes cambios sin guardar en el diseño del QR. ¿Salir de todas formas?';
+    }
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
+
+  // M7.1: retry automático del save tras error. Si autosaveState='error'
+  // y todavía hay cambios dirty, reintentamos 1 vez después de 5s — el
+  // típico caso de red intermitente o JWT que expiró y se refrescó.
+  // Más reintentos podría inundar el server; el cliente puede usar el
+  // botón "Guardar diseño" manual para forzar.
+  useEffect(() => {
+    if (autosaveState !== 'error') return;
+    const t = window.setTimeout(() => {
+      if (!hasLoadedRef.current) return;
+      const json = JSON.stringify(cfgRef.current);
+      if (json === lastSavedJsonRef.current) return;
+      save({ silent: true }).catch(() => null);
+    }, 5000);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autosaveState]);
+
   async function doExport(kind: 'png' | 'jpg' | 'pdf') {
     const stage = stageRef.current;
     if (!stage) return;

@@ -15,11 +15,17 @@ export default function TenantDetail() {
   const [extraLocations, setExtraLocations] = useState<number | ''>('');
   const [saving, setSaving] = useState(false);
   const [actioning, setActioning] = useState(false);
-  // MARKETING ve la página pero sin acciones de billing/impersonate/status —
-  // esos endpoints son SUPER_ADMIN only y mostrarían "Permisos insuficientes"
+  // MARKETING ve la página pero sin acciones de billing/status — esos
+  // endpoints son SUPER_ADMIN only y mostrarían "Permisos insuficientes"
   // al click. Esconderlos limpia UX en lugar de fallar fuerte.
+  //
+  // M5 (2026-06-04): MARKETING SÍ puede impersonar tenants (entrar al
+  // panel como dueño) — el rol se usa para implementadores que
+  // configuran cuentas. Por eso el botón "Entrar al negocio" gateamos
+  // con `canImpersonate` en vez de `isSuperAdmin`.
   const me = getUser();
   const isSuperAdmin = me?.role === 'SUPER_ADMIN';
+  const canImpersonate = isSuperAdmin || me?.role === 'MARKETING';
 
   async function load() {
     try {
@@ -49,6 +55,21 @@ export default function TenantDetail() {
       toast(e.message || 'No se pudo guardar', 'error');
     } finally {
       setSaving(false);
+    }
+  }
+
+  /** M9: cambia la periodicidad informativa del plan. NO altera billing
+   *  real (eso lo dicta Hotmart). Solo metadata CRM. */
+  async function savePeriodicity(v: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL' | null) {
+    try {
+      await api(`/tenants/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ planPeriodicity: v }),
+      });
+      await load();
+      toast('Periodicidad actualizada', 'success');
+    } catch (e: any) {
+      toast(e.message || 'No se pudo actualizar', 'error');
     }
   }
 
@@ -207,7 +228,7 @@ export default function TenantDetail() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            {isSuperAdmin && (
+            {canImpersonate && (
               <button
                 className="btn-primary text-sm"
                 disabled={actioning || t.status === 'SUSPENDED'}
@@ -385,6 +406,30 @@ export default function TenantDetail() {
                 })}
               </dd>
             </div>
+            {isSuperAdmin && (
+              <div className="flex justify-between items-center gap-3">
+                <dt className="text-mute whitespace-nowrap">Periodicidad</dt>
+                <dd>
+                  <select
+                    className="input py-1 px-2 text-xs"
+                    value={t.planPeriodicity ?? ''}
+                    onChange={(e) =>
+                      savePeriodicity(
+                        e.target.value === ''
+                          ? null
+                          : (e.target.value as 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL'),
+                      )
+                    }
+                  >
+                    <option value="">— sin definir —</option>
+                    <option value="MENSUAL">Mensual</option>
+                    <option value="TRIMESTRAL">Trimestral</option>
+                    <option value="SEMESTRAL">Semestral</option>
+                    <option value="ANUAL">Anual</option>
+                  </select>
+                </dd>
+              </div>
+            )}
           </dl>
           <div className="mt-4 pt-3 border-t border-line">
             <Link

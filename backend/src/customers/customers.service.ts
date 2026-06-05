@@ -30,8 +30,28 @@ export class CustomersService {
     return user.tenantId;
   }
 
-  list(user: AuthUser, search?: string, override?: string, locationId?: string) {
+  list(
+    user: AuthUser,
+    search?: string,
+    override?: string,
+    locationId?: string,
+    operatorId?: string,
+    sinceISO?: string,
+  ) {
     const tid = this.tenantId(user, override);
+    // M6 (2026-06-04): filtro por sede del SCAN (no solo por sede del Card)
+    // — el dueño quiere ver clientes que físicamente fueron escaneados en
+    // una sede X, aunque su Card no esté vinculada a esa sede. Implementado
+    // como "tiene al menos un Stamp con esa locationId". Misma lógica para
+    // operatorId (usuario scanner).
+    const since = sinceISO ? new Date(sinceISO) : undefined;
+    const scanWhere: any = {};
+    if (locationId) scanWhere.locationId = locationId;
+    if (operatorId) scanWhere.operatorId = operatorId;
+    if (since && !Number.isNaN(since.getTime())) {
+      scanWhere.createdAt = { gte: since };
+    }
+    const hasScanFilter = Object.keys(scanWhere).length > 0;
     return this.prisma.customer.findMany({
       where: {
         tenantId: tid,
@@ -44,19 +64,28 @@ export class CustomersService {
               ],
             }
           : {}),
-        // Filtro por sede: el customer cuenta si tiene al menos un pass de
-        // una tarjeta vinculada a esa sede. El cliente "sin sede" (Card sin
-        // location) no aparece cuando se filtra por sede específica — es
-        // intencional: el dueño está mirando una sede en particular.
-        ...(locationId
-          ? {
-              passes: {
-                some: { card: { locationId } },
-              },
-            }
+        ...(hasScanFilter
+          ? { stamps: { some: scanWhere } }
           : {}),
       },
-      include: { _count: { select: { passes: true, stamps: true } } },
+      include: {
+        _count: { select: { passes: true, stamps: true } },
+        // M6: last stamp con operator + location. Se usa para enriquecer
+        // la tabla con "quién/dónde fue el último escaneo".
+        stamps: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            createdAt: true,
+            action: true,
+            operatorId: true,
+            locationId: true,
+            operator: { select: { id: true, fullName: true, email: true } },
+            location: { select: { id: true, name: true } },
+          },
+        },
+      },
       orderBy: { createdAt: 'desc' },
       take: 100,
     });

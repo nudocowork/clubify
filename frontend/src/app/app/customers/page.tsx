@@ -15,7 +15,19 @@ type Customer = {
   totalOrdersCount: number;
   totalOrdersAmount: number;
   _count?: { passes: number; stamps: number };
+  // M6: last stamp con operator + location, devuelto por el backend
+  // como array de hasta 1 entrada. Vacío si el cliente nunca fue
+  // escaneado.
+  stamps?: Array<{
+    id: string;
+    createdAt: string;
+    action: string;
+    operator: { id: string; fullName: string; email: string } | null;
+    location: { id: string; name: string } | null;
+  }>;
 };
+
+type StaffOption = { id: string; fullName: string; email: string };
 
 type Segment = 'all' | 'new7' | 'vip' | 'recurring' | 'no-pass' | 'inactive';
 
@@ -61,6 +73,10 @@ export default function CustomersPage() {
   const [search, setSearch] = useState('');
   const [locationId, setLocationId] = useState<string>('');
   const [locations, setLocations] = useState<Array<{ id: string; name: string }>>([]);
+  // M6: filtros por scanner (operator) y fecha desde (en días).
+  const [operatorId, setOperatorId] = useState<string>('');
+  const [staff, setStaff] = useState<StaffOption[]>([]);
+  const [sinceDays, setSinceDays] = useState<string>(''); // '' | '7' | '30' | '90'
   const [segment, setSegment] = useState<Segment>('all');
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({ fullName: '', email: '', phone: '' });
@@ -73,12 +89,13 @@ export default function CustomersPage() {
   );
   const [duplicateGroups, setDuplicateGroups] = useState(0);
 
-  // Búsqueda live debounced (300ms) — re-fetch también si cambia la sede.
+  // Búsqueda live debounced (300ms) — re-fetch si cambia search/sede/
+  // scanner/fecha. M6: 4 filtros combinables.
   useEffect(() => {
     const t = setTimeout(() => load(search), 300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, locationId]);
+  }, [search, locationId, operatorId, sinceDays]);
 
   useEffect(() => {
     api('/customers/duplicates')
@@ -89,6 +106,19 @@ export default function CustomersPage() {
         setLocations((rows ?? []).map((r) => ({ id: r.id, name: r.name }))),
       )
       .catch(() => {});
+    // M6: lista de staff (scanner users) para poblar el dropdown del filtro.
+    // Endpoint TENANT_OWNER-only; si el user es TENANT_STAFF no carga.
+    api<any[]>('/tenants/me/staff')
+      .then((rows) =>
+        setStaff(
+          (rows ?? []).map((r) => ({
+            id: r.id,
+            fullName: r.fullName,
+            email: r.email,
+          })),
+        ),
+      )
+      .catch(() => {});
   }, []);
 
   async function load(term: string = search) {
@@ -97,6 +127,16 @@ export default function CustomersPage() {
       const qs = new URLSearchParams();
       if (term) qs.set('search', term);
       if (locationId) qs.set('locationId', locationId);
+      if (operatorId) qs.set('operatorId', operatorId);
+      if (sinceDays) {
+        const days = Number(sinceDays);
+        if (Number.isFinite(days) && days > 0) {
+          qs.set(
+            'since',
+            new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString(),
+          );
+        }
+      }
       const params = qs.toString() ? `?${qs}` : '';
       setList(await api(`/customers${params}`));
     } catch (e: any) {
@@ -236,7 +276,7 @@ export default function CustomersPage() {
               className="bg-white border border-line rounded-pill px-3 py-1.5 text-sm"
               value={locationId}
               onChange={(e) => setLocationId(e.target.value)}
-              title="Filtrar por sede"
+              title="Filtrar por sede del escaneo"
             >
               <option value="">Todas las sedes</option>
               {locations.map((l) => (
@@ -246,6 +286,32 @@ export default function CustomersPage() {
               ))}
             </select>
           )}
+          {staff.length > 0 && (
+            <select
+              className="bg-white border border-line rounded-pill px-3 py-1.5 text-sm"
+              value={operatorId}
+              onChange={(e) => setOperatorId(e.target.value)}
+              title="Filtrar por usuario escáner"
+            >
+              <option value="">Todos los escáneres</option>
+              {staff.map((s) => (
+                <option key={s.id} value={s.id}>
+                  👤 {s.fullName}
+                </option>
+              ))}
+            </select>
+          )}
+          <select
+            className="bg-white border border-line rounded-pill px-3 py-1.5 text-sm"
+            value={sinceDays}
+            onChange={(e) => setSinceDays(e.target.value)}
+            title="Filtrar por actividad reciente"
+          >
+            <option value="">Cualquier fecha</option>
+            <option value="7">📅 Últimos 7 días</option>
+            <option value="30">📅 Últimos 30 días</option>
+            <option value="90">📅 Últimos 90 días</option>
+          </select>
           {duplicateGroups > 0 && (
             <Link
               href="/app/customers/duplicates"
@@ -364,30 +430,36 @@ export default function CustomersPage() {
                   title="Seleccionar todos los visibles con teléfono"
                 />
               </th>
-              {['Cliente', 'Contacto', 'Pases', 'Pedidos', 'LTV', 'Último'].map(
-                (h) => (
-                  <th
-                    key={h}
-                    className="text-left px-4 py-3.5 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
-                  >
-                    {h}
-                  </th>
-                ),
-              )}
+              {[
+                'Cliente',
+                'Contacto',
+                'Pases',
+                'Pedidos',
+                'LTV',
+                'Último escaneo',
+                'Último',
+              ].map((h) => (
+                <th
+                  key={h}
+                  className="text-left px-4 py-3.5 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
+                >
+                  {h}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {loading &&
               Array.from({ length: 4 }).map((_, i) => (
                 <tr key={`sk-${i}`} className="border-t border-line2">
-                  <td colSpan={7} className="px-4 py-3.5">
+                  <td colSpan={8} className="px-4 py-3.5">
                     <div className="h-6 bg-bg2 rounded animate-shimmer" />
                   </td>
                 </tr>
               ))}
             {!loading && visible.length === 0 && (
               <tr>
-                <td className="px-4 py-12 text-center" colSpan={7}>
+                <td className="px-4 py-12 text-center" colSpan={8}>
                   <div className="text-4xl mb-2">
                     {segment === 'all' ? '👥' : SEGMENTS.find((s) => s.key === segment)?.emoji}
                   </div>
@@ -472,6 +544,31 @@ export default function CustomersPage() {
                     {Number(c.totalOrdersAmount) > 0
                       ? COP(Number(c.totalOrdersAmount))
                       : '—'}
+                  </td>
+                  <td className="px-4 py-3.5 text-xs">
+                    {(() => {
+                      const last = c.stamps?.[0];
+                      if (!last) return <span className="text-mute">—</span>;
+                      const who =
+                        last.operator?.fullName ?? last.operator?.email ?? '—';
+                      return (
+                        <div>
+                          <div
+                            className="font-medium text-ink truncate max-w-[160px]"
+                            title={last.operator?.email ?? ''}
+                          >
+                            👤 {who}
+                          </div>
+                          <div className="text-mute2 truncate max-w-[160px]">
+                            {last.location
+                              ? `📍 ${last.location.name}`
+                              : '— sin sede'}
+                            {' · '}
+                            {fmtDate(last.createdAt)}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className="px-4 py-3.5 text-xs text-mute">
                     {fmtDate(c.lastOrderAt)}

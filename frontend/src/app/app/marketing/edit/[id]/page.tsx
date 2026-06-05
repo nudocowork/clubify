@@ -24,7 +24,13 @@ type QrPoster = {
   config: any;
 };
 
-type Card = { id: string; name: string };
+type Card = { id: string; name: string; type?: string };
+type ReviewTarget = {
+  id: string;
+  name: string;
+  location: { id: string; name: string } | null;
+  isActive: boolean;
+};
 
 const TYPE_META: Record<QrPosterType, { label: string; emoji: string }> = {
   MENU: { label: 'QR Menú', emoji: '🍽' },
@@ -45,6 +51,7 @@ export default function EditQrPosterPage() {
   const [poster, setPoster] = useState<QrPoster | null>(null);
   const [tenant, setTenant] = useState<any>(null);
   const [cards, setCards] = useState<Card[]>([]);
+  const [reviewTargets, setReviewTargets] = useState<ReviewTarget[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -52,8 +59,24 @@ export default function EditQrPosterPage() {
       api<QrPoster>(`/qr-posters/${id}`).then(setPoster),
       api<any>('/tenants/me').then(setTenant).catch(() => null),
       api<any[]>('/cards')
-        .then((arr) => setCards(arr.map((c) => ({ id: c.id, name: c.name }))))
+        .then((arr) =>
+          setCards(
+            arr.map((c) => ({ id: c.id, name: c.name, type: c.type })),
+          ),
+        )
         .catch(() => setCards([])),
+      api<any[]>('/review-qr-targets')
+        .then((arr) =>
+          setReviewTargets(
+            (arr ?? []).map((t) => ({
+              id: t.id,
+              name: t.name,
+              location: t.location ?? null,
+              isActive: t.isActive,
+            })),
+          ),
+        )
+        .catch(() => setReviewTargets([])),
     ]).catch((e) => setErr(e?.message || 'No se pudo cargar el cartel'));
   }, [id]);
 
@@ -92,7 +115,59 @@ export default function EditQrPosterPage() {
   if (poster.type === 'MENU') {
     qrUrl = `${origin}/m/${slug}`;
   } else if (poster.type === 'REVIEWS') {
-    qrUrl = `${origin}/r/${slug}`;
+    // M7.3: si hay un target multi-sede elegido, se va con ?target=<id>.
+    // Sin target, fallback al link genérico (sede principal del tenant).
+    const activeTargets = reviewTargets.filter((t) => t.isActive);
+    qrUrl = (m) => {
+      const tg = (m?.reviewTargetId ?? '').toString().trim();
+      return tg
+        ? `${origin}/r/${slug}?target=${encodeURIComponent(tg)}`
+        : `${origin}/r/${slug}`;
+    };
+    metaSlot = (m, setM) => (
+      <div className="card card-pad space-y-2">
+        <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
+          Sede del QR
+        </div>
+        {activeTargets.length === 0 ? (
+          <div className="text-[11px] text-mute leading-relaxed">
+            No tienes targets multi-sede aún. Crea uno en{' '}
+            <Link
+              href="/app/marketing/review-targets"
+              className="text-brand underline"
+            >
+              Targets de reseñas
+            </Link>{' '}
+            — mientras tanto el QR apunta al link genérico del negocio.
+          </div>
+        ) : (
+          <select
+            value={m?.reviewTargetId ?? ''}
+            onChange={(e) => setM({ ...m, reviewTargetId: e.target.value })}
+            className="input text-sm"
+          >
+            <option value="">— Link genérico (sede principal) —</option>
+            {activeTargets.map((t) => (
+              <option key={t.id} value={t.id}>
+                ⭐ {t.name}
+                {t.location ? ` · ${t.location.name}` : ''}
+              </option>
+            ))}
+          </select>
+        )}
+        <div className="text-[11px] text-mute leading-relaxed">
+          Cada sede puede tener su propio QR con su Google Reviews y
+          umbral. Edítalos en{' '}
+          <Link
+            href="/app/marketing/review-targets"
+            className="text-brand underline"
+          >
+            Targets de reseñas
+          </Link>
+          .
+        </div>
+      </div>
+    );
   } else if (poster.type === 'COUNTER') {
     qrUrl = (m) => {
       const cardId = m?.cardId || cards[0]?.id;
@@ -127,34 +202,78 @@ export default function EditQrPosterPage() {
       </div>
     );
   } else {
-    // DISCOUNT
+    // DISCOUNT — M7.2 (2026-06-04): el QR de descuento puede apuntar a:
+    //  a) Una Card de cupón específica → /c/<cardId> (el cliente se
+    //     inscribe a la tarjeta de cupón y la canjea en su wallet).
+    //  b) Un código promocional libre → /m/<slug>?promo=<code> (legacy,
+    //     valida contra Promociones).
+    //  c) Solo el menú → /m/<slug> (default si no hay ninguno).
+    const couponCards = cards.filter((c) => c.type === 'COUPON');
     qrUrl = (m) => {
+      const cardId = (m?.cardId ?? '').toString().trim();
+      if (cardId) return `${origin}/c/${cardId}`;
       const code = (m?.promoCode ?? '').toString().trim();
       return code
         ? `${origin}/m/${slug}?promo=${encodeURIComponent(code)}`
         : `${origin}/m/${slug}`;
     };
     metaSlot = (m, setM) => (
-      <div className="card card-pad space-y-2">
-        <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
-          Código promocional
+      <div className="card card-pad space-y-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-1.5">
+            Tarjeta de cupón (recomendado)
+          </div>
+          {couponCards.length === 0 ? (
+            <div className="text-[11px] text-mute leading-relaxed">
+              No tienes tarjetas de cupón aún. Crea una en{' '}
+              <Link href="/app/cards/new" className="text-brand underline">
+                Tarjetas → Cupón
+              </Link>{' '}
+              para que el QR inscriba directo al cliente.
+            </div>
+          ) : (
+            <select
+              value={m?.cardId ?? ''}
+              onChange={(e) => setM({ ...m, cardId: e.target.value })}
+              className="input text-sm"
+            >
+              <option value="">— Ninguna · usar código promo —</option>
+              {couponCards.map((c) => (
+                <option key={c.id} value={c.id}>
+                  🎁 {c.name}
+                </option>
+              ))}
+            </select>
+          )}
+          <div className="text-[11px] text-mute mt-1.5 leading-snug">
+            Si eliges una tarjeta de cupón, el QR redirige a{' '}
+            <code className="text-[10px]">/c/&lt;id&gt;</code> para
+            inscribir al cliente automáticamente al escanear.
+          </div>
         </div>
-        <input
-          type="text"
-          value={m?.promoCode ?? ''}
-          onChange={(e) =>
-            setM({ ...m, promoCode: e.target.value.toUpperCase() })
-          }
-          placeholder="Ej: BIENVENIDA10"
-          maxLength={32}
-          className="input text-sm uppercase tracking-wider"
-        />
-        <div className="text-[11px] text-mute leading-relaxed">
-          Para que el descuento sea válido, dálo de alta en{' '}
-          <Link href="/app/promos" className="text-brand underline">
-            Promociones
-          </Link>{' '}
-          también.
+        <div className={m?.cardId ? 'opacity-50 pointer-events-none' : ''}>
+          <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-1.5">
+            O código promocional libre
+          </div>
+          <input
+            type="text"
+            value={m?.promoCode ?? ''}
+            onChange={(e) =>
+              setM({ ...m, promoCode: e.target.value.toUpperCase() })
+            }
+            placeholder="Ej: BIENVENIDA10"
+            maxLength={32}
+            className="input text-sm uppercase tracking-wider"
+            disabled={!!m?.cardId}
+          />
+          <div className="text-[11px] text-mute mt-1.5 leading-relaxed">
+            Si no usas tarjeta de cupón, el QR aplica este código sobre
+            el carrito. Dálo de alta en{' '}
+            <Link href="/app/promos" className="text-brand underline">
+              Promociones
+            </Link>
+            .
+          </div>
         </div>
       </div>
     );

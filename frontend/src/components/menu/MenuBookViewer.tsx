@@ -45,10 +45,18 @@ type Page = {
 type Section = {
   id: string;
   title: string;
+  // M3: popup que dispara al entrar a la sección. Misma shape que Page.popup.
+  popup: Popup | null;
   pages: Page[];
 };
 
-type BookData = { sections: Section[] };
+type BookPopup = Popup & { delaySeconds: number };
+
+type BookData = {
+  sections: Section[];
+  /** Popup global del libro (dispara al cargar el viewer). M3 2026-06-04. */
+  bookPopup: BookPopup | null;
+};
 
 /** Slugify simple (ASCII, lowercase, guiones). Espejo del backend slugify. */
 function sectionSlugify(s: string): string {
@@ -87,6 +95,11 @@ export function MenuBookViewer({
   // Para no pisar la URL durante el primer render (sino al refrescar
   // /m/x/seccion-y sin haber scrolleado quedaría /m/x).
   const initialUrlSetRef = useRef(false);
+  // M3: secciones cuyo popup ya se mostró en esta visita (set para no
+  // repetir al hacer back-and-forth). El popup global del libro también
+  // se trackea con bookPopupShownRef.
+  const sectionsShownRef = useRef<Set<string>>(new Set());
+  const bookPopupShownRef = useRef(false);
 
   // ── Fetch
   useEffect(() => {
@@ -241,6 +254,33 @@ export function MenuBookViewer({
     if (window.location.pathname === targetPath) return;
     window.history.replaceState({}, '', targetPath);
   }, [activeSectionId, slugBySectionId, slug, urlPrefix]);
+
+  // ── M3: trigger del popup GLOBAL del libro al cargar (con delay
+  // configurado). Se dispara 1 vez por visita — si el cliente lo cierra
+  // y refrescha sí vuelve, pero swipe entre páginas no lo reabre.
+  useEffect(() => {
+    if (!data?.bookPopup) return;
+    if (bookPopupShownRef.current) return;
+    const delay = Math.max(0, data.bookPopup.delaySeconds ?? 5) * 1000;
+    const t = setTimeout(() => {
+      // Si hay un popup ya abierto (raro pero posible), no pisamos.
+      setOpenPopup((curr) => curr ?? data.bookPopup);
+      bookPopupShownRef.current = true;
+    }, delay);
+    return () => clearTimeout(t);
+  }, [data]);
+
+  // ── M3: trigger del popup por SECCIÓN al entrar — solo 1 vez por
+  // sección por visita. No dispara si ya hay otro popup abierto.
+  useEffect(() => {
+    if (!data) return;
+    if (!activeSectionId) return;
+    if (sectionsShownRef.current.has(activeSectionId)) return;
+    const section = data.sections.find((s) => s.id === activeSectionId);
+    if (!section?.popup) return;
+    sectionsShownRef.current.add(activeSectionId);
+    setOpenPopup((curr) => curr ?? section.popup);
+  }, [activeSectionId, data]);
 
   // ── Loading / error / empty
   if (loadErr) {

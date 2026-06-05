@@ -1,6 +1,6 @@
 'use client';
-import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
 import { PhoneInput } from '@/components/PhoneInput';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useT } from '@/lib/i18n';
@@ -16,6 +16,14 @@ type Tenant = {
   secondaryColor: string;
   whatsappPhone: string | null;
   googleReviewUrl: string | null;
+  // M7.3: threshold efectivo (sobreescrito por target si vino ?target=).
+  threshold?: number;
+  // M7.3: info del target multi-sede activo (si vino).
+  target?: {
+    id: string;
+    name: string;
+    locationName: string | null;
+  } | null;
   whatsappFeedbackEnabled?: boolean;
   whatsappFeedbackNumber?: string | null;
   whatsappFeedbackMessage?: string | null;
@@ -24,8 +32,20 @@ type Tenant = {
 type Step = 'rate' | 'feedback' | 'thanks';
 
 export default function ReviewPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-mute">Cargando…</div>}>
+      <ReviewPageInner />
+    </Suspense>
+  );
+}
+
+function ReviewPageInner() {
   const tt = useT();
   const { slug } = useParams<{ slug: string }>();
+  const search = useSearchParams();
+  // M7.3: si vino ?target=<id>, usamos ese target para resolver
+  // googleReviewUrl + threshold + asociar el feedback.
+  const targetId = search.get('target') || null;
   const [t, setT] = useState<Tenant | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [step, setStep] = useState<Step>('rate');
@@ -46,7 +66,13 @@ export default function ReviewPage() {
     const timeoutId = setTimeout(() => ctrl.abort(), 10_000);
     setNetworkError(false);
     setErr(null);
-    fetch(`${API}/api/public/r/${slug}`, { signal: ctrl.signal, cache: 'no-store' })
+    const targetQs = targetId
+      ? `?target=${encodeURIComponent(targetId)}`
+      : '';
+    fetch(`${API}/api/public/r/${slug}${targetQs}`, {
+      signal: ctrl.signal,
+      cache: 'no-store',
+    })
       .then(async (r) => {
         if (!r.ok) {
           const j = await r.json().catch(() => ({}));
@@ -73,7 +99,7 @@ export default function ReviewPage() {
       clearTimeout(timeoutId);
       ctrl.abort();
     };
-  }, [slug, retryCount]);
+  }, [slug, retryCount, targetId]);
 
   async function submitNegative() {
     if (rating === 0) return;
@@ -88,8 +114,10 @@ export default function ReviewPage() {
 
   async function pickRating(n: number) {
     setRating(n);
-    if (n >= 4) {
-      // 4-5★ → POST silencioso + redirect inmediato a Google.
+    // M7.3: usar el threshold del target si vino — sino 4 (default).
+    const threshold = t?.threshold ?? 4;
+    if (n >= threshold) {
+      // ≥threshold★ → POST silencioso + redirect inmediato a Google.
       // Si no hay googleReviewUrl configurado, mostramos thanks.
       if (!t?.googleReviewUrl) {
         await postReview(n, true, '', '', '');
@@ -101,7 +129,7 @@ export default function ReviewPage() {
         window.location.href = t.googleReviewUrl!;
       }, 150);
     } else {
-      // 1-3★ → form obligatorio nombre + teléfono para capturar al cliente
+      // <threshold★ → form obligatorio nombre + teléfono para capturar al cliente
       setStep('feedback');
     }
   }
@@ -123,6 +151,8 @@ export default function ReviewPage() {
           customerName: nm.trim() || undefined,
           customerPhone: ph.trim() || undefined,
           redirectedToGoogle: toGoogle,
+          // M7.3: persistir target para métricas por sede.
+          reviewTargetId: targetId || undefined,
         }),
       });
     } catch {

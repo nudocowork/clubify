@@ -53,6 +53,11 @@ export type CreateTenantDto = {
    * lockscreen no dispare.
    */
   hotmartSubscriberCode?: string;
+  /**
+   * Periodicidad del plan elegida por el admin. Informativo: NO altera
+   * billing real (ese lo dicta Hotmart). Sirve para CRM y reporting.
+   */
+  planPeriodicity?: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL';
 };
 
 export type UpdateTenantDto = Partial<{
@@ -64,6 +69,7 @@ export type UpdateTenantDto = Partial<{
   secondaryColor: string;
   status: TenantStatus;
   planId: string;
+  planPeriodicity: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL' | null;
   maxLocationsOverride: number | null;
   reviewAlertsAccountId: string | null;
   billingAlertsAccountId: string | null;
@@ -76,6 +82,8 @@ export type UpdateMyTenantDto = Partial<{
   whatsappPhone: string;
   whatsappOrdersPhone: string;
   whatsappDeliveryPhone: string;
+  currency: string;
+  maxStampsPerDay: number;
   logoUrl: string;
   primaryColor: string;
   secondaryColor: string;
@@ -111,10 +119,13 @@ export class TenantsService {
   ) {}
 
   /**
-   * SUPER_ADMIN entra al panel de un tenant como si fuera el dueño.
-   * Devuelve un JWT del primer TENANT_OWNER del negocio. El token lleva
-   * `impersonatedBy` para que quede constancia en logs si se hace algo
-   * destructivo desde la sesión impostada.
+   * SUPER_ADMIN o MARKETING entran al panel de un tenant como si fueran
+   * el dueño. Devuelve un JWT del primer TENANT_OWNER del negocio. El
+   * token lleva `impersonatedBy` para que quede constancia en logs si se
+   * hace algo destructivo desde la sesión impostada.
+   *
+   * M5 (2026-06-04): MARKETING también puede impersonar — el rol se usa
+   * para implementadores que configuran cuentas de clientes.
    */
   async impersonate(tenantId: string, superAdminId: string) {
     const tenant = await this.prisma.tenant.findUnique({
@@ -262,6 +273,7 @@ export class TenantsService {
         secondaryColor: dto.secondaryColor ?? '#2E7D5B',
         businessCategorySlug: categorySlug,
         planId: dto.planId,
+        planPeriodicity: dto.planPeriodicity ?? null,
         referredByCode: dto.referredByCode,
         status,
         trialStartedAt,

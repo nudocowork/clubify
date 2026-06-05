@@ -49,8 +49,10 @@ export class CustomersController {
     @Query('search') search?: string,
     @Query('tenantId') tenantId?: string,
     @Query('locationId') locationId?: string,
+    @Query('operatorId') operatorId?: string,
+    @Query('since') since?: string,
   ) {
-    return this.svc.list(user, search, tenantId, locationId);
+    return this.svc.list(user, search, tenantId, locationId, operatorId, since);
   }
 
   @Get('duplicates')

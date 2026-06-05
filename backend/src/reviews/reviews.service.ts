@@ -39,7 +39,7 @@ export class ReviewsService {
    * Devuelve sólo lo que el cliente final necesita ver: branding + URL
    * de Google. NUNCA devolvemos el feedback negativo histórico.
    */
-  async getPublic(slug: string) {
+  async getPublic(slug: string, targetId?: string) {
     const t = await this.prisma.tenant.findUnique({
       where: { slug },
       select: {
@@ -51,6 +51,7 @@ export class ReviewsService {
         secondaryColor: true,
         whatsappPhone: true,
         googleReviewUrl: true,
+        reviewAlertsThreshold: true,
         whatsappFeedbackEnabled: true,
         whatsappFeedbackNumber: true,
         whatsappFeedbackMessage: true,
@@ -59,10 +60,41 @@ export class ReviewsService {
     });
     if (!t || t.status === 'SUSPENDED')
       throw new NotFoundException('Negocio no disponible');
-    // Solo exponemos el número del WhatsApp feedback si está habilitado
-    // y tiene número. Sino, frontend no muestra el botón.
+
+    // M7.3: si vino un targetId, lo resolvemos y usamos su googleUrl +
+    // threshold + nombre. Validamos que pertenezca al tenant del slug
+    // para evitar que alguien pase un targetId de otro tenant.
+    let target: {
+      id: string;
+      name: string;
+      googleReviewUrl: string;
+      threshold: number;
+      locationName: string | null;
+    } | null = null;
+    if (targetId) {
+      const tg = await this.prisma.reviewQrTarget.findFirst({
+        where: { id: targetId, tenantId: t.id, isActive: true },
+        include: { location: { select: { name: true } } },
+      });
+      if (tg) {
+        target = {
+          id: tg.id,
+          name: tg.name,
+          googleReviewUrl: tg.googleReviewUrl,
+          threshold: tg.threshold,
+          locationName: tg.location?.name ?? null,
+        };
+      }
+    }
+
     return {
       ...t,
+      // Si hay target activo, sus valores ganan sobre los del tenant.
+      googleReviewUrl: target?.googleReviewUrl ?? t.googleReviewUrl,
+      threshold: target?.threshold ?? 4,
+      target,
+      // Solo exponemos el número del WhatsApp feedback si está habilitado
+      // y tiene número. Sino, frontend no muestra el botón.
       whatsappFeedbackEnabled:
         !!(t.whatsappFeedbackEnabled && t.whatsappFeedbackNumber?.trim()),
     };
@@ -81,6 +113,7 @@ export class ReviewsService {
       customerName?: string;
       customerPhone?: string;
       redirectedToGoogle?: boolean;
+      reviewTargetId?: string;
     },
   ) {
     const t = await this.prisma.tenant.findUnique({
@@ -93,6 +126,17 @@ export class ReviewsService {
     const rating = Math.max(1, Math.min(5, Math.floor(body.rating)));
     const redirected = !!body.redirectedToGoogle;
 
+    // M7.3: validar que el target (si vino) pertenezca al tenant. Si
+    // no, lo descartamos silencioso para no romper el flujo del cliente.
+    let validTargetId: string | null = null;
+    if (body.reviewTargetId) {
+      const tg = await this.prisma.reviewQrTarget.findFirst({
+        where: { id: body.reviewTargetId, tenantId: t.id },
+        select: { id: true },
+      });
+      if (tg) validTargetId = tg.id;
+    }
+
     const created = await this.prisma.reviewFeedback.create({
       data: {
         tenantId: t.id,
@@ -101,6 +145,7 @@ export class ReviewsService {
         customerName: body.customerName?.trim() || null,
         customerPhone: body.customerPhone?.trim() || null,
         redirectedToGoogle: redirected,
+        reviewTargetId: validTargetId,
       },
       select: { id: true, createdAt: true },
     });
@@ -336,6 +381,111 @@ export class ReviewsService {
     if (user.role !== 'SUPER_ADMIN' && f.tenantId !== user.tenantId)
       throw new ForbiddenException();
     await this.prisma.reviewFeedback.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  // ────────── M7.3: ReviewQrTarget CRUD ────────── //
+
+  /** Lista todos los targets del tenant con conteo de feedback recibido. */
+  async listTargets(user: AuthUser, override?: string) {
+    const tid = this.tid(user, override);
+    return this.prisma.reviewQrTarget.findMany({
+      where: { tenantId: tid },
+      include: {
+        location: { select: { id: true, name: true } },
+        _count: { select: { feedbacks: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async createTarget(
+    user: AuthUser,
+    body: {
+      name: string;
+      googleReviewUrl: string;
+      locationId?: string | null;
+      threshold?: number;
+      isActive?: boolean;
+    },
+    override?: string,
+  ) {
+    const tid = this.tid(user, override);
+    // Validamos que la location (si vino) pertenezca al tenant.
+    if (body.locationId) {
+      const loc = await this.prisma.location.findFirst({
+        where: { id: body.locationId, tenantId: tid },
+        select: { id: true },
+      });
+      if (!loc) {
+        throw new NotFoundException('Sede no encontrada para este tenant');
+      }
+    }
+    return this.prisma.reviewQrTarget.create({
+      data: {
+        tenantId: tid,
+        name: body.name.trim(),
+        googleReviewUrl: body.googleReviewUrl.trim(),
+        locationId: body.locationId ?? null,
+        threshold: Math.max(1, Math.min(5, body.threshold ?? 4)),
+        isActive: body.isActive ?? true,
+      },
+    });
+  }
+
+  async updateTarget(
+    user: AuthUser,
+    id: string,
+    body: Partial<{
+      name: string;
+      googleReviewUrl: string;
+      locationId: string | null;
+      threshold: number;
+      isActive: boolean;
+    }>,
+  ) {
+    const tid = this.tid(user, undefined);
+    const existing = await this.prisma.reviewQrTarget.findUnique({
+      where: { id },
+    });
+    if (!existing) throw new NotFoundException();
+    if (user.role !== 'SUPER_ADMIN' && existing.tenantId !== tid) {
+      throw new ForbiddenException();
+    }
+    if (body.locationId) {
+      const loc = await this.prisma.location.findFirst({
+        where: { id: body.locationId, tenantId: existing.tenantId },
+        select: { id: true },
+      });
+      if (!loc) {
+        throw new NotFoundException('Sede no encontrada para este tenant');
+      }
+    }
+    return this.prisma.reviewQrTarget.update({
+      where: { id },
+      data: {
+        name: body.name?.trim() ?? undefined,
+        googleReviewUrl: body.googleReviewUrl?.trim() ?? undefined,
+        locationId: body.locationId === undefined ? undefined : body.locationId,
+        threshold:
+          body.threshold === undefined
+            ? undefined
+            : Math.max(1, Math.min(5, body.threshold)),
+        isActive: body.isActive ?? undefined,
+      },
+    });
+  }
+
+  async deleteTarget(user: AuthUser, id: string) {
+    const tid = this.tid(user, undefined);
+    const existing = await this.prisma.reviewQrTarget.findUnique({
+      where: { id },
+    });
+    if (!existing) throw new NotFoundException();
+    if (user.role !== 'SUPER_ADMIN' && existing.tenantId !== tid) {
+      throw new ForbiddenException();
+    }
+    await this.prisma.reviewQrTarget.delete({ where: { id } });
     return { ok: true };
   }
 

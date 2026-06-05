@@ -341,6 +341,16 @@ model Tenant {
   businessCategorySlug        String?
   planId                      String
   plan                        Plan         @relation(fields: [planId], references: [id])
+  // Periodicidad del plan (MENSUAL|TRIMESTRAL|SEMESTRAL|ANUAL). NO afecta
+  // billing real (ese lo dicta Hotmart). Solo se usa para CRM / reporting
+  // / filtros en /admin/tenants. Nullable porque tenants pre-2026-06-04
+  // no la tienen seteada.
+  planPeriodicity             String?
+  // M4 (2026-06-04): override del rate-limit "1 sello cada 24h" por pass.
+  // null = 1 (default histórico). N >= 1 permite hasta N sellos/pass/día.
+  // El bypass SUPER_ADMIN sigue intacto. Pensado para campañas
+  // promocionales (cumpleaños, evento, doble sello, etc).
+  maxStampsPerDay             Int?
   maxLocationsOverride        Int?
   referredByCode              String?
   currency                    String       @default("COP")
@@ -489,6 +499,7 @@ model Tenant {
   infoLinks           InfoLink[]
   events              Event[]
   reviewFeedbacks     ReviewFeedback[]
+  reviewQrTargets     ReviewQrTarget[]
   reminders           Reminder[]
   suppliers           Supplier[]
   frequentProducts    FrequentProduct[]
@@ -846,6 +857,7 @@ model Location {
   stamps Stamp[]
   orders Order[]
   cards  Card[]
+  reviewQrTargets ReviewQrTarget[]
 
   @@index([tenantId])
 }
@@ -1254,16 +1266,17 @@ model Storefront {
   // SIEMPRE va informativo por diseño (el QR de mesa no debe gatillar
   // pedidos), independientemente de este flag.
   ordersEnabled Boolean    @default(true)
-  // Toggle específico para la vista delivery (link público sin ?mesa).
-  // Si el dueño quiere dejar el menú delivery como solo-precios sin tocar
-  // mesa, apaga este flag.
+  // Toggle ÚNICO de delivery (vista pública sin ?mesa). Si está ON:
+  //   - habilita carrito + checkout
+  //   - habilita el botón "Pedir por WhatsApp"
+  //   - habilita generación de pedidos hacia el backend
+  // Si está OFF: la vista delivery es solo-precios (informativa, igual
+  // que la vista mesa). NO existe un toggle aparte para WhatsApp porque
+  // "carrito sin canal para enviar el pedido" no es un caso real (M1.3
+  // 2026-06-04). La vista MESA (?mesa=N) NUNCA muestra carrito ni botón
+  // WA, sin importar este flag (regla de negocio: cliente sentado en
+  // mesa el mozo le toma el pedido).
   ordersDeliveryEnabled Boolean @default(true)
-  // Toggle del botón "pedir por WhatsApp" en la vista DELIVERY. La vista
-  // de MESA (?mesa=N) siempre es informativa — NUNCA muestra el botón
-  // WhatsApp independiente del valor de este flag (regla de negocio:
-  // cliente sentado en mesa el mozo le toma el pedido). Default true
-  // para no romper tenants existentes con WA configurado.
-  ordersWhatsappEnabled Boolean @default(true)
   // Popup que aparece después de N segundos de abrir el menú público. Si
   // tiene imagen + está enabled + popupCardId, hace click en la imagen y
   // lleva al cliente a /c/{popupCardId} para inscribirse a la tarjeta.
@@ -1273,6 +1286,18 @@ model Storefront {
   popupCardId         String?
   popupCard           Card?      @relation("StorefrontPopupCard", fields: [popupCardId], references: [id], onDelete: SetNull)
   popupDelaySeconds   Int        @default(10)
+  // Popup global del Menú Libro (M3 2026-06-04). Aparece N segundos
+  // después de que el cliente abre /book/<slug>. Independiente del popup
+  // del digital menú (que es enrollment a Card). Acá la lógica es
+  // promocional (título + descripción + botón).
+  bookPopupEnabled       Boolean @default(false)
+  bookPopupTitle         String?
+  bookPopupDescription   String? @db.Text
+  bookPopupImageUrl      String?
+  bookPopupButtonText    String?
+  bookPopupButtonUrl     String?
+  bookPopupButtonColor   String?
+  bookPopupDelaySeconds  Int     @default(5)
   // Si false, el botón de WhatsApp NO se muestra en el menú público aunque
   // el tenant tenga whatsappPhone seteado. Permite que el dueño "apague"
   // el botón sin perder el número configurado en /app/settings.
@@ -1362,6 +1387,16 @@ model MenuBookSection {
   // las páginas se concatenan en este orden.
   sortOrder Int      @default(0)
   isActive  Boolean  @default(true)
+  // Popup que aparece al entrar a esta sección (M3 2026-06-04). Misma
+  // shape que MenuBookPage.popup* para consistencia. Si popupEnabled=
+  // false el resto se ignora.
+  popupEnabled     Boolean @default(false)
+  popupTitle       String?
+  popupDescription String? @db.Text
+  popupImageUrl    String?
+  popupButtonText  String?
+  popupButtonUrl   String?
+  popupButtonColor String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1760,15 +1795,46 @@ model ReviewFeedback {
   comment            String?  @db.Text
   customerName       String?
   customerPhone      String?
-  // true = el cliente pulsó "ir a Google" (era ≥4★, lo redirigimos)
-  // false (default) = lo capturamos acá privado por <4★
+  // true = el cliente pulsó "ir a Google" (era ≥threshold★, lo redirigimos)
+  // false (default) = lo capturamos acá privado por <threshold★
   redirectedToGoogle Boolean  @default(false)
   // Permite al dueño marcar como leída en el panel
   isRead             Boolean  @default(false)
+  // M7.3: target del QR de reseñas multi-sede que originó este feedback.
+  // null = vino del link genérico del tenant (sin segmentar por sede).
+  reviewTargetId     String?
+  reviewTarget       ReviewQrTarget? @relation(fields: [reviewTargetId], references: [id], onDelete: SetNull)
   createdAt          DateTime @default(now())
 
   @@index([tenantId, createdAt])
   @@index([tenantId, rating])
+  @@index([reviewTargetId])
+}
+
+// M7.3 (2026-06-04): cada sede del negocio puede tener su propio QR de
+// reseñas con su propia URL de Google + threshold + métricas. El QR
+// público apunta a /r/<slug>?target=<id>; sin ?target= cae al link
+// genérico Tenant.googleReviewUrl.
+model ReviewQrTarget {
+  id              String   @id @default(uuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Sede asociada (opcional). Si null, el target es libre — útil para
+  /// campañas no atadas a una sede física.
+  locationId      String?
+  location        Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  name            String
+  /// URL completa de Google Reviews para esta sede.
+  googleReviewUrl String
+  /// Rating mínimo inclusive para redirigir a Google (1-5). Default 4.
+  threshold       Int      @default(4)
+  isActive        Boolean  @default(true)
+  feedbacks       ReviewFeedback[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([locationId])
 }
 
 // ============================================================

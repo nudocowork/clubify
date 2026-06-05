@@ -242,7 +242,23 @@ export class PublicMenuController {
   async menuBook(@Param('slug') slug: string) {
     const t = await this.prisma.tenant.findUnique({
       where: { slug },
-      select: { id: true, status: true },
+      select: {
+        id: true,
+        status: true,
+        storefront: {
+          select: {
+            // M3: popup global del libro.
+            bookPopupEnabled: true,
+            bookPopupTitle: true,
+            bookPopupDescription: true,
+            bookPopupImageUrl: true,
+            bookPopupButtonText: true,
+            bookPopupButtonUrl: true,
+            bookPopupButtonColor: true,
+            bookPopupDelaySeconds: true,
+          },
+        },
+      },
     });
     if (!t || t.status === 'SUSPENDED') {
       throw new NotFoundException('Negocio no disponible');
@@ -257,10 +273,35 @@ export class PublicMenuController {
         },
       },
     });
+    const sf = t.storefront;
+    const bookPopup =
+      sf?.bookPopupEnabled
+        ? {
+            title: sf.bookPopupTitle,
+            description: sf.bookPopupDescription,
+            imageUrl: sf.bookPopupImageUrl,
+            buttonText: sf.bookPopupButtonText,
+            buttonUrl: sf.bookPopupButtonUrl,
+            buttonColor: sf.bookPopupButtonColor,
+            delaySeconds: sf.bookPopupDelaySeconds ?? 5,
+          }
+        : null;
     return {
+      bookPopup,
       sections: sections.map((s) => ({
         id: s.id,
         title: s.title,
+        // M3: popup que dispara al entrar a la sección.
+        popup: s.popupEnabled
+          ? {
+              title: s.popupTitle,
+              description: s.popupDescription,
+              imageUrl: s.popupImageUrl,
+              buttonText: s.popupButtonText,
+              buttonUrl: s.popupButtonUrl,
+              buttonColor: s.popupButtonColor,
+            }
+          : null,
         pages: s.pages.map((p) => ({
           id: p.id,
           imageUrl: p.imageUrl,

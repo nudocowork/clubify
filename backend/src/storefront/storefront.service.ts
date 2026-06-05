@@ -12,7 +12,15 @@ export type StorefrontDto = {
   isPublished?: boolean;
   ordersEnabled?: boolean;
   ordersDeliveryEnabled?: boolean;
-  ordersWhatsappEnabled?: boolean;
+  // M3: popup global del Menú Libro.
+  bookPopupEnabled?: boolean;
+  bookPopupTitle?: string | null;
+  bookPopupDescription?: string | null;
+  bookPopupImageUrl?: string | null;
+  bookPopupButtonText?: string | null;
+  bookPopupButtonUrl?: string | null;
+  bookPopupButtonColor?: string | null;
+  bookPopupDelaySeconds?: number;
   popupEnabled?: boolean;
   popupImageUrl?: string | null;
   popupCardId?: string | null;
@@ -81,7 +89,6 @@ export class StorefrontService {
         isPublished: dto.isPublished ?? true,
         ordersEnabled: dto.ordersEnabled ?? true,
         ordersDeliveryEnabled: dto.ordersDeliveryEnabled ?? true,
-        ordersWhatsappEnabled: dto.ordersWhatsappEnabled ?? true,
         customDomain,
       },
       update: {
@@ -92,11 +99,35 @@ export class StorefrontService {
         isPublished: dto.isPublished ?? undefined,
         ordersEnabled: dto.ordersEnabled ?? undefined,
         ordersDeliveryEnabled: dto.ordersDeliveryEnabled ?? undefined,
-        ordersWhatsappEnabled: dto.ordersWhatsappEnabled ?? undefined,
         popupEnabled: dto.popupEnabled ?? undefined,
         popupImageUrl: dto.popupImageUrl !== undefined ? dto.popupImageUrl : undefined,
         popupCardId: dto.popupCardId !== undefined ? dto.popupCardId : undefined,
         popupDelaySeconds: dto.popupDelaySeconds ?? undefined,
+        // M3: popup global del Menú Libro.
+        bookPopupEnabled: dto.bookPopupEnabled ?? undefined,
+        bookPopupTitle:
+          dto.bookPopupTitle === undefined ? undefined : dto.bookPopupTitle,
+        bookPopupDescription:
+          dto.bookPopupDescription === undefined
+            ? undefined
+            : dto.bookPopupDescription,
+        bookPopupImageUrl:
+          dto.bookPopupImageUrl === undefined
+            ? undefined
+            : dto.bookPopupImageUrl,
+        bookPopupButtonText:
+          dto.bookPopupButtonText === undefined
+            ? undefined
+            : dto.bookPopupButtonText,
+        bookPopupButtonUrl:
+          dto.bookPopupButtonUrl === undefined
+            ? undefined
+            : dto.bookPopupButtonUrl,
+        bookPopupButtonColor:
+          dto.bookPopupButtonColor === undefined
+            ? undefined
+            : dto.bookPopupButtonColor,
+        bookPopupDelaySeconds: dto.bookPopupDelaySeconds ?? undefined,
         whatsappButtonEnabled: dto.whatsappButtonEnabled ?? undefined,
         pageBackgroundColor:
           dto.pageBackgroundColor === undefined

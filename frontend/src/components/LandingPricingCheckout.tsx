@@ -1,16 +1,23 @@
 'use client';
+import Link from 'next/link';
 import { useState } from 'react';
 
 /**
  * Selector de planes tipo checkout en la landing pública (Preview 5).
  * Pattern: 4 opciones tipo radio apiladas, cada una con precio +
  * equivalente mensual + ahorro. Total dinámico abajo + CTA "Continuar
- * al pago" que abre el checkout del plan seleccionado.
+ * al pago" que lleva a /signup?plan=<id>.
+ *
+ * Flow (M10 2026-06-04): el CTA NO abre Hotmart directo — primero pasa
+ * por el formulario de registro `/signup`, que después del signup
+ * exitoso redirige al checkoutUrl del plan elegido. Esto preserva
+ * tracking, attribution y forma parte del funnel completo.
  *
  * Recibe los 4 planes como prop desde el server component (que los
  * fetcha del endpoint /api/landing-plans). Si el founder no configuró
  * el checkoutUrl del plan elegido, el botón sale como "Próximamente"
- * deshabilitado para no enviar al usuario a un link roto.
+ * deshabilitado (no tiene sentido completar signup si no hay link de
+ * pago configurado para ese periodo).
  */
 
 type PlanId = 'mensual' | 'trimestral' | 'semestral' | 'anual';
@@ -116,14 +123,12 @@ export function LandingPricingCheckout({ plans }: { plans: LandingPlan[] }) {
           <span className="text-2xl font-bold">{fmtUSD(plan.price)}</span>
         </div>
         {hasUrl ? (
-          <a
-            href={plan.checkoutUrl!}
-            target="_blank"
-            rel="noopener noreferrer"
+          <Link
+            href={`/signup?plan=${plan.id}`}
             className="inline-flex items-center justify-center w-full bg-brand text-white font-semibold py-3.5 rounded-pill hover:opacity-95 transition cursor-pointer touch-manipulation [-webkit-tap-highlight-color:transparent] active:scale-[0.98]"
           >
             Continuar al pago →
-          </a>
+          </Link>
         ) : (
           <button
             type="button"
@@ -135,7 +140,7 @@ export function LandingPricingCheckout({ plans }: { plans: LandingPlan[] }) {
           </button>
         )}
         <div className="text-center text-[11px] text-mute mt-3">
-          🔒 Pago seguro vía Hotmart · Garantía 7 días
+          Te llevamos primero a crear tu cuenta y después al pago seguro.
         </div>
       </div>
     </div>

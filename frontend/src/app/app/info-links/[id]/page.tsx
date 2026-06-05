@@ -112,6 +112,11 @@ type Button = {
   // Cuando type='POPUP', al hacer click el botón abre un modal con este
   // contenido en lugar de navegar.
   popup?: PopupConfig | null;
+  // Cuando type='MENU', a qué versión del menú apunta el botón (M2.1):
+  //   'DELIVERY' → /m/<slug> (carrito + WhatsApp; default histórico)
+  //   'MESA'     → /m/<slug>?mesa=1 (informativo, sin carrito)
+  //   'BOOK'     → /book/<slug> (flipbook visual)
+  menuVariant?: 'DELIVERY' | 'MESA' | 'BOOK';
 };
 
 type InfoLink = {
@@ -782,6 +787,64 @@ export default function InfoLinkEditor() {
                       value={b.url ?? ''}
                       onChange={(e) => updateButton(i, { url: e.target.value })}
                     />
+                  )}
+                  {b.type === 'MENU' && (
+                    <div className="col-span-full">
+                      <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-1.5">
+                        ¿Qué versión del menú?
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        {(
+                          [
+                            {
+                              v: 'DELIVERY',
+                              label: '🛵 Delivery',
+                              hint: 'Con carrito + WhatsApp',
+                            },
+                            {
+                              v: 'MESA',
+                              label: '🍽 Mesa',
+                              hint: 'Solo precios, informativo',
+                            },
+                            {
+                              v: 'BOOK',
+                              label: '📖 Libro',
+                              hint: 'Flipbook visual',
+                            },
+                          ] as const
+                        ).map((opt) => {
+                          const active = (b.menuVariant ?? 'DELIVERY') === opt.v;
+                          return (
+                            <button
+                              type="button"
+                              key={opt.v}
+                              onClick={() =>
+                                updateButton(i, { menuVariant: opt.v })
+                              }
+                              className={`text-left rounded-input border-2 p-2.5 transition ${
+                                active
+                                  ? 'border-brand bg-brand-soft'
+                                  : 'border-line bg-white hover:border-brand/40'
+                              }`}
+                            >
+                              <div className="text-sm font-semibold">
+                                {opt.label}
+                              </div>
+                              <div className="text-[10px] text-mute mt-0.5 leading-snug">
+                                {opt.hint}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="text-[11px] text-mute mt-1.5">
+                        Si el libro o delivery está desactivado en{' '}
+                        <a href="/app/storefront" className="text-brand hover:underline">
+                          /app/storefront
+                        </a>
+                        , el botón apuntará a un menú que el cliente verá vacío.
+                      </div>
+                    </div>
                   )}
                   {b.type === 'INSTAGRAM' && (
                     <div className="col-span-full">

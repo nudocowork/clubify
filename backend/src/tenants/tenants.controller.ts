@@ -21,6 +21,10 @@ class CreateTenantBody {
   @IsOptional() @IsInt() @Min(1) trialDays?: number;
   @IsOptional() @IsDateString() nextChargeDate?: string;
   @IsOptional() @IsString() hotmartSubscriberCode?: string;
+  // Periodicidad del plan elegida por el admin (Mensual/Trimestral/
+  // Semestral/Anual). Informativo: NO altera billing real (Hotmart manda).
+  @IsOptional() @IsIn(['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL'])
+  planPeriodicity?: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL';
 }
 
 class BillingBody {
@@ -41,6 +45,8 @@ class UpdateTenantBody {
   @IsOptional() @IsHexColor() secondaryColor?: string;
   @IsOptional() @IsString() status?: TenantStatus;
   @IsOptional() @IsUUID() planId?: string;
+  @IsOptional() @IsIn(['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL'])
+  planPeriodicity?: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL';
   @IsOptional() @IsInt() @Min(1) maxLocationsOverride?: number;
   @IsOptional() @IsInt() @Min(0) gracePeriodDays?: number;
   // Asignar subcuenta global de Grow Business para alertas SMS de
@@ -117,8 +123,13 @@ export class TenantsController {
     return this.svc.updateBilling(id, body);
   }
 
+  /** M5 (2026-06-04): MARKETING también puede entrar al panel del tenant
+   *  como implementador (configurar menú, branding, tarjetas, etc). El
+   *  rol MARKETING ya tenía cross-tenant read; ahora también puede
+   *  abrir el tenant y hacer cambios sin tener que pedirle al dueño
+   *  ni cerrar su propia sesión. La impersonación queda auditada. */
   @Post(':id/impersonate')
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'MARKETING')
   impersonate(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.svc.impersonate(id, user.id);
   }

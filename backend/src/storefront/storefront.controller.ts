@@ -26,12 +26,28 @@ class StorefrontBody {
   @IsOptional() @IsBoolean() isPublished?: boolean;
   @IsOptional() @IsBoolean() ordersEnabled?: boolean;
   @IsOptional() @IsBoolean() ordersDeliveryEnabled?: boolean;
-  @IsOptional() @IsBoolean() ordersWhatsappEnabled?: boolean;
   @IsOptional() @IsBoolean() popupEnabled?: boolean;
   @IsOptional() @IsString() popupImageUrl?: string | null;
   @IsOptional() @IsString() popupCardId?: string | null;
   // Segundos antes de que aparezca el popup. Min 1s, max 120s (2min).
   @IsOptional() @IsInt() @Min(1) @Max(120) popupDelaySeconds?: number;
+  // M3: popup global del Menú Libro (/book/<slug>). Aparece después de
+  // bookPopupDelaySeconds desde que se carga el book viewer. Misma
+  // shape que MenuBookSection/Page popups para consistencia.
+  @IsOptional() @IsBoolean() bookPopupEnabled?: boolean;
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(120)
+  bookPopupTitle?: string | null;
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(2000)
+  bookPopupDescription?: string | null;
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(500)
+  bookPopupImageUrl?: string | null;
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(40)
+  bookPopupButtonText?: string | null;
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(500)
+  bookPopupButtonUrl?: string | null;
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(40)
+  bookPopupButtonColor?: string | null;
+  @IsOptional() @IsInt() @Min(0) @Max(120) bookPopupDelaySeconds?: number;
   @IsOptional() @IsBoolean() whatsappButtonEnabled?: boolean;
   // Color CSS válido (#hex, rgb(), nombre). null = usar default del layout.
   @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(40)
