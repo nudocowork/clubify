@@ -67,6 +67,9 @@ class UpdateMyBody {
   // Moneda de los precios mostrados en el storefront público. ISO 4217
   // (3 letras, ej: COP, USD, MXN, ARS, CLP, PEN, BRL). M1.5 2026-06-04.
   @IsOptional() @IsString() currency?: string;
+  // M4: máximo de sellos/visitas que un mismo pass puede recibir en 24h.
+  // null = 1 (default histórico). Rango razonable 1-10 para evitar abuso.
+  @IsOptional() @IsInt() @Min(1) @Max(20) maxStampsPerDay?: number;
 }
 
 @Controller('tenants/me')

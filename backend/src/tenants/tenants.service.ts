@@ -83,6 +83,7 @@ export type UpdateMyTenantDto = Partial<{
   whatsappOrdersPhone: string;
   whatsappDeliveryPhone: string;
   currency: string;
+  maxStampsPerDay: number;
   logoUrl: string;
   primaryColor: string;
   secondaryColor: string;
@@ -118,10 +119,13 @@ export class TenantsService {
   ) {}
 
   /**
-   * SUPER_ADMIN entra al panel de un tenant como si fuera el dueño.
-   * Devuelve un JWT del primer TENANT_OWNER del negocio. El token lleva
-   * `impersonatedBy` para que quede constancia en logs si se hace algo
-   * destructivo desde la sesión impostada.
+   * SUPER_ADMIN o MARKETING entran al panel de un tenant como si fueran
+   * el dueño. Devuelve un JWT del primer TENANT_OWNER del negocio. El
+   * token lleva `impersonatedBy` para que quede constancia en logs si se
+   * hace algo destructivo desde la sesión impostada.
+   *
+   * M5 (2026-06-04): MARKETING también puede impersonar — el rol se usa
+   * para implementadores que configuran cuentas de clientes.
    */
   async impersonate(tenantId: string, superAdminId: string) {
     const tenant = await this.prisma.tenant.findUnique({

@@ -90,28 +90,57 @@ export class StampsService {
 
     // Anti-fraude: rate-limit STAMP/VISIT al mismo pass. Bypass solo si
     // el operator es SUPER_ADMIN (puede arreglar errores manualmente).
+    //
+    // M4 (2026-06-04): el límite es Tenant.maxStampsPerDay (default 1).
+    // El admin puede subirlo a 2/3/etc para campañas promocionales sin
+    // tocar código. Si null, mantiene el comportamiento histórico de
+    // 1 sello / 24h.
     if (
       (dto.action === 'STAMP' || dto.action === 'VISIT') &&
       user.role !== 'SUPER_ADMIN'
     ) {
-      const recent = await this.prisma.stamp.findFirst({
+      const tenantConfig = await this.prisma.tenant.findUnique({
+        where: { id: pass.tenantId },
+        select: { maxStampsPerDay: true },
+      });
+      const maxPerDay = Math.max(1, tenantConfig?.maxStampsPerDay ?? 1);
+      const sinceWindow = new Date(
+        Date.now() - MIN_SECONDS_BETWEEN_STAMPS * 1000,
+      );
+      const recentCount = await this.prisma.stamp.count({
         where: {
           passId: pass.id,
           action: { in: ['STAMP', 'VISIT'] },
+          createdAt: { gte: sinceWindow },
         },
-        orderBy: { createdAt: 'desc' },
-        select: { createdAt: true },
       });
-      if (recent) {
-        const elapsedSec = (Date.now() - recent.createdAt.getTime()) / 1000;
-        if (elapsedSec < MIN_SECONDS_BETWEEN_STAMPS) {
-          const remainingHours = Math.ceil(
-            (MIN_SECONDS_BETWEEN_STAMPS - elapsedSec) / 3600,
-          );
-          throw new BadRequestException(
-            `Este cliente ya recibió un sello hoy. Próximo sello disponible en ~${remainingHours}h.`,
-          );
-        }
+      if (recentCount >= maxPerDay) {
+        // Calcular cuándo expira el sello más viejo del batch para
+        // darle al staff un ETA preciso del próximo sello disponible.
+        const oldest = await this.prisma.stamp.findFirst({
+          where: {
+            passId: pass.id,
+            action: { in: ['STAMP', 'VISIT'] },
+            createdAt: { gte: sinceWindow },
+          },
+          orderBy: { createdAt: 'asc' },
+          select: { createdAt: true },
+        });
+        const remainingHours = oldest
+          ? Math.max(
+              1,
+              Math.ceil(
+                (MIN_SECONDS_BETWEEN_STAMPS -
+                  (Date.now() - oldest.createdAt.getTime()) / 1000) /
+                  3600,
+              ),
+            )
+          : 24;
+        throw new BadRequestException(
+          maxPerDay === 1
+            ? `Este cliente ya recibió un sello hoy. Próximo sello disponible en ~${remainingHours}h.`
+            : `Este cliente ya recibió el máximo de ${maxPerDay} sellos del día. Próximo disponible en ~${remainingHours}h.`,
+        );
       }
     }
 

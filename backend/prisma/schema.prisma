@@ -346,6 +346,11 @@ model Tenant {
   // / filtros en /admin/tenants. Nullable porque tenants pre-2026-06-04
   // no la tienen seteada.
   planPeriodicity             String?
+  // M4 (2026-06-04): override del rate-limit "1 sello cada 24h" por pass.
+  // null = 1 (default histórico). N >= 1 permite hasta N sellos/pass/día.
+  // El bypass SUPER_ADMIN sigue intacto. Pensado para campañas
+  // promocionales (cumpleaños, evento, doble sello, etc).
+  maxStampsPerDay             Int?
   maxLocationsOverride        Int?
   referredByCode              String?
   currency                    String       @default("COP")

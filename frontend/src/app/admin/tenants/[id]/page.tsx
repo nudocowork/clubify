@@ -15,11 +15,17 @@ export default function TenantDetail() {
   const [extraLocations, setExtraLocations] = useState<number | ''>('');
   const [saving, setSaving] = useState(false);
   const [actioning, setActioning] = useState(false);
-  // MARKETING ve la página pero sin acciones de billing/impersonate/status —
-  // esos endpoints son SUPER_ADMIN only y mostrarían "Permisos insuficientes"
+  // MARKETING ve la página pero sin acciones de billing/status — esos
+  // endpoints son SUPER_ADMIN only y mostrarían "Permisos insuficientes"
   // al click. Esconderlos limpia UX en lugar de fallar fuerte.
+  //
+  // M5 (2026-06-04): MARKETING SÍ puede impersonar tenants (entrar al
+  // panel como dueño) — el rol se usa para implementadores que
+  // configuran cuentas. Por eso el botón "Entrar al negocio" gateamos
+  // con `canImpersonate` en vez de `isSuperAdmin`.
   const me = getUser();
   const isSuperAdmin = me?.role === 'SUPER_ADMIN';
+  const canImpersonate = isSuperAdmin || me?.role === 'MARKETING';
 
   async function load() {
     try {
@@ -222,7 +228,7 @@ export default function TenantDetail() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            {isSuperAdmin && (
+            {canImpersonate && (
               <button
                 className="btn-primary text-sm"
                 disabled={actioning || t.status === 'SUSPENDED'}

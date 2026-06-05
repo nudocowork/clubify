@@ -23,6 +23,7 @@ type TenantMe = {
   mainSectionLabelOverride: string | null;
   businessCategorySlug: string | null;
   currency?: string;
+  maxStampsPerDay?: number | null;
   billingAlertsEnabled?: boolean;
   billingAlertsPhone?: string | null;
   deliveryAlertsEnabled?: boolean;
@@ -94,6 +95,10 @@ export default function SettingsPage() {
   const [savingCurrency, setSavingCurrency] = useState(false);
   const [currencyMsg, setCurrencyMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
+  const [maxStampsPerDay, setMaxStampsPerDay] = useState<number>(1);
+  const [savingStamps, setSavingStamps] = useState(false);
+  const [stampsMsg, setStampsMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
   useEffect(() => {
     api<Profile>('/users/me').then((u) => {
       setMe(u);
@@ -114,6 +119,7 @@ export default function SettingsPage() {
         setSectionMode(mode);
         setSectionCustom(custom);
         setCurrency(t.currency ?? 'COP');
+        setMaxStampsPerDay(Math.max(1, t.maxStampsPerDay ?? 1));
       })
       .catch(() => null);
   }, []);
@@ -170,6 +176,27 @@ export default function SettingsPage() {
       });
     } finally {
       setSavingSection(false);
+    }
+  }
+
+  async function saveStamps(e: React.FormEvent) {
+    e.preventDefault();
+    setStampsMsg(null);
+    setSavingStamps(true);
+    try {
+      const updated = await api<TenantMe>('/tenants/me', {
+        method: 'PATCH',
+        body: JSON.stringify({ maxStampsPerDay }),
+      });
+      setTenant(updated);
+      setStampsMsg({
+        ok: true,
+        text: `Tus clientes pueden recibir hasta ${maxStampsPerDay} sello${maxStampsPerDay === 1 ? '' : 's'} por día.`,
+      });
+    } catch (e: any) {
+      setStampsMsg({ ok: false, text: e.message || 'No se pudo guardar' });
+    } finally {
+      setSavingStamps(false);
     }
   }
 
@@ -461,6 +488,64 @@ export default function SettingsPage() {
             disabled={savingCurrency || currency === (tenant?.currency ?? 'COP')}
           >
             {savingCurrency ? 'Guardando…' : 'Guardar moneda'}
+          </button>
+        </div>
+      </form>
+
+      {/* M4: máximo de sellos por día */}
+      <form onSubmit={saveStamps} className="card card-pad mb-4">
+        <h2 className="text-base font-semibold m-0 flex items-center gap-2">
+          🎯 Sellos por día
+        </h2>
+        <p className="text-xs text-mute mt-1 leading-relaxed">
+          Cuántas veces tu cliente puede recibir un sello (o visita) en el
+          mismo día. Default 1. Subilo para campañas promocionales —
+          cumpleaños, evento, doble sello hoy, etc.
+        </p>
+        <div className="mt-4 grid sm:grid-cols-4 gap-3 items-end">
+          <div className="sm:col-span-1">
+            <label className="label">Máximo / día</label>
+            <input
+              className="input"
+              type="number"
+              min={1}
+              max={20}
+              value={maxStampsPerDay}
+              onChange={(e) =>
+                setMaxStampsPerDay(
+                  Math.max(1, Math.min(20, Number(e.target.value) || 1)),
+                )
+              }
+            />
+          </div>
+          <div className="sm:col-span-3 text-[11px] text-mute leading-relaxed">
+            {maxStampsPerDay === 1
+              ? 'Comportamiento estándar — 1 sello cada 24 horas por cliente.'
+              : `Hasta ${maxStampsPerDay} sellos por cliente cada 24 horas. Después del máximo, el cliente espera al rolling window de 24h.`}
+            <br />
+            El bypass de SUPER_ADMIN sigue intacto para corregir errores
+            manualmente.
+          </div>
+        </div>
+        {stampsMsg && (
+          <div
+            className={`text-sm rounded-lg px-3 py-2 mt-3 ${
+              stampsMsg.ok ? 'bg-ok-soft text-ok' : 'bg-bad-soft text-bad-ink'
+            }`}
+          >
+            {stampsMsg.text}
+          </div>
+        )}
+        <div className="mt-4 flex justify-end">
+          <button
+            type="submit"
+            className="btn-primary"
+            disabled={
+              savingStamps ||
+              maxStampsPerDay === Math.max(1, tenant?.maxStampsPerDay ?? 1)
+            }
+          >
+            {savingStamps ? 'Guardando…' : 'Guardar máximo'}
           </button>
         </div>
       </form>
