@@ -269,14 +269,14 @@ export function CrmKanban() {
             📊 Métricas
           </Link>
           <button
-            className="btn-ghost text-xs sm:text-sm"
+            className="btn-ghost text-xs sm:text-sm min-h-[40px] sm:min-h-0"
             onClick={() => setAddingStage(true)}
             title="Agregar columna"
           >
             ＋ Columna
           </button>
           <button
-            className="btn-primary text-xs sm:text-sm"
+            className="btn-primary text-xs sm:text-sm min-h-[40px] sm:min-h-0"
             onClick={() => setNewContactStageId(stages[0]?.id ?? null)}
           >
             ＋ Contacto
@@ -285,29 +285,29 @@ export function CrmKanban() {
       </div>
 
       {/* Mobile-only sub-nav: chips scrolleables con los links secundarios.
-          Evita inflar el page-head en pantallas chicas. */}
-      <div className="sm:hidden -mx-2 px-2 mb-2 flex gap-1.5 overflow-x-auto">
+          Evita inflar el page-head en pantallas chicas. Touch target ≥40px. */}
+      <div className="sm:hidden -mx-2 px-2 mb-2 flex gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <Link
           href="/affiliate/crm/buttons"
-          className="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border border-line text-mute hover:text-ink bg-bg2/40"
+          className="px-3 py-2 rounded-full text-xs font-medium whitespace-nowrap border border-line text-mute hover:text-ink bg-bg2/40 min-h-[40px] inline-flex items-center"
         >
           ⚡ Botones
         </Link>
         <Link
           href="/affiliate/crm/sequences"
-          className="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border border-line text-mute hover:text-ink bg-bg2/40"
+          className="px-3 py-2 rounded-full text-xs font-medium whitespace-nowrap border border-line text-mute hover:text-ink bg-bg2/40 min-h-[40px] inline-flex items-center"
         >
           🤖 Secuencias
         </Link>
         <Link
           href="/affiliate/crm/integrations"
-          className="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border border-line text-mute hover:text-ink bg-bg2/40"
+          className="px-3 py-2 rounded-full text-xs font-medium whitespace-nowrap border border-line text-mute hover:text-ink bg-bg2/40 min-h-[40px] inline-flex items-center"
         >
           🔗 Integraciones
         </Link>
         <Link
           href="/affiliate/crm/metrics"
-          className="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border border-line text-mute hover:text-ink bg-bg2/40"
+          className="px-3 py-2 rounded-full text-xs font-medium whitespace-nowrap border border-line text-mute hover:text-ink bg-bg2/40 min-h-[40px] inline-flex items-center"
         >
           📊 Métricas
         </Link>
@@ -346,15 +346,15 @@ export function CrmKanban() {
         </div>
       )}
 
-      {/* Mobile stage tabs (visible solo en sm:hidden) */}
-      <div className="sm:hidden flex gap-1.5 overflow-x-auto pb-2 mb-2 -mx-2 px-2">
+      {/* Mobile stage tabs (visible solo en sm:hidden). Touch target ≥40px. */}
+      <div className="sm:hidden flex gap-1.5 overflow-x-auto pb-2 mb-2 -mx-2 px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {stages.map((s, idx) => {
           const count = contactsByStage.get(s.id)?.length ?? 0;
           return (
             <button
               key={s.id}
               onClick={() => setMobileStageIdx(idx)}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition border ${
+              className={`px-3 py-2 rounded-full text-xs font-semibold whitespace-nowrap transition border min-h-[40px] inline-flex items-center ${
                 idx === mobileStageIdx
                   ? 'border-ink text-ink bg-white'
                   : 'border-line text-mute bg-bg2'
@@ -1045,7 +1045,7 @@ function ContactDrawer({
                     type="button"
                     onClick={() => onClickButton(b)}
                     disabled={executing}
-                    className="px-3 py-2.5 rounded-lg text-white text-xs font-medium hover:opacity-90 transition disabled:opacity-50 flex items-center gap-1.5 min-w-0"
+                    className="px-3 py-2.5 rounded-lg text-white text-xs font-medium hover:opacity-90 transition disabled:opacity-50 flex items-center gap-1.5 min-w-0 min-h-[44px] cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150"
                     style={{ background: b.color }}
                   >
                     <span className="flex-none">{b.icon || '⚡'}</span>

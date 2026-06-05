@@ -115,12 +115,18 @@
     @apply text-xs text-mute mt-1.5;
   }
 
-  /* Tabs (pill group) */
+  /* Tabs (pill group). En mobile la fila se vuelve horizontal-scroll
+   * para evitar que múltiples pills se desborden o se apilen rotas.
+   * El touch-target mínimo en mobile es 44px alto via py-2.5 / min-h. */
   .tabs {
-    @apply inline-flex gap-1.5 bg-white border border-line rounded-pill p-1;
+    @apply flex sm:inline-flex gap-1.5 bg-white border border-line rounded-pill p-1
+           overflow-x-auto sm:overflow-visible flex-nowrap
+           [scrollbar-width:none] [&::-webkit-scrollbar]:hidden;
   }
   .tab {
-    @apply px-3.5 py-1.5 rounded-pill text-[13px] font-medium text-mute cursor-pointer border-0 bg-transparent transition;
+    @apply px-3.5 py-2 rounded-pill text-[13px] font-medium text-mute cursor-pointer
+           border-0 bg-transparent transition whitespace-nowrap flex-none
+           min-h-[40px] sm:min-h-0 inline-flex items-center;
   }
   .tab-active {
     @apply bg-brand text-white;

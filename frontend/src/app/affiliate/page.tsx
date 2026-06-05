@@ -241,9 +241,10 @@ export default function AffiliatePanel() {
           ) : null}
         </div>
 
-        {/* Código + share link */}
+        {/* Código + share link. Mobile: stack vertical, botón Copy debajo
+            del input (touch target). Desktop: row con input + botón al lado. */}
         {me.myCode && (
-          <div className="card card-pad mb-5 flex items-center gap-4 flex-wrap">
+          <div className="card card-pad mb-5 flex flex-col sm:flex-row sm:items-center gap-4 sm:flex-wrap">
             <div>
               <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
                 {isSocio
@@ -252,7 +253,7 @@ export default function AffiliatePanel() {
                   ? 'Tu código de vendedor'
                   : 'Tu código'}
               </div>
-              <div className="font-mono font-bold text-2xl">{me.myCode.code}</div>
+              <div className="font-mono font-bold text-2xl break-all">{me.myCode.code}</div>
               <div className="text-xs text-mute">
                 Tu comisión: <strong>{me.myCode.commissionPercent}%</strong>{' '}
                 de cada venta atribuida.
@@ -270,13 +271,13 @@ export default function AffiliatePanel() {
               </div>
             </div>
             {!isSocio && (
-              <div className="flex-1 min-w-[200px]">
+              <div className="flex-1 sm:min-w-[200px] w-full">
                 <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
                   Tu link para compartir
                 </div>
-                <div className="flex items-center gap-2 mt-1">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 mt-1">
                   <input
-                    className="input flex-1 text-xs"
+                    className="input sm:flex-1 text-xs w-full"
                     readOnly
                     value={shareLink}
                     onClick={(e) => e.currentTarget.select()}
@@ -286,9 +287,9 @@ export default function AffiliatePanel() {
                       await navigator.clipboard.writeText(shareLink);
                       toast('Link copiado', 'success');
                     }}
-                    className="btn-ghost text-xs"
+                    className="btn-ghost text-xs w-full sm:w-auto min-h-[44px] justify-center"
                   >
-                    Copiar
+                    📋 Copiar
                   </button>
                 </div>
               </div>
@@ -296,7 +297,13 @@ export default function AffiliatePanel() {
           </div>
         )}
 
-        <div className="tabs mb-5">
+        {/* Wrapper en mobile permite que la pill bar scrolee
+            horizontal (overflow-x-auto del .tabs) sin romper el layout
+            del main padding. -mx-5 saca el padding del main, px-5 lo
+            re-añade adentro para que el primer/último tab no toquen
+            el borde. */}
+        <div className="mb-5 -mx-5 sm:mx-0 overflow-x-auto sm:overflow-visible px-5 sm:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="tabs">
           <button
             className={`tab ${tab === 'overview' ? 'tab-active' : ''}`}
             onClick={() => setTab('overview')}
@@ -355,6 +362,7 @@ export default function AffiliatePanel() {
           >
             ⚙️ Configuración
           </button>
+        </div>
         </div>
 
         {tab === 'overview' && <Overview me={me} />}
@@ -617,14 +625,14 @@ function AmbassadorsRanking({
         {rows.map((r, i) => {
           const pct = (r.referrals / max) * 100;
           return (
-            <div key={r.id} className="px-4 py-3 flex items-center gap-3">
-              <div className="w-6 text-center font-bold text-mute">{i + 1}</div>
+            <div key={r.id} className="px-3 sm:px-4 py-3 flex items-center gap-2 sm:gap-3">
+              <div className="w-5 sm:w-6 text-center font-bold text-mute flex-none">{i + 1}</div>
               <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-100 to-violet-200 text-violet-700 flex items-center justify-center font-bold text-sm flex-none">
                 {initials(r.ownerName)}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="font-medium truncate">{r.ownerName}</div>
-                <div className="text-[11px] text-mute font-mono">
+                <div className="text-[11px] text-mute font-mono truncate">
                   {r.code} · {r.commissionPercent}%
                 </div>
                 <div className="mt-1 h-1.5 bg-bg2 rounded overflow-hidden">
@@ -634,9 +642,9 @@ function AmbassadorsRanking({
                   />
                 </div>
               </div>
-              <div className="text-right text-xs flex-none w-32">
-                <div className="font-bold text-base">{r.referrals} <span className="text-mute font-normal">referidos</span></div>
-                <div className="text-mute">
+              <div className="text-right text-[11px] sm:text-xs flex-none w-20 sm:w-32">
+                <div className="font-bold text-sm sm:text-base">{r.referrals} <span className="text-mute font-normal hidden sm:inline">referidos</span></div>
+                <div className="text-mute text-[10px] sm:text-xs leading-tight">
                   {r.conversions} conv · {fmtUsd(r.revenueUsd)}
                 </div>
               </div>
@@ -835,16 +843,17 @@ function InfluencerAmbassadorsPanel({
             Quien lo abra se registra solo y queda automáticamente vinculado
             a vos.
           </div>
-          <div className="flex items-center gap-2">
+          {/* Mobile: stack vertical, botón Copy abajo full-width (touch). */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
             <input
-              className="input flex-1 text-xs font-mono"
+              className="input sm:flex-1 text-xs font-mono w-full"
               readOnly
               value={signupLink}
               onClick={(e) => e.currentTarget.select()}
             />
             <button
               type="button"
-              className="btn-ghost text-xs whitespace-nowrap"
+              className="btn-ghost text-xs whitespace-nowrap w-full sm:w-auto min-h-[44px] justify-center"
               onClick={async () => {
                 await navigator.clipboard.writeText(signupLink);
                 toast('Link copiado', 'success');
@@ -865,7 +874,8 @@ function InfluencerAmbassadorsPanel({
 
       {showForm && allowed !== false && (
         <form onSubmit={add} className="border border-line rounded-lg p-3 mb-3 space-y-2 bg-bg2/30">
-          <div className="grid grid-cols-2 gap-2">
+          {/* Stack vertical en mobile, side-by-side en desktop. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <input
               className="input"
               placeholder="Nombre completo"
@@ -1066,49 +1076,91 @@ function ClientsList({ isVendor = false }: { isVendor?: boolean }) {
     );
   }
   return (
-    <div className="card overflow-hidden p-0">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-bg2">
-            <tr>
-              {['Negocio', 'Plan', 'Vía', 'Estado', 'Inscrito', 'Comisiones'].map((h) => (
-                <th
-                  key={h}
-                  className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.id} className="border-t border-line2 hover:bg-[#FAFAFB]">
-                <td className="px-4 py-3 font-medium">{r.tenantBrand}</td>
-                <td className="px-4 py-3 text-xs">{r.plan}</td>
-                <td className="px-4 py-3 text-xs">
-                  <div className="font-mono">{r.attribution.code}</div>
-                  <div className="text-mute text-[10px]">{r.attribution.ownerName}</div>
-                </td>
-                <td className="px-4 py-3">
-                  <span
-                    className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
-                      STATUS_CLS[r.status] ?? 'bg-bg2 text-mute'
-                    }`}
-                  >
-                    {STATUS_LABEL[r.status] ?? r.status}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-xs text-mute">{fmtDate(r.signedUpAt)}</td>
-                <td className="px-4 py-3 text-xs">
+    <>
+      {/* Mobile: cards verticales (< sm). Más legible que tabla forzada
+          a scroll horizontal en pantalla angosta. */}
+      <div className="sm:hidden space-y-2.5">
+        {rows.map((r) => (
+          <div key={r.id} className="card card-pad space-y-1.5">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold truncate">{r.tenantBrand}</div>
+                <div className="text-xs text-mute">{r.plan}</div>
+              </div>
+              <span
+                className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded flex-none ${
+                  STATUS_CLS[r.status] ?? 'bg-bg2 text-mute'
+                }`}
+              >
+                {STATUS_LABEL[r.status] ?? r.status}
+              </span>
+            </div>
+            <div className="text-[11px] text-mute leading-snug grid grid-cols-2 gap-x-2 gap-y-1 pt-1 border-t border-line2">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider">Vía</div>
+                <div className="font-mono text-ink text-xs">{r.attribution.code}</div>
+                <div className="text-[10px]">{r.attribution.ownerName}</div>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-wider">Inscrito</div>
+                <div className="text-ink text-xs">{fmtDate(r.signedUpAt)}</div>
+              </div>
+              <div className="col-span-2">
+                <div className="text-[10px] uppercase tracking-wider">Comisiones</div>
+                <div className="text-ink text-xs">
                   {r.commissionsCount} · {fmtUsd(r.commissionsTotalUsd)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
-    </div>
+
+      {/* Desktop: tabla tradicional (≥ sm). */}
+      <div className="hidden sm:block card overflow-hidden p-0">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-bg2">
+              <tr>
+                {['Negocio', 'Plan', 'Vía', 'Estado', 'Inscrito', 'Comisiones'].map((h) => (
+                  <th
+                    key={h}
+                    className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id} className="border-t border-line2 hover:bg-[#FAFAFB]">
+                  <td className="px-4 py-3 font-medium">{r.tenantBrand}</td>
+                  <td className="px-4 py-3 text-xs">{r.plan}</td>
+                  <td className="px-4 py-3 text-xs">
+                    <div className="font-mono">{r.attribution.code}</div>
+                    <div className="text-mute text-[10px]">{r.attribution.ownerName}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
+                        STATUS_CLS[r.status] ?? 'bg-bg2 text-mute'
+                      }`}
+                    >
+                      {STATUS_LABEL[r.status] ?? r.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-xs text-mute">{fmtDate(r.signedUpAt)}</td>
+                  <td className="px-4 py-3 text-xs">
+                    {r.commissionsCount} · {fmtUsd(r.commissionsTotalUsd)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -1135,44 +1187,76 @@ function CommissionsList() {
           Aún no se han generado comisiones.
         </div>
       ) : (
-        <div className="card overflow-hidden p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-bg2">
-                <tr>
-                  {['Cliente', 'Vía', 'Monto', 'Estado', 'Creada', 'Pagada'].map((h) => (
-                    <th
-                      key={h}
-                      className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
+        <>
+          {/* Mobile: cards verticales con info clave (cliente, monto,
+              estado prominentes; vía + fechas como meta). */}
+          <div className="sm:hidden space-y-2.5">
+            {data.items.map((c) => (
+              <div key={c.id} className="card card-pad space-y-1.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold truncate">{c.tenantBrand}</div>
+                    <div className="text-[11px] text-mute">{c.via}</div>
+                  </div>
+                  <div className="text-right flex-none">
+                    <div className="font-bold text-base">{fmtUsd(c.amount)}</div>
+                    <span
+                      className={`inline-block text-[10px] uppercase font-bold px-2 py-0.5 rounded mt-0.5 ${
+                        STATUS_CLS[c.status] ?? 'bg-bg2 text-mute'
+                      }`}
                     >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {data.items.map((c) => (
-                  <tr key={c.id} className="border-t border-line2 hover:bg-[#FAFAFB]">
-                    <td className="px-4 py-3 font-medium">{c.tenantBrand}</td>
-                    <td className="px-4 py-3 text-xs text-mute">{c.via}</td>
-                    <td className="px-4 py-3 font-bold">{fmtUsd(c.amount)}</td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
-                          STATUS_CLS[c.status] ?? 'bg-bg2 text-mute'
-                        }`}
-                      >
-                        {STATUS_LABEL[c.status] ?? c.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-mute">{fmtDate(c.createdAt)}</td>
-                    <td className="px-4 py-3 text-xs text-mute">{fmtDate(c.paidAt)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      {STATUS_LABEL[c.status] ?? c.status}
+                    </span>
+                  </div>
+                </div>
+                <div className="text-[11px] text-mute pt-1 border-t border-line2 flex justify-between gap-2">
+                  <span>Creada: <span className="text-ink">{fmtDate(c.createdAt)}</span></span>
+                  <span>Pagada: <span className="text-ink">{fmtDate(c.paidAt)}</span></span>
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
+
+          {/* Desktop: tabla. */}
+          <div className="hidden sm:block card overflow-hidden p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-bg2">
+                  <tr>
+                    {['Cliente', 'Vía', 'Monto', 'Estado', 'Creada', 'Pagada'].map((h) => (
+                      <th
+                        key={h}
+                        className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.items.map((c) => (
+                    <tr key={c.id} className="border-t border-line2 hover:bg-[#FAFAFB]">
+                      <td className="px-4 py-3 font-medium">{c.tenantBrand}</td>
+                      <td className="px-4 py-3 text-xs text-mute">{c.via}</td>
+                      <td className="px-4 py-3 font-bold">{fmtUsd(c.amount)}</td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
+                            STATUS_CLS[c.status] ?? 'bg-bg2 text-mute'
+                          }`}
+                        >
+                          {STATUS_LABEL[c.status] ?? c.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-mute">{fmtDate(c.createdAt)}</td>
+                      <td className="px-4 py-3 text-xs text-mute">{fmtDate(c.paidAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
@@ -1238,8 +1322,8 @@ function SettingsView({
           onChange={(e) => setPhone(e.target.value)}
         />
       </div>
-      <div className="flex justify-end gap-2 pt-2">
-        <button type="submit" className="btn-primary" disabled={busy}>
+      <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-2">
+        <button type="submit" className="btn-primary justify-center min-h-[44px]" disabled={busy}>
           {busy ? 'Guardando…' : 'Guardar cambios'}
         </button>
       </div>
@@ -1498,8 +1582,8 @@ function TeamView({ me }: { me: Me }) {
           </div>
           <div className="divide-y divide-line2">
             {data.topVendors.map((v, i) => (
-              <div key={v.id} className="px-4 py-3 flex items-center gap-3">
-                <div className="w-6 text-center font-bold text-mute">
+              <div key={v.id} className="px-3 sm:px-4 py-3 flex items-center gap-2 sm:gap-3">
+                <div className="w-5 sm:w-6 text-center font-bold text-mute flex-none">
                   {i + 1}
                 </div>
                 <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-100 to-emerald-200 text-emerald-700 flex items-center justify-center font-bold text-sm flex-none">
@@ -1507,15 +1591,15 @@ function TeamView({ me }: { me: Me }) {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="font-medium truncate">{v.ownerName}</div>
-                  <div className="text-[11px] text-mute font-mono">
+                  <div className="text-[11px] text-mute font-mono truncate">
                     {v.code} · {v.commissionPercent}%
                   </div>
                 </div>
-                <div className="text-right text-xs flex-none w-32">
-                  <div className="font-bold text-base">
-                    {v.activeClients} activos
+                <div className="text-right text-[11px] sm:text-xs flex-none w-24 sm:w-32">
+                  <div className="font-bold text-sm sm:text-base">
+                    {v.activeClients} <span className="text-mute font-normal hidden sm:inline">activos</span>
                   </div>
-                  <div className="text-mute">{fmtUsd(v.generatedCommissionsUsd)}</div>
+                  <div className="text-mute text-[10px] sm:text-xs leading-tight">{fmtUsd(v.generatedCommissionsUsd)}</div>
                 </div>
               </div>
             ))}
@@ -1535,7 +1619,7 @@ function TeamView({ me }: { me: Me }) {
             <button
               key={v.id}
               onClick={() => setSelected(v)}
-              className={`w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-[#FAFAFB] transition cursor-pointer touch-manipulation select-none active:scale-[0.99] transition-transform duration-150 [-webkit-tap-highlight-color:transparent] ${
+              className={`w-full text-left px-3 sm:px-4 py-3 flex items-center gap-2 sm:gap-3 hover:bg-[#FAFAFB] transition cursor-pointer touch-manipulation select-none active:scale-[0.99] transition-transform duration-150 [-webkit-tap-highlight-color:transparent] min-h-[60px] ${
                 v.isActive ? '' : 'opacity-50'
               }`}
             >
@@ -1544,15 +1628,15 @@ function TeamView({ me }: { me: Me }) {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="font-medium truncate">{v.ownerName}</div>
-                <div className="text-[11px] text-mute font-mono">
+                <div className="text-[11px] text-mute font-mono truncate">
                   {v.code} · {v.commissionPercent}%
                 </div>
               </div>
-              <div className="text-right text-xs flex-none w-32">
+              <div className="text-right text-[11px] sm:text-xs flex-none w-20 sm:w-32">
                 <div className="font-bold">
                   {v.activeClients}/{v.clients}
                 </div>
-                <div className="text-mute">{fmtUsd(v.commissionsUsd)}</div>
+                <div className="text-mute text-[10px] sm:text-xs leading-tight">{fmtUsd(v.commissionsUsd)}</div>
               </div>
               <div className="text-mute pl-1">›</div>
             </button>
@@ -1624,47 +1708,70 @@ function TeamVendorDetailView({
                 Este vendedor todavía no cerró clientes.
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-bg2">
-                    <tr>
-                      {['Negocio', 'Plan', 'Estado', 'Inscrito'].map((h) => (
-                        <th
-                          key={h}
-                          className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
-                        >
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.clients.map((c) => (
-                      <tr
-                        key={c.id}
-                        className="border-t border-line2 hover:bg-[#FAFAFB]"
+              <>
+                {/* Mobile: lista de cards */}
+                <div className="sm:hidden divide-y divide-line2">
+                  {data.clients.map((c) => (
+                    <div key={c.id} className="px-4 py-3 flex items-start gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium truncate">{c.tenantBrand}</div>
+                        <div className="text-[11px] text-mute mt-0.5">
+                          {c.plan} · {fmtDate(c.signedUpAt)}
+                        </div>
+                      </div>
+                      <span
+                        className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded flex-none ${
+                          STATUS_CLS[c.status] ?? 'bg-bg2 text-mute'
+                        }`}
                       >
-                        <td className="px-4 py-3 font-medium">
-                          {c.tenantBrand}
-                        </td>
-                        <td className="px-4 py-3 text-xs">{c.plan}</td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
-                              STATUS_CLS[c.status] ?? 'bg-bg2 text-mute'
-                            }`}
+                        {STATUS_LABEL[c.status] ?? c.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {/* Desktop: tabla */}
+                <div className="hidden sm:block overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-bg2">
+                      <tr>
+                        {['Negocio', 'Plan', 'Estado', 'Inscrito'].map((h) => (
+                          <th
+                            key={h}
+                            className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
                           >
-                            {STATUS_LABEL[c.status] ?? c.status}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-xs text-mute">
-                          {fmtDate(c.signedUpAt)}
-                        </td>
+                            {h}
+                          </th>
+                        ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {data.clients.map((c) => (
+                        <tr
+                          key={c.id}
+                          className="border-t border-line2 hover:bg-[#FAFAFB]"
+                        >
+                          <td className="px-4 py-3 font-medium">
+                            {c.tenantBrand}
+                          </td>
+                          <td className="px-4 py-3 text-xs">{c.plan}</td>
+                          <td className="px-4 py-3">
+                            <span
+                              className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
+                                STATUS_CLS[c.status] ?? 'bg-bg2 text-mute'
+                              }`}
+                            >
+                              {STATUS_LABEL[c.status] ?? c.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-xs text-mute">
+                            {fmtDate(c.signedUpAt)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
 
@@ -1677,54 +1784,83 @@ function TeamVendorDetailView({
                 Sin comisiones registradas todavía.
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-bg2">
-                    <tr>
-                      {['Cliente', 'Monto', 'Estado', 'Creada', 'Pagada'].map(
-                        (h) => (
-                          <th
-                            key={h}
-                            className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
-                          >
-                            {h}
-                          </th>
-                        ),
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.commissions.map((c) => (
-                      <tr
-                        key={c.id}
-                        className="border-t border-line2 hover:bg-[#FAFAFB]"
-                      >
-                        <td className="px-4 py-3 font-medium">
-                          {c.tenantBrand}
-                        </td>
-                        <td className="px-4 py-3 font-bold">
-                          {fmtUsd(c.amount)}
-                        </td>
-                        <td className="px-4 py-3">
+              <>
+                {/* Mobile: cards */}
+                <div className="sm:hidden divide-y divide-line2">
+                  {data.commissions.map((c) => (
+                    <div key={c.id} className="px-4 py-3 space-y-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium truncate">{c.tenantBrand}</div>
+                        </div>
+                        <div className="text-right flex-none">
+                          <div className="font-bold">{fmtUsd(c.amount)}</div>
                           <span
-                            className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
+                            className={`inline-block text-[10px] uppercase font-bold px-2 py-0.5 rounded mt-0.5 ${
                               STATUS_CLS[c.status] ?? 'bg-bg2 text-mute'
                             }`}
                           >
                             {STATUS_LABEL[c.status] ?? c.status}
                           </span>
-                        </td>
-                        <td className="px-4 py-3 text-xs text-mute">
-                          {fmtDate(c.createdAt)}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-mute">
-                          {fmtDate(c.paidAt)}
-                        </td>
+                        </div>
+                      </div>
+                      <div className="text-[11px] text-mute flex justify-between gap-2">
+                        <span>Creada: <span className="text-ink">{fmtDate(c.createdAt)}</span></span>
+                        <span>Pagada: <span className="text-ink">{fmtDate(c.paidAt)}</span></span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {/* Desktop: tabla */}
+                <div className="hidden sm:block overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-bg2">
+                      <tr>
+                        {['Cliente', 'Monto', 'Estado', 'Creada', 'Pagada'].map(
+                          (h) => (
+                            <th
+                              key={h}
+                              className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
+                            >
+                              {h}
+                            </th>
+                          ),
+                        )}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {data.commissions.map((c) => (
+                        <tr
+                          key={c.id}
+                          className="border-t border-line2 hover:bg-[#FAFAFB]"
+                        >
+                          <td className="px-4 py-3 font-medium">
+                            {c.tenantBrand}
+                          </td>
+                          <td className="px-4 py-3 font-bold">
+                            {fmtUsd(c.amount)}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span
+                              className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
+                                STATUS_CLS[c.status] ?? 'bg-bg2 text-mute'
+                              }`}
+                            >
+                              {STATUS_LABEL[c.status] ?? c.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-xs text-mute">
+                            {fmtDate(c.createdAt)}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-mute">
+                            {fmtDate(c.paidAt)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         </>
