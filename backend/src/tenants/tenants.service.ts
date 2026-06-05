@@ -462,6 +462,76 @@ export class TenantsService {
     return updated;
   }
 
+  /**
+   * Cambia la periodicidad del plan (Mensual/Trimestral/Semestral/Anual)
+   * desde /admin/tenants/[id]. Actualiza:
+   *   - Tenant.planPeriodicity
+   *   - Tenant.currentPeriodEnd = now + meses equivalentes
+   *
+   * NO toca Hotmart — el admin debe cancelar la suscripción vieja y
+   * enviarle al cliente el link del plan nuevo manualmente. Sin esto, el
+   * cobro real sigue siendo el del plan anterior. Queda registrado en
+   * AuditLog con from/to para trazabilidad.
+   */
+  async changePlanPeriod(
+    id: string,
+    periodicity: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL',
+    actorId: string,
+  ) {
+    const t = await this.prisma.tenant.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        planPeriodicity: true,
+        currentPeriodEnd: true,
+        brandName: true,
+      },
+    });
+    if (!t) throw new NotFoundException('Tenant not found');
+
+    // Meses equivalentes por cada periodicidad — usado para extender
+    // currentPeriodEnd desde hoy. NO se toca el status (sigue ACTIVE) ni
+    // el failedPaymentCount (esos los maneja Hotmart real).
+    const MONTHS_BY_PERIOD: Record<typeof periodicity, number> = {
+      MENSUAL: 1,
+      TRIMESTRAL: 3,
+      SEMESTRAL: 6,
+      ANUAL: 12,
+    };
+    const months = MONTHS_BY_PERIOD[periodicity];
+    const now = new Date();
+    const newPeriodEnd = new Date(now);
+    newPeriodEnd.setMonth(newPeriodEnd.getMonth() + months);
+
+    const updated = await this.prisma.tenant.update({
+      where: { id },
+      data: {
+        planPeriodicity: periodicity,
+        currentPeriodEnd: newPeriodEnd,
+      },
+    });
+
+    // Audit log — deja constancia de from/to para trazabilidad CRM.
+    this.audit.log({
+      actorId,
+      tenantId: id,
+      action: 'tenant.plan_period_changed',
+      resource: `tenant:${id}`,
+      metadata: {
+        from: t.planPeriodicity ?? null,
+        to: periodicity,
+        previousPeriodEnd: t.currentPeriodEnd?.toISOString() ?? null,
+        newPeriodEnd: newPeriodEnd.toISOString(),
+        brandName: t.brandName,
+        note:
+          'METADATA INTERNA ONLY — Hotmart no recibe este cambio. El admin debe cancelar la suscripción vieja y enviarle al cliente el link del nuevo plan manualmente.',
+      },
+    });
+
+    invalidateTenantStatusCache(id);
+    return updated;
+  }
+
   /** Extiende el trial agregando `days` al trialEndsAt actual (o desde hoy si no hay). */
   async extendTrial(id: string, days: number) {
     const t = await this.prisma.tenant.findUnique({ where: { id } });
