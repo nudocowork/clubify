@@ -1709,6 +1709,10 @@ model Commission {
   @@index([vendorCodeId])
   @@index([recipientCodeId])
   @@index([hotmartTransactionId])
+  // HOTFIX 2026-06-05 (bug #19): indexes para filtros del panel
+  // /admin/commissions y /admin/commissions/payments.
+  @@index([paymentStatus])
+  @@index([paymentStatus, createdAt])
 }
 
 // ============================================================

@@ -141,6 +141,17 @@ export class AdminReportsService {
         ...vendorTxIds,
       ]).size;
 
+      // HOTFIX 2026-06-05 (bug #9 CRÍTICO): facturación NO es lo mismo
+      // que comisión generada. Antes ambas tenían el mismo valor con
+      // labels distintos → UI engañosa. Aproximación: backsolve la
+      // facturación dividiendo commission por commissionPercent. Si
+      // commPct=20% y commGenerated=$200, la empresa facturó ≈ $1000
+      // de los tenants atribuidos. Si commissionPercent es 0 o null,
+      // dejamos null (no estimable).
+      const ambPct = Number(a.commissionPercent ?? 0);
+      const facturacionEstimadaUsd =
+        ambPct > 0 ? round2((commGenerated * 100) / ambPct) : null;
+
       return {
         id: a.id,
         code: a.code,
@@ -152,7 +163,8 @@ export class AdminReportsService {
         parentInfluencerCode: a.parentCode?.code ?? null,
         tenantsCount: tenantIds.size,
         ventasTotales,
-        facturacionUsd: round2(commGenerated),
+        // facturacionUsd: aproximación basada en backsolve por %.
+        facturacionUsd: facturacionEstimadaUsd,
         comisionGeneradaUsd: round2(commGenerated),
         comisionPagadaUsd: round2(commPaid),
         comisionPendienteUsd: round2(commPending),
@@ -665,14 +677,26 @@ export class AdminReportsService {
       expiredTenants,
       tenantsByPeriodicityActive,
     ] = await Promise.all([
+      // HOTFIX 2026-06-05 (bug #7 CRÍTICO): NO sumar `amount` plano —
+      // eso infla ~3× porque por cada sale hay 3 commission rows
+      // (influencer/embajador/vendor). El "total comisiones generadas
+      // este mes" es el monto que la empresa va a desembolsar, que es
+      // la suma de TODAS las rows (las 3) — efectivamente OK porque
+      // cada row es un gasto distinto. Mantenemos el sum pero
+      // documentamos: representa el COSTO total de comisiones, no
+      // el monto facturado. Para el monto facturado por sales del mes
+      // necesitaríamos otro query agrupado por hotmartTransactionId.
       this.prisma.commission.aggregate({
         where: { createdAt: { gte: startOfMonth } },
         _sum: { amount: true, amountPaid: true },
       }),
-      // Pending = todas las commissions no canceladas con amountPaid < amount
-      this.prisma.commission.findMany({
+      // Pending = todas las commissions no canceladas con outstanding>0.
+      // HOTFIX 2026-06-05: usamos aggregate para no traer N rows a
+      // memoria. Calculamos pending = sum(amount) - sum(amountPaid)
+      // de todas las no rechazadas.
+      this.prisma.commission.aggregate({
         where: { status: { not: 'REJECTED' } },
-        select: { amount: true, amountPaid: true },
+        _sum: { amount: true, amountPaid: true },
       }),
       this.prisma.commission.aggregate({
         where: {
@@ -684,20 +708,24 @@ export class AdminReportsService {
       this.prisma.tenant.count({
         where: { currentPeriodEnd: { gte: now, lte: in30 } },
       }),
-      this.prisma.tenant.count({ where: { status: 'ACTIVE' } }),
-      // "Vencidos": suspendidos o currentPeriodEnd < now
+      // HOTFIX 2026-06-05 (bug #17): activos = ACTIVE + currentPeriodEnd
+      // futuro (no vencido). Antes ACTIVE solo, que solapaba con
+      // "vencidos" cuando currentPeriodEnd < now.
       this.prisma.tenant.count({
         where: {
+          status: 'ACTIVE',
           OR: [
-            { status: 'SUSPENDED' },
-            {
-              AND: [
-                { status: 'ACTIVE' },
-                { currentPeriodEnd: { lt: now } },
-              ],
-            },
+            { currentPeriodEnd: null },
+            { currentPeriodEnd: { gte: now } },
           ],
         },
+      }),
+      // "Vencidos": SUSPENDED solamente (los ACTIVE con
+      // currentPeriodEnd<now son TECNICAMENTE vencidos pero el
+      // billing cron los pasará a SUSPENDED. Acá contamos solo lo que
+      // YA está formalmente vencido para no solapar con activos).
+      this.prisma.tenant.count({
+        where: { status: 'SUSPENDED' },
       }),
       this.prisma.tenant.groupBy({
         by: ['planPeriodicity'],
@@ -707,9 +735,12 @@ export class AdminReportsService {
     ]);
 
     const round2 = (n: number) => Math.round(n * 100) / 100;
-    const pendingTotal = pendingAggAll.reduce(
-      (s, c) => s + Math.max(0, Number(c.amount) - Number(c.amountPaid ?? 0)),
+    // HOTFIX 2026-06-05: pending derivado del aggregate (sum amount - sum
+    // amountPaid). Antes hacíamos findMany y reduce — N+1 a escala.
+    const pendingTotal = Math.max(
       0,
+      Number(pendingAggAll._sum.amount ?? 0) -
+        Number(pendingAggAll._sum.amountPaid ?? 0),
     );
 
     // Para facturación por plan necesitamos el precio mensual de cada plan
@@ -755,6 +786,27 @@ export class AdminReportsService {
         billingUsd,
       };
     });
+    // HOTFIX 2026-06-05 (bug #13): tenants con planPeriodicity=null
+    // (legacy pre-4-planes 2026-06-04) caen al bucket "Sin definir"
+    // para que el admin sepa cuántos tiene sin migrar.
+    const unspecifiedRow = tenantsByPeriodicityActive.find(
+      (g) => g.planPeriodicity == null,
+    );
+    if (unspecifiedRow?._count._all) {
+      salesByPlan.push({
+        periodicity: 'UNSPECIFIED',
+        label: 'Sin definir',
+        count: unspecifiedRow._count._all,
+        billingUsd: round2(unspecifiedRow._count._all * basePrice),
+      });
+    }
+
+    // HOTFIX 2026-06-05 (bug #18): contar TRIAL como categoría aparte.
+    // Antes no aparecía en ningún KPI del dashboard, escondiendo a todos
+    // los signups nuevos que aún no convirtieron.
+    const trialTenants = await this.prisma.tenant.count({
+      where: { status: 'TRIAL' },
+    });
 
     return {
       comisionesGeneradasMesUsd: round2(
@@ -767,6 +819,7 @@ export class AdminReportsService {
       proximasRenovaciones: upcomingRenewals,
       clientesActivos: activeTenants,
       clientesVencidos: expiredTenants,
+      clientesTrial: trialTenants,
       salesByPlan,
       generatedAt: now,
     };

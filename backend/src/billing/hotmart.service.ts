@@ -151,11 +151,20 @@ export class HotmartService {
         // Para sales sin vendor en la chain (legacy INFLUENCER/AMBASSADOR
         // directos), seguimos con el flujo histórico de generateReferralCommission.
         try {
+          // HOTFIX 2026-06-05 (bug #6 CRÍTICO): si un tenant fue
+          // reasignado a otro afiliado, el findFirst sin orderBy podía
+          // devolver el VENDOR viejo (no convertido) y generar 3-way
+          // commissions a alguien que ya no atrae al cliente. Ahora:
+          //  1) Filtramos por status PAYING/ACTIVE (atribución viva).
+          //  2) Ordenamos por createdAt desc para tomar la atribución
+          //     más reciente.
           const vendorUse = await this.prisma.referralUse.findFirst({
             where: {
               tenantId: tenant.id,
               referralCode: { role: 'VENDOR' },
+              status: { in: ['PAYING', 'ACTIVE'] },
             },
+            orderBy: { createdAt: 'desc' },
             select: { id: true },
           });
           if (vendorUse) {

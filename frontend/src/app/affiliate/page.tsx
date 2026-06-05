@@ -310,17 +310,10 @@ export default function AffiliatePanel() {
           >
             💵 Comisiones
           </button>
-          {/* "Mi equipo" — solo para embajadores con allowVendors=true
-              activado por el super admin. Si el embajador no tiene vendors,
-              entra igual a explicar/onboarding. */}
-          {isAmbassador && (
-            <button
-              className={`tab ${tab === 'team' ? 'tab-active' : ''}`}
-              onClick={() => setTab('team')}
-            >
-              🤝 Mi equipo
-            </button>
-          )}
+          {/* HOTFIX 2026-06-05 (bug #10 CRÍTICO): "Mi equipo" se centraliza
+              en /affiliate/team (página B1 con CRUD completo). Antes había
+              DOS pills "Mi equipo" — un tab inline (TeamView, sin CRUD) y
+              este Link. Eliminamos el tab inline para evitar UX confuso. */}
           {/* CRM (Bloque C) — link a /affiliate/crm. Es ruta separada
               porque el kanban necesita su propio espacio + drag&drop
               fluido sin la barra de tabs encima. */}
@@ -1348,8 +1341,10 @@ type TeamResp = {
     activeVendorsCount: number;
     teamClients: number;
     teamActiveClients: number;
-    teamRevenueUsd: number;
-    teamCommissionsUsd: number;
+    // HOTFIX 2026-06-05 (bug #16): renamed para reflejar lo que es
+    // (sum de commissions de la chain, no revenue real del cliente).
+    teamGeneratedCommissionsUsd: number;
+    teamVendorCommissionsUsd: number;
   };
   vendors: Array<{
     id: string;
@@ -1362,7 +1357,7 @@ type TeamResp = {
     createdAt: string;
     clients: number;
     activeClients: number;
-    revenueUsd: number;
+    generatedCommissionsUsd: number;
     commissionsUsd: number;
   }>;
   topVendors: TeamResp['vendors'];
@@ -1465,13 +1460,13 @@ function TeamView({ me }: { me: Me }) {
           tone="ok"
         />
         <Stat
-          label="Revenue generado"
-          value={fmtUsd(data.kpis.teamRevenueUsd)}
+          label="Comisiones de la cadena"
+          value={fmtUsd(data.kpis.teamGeneratedCommissionsUsd)}
           tone="brand"
         />
         <Stat
           label="Pagado a vendedores"
-          value={fmtUsd(data.kpis.teamCommissionsUsd)}
+          value={fmtUsd(data.kpis.teamVendorCommissionsUsd)}
           tone="amber"
         />
       </div>
@@ -1506,7 +1501,7 @@ function TeamView({ me }: { me: Me }) {
                   <div className="font-bold text-base">
                     {v.activeClients} activos
                   </div>
-                  <div className="text-mute">{fmtUsd(v.revenueUsd)}</div>
+                  <div className="text-mute">{fmtUsd(v.generatedCommissionsUsd)}</div>
                 </div>
               </div>
             ))}
