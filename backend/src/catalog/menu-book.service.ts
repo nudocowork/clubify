@@ -10,6 +10,13 @@ import { AuthUser } from '../common/decorators/current-user.decorator';
 export type SectionDto = {
   title: string;
   isActive?: boolean;
+  popupEnabled?: boolean;
+  popupTitle?: string | null;
+  popupDescription?: string | null;
+  popupImageUrl?: string | null;
+  popupButtonText?: string | null;
+  popupButtonUrl?: string | null;
+  popupButtonColor?: string | null;
 };
 
 export type PageDto = {
@@ -74,6 +81,13 @@ export class MenuBookService {
         title: dto.title.trim(),
         isActive: dto.isActive ?? true,
         sortOrder: (last?.sortOrder ?? -1) + 1,
+        popupEnabled: dto.popupEnabled ?? false,
+        popupTitle: dto.popupTitle ?? null,
+        popupDescription: dto.popupDescription ?? null,
+        popupImageUrl: dto.popupImageUrl ?? null,
+        popupButtonText: dto.popupButtonText ?? null,
+        popupButtonUrl: dto.popupButtonUrl ?? null,
+        popupButtonColor: dto.popupButtonColor ?? null,
       },
     });
   }
@@ -96,6 +110,29 @@ export class MenuBookService {
       data: {
         title: patch.title?.trim() ?? section.title,
         isActive: patch.isActive ?? section.isActive,
+        popupEnabled: patch.popupEnabled ?? section.popupEnabled,
+        popupTitle:
+          patch.popupTitle === undefined ? section.popupTitle : patch.popupTitle,
+        popupDescription:
+          patch.popupDescription === undefined
+            ? section.popupDescription
+            : patch.popupDescription,
+        popupImageUrl:
+          patch.popupImageUrl === undefined
+            ? section.popupImageUrl
+            : patch.popupImageUrl,
+        popupButtonText:
+          patch.popupButtonText === undefined
+            ? section.popupButtonText
+            : patch.popupButtonText,
+        popupButtonUrl:
+          patch.popupButtonUrl === undefined
+            ? section.popupButtonUrl
+            : patch.popupButtonUrl,
+        popupButtonColor:
+          patch.popupButtonColor === undefined
+            ? section.popupButtonColor
+            : patch.popupButtonColor,
       },
     });
   }

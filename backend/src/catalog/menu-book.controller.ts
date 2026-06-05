@@ -25,11 +25,39 @@ import { Roles } from '../common/decorators/roles.decorator';
 class SectionBody {
   @IsString() @MaxLength(80) title!: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
+  // M3: popup que dispara al entrar a la sección. Misma shape que el de
+  // página (MenuBookPage). Si popupEnabled=false el resto se ignora.
+  @IsOptional() @IsBoolean() popupEnabled?: boolean;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(120)
+  popupTitle?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(2000)
+  popupDescription?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsUrl({ require_tld: false })
+  popupImageUrl?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(40)
+  popupButtonText?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(500)
+  popupButtonUrl?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsHexColor()
+  popupButtonColor?: string | null;
 }
 
 class SectionPatchBody {
   @IsOptional() @IsString() @MaxLength(80) title?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
+  @IsOptional() @IsBoolean() popupEnabled?: boolean;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(120)
+  popupTitle?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(2000)
+  popupDescription?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsUrl({ require_tld: false })
+  popupImageUrl?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(40)
+  popupButtonText?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(500)
+  popupButtonUrl?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsHexColor()
+  popupButtonColor?: string | null;
 }
 
 class PageBody {

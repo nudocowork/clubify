@@ -1279,6 +1279,18 @@ model Storefront {
   popupCardId         String?
   popupCard           Card?      @relation("StorefrontPopupCard", fields: [popupCardId], references: [id], onDelete: SetNull)
   popupDelaySeconds   Int        @default(10)
+  // Popup global del Menú Libro (M3 2026-06-04). Aparece N segundos
+  // después de que el cliente abre /book/<slug>. Independiente del popup
+  // del digital menú (que es enrollment a Card). Acá la lógica es
+  // promocional (título + descripción + botón).
+  bookPopupEnabled       Boolean @default(false)
+  bookPopupTitle         String?
+  bookPopupDescription   String? @db.Text
+  bookPopupImageUrl      String?
+  bookPopupButtonText    String?
+  bookPopupButtonUrl     String?
+  bookPopupButtonColor   String?
+  bookPopupDelaySeconds  Int     @default(5)
   // Si false, el botón de WhatsApp NO se muestra en el menú público aunque
   // el tenant tenga whatsappPhone seteado. Permite que el dueño "apague"
   // el botón sin perder el número configurado en /app/settings.
@@ -1368,6 +1380,16 @@ model MenuBookSection {
   // las páginas se concatenan en este orden.
   sortOrder Int      @default(0)
   isActive  Boolean  @default(true)
+  // Popup que aparece al entrar a esta sección (M3 2026-06-04). Misma
+  // shape que MenuBookPage.popup* para consistencia. Si popupEnabled=
+  // false el resto se ignora.
+  popupEnabled     Boolean @default(false)
+  popupTitle       String?
+  popupDescription String? @db.Text
+  popupImageUrl    String?
+  popupButtonText  String?
+  popupButtonUrl   String?
+  popupButtonColor String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
