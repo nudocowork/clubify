@@ -9,9 +9,10 @@ import {
 import { HotmartSimulatorController } from './hotmart-simulator.controller';
 import { IntegrationsModule } from '../integrations/integrations.module';
 import { EmailModule } from '../email/email.module';
+import { ReferralsModule } from '../referrals/referrals.module';
 
 @Module({
-  imports: [IntegrationsModule, EmailModule],
+  imports: [IntegrationsModule, EmailModule, ReferralsModule],
   controllers: [
     BillingController,
     HotmartWebhookController,

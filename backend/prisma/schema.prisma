@@ -23,6 +23,10 @@ enum Role {
   // y solo ve sus propios clientes/comisiones (scoped en AffiliateService).
   AFFILIATE_INFLUENCER
   AFFILIATE_AMBASSADOR
+  // Vendedor del equipo de un embajador. Ve solo SUS ventas/comisiones
+  // (scoped por User.referralCodeId apuntando a un ReferralCode de
+  // role=VENDOR). El embajador crea el vendor + cuenta de login.
+  AFFILIATE_VENDOR
   // El Socio recibe 10% de TODAS las ventas. Su panel muestra el
   // ledger de su código SOCIO (sin "clientes propios").
   AFFILIATE_SOCIO
@@ -137,6 +141,17 @@ enum CommissionStatus {
   APPROVED
   PAID
   REJECTED
+}
+
+// Tracking de pago granular sobre Commission (independiente del status
+// del flow de aprobación). PAID en `status` = aprobada y marcada como
+// pagada conceptualmente; `paymentStatus` permite pagos parciales y
+// reconciliación contable: PENDING (nada pagado), PARTIAL (pagado <
+// amount), PAID (pagado >= amount). Default PENDING.
+enum CommissionPaymentStatus {
+  PENDING
+  PARTIAL
+  PAID
 }
 
 enum CartStatus {
@@ -280,10 +295,10 @@ model RefreshToken {
 }
 
 model Tenant {
-  id                          String       @id @default(uuid())
+  id                          String               @id @default(uuid())
   name                        String
   brandName                   String
-  slug                        String       @unique
+  slug                        String               @unique
   email                       String
   phone                       String?
   whatsappPhone               String?
@@ -297,7 +312,7 @@ model Tenant {
   // WhatsApp" al final del formulario privado para escalar quejas
   // directamente. Independiente de whatsappPhone (que es el WhatsApp
   // general del negocio para pedidos/contacto).
-  whatsappFeedbackEnabled     Boolean      @default(false)
+  whatsappFeedbackEnabled     Boolean              @default(false)
   /// Número en formato libre (E.164 recomendado: +57...). Si vacío con
   /// enabled=true, el botón no se muestra.
   whatsappFeedbackNumber      String?
@@ -324,23 +339,23 @@ model Tenant {
   // walletLogoUrl/logoUrl, así que el diseño visual del pase no cambia.
   // Fallback: pushLogoUrl → walletLogoUrl → logoUrl. Cuadrado recomendado.
   pushLogoUrl                 String?
-  primaryColor                String       @default("#22C55E")
-  secondaryColor              String       @default("#15803D")
-  status                      TenantStatus @default(TRIAL)
+  primaryColor                String               @default("#22C55E")
+  secondaryColor              String               @default("#15803D")
+  status                      TenantStatus         @default(TRIAL)
   /// Si true, el tenant está en modo demo bloqueado: cualquier usuario
   /// que NO sea SUPER_ADMIN puede ver el panel y navegar pero no puede
   /// modificar nada (POST/PATCH/PUT/DELETE rechazados con 423 Locked).
   /// Pensado para crear cuentas demo que los embajadores logean y muestran
   /// a prospects sin riesgo de que toquen el contenido curado.
-  isLocked                    Boolean      @default(false)
+  isLocked                    Boolean              @default(false)
   lockedAt                    DateTime?
-  lockedReason                String?      @db.Text
+  lockedReason                String?              @db.Text
   // Categoría del rubro (restaurante, autolavado, barbería, etc.) — define
   // qué módulos del panel ve el dueño. Lista en common/business-categories.ts.
   // Nullable por compat con tenants viejos; en runtime cae a 'restaurant'.
   businessCategorySlug        String?
   planId                      String
-  plan                        Plan         @relation(fields: [planId], references: [id])
+  plan                        Plan                 @relation(fields: [planId], references: [id])
   // Periodicidad del plan (MENSUAL|TRIMESTRAL|SEMESTRAL|ANUAL). NO afecta
   // billing real (ese lo dicta Hotmart). Solo se usa para CRM / reporting
   // / filtros en /admin/tenants. Nullable porque tenants pre-2026-06-04
@@ -353,8 +368,8 @@ model Tenant {
   maxStampsPerDay             Int?
   maxLocationsOverride        Int?
   referredByCode              String?
-  currency                    String       @default("COP")
-  timezone                    String       @default("America/Bogota")
+  currency                    String               @default("COP")
+  timezone                    String               @default("America/Bogota")
   instagramUrl                String?
   facebookUrl                 String?
   mapsUrl                     String?
@@ -381,11 +396,11 @@ model Tenant {
   trialStartedAt              DateTime?
   trialEndsAt                 DateTime?
   // Días extra después de trialEndsAt antes de suspender (editable por super admin).
-  gracePeriodDays             Int          @default(0)
+  gracePeriodDays             Int                  @default(0)
   currentPeriodEnd            DateTime?
   hotmartSubscriberCode       String?
   hotmartTransactionId        String?
-  failedPaymentCount          Int          @default(0)
+  failedPaymentCount          Int                  @default(0)
   lastPaymentAttemptAt        DateTime?
   suspendedAt                 DateTime?
   // Tracking de notificaciones de cobro automáticas (idempotencia del cron):
@@ -426,10 +441,10 @@ model Tenant {
   /// threshold se envía un SMS al teléfono configurado (o al owner
   /// fallback) con el detalle del feedback. Aditivo — los tenants
   /// existentes quedan con enabled=false hasta configurarlo.
-  reviewAlertsEnabled         Boolean      @default(false)
+  reviewAlertsEnabled         Boolean              @default(false)
   /// Rating umbral inclusive. Default 3 = dispara para 1, 2 y 3 ⭐.
   /// Si bajás a 2, solo 1 y 2 ⭐ disparan.
-  reviewAlertsThreshold       Int          @default(3)
+  reviewAlertsThreshold       Int                  @default(3)
   /// Teléfono destino del SMS. Null = usa fallback (owner.phone →
   /// whatsappPhone → phone). Útil para mandar la alerta a un encargado
   /// distinto del owner registrado.
@@ -448,7 +463,7 @@ model Tenant {
   /// SMS administrativos (recordatorios de pago, impago, suspensión).
   /// Default true para no romper comportamiento legacy — billing
   /// siempre venía mandando. El owner lo puede apagar desde su panel.
-  billingAlertsEnabled        Boolean      @default(true)
+  billingAlertsEnabled        Boolean              @default(true)
   /// Teléfono destino del SMS de billing. Null = fallback (owner.phone
   /// → whatsappPhone → phone), igual que antes.
   billingAlertsPhone          String?
@@ -460,7 +475,7 @@ model Tenant {
   /// SMS automáticos a empresas de domicilio cuando un pedido delivery
   /// cambia de estado. Default false (feature opt-in — sino spamearíamos
   /// a tenants existentes que no la pidieron).
-  deliveryAlertsEnabled       Boolean      @default(false)
+  deliveryAlertsEnabled       Boolean              @default(false)
   /// Array JSON de teléfonos destino. Permite mandar la misma alerta a
   /// varias empresas/personas en paralelo. Cuando no hay nada, se cae
   /// al whatsappDeliveryPhone histórico si está configurado.
@@ -474,7 +489,7 @@ model Tenant {
   /// que review/billing. Null = creds del tenant.
   deliveryAlertsAccountId     String?
   deliveryAlertsAccount       GrowBusinessAccount? @relation("DeliveryAlertsAccount", fields: [deliveryAlertsAccountId], references: [id], onDelete: SetNull)
-  createdAt                   DateTime     @default(now())
+  createdAt                   DateTime             @default(now())
 
   users               User[]
   cards               Card[]
@@ -569,15 +584,15 @@ model User {
   // por ahora (TODO: cifrar con KMS en una iteración futura).
   crmGbLocationId     String?
   crmGbApiKey         String?
-  crmGbLocationName   String?              // cache del nombre para UI
+  crmGbLocationName   String? // cache del nombre para UI
   crmGbConnectedAt    DateTime?
   crmGbLastSyncAt     DateTime?
   crmGbLastSyncCount  Int?
 
   // Secuencias / Automatizaciones (F2): el afiliado puede definir sus
   // propias secuencias y un step puede asignar contactos a otro user.
-  sequences                Sequence[]       @relation("SequenceOwner")
-  sequenceStepsAsAssignee  SequenceStep[]   @relation("SequenceStepAssignee")
+  sequences               Sequence[]     @relation("SequenceOwner")
+  sequenceStepsAsAssignee SequenceStep[] @relation("SequenceStepAssignee")
 
   @@index([tenantId])
   @@index([role])
@@ -859,9 +874,9 @@ model Location {
   isActive           Boolean  @default(true)
   createdAt          DateTime @default(now())
 
-  stamps Stamp[]
-  orders Order[]
-  cards  Card[]
+  stamps          Stamp[]
+  orders          Order[]
+  cards           Card[]
   reviewQrTargets ReviewQrTarget[]
 
   @@index([tenantId])
@@ -1257,20 +1272,20 @@ model MessageTemplate {
 // ============================================================
 
 model Storefront {
-  id            String     @id @default(uuid())
-  tenantId      String     @unique
-  tenant        Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  customDomain  String?    @unique
-  theme         Json       @default("{}")
-  blocks        Json       @default("[]")
-  description   String     @default("")
-  heroImageUrl  String?
-  menuLayout    MenuLayout @default(CLASSIC)
+  id                     String     @id @default(uuid())
+  tenantId               String     @unique
+  tenant                 Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customDomain           String?    @unique
+  theme                  Json       @default("{}")
+  blocks                 Json       @default("[]")
+  description            String     @default("")
+  heroImageUrl           String?
+  menuLayout             MenuLayout @default(CLASSIC)
   // Master legacy de pedidos. Si false, ningún botón de carrito aparece
   // en el storefront público (modo informativo total). Mesa = ?mesa=N
   // SIEMPRE va informativo por diseño (el QR de mesa no debe gatillar
   // pedidos), independientemente de este flag.
-  ordersEnabled Boolean    @default(true)
+  ordersEnabled          Boolean    @default(true)
   // Toggle ÚNICO de delivery (vista pública sin ?mesa). Si está ON:
   //   - habilita carrito + checkout
   //   - habilita el botón "Pedir por WhatsApp"
@@ -1281,42 +1296,42 @@ model Storefront {
   // 2026-06-04). La vista MESA (?mesa=N) NUNCA muestra carrito ni botón
   // WA, sin importar este flag (regla de negocio: cliente sentado en
   // mesa el mozo le toma el pedido).
-  ordersDeliveryEnabled Boolean @default(true)
+  ordersDeliveryEnabled  Boolean    @default(true)
   // Popup que aparece después de N segundos de abrir el menú público. Si
   // tiene imagen + está enabled + popupCardId, hace click en la imagen y
   // lleva al cliente a /c/{popupCardId} para inscribirse a la tarjeta.
   // popupDelaySeconds: segundos antes de mostrar el popup. Default 10s.
-  popupEnabled        Boolean    @default(false)
-  popupImageUrl       String?
-  popupCardId         String?
-  popupCard           Card?      @relation("StorefrontPopupCard", fields: [popupCardId], references: [id], onDelete: SetNull)
-  popupDelaySeconds   Int        @default(10)
+  popupEnabled           Boolean    @default(false)
+  popupImageUrl          String?
+  popupCardId            String?
+  popupCard              Card?      @relation("StorefrontPopupCard", fields: [popupCardId], references: [id], onDelete: SetNull)
+  popupDelaySeconds      Int        @default(10)
   // Popup global del Menú Libro (M3 2026-06-04). Aparece N segundos
   // después de que el cliente abre /book/<slug>. Independiente del popup
   // del digital menú (que es enrollment a Card). Acá la lógica es
   // promocional (título + descripción + botón).
-  bookPopupEnabled       Boolean @default(false)
+  bookPopupEnabled       Boolean    @default(false)
   bookPopupTitle         String?
-  bookPopupDescription   String? @db.Text
+  bookPopupDescription   String?    @db.Text
   bookPopupImageUrl      String?
   bookPopupButtonText    String?
   bookPopupButtonUrl     String?
   bookPopupButtonColor   String?
-  bookPopupDelaySeconds  Int     @default(5)
+  bookPopupDelaySeconds  Int        @default(5)
   // Si false, el botón de WhatsApp NO se muestra en el menú público aunque
   // el tenant tenga whatsappPhone seteado. Permite que el dueño "apague"
   // el botón sin perder el número configurado en /app/settings.
-  whatsappButtonEnabled Boolean  @default(true)
+  whatsappButtonEnabled  Boolean    @default(true)
   // Color de fondo de la página pública del menú. NULL = usar el default
   // del layout (#FAFBFC para layouts claros, #0a0a0a para CLUVI). El
   // editor lo expone principalmente para el layout SECTIONS donde el
   // dueño quiere matchear el fondo con su brand. Cualquier color CSS
   // válido (#hex, rgb(), nombre).
-  pageBackgroundColor   String?
+  pageBackgroundColor    String?
   // Tipo de fondo: 'SOLID' (usa pageBackgroundColor), 'GRADIENT' (usa
   // pageBackgroundGradient), 'IMAGE' (usa pageBackgroundImageUrl). NULL
   // = SOLID por compat con storefronts viejos.
-  pageBackgroundType    String?
+  pageBackgroundType     String?
   // CSS gradient completo (ej: "linear-gradient(135deg, #6366F1, #EC4899)").
   // Solo se aplica si pageBackgroundType='GRADIENT'.
   pageBackgroundGradient String?
@@ -1327,35 +1342,35 @@ model Storefront {
   // público. NULL = blanco (default histórico). Cualquier CSS válido,
   // incluyendo "transparent" para logos con fondo propio que deben
   // verse edge-to-edge sobre la pageBackgroundColor.
-  logoBgColor           String?
+  logoBgColor            String?
   // Color del título (brandName) en el header del storefront público.
   // NULL = default según layout (ink en claros, white en CLUVI). Cualquier
   // CSS válido. Útil para matchear branding sobre fondos custom.
-  titleColor            String?
+  titleColor             String?
   // Color de la descripción (subtítulo) del header. NULL = default
   // (text-mute en claros, white/70 en CLUVI). Mismo formato que titleColor.
-  descriptionColor      String?
+  descriptionColor       String?
   // Estilo del botón "Volver" que aparece sobre la portada de cada
   // sección en el layout SECTIONS. JSON con bgColor/iconColor/opacity/
   // borderColor/borderWidth/shadow/size. NULL = usar default
   // (negro semitransparente con flecha blanca). Configurable desde
   // /app/storefront cuando el contraste no funciona contra portadas
   // claras u oscuras.
-  backButtonConfig      Json?
+  backButtonConfig       Json?
   // Cover banner para la sección virtual "Recomendados" del menú público
   // (la que junta los productos isRecommended). Hasta acá se renderizaba
   // sin banner; ahora se puede editar igual que las categorías normales.
   // null = sin banner custom (se muestra un default minimal).
-  recommendedTagline      String?
-  recommendedCoverConfig  Json?
+  recommendedTagline     String?
+  recommendedCoverConfig Json?
   // Modos de menú: digital tradicional (productos/servicios en `/m/<slug>`)
   // y libro flipbook (imágenes en `/book/<slug>`). Independientes — un
   // tenant puede tener activos los 2, uno solo, o ninguno. Reemplazan la
   // semántica vieja donde `menuLayout=FLIPBOOK` excluía al digital.
-  digitalMenuEnabled Boolean @default(true)
-  bookMenuEnabled    Boolean @default(false)
-  isPublished   Boolean    @default(true)
-  createdAt     DateTime   @default(now())
+  digitalMenuEnabled     Boolean    @default(true)
+  bookMenuEnabled        Boolean    @default(false)
+  isPublished            Boolean    @default(true)
+  createdAt              DateTime   @default(now())
 }
 
 enum MenuLayout {
@@ -1384,26 +1399,26 @@ enum MenuLayout {
 // las secciones flipbook quedan persistidas pero no se renderizan.
 
 model MenuBookSection {
-  id        String   @id @default(uuid())
-  tenantId  String
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  title     String
+  id               String   @id @default(uuid())
+  tenantId         String
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  title            String
   // Orden visual. Más bajo aparece primero en la navegación superior y
   // las páginas se concatenan en este orden.
-  sortOrder Int      @default(0)
-  isActive  Boolean  @default(true)
+  sortOrder        Int      @default(0)
+  isActive         Boolean  @default(true)
   // Popup que aparece al entrar a esta sección (M3 2026-06-04). Misma
   // shape que MenuBookPage.popup* para consistencia. Si popupEnabled=
   // false el resto se ignora.
-  popupEnabled     Boolean @default(false)
+  popupEnabled     Boolean  @default(false)
   popupTitle       String?
-  popupDescription String? @db.Text
+  popupDescription String?  @db.Text
   popupImageUrl    String?
   popupButtonText  String?
   popupButtonUrl   String?
   popupButtonColor String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   pages MenuBookPage[]
 
@@ -1506,6 +1521,11 @@ enum ReferralRole {
   INFLUENCER
   AMBASSADOR
   SOCIO
+  // VENDOR: vendedor que reporta a un EMBAJADOR. Solo se setea cuando un
+  // embajador con allowVendors=true crea un vendedor desde su panel.
+  // El vendedor cobra su % directo de la venta y el embajador recibe SU
+  // % menos lo del vendedor (3-way split en webhook Hotmart).
+  VENDOR
 }
 
 enum CampaignStatus {
@@ -1515,47 +1535,67 @@ enum CampaignStatus {
 }
 
 model ReferralCode {
-  id                String         @id @default(uuid())
-  code              String         @unique
+  id                    String         @id @default(uuid())
+  code                  String         @unique
   // Slug corto y human-friendly para links `/ref/<slug>`. Único, opcional.
   // Default: lowercase(code) backfill en migration. Customizable desde admin.
-  slug              String?        @unique
-  ownerName         String
-  ownerEmail        String
-  ownerWhatsapp     String
-  ownerUserId       String?
-  ownerUser         User?          @relation(fields: [ownerUserId], references: [id])
-  commissionPercent Decimal        @default(20) @db.Decimal(5, 2)
-  role              ReferralRole   @default(INFLUENCER)
+  slug                  String?        @unique
+  ownerName             String
+  ownerEmail            String
+  ownerWhatsapp         String
+  ownerUserId           String?
+  ownerUser             User?          @relation(fields: [ownerUserId], references: [id])
+  commissionPercent     Decimal        @default(20) @db.Decimal(5, 2)
+  role                  ReferralRole   @default(INFLUENCER)
   // Si role=AMBASSADOR, parentCodeId apunta al ReferralCode del influencer
   // dueño de la campaña. Cuando un cliente usa este código, además de la
   // comisión directa del embajador, generamos una comisión indirecta para
   // el influencer (5% por defecto).
-  parentCodeId      String?
-  parentCode        ReferralCode?  @relation("AmbassadorParent", fields: [parentCodeId], references: [id], onDelete: SetNull)
-  ambassadors       ReferralCode[] @relation("AmbassadorParent")
+  parentCodeId          String?
+  parentCode            ReferralCode?  @relation("AmbassadorParent", fields: [parentCodeId], references: [id], onDelete: SetNull)
+  ambassadors           ReferralCode[] @relation("AmbassadorParent")
+  // VENDOR sub-jerarquía: cuando role=AMBASSADOR y allowVendors=true,
+  // el embajador puede crear vendedores debajo suyo. `maxCommissionPercent`
+  // es el tope que puede repartir entre vendedores (default 25 enforced en
+  // aplicación si null).
+  allowVendors          Boolean        @default(false)
+  maxCommissionPercent  Decimal?       @db.Decimal(5, 2)
+  // Solo se setea cuando role=VENDOR. FK self-relation al embajador padre.
+  // El vendedor cobra su % directo y el embajador recibe SU % menos lo
+  // del vendedor en el 3-way split del webhook Hotmart.
+  parentEmbajadorCodeId String?
+  parentEmbajadorCode   ReferralCode?  @relation("VendorEmbajador", fields: [parentEmbajadorCodeId], references: [id], onDelete: SetNull)
+  childVendors          ReferralCode[] @relation("VendorEmbajador")
   // Si pertenece a una campaña (los embajadores siempre, los influencers
   // pueden ser titulares de su propia campaña).
-  campaignId        String?
-  campaign          Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  isActive          Boolean        @default(true)
+  campaignId            String?
+  campaign              Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  isActive              Boolean        @default(true)
   // Cuándo se aprobó el embajador (cuando un INFLUENCER lo crea desde su
   // panel). Si null y la config requiere aprobación, queda invisible al
   // generar comisiones hasta que el admin apruebe. Para códigos creados
   // por el super admin se setea a createdAt automáticamente.
-  approvedAt        DateTime?
+  approvedAt            DateTime?
   // Etiqueta de origen del afiliado (?source=X en /refer). Solo informativa.
-  source            String?
-  createdAt         DateTime       @default(now())
+  source                String?
+  createdAt             DateTime       @default(now())
 
-  uses            ReferralUse[]
-  visits          ReferralVisit[]
-  ownerOfCampaign Campaign?     @relation("CampaignOwner")
+  uses                   ReferralUse[]
+  visits                 ReferralVisit[]
+  ownerOfCampaign        Campaign?         @relation("CampaignOwner")
   /// Materiales de apoyo scope a este influencer (visibles solo a sus
   /// embajadores). Vacío para mayoría — los materiales globales no van acá.
   scopedSupportMaterials SupportMaterial[] @relation("SupportMaterialScope")
+  /// Atribuciones donde este code es el vendor (role=VENDOR). Inverso de
+  /// Commission.vendorCode. Solo se usa para listings/reporting.
+  vendorCommissions      Commission[]      @relation("CommissionVendor")
+  /// Commissions cuya persona destinataria es este code (3-way split).
+  /// Inverso de Commission.recipientCode. Permite query directo "todas
+  /// las commissions del influencer X" sin walkear el referralUse.
+  receivedCommissions    Commission[]      @relation("CommissionRecipient")
 
   @@index([parentCodeId])
+  @@index([parentEmbajadorCodeId])
   @@index([campaignId])
 }
 
@@ -1619,28 +1659,56 @@ model ReferralUse {
 }
 
 model Commission {
-  id                String           @id @default(uuid())
-  referralUseId     String
-  referralUse       ReferralUse      @relation(fields: [referralUseId], references: [id], onDelete: Cascade)
-  amount            Decimal          @db.Decimal(10, 2)
-  currency          String           @default("USD")
-  status            CommissionStatus @default(PENDING)
-  paidAt            DateTime?
+  id                   String                  @id @default(uuid())
+  referralUseId        String
+  referralUse          ReferralUse             @relation(fields: [referralUseId], references: [id], onDelete: Cascade)
+  amount               Decimal                 @db.Decimal(10, 2)
+  currency             String                  @default("USD")
+  status               CommissionStatus        @default(PENDING)
+  paidAt               DateTime?
   // Nota interna del super admin (ej: "Pagado vía Wise", "Cliente
   // contactado el 2026-05-12, prometió pagar"). Visible solo en panel.
-  notes             String?          @db.Text
+  notes                String?                 @db.Text
   // Marca de contacto al cliente cuando hubo pago fallido — se setea
   // desde la tab "Pendientes por pagar" para llevar registro.
-  clientContactedAt DateTime?
+  clientContactedAt    DateTime?
   // Dedup key: transactionId externo (Hotmart `transaction` / `subscriber_code`,
   // manual=null). Si llega un webhook con el mismo externalTxId que ya
   // existe en Commission, skip (evita doble-pay con convertToPaying
   // manual + webhook Hotmart posterior del mismo ciclo).
-  externalTxId      String?
-  createdAt         DateTime         @default(now())
+  externalTxId         String?
+  // Hotmart transaction ID — alias semántico de externalTxId específico
+  // para el 3-way split. Si llega 2 veces el mismo transactionId con el
+  // mismo referralCodeId del use, dedup silencioso.
+  hotmartTransactionId String?
+  // Atribución del vendedor en la sale (solo se setea cuando la chain
+  // de atribución incluye un VENDOR). Null cuando no había vendedor.
+  // En el 3-way split el vendor también tiene SU propia Commission row.
+  vendorCodeId         String?
+  vendorCode           ReferralCode?           @relation("CommissionVendor", fields: [vendorCodeId], references: [id], onDelete: SetNull)
+  // Tracking granular de pago: PENDING (nada pagado), PARTIAL (pagado
+  // parcial), PAID (pagado >= amount). Independiente de `status` que
+  // refleja el flow de aprobación.
+  paymentStatus        CommissionPaymentStatus @default(PENDING)
+  // Monto efectivamente pagado al afiliado, para tracking de pagos
+  // parciales. Sirve para reconciliación contable. Default 0.
+  amountPaid           Decimal                 @default(0) @db.Decimal(10, 2)
+  // Recipient del 3-way split: el ReferralCode QUE RECIBE esta commission.
+  // En un sale con vendedor, se generan 3 Commission rows pointing al
+  // mismo referralUseId pero distinto recipientCodeId (uno por persona:
+  // influencer, embajador, vendedor). Permite filtrar "todas las
+  // commissions de X persona" sin tener que walking la chain del use.
+  // Backwards-compat null: rows viejas (pre-3-way) lo tienen null y se
+  // resuelven derivándolo del use.code.
+  recipientCodeId      String?
+  recipientCode        ReferralCode?           @relation("CommissionRecipient", fields: [recipientCodeId], references: [id], onDelete: SetNull)
+  createdAt            DateTime                @default(now())
 
   @@index([status])
   @@index([externalTxId])
+  @@index([vendorCodeId])
+  @@index([recipientCodeId])
+  @@index([hotmartTransactionId])
 }
 
 // ============================================================
@@ -1662,20 +1730,20 @@ model Commission {
 // procesar el documento — usado para retrieval semántico top-K en vez
 // de inyectar TODAS las entries en el prompt.
 model KnowledgeEntry {
-  id          String              @id @default(uuid())
-  title       String
-  content     String              @db.Text
-  category    String              @default("General")
-  audience    KnowledgeAudience   @default(BOTH)
-  isActive    Boolean             @default(true)
-  documentId  String?
-  document    KnowledgeDocument?  @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  chunkIndex  Int?
-  embedding   Json?
+  id             String             @id @default(uuid())
+  title          String
+  content        String             @db.Text
+  category       String             @default("General")
+  audience       KnowledgeAudience  @default(BOTH)
+  isActive       Boolean            @default(true)
+  documentId     String?
+  document       KnowledgeDocument? @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  chunkIndex     Int?
+  embedding      Json?
   embeddingModel String?
-  tokenCount  Int?
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
+  tokenCount     Int?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
 
   @@index([isActive, audience])
   @@index([documentId])
@@ -1698,22 +1766,22 @@ enum KnowledgeDocumentStatus {
 // se chunkea y cada chunk se guarda como KnowledgeEntry asociado. Si el
 // documento se elimina, sus chunks caen en cascada.
 model KnowledgeDocument {
-  id          String                  @id @default(uuid())
-  title       String
-  fileUrl     String?                 // URL pública R2 del archivo original
-  fileType    String                  // pdf, docx, txt, md
-  fileSize    Int?                    // bytes
-  audience    KnowledgeAudience       @default(BOTH)
-  category    String                  @default("General")
-  status      KnowledgeDocumentStatus @default(UPLOADED)
-  totalChars  Int                     @default(0)
-  chunkCount  Int                     @default(0)
-  errorMessage String?                @db.Text
-  isActive    Boolean                 @default(true)
-  uploadedAt  DateTime                @default(now())
-  processedAt DateTime?
+  id           String                  @id @default(uuid())
+  title        String
+  fileUrl      String? // URL pública R2 del archivo original
+  fileType     String // pdf, docx, txt, md
+  fileSize     Int? // bytes
+  audience     KnowledgeAudience       @default(BOTH)
+  category     String                  @default("General")
+  status       KnowledgeDocumentStatus @default(UPLOADED)
+  totalChars   Int                     @default(0)
+  chunkCount   Int                     @default(0)
+  errorMessage String?                 @db.Text
+  isActive     Boolean                 @default(true)
+  uploadedAt   DateTime                @default(now())
+  processedAt  DateTime?
 
-  entries     KnowledgeEntry[]
+  entries KnowledgeEntry[]
 
   @@index([status])
   @@index([audience])
@@ -1750,34 +1818,34 @@ enum SupportMaterialAudience {
 }
 
 model SupportMaterial {
-  id             String                  @id @default(uuid())
-  title          String
-  description    String?                 @db.Text
-  type           SupportMaterialType
+  id                String                  @id @default(uuid())
+  title             String
+  description       String?                 @db.Text
+  type              SupportMaterialType
   /// URL pública R2 cuando hay un archivo subido (PDF/IMAGE/AUDIO/etc.).
   /// Para type=LINK/VIDEO suele ser null y se usa externalUrl.
-  fileUrl        String?
+  fileUrl           String?
   /// URL externa (YouTube, Drive, Loom, etc.). Para type=VIDEO/LINK.
-  externalUrl    String?
+  externalUrl       String?
   /// Thumbnail opcional — preview en grilla. Si null, el frontend usa
   /// un ícono por type.
-  thumbnailUrl   String?
+  thumbnailUrl      String?
   /// Para SCRIPT: texto plano para copiar. Hasta ~10k chars.
-  scriptBody     String?                 @db.Text
+  scriptBody        String?                 @db.Text
   /// Categoría libre: "Primeros pasos", "Scripts WA", etc. El admin
   /// la escribe — autocomplete con valores existentes en el front.
-  category       String                  @default("General")
-  audience       SupportMaterialAudience @default(BOTH)
+  category          String                  @default("General")
+  audience          SupportMaterialAudience @default(BOTH)
   /// Si está seteado, solo embajadores cuyo parentCode pertenezca a
   /// este influencer ven el material. Útil para "material exclusivo del
   /// equipo de X". Si null, todos los que matcheen audience lo ven.
   scopeInfluencerId String?
-  scopeInfluencer   ReferralCode? @relation("SupportMaterialScope", fields: [scopeInfluencerId], references: [id], onDelete: SetNull)
-  order          Int                     @default(0)
-  isActive       Boolean                 @default(true)
-  createdById    String?
-  createdAt      DateTime                @default(now())
-  updatedAt      DateTime                @updatedAt
+  scopeInfluencer   ReferralCode?           @relation("SupportMaterialScope", fields: [scopeInfluencerId], references: [id], onDelete: SetNull)
+  order             Int                     @default(0)
+  isActive          Boolean                 @default(true)
+  createdById       String?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
 
   @@index([audience, isActive])
   @@index([category])
@@ -1793,23 +1861,23 @@ model SupportMaterial {
 // con un comentario opcional, evitando que la mala review llegue a
 // Google. Inspirado en patrón de NudoCowork / similar a Wisely.
 model ReviewFeedback {
-  id                 String   @id @default(uuid())
+  id                 String          @id @default(uuid())
   tenantId           String
-  tenant             Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant             Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   rating             Int // 1-5
-  comment            String?  @db.Text
+  comment            String?         @db.Text
   customerName       String?
   customerPhone      String?
   // true = el cliente pulsó "ir a Google" (era ≥threshold★, lo redirigimos)
   // false (default) = lo capturamos acá privado por <threshold★
-  redirectedToGoogle Boolean  @default(false)
+  redirectedToGoogle Boolean         @default(false)
   // Permite al dueño marcar como leída en el panel
-  isRead             Boolean  @default(false)
+  isRead             Boolean         @default(false)
   // M7.3: target del QR de reseñas multi-sede que originó este feedback.
   // null = vino del link genérico del tenant (sin segmentar por sede).
   reviewTargetId     String?
   reviewTarget       ReviewQrTarget? @relation(fields: [reviewTargetId], references: [id], onDelete: SetNull)
-  createdAt          DateTime @default(now())
+  createdAt          DateTime        @default(now())
 
   @@index([tenantId, createdAt])
   @@index([tenantId, rating])
@@ -1821,22 +1889,22 @@ model ReviewFeedback {
 // público apunta a /r/<slug>?target=<id>; sin ?target= cae al link
 // genérico Tenant.googleReviewUrl.
 model ReviewQrTarget {
-  id              String   @id @default(uuid())
+  id              String           @id @default(uuid())
   tenantId        String
-  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   /// Sede asociada (opcional). Si null, el target es libre — útil para
   /// campañas no atadas a una sede física.
   locationId      String?
-  location        Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  location        Location?        @relation(fields: [locationId], references: [id], onDelete: SetNull)
   name            String
   /// URL completa de Google Reviews para esta sede.
   googleReviewUrl String
   /// Rating mínimo inclusive para redirigir a Google (1-5). Default 4.
-  threshold       Int      @default(4)
-  isActive        Boolean  @default(true)
+  threshold       Int              @default(4)
+  isActive        Boolean          @default(true)
   feedbacks       ReviewFeedback[]
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
 
   @@index([tenantId])
   @@index([locationId])
@@ -1854,13 +1922,13 @@ model ReviewQrTarget {
 //
 // F1 sólo agrega el modelo Industry. Presentations y Slides llegan en F2.
 model Industry {
-  id          String   @id @default(uuid())
+  id          String             @id @default(uuid())
   /// Nombre humano que se muestra en la card. Único — sin duplicados.
-  name        String   @unique
+  name        String             @unique
   /// Slug URL-safe — usado en /industria/{slug}. Único.
-  slug        String   @unique
+  slug        String             @unique
   /// Subtítulo / descripción corta que aparece debajo del nombre.
-  description String?  @db.Text
+  description String?            @db.Text
   /// Emoji decorativo de la card (👩, ☕, 💈, etc.). Opcional si hay iconUrl.
   emoji       String?
   /// URL absoluta de ícono SVG/PNG en R2. Opcional — si null se usa el emoji.
@@ -1874,12 +1942,12 @@ model Industry {
   themeColor  String?
   /// Soft-disable. Si false, no se muestra en la vista pública pero queda
   /// en /admin/industries para reactivar.
-  isActive    Boolean  @default(true)
+  isActive    Boolean            @default(true)
   /// Orden manual en la grilla pública (asc). Se reordena con drag&drop
   /// desde /admin/industries vía endpoint /reorder.
-  sortOrder   Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  sortOrder   Int                @default(0)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
 
   presentations Presentation[]
 
@@ -1968,18 +2036,18 @@ model Presentation {
 /// estructura visual (ver enum SlideLayout); content guarda overrides
 /// JSON específicos del layout (ej STATS array, COMPARISON pros/cons).
 model Slide {
-  id             String          @id @default(uuid())
+  id             String         @id @default(uuid())
   presentationId String
-  presentation   Presentation    @relation(fields: [presentationId], references: [id], onDelete: Cascade)
+  presentation   Presentation   @relation(fields: [presentationId], references: [id], onDelete: Cascade)
   /// Posición en el deck (asc). Drag&drop en F4 vía endpoint /reorder.
-  sortOrder      Int             @default(0)
-  layout         SlideLayout     @default(COVER)
+  sortOrder      Int            @default(0)
+  layout         SlideLayout    @default(COVER)
   /// Título principal del slide. Opcional según layout.
   title          String?
   /// Subtítulo / línea secundaria.
   subtitle       String?
   /// Cuerpo de texto largo. Soporta markdown básico (renderizado en F5).
-  body           String?         @db.Text
+  body           String?        @db.Text
   /// Imagen del slide (R2 URL). Opcional.
   imageUrl       String?
   /// Video opcional para layout=VIDEO (URL R2 o YouTube embed).
@@ -1993,13 +2061,13 @@ model Slide {
   /// Color del texto. Si null, contrast-detect en runtime.
   textColor      String?
   /// Animación de entrada al navegar a este slide.
-  animation      SlideAnimation  @default(NONE)
+  animation      SlideAnimation @default(NONE)
   /// Bag JSON para layouts complejos (STATS, COMPARISON, etc) sin
   /// inflar el schema. El editor visual de F4 define la forma exacta
   /// según layout.
   content        Json?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
   @@index([presentationId, sortOrder])
 }
@@ -2024,20 +2092,20 @@ enum QrPosterType {
 }
 
 model QrPoster {
-  id            String       @id @default(uuid())
+  id            String           @id @default(uuid())
   tenantId      String
-  tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant        Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   type          QrPosterType
-  name          String       @default("")
+  name          String           @default("")
   // JSON del editor (capas, posiciones, colores, fuentes, etc).
-  config        Json         @default("{}")
+  config        Json             @default("{}")
   // Último export subido a R2 (PNG/PDF). Se llena en H3 cuando se
   // implementa el export profesional para imprenta.
   lastExportUrl String?
   // Si false, el QR sigue siendo editable en el panel pero el endpoint
   // público `/q/<id>` devuelve 404 (cartel "pausado"). Útil para campañas
   // estacionales sin tener que borrar el diseño.
-  isActive      Boolean      @default(true)
+  isActive      Boolean          @default(true)
   // URL override por-poster. Si está seteado, el redirect dinámico
   // (/q/<id>) usa este target en vez del default del tipo. Permite que
   // un mismo tenant tenga varios QR del mismo tipo apuntando a campañas
@@ -2047,8 +2115,8 @@ model QrPoster {
   targetUrl     String?
   visits        QrPosterVisit[]
   exports       QrPosterExport[]
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
 
   // Antes era @@unique([tenantId, type]) — limitaba a 1 cartel por tipo
   // por tenant. Ahora se permite N variantes (cada tenant puede tener
@@ -2080,7 +2148,7 @@ model QrPosterExport {
   id        String   @id @default(uuid())
   posterId  String
   poster    QrPoster @relation(fields: [posterId], references: [id], onDelete: Cascade)
-  format    String   // 'PNG' | 'PDF' | 'SVG'
+  format    String // 'PNG' | 'PDF' | 'SVG'
   sizeBytes Int?
   createdAt DateTime @default(now())
 
@@ -2353,23 +2421,23 @@ model Quote {
 /// cuando un tenant nuevo se vincula. `deletedAt` soft delete para no
 /// romper FKs en `Tenant.reviewAlertsAccountId` (SetNull al borrar).
 model GrowBusinessAccount {
-  id            String   @id @default(uuid())
-  name          String
-  locationId    String
-  apiKey        String
+  id           String    @id @default(uuid())
+  name         String
+  locationId   String
+  apiKey       String
   /// Switch number opcional, prepone "#Switch{N}\n\n" al body si está.
-  switchNumber  Int?
+  switchNumber Int?
   /// Propósito de la subcuenta para que el super admin agrupe en UI y
   /// para sugerir defaults al asignar a un tenant. Valores libres:
   /// "BILLING" (recordatorios de pago / cobros), "OPERATIONAL" (reseñas,
   /// pedidos delivery, alertas operativas), "GENERAL" (cualquier uso).
   /// Default "GENERAL" para no romper subcuentas previas.
-  purpose       String   @default("GENERAL")
-  isDefault     Boolean  @default(false)
-  lastTestAt    DateTime?
-  lastTestOk    Boolean?
-  createdAt     DateTime @default(now())
-  deletedAt     DateTime?
+  purpose      String    @default("GENERAL")
+  isDefault    Boolean   @default(false)
+  lastTestAt   DateTime?
+  lastTestOk   Boolean?
+  createdAt    DateTime  @default(now())
+  deletedAt    DateTime?
 
   reviewTenants   Tenant[] @relation("ReviewAlertsAccount")
   billingTenants  Tenant[] @relation("BillingAlertsAccount")
@@ -2419,11 +2487,11 @@ model Stage {
   kind       StageKind @default(CUSTOM)
   createdAt  DateTime  @default(now())
 
-  contacts             CrmContact[]
+  contacts                    CrmContact[]
   // Botones que mueven contactos hacia este stage (C5). onDelete
   // SetNull → si la stage se borra, los botones quedan sin destino
   // (el frontend lo muestra como "Sin movimiento de stage").
-  buttonsThatMoveToThis CrmButton[]  @relation("CrmButtonMoveStage")
+  buttonsThatMoveToThis       CrmButton[]    @relation("CrmButtonMoveStage")
   // F2: steps de secuencias que mueven a este stage.
   sequenceStepsThatMoveToThis SequenceStep[] @relation("SequenceStepMoveStage")
 
@@ -2488,11 +2556,11 @@ model CrmContact {
 // (gestionado solo por super admin). onDelete SetNull preserva el
 // equipo si el lead user es eliminado.
 model SalesTeam {
-  id          String   @id @default(uuid())
-  name        String
-  leadUserId  String?
-  leadUser    User?    @relation("SalesTeamLead", fields: [leadUserId], references: [id], onDelete: SetNull)
-  createdAt   DateTime @default(now())
+  id         String   @id @default(uuid())
+  name       String
+  leadUserId String?
+  leadUser   User?    @relation("SalesTeamLead", fields: [leadUserId], references: [id], onDelete: SetNull)
+  createdAt  DateTime @default(now())
 
   members SalesTeamMember[]
 
@@ -2541,14 +2609,14 @@ model CrmButton {
   ownerUser            User             @relation("CrmButtonOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
   name                 String
   color                String           @default("#6366F1")
-  icon                 String?          // emoji o texto corto
+  icon                 String? // emoji o texto corto
   order                Int
   channel              CrmButtonChannel
   messageBody          String?          @db.Text
-  attachmentUrl        String?          // URL R2
-  attachmentName       String?          // nombre original mostrable
+  attachmentUrl        String? // URL R2
+  attachmentName       String? // nombre original mostrable
   // Side effects al ejecutar.
-  moveToStageId        String?          // si está set, mueve el contacto a esta stage
+  moveToStageId        String? // si está set, mueve el contacto a esta stage
   moveToStage          Stage?           @relation("CrmButtonMoveStage", fields: [moveToStageId], references: [id], onDelete: SetNull)
   addTags              Json             @default("[]")
   // Delay en segundos antes de ejecutar (default 0 = inmediato).
@@ -2566,12 +2634,12 @@ model CrmButton {
 // Tipo de actividad registrada en el timeline de un contacto.
 // El frontend renderea cada tipo con un ícono + label distintos.
 enum CrmActivityType {
-  CONTACT_CREATED   // contacto creado (auto al crearse)
-  CONTACT_UPDATED   // edición de campos básicos (name/phone/instagram/etc)
-  STAGE_CHANGED     // movido de columna (drag&drop o select)
-  BUTTON_EXECUTED   // botón automático ejecutado (C5)
-  NOTE_ADDED        // nota manual del afiliado
-  TAG_ADDED         // tag agregado (manual o via botón)
+  CONTACT_CREATED // contacto creado (auto al crearse)
+  CONTACT_UPDATED // edición de campos básicos (name/phone/instagram/etc)
+  STAGE_CHANGED // movido de columna (drag&drop o select)
+  BUTTON_EXECUTED // botón automático ejecutado (C5)
+  NOTE_ADDED // nota manual del afiliado
+  TAG_ADDED // tag agregado (manual o via botón)
 }
 
 // Historial completo del contacto (C6). Cada interacción se registra
@@ -2615,11 +2683,11 @@ model CrmActivity {
 //   por si necesitamos cancelar el delay programado.
 
 enum SequenceTriggerKind {
-  MANUAL             // Disparado desde la UI (botón "Inscribir")
-  CONTACT_CREATED    // Al crearse un contacto del afiliado
-  STAGE_CHANGED      // Al moverse a una stage específica (config: {stageId})
-  TAG_ADDED          // Al agregar una tag específica (config: {tag})
-  CONTACT_FROM_GB    // Al sincronizar desde Grow Business
+  MANUAL // Disparado desde la UI (botón "Inscribir")
+  CONTACT_CREATED // Al crearse un contacto del afiliado
+  STAGE_CHANGED // Al moverse a una stage específica (config: {stageId})
+  TAG_ADDED // Al agregar una tag específica (config: {tag})
+  CONTACT_FROM_GB // Al sincronizar desde Grow Business
 }
 
 enum SequenceStepKind {
@@ -2656,11 +2724,11 @@ enum SequenceWaitUnit {
 }
 
 enum SequenceEnrollmentStatus {
-  ACTIVE      // En curso o esperando próximo step
-  PAUSED      // El user pausó manualmente
-  COMPLETED   // Llegó a END o ejecutó último step
-  CANCELED    // El user canceló
-  FAILED      // Error fatal (contacto sin teléfono, GB no conectado, etc.)
+  ACTIVE // En curso o esperando próximo step
+  PAUSED // El user pausó manualmente
+  COMPLETED // Llegó a END o ejecutó último step
+  CANCELED // El user canceló
+  FAILED // Error fatal (contacto sin teléfono, GB no conectado, etc.)
 }
 
 model Sequence {

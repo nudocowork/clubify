@@ -338,4 +338,78 @@ export class ReferralsController {
       force === 'true' || force === '1',
     );
   }
+
+  // ============================================================
+  // VENDOR ENDPOINTS — FASE FOUNDATION
+  // ============================================================
+
+  @Roles('SUPER_ADMIN', 'AFFILIATE_AMBASSADOR')
+  @Post('vendors')
+  createVendor(
+    @CurrentUser() user: AuthUser,
+    @Body() body: VendorBody,
+  ) {
+    return this.svc.createVendor(user, body);
+  }
+
+  @Roles('SUPER_ADMIN', 'AFFILIATE_AMBASSADOR')
+  @Get('vendors/by-embajador/:embajadorCodeId')
+  listVendors(
+    @CurrentUser() user: AuthUser,
+    @Param('embajadorCodeId') embajadorCodeId: string,
+  ) {
+    return this.svc.listVendorsForEmbajador(user, embajadorCodeId);
+  }
+
+  @Roles('SUPER_ADMIN', 'AFFILIATE_AMBASSADOR')
+  @Patch('vendors/:id')
+  updateVendor(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: VendorPatchBody,
+  ) {
+    return this.svc.updateVendor(user, id, body);
+  }
+
+  @Roles('SUPER_ADMIN', 'AFFILIATE_AMBASSADOR')
+  @Post('vendors/:id/deactivate')
+  deactivateVendor(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    return this.svc.deactivateVendor(user, id);
+  }
+
+  @Roles('SUPER_ADMIN', 'AFFILIATE_AMBASSADOR')
+  @Post('vendors/:id/reactivate')
+  reactivateVendor(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    return this.svc.reactivateVendor(user, id);
+  }
+
+  @Roles('SUPER_ADMIN', 'AFFILIATE_AMBASSADOR')
+  @Delete('vendors/:id')
+  deleteVendor(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    return this.svc.deleteVendor(user, id);
+  }
+}
+
+class VendorBody {
+  @IsString() embajadorCodeId!: string;
+  @IsString() fullName!: string;
+  @IsEmail() email!: string;
+  @IsString() whatsapp!: string;
+  @IsNumber() commissionPercent!: number;
+}
+
+class VendorPatchBody {
+  @IsOptional() @IsString() fullName?: string;
+  @IsOptional() @IsEmail() email?: string;
+  @IsOptional() @IsString() whatsapp?: string;
+  @IsOptional() @IsNumber() commissionPercent?: number;
 }
