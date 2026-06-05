@@ -65,7 +65,6 @@ type Storefront = {
   bookMenuEnabled?: boolean;
   ordersEnabled?: boolean;
   ordersDeliveryEnabled?: boolean;
-  ordersWhatsappEnabled?: boolean;
   pageBackgroundColor?: string | null;
   pageBackgroundType?: string | null;
   pageBackgroundGradient?: string | null;
@@ -451,15 +450,12 @@ export default function StorefrontPublic() {
     s.ordersEnabled !== false &&
     (s.ordersDeliveryEnabled ?? true);
   // Mostrar el botón "pedir/contactar por WhatsApp" en el storefront
-  // público. Regla de negocio:
-  // - Mesa (?mesa=N): NUNCA muestra WA. El cliente sentado en mesa el
-  //   mozo le toma el pedido — el WA distraería.
-  // - Delivery: respeta el toggle ordersWhatsappEnabled del admin
-  //   (default true para no romper tenants existentes).
-  const showWhatsappButton =
-    !isTableMode &&
-    !!s.whatsappPhone &&
-    s.ordersWhatsappEnabled !== false;
+  // público. Regla de negocio (M1.3 2026-06-04):
+  // - Mesa (?mesa=N): NUNCA muestra WA (incluido en ordersAllowed=false).
+  // - Delivery: el botón aparece si Delivery está ON. El toggle separado
+  //   `ordersWhatsappEnabled` fue eliminado — no tiene sentido "delivery
+  //   con carrito pero sin canal para enviar el pedido".
+  const showWhatsappButton = ordersAllowed && !!s.whatsappPhone;
 
   const isCluvi = (s.menuLayout ?? 'CLASSIC') === 'CLUVI';
   // Fondo de la página: tipo SOLID|GRADIENT|IMAGE. El dueño elige desde

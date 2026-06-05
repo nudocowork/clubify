@@ -83,8 +83,6 @@ export default function MenuEditor() {
   const [coverRecommendedOpen, setCoverRecommendedOpen] = useState(false);
   const [ordersDeliveryEnabled, setOrdersDeliveryEnabled] = useState<boolean | null>(null);
   const [togglingOrders, setTogglingOrders] = useState(false);
-  const [ordersWhatsappEnabled, setOrdersWhatsappEnabled] = useState<boolean | null>(null);
-  const [togglingWhatsapp, setTogglingWhatsapp] = useState(false);
   const [tenantSlug, setTenantSlug] = useState<string | null>(null);
   const [mainLabel, setMainLabel] = useState<string>('Menú');
 
@@ -129,41 +127,14 @@ export default function MenuEditor() {
       const sf = await api<{
         ordersEnabled: boolean;
         ordersDeliveryEnabled?: boolean;
-        ordersWhatsappEnabled?: boolean;
       }>('/storefront');
       // Backend devuelve ordersDeliveryEnabled gateado por ordersEnabled.
       // Fallback al master para storefronts viejos sin la columna nueva.
       setOrdersDeliveryEnabled(
         sf.ordersDeliveryEnabled ?? sf.ordersEnabled ?? true,
       );
-      setOrdersWhatsappEnabled(sf.ordersWhatsappEnabled ?? true);
     } catch {
       setOrdersDeliveryEnabled(true);
-      setOrdersWhatsappEnabled(true);
-    }
-  }
-
-  async function toggleOrdersWhatsapp() {
-    if (ordersWhatsappEnabled === null) return;
-    const next = !ordersWhatsappEnabled;
-    setTogglingWhatsapp(true);
-    setOrdersWhatsappEnabled(next);
-    try {
-      await api('/storefront', {
-        method: 'PATCH',
-        body: JSON.stringify({ ordersWhatsappEnabled: next }),
-      });
-      toast(
-        next
-          ? 'Botón WhatsApp activado en delivery — los clientes pueden contactarte directo'
-          : 'Botón WhatsApp oculto en delivery — la vista mesa siempre fue informativa',
-        'success',
-      );
-    } catch (e: any) {
-      toast(e.message || 'Error', 'error');
-      setOrdersWhatsappEnabled(!next);
-    } finally {
-      setTogglingWhatsapp(false);
     }
   }
 
@@ -415,30 +386,13 @@ export default function MenuEditor() {
               className={`btn-ghost ${ordersDeliveryEnabled ? 'text-ok' : 'text-amber-600'}`}
               title={
                 ordersDeliveryEnabled
-                  ? 'Pedidos delivery activos — el carrito aparece en el link público. La vista mesa siempre es informativa.'
-                  : 'Modo informativo en delivery — solo precios, sin carrito. La vista mesa siempre es informativa.'
+                  ? 'Delivery ON — carrito + botón "Pedir por WhatsApp" activos en el link público. La vista mesa siempre es informativa.'
+                  : 'Delivery OFF — solo visualización (precios, sin carrito, sin WhatsApp). La vista mesa siempre es informativa.'
               }
             >
               {ordersDeliveryEnabled
                 ? '🛒 Pedidos delivery: ON'
                 : '📋 Delivery informativo'}
-            </button>
-          )}
-          {ordersWhatsappEnabled !== null && (
-            <button
-              type="button"
-              onClick={toggleOrdersWhatsapp}
-              disabled={togglingWhatsapp}
-              className={`btn-ghost ${ordersWhatsappEnabled ? 'text-ok' : 'text-mute'}`}
-              title={
-                ordersWhatsappEnabled
-                  ? 'Botón "WhatsApp" visible en el link delivery. Mesa siempre informativo.'
-                  : 'Botón "WhatsApp" oculto en delivery. Mesa siempre informativo.'
-              }
-            >
-              {ordersWhatsappEnabled
-                ? '💬 WhatsApp delivery: ON'
-                : '💬 WhatsApp delivery: OFF'}
             </button>
           )}
           <button className="btn-ghost" onClick={() => setShowCatForm(!showCatForm)}>
@@ -493,6 +447,11 @@ export default function MenuEditor() {
           </button>
         </div>
       </div>
+
+      {/* M1.2: identificación clara entre Menú Mesa (informativo) y Menú
+          Delivery (con carrito + WhatsApp). Misma data de productos pero
+          rutas distintas — cada una con su propósito. */}
+      {tenantSlug && <PublicMenuLinks slug={tenantSlug} mainLabel={mainLabel} />}
 
       {showCatForm && (
         <form onSubmit={createCategory} className="card card-pad mb-4 flex gap-2">
@@ -2015,6 +1974,113 @@ function ProductDrawer({
           <button className="btn-primary flex-1 justify-center" onClick={() => onSave(form)}>
             <Icon name="check" /> Guardar
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * M1.2 (2026-06-04): card con identificación clara de los dos links públicos
+ * del menú — Mesa (informativo, ?mesa=1) y Delivery (con carrito + WhatsApp,
+ * sin query). Misma data de productos, distinto propósito. Cada uno con
+ * botón para copiar el link y abrir en pestaña nueva.
+ */
+function PublicMenuLinks({ slug, mainLabel }: { slug: string; mainLabel: string }) {
+  const [origin, setOrigin] = useState<string>('');
+  useEffect(() => {
+    if (typeof window !== 'undefined') setOrigin(window.location.origin);
+  }, []);
+  const mesaUrl = `${origin}/m/${slug}?mesa=1`;
+  const deliveryUrl = `${origin}/m/${slug}`;
+  const labelLower = mainLabel.toLowerCase();
+
+  async function copy(url: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast(`Link de ${label} copiado`, 'success');
+    } catch {
+      toast('No se pudo copiar — copialo manualmente', 'error');
+    }
+  }
+
+  return (
+    <div className="card card-pad mb-4">
+      <h2 className="text-base font-semibold m-0 flex items-center gap-2">
+        🔗 Links públicos del {labelLower}
+      </h2>
+      <p className="text-xs text-mute mt-1 leading-relaxed">
+        Misma información de productos, distinta función. El link de mesa es
+        solo para que el cliente vea, el de delivery acepta pedidos.
+      </p>
+      <div className="mt-4 grid md:grid-cols-2 gap-3">
+        {/* Mesa */}
+        <div className="rounded-input border border-line2 bg-bg2/30 p-4">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <span className="text-lg">🍽</span>
+            <span>Menú Mesa</span>
+            <span className="ml-auto text-[10px] uppercase tracking-wider font-bold bg-bg2 text-mute px-1.5 py-0.5 rounded">
+              Informativo
+            </span>
+          </div>
+          <p className="text-[11px] text-mute mt-1 leading-snug">
+            Solo visualización. Sin carrito, sin botón WhatsApp. Pensado
+            para el QR de cada mesa — el cliente sentado pide al mozo.
+          </p>
+          <div className="mt-3 rounded-input bg-white border border-line px-2.5 py-2 text-[11px] font-mono break-all">
+            {mesaUrl || '—'}
+          </div>
+          <div className="mt-2 flex gap-1.5">
+            <button
+              type="button"
+              className="btn-ghost text-xs flex-1 justify-center"
+              onClick={() => copy(mesaUrl, 'mesa')}
+              disabled={!origin}
+            >
+              📋 Copiar
+            </button>
+            <Link
+              href={`/m/${slug}?mesa=1`}
+              target="_blank"
+              className="btn-ghost text-xs flex-1 justify-center"
+            >
+              ↗ Abrir
+            </Link>
+          </div>
+        </div>
+        {/* Delivery */}
+        <div className="rounded-input border-2 border-brand/30 bg-brand-soft/30 p-4">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <span className="text-lg">🛵</span>
+            <span>Menú Delivery</span>
+            <span className="ml-auto text-[10px] uppercase tracking-wider font-bold bg-brand text-white px-1.5 py-0.5 rounded">
+              Con carrito
+            </span>
+          </div>
+          <p className="text-[11px] text-mute mt-1 leading-snug">
+            El link público para enviar a clientes. Si Delivery está ON,
+            permite armar pedido + enviar por WhatsApp.
+          </p>
+          <div className="mt-3 rounded-input bg-white border border-line px-2.5 py-2 text-[11px] font-mono break-all">
+            {deliveryUrl || '—'}
+          </div>
+          <div className="mt-2 flex gap-1.5">
+            <button
+              type="button"
+              className="btn-ghost text-xs flex-1 justify-center"
+              onClick={() => copy(deliveryUrl, 'delivery')}
+              disabled={!origin}
+            >
+              📋 Copiar
+            </button>
+            <Link
+              href={`/m/${slug}`}
+              target="_blank"
+              className="btn-ghost text-xs flex-1 justify-center"
+            >
+              ↗ Abrir
+            </Link>
+          </div>
         </div>
       </div>
     </div>

@@ -64,6 +64,9 @@ class UpdateMyBody {
   @IsOptional() @IsBoolean() whatsappFeedbackEnabled?: boolean;
   @IsOptional() @IsString() whatsappFeedbackNumber?: string | null;
   @IsOptional() @IsString() whatsappFeedbackMessage?: string | null;
+  // Moneda de los precios mostrados en el storefront público. ISO 4217
+  // (3 letras, ej: COP, USD, MXN, ARS, CLP, PEN, BRL). M1.5 2026-06-04.
+  @IsOptional() @IsString() currency?: string;
 }
 
 @Controller('tenants/me')

@@ -12,7 +12,6 @@ export type StorefrontDto = {
   isPublished?: boolean;
   ordersEnabled?: boolean;
   ordersDeliveryEnabled?: boolean;
-  ordersWhatsappEnabled?: boolean;
   popupEnabled?: boolean;
   popupImageUrl?: string | null;
   popupCardId?: string | null;
@@ -81,7 +80,6 @@ export class StorefrontService {
         isPublished: dto.isPublished ?? true,
         ordersEnabled: dto.ordersEnabled ?? true,
         ordersDeliveryEnabled: dto.ordersDeliveryEnabled ?? true,
-        ordersWhatsappEnabled: dto.ordersWhatsappEnabled ?? true,
         customDomain,
       },
       update: {
@@ -92,7 +90,6 @@ export class StorefrontService {
         isPublished: dto.isPublished ?? undefined,
         ordersEnabled: dto.ordersEnabled ?? undefined,
         ordersDeliveryEnabled: dto.ordersDeliveryEnabled ?? undefined,
-        ordersWhatsappEnabled: dto.ordersWhatsappEnabled ?? undefined,
         popupEnabled: dto.popupEnabled ?? undefined,
         popupImageUrl: dto.popupImageUrl !== undefined ? dto.popupImageUrl : undefined,
         popupCardId: dto.popupCardId !== undefined ? dto.popupCardId : undefined,

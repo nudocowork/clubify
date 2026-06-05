@@ -26,7 +26,6 @@ class StorefrontBody {
   @IsOptional() @IsBoolean() isPublished?: boolean;
   @IsOptional() @IsBoolean() ordersEnabled?: boolean;
   @IsOptional() @IsBoolean() ordersDeliveryEnabled?: boolean;
-  @IsOptional() @IsBoolean() ordersWhatsappEnabled?: boolean;
   @IsOptional() @IsBoolean() popupEnabled?: boolean;
   @IsOptional() @IsString() popupImageUrl?: string | null;
   @IsOptional() @IsString() popupCardId?: string | null;

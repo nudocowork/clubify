@@ -1259,16 +1259,17 @@ model Storefront {
   // SIEMPRE va informativo por diseño (el QR de mesa no debe gatillar
   // pedidos), independientemente de este flag.
   ordersEnabled Boolean    @default(true)
-  // Toggle específico para la vista delivery (link público sin ?mesa).
-  // Si el dueño quiere dejar el menú delivery como solo-precios sin tocar
-  // mesa, apaga este flag.
+  // Toggle ÚNICO de delivery (vista pública sin ?mesa). Si está ON:
+  //   - habilita carrito + checkout
+  //   - habilita el botón "Pedir por WhatsApp"
+  //   - habilita generación de pedidos hacia el backend
+  // Si está OFF: la vista delivery es solo-precios (informativa, igual
+  // que la vista mesa). NO existe un toggle aparte para WhatsApp porque
+  // "carrito sin canal para enviar el pedido" no es un caso real (M1.3
+  // 2026-06-04). La vista MESA (?mesa=N) NUNCA muestra carrito ni botón
+  // WA, sin importar este flag (regla de negocio: cliente sentado en
+  // mesa el mozo le toma el pedido).
   ordersDeliveryEnabled Boolean @default(true)
-  // Toggle del botón "pedir por WhatsApp" en la vista DELIVERY. La vista
-  // de MESA (?mesa=N) siempre es informativa — NUNCA muestra el botón
-  // WhatsApp independiente del valor de este flag (regla de negocio:
-  // cliente sentado en mesa el mozo le toma el pedido). Default true
-  // para no romper tenants existentes con WA configurado.
-  ordersWhatsappEnabled Boolean @default(true)
   // Popup que aparece después de N segundos de abrir el menú público. Si
   // tiene imagen + está enabled + popupCardId, hace click en la imagen y
   // lleva al cliente a /c/{popupCardId} para inscribirse a la tarjeta.

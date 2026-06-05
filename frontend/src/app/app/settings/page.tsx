@@ -22,6 +22,7 @@ type TenantMe = {
   whatsappDeliveryPhone: string | null;
   mainSectionLabelOverride: string | null;
   businessCategorySlug: string | null;
+  currency?: string;
   billingAlertsEnabled?: boolean;
   billingAlertsPhone?: string | null;
   deliveryAlertsEnabled?: boolean;
@@ -31,6 +32,32 @@ type TenantMe = {
 };
 
 type MainSectionMode = 'menu' | 'services' | 'custom';
+
+/** Lista curada de monedas para LATAM + USD/EUR. Cada entrada es ISO 4217
+ *  (`code`), nombre legible (`label`), y país de bandera para visual hint.
+ *  Si necesitás agregar una, esta lista es la única fuente de verdad — el
+ *  storefront usa `new Intl.NumberFormat(..., { currency: code })` que
+ *  resuelve el símbolo automático sin más config. */
+const LATAM_CURRENCIES: { code: string; label: string; flag: string }[] = [
+  { code: 'COP', label: 'Peso colombiano', flag: '🇨🇴' },
+  { code: 'USD', label: 'Dólar estadounidense', flag: '🇺🇸' },
+  { code: 'MXN', label: 'Peso mexicano', flag: '🇲🇽' },
+  { code: 'ARS', label: 'Peso argentino', flag: '🇦🇷' },
+  { code: 'CLP', label: 'Peso chileno', flag: '🇨🇱' },
+  { code: 'PEN', label: 'Sol peruano', flag: '🇵🇪' },
+  { code: 'BRL', label: 'Real brasileño', flag: '🇧🇷' },
+  { code: 'UYU', label: 'Peso uruguayo', flag: '🇺🇾' },
+  { code: 'PYG', label: 'Guaraní paraguayo', flag: '🇵🇾' },
+  { code: 'BOB', label: 'Boliviano', flag: '🇧🇴' },
+  { code: 'VES', label: 'Bolívar venezolano', flag: '🇻🇪' },
+  { code: 'DOP', label: 'Peso dominicano', flag: '🇩🇴' },
+  { code: 'GTQ', label: 'Quetzal guatemalteco', flag: '🇬🇹' },
+  { code: 'HNL', label: 'Lempira hondureño', flag: '🇭🇳' },
+  { code: 'NIO', label: 'Córdoba nicaragüense', flag: '🇳🇮' },
+  { code: 'CRC', label: 'Colón costarricense', flag: '🇨🇷' },
+  { code: 'PAB', label: 'Balboa panameño', flag: '🇵🇦' },
+  { code: 'EUR', label: 'Euro', flag: '🇪🇺' },
+];
 
 function detectMainMode(override: string | null): {
   mode: MainSectionMode;
@@ -63,6 +90,10 @@ export default function SettingsPage() {
   const [savingSection, setSavingSection] = useState(false);
   const [sectionMsg, setSectionMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
+  const [currency, setCurrency] = useState<string>('COP');
+  const [savingCurrency, setSavingCurrency] = useState(false);
+  const [currencyMsg, setCurrencyMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
   useEffect(() => {
     api<Profile>('/users/me').then((u) => {
       setMe(u);
@@ -82,6 +113,7 @@ export default function SettingsPage() {
         const { mode, custom } = detectMainMode(t.mainSectionLabelOverride);
         setSectionMode(mode);
         setSectionCustom(custom);
+        setCurrency(t.currency ?? 'COP');
       })
       .catch(() => null);
   }, []);
@@ -138,6 +170,27 @@ export default function SettingsPage() {
       });
     } finally {
       setSavingSection(false);
+    }
+  }
+
+  async function saveCurrency(e: React.FormEvent) {
+    e.preventDefault();
+    setCurrencyMsg(null);
+    setSavingCurrency(true);
+    try {
+      const updated = await api<TenantMe>('/tenants/me', {
+        method: 'PATCH',
+        body: JSON.stringify({ currency }),
+      });
+      setTenant(updated);
+      setCurrencyMsg({
+        ok: true,
+        text: 'Moneda actualizada. Los precios del menú público se mostrarán en esta moneda.',
+      });
+    } catch (e: any) {
+      setCurrencyMsg({ ok: false, text: e.message || 'No se pudo guardar' });
+    } finally {
+      setSavingCurrency(false);
     }
   }
 
@@ -351,6 +404,66 @@ export default function SettingsPage() {
 
       {/* Alertas SMS a empresas de domicilio */}
       <DeliveryAlertsCard tenant={tenant} onSaved={(t) => setTenant(t)} />
+
+      {/* Moneda del menú público */}
+      <form onSubmit={saveCurrency} className="card card-pad mb-4">
+        <h2 className="text-base font-semibold m-0 flex items-center gap-2">
+          💱 Moneda del menú
+        </h2>
+        <p className="text-xs text-mute mt-1 leading-relaxed">
+          La moneda en la que se muestran los precios del menú público (mesa
+          y delivery). Cambia el símbolo, separadores y formato automático
+          según el código ISO elegido.
+        </p>
+        <div className="mt-4">
+          <label className="label">País / Moneda</label>
+          <select
+            className="input"
+            value={currency}
+            onChange={(e) => setCurrency(e.target.value)}
+          >
+            {LATAM_CURRENCIES.map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.flag} {c.code} — {c.label}
+              </option>
+            ))}
+          </select>
+          <p className="text-[11px] text-mute mt-1.5">
+            Vista previa:{' '}
+            <span className="font-mono text-ink">
+              {(() => {
+                try {
+                  return new Intl.NumberFormat('es-CO', {
+                    style: 'currency',
+                    currency,
+                    maximumFractionDigits: 0,
+                  }).format(15000);
+                } catch {
+                  return `${currency} 15000`;
+                }
+              })()}
+            </span>
+          </p>
+        </div>
+        {currencyMsg && (
+          <div
+            className={`text-sm rounded-lg px-3 py-2 mt-3 ${
+              currencyMsg.ok ? 'bg-ok-soft text-ok' : 'bg-bad-soft text-bad-ink'
+            }`}
+          >
+            {currencyMsg.text}
+          </div>
+        )}
+        <div className="mt-4 flex justify-end">
+          <button
+            type="submit"
+            className="btn-primary"
+            disabled={savingCurrency || currency === (tenant?.currency ?? 'COP')}
+          >
+            {savingCurrency ? 'Guardando…' : 'Guardar moneda'}
+          </button>
+        </div>
+      </form>
 
       {/* Mensajería de WhatsApp */}
       <div className="card card-pad mb-4">
