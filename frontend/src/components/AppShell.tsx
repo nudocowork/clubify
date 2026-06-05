@@ -181,6 +181,8 @@ export default function AppShell({
     const blocked = [
       '/admin/users',
       '/admin/referrals',
+      '/admin/reports',
+      '/admin/rankings',
       '/admin/maintenance',
       '/admin/audit',
       '/admin/tenants/new',
@@ -244,6 +246,9 @@ export default function AppShell({
               section: 'Programa',
               items: [
                 { href: '/admin/referrals', label: 'Referidos', icon: 'gift', hideForMarketing: true },
+                { href: '/admin/reports/ambassadors', label: 'Reporte embajadores', icon: 'trend-up', hideForMarketing: true },
+                { href: '/admin/reports/vendors', label: 'Reporte vendedores', icon: 'trend-up', hideForMarketing: true },
+                { href: '/admin/rankings', label: 'Rankings', icon: 'spark', hideForMarketing: true },
                 { href: '/admin/support-materials', label: 'Material de apoyo', icon: 'spark' },
               ],
             },
