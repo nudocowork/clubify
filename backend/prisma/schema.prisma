@@ -1560,6 +1560,11 @@ model ReferralCode {
   // aplicación si null).
   allowVendors          Boolean        @default(false)
   maxCommissionPercent  Decimal?       @db.Decimal(5, 2)
+  // % por defecto que se aplica a los vendedores creados desde el
+  // self-register link `/seller/register/<ambassadorCode>`. El embajador
+  // lo configura desde su panel /affiliate/team. Si null, default 10%.
+  // Backend valida: 0 < value <= maxCommissionPercent (??25) - usadoActivo.
+  defaultVendorCommissionPercent Decimal? @db.Decimal(5, 2)
   // Solo se setea cuando role=VENDOR. FK self-relation al embajador padre.
   // El vendedor cobra su % directo y el embajador recibe SU % menos lo
   // del vendedor en el 3-way split del webhook Hotmart.

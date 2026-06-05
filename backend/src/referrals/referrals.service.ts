@@ -2089,6 +2089,243 @@ export class ReferralsService {
   }
 
   /**
+   * El embajador (no el super admin) preconfigura el % por defecto que se
+   * aplicará automáticamente cuando un vendedor se autoregistra desde
+   * `/seller/register/<ambassadorCode>`. Tiene que ser > 0 y caber dentro
+   * de su comisión disponible (max - usadoActivo). Si pasa null, vuelve a
+   * usar el fallback de 10% (o el disponible si es menor).
+   */
+  async setEmbajadorDefaultVendorCommission(
+    user: AuthUser,
+    embajadorCodeId: string,
+    pct: number | null,
+  ) {
+    const code = await this.prisma.referralCode.findUnique({
+      where: { id: embajadorCodeId },
+      include: { childVendors: true },
+    });
+    if (!code) throw new NotFoundException('Embajador no encontrado');
+    if (code.role !== 'AMBASSADOR') {
+      throw new BadRequestException(
+        'Solo embajadores pueden configurar el % por defecto.',
+      );
+    }
+    const isAuthorized =
+      user.role === 'SUPER_ADMIN' ||
+      (await this.isUserOwnerOfCode(user, embajadorCodeId));
+    if (!isAuthorized) throw new ForbiddenException();
+    if (!code.allowVendors) {
+      throw new BadRequestException(
+        'Tu cuenta no tiene activado el módulo de vendedores.',
+      );
+    }
+    if (pct !== null) {
+      if (typeof pct !== 'number' || isNaN(pct) || pct <= 0) {
+        throw new BadRequestException('El % debe ser mayor a 0.');
+      }
+      const max = code.maxCommissionPercent
+        ? Number(code.maxCommissionPercent)
+        : 25;
+      const used = code.childVendors
+        .filter((v) => v.isActive)
+        .reduce((s, v) => s + Number(v.commissionPercent ?? 0), 0);
+      const available = max - used;
+      if (pct > available) {
+        throw new BadRequestException(
+          `El % por defecto (${pct}%) excede tu disponible (${available}% restante de ${max}% máx).`,
+        );
+      }
+      if (pct > max) {
+        throw new BadRequestException(
+          `El % por defecto no puede superar tu comisión máxima (${max}%).`,
+        );
+      }
+    }
+    const updated = await this.prisma.referralCode.update({
+      where: { id: embajadorCodeId },
+      data: { defaultVendorCommissionPercent: pct },
+      select: { id: true, defaultVendorCommissionPercent: true },
+    });
+    return {
+      id: updated.id,
+      defaultVendorCommissionPercent:
+        updated.defaultVendorCommissionPercent !== null
+          ? Number(updated.defaultVendorCommissionPercent)
+          : null,
+    };
+  }
+
+  /**
+   * Lookup público (sin auth) usado por la página `/seller/register/<code>`
+   * del frontend. Valida que el code exista, sea un embajador activo y
+   * tenga el módulo de vendedores activo. Si no, retorna `valid: false`
+   * con motivo. NO expone PII sensible — solo nombre + slug + % default.
+   */
+  async lookupSelfRegisterAmbassador(code: string) {
+    const norm = code.trim();
+    if (!norm) {
+      return { valid: false, reason: 'INVALID_CODE' as const };
+    }
+    const amb = await this.prisma.referralCode.findUnique({
+      where: { code: norm },
+      include: { childVendors: true },
+    });
+    if (!amb || amb.role !== 'AMBASSADOR') {
+      return { valid: false, reason: 'NOT_FOUND' as const };
+    }
+    if (!amb.isActive) {
+      return { valid: false, reason: 'INACTIVE' as const };
+    }
+    if (!amb.allowVendors) {
+      return { valid: false, reason: 'NOT_ALLOWED' as const };
+    }
+    const max = amb.maxCommissionPercent
+      ? Number(amb.maxCommissionPercent)
+      : 25;
+    const used = amb.childVendors
+      .filter((v) => v.isActive)
+      .reduce((s, v) => s + Number(v.commissionPercent ?? 0), 0);
+    const available = Math.max(0, max - used);
+    const defaultPct = amb.defaultVendorCommissionPercent
+      ? Number(amb.defaultVendorCommissionPercent)
+      : 10;
+    const effectivePct = Math.min(defaultPct, available);
+    return {
+      valid: true as const,
+      ambassador: {
+        code: amb.code,
+        ownerName: amb.ownerName,
+        slug: amb.slug ?? amb.code.toLowerCase(),
+      },
+      // No exponemos el `available` exacto en público para no filtrar
+      // detalles internos — solo si hay cupo o no.
+      hasAvailableCommission: available > 0,
+      defaultVendorCommissionPercent: effectivePct,
+    };
+  }
+
+  /**
+   * Autoregistro público de un vendedor desde `/seller/register/<code>`.
+   * Reutiliza createVendor por dentro (saltando el auth gate del embajador
+   * porque acá el "actor" es el propio vendedor que está creando su cuenta)
+   * y al éxito emite JWT + refresh para auto-login.
+   */
+  async selfRegisterVendor(
+    dto: {
+      ambassadorCode: string;
+      fullName: string;
+      email: string;
+      phone: string;
+      password: string;
+    },
+    ip?: string,
+  ) {
+    const lookup = await this.lookupSelfRegisterAmbassador(dto.ambassadorCode);
+    if (!lookup.valid) {
+      throw new BadRequestException(
+        'Este embajador no tiene habilitado el registro de vendedores.',
+      );
+    }
+    if (!lookup.hasAvailableCommission) {
+      throw new BadRequestException(
+        'El embajador no tiene comisión disponible para sumar vendedores en este momento.',
+      );
+    }
+
+    const amb = await this.prisma.referralCode.findUnique({
+      where: { code: lookup.ambassador.code },
+      include: { childVendors: true },
+    });
+    if (!amb) {
+      throw new NotFoundException('Embajador no encontrado');
+    }
+
+    await this.assertUniqueAffiliateEmail(dto.email);
+
+    // Determinamos el % final: el default del embajador (??10) capado a
+    // su disponible. La validación dura sigue siendo la misma del flow
+    // createVendor (acá inline porque ya tenemos `amb`).
+    const max = amb.maxCommissionPercent
+      ? Number(amb.maxCommissionPercent)
+      : 25;
+    const used = amb.childVendors
+      .filter((v) => v.isActive)
+      .reduce((s, v) => s + Number(v.commissionPercent ?? 0), 0);
+    const available = max - used;
+    const defaultPct = amb.defaultVendorCommissionPercent
+      ? Number(amb.defaultVendorCommissionPercent)
+      : 10;
+    const commissionPercent = Math.min(defaultPct, available);
+    if (commissionPercent <= 0) {
+      throw new BadRequestException(
+        'El embajador no tiene comisión disponible para sumar vendedores.',
+      );
+    }
+
+    // Creamos el ReferralCode role=VENDOR + User AFFILIATE_VENDOR.
+    let code = codeGen();
+    while (await this.prisma.referralCode.findUnique({ where: { code } })) {
+      code = codeGen();
+    }
+    const slug = await this.allocateSlug(dto.fullName, code);
+
+    const created = await this.prisma.referralCode.create({
+      data: {
+        code,
+        slug,
+        ownerName: dto.fullName,
+        ownerEmail: dto.email,
+        ownerWhatsapp: dto.phone,
+        role: 'VENDOR',
+        commissionPercent,
+        parentEmbajadorCodeId: amb.id,
+        isActive: true,
+      },
+    });
+
+    const inviteResult = await this.auth
+      .inviteAffiliate({
+        email: dto.email,
+        fullName: dto.fullName,
+        role: 'AFFILIATE_VENDOR',
+        referralCodeId: created.id,
+        phone: dto.phone,
+        presetPassword: dto.password,
+      })
+      .catch((err) => {
+        this.logger.warn(
+          `inviteAffiliate falló para self-register ${dto.email}: ${(err as Error).message}`,
+        );
+        return null;
+      });
+    if (!inviteResult) {
+      throw new BadRequestException(
+        'No se pudo crear la cuenta. Intentá de nuevo en unos minutos.',
+      );
+    }
+
+    // Auto-login: emitimos JWT + refresh apuntando al user recién creado.
+    const tokens = await this.auth.issueAuthTokensForUserId(
+      inviteResult.userId,
+      ip ?? null,
+    );
+
+    return {
+      ...tokens,
+      vendor: {
+        codeId: created.id,
+        code: created.code,
+        ownerName: created.ownerName,
+        commissionPercent,
+      },
+      ambassador: {
+        code: amb.code,
+        ownerName: amb.ownerName,
+      },
+    };
+  }
+
+  /**
    * Crea un vendedor bajo un embajador. Sólo el SUPER_ADMIN o el dueño
    * del embajador (acting como AFFILIATE con referralCodeId = embajador)
    * pueden crear.
