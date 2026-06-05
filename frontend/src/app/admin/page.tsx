@@ -23,6 +23,22 @@ type Metrics = {
   pendingCommissions: number;
 };
 
+type DashboardMetrics = {
+  comisionesGeneradasMesUsd: number;
+  comisionesPendientesUsd: number;
+  comisionesPagadasMesUsd: number;
+  proximasRenovaciones: number;
+  clientesActivos: number;
+  clientesVencidos: number;
+  salesByPlan: Array<{
+    periodicity: string;
+    label: string;
+    count: number;
+    billingUsd: number;
+  }>;
+  generatedAt: string;
+};
+
 const KPI = ({
   label,
   value,
@@ -74,8 +90,10 @@ const KPI = ({
 
 export default function AdminDashboard() {
   const [m, setM] = useState<Metrics | null>(null);
+  const [dm, setDm] = useState<DashboardMetrics | null>(null);
   useEffect(() => {
     api<Metrics>('/metrics/global').then(setM).catch(() => null);
+    api<DashboardMetrics>('/admin/dashboard/metrics').then(setDm).catch(() => null);
   }, []);
 
   const today = new Date().toLocaleDateString('es-CO', {
@@ -211,6 +229,87 @@ export default function AdminDashboard() {
           tone="bad"
           href="/admin/tenants"
         />
+      </div>
+
+      {/* Comisiones del mes + cobros */}
+      <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
+        Comisiones · este mes
+      </div>
+      <div className="grid gap-3.5 grid-cols-2 md:grid-cols-4 mb-4">
+        <KPI
+          label="Generadas este mes"
+          value={`$${Number(dm?.comisionesGeneradasMesUsd ?? 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}`}
+          sub="suma de commission.amount"
+          icon="cash"
+          tone="brand"
+          href="/admin/reports/ambassadors"
+        />
+        <KPI
+          label="Pagadas este mes"
+          value={`$${Number(dm?.comisionesPagadasMesUsd ?? 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}`}
+          sub="amountPaid de PAID/PARTIAL"
+          icon="check"
+          tone="ok"
+        />
+        <KPI
+          label="Pendientes (total)"
+          value={`$${Number(dm?.comisionesPendientesUsd ?? 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}`}
+          sub="por pagar a afiliados"
+          icon="bell"
+          tone="warn"
+          href="/admin/referrals"
+        />
+        <KPI
+          label="Próximas renovaciones"
+          value={dm?.proximasRenovaciones ?? '–'}
+          sub="próximos 30 días"
+          icon="card"
+          tone="brand"
+          href="/admin/tenants"
+        />
+      </div>
+
+      {/* Clientes activos vs vencidos */}
+      <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
+        Clientes
+      </div>
+      <div className="grid gap-3.5 grid-cols-2 md:grid-cols-2 mb-4">
+        <KPI
+          label="Clientes activos"
+          value={dm?.clientesActivos ?? m?.activeTenants ?? '–'}
+          sub="suscripción al día"
+          icon="users"
+          tone="ok"
+        />
+        <KPI
+          label="Clientes vencidos"
+          value={dm?.clientesVencidos ?? '–'}
+          sub="suspendidos o sin renovar"
+          icon="bell"
+          tone="bad"
+        />
+      </div>
+
+      {/* Ventas por plan */}
+      <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
+        Ventas por plan
+      </div>
+      <div className="grid gap-3.5 grid-cols-2 md:grid-cols-4 mb-4">
+        {(dm?.salesByPlan ?? [
+          { periodicity: 'MENSUAL', label: 'Mensual', count: 0, billingUsd: 0 },
+          { periodicity: 'TRIMESTRAL', label: 'Trimestral', count: 0, billingUsd: 0 },
+          { periodicity: 'SEMESTRAL', label: 'Semestral', count: 0, billingUsd: 0 },
+          { periodicity: 'ANUAL', label: 'Anual', count: 0, billingUsd: 0 },
+        ]).map((p) => (
+          <KPI
+            key={p.periodicity}
+            label={p.label}
+            value={p.count}
+            sub={`$${Number(p.billingUsd).toLocaleString('en-US', { maximumFractionDigits: 0 })} facturación`}
+            icon="store"
+            tone="brand"
+          />
+        ))}
       </div>
 
       {/* Activity */}
