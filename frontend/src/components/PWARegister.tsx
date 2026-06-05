@@ -8,12 +8,18 @@ export function PWARegister() {
     if (process.env.NODE_ENV !== 'production') return;
 
     let reloaded = false;
-    // Cuando el SW activo cambia (porque se instaló uno nuevo y tomó control),
-    // recargamos UNA VEZ para que la página corra contra los assets nuevos.
-    // El flag `reloaded` evita el bucle de reload-loop si el SW se rota
-    // varias veces seguidas (raro pero posible).
+    // CRÍTICO (M8 2026-06-05): solo recargamos cuando el SW se ACTUALIZA
+    // (ya había un controller previo controlando esta página). En la
+    // PRIMERA instalación — típico cuando el cliente abre `/c/<id>` desde
+    // un QR sin haber visitado antes el dominio — el controllerchange
+    // dispararía un reload mientras el cliente está tocando el input,
+    // perdiendo el primer keystroke. Skipear el reload-on-first-install
+    // es seguro porque la página YA está corriendo con los assets recién
+    // bajados de network (el SW no existía cuando se hizo el fetch).
+    const wasControlled = !!navigator.serviceWorker.controller;
     const onControllerChange = () => {
       if (reloaded) return;
+      if (!wasControlled) return; // first install — la página ya es fresh
       reloaded = true;
       window.location.reload();
     };

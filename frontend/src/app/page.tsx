@@ -532,7 +532,7 @@ export default async function Landing() {
             {[
               {
                 q: '¿Cuánto pago y en qué moneda?',
-                a: 'USD 50/mes, cobrados al crear tu cuenta. Te mostramos el equivalente en tu moneda local (COP, MXN, ARS, BRL, etc.) al cambio del día. Sin contratos — cancelas cuando quieras desde tu panel.',
+                a: 'Desde USD 68/mes en el plan mensual. Tenemos también Trimestral, Semestral y Anual con descuento por compromiso (el Anual te sale en USD ~42/mes equivalente). Te mostramos el equivalente en tu moneda local (COP, MXN, ARS, BRL, etc.) al cambio del día. Sin contratos — cancelas cuando quieras desde tu panel.',
               },
               {
                 q: '¿Mis clientes necesitan descargar una app?',
