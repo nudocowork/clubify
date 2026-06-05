@@ -58,21 +58,6 @@ export default function TenantDetail() {
     }
   }
 
-  /** M9: cambia la periodicidad informativa del plan. NO altera billing
-   *  real (eso lo dicta Hotmart). Solo metadata CRM. */
-  async function savePeriodicity(v: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL' | null) {
-    try {
-      await api(`/tenants/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ planPeriodicity: v }),
-      });
-      await load();
-      toast('Periodicidad actualizada', 'success');
-    } catch (e: any) {
-      toast(e.message || 'No se pudo actualizar', 'error');
-    }
-  }
-
   async function setStatus(status: string) {
     if (
       status === 'SUSPENDED' &&
@@ -406,30 +391,10 @@ export default function TenantDetail() {
                 })}
               </dd>
             </div>
-            {isSuperAdmin && (
-              <div className="flex justify-between items-center gap-3">
-                <dt className="text-mute whitespace-nowrap">Periodicidad</dt>
-                <dd>
-                  <select
-                    className="input py-1 px-2 text-xs"
-                    value={t.planPeriodicity ?? ''}
-                    onChange={(e) =>
-                      savePeriodicity(
-                        e.target.value === ''
-                          ? null
-                          : (e.target.value as 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL'),
-                      )
-                    }
-                  >
-                    <option value="">— sin definir —</option>
-                    <option value="MENSUAL">Mensual</option>
-                    <option value="TRIMESTRAL">Trimestral</option>
-                    <option value="SEMESTRAL">Semestral</option>
-                    <option value="ANUAL">Anual</option>
-                  </select>
-                </dd>
-              </div>
-            )}
+            {/* Periodicidad ahora vive en la card "Plan actual" más abajo
+                — con modal de confirmación + checklist de tareas Hotmart
+                manuales (cancelar suscripción vieja + enviar nuevo link).
+                Ver PlanCurrentCard. */}
           </dl>
           <div className="mt-4 pt-3 border-t border-line">
             <Link
@@ -441,6 +406,8 @@ export default function TenantDetail() {
             </Link>
           </div>
         </div>
+
+        <PlanCurrentCard tenant={t} isSuperAdmin={isSuperAdmin} onChange={load} />
 
         {isSuperAdmin && (
           <div className="card card-pad">
@@ -1426,6 +1393,360 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
         >
           {saving ? 'Aplicando…' : 'Aplicar cambio →'}
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+//   Plan actual + cambio de periodicidad (SOLO METADATA INTERNA)
+// ============================================================
+
+type PeriodId = 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL';
+
+type LandingPlanCfg = { price: number; checkoutUrl: string | null };
+type LandingPlansResp = Partial<Record<'mensual' | 'trimestral' | 'semestral' | 'anual', LandingPlanCfg>>;
+
+const PERIOD_LABEL: Record<PeriodId, string> = {
+  MENSUAL: 'Mensual',
+  TRIMESTRAL: 'Trimestral',
+  SEMESTRAL: 'Semestral',
+  ANUAL: 'Anual',
+};
+
+// Default fallback en USD — los reales se editan desde /admin/branding.
+// Si la API no responde, mostramos estos para no quedar en blanco.
+const PERIOD_PRICE_DEFAULT: Record<PeriodId, number> = {
+  MENSUAL: 68,
+  TRIMESTRAL: 150,
+  SEMESTRAL: 278,
+  ANUAL: 500,
+};
+
+const PERIOD_TO_KEY: Record<PeriodId, 'mensual' | 'trimestral' | 'semestral' | 'anual'> = {
+  MENSUAL: 'mensual',
+  TRIMESTRAL: 'trimestral',
+  SEMESTRAL: 'semestral',
+  ANUAL: 'anual',
+};
+
+/**
+ * Card "Plan actual" + modal de cambio de periodicidad.
+ *
+ * REGLA CRÍTICA: NO toca Hotmart. Solo actualiza metadata interna del
+ * tenant (planPeriodicity + currentPeriodEnd). El admin debe cancelar la
+ * suscripción vieja en Hotmart y enviarle al cliente el link del nuevo
+ * plan manualmente. Sin esos pasos, el cobro real sigue siendo el del
+ * plan anterior.
+ *
+ * El modal exige 3 checks explícitos antes de habilitar "Confirmar".
+ */
+function PlanCurrentCard({
+  tenant,
+  isSuperAdmin,
+  onChange,
+}: {
+  tenant: any;
+  isSuperAdmin: boolean;
+  onChange: () => void;
+}) {
+  const [plans, setPlans] = useState<LandingPlansResp | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+
+  // Carga precios desde /landing-plans para mostrar al lado de la
+  // periodicidad actual y en los radios del modal. Si falla, usamos
+  // PERIOD_PRICE_DEFAULT.
+  useEffect(() => {
+    api<LandingPlansResp>('/landing-plans')
+      .then((data) => setPlans(data))
+      .catch(() => setPlans({}));
+  }, []);
+
+  const currentPeriod = (tenant?.planPeriodicity as PeriodId | null) ?? null;
+  const currentPrice = currentPeriod
+    ? plans?.[PERIOD_TO_KEY[currentPeriod]]?.price ?? PERIOD_PRICE_DEFAULT[currentPeriod]
+    : null;
+
+  return (
+    <div className="card card-pad">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-base font-semibold m-0">Plan actual</h2>
+          <p className="text-xs text-mute mt-1">
+            Metadata interna del negocio. El cobro real lo dicta Hotmart.
+          </p>
+        </div>
+        {isSuperAdmin && (
+          <button
+            type="button"
+            className="btn-ghost text-sm cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"
+            onClick={() => setModalOpen(true)}
+          >
+            Cambiar plan
+          </button>
+        )}
+      </div>
+
+      <dl className="mt-4 space-y-2 text-sm">
+        <div className="flex justify-between">
+          <dt className="text-mute">Plan</dt>
+          <dd className="font-semibold text-brand">{tenant.plan?.name ?? '—'}</dd>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-mute">Periodicidad</dt>
+          <dd className="font-medium">
+            {currentPeriod ? PERIOD_LABEL[currentPeriod] : <span className="text-mute">— sin definir —</span>}
+          </dd>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-mute">Precio</dt>
+          <dd className="font-medium">
+            {currentPrice != null ? (
+              <>
+                <span className="font-semibold">${currentPrice.toLocaleString('en-US')}</span>
+                <span className="text-mute"> USD / {PERIOD_LABEL[currentPeriod!].toLowerCase()}</span>
+              </>
+            ) : (
+              <span className="text-mute">—</span>
+            )}
+          </dd>
+        </div>
+        {tenant.currentPeriodEnd && (
+          <div className="flex justify-between">
+            <dt className="text-mute">Próximo cobro</dt>
+            <dd className="font-medium">
+              {new Date(tenant.currentPeriodEnd).toLocaleDateString('es-CO', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+              })}
+            </dd>
+          </div>
+        )}
+      </dl>
+
+      {modalOpen && (
+        <ChangePlanPeriodModal
+          tenant={tenant}
+          currentPeriod={currentPeriod}
+          plans={plans ?? {}}
+          onClose={() => setModalOpen(false)}
+          onSaved={() => {
+            setModalOpen(false);
+            onChange();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Modal de cambio de periodicidad. Exige:
+ *  1. Elegir nueva periodicidad (radio).
+ *  2. Marcar 3 checks de tareas manuales en Hotmart.
+ *  3. Confirmar — recién ahí dispara POST /tenants/:id/change-plan-period.
+ *
+ * El backend SOLO actualiza metadata (planPeriodicity + currentPeriodEnd
+ * + AuditLog). Hotmart sigue cobrando lo mismo hasta que el admin haga
+ * los pasos manuales.
+ */
+function ChangePlanPeriodModal({
+  tenant,
+  currentPeriod,
+  plans,
+  onClose,
+  onSaved,
+}: {
+  tenant: any;
+  currentPeriod: PeriodId | null;
+  plans: LandingPlansResp;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [selected, setSelected] = useState<PeriodId | null>(currentPeriod);
+  const [check1, setCheck1] = useState(false);
+  const [check2, setCheck2] = useState(false);
+  const [check3, setCheck3] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const allChecksOk = check1 && check2 && check3;
+  const canConfirm =
+    !!selected && selected !== currentPeriod && allChecksOk && !saving;
+
+  async function confirm() {
+    if (!canConfirm || !selected) return;
+    setSaving(true);
+    try {
+      await api(`/tenants/${tenant.id}/change-plan-period`, {
+        method: 'POST',
+        body: JSON.stringify({ periodicity: selected }),
+      });
+      toast('Plan actualizado (metadata interna)', 'success');
+      onSaved();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo cambiar el plan', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/50 flex items-end md:items-center justify-center p-3 md:p-6"
+      onClick={onClose}
+    >
+      <div
+        className="bg-bg1 rounded-2xl shadow-2xl border border-line w-full max-w-xl max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-5 py-4 border-b border-line flex items-center justify-between sticky top-0 bg-bg1 z-10">
+          <h3 className="text-lg font-semibold m-0">Cambiar plan</h3>
+          <button
+            type="button"
+            className="text-mute hover:text-ink text-2xl leading-none cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"
+            onClick={onClose}
+            aria-label="Cerrar"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="px-5 py-4 space-y-4">
+          {/* Warning grande arriba de todo */}
+          <div className="rounded-lg bg-amber-50 border border-amber-200 px-3.5 py-3 text-xs text-amber-900 leading-relaxed">
+            <div className="font-semibold mb-1.5">
+              ⚠ Este cambio actualiza la metadata interna del negocio.
+            </div>
+            Hotmart NO se entera automáticamente — vos tenés que:
+            <ol className="list-decimal list-inside mt-1.5 space-y-0.5">
+              <li>Cancelar la suscripción vieja en Hotmart.</li>
+              <li>
+                Enviarle al cliente el link del nuevo plan (link de Hotmart
+                configurado en{' '}
+                <Link href="/admin/branding" className="underline font-semibold">
+                  /admin/branding
+                </Link>
+                ).
+              </li>
+            </ol>
+            <div className="mt-1.5">
+              Sin esto, el cobro seguirá siendo el del plan anterior.
+            </div>
+          </div>
+
+          {/* Radios de periodicidad */}
+          <div>
+            <label className="label">Nueva periodicidad</label>
+            <div className="mt-2 space-y-1.5">
+              {(['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL'] as PeriodId[]).map((p) => {
+                const price =
+                  plans?.[PERIOD_TO_KEY[p]]?.price ?? PERIOD_PRICE_DEFAULT[p];
+                const isCurrent = p === currentPeriod;
+                return (
+                  <label
+                    key={p}
+                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer touch-manipulation select-none active:scale-[0.99] transition-transform duration-150 [-webkit-tap-highlight-color:transparent] ${
+                      selected === p
+                        ? 'border-brand bg-brand/5'
+                        : 'border-line hover:bg-bg2/40'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="plan-period"
+                      checked={selected === p}
+                      onChange={() => setSelected(p)}
+                      className="accent-brand"
+                    />
+                    <div className="flex-1 flex items-center justify-between gap-2 flex-wrap">
+                      <div className="font-medium">
+                        {PERIOD_LABEL[p]}
+                        {isCurrent && (
+                          <span className="ml-2 text-[10px] uppercase tracking-wider font-bold text-mute bg-bg2 px-1.5 py-0.5 rounded">
+                            actual
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-sm">
+                        <span className="font-semibold">
+                          ${price.toLocaleString('en-US')}
+                        </span>
+                        <span className="text-mute"> USD</span>
+                      </div>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Checklist de 3 confirmaciones */}
+          <div className="rounded-lg border border-line bg-bg2/40 px-3.5 py-3">
+            <div className="text-xs font-semibold text-mute uppercase tracking-wider mb-2">
+              Confirmaciones obligatorias
+            </div>
+            <div className="space-y-2 text-sm">
+              <label className="flex items-start gap-2.5 cursor-pointer touch-manipulation select-none">
+                <input
+                  type="checkbox"
+                  checked={check1}
+                  onChange={(e) => setCheck1(e.target.checked)}
+                  className="accent-brand mt-0.5"
+                />
+                <span>Cancelé la suscripción vieja en Hotmart</span>
+              </label>
+              <label className="flex items-start gap-2.5 cursor-pointer touch-manipulation select-none">
+                <input
+                  type="checkbox"
+                  checked={check2}
+                  onChange={(e) => setCheck2(e.target.checked)}
+                  className="accent-brand mt-0.5"
+                />
+                <span>Le envié al cliente el link del nuevo plan</span>
+              </label>
+              <label className="flex items-start gap-2.5 cursor-pointer touch-manipulation select-none">
+                <input
+                  type="checkbox"
+                  checked={check3}
+                  onChange={(e) => setCheck3(e.target.checked)}
+                  className="accent-brand mt-0.5"
+                />
+                <span>
+                  Confirmo que entiendo que el cobro real lo dicta Hotmart
+                </span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-5 py-4 border-t border-line flex items-center justify-end gap-2 sticky bottom-0 bg-bg1">
+          <button
+            type="button"
+            className="btn-ghost text-sm cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"
+            onClick={onClose}
+            disabled={saving}
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            className="btn-primary text-sm cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"
+            onClick={confirm}
+            disabled={!canConfirm}
+            title={
+              !selected
+                ? 'Elige una periodicidad'
+                : selected === currentPeriod
+                ? 'Ya está en esta periodicidad'
+                : !allChecksOk
+                ? 'Marca los 3 checks de confirmación'
+                : 'Confirmar el cambio'
+            }
+          >
+            {saving ? 'Guardando…' : 'Confirmar cambio'}
+          </button>
+        </div>
       </div>
     </div>
   );

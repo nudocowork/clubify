@@ -36,6 +36,15 @@ class BillingBody {
   @IsOptional() @IsString() hotmartSubscriberCode?: string;
 }
 
+/** Cambio de periodicidad del plan desde /admin/tenants/[id] — solo
+ *  metadata interna. NO toca Hotmart (el cobro real lo dicta el provider).
+ *  El admin debe cancelar la suscripción vieja y mandarle al cliente el
+ *  link del plan nuevo MANUALMENTE. */
+class ChangePlanPeriodBody {
+  @IsIn(['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL'])
+  periodicity!: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL';
+}
+
 class UpdateTenantBody {
   @IsOptional() @IsString() brandName?: string;
   @IsOptional() @IsEmail() email?: string;
@@ -121,6 +130,21 @@ export class TenantsController {
   @Roles('SUPER_ADMIN')
   billing(@Param('id') id: string, @Body() body: BillingBody) {
     return this.svc.updateBilling(id, body);
+  }
+
+  /** Cambia la periodicidad del plan (Mensual/Trimestral/Semestral/Anual).
+   *  SOLO METADATA INTERNA: actualiza Tenant.planPeriodicity + extiende
+   *  currentPeriodEnd según el nuevo período. NO toca Hotmart — el admin
+   *  debe cancelar la suscripción vieja y enviarle al cliente el link del
+   *  nuevo plan manualmente. Queda registrado en AuditLog. */
+  @Post(':id/change-plan-period')
+  @Roles('SUPER_ADMIN')
+  changePlanPeriod(
+    @Param('id') id: string,
+    @Body() body: ChangePlanPeriodBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.changePlanPeriod(id, body.periodicity, user.id);
   }
 
   /** M5 (2026-06-04): MARKETING también puede entrar al panel del tenant
