@@ -11,6 +11,7 @@ import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import { PhoneInput } from '@/components/PhoneInput';
 import { AffiliateCredentialsModal } from '@/components/AffiliateCredentialsModal';
+import { ConfirmDeleteModal } from '@/components/ConfirmDeleteModal';
 
 type Detail = {
   id: string;
@@ -115,6 +116,7 @@ export default function CampaignDetailPage() {
     fullName: string;
     whatsapp: string;
   } | null>(null);
+  const [showDelete, setShowDelete] = useState(false);
 
   async function addAmbassador(e: React.FormEvent) {
     e.preventDefault();
@@ -213,8 +215,41 @@ export default function CampaignDetailPage() {
               Finalizar
             </button>
           )}
+          <button
+            onClick={() => setShowDelete(true)}
+            className="text-sm font-semibold px-3 py-1.5 rounded-md bg-red-100 text-red-700 hover:bg-red-200"
+            title="Eliminar la campaña (valida que no haya tenants activos)"
+          >
+            🗑 Eliminar
+          </button>
         </div>
       </div>
+      {showDelete && (
+        <ConfirmDeleteModal
+          title={`Eliminar campaña "${data.name}"`}
+          description={
+            <>
+              ¿Deseas eliminar este registro? Si el influencer titular o
+              sus embajadores tienen tenants en estado{' '}
+              <strong>activo o pagando</strong>,{' '}
+              <strong>no se podrá eliminar</strong> — recibirás un aviso con
+              la cantidad. El influencer titular queda como influencer sin
+              campaña; los embajadores se desactivan para preservar
+              historial.
+            </>
+          }
+          onConfirm={async () => {
+            try {
+              await api(`/campaigns/${id}`, { method: 'DELETE' });
+              toast(`Campaña "${data.name}" eliminada`, 'success');
+              router.push('/admin/referrals');
+            } catch (e: any) {
+              toast(e.message || 'No se pudo eliminar', 'error');
+            }
+          }}
+          onClose={() => setShowDelete(false)}
+        />
+      )}
 
       {/* Mini dashboard */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5 mb-5">

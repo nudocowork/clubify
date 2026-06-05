@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { JwtService } from '@nestjs/jwt';
 import { customAlphabet } from 'nanoid';
@@ -282,6 +282,11 @@ export class ReferralsService {
     if (!dto.fullName || !dto.email || !dto.whatsapp) {
       throw new BadRequestException('fullName, email and whatsapp required');
     }
+    // Email único global a través de todos los roles de afiliado.
+    // Si ya existe en ReferralCode (cualquier role) o en User
+    // con role AFFILIATE_*, lanza 409. Permite que 2 personas
+    // con el mismo nombre se registren, pero no con el mismo correo.
+    await this.assertUniqueAffiliateEmail(dto.email);
     let code = codeGen();
     while (await this.prisma.referralCode.findUnique({ where: { code } })) {
       code = codeGen();
@@ -894,23 +899,9 @@ export class ReferralsService {
     }
     const email = dto.email.trim().toLowerCase();
 
-    // No permitir duplicado: un mismo email no puede tener 2 ReferralCode
-    // como AMBASSADOR (Directo Empresa o bajo cualquier influencer). El
-    // super admin debe usar scripts/merge-ambassador-accounts.mjs si quiere
-    // unificar dos registros existentes.
-    const dup = await this.prisma.referralCode.findFirst({
-      where: { ownerEmail: email, role: 'AMBASSADOR' },
-      include: { parentCode: { select: { ownerName: true, code: true } } },
-    });
-    if (dup) {
-      const scope = dup.parentCodeId
-        ? `bajo ${dup.parentCode?.ownerName ?? 'otro influencer'} [${dup.parentCode?.code ?? dup.parentCodeId}]`
-        : 'como Embajador Directo Empresa';
-      throw new BadRequestException(
-        `Ya existe un embajador con este email ${scope} (referralCodeId=${dup.id}). ` +
-          `Un mismo usuario no puede ser embajador en más de un lugar.`,
-      );
-    }
+    // Email único global: no permite ningún ReferralCode (cualquier role)
+    // ni User AFFILIATE_* con el mismo email.
+    await this.assertUniqueAffiliateEmail(email);
 
     // Generar código único + slug a partir del nombre
     let code = dto.customCode?.trim().toUpperCase();
@@ -1144,6 +1135,10 @@ export class ReferralsService {
       where: { ownerEmail: email, role: 'SOCIO' },
     });
     if (!code) {
+      // Si NO hay un SOCIO con ese email, validar email único global
+      // antes de crear uno nuevo. Si ya existe como INFLUENCER/AMBASSADOR
+      // o User AFFILIATE_*, lanza 409.
+      await this.assertUniqueAffiliateEmail(email);
       const codeText =
         dto.customCode?.trim().toUpperCase().replace(/[^A-Z0-9]/g, '') ||
         codeGen();
@@ -1835,5 +1830,182 @@ export class ReferralsService {
         });
       }
     }
+  }
+
+  /**
+   * Email único global a través de afiliados (cualquier ReferralCode con
+   * role INFLUENCER/AMBASSADOR/SOCIO) Y users con cualquier role
+   * AFFILIATE_*. Se llama antes de crear un afiliado nuevo desde
+   * cualquier endpoint (`createCode`, `createOrInviteSocio`,
+   * `createCompanyDirectAmbassador`, campañas).
+   *
+   * Si `ignoreCodeId` viene, se permite que coincida ese mismo registro
+   * (útil al editar, no implementado todavía pero deja la puerta abierta).
+   *
+   * Lanza ConflictException con mensaje uniforme cuando hay colisión.
+   */
+  async assertUniqueAffiliateEmail(
+    rawEmail: string,
+    opts: { ignoreCodeId?: string; ignoreUserId?: string } = {},
+  ) {
+    const email = (rawEmail ?? '').trim().toLowerCase();
+    if (!email) return;
+    const dupCode = await this.prisma.referralCode.findFirst({
+      where: {
+        ownerEmail: email,
+        role: { in: ['INFLUENCER', 'AMBASSADOR', 'SOCIO'] },
+        ...(opts.ignoreCodeId ? { id: { not: opts.ignoreCodeId } } : {}),
+      },
+      select: { id: true, role: true },
+    });
+    if (dupCode) {
+      throw new ConflictException(
+        'Este correo ya se encuentra registrado.',
+      );
+    }
+    const dupUser = await this.prisma.user.findUnique({
+      where: { email },
+      select: { id: true, role: true },
+    });
+    if (
+      dupUser &&
+      dupUser.id !== opts.ignoreUserId &&
+      (dupUser.role === 'AFFILIATE_INFLUENCER' ||
+        dupUser.role === 'AFFILIATE_AMBASSADOR' ||
+        dupUser.role === 'AFFILIATE_SOCIO')
+    ) {
+      throw new ConflictException(
+        'Este correo ya se encuentra registrado.',
+      );
+    }
+  }
+
+  /**
+   * Eliminación de un ReferralCode (influencer/embajador/socio) con
+   * validación de dependencias activas. Si tiene `ReferralUse` con tenant
+   * en estado ACTIVE/PAYING → 409 Conflict (no se puede eliminar). Si es
+   * INFLUENCER y tiene embajadores hijos activos → también 409. Si es
+   * INFLUENCER titular de una Campaign activa → 409.
+   *
+   * Si pasa todas las validaciones: hard-delete del row. Esto cascadea
+   * ReferralUse SIGNED_UP / CHURNED y sus Commission (FK Cascade). El
+   * Campaign en el caso INFLUENCER también cascadea por `ownerCodeId`.
+   *
+   * Para preservar historial en el caso edge "tiene CHURNED but no
+   * tenant activo" devolvemos el row "soft-deleted" (isActive=false)
+   * en vez de hard-delete. Patrón mismo que `rejectAmbassador`.
+   */
+  async deleteCode(
+    user: AuthUser,
+    codeId: string,
+  ): Promise<{ ok: true; mode: 'soft' | 'hard' }> {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    const code = await this.prisma.referralCode.findUnique({
+      where: { id: codeId },
+      include: {
+        uses: { select: { id: true, status: true, tenantId: true } },
+        ambassadors: { select: { id: true, isActive: true } },
+        ownerOfCampaign: { select: { id: true, status: true } },
+      },
+    });
+    if (!code) throw new NotFoundException('Código no encontrado');
+
+    const activeUses = code.uses.filter(
+      (u) =>
+        u.tenantId &&
+        (u.status === 'ACTIVE' || u.status === 'PAYING'),
+    );
+    if (activeUses.length > 0) {
+      throw new ConflictException(
+        `No se puede eliminar: tiene ${activeUses.length} tenant${activeUses.length === 1 ? '' : 's'} asociado${activeUses.length === 1 ? '' : 's'}.`,
+      );
+    }
+
+    if (code.role === 'INFLUENCER') {
+      const activeAmbassadors = code.ambassadors.filter((a) => a.isActive);
+      if (activeAmbassadors.length > 0) {
+        throw new ConflictException(
+          `No se puede eliminar: tiene ${activeAmbassadors.length} embajador${activeAmbassadors.length === 1 ? '' : 'es'} activo${activeAmbassadors.length === 1 ? '' : 's'} debajo. Reasignalos o desactivalos primero.`,
+        );
+      }
+      if (
+        code.ownerOfCampaign &&
+        code.ownerOfCampaign.status === 'ACTIVE'
+      ) {
+        throw new ConflictException(
+          'No se puede eliminar: este influencer es titular de una campaña activa. Finalizá o eliminá la campaña primero.',
+        );
+      }
+    }
+
+    // Si tiene history (uses CHURNED/SIGNED_UP o ambassadors inactivos),
+    // soft-delete para preservar atribución histórica. Si está limpio,
+    // hard-delete.
+    const hasHistory =
+      code.uses.length > 0 ||
+      code.ambassadors.length > 0 ||
+      !!code.ownerOfCampaign;
+    if (hasHistory) {
+      await this.prisma.referralCode.update({
+        where: { id: codeId },
+        data: { isActive: false },
+      });
+      this.logger.log(
+        `Soft-delete ReferralCode id=${codeId} role=${code.role} by ${user.email}`,
+      );
+      return { ok: true, mode: 'soft' };
+    }
+    await this.prisma.referralCode.delete({ where: { id: codeId } });
+    this.logger.log(
+      `Hard-delete ReferralCode id=${codeId} role=${code.role} by ${user.email}`,
+    );
+    return { ok: true, mode: 'hard' };
+  }
+
+  /**
+   * Buscador inteligente de afiliados para asignar a un tenant nuevo.
+   * Matchea por nombre, email o whatsapp (substring, case-insensitive)
+   * contra cualquier ReferralCode con role INFLUENCER o AMBASSADOR
+   * activo. Limitado a 30 resultados para mantener latency baja.
+   *
+   * Devuelve estructura plana lista para el dropdown del frontend
+   * (id, ownerName, code, role, campaignName).
+   */
+  async searchAffiliates(user: AuthUser, q: string) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    const query = (q ?? '').trim();
+    const where: any = {
+      role: { in: ['INFLUENCER', 'AMBASSADOR'] },
+      isActive: true,
+    };
+    if (query) {
+      where.OR = [
+        { ownerName: { contains: query, mode: 'insensitive' } },
+        { ownerEmail: { contains: query, mode: 'insensitive' } },
+        { ownerWhatsapp: { contains: query } },
+        { code: { contains: query.toUpperCase() } },
+      ];
+    }
+    const codes = await this.prisma.referralCode.findMany({
+      where,
+      include: {
+        ownerOfCampaign: { select: { name: true } },
+        campaign: { select: { name: true } },
+        parentCode: { select: { ownerName: true } },
+      },
+      orderBy: [{ role: 'asc' }, { ownerName: 'asc' }],
+      take: 30,
+    });
+    return codes.map((c) => ({
+      id: c.id,
+      ownerName: c.ownerName,
+      ownerEmail: c.ownerEmail,
+      ownerWhatsapp: c.ownerWhatsapp,
+      code: c.code,
+      role: c.role,
+      campaignName:
+        c.ownerOfCampaign?.name ?? c.campaign?.name ?? null,
+      parentName: c.parentCode?.ownerName ?? null,
+    }));
   }
 }
