@@ -32,6 +32,19 @@ class PricingDto {
   @IsOptional() @IsString() @Length(3, 3) currency?: string;
 }
 
+/** Body para PATCH /admin/landing-plans. Cada plan es opcional — el
+ *  founder edita solo los que quiere actualizar desde /admin/branding. */
+class LandingPlanItemDto {
+  @IsOptional() @IsNumber() @Min(0) price?: number;
+  @IsOptional() @IsString() @MaxLength(500) checkoutUrl?: string | null;
+}
+class LandingPlansDto {
+  @IsOptional() mensual?: LandingPlanItemDto;
+  @IsOptional() trimestral?: LandingPlanItemDto;
+  @IsOptional() semestral?: LandingPlanItemDto;
+  @IsOptional() anual?: LandingPlanItemDto;
+}
+
 class HotmartCouponDto {
   // null/string vacío para limpiar. Si no es string ni null, ValidationPipe
   // rechaza con 400 antes de llegar al service (sin esta clase el endpoint
@@ -94,6 +107,22 @@ export class SettingsController {
   @Roles('SUPER_ADMIN')
   setPricing(@Body() body: PricingDto) {
     return this.svc.setPricing(body);
+  }
+
+  /** Planes de la landing pública (Mensual/Trimestral/Semestral/Anual)
+   *  con precio USD + checkoutUrl. Lectura pública — la landing los
+   *  renderiza en el toggle. Si un checkoutUrl falta, el botón del
+   *  plan correspondiente queda como placeholder visual. */
+  @Public()
+  @Get('landing-plans')
+  getLandingPlans() {
+    return this.svc.getLandingPlans();
+  }
+
+  @Patch('admin/landing-plans')
+  @Roles('SUPER_ADMIN', 'MARKETING')
+  setLandingPlans(@Body() body: LandingPlansDto) {
+    return this.svc.setLandingPlans(body);
   }
 
   /** Cupón Hotmart global — se preponne al checkout URL como

@@ -11,6 +11,28 @@ export type PricingSettings = {
   currency: string;
 };
 
+/** Config de los 4 planes que se muestran en el toggle de la landing
+ *  pública. El founder los edita desde /admin/branding. price en USD.
+ *  checkoutUrl null = ese plan queda sin botón funcional (placeholder). */
+export type LandingPlanConfig = {
+  price: number;
+  checkoutUrl: string | null;
+};
+
+export type LandingPlansSettings = {
+  mensual: LandingPlanConfig;
+  trimestral: LandingPlanConfig;
+  semestral: LandingPlanConfig;
+  anual: LandingPlanConfig;
+};
+
+const LANDING_PLANS_DEFAULT: LandingPlansSettings = {
+  mensual: { price: 68, checkoutUrl: null },
+  trimestral: { price: 150, checkoutUrl: null },
+  semestral: { price: 278, checkoutUrl: null },
+  anual: { price: 500, checkoutUrl: null },
+};
+
 export type BrandingSettings = {
   appLogoUrl: string | null;
   // Logo de la landing pública (soyclubify.com). Si está seteado,
@@ -59,6 +81,26 @@ const KEYS = {
   pricingProCost: 'pricing.proCost',
   pricingCurrency: 'pricing.currency',
 } as const;
+
+const PLAN_KEYS = {
+  mensual: {
+    price: 'landing.plans.mensual.price',
+    url: 'landing.plans.mensual.checkoutUrl',
+  },
+  trimestral: {
+    price: 'landing.plans.trimestral.price',
+    url: 'landing.plans.trimestral.checkoutUrl',
+  },
+  semestral: {
+    price: 'landing.plans.semestral.price',
+    url: 'landing.plans.semestral.checkoutUrl',
+  },
+  anual: {
+    price: 'landing.plans.anual.price',
+    url: 'landing.plans.anual.checkoutUrl',
+  },
+} as const;
+type PlanId = keyof typeof PLAN_KEYS;
 
 const PRICING_DEFAULTS: PricingSettings = {
   eliteCost: 50,
@@ -266,6 +308,53 @@ export class SettingsService {
     const clean = prompt?.trim() ?? '';
     await this.upsert('support.masterPrompt', clean);
     return { prompt: clean ? clean : null };
+  }
+
+  /** Devuelve la config de los 4 planes (precio + checkoutUrl c/u).
+   *  Lectura pública — la landing los renderiza. Si un valor falta o es
+   *  inválido, cae al default hardcoded. */
+  async getLandingPlans(): Promise<LandingPlansSettings> {
+    const allKeys: string[] = [];
+    (Object.keys(PLAN_KEYS) as PlanId[]).forEach((id) => {
+      allKeys.push(PLAN_KEYS[id].price, PLAN_KEYS[id].url);
+    });
+    const rows = await this.prisma.setting.findMany({
+      where: { key: { in: allKeys } },
+    });
+    const map = new Map(rows.map((r) => [r.key, r.value]));
+    const out = {} as LandingPlansSettings;
+    (Object.keys(PLAN_KEYS) as PlanId[]).forEach((id) => {
+      const rawPrice = map.get(PLAN_KEYS[id].price);
+      const parsedPrice = rawPrice ? Number(rawPrice) : NaN;
+      const price = Number.isFinite(parsedPrice) && parsedPrice > 0
+        ? parsedPrice
+        : LANDING_PLANS_DEFAULT[id].price;
+      const rawUrl = (map.get(PLAN_KEYS[id].url) ?? '').trim();
+      out[id] = { price, checkoutUrl: rawUrl.length > 0 ? rawUrl : null };
+    });
+    return out;
+  }
+
+  /** Update parcial de los planes. Permite mandar solo los planes que
+   *  cambian, y dentro de cada plan price y/o checkoutUrl. */
+  async setLandingPlans(
+    data: Partial<Record<PlanId, Partial<LandingPlanConfig>>>,
+  ): Promise<LandingPlansSettings> {
+    const ops: Promise<unknown>[] = [];
+    (Object.keys(PLAN_KEYS) as PlanId[]).forEach((id) => {
+      const entry = data[id];
+      if (!entry) return;
+      if (entry.price !== undefined) {
+        ops.push(this.upsert(PLAN_KEYS[id].price, String(entry.price)));
+      }
+      if (entry.checkoutUrl !== undefined) {
+        ops.push(
+          this.upsert(PLAN_KEYS[id].url, (entry.checkoutUrl ?? '').trim()),
+        );
+      }
+    });
+    await Promise.all(ops);
+    return this.getLandingPlans();
   }
 
   private upsert(key: string, value: string) {

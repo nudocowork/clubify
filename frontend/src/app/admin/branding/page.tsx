@@ -5,6 +5,26 @@ import { ImageUploader } from '@/components/ImageUploader';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 
+type PlanId = 'mensual' | 'trimestral' | 'semestral' | 'anual';
+type LandingPlan = { price: number; checkoutUrl: string | null };
+type LandingPlans = Record<PlanId, LandingPlan>;
+
+const PLAN_LABELS: Record<PlanId, { label: string; sub: string }> = {
+  mensual: { label: 'Mensual', sub: 'Pago cada mes' },
+  trimestral: { label: 'Trimestral', sub: 'Pago cada 3 meses' },
+  semestral: { label: 'Semestral', sub: 'Pago cada 6 meses' },
+  anual: { label: 'Anual', sub: 'Pago una vez al año' },
+};
+
+const PLAN_ORDER: PlanId[] = ['mensual', 'trimestral', 'semestral', 'anual'];
+
+const DEFAULT_PLANS: LandingPlans = {
+  mensual: { price: 68, checkoutUrl: null },
+  trimestral: { price: 150, checkoutUrl: null },
+  semestral: { price: 278, checkoutUrl: null },
+  anual: { price: 500, checkoutUrl: null },
+};
+
 type Branding = {
   appLogoUrl: string | null;
   landingLogoUrl: string | null;
@@ -35,6 +55,7 @@ export default function AdminBrandingPage() {
     landingStatOrders: null,
     landingStatRating: null,
   });
+  const [plans, setPlans] = useState<LandingPlans>(DEFAULT_PLANS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -42,8 +63,12 @@ export default function AdminBrandingPage() {
     setLoading(true);
     try {
       // Endpoint admin que SÍ devuelve scannerStaffPin (el público no, por seguridad)
-      const data = await api<Branding>('/admin/branding');
+      const [data, plansData] = await Promise.all([
+        api<Branding>('/admin/branding'),
+        api<LandingPlans>('/landing-plans'),
+      ]);
       setB(data);
+      setPlans(plansData);
     } catch (e: any) {
       toast(e.message || 'Error cargando branding', 'error');
     } finally {
@@ -58,10 +83,16 @@ export default function AdminBrandingPage() {
   async function save() {
     setSaving(true);
     try {
-      await api('/admin/branding', {
-        method: 'PATCH',
-        body: JSON.stringify(b),
-      });
+      await Promise.all([
+        api('/admin/branding', {
+          method: 'PATCH',
+          body: JSON.stringify(b),
+        }),
+        api('/admin/landing-plans', {
+          method: 'PATCH',
+          body: JSON.stringify(plans),
+        }),
+      ]);
       toast('Branding guardado', 'success');
     } catch (e: any) {
       toast(e.message || 'No se pudo guardar', 'error');
@@ -183,6 +214,73 @@ export default function AdminBrandingPage() {
               onChange={(e) => setB({ ...b, salesInstagram: e.target.value })}
             />
           </div>
+        </div>
+      </div>
+
+      <div className="card card-pad mt-5">
+        <h2 className="text-base font-semibold m-0">
+          💳 Planes de la landing pública
+        </h2>
+        <p className="text-xs text-mute mt-1 leading-relaxed">
+          Precio en USD + link de pago para cada plan. Los 4 se muestran
+          en el selector de la landing{' '}
+          <code className="bg-bg2 px-1 rounded">soyclubify.com</code>.
+          Si dejas un link vacío, el botón "Pagar ahora" del plan queda
+          deshabilitado hasta que lo configures.
+        </p>
+        <div className="mt-4 space-y-3">
+          {PLAN_ORDER.map((id) => {
+            const meta = PLAN_LABELS[id];
+            const plan = plans[id];
+            return (
+              <div
+                key={id}
+                className="grid grid-cols-12 gap-3 items-end border border-line2 rounded-lg p-3"
+              >
+                <div className="col-span-12 sm:col-span-3">
+                  <div className="font-semibold text-sm">{meta.label}</div>
+                  <div className="text-[11px] text-mute">{meta.sub}</div>
+                </div>
+                <div className="col-span-4 sm:col-span-2">
+                  <label className="label">Precio USD</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    className="input"
+                    value={plan.price}
+                    onChange={(e) =>
+                      setPlans({
+                        ...plans,
+                        [id]: {
+                          ...plan,
+                          price: Number(e.target.value) || 0,
+                        },
+                      })
+                    }
+                  />
+                </div>
+                <div className="col-span-8 sm:col-span-7">
+                  <label className="label">Link de pago (Hotmart u otro)</label>
+                  <input
+                    type="url"
+                    className="input"
+                    placeholder="https://pay.hotmart.com/..."
+                    value={plan.checkoutUrl ?? ''}
+                    onChange={(e) =>
+                      setPlans({
+                        ...plans,
+                        [id]: {
+                          ...plan,
+                          checkoutUrl: e.target.value || null,
+                        },
+                      })
+                    }
+                  />
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
