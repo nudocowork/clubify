@@ -1026,16 +1026,33 @@ export default function QrPosterEditor({
   }, []);
 
   // M7.1: retry automático del save tras error. Si autosaveState='error'
-  // y todavía hay cambios dirty, reintentamos 1 vez después de 5s — el
+  // y todavía hay cambios dirty, reintentamos UNA sola vez después de 5s —
   // típico caso de red intermitente o JWT que expiró y se refrescó.
-  // Más reintentos podría inundar el server; el cliente puede usar el
-  // botón "Guardar diseño" manual para forzar.
+  // Más reintentos podrían inundar el server; el cliente puede usar el
+  // botón "Guardar diseño" manual para forzar uno más.
+  //
+  // HOTFIX 2026-06-05: contador `retryCountRef` previene loop infinito
+  // de retries cuando el server está caído permanente. Sin esto, save()
+  // → catch setea 'error' → useEffect re-dispara → save() → ... cada 5s.
+  // El contador se resetea cada vez que el cliente edita (cfg cambia →
+  // autosave dispara 'dirty' → 'saving' → 'saved' o 'error' con
+  // contador=0). Solo se mantiene mientras el estado permanece en
+  // 'error' sin éxito intermedio.
+  const retryCountRef = useRef(0);
   useEffect(() => {
-    if (autosaveState !== 'error') return;
+    if (autosaveState !== 'error') {
+      // Cualquier transición fuera de error resetea el contador. Si el
+      // cliente edita y autosave logra guardar, el próximo error vuelve
+      // a tener 1 retry disponible.
+      retryCountRef.current = 0;
+      return;
+    }
+    if (retryCountRef.current >= 1) return;
     const t = window.setTimeout(() => {
       if (!hasLoadedRef.current) return;
       const json = JSON.stringify(cfgRef.current);
       if (json === lastSavedJsonRef.current) return;
+      retryCountRef.current += 1;
       save({ silent: true }).catch(() => null);
     }, 5000);
     return () => window.clearTimeout(t);
