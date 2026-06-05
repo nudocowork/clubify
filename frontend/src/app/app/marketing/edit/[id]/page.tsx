@@ -25,6 +25,12 @@ type QrPoster = {
 };
 
 type Card = { id: string; name: string; type?: string };
+type ReviewTarget = {
+  id: string;
+  name: string;
+  location: { id: string; name: string } | null;
+  isActive: boolean;
+};
 
 const TYPE_META: Record<QrPosterType, { label: string; emoji: string }> = {
   MENU: { label: 'QR Menú', emoji: '🍽' },
@@ -45,6 +51,7 @@ export default function EditQrPosterPage() {
   const [poster, setPoster] = useState<QrPoster | null>(null);
   const [tenant, setTenant] = useState<any>(null);
   const [cards, setCards] = useState<Card[]>([]);
+  const [reviewTargets, setReviewTargets] = useState<ReviewTarget[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -58,6 +65,18 @@ export default function EditQrPosterPage() {
           ),
         )
         .catch(() => setCards([])),
+      api<any[]>('/review-qr-targets')
+        .then((arr) =>
+          setReviewTargets(
+            (arr ?? []).map((t) => ({
+              id: t.id,
+              name: t.name,
+              location: t.location ?? null,
+              isActive: t.isActive,
+            })),
+          ),
+        )
+        .catch(() => setReviewTargets([])),
     ]).catch((e) => setErr(e?.message || 'No se pudo cargar el cartel'));
   }, [id]);
 
@@ -96,7 +115,59 @@ export default function EditQrPosterPage() {
   if (poster.type === 'MENU') {
     qrUrl = `${origin}/m/${slug}`;
   } else if (poster.type === 'REVIEWS') {
-    qrUrl = `${origin}/r/${slug}`;
+    // M7.3: si hay un target multi-sede elegido, se va con ?target=<id>.
+    // Sin target, fallback al link genérico (sede principal del tenant).
+    const activeTargets = reviewTargets.filter((t) => t.isActive);
+    qrUrl = (m) => {
+      const tg = (m?.reviewTargetId ?? '').toString().trim();
+      return tg
+        ? `${origin}/r/${slug}?target=${encodeURIComponent(tg)}`
+        : `${origin}/r/${slug}`;
+    };
+    metaSlot = (m, setM) => (
+      <div className="card card-pad space-y-2">
+        <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
+          Sede del QR
+        </div>
+        {activeTargets.length === 0 ? (
+          <div className="text-[11px] text-mute leading-relaxed">
+            No tienes targets multi-sede aún. Crea uno en{' '}
+            <Link
+              href="/app/marketing/review-targets"
+              className="text-brand underline"
+            >
+              Targets de reseñas
+            </Link>{' '}
+            — mientras tanto el QR apunta al link genérico del negocio.
+          </div>
+        ) : (
+          <select
+            value={m?.reviewTargetId ?? ''}
+            onChange={(e) => setM({ ...m, reviewTargetId: e.target.value })}
+            className="input text-sm"
+          >
+            <option value="">— Link genérico (sede principal) —</option>
+            {activeTargets.map((t) => (
+              <option key={t.id} value={t.id}>
+                ⭐ {t.name}
+                {t.location ? ` · ${t.location.name}` : ''}
+              </option>
+            ))}
+          </select>
+        )}
+        <div className="text-[11px] text-mute leading-relaxed">
+          Cada sede puede tener su propio QR con su Google Reviews y
+          umbral. Edítalos en{' '}
+          <Link
+            href="/app/marketing/review-targets"
+            className="text-brand underline"
+          >
+            Targets de reseñas
+          </Link>
+          .
+        </div>
+      </div>
+    );
   } else if (poster.type === 'COUNTER') {
     qrUrl = (m) => {
       const cardId = m?.cardId || cards[0]?.id;

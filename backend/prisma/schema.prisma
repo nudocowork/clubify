@@ -499,6 +499,7 @@ model Tenant {
   infoLinks           InfoLink[]
   events              Event[]
   reviewFeedbacks     ReviewFeedback[]
+  reviewQrTargets     ReviewQrTarget[]
   reminders           Reminder[]
   suppliers           Supplier[]
   frequentProducts    FrequentProduct[]
@@ -856,6 +857,7 @@ model Location {
   stamps Stamp[]
   orders Order[]
   cards  Card[]
+  reviewQrTargets ReviewQrTarget[]
 
   @@index([tenantId])
 }
@@ -1793,15 +1795,46 @@ model ReviewFeedback {
   comment            String?  @db.Text
   customerName       String?
   customerPhone      String?
-  // true = el cliente pulsó "ir a Google" (era ≥4★, lo redirigimos)
-  // false (default) = lo capturamos acá privado por <4★
+  // true = el cliente pulsó "ir a Google" (era ≥threshold★, lo redirigimos)
+  // false (default) = lo capturamos acá privado por <threshold★
   redirectedToGoogle Boolean  @default(false)
   // Permite al dueño marcar como leída en el panel
   isRead             Boolean  @default(false)
+  // M7.3: target del QR de reseñas multi-sede que originó este feedback.
+  // null = vino del link genérico del tenant (sin segmentar por sede).
+  reviewTargetId     String?
+  reviewTarget       ReviewQrTarget? @relation(fields: [reviewTargetId], references: [id], onDelete: SetNull)
   createdAt          DateTime @default(now())
 
   @@index([tenantId, createdAt])
   @@index([tenantId, rating])
+  @@index([reviewTargetId])
+}
+
+// M7.3 (2026-06-04): cada sede del negocio puede tener su propio QR de
+// reseñas con su propia URL de Google + threshold + métricas. El QR
+// público apunta a /r/<slug>?target=<id>; sin ?target= cae al link
+// genérico Tenant.googleReviewUrl.
+model ReviewQrTarget {
+  id              String   @id @default(uuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Sede asociada (opcional). Si null, el target es libre — útil para
+  /// campañas no atadas a una sede física.
+  locationId      String?
+  location        Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  name            String
+  /// URL completa de Google Reviews para esta sede.
+  googleReviewUrl String
+  /// Rating mínimo inclusive para redirigir a Google (1-5). Default 4.
+  threshold       Int      @default(4)
+  isActive        Boolean  @default(true)
+  feedbacks       ReviewFeedback[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([locationId])
 }
 
 // ============================================================
