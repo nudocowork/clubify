@@ -36,6 +36,12 @@ type Button = {
   isActive?: boolean;
   /** Config del popup (cuando type='POPUP'). */
   popup?: PopupConfig | null;
+  /** Variante del destino cuando type='MENU' (M2.1 2026-06-04):
+   *  - 'DELIVERY' (default) → /m/<slug> (carrito + WhatsApp).
+   *  - 'MESA'              → /m/<slug>?mesa=1 (informativo).
+   *  - 'BOOK'              → /book/<slug> (flipbook).
+   *  Compat: ausente = DELIVERY (comportamiento histórico). */
+  menuVariant?: 'DELIVERY' | 'MESA' | 'BOOK';
 };
 
 type Location = {
@@ -193,8 +199,14 @@ export default function PublicInfoLink() {
         }
         return undefined;
       }
-      case 'MENU':
+      case 'MENU': {
+        // M2.1: el dueño elige a qué versión del menú lleva el botón.
+        // Default DELIVERY para preservar el comportamiento histórico.
+        const v = b.menuVariant ?? 'DELIVERY';
+        if (v === 'BOOK') return `/book/${tenant.slug}`;
+        if (v === 'MESA') return `/m/${tenant.slug}?mesa=1`;
         return `/m/${tenant.slug}`;
+      }
       case 'CARD':
         return `/m/${tenant.slug}`;
       case 'PROMO':

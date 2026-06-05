@@ -13,6 +13,7 @@ import {
 import { Icon } from '@/components/Icon';
 import { Barcode } from '@/components/Barcode';
 import { ClubifyBadge } from '@/components/ClubifyBadge';
+import { isDarkBackground } from '@/lib/contrast';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { CO_LOCATIONS, OTRO_MUNICIPIO } from '@/lib/co-locations';
 import { useLocale, useT } from '@/lib/i18n';
@@ -473,6 +474,14 @@ export default function StorefrontPublic() {
   } else {
     pageBg = s.pageBackgroundColor || defaultBgColor;
   }
+  // M2.2: el badge "Hecho con Clubify" cambia entre versión clara (pill
+  // blanco) y oscura (texto sutil) según el brillo del fondo del menú.
+  // Storefronts con tema oscuro/imagen reciben pill; storefronts con
+  // tema claro (mayoría) mantienen el subtle histórico.
+  const pageIsDark = isDarkBackground({
+    bgType: s.pageBackgroundType ?? (isCluvi ? 'SOLID' : null),
+    bgColor: s.pageBackgroundColor ?? (isCluvi ? '#0a0a0a' : null),
+  });
 
   // Si el menú digital está apagado y el libro flipbook prendido, /m/<slug>
   // redirige a /book/<slug> (el modo libro vive en su propia ruta desde
@@ -939,8 +948,9 @@ export default function StorefrontPublic() {
       {/* Popup de inscripción a tarjeta (10s después de cargar) */}
       {s.popup && <StorefrontPopup popup={s.popup} slug={slug} />}
 
-      {/* Marca Clubify — siempre visible, no removible */}
-      <ClubifyBadge />
+      {/* Marca Clubify — siempre visible, no removible. Auto-adapta light/
+          dark según el brillo del fondo configurado por el dueño. */}
+      <ClubifyBadge variant="auto" dark={pageIsDark} />
       <LanguageSwitcher />
     </div>
   );
