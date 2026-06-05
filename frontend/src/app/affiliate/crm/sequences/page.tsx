@@ -194,21 +194,23 @@ export default function SequencesListPage() {
               <div className="flex gap-2 mt-1">
                 <Link
                   href={`/affiliate/crm/sequences/${seq.id}`}
-                  className="btn-ghost text-xs flex-1 justify-center"
+                  className="btn-ghost text-xs flex-1 justify-center min-h-[44px]"
                 >
                   Editar
                 </Link>
                 <button
-                  className="btn-ghost text-xs"
+                  className="btn-ghost text-xs min-h-[44px] min-w-[44px] justify-center"
                   onClick={() => duplicate(seq)}
                   title="Duplicar"
+                  aria-label="Duplicar secuencia"
                 >
                   📋
                 </button>
                 <button
-                  className="btn-danger text-xs"
+                  className="btn-danger text-xs min-h-[44px] min-w-[44px] justify-center"
                   onClick={() => remove(seq)}
                   title="Eliminar"
+                  aria-label="Eliminar secuencia"
                 >
                   🗑️
                 </button>
@@ -244,16 +246,16 @@ export default function SequencesListPage() {
                 }}
               />
             </label>
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
               <button
-                className="btn-ghost"
+                className="btn-ghost justify-center min-h-[44px]"
                 onClick={() => setShowNewModal(false)}
                 disabled={creating}
               >
                 Cancelar
               </button>
               <button
-                className="btn-primary"
+                className="btn-primary justify-center min-h-[44px]"
                 onClick={createSequence}
                 disabled={creating || !newName.trim()}
               >

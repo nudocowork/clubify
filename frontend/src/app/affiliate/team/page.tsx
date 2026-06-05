@@ -182,7 +182,6 @@ export default function AffiliateTeamPage() {
                 me.myCode.defaultVendorCommissionPercent ?? null
               }
               maxCommissionPercent={me.myCode.maxCommissionPercent ?? 25}
-              available={data.available}
               onSaved={(next) => {
                 // Patch in place — sin reload completo.
                 setMe((prev) =>
@@ -201,7 +200,7 @@ export default function AffiliateTeamPage() {
 
             <SummaryCard data={data} />
 
-            <div className="card card-pad mb-5 flex items-center justify-between gap-3 flex-wrap">
+            <div className="card card-pad mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>
                 <h3 className="font-semibold m-0">
                   Vendedores ({data.vendors.length})
@@ -215,7 +214,7 @@ export default function AffiliateTeamPage() {
               </div>
               <button
                 onClick={() => setShowCreate(true)}
-                className="btn-primary text-sm whitespace-nowrap"
+                className="btn-primary text-sm whitespace-nowrap w-full sm:w-auto justify-center min-h-[44px]"
                 title={`Comisión máxima por vendedor: ${data.max}%. Cada vendedor cobra su % SOLO en SUS ventas.`}
               >
                 + Nuevo vendedor
@@ -351,14 +350,12 @@ function SelfRegisterCard({
   codeId,
   defaultVendorCommissionPercent,
   maxCommissionPercent,
-  available,
   onSaved,
 }: {
   ambassadorCode: string;
   codeId: string;
   defaultVendorCommissionPercent: number | null;
   maxCommissionPercent: number;
-  available: number;
   onSaved: (next: number | null) => void;
 }) {
   // Fallback al landing público; si no está definido, deja como string
@@ -378,11 +375,9 @@ function SelfRegisterCard({
   );
   const [savingPct, setSavingPct] = useState(false);
 
-  // Tope que el embajador puede setear acá: el disponible actual. El
-  // default NO ocupa cupo (no está asignado a ningún vendedor), por eso
-  // no se resta de available. Si quiere uno mayor, primero tiene que
-  // editar/desactivar vendedores.
-  const allowedMax = available;
+  // CORRECCIÓN LÓGICA 2026-06-05: tope = maxCommissionPercent del
+  // embajador (la comisión es INDIVIDUAL por vendor, no acumulada).
+  const allowedMax = maxCommissionPercent;
   const numericPct = Number(pct);
   const pctValid =
     pct === '' ||
@@ -545,7 +540,11 @@ function SummaryCard({ data }: { data: VendorsResp }) {
   const activeCount = data.vendors.filter((v) => v.isActive).length;
   return (
     <div className="card card-pad mb-5">
-      <div className="grid grid-cols-2 gap-3 mb-3">
+      {/* Mobile: 2 cols (HEAD post-item-1 corrección lógica — ya no
+          mostramos "Disponible" porque la comisión es individual por
+          vendedor, no acumulada). */}
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 mb-3">
+
         <Stat
           label="Mi comisión máxima"
           value={`${data.max}%`}
@@ -590,12 +589,12 @@ function Stat({
       : 'text-ink';
   return (
     <div>
-      <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
+      <div className="text-[10px] uppercase tracking-wider text-mute font-semibold leading-tight">
         {label}
       </div>
-      <div className={`text-2xl font-bold mt-0.5 ${cls}`}>{value}</div>
+      <div className={`text-xl sm:text-2xl font-bold mt-0.5 ${cls}`}>{value}</div>
       {hint && (
-        <div className="text-[11px] text-mute mt-0.5 leading-snug">{hint}</div>
+        <div className="text-[11px] text-mute mt-0.5 leading-snug hidden sm:block">{hint}</div>
       )}
     </div>
   );
@@ -623,91 +622,145 @@ function VendorsTable({
       </div>
     );
   }
+  // Botones de acción reutilizados en mobile + desktop. Touch target
+  // ≥40px alto en mobile (min-h-[40px]), feedback de tap iOS-style.
+  const actionButtons = (v: Vendor) => (
+    <>
+      <button
+        onClick={() => onEdit(v)}
+        className="text-xs font-semibold px-2.5 py-2 rounded-md bg-sky-100 text-sky-800 hover:bg-sky-200 cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent] min-h-[40px] inline-flex items-center"
+        title="Editar datos del vendedor"
+      >
+        ✎ Editar
+      </button>
+      <button
+        onClick={() => onToggle(v)}
+        className={`text-xs font-semibold px-2.5 py-2 rounded-md cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent] min-h-[40px] inline-flex items-center ${
+          v.isActive
+            ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+            : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+        }`}
+        title={
+          v.isActive
+            ? 'Desactivar (preserva historial)'
+            : 'Reactivar'
+        }
+      >
+        {v.isActive ? '⏸ Desactivar' : '▶ Reactivar'}
+      </button>
+      <button
+        onClick={() => onDelete(v)}
+        className="text-xs font-semibold px-2.5 py-2 rounded-md bg-red-100 text-red-700 hover:bg-red-200 cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent] min-h-[40px] inline-flex items-center"
+        title="Eliminar (solo si no tiene comisiones pendientes)"
+      >
+        🗑 Eliminar
+      </button>
+    </>
+  );
+
   return (
-    <div className="card overflow-hidden p-0">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[820px]">
-          <thead className="bg-bg2">
-            <tr>
-              {['Vendedor', 'Código', '%', 'Ventas', 'Comisiones', 'Estado', ''].map(
-                (h, i) => (
-                  <th
-                    key={h || `c-${i}`}
-                    className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
-                  >
-                    {h}
-                  </th>
-                ),
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {vendors.map((v) => (
-              <tr
-                key={v.id}
-                className={`border-t border-line2 hover:bg-[#FAFAFB] ${
-                  v.isActive ? '' : 'opacity-60'
+    <>
+      {/* Mobile: cards verticales — 7 columnas no caben sin compresión,
+          mejor stack natural con acciones full-width abajo. */}
+      <div className="sm:hidden space-y-3">
+        {vendors.map((v) => (
+          <div
+            key={v.id}
+            className={`card card-pad space-y-2 ${v.isActive ? '' : 'opacity-60'}`}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <div className="font-medium truncate">{v.ownerName}</div>
+                <div className="text-xs text-mute truncate">{v.ownerEmail}</div>
+                <div className="text-xs text-mute truncate">{v.ownerWhatsapp || '—'}</div>
+              </div>
+              <span
+                className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded flex-none ${
+                  v.isActive ? 'bg-ok-soft text-ok' : 'bg-bg2 text-mute'
                 }`}
               >
-                <td className="px-4 py-3">
-                  <div className="font-medium">{v.ownerName}</div>
-                  <div className="text-xs text-mute">{v.ownerEmail}</div>
-                  <div className="text-xs text-mute">{v.ownerWhatsapp}</div>
-                </td>
-                <td className="px-4 py-3 font-mono font-bold">{v.code}</td>
-                <td className="px-4 py-3">{v.commissionPercent}%</td>
-                <td className="px-4 py-3 text-center">{v.salesCount}</td>
-                <td className="px-4 py-3 text-center">{v.commissionsCount}</td>
-                <td className="px-4 py-3">
-                  <span
-                    className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
-                      v.isActive
-                        ? 'bg-ok-soft text-ok'
-                        : 'bg-bg2 text-mute'
-                    }`}
-                  >
-                    {v.isActive ? 'Activo' : 'Inactivo'}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <div className="inline-flex items-center gap-1.5">
-                    <button
-                      onClick={() => onEdit(v)}
-                      className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-sky-100 text-sky-800 hover:bg-sky-200 cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"
-                      title="Editar datos del vendedor"
-                    >
-                      ✎ Editar
-                    </button>
-                    <button
-                      onClick={() => onToggle(v)}
-                      className={`text-xs font-semibold px-2.5 py-1.5 rounded-md cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent] ${
-                        v.isActive
-                          ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
-                          : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
-                      }`}
-                      title={
-                        v.isActive
-                          ? 'Desactivar (preserva historial)'
-                          : 'Reactivar'
-                      }
-                    >
-                      {v.isActive ? '⏸ Desactivar' : '▶ Reactivar'}
-                    </button>
-                    <button
-                      onClick={() => onDelete(v)}
-                      className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-red-100 text-red-700 hover:bg-red-200 cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"
-                      title="Eliminar (solo si no tiene comisiones pendientes)"
-                    >
-                      🗑 Eliminar
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                {v.isActive ? 'Activo' : 'Inactivo'}
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-line2 text-center">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-mute">Código</div>
+                <div className="font-mono font-bold text-xs">{v.code}</div>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-mute">Comisión</div>
+                <div className="font-bold text-sm">{v.commissionPercent}%</div>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-mute">Ventas</div>
+                <div className="font-bold text-sm">{v.salesCount}</div>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {actionButtons(v)}
+            </div>
+          </div>
+        ))}
       </div>
-    </div>
+
+      {/* Desktop: tabla completa (≥ sm). */}
+      <div className="hidden sm:block card overflow-hidden p-0">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[820px]">
+            <thead className="bg-bg2">
+              <tr>
+                {['Vendedor', 'Código', '%', 'Ventas', 'Comisiones', 'Estado', ''].map(
+                  (h, i) => (
+                    <th
+                      key={h || `c-${i}`}
+                      className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
+                    >
+                      {h}
+                    </th>
+                  ),
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {vendors.map((v) => (
+                <tr
+                  key={v.id}
+                  className={`border-t border-line2 hover:bg-[#FAFAFB] ${
+                    v.isActive ? '' : 'opacity-60'
+                  }`}
+                >
+                  <td className="px-4 py-3">
+                    <div className="font-medium">{v.ownerName}</div>
+                    <div className="text-xs text-mute">{v.ownerEmail}</div>
+                    <div className="text-xs text-mute">{v.ownerWhatsapp}</div>
+                  </td>
+                  <td className="px-4 py-3 font-mono font-bold">{v.code}</td>
+                  <td className="px-4 py-3">{v.commissionPercent}%</td>
+                  <td className="px-4 py-3 text-center">{v.salesCount}</td>
+                  <td className="px-4 py-3 text-center">{v.commissionsCount}</td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
+                        v.isActive
+                          ? 'bg-ok-soft text-ok'
+                          : 'bg-bg2 text-mute'
+                      }`}
+                    >
+                      {v.isActive ? 'Activo' : 'Inactivo'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="inline-flex items-center gap-1.5">
+                      {actionButtons(v)}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -797,14 +850,16 @@ function VendorFormModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
-        <div className="px-5 py-4 border-b border-line2 flex items-center justify-between">
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center sm:p-4">
+      {/* Mobile: hoja bottom-sheet con bordes redondos arriba y max
+          height grande. Desktop: card centrada como antes. */}
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-md max-h-[92vh] sm:max-h-[90vh] overflow-y-auto shadow-2xl flex flex-col">
+        <div className="px-5 py-4 border-b border-line2 flex items-center justify-between sticky top-0 bg-white z-10">
           <div className="font-semibold text-base">{title}</div>
           <button
             type="button"
             onClick={onClose}
-            className="text-mute hover:text-ink text-xl leading-none"
+            className="text-mute hover:text-ink text-2xl leading-none w-9 h-9 flex items-center justify-center -mr-2"
             aria-label="Cerrar"
           >
             ×
@@ -862,18 +917,18 @@ function VendorFormModal({
               {helper.text}
             </div>
           </div>
-          <div className="flex items-center justify-end gap-2 pt-2">
+          <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2">
             <button
               type="button"
               onClick={onClose}
-              className="btn-ghost text-sm"
+              className="btn-ghost text-sm justify-center min-h-[44px]"
               disabled={busy}
             >
               Cancelar
             </button>
             <button
               type="submit"
-              className="btn-primary text-sm"
+              className="btn-primary text-sm justify-center min-h-[44px]"
               disabled={busy || overLimit}
             >
               {busy ? 'Guardando…' : isEdit ? 'Guardar cambios' : 'Crear vendedor'}

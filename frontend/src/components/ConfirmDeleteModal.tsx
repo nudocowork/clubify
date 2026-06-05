@@ -35,8 +35,9 @@ export function ConfirmDeleteModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center sm:p-4">
+      {/* Mobile: bottom-sheet con bordes redondos arriba. Desktop: card. */}
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
         <div className="px-5 py-4 border-b border-line2 flex items-start gap-3">
           <div className="w-9 h-9 rounded-full bg-bad-soft flex items-center justify-center text-bad shrink-0">
             <svg
@@ -61,12 +62,14 @@ export function ConfirmDeleteModal({
         <div className="px-5 py-4 text-sm text-ink leading-relaxed">
           {description}
         </div>
-        <div className="px-5 py-3 border-t border-line2 flex items-center justify-end gap-2">
+        {/* Mobile: cancelar abajo (col-reverse) — confirm queda arriba
+            como acción primaria a tap natural. Desktop: row tradicional. */}
+        <div className="px-5 py-3 border-t border-line2 flex flex-col-reverse sm:flex-row items-stretch sm:items-center sm:justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="btn-ghost text-sm disabled:opacity-50"
+            className="btn-ghost text-sm disabled:opacity-50 justify-center min-h-[44px]"
           >
             {cancelLabel}
           </button>
@@ -74,7 +77,7 @@ export function ConfirmDeleteModal({
             type="button"
             onClick={handleConfirm}
             disabled={busy}
-            className="text-sm font-semibold px-4 py-2 rounded-md bg-bad text-white hover:bg-bad/90 disabled:opacity-50"
+            className="text-sm font-semibold px-4 py-2 rounded-md bg-bad text-white hover:bg-bad/90 disabled:opacity-50 min-h-[44px] cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150"
           >
             {busy ? 'Eliminando…' : confirmLabel}
           </button>

@@ -116,7 +116,7 @@ export default function CrmButtonsPage() {
             <button
               key={b.id}
               onClick={() => setEditing(b)}
-              className="card card-pad w-full text-left hover:border-ink/30 transition flex items-center gap-3"
+              className="card card-pad w-full text-left hover:border-ink/30 transition flex items-center gap-3 min-h-[64px]"
             >
               <div
                 className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold flex-none"
@@ -137,13 +137,16 @@ export default function CrmButtonsPage() {
                   )}
                 </div>
               </div>
+              {/* Touch target ≥44px en mobile para el botón borrar — sino
+                  era muy fácil tirar tap accidental en su contenedor. */}
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   del(b);
                 }}
-                className="text-bad text-xs hover:underline whitespace-nowrap"
+                onPointerDown={(e) => e.stopPropagation()}
+                className="text-bad text-xs hover:underline whitespace-nowrap px-2 py-2 min-h-[44px] inline-flex items-center flex-none"
               >
                 Borrar
               </button>
@@ -244,19 +247,21 @@ function ButtonFormModal({
   return (
     <ModalShell title={initial ? 'Editar botón' : 'Nuevo botón'} onClose={onClose}>
       <form onSubmit={submit} className="space-y-3">
-        <div className="grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_auto_auto] gap-3 items-end">
-          <div>
-            <label className="label">Nombre</label>
-            <input
-              className="input"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="Ej: Reunión finalizada"
-              autoFocus
-              required
-              maxLength={80}
-            />
-          </div>
+        {/* Nombre full-width arriba; icono + color en una fila debajo en
+            mobile (no comprimimos el nombre a un 1fr chico). */}
+        <div>
+          <label className="label">Nombre</label>
+          <input
+            className="input"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            placeholder="Ej: Reunión finalizada"
+            autoFocus
+            required
+            maxLength={80}
+          />
+        </div>
+        <div className="flex gap-3 items-end">
           <div>
             <label className="label">Icono</label>
             <input
@@ -354,11 +359,11 @@ function ButtonFormModal({
           Pedir confirmación antes de ejecutar
         </label>
 
-        <div className="flex justify-end gap-2 pt-2 border-t border-line">
-          <button type="button" className="btn-ghost" onClick={onClose}>
+        <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-2 border-t border-line">
+          <button type="button" className="btn-ghost justify-center min-h-[44px]" onClick={onClose}>
             Cancelar
           </button>
-          <button type="submit" className="btn-primary" disabled={saving}>
+          <button type="submit" className="btn-primary justify-center min-h-[44px]" disabled={saving}>
             {saving ? 'Guardando…' : initial ? 'Guardar' : 'Crear botón'}
           </button>
         </div>
