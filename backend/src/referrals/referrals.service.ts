@@ -2008,4 +2008,486 @@ export class ReferralsService {
       parentName: c.parentCode?.ownerName ?? null,
     }));
   }
+
+  // ============================================================
+  // VENDOR HIERARCHY (FASE FOUNDATION 2026-06-05)
+  // ============================================================
+
+  /**
+   * Crea un vendedor bajo un embajador. Sólo el SUPER_ADMIN o el dueño
+   * del embajador (acting como AFFILIATE con referralCodeId = embajador)
+   * pueden crear.
+   *
+   * Validaciones:
+   *  - Embajador debe ser role=AMBASSADOR y tener allowVendors=true.
+   *  - Email único global (asertUniqueAffiliateEmail).
+   *  - sum(vendoresExistentes.commissionPercent) + nuevo <= max permitido.
+   *    El max es embajador.maxCommissionPercent ?? 25.
+   *  - commissionPercent > 0 y <= max.
+   */
+  async createVendor(
+    user: AuthUser,
+    dto: {
+      embajadorCodeId: string;
+      fullName: string;
+      email: string;
+      whatsapp: string;
+      commissionPercent: number;
+    },
+  ) {
+    const embajador = await this.prisma.referralCode.findUnique({
+      where: { id: dto.embajadorCodeId },
+      include: { childVendors: true },
+    });
+    if (!embajador) throw new NotFoundException('Embajador no encontrado');
+    if (embajador.role !== 'AMBASSADOR') {
+      throw new BadRequestException(
+        'Solo los embajadores pueden tener vendedores asociados.',
+      );
+    }
+    if (!embajador.allowVendors) {
+      throw new BadRequestException(
+        'Este embajador no tiene activado el módulo de vendedores. Pedile al super admin que lo habilite.',
+      );
+    }
+
+    // Auth: SUPER_ADMIN o el embajador mismo (via affiliate user
+    // linkeado a este ReferralCode).
+    const isAuthorized =
+      user.role === 'SUPER_ADMIN' ||
+      (await this.isUserOwnerOfCode(user, embajador.id));
+    if (!isAuthorized) throw new ForbiddenException();
+
+    await this.assertUniqueAffiliateEmail(dto.email);
+
+    const max = embajador.maxCommissionPercent
+      ? Number(embajador.maxCommissionPercent)
+      : 25;
+    const used = embajador.childVendors
+      .filter((v) => v.isActive)
+      .reduce((sum, v) => sum + Number(v.commissionPercent ?? 0), 0);
+    const available = max - used;
+    if (dto.commissionPercent <= 0) {
+      throw new BadRequestException('La comisión debe ser mayor a 0.');
+    }
+    if (dto.commissionPercent > available) {
+      throw new BadRequestException(
+        `La comisión del vendedor (${dto.commissionPercent}%) excede el disponible del embajador (${available}% restante de ${max}% máx).`,
+      );
+    }
+
+    let code = codeGen();
+    while (await this.prisma.referralCode.findUnique({ where: { code } })) {
+      code = codeGen();
+    }
+    const slug = await this.allocateSlug(dto.fullName, code);
+
+    return this.prisma.referralCode.create({
+      data: {
+        code,
+        slug,
+        ownerName: dto.fullName,
+        ownerEmail: dto.email,
+        ownerWhatsapp: dto.whatsapp,
+        role: 'VENDOR',
+        commissionPercent: dto.commissionPercent,
+        parentEmbajadorCodeId: embajador.id,
+        isActive: true,
+      },
+    });
+  }
+
+  /** Lista vendedores de un embajador específico. */
+  async listVendorsForEmbajador(user: AuthUser, embajadorCodeId: string) {
+    const embajador = await this.prisma.referralCode.findUnique({
+      where: { id: embajadorCodeId },
+      select: { id: true, role: true, maxCommissionPercent: true },
+    });
+    if (!embajador) throw new NotFoundException();
+    if (embajador.role !== 'AMBASSADOR') {
+      throw new BadRequestException('Solo embajadores tienen vendedores.');
+    }
+    const isAuthorized =
+      user.role === 'SUPER_ADMIN' ||
+      (await this.isUserOwnerOfCode(user, embajador.id));
+    if (!isAuthorized) throw new ForbiddenException();
+
+    const vendors = await this.prisma.referralCode.findMany({
+      where: { parentEmbajadorCodeId: embajadorCodeId },
+      include: {
+        _count: { select: { uses: true, receivedCommissions: true } },
+      },
+      orderBy: [{ isActive: 'desc' }, { ownerName: 'asc' }],
+    });
+    const max = embajador.maxCommissionPercent
+      ? Number(embajador.maxCommissionPercent)
+      : 25;
+    const usedActive = vendors
+      .filter((v) => v.isActive)
+      .reduce((sum, v) => sum + Number(v.commissionPercent ?? 0), 0);
+    return {
+      max,
+      used: usedActive,
+      available: max - usedActive,
+      vendors: vendors.map((v) => ({
+        id: v.id,
+        code: v.code,
+        ownerName: v.ownerName,
+        ownerEmail: v.ownerEmail,
+        ownerWhatsapp: v.ownerWhatsapp,
+        commissionPercent: Number(v.commissionPercent ?? 0),
+        isActive: v.isActive,
+        createdAt: v.createdAt,
+        salesCount: v._count.uses,
+        commissionsCount: v._count.receivedCommissions,
+      })),
+    };
+  }
+
+  /** Edita vendedor. */
+  async updateVendor(
+    user: AuthUser,
+    vendorCodeId: string,
+    patch: Partial<{
+      fullName: string;
+      email: string;
+      whatsapp: string;
+      commissionPercent: number;
+    }>,
+  ) {
+    const vendor = await this.prisma.referralCode.findUnique({
+      where: { id: vendorCodeId },
+      include: {
+        parentEmbajadorCode: { include: { childVendors: true } },
+      },
+    });
+    if (!vendor || vendor.role !== 'VENDOR' || !vendor.parentEmbajadorCode) {
+      throw new NotFoundException('Vendedor no encontrado');
+    }
+    const isAuthorized =
+      user.role === 'SUPER_ADMIN' ||
+      (await this.isUserOwnerOfCode(user, vendor.parentEmbajadorCode.id));
+    if (!isAuthorized) throw new ForbiddenException();
+
+    if (patch.email && patch.email.toLowerCase() !== vendor.ownerEmail.toLowerCase()) {
+      await this.assertUniqueAffiliateEmail(patch.email);
+    }
+
+    if (typeof patch.commissionPercent === 'number') {
+      const max = vendor.parentEmbajadorCode.maxCommissionPercent
+        ? Number(vendor.parentEmbajadorCode.maxCommissionPercent)
+        : 25;
+      const usedExcludingSelf = vendor.parentEmbajadorCode.childVendors
+        .filter((v) => v.isActive && v.id !== vendor.id)
+        .reduce((sum, v) => sum + Number(v.commissionPercent ?? 0), 0);
+      if (patch.commissionPercent <= 0 || patch.commissionPercent > max - usedExcludingSelf) {
+        throw new BadRequestException(
+          `Comisión inválida. Disponible: ${max - usedExcludingSelf}%.`,
+        );
+      }
+    }
+
+    return this.prisma.referralCode.update({
+      where: { id: vendor.id },
+      data: {
+        ownerName: patch.fullName ?? undefined,
+        ownerEmail: patch.email ?? undefined,
+        ownerWhatsapp: patch.whatsapp ?? undefined,
+        commissionPercent:
+          patch.commissionPercent !== undefined
+            ? patch.commissionPercent
+            : undefined,
+      },
+    });
+  }
+
+  /** Desactiva vendedor (soft). Sus commissions históricas se mantienen. */
+  async deactivateVendor(user: AuthUser, vendorCodeId: string) {
+    return this.toggleVendorActive(user, vendorCodeId, false);
+  }
+
+  async reactivateVendor(user: AuthUser, vendorCodeId: string) {
+    return this.toggleVendorActive(user, vendorCodeId, true);
+  }
+
+  private async toggleVendorActive(
+    user: AuthUser,
+    vendorCodeId: string,
+    active: boolean,
+  ) {
+    const vendor = await this.prisma.referralCode.findUnique({
+      where: { id: vendorCodeId },
+      include: { parentEmbajadorCode: true },
+    });
+    if (!vendor || vendor.role !== 'VENDOR' || !vendor.parentEmbajadorCode) {
+      throw new NotFoundException('Vendedor no encontrado');
+    }
+    const isAuthorized =
+      user.role === 'SUPER_ADMIN' ||
+      (await this.isUserOwnerOfCode(user, vendor.parentEmbajadorCode.id));
+    if (!isAuthorized) throw new ForbiddenException();
+    return this.prisma.referralCode.update({
+      where: { id: vendorCodeId },
+      data: { isActive: active },
+    });
+  }
+
+  /**
+   * Elimina vendedor. Hard delete sólo si NO tiene commissions pendientes.
+   * Si tiene, devuelve 409 con mensaje claro y sugerencia de desactivar.
+   */
+  async deleteVendor(user: AuthUser, vendorCodeId: string) {
+    const vendor = await this.prisma.referralCode.findUnique({
+      where: { id: vendorCodeId },
+      include: {
+        parentEmbajadorCode: true,
+        receivedCommissions: {
+          where: { paymentStatus: { in: ['PENDING', 'PARTIAL'] } },
+          select: { id: true },
+          take: 1,
+        },
+      },
+    });
+    if (!vendor || vendor.role !== 'VENDOR' || !vendor.parentEmbajadorCode) {
+      throw new NotFoundException('Vendedor no encontrado');
+    }
+    const isAuthorized =
+      user.role === 'SUPER_ADMIN' ||
+      (await this.isUserOwnerOfCode(user, vendor.parentEmbajadorCode.id));
+    if (!isAuthorized) throw new ForbiddenException();
+
+    if (vendor.receivedCommissions.length > 0) {
+      throw new ConflictException(
+        'Este vendedor tiene comisiones pendientes — no se puede eliminar. Podés desactivarlo en su lugar.',
+      );
+    }
+    await this.prisma.referralCode.delete({ where: { id: vendorCodeId } });
+    return { ok: true };
+  }
+
+  /**
+   * Helper: chequea si el `user` logueado es el dueño del ReferralCode
+   * `codeId`. El link existe via ReferralCode.ownerUserId (set en
+   * inviteAffiliate cuando se crea la cuenta affiliate). Usado para los
+   * gates "el embajador puede gestionar SUS vendedores".
+   */
+  private async isUserOwnerOfCode(
+    user: AuthUser,
+    codeId: string,
+  ): Promise<boolean> {
+    const code = await this.prisma.referralCode.findUnique({
+      where: { id: codeId },
+      select: { ownerUserId: true },
+    });
+    return code?.ownerUserId === user.id;
+  }
+
+  // ============================================================
+  // 3-WAY COMMISSION SPLIT (usado por Hotmart webhook + manual)
+  // ============================================================
+
+  /**
+   * Resuelve la cadena de atribución para un tenant.
+   * Retorna {influencer?, embajador?, vendor?} en base al ReferralUse
+   * activo del tenant + parentEmbajadorCodeId si el code es VENDOR.
+   *
+   * Reglas:
+   *  - El tenant tiene N ReferralUse (uno por código que lo refirió).
+   *    Tomamos el de status SIGNED_UP/ACTIVE/PAYING más reciente.
+   *  - Si el code es role=VENDOR → walking parentEmbajadorCode para
+   *    encontrar al embajador, luego embajador.parentCode (si existe)
+   *    para encontrar al influencer.
+   *  - Si el code es role=AMBASSADOR → embajador directo, sin vendor.
+   *    El influencer se resuelve via parentCode.
+   *  - Si el code es role=INFLUENCER → solo influencer, sin embajador
+   *    ni vendor.
+   */
+  async getAttributionChain(tenantId: string): Promise<{
+    influencer: { id: string; commissionPercent: number } | null;
+    embajador: { id: string; commissionPercent: number; maxCommissionPercent: number } | null;
+    vendor: { id: string; commissionPercent: number } | null;
+    sourceCodeId: string | null;
+  }> {
+    const use = await this.prisma.referralUse.findFirst({
+      where: {
+        tenantId,
+        status: { in: ['SIGNED_UP', 'ACTIVE', 'PAYING'] },
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        referralCode: {
+          include: {
+            parentEmbajadorCode: { include: { parentCode: true } },
+            parentCode: true,
+          },
+        },
+      },
+    });
+    if (!use) {
+      return { influencer: null, embajador: null, vendor: null, sourceCodeId: null };
+    }
+    const code = use.referralCode;
+    const sourceCodeId = code.id;
+
+    if (code.role === 'VENDOR' && code.parentEmbajadorCode) {
+      const embajador = code.parentEmbajadorCode;
+      const influencerSource = embajador.parentCode;
+      return {
+        influencer: influencerSource
+          ? {
+              id: influencerSource.id,
+              commissionPercent: Number(influencerSource.commissionPercent ?? 0),
+            }
+          : null,
+        embajador: {
+          id: embajador.id,
+          commissionPercent: Number(embajador.commissionPercent ?? 0),
+          maxCommissionPercent: embajador.maxCommissionPercent
+            ? Number(embajador.maxCommissionPercent)
+            : 25,
+        },
+        vendor: {
+          id: code.id,
+          commissionPercent: Number(code.commissionPercent ?? 0),
+        },
+        sourceCodeId,
+      };
+    }
+    if (code.role === 'AMBASSADOR') {
+      const influencerSource = code.parentCode;
+      return {
+        influencer: influencerSource
+          ? {
+              id: influencerSource.id,
+              commissionPercent: Number(influencerSource.commissionPercent ?? 0),
+            }
+          : null,
+        embajador: {
+          id: code.id,
+          commissionPercent: Number(code.commissionPercent ?? 0),
+          maxCommissionPercent: code.maxCommissionPercent
+            ? Number(code.maxCommissionPercent)
+            : 25,
+        },
+        vendor: null,
+        sourceCodeId,
+      };
+    }
+    // INFLUENCER directo
+    return {
+      influencer: {
+        id: code.id,
+        commissionPercent: Number(code.commissionPercent ?? 0),
+      },
+      embajador: null,
+      vendor: null,
+      sourceCodeId,
+    };
+  }
+
+  /**
+   * Genera las commission rows para un pago efectivo de un tenant.
+   * 3-way split: hasta 3 rows (influencer / embajador / vendor). Si la
+   * chain no tiene alguna persona, se omite esa row.
+   *
+   * Idempotencia: si ya existen commissions con el mismo
+   * hotmartTransactionId + recipientCodeId, no las recrea (silent skip).
+   *
+   * La regla del embajador-vendor: cuando hay vendor, el embajador recibe
+   * SU porcentaje MENOS el del vendor. Vendor recibe SU porcentaje
+   * completo. Total pagado a la chain = embajador.commissionPercent
+   * (vendor sale de ahí, no adicional).
+   *
+   * Si NO hay atribución para el tenant, retorna [] silencioso.
+   */
+  async generateCommissionsForPayment(args: {
+    tenantId: string;
+    paymentAmountUsd: number;
+    hotmartTransactionId?: string | null;
+  }): Promise<{ generated: number; skipped: number }> {
+    const chain = await this.getAttributionChain(args.tenantId);
+    if (!chain.sourceCodeId) return { generated: 0, skipped: 0 };
+
+    // El ReferralUse que vamos a usar como FK del Commission. Tomamos el
+    // más reciente del tenant para el código fuente.
+    const use = await this.prisma.referralUse.findFirst({
+      where: { tenantId: args.tenantId, referralCodeId: chain.sourceCodeId },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+    if (!use) return { generated: 0, skipped: 0 };
+
+    const amount = args.paymentAmountUsd;
+    const txId = args.hotmartTransactionId ?? null;
+
+    let generated = 0;
+    let skipped = 0;
+
+    const rows: Array<{
+      recipientCodeId: string;
+      vendorCodeId: string | null;
+      amount: number;
+    }> = [];
+
+    if (chain.influencer && chain.influencer.commissionPercent > 0) {
+      rows.push({
+        recipientCodeId: chain.influencer.id,
+        vendorCodeId: null,
+        amount: Math.round(amount * chain.influencer.commissionPercent) / 100,
+      });
+    }
+    if (chain.embajador) {
+      const vendorPct = chain.vendor?.commissionPercent ?? 0;
+      const embajadorEffectivePct = Math.max(
+        0,
+        chain.embajador.commissionPercent - vendorPct,
+      );
+      if (embajadorEffectivePct > 0) {
+        rows.push({
+          recipientCodeId: chain.embajador.id,
+          vendorCodeId: null,
+          amount: Math.round(amount * embajadorEffectivePct) / 100,
+        });
+      }
+    }
+    if (chain.vendor && chain.vendor.commissionPercent > 0) {
+      rows.push({
+        recipientCodeId: chain.vendor.id,
+        vendorCodeId: chain.vendor.id,
+        amount: Math.round(amount * chain.vendor.commissionPercent) / 100,
+      });
+    }
+
+    for (const row of rows) {
+      // Idempotencia: skip si ya existe para este tx + recipient.
+      if (txId) {
+        const existing = await this.prisma.commission.findFirst({
+          where: {
+            hotmartTransactionId: txId,
+            recipientCodeId: row.recipientCodeId,
+          },
+          select: { id: true },
+        });
+        if (existing) {
+          skipped++;
+          continue;
+        }
+      }
+      await this.prisma.commission.create({
+        data: {
+          referralUseId: use.id,
+          amount: row.amount,
+          status: 'PENDING',
+          paymentStatus: 'PENDING',
+          amountPaid: 0,
+          recipientCodeId: row.recipientCodeId,
+          vendorCodeId: row.vendorCodeId,
+          hotmartTransactionId: txId,
+          externalTxId: txId,
+        },
+      });
+      generated++;
+    }
+    return { generated, skipped };
+  }
 }

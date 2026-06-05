@@ -3,6 +3,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { EmailService } from '../email/email.service';
 import { BillingService } from './billing.service';
+import { ReferralsService } from '../referrals/referrals.service';
 import {
   smsPaymentConfirmed,
   smsPaymentFailed,
@@ -59,6 +60,7 @@ export class HotmartService {
     private growBusiness: GrowBusinessService,
     private email: EmailService,
     private billing: BillingService,
+    private referralsService: ReferralsService,
   ) {}
 
   /** Best-effort: manda SMS al dueño, no falla el webhook si no se puede.
@@ -141,13 +143,49 @@ export class HotmartService {
         // Generar la comisión recurrente del referido. Idempotente por
         // tx/período: si ya creamos una comisión para esta misma transacción
         // o en los últimos 25 días, skipea.
-        await this.generateReferralCommission({
-          tenantId: tenant.id,
-          paidAmount: payload.data?.purchase?.price?.value ?? null,
-          transactionId,
-        }).catch((e) => {
-          this.logger.warn(`generateReferralCommission falló: ${(e as Error).message}`);
-        });
+        //
+        // FASE FOUNDATION 2026-06-05: si el tenant fue traído por un
+        // ReferralCode con role=VENDOR, usamos el nuevo 3-way generator
+        // que crea hasta 3 commission rows (influencer + embajador +
+        // vendor) con dedup por hotmartTransactionId + recipientCodeId.
+        // Para sales sin vendor en la chain (legacy INFLUENCER/AMBASSADOR
+        // directos), seguimos con el flujo histórico de generateReferralCommission.
+        try {
+          const vendorUse = await this.prisma.referralUse.findFirst({
+            where: {
+              tenantId: tenant.id,
+              referralCode: { role: 'VENDOR' },
+            },
+            select: { id: true },
+          });
+          if (vendorUse) {
+            // Precio: usamos el monto Hotmart real si vino, sino plan.
+            const planForRate = await this.prisma.tenant.findUnique({
+              where: { id: tenant.id },
+              select: { plan: { select: { priceMonthly: true } } },
+            });
+            const basePrice =
+              payload.data?.purchase?.price?.value &&
+              payload.data.purchase.price.value > 0
+                ? payload.data.purchase.price.value
+                : Number(planForRate?.plan?.priceMonthly ?? 0);
+            await this.referralsService.generateCommissionsForPayment({
+              tenantId: tenant.id,
+              paymentAmountUsd: basePrice,
+              hotmartTransactionId: transactionId ?? null,
+            });
+          } else {
+            await this.generateReferralCommission({
+              tenantId: tenant.id,
+              paidAmount: payload.data?.purchase?.price?.value ?? null,
+              transactionId,
+            });
+          }
+        } catch (e) {
+          this.logger.warn(
+            `generación de comisión falló: ${(e as Error).message}`,
+          );
+        }
         // SMS de confirmación al dueño (best-effort)
         this.notifyOwner(
           tenant.id,
