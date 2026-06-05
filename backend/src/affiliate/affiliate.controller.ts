@@ -89,4 +89,19 @@ export class AffiliateController {
   ) {
     return this.svc.teamVendorDetail(user, vendorCodeId);
   }
+
+  /**
+   * Métricas + detalle de trials atribuidos al afiliado logueado (item 4
+   * — 2026-06-05). Scopeado a SU código (resolveAffiliateScope):
+   *   - INFLUENCER ve trials de su code + de sus embajadores + de sus
+   *     vendors (cadena completa).
+   *   - AMBASSADOR ve trials de su code + de sus vendors.
+   *   - VENDOR ve solo trials de su propio code.
+   * Devuelve KPIs (generados, activos, vencidos, convertidos, tasa) y
+   * tabla detalle de tenants con estado del trial, vencimiento y plan.
+   */
+  @Get('trial-stats')
+  trialStats(@CurrentUser() user: AuthUser) {
+    return this.svc.trialStats(user);
+  }
 }
