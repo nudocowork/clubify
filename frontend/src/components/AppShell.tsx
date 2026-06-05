@@ -184,6 +184,7 @@ export default function AppShell({
       '/admin/maintenance',
       '/admin/audit',
       '/admin/tenants/new',
+      '/admin/map',
     ];
     if (blocked.some((p) => pathname === p || pathname.startsWith(p + '/'))) {
       router.replace('/admin');
@@ -235,6 +236,7 @@ export default function AppShell({
               items: [
                 { href: '/admin', label: 'Dashboard', icon: 'grid' },
                 { href: '/admin/tenants', label: 'Negocios', icon: 'store' },
+                { href: '/admin/map', label: 'Mapa', icon: 'pin', hideForMarketing: true },
                 { href: '/admin/trials', label: 'Trials', icon: 'gift' },
               ],
             },
