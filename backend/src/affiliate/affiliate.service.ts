@@ -282,16 +282,20 @@ export class AffiliateService {
     const directsUses = myCodeId ? uses.filter((u) => u.referralCodeId === myCodeId) : [];
     const indirectsUses = uses.filter((u) => ambassadorCodeIds.includes(u.referralCodeId));
 
-    const directs = aggregateKpis(directsUses);
-    const indirects = aggregateKpis(indirectsUses);
-    const totalKpis = aggregateKpis(uses);
+    // HOTFIX 2026-06-05 (bug #8): pasamos `allCodeIds` para filtrar
+    // commissions por recipient. Sin esto, un AMBASSADOR con vendors
+    // veía revenueUsd 3× inflado (sumaba también la commission del
+    // influencer + del vendor — que NO son suyas).
+    const directs = aggregateKpis(directsUses, myCodeId ? [myCodeId] : []);
+    const indirects = aggregateKpis(indirectsUses, allCodeIds);
+    const totalKpis = aggregateKpis(uses, allCodeIds);
 
     // Ranking embajadores: solo aplica a INFLUENCER que tiene embajadores.
     const ambassadors: AmbassadorRow[] = codes
       .filter((c) => c.ownerUserId !== user.id)
       .map((c) => {
         const myUses = uses.filter((u) => u.referralCodeId === c.id);
-        const kpi = aggregateKpis(myUses);
+        const kpi = aggregateKpis(myUses, [c.id]);
         return {
           id: c.id,
           code: c.code,
@@ -630,6 +634,7 @@ export class AffiliateService {
             id: true,
             brandName: true,
             currentPeriodEnd: true,
+            planPeriodicity: true,
             plan: { select: { name: true, priceMonthly: true } },
           },
         },
@@ -644,7 +649,25 @@ export class AffiliateService {
     const rows = uses
       .filter((u) => u.tenant?.currentPeriodEnd)
       .map((u) => {
-        const planPrice = Number(u.tenant?.plan?.priceMonthly ?? 0);
+        // HOTFIX 2026-06-05 (bug #5 CRÍTICO): el precio se calcula a
+        // partir de la periodicidad efectiva del tenant. Antes usábamos
+        // priceMonthly directo, lo que subestimaba 3×/6×/12× para
+        // tenants Trimestral/Semestral/Anual.
+        const monthlyPrice = Number(u.tenant?.plan?.priceMonthly ?? 0);
+        const periodMultiplier = (() => {
+          switch (u.tenant?.planPeriodicity) {
+            case 'TRIMESTRAL':
+              return 3;
+            case 'SEMESTRAL':
+              return 6;
+            case 'ANUAL':
+              return 12;
+            case 'MENSUAL':
+            default:
+              return 1;
+          }
+        })();
+        const planPrice = monthlyPrice * periodMultiplier;
         const sourceCodeId = u.referralCode.id;
         // Calcular el % efectivo para el usuario logueado.
         let effectivePct = 0;
@@ -737,10 +760,17 @@ export class AffiliateService {
 
     const round = (n: number) => Math.round(n * 100) / 100;
 
-    // Métricas del equipo: total revenue generado por las ventas de los
-    // vendors (revenue del cliente, no comisión del vendor).
-    let teamRevenue = 0;
-    let teamCommissions = 0;
+    // HOTFIX 2026-06-05 (bug #16): el "revenue" del vendor antes era
+    // sum de TODAS las commissions del use (3-way: influencer + embajador
+    // + vendor) — NO era revenue real del cliente. Lo renombramos para
+    // que el embajador no se confunda. El campo se llama
+    // teamGeneratedCommissionsUsd ahora. El revenue real al cliente
+    // requeriría mirar tenant.plan.priceMonthly × periodMult × renovaciones,
+    // que es otro nivel de cálculo. La métrica útil del embajador es
+    // "cuánta plata generaron mis vendors en commissions totales" — eso
+    // sigue siendo informativo aunque NO sea revenue del cliente.
+    let teamGeneratedCommissions = 0;
+    let teamVendorCommissions = 0;
     let teamClients = 0;
     let teamActiveClients = 0;
 
@@ -751,16 +781,16 @@ export class AffiliateService {
         (u) => u.status === 'PAYING' || u.status === 'ACTIVE',
       ).length;
       teamActiveClients += active;
-      const useRevenue = directUses
+      const useGeneratedComm = directUses
         .flatMap((u) => u.commissions)
         .filter((c) => c.status !== 'REJECTED')
         .reduce((s, c) => s + Number(c.amount), 0);
-      teamRevenue += useRevenue;
+      teamGeneratedCommissions += useGeneratedComm;
       const vendorCommissions = v.receivedCommissions.reduce(
         (s, c) => s + Number(c.amount),
         0,
       );
-      teamCommissions += vendorCommissions;
+      teamVendorCommissions += vendorCommissions;
       return {
         id: v.id,
         code: v.code,
@@ -772,14 +802,17 @@ export class AffiliateService {
         createdAt: v.createdAt,
         clients: directUses.length,
         activeClients: active,
-        revenueUsd: round(useRevenue),
+        // generatedCommissionsUsd: total de commissions atadas a las
+        // sales que el vendor trajo (incluye influencer + embajador +
+        // vendor). NO es revenue del cliente.
+        generatedCommissionsUsd: round(useGeneratedComm),
         commissionsUsd: round(vendorCommissions),
       };
     });
 
-    // Ranking: vendors top por revenue (los 3 primeros).
+    // Ranking: vendors top por commissions generadas (los 3 primeros).
     const topVendors = [...rows]
-      .sort((a, b) => b.revenueUsd - a.revenueUsd)
+      .sort((a, b) => b.generatedCommissionsUsd - a.generatedCommissionsUsd)
       .slice(0, 3);
 
     return {
@@ -788,8 +821,11 @@ export class AffiliateService {
         activeVendorsCount: vendors.filter((v) => v.isActive).length,
         teamClients,
         teamActiveClients,
-        teamRevenueUsd: round(teamRevenue),
-        teamCommissionsUsd: round(teamCommissions),
+        // Total de commissions generadas por las sales que los vendors
+        // trajeron. Incluye todas las personas en la chain.
+        teamGeneratedCommissionsUsd: round(teamGeneratedCommissions),
+        // Total de commissions que recibieron los vendors directamente.
+        teamVendorCommissionsUsd: round(teamVendorCommissions),
       },
       vendors: rows,
       topVendors,
@@ -921,12 +957,29 @@ function emptyTimeline() {
   return days;
 }
 
-function aggregateKpis(uses: UseWithCommissions[]): Kpis {
+// HOTFIX 2026-06-05 (bug #8 CRÍTICO): aceptamos opcional `myCodeIds`
+// para filtrar las commissions por recipientCodeId. Antes la función
+// sumaba TODAS las commissions del use sin distinguir el destinatario,
+// lo que para sales con 3-way split (foundation 2026-06-05) inflaba
+// el revenueUsd / pendingUsd / paidUsd del afiliado en 2-3×.
+function aggregateKpis(
+  uses: UseWithCommissions[],
+  myCodeIds?: string[],
+): Kpis {
   const k = emptyKpis();
   k.referrals = uses.length;
+  const codeSet = myCodeIds ? new Set(myCodeIds) : null;
   for (const u of uses) {
     if (u.status === 'PAYING' || u.status === 'ACTIVE') k.conversions += 1;
     for (const c of u.commissions ?? []) {
+      // Si pasaron myCodeIds, filtramos: solo cuentan las commissions
+      // cuyo recipient está en mi set. Backwards-compat con rows
+      // legacy: si recipientCodeId es null (pre-3-way), aceptamos
+      // como "del use direct" (no podemos discriminar).
+      if (codeSet) {
+        const recipient = (c as any).recipientCodeId as string | null | undefined;
+        if (recipient && !codeSet.has(recipient)) continue;
+      }
       const amt = Number(c.amount);
       k.revenueUsd += amt;
       if (c.status === 'PAID') k.paidUsd += amt;

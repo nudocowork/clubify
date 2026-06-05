@@ -457,13 +457,22 @@ export class AuthService {
     const inviteUrl = `${appUrl}/reset/${rawToken}?affiliate=1`;
 
     // Datos del código para el template (commission %, campaña, parent).
+    // HOTFIX 2026-06-05 (bug #15): para role=VENDOR, el parent vive en
+    // parentEmbajadorCode (no parentCode que es INFLUENCER→AMBASSADOR).
+    // Antes el template caía al fallback "tu embajador" sin nombre.
     const code = await this.prisma.referralCode.findUnique({
       where: { id: opts.referralCodeId },
       include: {
         parentCode: { select: { ownerName: true } },
+        parentEmbajadorCode: { select: { ownerName: true } },
         ownerOfCampaign: { select: { name: true } },
       },
     });
+
+    const parentName =
+      code?.role === 'VENDOR'
+        ? code?.parentEmbajadorCode?.ownerName ?? null
+        : code?.parentCode?.ownerName ?? null;
 
     this.email
       .send({
@@ -475,7 +484,7 @@ export class AuthService {
           code: code?.code ?? '',
           commissionPercent: Number(code?.commissionPercent ?? 0),
           campaignName: code?.ownerOfCampaign?.name ?? null,
-          parentName: code?.parentCode?.ownerName ?? null,
+          parentName,
         }),
       })
       .catch((e) =>

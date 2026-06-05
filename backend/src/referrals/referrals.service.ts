@@ -1861,10 +1861,17 @@ export class ReferralsService {
   ) {
     const email = (rawEmail ?? '').trim().toLowerCase();
     if (!email) return;
+    // HOTFIX 2026-06-05 (bug #1 CRÍTICO): incluimos VENDOR + AFFILIATE_VENDOR.
+    // Antes faltaban → 2 vendedores podían crearse con mismo email Y peor:
+    // si el email coincidía con un TENANT_OWNER existente, el inviteAffiliate
+    // posterior re-hasheaba silenciosamente su password (account takeover).
+    // También bloqueamos cualquier User existente cuyo email coincida — sin
+    // importar el role — porque el flujo de invite SIEMPRE re-asigna password
+    // y romper a un user inocente es peor que un 409.
     const dupCode = await this.prisma.referralCode.findFirst({
       where: {
         ownerEmail: email,
-        role: { in: ['INFLUENCER', 'AMBASSADOR', 'SOCIO'] },
+        role: { in: ['INFLUENCER', 'AMBASSADOR', 'SOCIO', 'VENDOR'] },
         ...(opts.ignoreCodeId ? { id: { not: opts.ignoreCodeId } } : {}),
       },
       select: { id: true, role: true },
@@ -1878,13 +1885,7 @@ export class ReferralsService {
       where: { email },
       select: { id: true, role: true },
     });
-    if (
-      dupUser &&
-      dupUser.id !== opts.ignoreUserId &&
-      (dupUser.role === 'AFFILIATE_INFLUENCER' ||
-        dupUser.role === 'AFFILIATE_AMBASSADOR' ||
-        dupUser.role === 'AFFILIATE_SOCIO')
-    ) {
+    if (dupUser && dupUser.id !== opts.ignoreUserId) {
       throw new ConflictException(
         'Este correo ya se encuentra registrado.',
       );
@@ -2333,10 +2334,25 @@ export class ReferralsService {
       user.role === 'SUPER_ADMIN' ||
       (await this.isUserOwnerOfCode(user, vendor.parentEmbajadorCode.id));
     if (!isAuthorized) throw new ForbiddenException();
-    return this.prisma.referralCode.update({
-      where: { id: vendorCodeId },
-      data: { isActive: active },
-    });
+    // HOTFIX 2026-06-05 (bug #2 CRÍTICO): también flipeamos User.isActive
+    // del vendor logueado. Antes solo se tocaba ReferralCode.isActive →
+    // el vendor desactivado seguía pudiendo loguear y ver su panel.
+    // Tx para que ambos cambios sean atómicos.
+    const [updatedCode] = await this.prisma.$transaction([
+      this.prisma.referralCode.update({
+        where: { id: vendorCodeId },
+        data: { isActive: active },
+      }),
+      ...(vendor.ownerUserId
+        ? [
+            this.prisma.user.update({
+              where: { id: vendor.ownerUserId },
+              data: { isActive: active },
+            }),
+          ]
+        : []),
+    ]);
+    return updatedCode;
   }
 
   /**
@@ -2366,6 +2382,19 @@ export class ReferralsService {
     if (vendor.receivedCommissions.length > 0) {
       throw new ConflictException(
         'Este vendedor tiene comisiones pendientes — no se puede eliminar. Podés desactivarlo en su lugar.',
+      );
+    }
+    // HOTFIX 2026-06-05 (bug #11): si tiene CUALQUIER commission histórica
+    // (incluyendo PAID), no borramos hard — la cascade SetNull rompería la
+    // auditoría ("¿a quién le pagamos esos $200?"). Forzamos soft-delete
+    // vía deactivate. El admin puede limpiar manual con SQL si necesita.
+    const anyHistoricCommission = await this.prisma.commission.findFirst({
+      where: { recipientCodeId: vendorCodeId },
+      select: { id: true },
+    });
+    if (anyHistoricCommission) {
+      throw new ConflictException(
+        'Este vendedor tiene comisiones históricas pagadas — no se puede eliminar para preservar el rastro contable. Desactivalo en su lugar.',
       );
     }
     await this.prisma.referralCode.delete({ where: { id: vendorCodeId } });
@@ -2565,35 +2594,53 @@ export class ReferralsService {
       });
     }
 
-    for (const row of rows) {
-      // Idempotencia: skip si ya existe para este tx + recipient.
-      if (txId) {
-        const existing = await this.prisma.commission.findFirst({
-          where: {
-            hotmartTransactionId: txId,
-            recipientCodeId: row.recipientCodeId,
-          },
-          select: { id: true },
-        });
-        if (existing) {
-          skipped++;
-          continue;
+    // HOTFIX 2026-06-05 (bug #20): wrap en $transaction para que las
+    // 3 creates (influencer + embajador + vendor) sean atómicas. Antes,
+    // si fallaba a mitad, una segunda invocación con el mismo tx solo
+    // dedupeaba las creadas y creaba las faltantes — pero la chain
+    // pudo haber cambiado entre invocaciones (% diferentes) → state
+    // inconsistente con plata mal calculada. Atómico = todo o nada.
+    try {
+      const counts = await this.prisma.$transaction(async (tx) => {
+        let g = 0;
+        let s = 0;
+        for (const row of rows) {
+          if (txId) {
+            const existing = await tx.commission.findFirst({
+              where: {
+                hotmartTransactionId: txId,
+                recipientCodeId: row.recipientCodeId,
+              },
+              select: { id: true },
+            });
+            if (existing) {
+              s++;
+              continue;
+            }
+          }
+          await tx.commission.create({
+            data: {
+              referralUseId: use.id,
+              amount: row.amount,
+              status: 'PENDING',
+              paymentStatus: 'PENDING',
+              amountPaid: 0,
+              recipientCodeId: row.recipientCodeId,
+              vendorCodeId: row.vendorCodeId,
+              hotmartTransactionId: txId,
+              externalTxId: txId,
+            },
+          });
+          g++;
         }
-      }
-      await this.prisma.commission.create({
-        data: {
-          referralUseId: use.id,
-          amount: row.amount,
-          status: 'PENDING',
-          paymentStatus: 'PENDING',
-          amountPaid: 0,
-          recipientCodeId: row.recipientCodeId,
-          vendorCodeId: row.vendorCodeId,
-          hotmartTransactionId: txId,
-          externalTxId: txId,
-        },
+        return { generated: g, skipped: s };
       });
-      generated++;
+      generated = counts.generated;
+      skipped = counts.skipped;
+    } catch (e: any) {
+      this.logger.warn(
+        `generateCommissionsForPayment falló: ${e?.message}. Sin estado parcial creado.`,
+      );
     }
     return { generated, skipped };
   }
@@ -2724,25 +2771,34 @@ export class ReferralsService {
       };
     });
 
-    // Agregados sobre el resultado filtrado.
+    // HOTFIX 2026-06-05 (bug #14 ALTA): los totales se calculan con
+    // aggregate aparte para que NO dependan del cap de 500 rows. Antes
+    // sumábamos items.amount → si había >500 filas, los KPIs eran
+    // incorrectos (mostraba menos plata de la real). Ahora la tabla
+    // visible queda capada (paginación pendiente como follow-up) pero
+    // los totals son del dataset completo según los filtros.
+    const totalAgg = await this.prisma.commission.aggregate({
+      where,
+      _count: { _all: true },
+      _sum: { amount: true, amountPaid: true },
+    });
     const round = (n: number) => Math.round(n * 100) / 100;
-    let totalAmount = 0;
-    let totalPaid = 0;
-    let totalOutstanding = 0;
-    for (const it of items) {
-      totalAmount += it.amount;
-      totalPaid += it.amountPaid;
-      totalOutstanding += it.outstanding;
-    }
+    const totalAmount = Number(totalAgg._sum.amount ?? 0);
+    const totalPaid = Number(totalAgg._sum.amountPaid ?? 0);
+    const totalOutstanding = Math.max(0, totalAmount - totalPaid);
+    const realCount = totalAgg._count._all;
+    const truncated = items.length < realCount;
 
     return {
       items,
       totals: {
-        count: items.length,
+        count: realCount,
         totalAmount: round(totalAmount),
         totalPaid: round(totalPaid),
         totalOutstanding: round(totalOutstanding),
       },
+      truncated,
+      shown: items.length,
     };
   }
 
@@ -2766,60 +2822,75 @@ export class ReferralsService {
       throw new BadRequestException('Monto inválido');
     }
 
-    const c = await this.prisma.commission.findUnique({
-      where: { id: commissionId },
-      select: {
-        id: true,
-        amount: true,
-        amountPaid: true,
-        paymentStatus: true,
-        notes: true,
-      },
+    // HOTFIX 2026-06-05 (bugs #3+#4 CRÍTICOS): toda la lectura+cálculo+update
+    // dentro de $transaction para evitar la race (2 admins paganrand al
+    // mismo tiempo perdían un pago). Además rechazamos overpago en vez de
+    // hacer Math.min silencioso — el admin debe ver el error si su input
+    // excede el outstanding. Slack de 0.01 (1 centavo) para tolerar floats.
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const c = await tx.commission.findUnique({
+        where: { id: commissionId },
+        select: {
+          id: true,
+          amount: true,
+          amountPaid: true,
+          paymentStatus: true,
+          notes: true,
+        },
+      });
+      if (!c) throw new NotFoundException('Comisión no encontrada');
+
+      const currentPaid = Number(c.amountPaid);
+      const total = Number(c.amount);
+      const outstanding = Math.max(0, total - currentPaid);
+
+      if (outstanding <= 0) {
+        throw new BadRequestException('La comisión ya está pagada por completo');
+      }
+      if (amount > outstanding + 0.01) {
+        throw new BadRequestException(
+          `El monto (${amount}) excede el pendiente (${outstanding.toFixed(2)}). Ingresá un monto menor o igual.`,
+        );
+      }
+
+      const newPaid = currentPaid + amount;
+      const isFullPaid = newPaid >= total - 0.001;
+      const newPaymentStatus: 'PAID' | 'PARTIAL' = isFullPaid ? 'PAID' : 'PARTIAL';
+
+      const stampedNote = body.note?.trim()
+        ? `[${new Date().toISOString().slice(0, 10)}] Pago ${amount}: ${body.note.trim()}`
+        : null;
+      const nextNotes = stampedNote
+        ? c.notes
+          ? `${c.notes}\n${stampedNote}`
+          : stampedNote
+        : c.notes;
+
+      // updateMany con where:{amountPaid: c.amountPaid} = optimistic lock.
+      // Si el row cambió entre el findUnique y aquí (otra tx paralela), el
+      // update no matchea → count=0 → tiramos error de race y el admin
+      // reintenta con datos frescos.
+      const result = await tx.commission.updateMany({
+        where: { id: commissionId, amountPaid: c.amountPaid },
+        data: {
+          amountPaid: newPaid,
+          paymentStatus: newPaymentStatus,
+          ...(isFullPaid
+            ? { status: 'PAID' as CommissionStatus, paidAt: new Date() }
+            : {}),
+          notes: nextNotes,
+        },
+      });
+      if (result.count === 0) {
+        throw new ConflictException(
+          'Otra operación modificó esta comisión justo ahora. Recargá la página y volvé a intentar.',
+        );
+      }
+      return tx.commission.findUnique({ where: { id: commissionId } });
     });
-    if (!c) throw new NotFoundException('Comisión no encontrada');
-
-    const currentPaid = Number(c.amountPaid);
-    const total = Number(c.amount);
-    const outstanding = Math.max(0, total - currentPaid);
-
-    if (outstanding <= 0) {
-      throw new BadRequestException('La comisión ya está pagada por completo');
+    if (!updated) {
+      throw new NotFoundException('Comisión no encontrada después del pago');
     }
-
-    const newPaid = Math.min(total, currentPaid + amount);
-    const isFullPaid = newPaid >= total - 0.001;
-    const newPaymentStatus: 'PAID' | 'PARTIAL' = isFullPaid ? 'PAID' : 'PARTIAL';
-
-    const stampedNote = body.note?.trim()
-      ? `[${new Date().toISOString().slice(0, 10)}] Pago ${amount}: ${body.note.trim()}`
-      : null;
-    const nextNotes = stampedNote
-      ? c.notes
-        ? `${c.notes}\n${stampedNote}`
-        : stampedNote
-      : c.notes;
-
-    const updated = await this.prisma.commission.update({
-      where: { id: commissionId },
-      data: {
-        amountPaid: newPaid,
-        paymentStatus: newPaymentStatus,
-        ...(isFullPaid
-          ? { status: 'PAID' as CommissionStatus, paidAt: new Date() }
-          : {}),
-        notes: nextNotes,
-      },
-      select: {
-        id: true,
-        amount: true,
-        amountPaid: true,
-        paymentStatus: true,
-        status: true,
-        paidAt: true,
-        notes: true,
-      },
-    });
-
     return {
       ok: true,
       commission: {
