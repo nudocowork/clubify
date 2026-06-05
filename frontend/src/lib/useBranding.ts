@@ -6,12 +6,16 @@ const STORAGE_KEY = 'clubify.branding.v1';
 
 export type Branding = {
   appLogoUrl: string | null;
+  // Logo de la landing pública (soyclubify.com). Si está seteado,
+  // reemplaza el lockup default de Clubify en el header y footer.
+  landingLogoUrl: string | null;
   faviconUrl: string | null;
   supportWhatsapp: string | null;
 };
 
 const DEFAULT: Branding = {
   appLogoUrl: null,
+  landingLogoUrl: null,
   faviconUrl: null,
   supportWhatsapp: null,
 };
@@ -45,6 +49,7 @@ function readFromStorage(): Branding | null {
     // Defensive: shape puede cambiar entre versiones. Forzamos defaults.
     return {
       appLogoUrl: parsed.appLogoUrl ?? null,
+      landingLogoUrl: parsed.landingLogoUrl ?? null,
       faviconUrl: parsed.faviconUrl ?? null,
       supportWhatsapp: parsed.supportWhatsapp ?? null,
     };
@@ -65,6 +70,7 @@ function writeToStorage(b: Branding) {
 function brandingEquals(a: Branding, b: Branding): boolean {
   return (
     a.appLogoUrl === b.appLogoUrl &&
+    a.landingLogoUrl === b.landingLogoUrl &&
     a.faviconUrl === b.faviconUrl &&
     a.supportWhatsapp === b.supportWhatsapp
   );

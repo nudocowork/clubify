@@ -7,6 +7,7 @@ import { toast } from '@/components/Toast';
 
 type Branding = {
   appLogoUrl: string | null;
+  landingLogoUrl: string | null;
   faviconUrl: string | null;
   supportWhatsapp: string | null;
   scannerStaffPin: string | null;
@@ -22,6 +23,7 @@ type Branding = {
 export default function AdminBrandingPage() {
   const [b, setB] = useState<Branding>({
     appLogoUrl: null,
+    landingLogoUrl: null,
     faviconUrl: null,
     supportWhatsapp: null,
     scannerStaffPin: null,
@@ -97,6 +99,26 @@ export default function AdminBrandingPage() {
               <ImageUploader
                 value={b.appLogoUrl}
                 onChange={(url) => setB({ ...b, appLogoUrl: url })}
+                folder="branding"
+              />
+            </div>
+          </div>
+
+          <div className="card card-pad">
+            <h2 className="text-base font-semibold m-0">
+              Logo de la landing pública
+            </h2>
+            <p className="text-xs text-mute mt-1 leading-relaxed">
+              Aparece en el header y footer de{' '}
+              <code className="bg-bg2 px-1 rounded">soyclubify.com</code>.
+              Reemplaza el logo lockup default de Clubify. Lockup horizontal
+              (Logo + texto) PNG con fondo transparente, ratio ~3.4:1
+              recomendado. Si lo dejas vacío se usa el logo Clubify default.
+            </p>
+            <div className="mt-3.5">
+              <ImageUploader
+                value={b.landingLogoUrl}
+                onChange={(url) => setB({ ...b, landingLogoUrl: url })}
                 folder="branding"
               />
             </div>

@@ -11,6 +11,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 
 class BrandingDto {
   @IsOptional() @IsString() appLogoUrl?: string | null;
+  @IsOptional() @IsString() landingLogoUrl?: string | null;
   @IsOptional() @IsString() faviconUrl?: string | null;
   @IsOptional() @IsString() supportWhatsapp?: string | null;
   @IsOptional() @IsString() welcomePopupImageUrl?: string | null;
