@@ -9,6 +9,10 @@ import { HeroBanner } from '@/components/HeroBanner';
 import { FidelizacionBanner } from '@/components/FidelizacionBanner';
 import { InfoLinksBanner } from '@/components/InfoLinksBanner';
 import { Logo } from '@/components/Logo';
+import {
+  LandingPricingToggle,
+  type LandingPlan,
+} from '@/components/LandingPricingToggle';
 
 const TESTIMONIALS = [
   {
@@ -139,6 +143,75 @@ async function fetchNudoMenuItems(): Promise<
   }
 }
 
+// Default fallback de planes — los reales se editan desde /admin/branding.
+// Si la API no responde, mostramos estos en la landing para que la sección
+// no quede vacía. checkoutUrl null → botón "Próximamente" deshabilitado.
+const LANDING_PLAN_DEFAULTS: LandingPlan[] = [
+  {
+    id: 'mensual',
+    name: 'Mensual',
+    shortName: '1 mes',
+    months: 1,
+    price: 68,
+    checkoutUrl: null,
+    description: 'Sin compromiso. Cancela cuando quieras.',
+  },
+  {
+    id: 'trimestral',
+    name: 'Trimestral',
+    shortName: '3 meses',
+    months: 3,
+    price: 150,
+    checkoutUrl: null,
+    description: 'Pagas cada 3 meses y ahorras frente al mensual.',
+  },
+  {
+    id: 'semestral',
+    name: 'Semestral',
+    shortName: '6 meses',
+    months: 6,
+    price: 278,
+    checkoutUrl: null,
+    description: 'Compromiso de 6 meses con descuento significativo.',
+  },
+  {
+    id: 'anual',
+    name: 'Anual',
+    shortName: '1 año',
+    months: 12,
+    price: 500,
+    checkoutUrl: null,
+    description: 'El mejor precio por mes. 1 año completo de Clubify.',
+  },
+];
+
+async function fetchLandingPlans(): Promise<LandingPlan[]> {
+  const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
+  try {
+    const r = await fetch(`${API}/api/landing-plans`, {
+      next: { revalidate: 60 },
+    });
+    if (!r.ok) return LANDING_PLAN_DEFAULTS;
+    const d: any = await r.json();
+    // Servidor devuelve { mensual: {price,checkoutUrl}, ... }. Fusionamos
+    // con los defaults para preservar name/months/description/shortName.
+    return LANDING_PLAN_DEFAULTS.map((def) => {
+      const v = d?.[def.id];
+      if (!v) return def;
+      return {
+        ...def,
+        price: Number.isFinite(v.price) && v.price > 0 ? v.price : def.price,
+        checkoutUrl:
+          typeof v.checkoutUrl === 'string' && v.checkoutUrl.trim().length > 0
+            ? v.checkoutUrl.trim()
+            : null,
+      };
+    });
+  } catch {
+    return LANDING_PLAN_DEFAULTS;
+  }
+}
+
 async function fetchBranding(): Promise<BrandingPublic> {
   const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
   const empty: BrandingPublic = {
@@ -170,11 +243,10 @@ async function fetchBranding(): Promise<BrandingPublic> {
 }
 
 export default async function Landing() {
-  const country = detectCountryFromHeaders(headers());
-  const PRICING = buildPricing(country);
-  const [branding, nudoMenuItems] = await Promise.all([
+  const [branding, nudoMenuItems, landingPlans] = await Promise.all([
     fetchBranding(),
     fetchNudoMenuItems(),
+    fetchLandingPlans(),
   ]);
   const { sales, stats, landingLogoUrl } = branding;
   const waLink = sales.whatsapp
@@ -436,66 +508,12 @@ export default async function Landing() {
               Precios claros · sin sorpresas
             </h2>
             <p className="text-mute mt-4 text-lg">
-              Activa tu cuenta con un cobro mensual, configura todo en
-              minutos y empieza a vender. Sin contratos, cancela cuando
-              quieras desde tu panel.
+              Elige la periodicidad que más te convenga. Mientras más
+              tiempo, más ahorras. Activa tu cuenta en minutos y empieza
+              a vender — cancela cuando quieras desde tu panel.
             </p>
           </div>
-          <div className="max-w-md mx-auto">
-            {PRICING.map((p) => (
-              <div
-                key={p.name}
-                className="relative bg-white rounded-2xl p-7 border border-brand shadow-xl"
-              >
-                {p.primary && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-ink text-white text-xs font-semibold px-3 py-1 rounded-full">
-                    Plan único
-                  </div>
-                )}
-                <div className="flex items-center justify-between gap-2">
-                  <div className="font-bold text-xl">{p.name}</div>
-                  {p.badge && (
-                    <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-ok-soft text-ok">
-                      {p.badge}
-                    </span>
-                  )}
-                </div>
-                <div className="mt-3">
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="text-4xl font-bold">{p.price}</span>
-                    <span className="text-mute text-sm">/{p.note}</span>
-                  </div>
-                  {!p.isUsdCountry && p.priceUsd && (
-                    <div className="text-[11px] text-mute mt-1">
-                      ≈ {p.priceUsd} al cambio del día
-                    </div>
-                  )}
-                </div>
-                <ul className="mt-6 space-y-2.5 text-sm">
-                  {p.features.map((f) => (
-                    <li key={f} className="flex items-start gap-2">
-                      <Icon
-                        name="check"
-                        size={14}
-                        className="text-ok mt-0.5 flex-none"
-                      />
-                      <span>{f}</span>
-                    </li>
-                  ))}
-                </ul>
-                <Link
-                  href={p.href}
-                  className={`block text-center mt-7 px-5 py-3 rounded-pill font-semibold text-sm ${
-                    p.primary
-                      ? 'bg-ink text-white hover:bg-ink/90'
-                      : 'bg-bg2 text-ink hover:bg-line'
-                  }`}
-                >
-                  {p.cta}
-                </Link>
-              </div>
-            ))}
-          </div>
+          <LandingPricingToggle plans={landingPlans} />
         </div>
       </section>
 
