@@ -227,7 +227,7 @@ function SignupInner() {
       // M10: redirigir al checkoutUrl del plan elegido en la landing.
       // Si no hay plan (signup directo /signup sin pasar por landing) o
       // el checkoutUrl no está configurado, fallback al endpoint genérico
-      // de Hotmart (el legacy de single-plan Elite).
+      // de Hotmart (usa el plan Mensual por defecto).
       if (planData?.checkoutUrl) {
         window.location.href = planData.checkoutUrl;
         return;
@@ -275,7 +275,7 @@ function SignupInner() {
               <span className="w-1.5 h-1.5 rounded-full bg-brand" />
               {planPeriod && planData
                 ? `Plan ${PLAN_PERIOD_MAP[planPeriod].label} · USD ${planData.price} · activación inmediata`
-                : 'Plan Elite · activación inmediata'}
+                : 'Suscripción Clubify · activación inmediata'}
             </div>
             <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
               Crea tu negocio en Clubify
