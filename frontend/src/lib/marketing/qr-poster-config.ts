@@ -703,21 +703,78 @@ export function estimateTextBox(
   }, 0);
   const totalH = lines.length * t.size * lineHeight;
 
-  const containerW = t.boxWidth ?? canvasW;
-  const containerX = t.boxWidth != null ? t.x : 0;
-  let visualX = containerX;
-  if (t.align === 'center') {
-    visualX = containerX + (containerW - widestLine) / 2;
-  } else if (t.align === 'right') {
-    visualX = containerX + containerW - widestLine;
-  } else if (t.align === 'justify') {
-    // justify: el texto se estira al ancho del contenedor PERO la
-    // última línea no se justifica. Para snap, tratamos el bbox como
-    // si fuera left-aligned con el contenedor entero — captura el
-    // ancho real renderizado y el snap funciona bien.
-    return { x: containerX, y: t.y, w: containerW, h: totalH };
+  // ─────────────────────────────────────────────────────────────
+  // Anclaje de t.x según boxWidth + align (fix persistencia 2026-06-06)
+  // ─────────────────────────────────────────────────────────────
+  // El contrato de t.x ahora es UNIFORME: representa la coordenada del
+  // ANCLA del texto en el sistema del canvas. La interpretación del
+  // ancla depende de align (left=esquina izq, center=centro, right=esq
+  // der), análogo a como funcionan las text tools en Figma/Canva.
+  //
+  // Si boxWidth está seteado, el texto VIVE adentro de una caja de
+  // ancho boxWidth anclada en t.x (esquina izq de la caja). El align
+  // controla cómo el texto se distribuye DENTRO de la caja.
+  //
+  // Si boxWidth es null, el texto NO tiene caja → t.x es el ancla del
+  // BOUNDING BOX visual del texto según align. Esto arregla el bug
+  // donde el render de Konva usaba x=0 + width=canvas.w + align para
+  // textos sin boxWidth, lo que CENTRABA el texto en el canvas
+  // ignorando t.x. El bug se manifestaba como: cliente arrastra el
+  // texto, lo deja en una posición, al recargar el texto aparecía
+  // desplazado a la izquierda (o no se movía nunca).
+  if (t.boxWidth != null) {
+    const containerW = t.boxWidth;
+    const containerX = t.x;
+    let visualX = containerX;
+    if (t.align === 'center') {
+      visualX = containerX + (containerW - widestLine) / 2;
+    } else if (t.align === 'right') {
+      visualX = containerX + containerW - widestLine;
+    } else if (t.align === 'justify') {
+      return { x: containerX, y: t.y, w: containerW, h: totalH };
+    }
+    return { x: visualX, y: t.y, w: widestLine, h: totalH };
   }
+  // boxWidth == null → t.x es anchor del texto según align.
+  // justify sin boxWidth no tiene sentido (no hay ancho para
+  // justificar contra) — tratamos como left para que el texto se
+  // ancle en t.x y el snap pueda funcionar.
+  let visualX = t.x;
+  if (t.align === 'center') visualX = t.x - widestLine / 2;
+  else if (t.align === 'right') visualX = t.x - widestLine;
   return { x: visualX, y: t.y, w: widestLine, h: totalH };
+}
+
+/**
+ * Devuelve las coords (x, width) que hay que pasarle a Konva.Text
+ * para que el texto se ANCLE en `t.x` según `t.align`, replicando lo
+ * que `estimateTextBox` reporta. Sirve para que el render y el
+ * snap/drag/guides consuman la misma fuente de verdad.
+ *
+ * Para textos CON boxWidth, devuelve la caja explícita.
+ * Para textos SIN boxWidth, calcula renderX según align y devuelve
+ * width = canvas.w (necesario para que Konva pueda aplicar align
+ * interno correctamente — el texto queda centrado/derechado/izq
+ * según el align dentro de esa caja virtual de ancho canvas.w).
+ */
+export function computeTextRenderBox(
+  t: TextLayer,
+  canvasW: number,
+): { renderX: number; renderWidth: number } {
+  if (t.boxWidth != null) {
+    return { renderX: t.x, renderWidth: t.boxWidth };
+  }
+  // Sin caja: t.x es anchor según align. Para que Konva centre/derecha
+  // internamente, le damos width=canvasW y desplazamos renderX para
+  // que el ANCLA del texto (segun align) coincida con t.x.
+  if (t.align === 'center') {
+    return { renderX: t.x - canvasW / 2, renderWidth: canvasW };
+  }
+  if (t.align === 'right') {
+    return { renderX: t.x - canvasW, renderWidth: canvasW };
+  }
+  // left + justify: Konva ancla en x → renderX = t.x.
+  return { renderX: t.x, renderWidth: canvasW };
 }
 
 export function pixelRatioForDpi(canvas: CanvasConfig): number {
