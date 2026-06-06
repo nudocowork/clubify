@@ -19,6 +19,13 @@ export class GrowBusinessService {
   private readonly API_BASE = 'https://services.leadconnectorhq.com';
   private readonly API_VERSION = '2021-07-28';
 
+  // 2026-06-06 (item 3 sprint): TODO mensaje saliente vía Grow Business debe
+  // arrancar con `#switch_unique|2|` para que salga del número de SOPORTE en
+  // lugar del de ventas. La prioridad 2 está reservada al equipo de soporte
+  // en TODAS las subcuentas operativas. Tenants con `switchNumber` explícito
+  // distinto pueden seguir overrideando — esto es solo el default.
+  private readonly DEFAULT_SUPPORT_SWITCH = 2;
+
   constructor(private prisma: PrismaService) {}
 
   /**
@@ -253,23 +260,27 @@ export class GrowBusinessService {
     }
     // Switch prefix (Grow Business multi-number).
     //
-    // Formato actualizado (2026-05): `#switch_unique|<priority>|<message>`
-    // - El backend de GHL/LeadConnector parsea el prefijo y enruta el SMS
-    //   por el número de WhatsApp de prioridad indicada (cada subcuenta
-    //   puede tener múltiples números con prioridades distintas).
-    // - Si switchNumber es null/undefined → no se agrega prefijo (un solo
-    //   número de envío).
-    // - Si switchNumber tiene valor → `#switch_unique|<n>|<body>` inline.
+    // Formato: `#switch_unique|<priority>|<message>`. El backend de GHL/
+    // LeadConnector parsea el prefijo y enruta el SMS por el número de la
+    // prioridad indicada (cada subcuenta tiene múltiples números con
+    // prioridades distintas).
     //
-    // Mantenemos compat para mensajes que ya vienen con el prefijo del
-    // caller (no doble-prefixing). Aceptamos también el formato legacy
-    // `#Switch<n>\n` por si quedó algún mensaje viejo encolado.
+    // 2026-06-06 (item 3 sprint): el default cambió. Antes: si switchNumber
+    // era null, NO se agregaba prefijo y el SMS salía del número por defecto
+    // (ventas). Ahora: si switchNumber es null, se usa DEFAULT_SUPPORT_SWITCH
+    // (2 = soporte) para garantizar que TODOS los mensajes salgan desde
+    // soporte salvo override explícito. Tenants/cuentas con switchNumber
+    // configurado mantienen su override.
+    //
+    // Compat: si el caller ya armó el prefijo manualmente (legacy `#Switch<n>\n`
+    // o `#switch_unique|<n>|`), respetamos su decisión y no doble-prefixeamos.
     const alreadyHasPrefix =
       /^#switch_unique\|\d+\|/i.test(body) || /^#Switch\d+\s*\n/i.test(body);
-    const messageBody =
-      creds.switchNumber != null && !alreadyHasPrefix
-        ? `#switch_unique|${creds.switchNumber}|${body}`
-        : body;
+    const effectiveSwitch =
+      creds.switchNumber != null ? creds.switchNumber : this.DEFAULT_SUPPORT_SWITCH;
+    const messageBody = alreadyHasPrefix
+      ? body
+      : `#switch_unique|${effectiveSwitch}|${body}`;
 
     // Grow Business / LeadConnector cambió la API: /conversations/messages
     // ya no acepta `toNumber` directo (devuelve 404 "Contact id not given").
