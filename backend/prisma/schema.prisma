@@ -525,6 +525,9 @@ model Tenant {
   // Cotizaciones que se convirtieron en este tenant (closed-loop signup
   // con qt=<publicToken> en el URL).
   fromQuotes          Quote[]           @relation("QuoteConvertedToTenant")
+  // Item 6 sprint: excepciones de comisión configuradas para este tenant
+  // (1 por nivel de la cadena: influencer/embajador/vendedor).
+  commissionExceptions CommissionException[]
 
   @@index([status])
 }
@@ -620,6 +623,12 @@ model User {
   // propias secuencias y un step puede asignar contactos a otro user.
   sequences               Sequence[]     @relation("SequenceOwner")
   sequenceStepsAsAssignee SequenceStep[] @relation("SequenceStepAssignee")
+
+  // Item 6 sprint: excepciones de comisión por cliente — quién las creó
+  // y quién las editó (audit). Ambas son SetNull, no Cascade, para no
+  // perder el historial si se elimina al admin que las hizo.
+  commissionExceptionsCreated CommissionException[]          @relation("CommissionExceptionCreator")
+  commissionExceptionsChanged CommissionExceptionHistory[]   @relation("CommissionExceptionHistoryChanger")
 
   @@index([tenantId])
   @@index([role])
@@ -1672,6 +1681,9 @@ model ReferralCode {
   /// Inverso de Commission.recipientCode. Permite query directo "todas
   /// las commissions del influencer X" sin walkear el referralUse.
   receivedCommissions    Commission[]      @relation("CommissionRecipient")
+  /// Item 6 sprint: excepciones de comisión cuya recipientCodeId apunta
+  /// a este code (= aplican al % que ESTE code cobraría normalmente).
+  commissionExceptions   CommissionException[]
 
   @@index([parentCodeId])
   @@index([parentEmbajadorCodeId])
@@ -2954,4 +2966,55 @@ model SequenceExecution {
   executedAt   DateTime           @default(now())
 
   @@index([enrollmentId, executedAt])
+}
+
+// ============================================================
+//   COMMISSION EXCEPTIONS — item 6 sprint
+// ============================================================
+
+/// Excepción comercial de comisión para un tenant específico. Sobreescribe
+/// el porcentaje normal de la cadena de afiliados (influencer/embajador/
+/// vendedor) solo para ese tenant. Aplica a comisiones futuras + PENDING;
+/// las ya PAID no se tocan salvo override manual del SUPER_ADMIN.
+model CommissionException {
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// El ReferralCode al que se le aplica la excepción (influencer/embajador/
+  /// vendedor). Un mismo tenant puede tener excepciones distintas por cada
+  /// rol en la cadena (ej: 20% para el embajador y 5% para el influencer).
+  recipientCodeId String
+  recipientCode   ReferralCode @relation(fields: [recipientCodeId], references: [id], onDelete: Cascade)
+  customPercent   Decimal  @db.Decimal(5, 2)
+  reason          String?  @db.Text
+  isActive        Boolean  @default(true)
+  createdById     String?
+  createdBy       User?    @relation("CommissionExceptionCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  /// Historial de cambios — un row nuevo por cada update.
+  history         CommissionExceptionHistory[]
+
+  @@unique([tenantId, recipientCodeId])
+  @@index([tenantId])
+  @@index([recipientCodeId])
+}
+
+/// Snapshot audit del cambio de excepción — para responder "¿quién la
+/// puso al 20%, cuándo y por qué?".
+model CommissionExceptionHistory {
+  id              String   @id @default(cuid())
+  exceptionId     String
+  exception       CommissionException @relation(fields: [exceptionId], references: [id], onDelete: Cascade)
+  previousPercent Decimal? @db.Decimal(5, 2)
+  newPercent      Decimal  @db.Decimal(5, 2)
+  previousActive  Boolean?
+  newActive       Boolean
+  reason          String?  @db.Text
+  changedById     String?
+  changedBy       User?    @relation("CommissionExceptionHistoryChanger", fields: [changedById], references: [id], onDelete: SetNull)
+  changedAt       DateTime @default(now())
+
+  @@index([exceptionId, changedAt])
 }

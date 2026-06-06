@@ -262,7 +262,7 @@ export class ReferralsService {
         },
       },
       include: {
-        referralCode: { select: { commissionPercent: true } },
+        referralCode: { select: { id: true, commissionPercent: true } },
         tenant: {
           select: { currentPeriodEnd: true, plan: { select: { priceMonthly: true } } },
         },
@@ -287,7 +287,14 @@ export class ReferralsService {
       // luego (ver excepciones por cliente, item 6 del sprint).
       const price = Number(use.tenant?.plan?.priceMonthly ?? 0);
       if (price <= 0) continue;
-      const pct = Number(use.referralCode.commissionPercent ?? 25);
+      // Item 6 sprint: respetar excepción por (tenant, recipientCode) si
+      // existe y está activa.
+      if (!use.tenantId) continue;
+      const pct = await this.resolveExceptionPercent(
+        use.tenantId,
+        use.referralCode.id,
+        Number(use.referralCode.commissionPercent ?? 25),
+      );
       const amount = Math.round((price * pct) / 100 * 100) / 100;
       await this.prisma.commission.create({
         data: { referralUseId: use.id, amount, status: 'PENDING' },
@@ -2778,6 +2785,25 @@ export class ReferralsService {
   }
 
   /**
+   * Item 6 sprint: si el SUPER_ADMIN configuró una excepción activa para
+   * el tenant en ESTE recipientCode, devuelve el % custom; sino el normal.
+   * Cada nivel de la cadena (influencer/embajador/vendor) consulta su
+   * propia excepción de forma independiente.
+   */
+  private async resolveExceptionPercent(
+    tenantId: string,
+    recipientCodeId: string,
+    fallbackPercent: number,
+  ): Promise<number> {
+    const exc = await this.prisma.commissionException.findUnique({
+      where: { tenantId_recipientCodeId: { tenantId, recipientCodeId } },
+      select: { customPercent: true, isActive: true },
+    });
+    if (exc && exc.isActive) return Number(exc.customPercent);
+    return fallbackPercent;
+  }
+
+  /**
    * Genera las commission rows para un pago efectivo de un tenant.
    * 3-way split: hasta 3 rows (influencer / embajador / vendor). Si la
    * chain no tiene alguna persona, se omite esa row.
@@ -2815,25 +2841,47 @@ export class ReferralsService {
     let generated = 0;
     let skipped = 0;
 
+    // Item 6 sprint: cada nivel (influencer / embajador / vendor) puede
+    // tener su propia excepción configurada para este tenant. Resolvemos
+    // el % efectivo antes de calcular montos. Si no hay excepción, cae al
+    // % normal del ReferralCode (que vino en `chain`).
+    const influencerPct = chain.influencer
+      ? await this.resolveExceptionPercent(
+          args.tenantId,
+          chain.influencer.id,
+          chain.influencer.commissionPercent,
+        )
+      : 0;
+    const embajadorPct = chain.embajador
+      ? await this.resolveExceptionPercent(
+          args.tenantId,
+          chain.embajador.id,
+          chain.embajador.commissionPercent,
+        )
+      : 0;
+    const vendorPct = chain.vendor
+      ? await this.resolveExceptionPercent(
+          args.tenantId,
+          chain.vendor.id,
+          chain.vendor.commissionPercent,
+        )
+      : 0;
+
     const rows: Array<{
       recipientCodeId: string;
       vendorCodeId: string | null;
       amount: number;
     }> = [];
 
-    if (chain.influencer && chain.influencer.commissionPercent > 0) {
+    if (chain.influencer && influencerPct > 0) {
       rows.push({
         recipientCodeId: chain.influencer.id,
         vendorCodeId: null,
-        amount: Math.round(amount * chain.influencer.commissionPercent) / 100,
+        amount: Math.round(amount * influencerPct) / 100,
       });
     }
     if (chain.embajador) {
-      const vendorPct = chain.vendor?.commissionPercent ?? 0;
-      const embajadorEffectivePct = Math.max(
-        0,
-        chain.embajador.commissionPercent - vendorPct,
-      );
+      const embajadorEffectivePct = Math.max(0, embajadorPct - vendorPct);
       if (embajadorEffectivePct > 0) {
         rows.push({
           recipientCodeId: chain.embajador.id,
@@ -2842,11 +2890,11 @@ export class ReferralsService {
         });
       }
     }
-    if (chain.vendor && chain.vendor.commissionPercent > 0) {
+    if (chain.vendor && vendorPct > 0) {
       rows.push({
         recipientCodeId: chain.vendor.id,
         vendorCodeId: chain.vendor.id,
-        amount: Math.round(amount * chain.vendor.commissionPercent) / 100,
+        amount: Math.round(amount * vendorPct) / 100,
       });
     }
 

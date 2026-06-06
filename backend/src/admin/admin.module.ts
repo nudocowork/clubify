@@ -8,6 +8,8 @@ import { TrialsService } from './trials.service';
 import { TrialsController } from './trials.controller';
 import { BusinessMapService } from './business-map.service';
 import { BusinessMapController } from './business-map.controller';
+import { CommissionExceptionsService } from './commission-exceptions.service';
+import { CommissionExceptionsController } from './commission-exceptions.controller';
 import { IntegrationsModule } from '../integrations/integrations.module';
 import { AuthModule } from '../auth/auth.module';
 
@@ -19,12 +21,14 @@ import { AuthModule } from '../auth/auth.module';
     PurchaseOrdersService,
     TrialsService,
     BusinessMapService,
+    CommissionExceptionsService,
   ],
   controllers: [
     RemindersController,
     AdminController,
     TrialsController,
     BusinessMapController,
+    CommissionExceptionsController,
   ],
   exports: [RemindersService],
 })

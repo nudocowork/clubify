@@ -776,7 +776,13 @@ export class HotmartService {
       }
 
       if (!recent && !duplicateByTx) {
-        const pct = Number(use.referralCode.commissionPercent ?? 25);
+        // Item 6 sprint: si el SUPER_ADMIN configuró una excepción para
+        // este (tenant, recipientCode), el % de la excepción gana.
+        const pct = await this.resolvePercent(
+          opts.tenantId,
+          use.referralCode.id,
+          Number(use.referralCode.commissionPercent ?? 25),
+        );
         const direct = round2((referralBase * pct) / 100);
 
         if (use.status === 'SIGNED_UP') {
@@ -801,7 +807,17 @@ export class HotmartService {
         // Configurable más adelante via Setting key `referrals.indirectPercent`.
         if (use.referralCode.role === 'AMBASSADOR' && use.referralCode.parentCode) {
           const parent = use.referralCode.parentCode;
-          const indirectPct = await this.getNumberSetting('referrals.indirectPercent', 5);
+          const fallbackIndirect = await this.getNumberSetting(
+            'referrals.indirectPercent',
+            5,
+          );
+          // Item 6 sprint: el influencer parent también puede tener su
+          // propia excepción configurada para este tenant.
+          const indirectPct = await this.resolvePercent(
+            opts.tenantId,
+            parent.id,
+            fallbackIndirect,
+          );
           const indirect = round2((referralBase * indirectPct) / 100);
           // Necesitamos un ReferralUse del parent para colgar la comisión.
           // Match-or-create: uno por tenantId+codeId.
@@ -900,6 +916,24 @@ export class HotmartService {
     if (!row?.value) return defaultValue;
     const n = Number(row.value);
     return Number.isFinite(n) ? n : defaultValue;
+  }
+
+  /**
+   * Resuelve el % de comisión efectivo para un (tenant, recipientCode):
+   * si el SUPER_ADMIN configuró una excepción activa, ese % gana; si no,
+   * usa el `fallbackPercent` (el normal del ReferralCode). Item 6 sprint.
+   */
+  private async resolvePercent(
+    tenantId: string,
+    recipientCodeId: string,
+    fallbackPercent: number,
+  ): Promise<number> {
+    const exc = await this.prisma.commissionException.findUnique({
+      where: { tenantId_recipientCodeId: { tenantId, recipientCodeId } },
+      select: { customPercent: true, isActive: true },
+    });
+    if (exc && exc.isActive) return Number(exc.customPercent);
+    return fallbackPercent;
   }
 
   /**
