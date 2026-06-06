@@ -114,6 +114,29 @@ export class HotmartService {
     // Localizar tenant por email del buyer (caso primer pago) o por subscriberCode (renovaciones).
     const tenant = await this.findTenant({ buyerEmail, subscriberCode });
     if (!tenant) {
+      // Flujo "pago → datos" (referido): el cliente puede pagar ANTES de
+      // crear la cuenta. Si es un pago aprobado y todavía no hay tenant,
+      // NO perdemos el pago: lo guardamos como PendingHotmartPayment para
+      // que /auth/signup lo consuma al crear la cuenta (match por email) y
+      // active el tenant al instante. Para el resto de eventos sin tenant
+      // (cancelación/refund/etc.) seguimos ignorando.
+      if (
+        (event === 'PURCHASE_APPROVED' || event === 'PURCHASE_COMPLETE') &&
+        buyerEmail
+      ) {
+        await this.storePendingPayment({
+          event,
+          buyerEmail,
+          subscriberCode,
+          transactionId,
+          payload,
+        }).catch((e) =>
+          this.logger.warn(
+            `storePendingPayment falló para ${buyerEmail}: ${(e as Error).message}`,
+          ),
+        );
+        return { ok: true, action: 'pending_stored' };
+      }
       this.logger.warn(
         `Hotmart event ${event}: no tenant matched (email=${buyerEmail} subscriber=${subscriberCode})`,
       );
@@ -122,108 +145,8 @@ export class HotmartService {
 
     switch (event) {
       case 'PURCHASE_APPROVED':
-      case 'PURCHASE_COMPLETE': {
-        const nextCharge = payload.data?.subscription?.date_next_charge
-          ? new Date(payload.data.subscription.date_next_charge)
-          : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-        await this.prisma.tenant.update({
-          where: { id: tenant.id },
-          data: {
-            status: 'ACTIVE',
-            currentPeriodEnd: nextCharge,
-            hotmartSubscriberCode: subscriberCode ?? tenant.hotmartSubscriberCode,
-            hotmartTransactionId: transactionId ?? tenant.hotmartTransactionId,
-            failedPaymentCount: 0,
-            lastPaymentAttemptAt: new Date(),
-            suspendedAt: null,
-            // Reset de tracking de notificaciones para el nuevo ciclo
-            paymentReminderSentFor: null,
-            paymentFailureNoticeSentAt: null,
-            pausePendingNoticeSentAt: null,
-          },
-        });
-        // Generar la comisión recurrente del referido. Idempotente por
-        // tx/período: si ya creamos una comisión para esta misma transacción
-        // o en los últimos 25 días, skipea.
-        //
-        // FASE FOUNDATION 2026-06-05: si el tenant fue traído por un
-        // ReferralCode con role=VENDOR, usamos el nuevo 3-way generator
-        // que crea hasta 3 commission rows (influencer + embajador +
-        // vendor) con dedup por hotmartTransactionId + recipientCodeId.
-        // Para sales sin vendor en la chain (legacy INFLUENCER/AMBASSADOR
-        // directos), seguimos con el flujo histórico de generateReferralCommission.
-        try {
-          // HOTFIX 2026-06-05 (bug #6 CRÍTICO): si un tenant fue
-          // reasignado a otro afiliado, el findFirst sin orderBy podía
-          // devolver el VENDOR viejo (no convertido) y generar 3-way
-          // commissions a alguien que ya no atrae al cliente. Ahora:
-          //  1) Filtramos por status PAYING/ACTIVE (atribución viva).
-          //  2) Ordenamos por createdAt desc para tomar la atribución
-          //     más reciente.
-          const vendorUse = await this.prisma.referralUse.findFirst({
-            where: {
-              tenantId: tenant.id,
-              referralCode: { role: 'VENDOR' },
-              status: { in: ['PAYING', 'ACTIVE'] },
-            },
-            orderBy: { createdAt: 'desc' },
-            select: { id: true },
-          });
-          if (vendorUse) {
-            // Precio: usamos el monto Hotmart real si vino, sino plan.
-            const planForRate = await this.prisma.tenant.findUnique({
-              where: { id: tenant.id },
-              select: { plan: { select: { priceMonthly: true } } },
-            });
-            const basePrice =
-              payload.data?.purchase?.price?.value &&
-              payload.data.purchase.price.value > 0
-                ? payload.data.purchase.price.value
-                : Number(planForRate?.plan?.priceMonthly ?? 0);
-            await this.referralsService.generateCommissionsForPayment({
-              tenantId: tenant.id,
-              paymentAmountUsd: basePrice,
-              hotmartTransactionId: transactionId ?? null,
-            });
-          } else {
-            await this.generateReferralCommission({
-              tenantId: tenant.id,
-              paidAmount: payload.data?.purchase?.price?.value ?? null,
-              transactionId,
-            });
-          }
-        } catch (e) {
-          this.logger.warn(
-            `generación de comisión falló: ${(e as Error).message}`,
-          );
-        }
-        // SMS de confirmación al dueño (best-effort)
-        this.notifyOwner(
-          tenant.id,
-          tenant.brandName,
-          smsPaymentConfirmed({
-            brandName: tenant.brandName,
-            nextChargeDate: nextCharge,
-          }),
-        ).catch(() => null);
-
-        // Fan-out post-activación (C2 sprint): alerta al equipo comercial,
-        // creación de CrmContact en el pipeline del afiliado atribuido y
-        // event audit row. Todos fire-and-forget — si fallan no rompen el
-        // webhook (Hotmart reintenta agresivamente y queremos 200 idempotente).
-        await this.postPurchaseFanOut({
-          tenantId: tenant.id,
-          brandName: tenant.brandName,
-          nextCharge,
-          transactionId,
-        }).catch((e) =>
-          this.logger.warn(
-            `postPurchaseFanOut falló: ${(e as Error).message}`,
-          ),
-        );
-
-        return { ok: true, action: 'activated' };
-      }
+      case 'PURCHASE_COMPLETE':
+        return this.activatePurchase(tenant, payload);
 
       case 'PURCHASE_BILLET_PRINTED': {
         // HOTFIX 2026-06-05 (bug Q): imprimir un boleto bancario (BR) NO
@@ -324,6 +247,274 @@ export class HotmartService {
       default:
         return { ok: true, action: 'unhandled' };
     }
+  }
+
+  /**
+   * Activa un tenant tras un pago aprobado (PURCHASE_APPROVED/COMPLETE):
+   * pone status=ACTIVE, fija el próximo cobro, genera la comisión del
+   * referido y dispara el fan-out comercial. Es el corazón del webhook
+   * extraído a método propio para poder re-usarlo desde /auth/signup
+   * cuando el cliente pagó ANTES de crear la cuenta (PendingHotmartPayment).
+   */
+  private async activatePurchase(
+    tenant: {
+      id: string;
+      brandName: string;
+      hotmartSubscriberCode: string | null;
+      hotmartTransactionId: string | null;
+    },
+    payload: HotmartWebhookPayload,
+  ) {
+    const subscriberCode = payload.data?.subscription?.subscriber?.code;
+    const transactionId = payload.data?.purchase?.transaction;
+    const nextCharge = payload.data?.subscription?.date_next_charge
+      ? new Date(payload.data.subscription.date_next_charge)
+      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    await this.prisma.tenant.update({
+      where: { id: tenant.id },
+      data: {
+        status: 'ACTIVE',
+        currentPeriodEnd: nextCharge,
+        hotmartSubscriberCode: subscriberCode ?? tenant.hotmartSubscriberCode,
+        hotmartTransactionId: transactionId ?? tenant.hotmartTransactionId,
+        failedPaymentCount: 0,
+        lastPaymentAttemptAt: new Date(),
+        suspendedAt: null,
+        // Reset de tracking de notificaciones para el nuevo ciclo
+        paymentReminderSentFor: null,
+        paymentFailureNoticeSentAt: null,
+        pausePendingNoticeSentAt: null,
+      },
+    });
+    // Generar la comisión recurrente del referido. Idempotente por
+    // tx/período: si ya creamos una comisión para esta misma transacción
+    // o en los últimos 25 días, skipea.
+    //
+    // FASE FOUNDATION 2026-06-05: si el tenant fue traído por un
+    // ReferralCode con role=VENDOR, usamos el nuevo 3-way generator
+    // que crea hasta 3 commission rows (influencer + embajador +
+    // vendor) con dedup por hotmartTransactionId + recipientCodeId.
+    // Para sales sin vendor en la chain (legacy INFLUENCER/AMBASSADOR
+    // directos), seguimos con el flujo histórico de generateReferralCommission.
+    try {
+      // HOTFIX 2026-06-05 (bug #6 CRÍTICO): si un tenant fue
+      // reasignado a otro afiliado, el findFirst sin orderBy podía
+      // devolver el VENDOR viejo (no convertido) y generar 3-way
+      // commissions a alguien que ya no atrae al cliente. Ahora:
+      //  1) Filtramos por status PAYING/ACTIVE (atribución viva).
+      //  2) Ordenamos por createdAt desc para tomar la atribución
+      //     más reciente.
+      const vendorUse = await this.prisma.referralUse.findFirst({
+        where: {
+          tenantId: tenant.id,
+          referralCode: { role: 'VENDOR' },
+          status: { in: ['PAYING', 'ACTIVE'] },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+      if (vendorUse) {
+        // Precio: usamos el monto Hotmart real si vino, sino plan.
+        const planForRate = await this.prisma.tenant.findUnique({
+          where: { id: tenant.id },
+          select: { plan: { select: { priceMonthly: true } } },
+        });
+        const basePrice =
+          payload.data?.purchase?.price?.value &&
+          payload.data.purchase.price.value > 0
+            ? payload.data.purchase.price.value
+            : Number(planForRate?.plan?.priceMonthly ?? 0);
+        await this.referralsService.generateCommissionsForPayment({
+          tenantId: tenant.id,
+          paymentAmountUsd: basePrice,
+          hotmartTransactionId: transactionId ?? null,
+        });
+      } else {
+        await this.generateReferralCommission({
+          tenantId: tenant.id,
+          paidAmount: payload.data?.purchase?.price?.value ?? null,
+          transactionId,
+        });
+      }
+    } catch (e) {
+      this.logger.warn(
+        `generación de comisión falló: ${(e as Error).message}`,
+      );
+    }
+    // SMS de confirmación al dueño (best-effort)
+    this.notifyOwner(
+      tenant.id,
+      tenant.brandName,
+      smsPaymentConfirmed({
+        brandName: tenant.brandName,
+        nextChargeDate: nextCharge,
+      }),
+    ).catch(() => null);
+
+    // Fan-out post-activación (C2 sprint): alerta al equipo comercial,
+    // creación de CrmContact en el pipeline del afiliado atribuido y
+    // event audit row. Todos fire-and-forget — si fallan no rompen el
+    // webhook (Hotmart reintenta agresivamente y queremos 200 idempotente).
+    await this.postPurchaseFanOut({
+      tenantId: tenant.id,
+      brandName: tenant.brandName,
+      nextCharge,
+      transactionId,
+    }).catch((e) =>
+      this.logger.warn(`postPurchaseFanOut falló: ${(e as Error).message}`),
+    );
+
+    return { ok: true, action: 'activated' };
+  }
+
+  /**
+   * Activa un tenant ya conocido por id (flujo "pago → datos"): lo usa
+   * /auth/signup al consumir un PendingHotmartPayment. NO pasa por
+   * findTenant (no re-guarda pending) — la cuenta acaba de crearse.
+   */
+  async activatePurchaseForTenant(
+    tenantId: string,
+    payload: HotmartWebhookPayload,
+  ) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        id: true,
+        brandName: true,
+        hotmartSubscriberCode: true,
+        hotmartTransactionId: true,
+      },
+    });
+    if (!tenant) return { ok: true, action: 'tenant_not_found' };
+    return this.activatePurchase(tenant, payload);
+  }
+
+  /**
+   * Guarda un pago de Hotmart que llegó SIN cuenta (flujo "pago → datos").
+   * Dedup por email + transacción para tolerar los reintentos de Hotmart.
+   * Dispara recuperación (email al comprador + SMS al equipo) la primera vez.
+   */
+  private async storePendingPayment(args: {
+    event: HotmartEventType;
+    buyerEmail: string;
+    subscriberCode?: string;
+    transactionId?: string;
+    payload: HotmartWebhookPayload;
+  }) {
+    const email = args.buyerEmail.toLowerCase();
+    const existing = await this.prisma.pendingHotmartPayment.findFirst({
+      where: {
+        email,
+        consumedAt: null,
+        ...(args.transactionId ? { transactionId: args.transactionId } : {}),
+      },
+    });
+    if (existing) {
+      this.logger.log(
+        `PendingHotmartPayment ya existe para ${email} (tx=${args.transactionId ?? '—'}) — skip`,
+      );
+      return;
+    }
+    await this.prisma.pendingHotmartPayment.create({
+      data: {
+        email,
+        subscriberCode: args.subscriberCode ?? null,
+        transactionId: args.transactionId ?? null,
+        event: args.event,
+        rawPayload: args.payload as any,
+      },
+    });
+    this.logger.log(
+      `Pago Hotmart sin cuenta — guardado PendingHotmartPayment para ${email} (tx=${args.transactionId ?? '—'})`,
+    );
+    await this.notifyPendingRecovery({
+      email,
+      name: args.payload.data?.buyer?.name ?? null,
+    }).catch(() => null);
+  }
+
+  /**
+   * Recuperación de pago "huérfano": email al comprador con el link a
+   * /activar para completar su cuenta + SMS al equipo comercial. Marca
+   * recoveryNotifiedAt para no re-enviar en reintentos del webhook.
+   */
+  private async notifyPendingRecovery(opts: {
+    email: string;
+    name: string | null;
+  }) {
+    const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
+    const activateUrl = `${appUrl}/activar`;
+    const greeting = opts.name ? ` ${opts.name}` : '';
+    await this.email.send({
+      to: opts.email,
+      subject: 'Completá tu cuenta de Clubify',
+      html: `<p>Hola${greeting},</p>
+<p>Recibimos tu pago 🎉. Solo falta crear tu cuenta para empezar a usar Clubify.</p>
+<p><a href="${activateUrl}" style="display:inline-block;background:#22C55E;color:#fff;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:600">Completar mi cuenta →</a></p>
+<p>Importante: usá el mismo correo con el que pagaste (<strong>${opts.email}</strong>) para que activemos tu cuenta al instante.</p>`,
+      text: `Recibimos tu pago. Completá tu cuenta en ${activateUrl} usando el correo ${opts.email}.`,
+    });
+    this.alerts
+      .sendTeamAlert(
+        `💳 Pago Hotmart recibido SIN cuenta aún.\nEmail: ${opts.email}\nSe le envió link a /activar para completar. Si no aparece la cuenta pronto, contactar.`,
+      )
+      .catch(() => null);
+    await this.prisma.pendingHotmartPayment
+      .updateMany({
+        where: { email: opts.email, consumedAt: null, recoveryNotifiedAt: null },
+        data: { recoveryNotifiedAt: new Date() },
+      })
+      .catch(() => null);
+  }
+
+  /**
+   * Consume un PendingHotmartPayment para un email recién registrado.
+   * Lo invoca /auth/signup (vía AuthService) tras crear la cuenta. Match
+   * tolerante al `+alias` que Hotmart strippea. Devuelve true si activó.
+   */
+  async consumePendingForTenant(
+    tenantId: string,
+    signupEmail: string,
+  ): Promise<boolean> {
+    const email = signupEmail.toLowerCase();
+    const stripPlus = (e: string) => e.replace(/\+[^@]*@/, '@').toLowerCase();
+    let pending = await this.prisma.pendingHotmartPayment.findFirst({
+      where: { email, consumedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!pending) {
+      // Fallback tolerante al +alias: escaneo acotado de pendientes.
+      const candidates = await this.prisma.pendingHotmartPayment.findMany({
+        where: { consumedAt: null },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      });
+      pending =
+        candidates.find((p) => {
+          const pe = p.email.toLowerCase();
+          return (
+            pe === email ||
+            stripPlus(pe) === email ||
+            pe === stripPlus(email) ||
+            stripPlus(pe) === stripPlus(email)
+          );
+        }) ?? null;
+    }
+    if (!pending) return false;
+    // Marcar consumido ANTES de activar (idempotencia ante reintentos del
+    // signup) y activar el tenant recién creado.
+    await this.prisma.pendingHotmartPayment.update({
+      where: { id: pending.id },
+      data: { consumedAt: new Date() },
+    });
+    await this.activatePurchaseForTenant(
+      tenantId,
+      pending.rawPayload as unknown as HotmartWebhookPayload,
+    );
+    this.logger.log(
+      `PendingHotmartPayment consumido para tenant=${tenantId} (email=${email})`,
+    );
+    return true;
   }
 
   private async findTenant({

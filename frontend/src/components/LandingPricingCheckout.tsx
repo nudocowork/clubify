@@ -1,23 +1,25 @@
 'use client';
-import Link from 'next/link';
 import { useState } from 'react';
 
 /**
  * Selector de planes tipo checkout en la landing pública (Preview 5).
  * Pattern: 4 opciones tipo radio apiladas, cada una con precio +
  * equivalente mensual + ahorro. Total dinámico abajo + CTA "Continuar
- * al pago" que lleva a /signup?plan=<id>.
+ * al pago".
  *
- * Flow (M10 2026-06-04): el CTA NO abre Hotmart directo — primero pasa
- * por el formulario de registro `/signup`, que después del signup
- * exitoso redirige al checkoutUrl del plan elegido. Esto preserva
- * tracking, attribution y forma parte del funnel completo.
+ * Flow (2026-06-06 — "pago → datos"): el CTA abre el checkout de Hotmart
+ * del plan elegido DIRECTO. El cliente paga primero y, al volver (página
+ * de gracias de Hotmart → /activar), crea su cuenta. Antes de redirigir
+ * persistimos el plan elegido en localStorage (`clubify:plan-period`)
+ * para que /activar lo recupere; la atribución del referido ya está en
+ * localStorage vía RefCapture.
  *
- * Recibe los 4 planes como prop desde el server component (que los
- * fetcha del endpoint /api/landing-plans). Si el founder no configuró
- * el checkoutUrl del plan elegido, el botón sale como "Próximamente"
- * deshabilitado (no tiene sentido completar signup si no hay link de
- * pago configurado para ese periodo).
+ * Recibe los 4 planes como prop (fetchados de /api/landing-plans). Si el
+ * founder no configuró el checkoutUrl del plan, el botón sale como
+ * "Próximamente" deshabilitado.
+ *
+ * Se reutiliza tal cual en la landing (/) y en /signup (entrada del
+ * referido) — mismos 4 planes, mismo comportamiento.
  */
 
 type PlanId = 'mensual' | 'trimestral' | 'semestral' | 'anual';
@@ -42,13 +44,31 @@ function fmtUSDDec(n: number): string {
   return `${rounded.toFixed(rounded % 1 === 0 ? 0 : 1)} USD`;
 }
 
-export function LandingPricingCheckout({ plans }: { plans: LandingPlan[] }) {
-  const [selected, setSelected] = useState<PlanId>('anual');
+export function LandingPricingCheckout({
+  plans,
+  initialPlan = 'anual',
+}: {
+  plans: LandingPlan[];
+  /** Plan preseleccionado (ej. ?plan= del CTA de la landing). Default: anual. */
+  initialPlan?: PlanId;
+}) {
+  const [selected, setSelected] = useState<PlanId>(initialPlan);
   const plan = plans.find((p) => p.id === selected) ?? plans[0];
   if (!plan) return null;
   const mensualPlan = plans.find((p) => p.id === 'mensual');
   const mensualPrice = mensualPlan?.price ?? MENSUAL_PRICE_FALLBACK;
   const hasUrl = !!plan.checkoutUrl;
+
+  // Pago → datos: persistimos el plan elegido para que /activar lo
+  // recupere post-pago y abrimos el checkout de Hotmart directo. La
+  // atribución del referido (ref/via/utm) ya está en localStorage (RefCapture).
+  function goToCheckout() {
+    if (!plan.checkoutUrl) return;
+    try {
+      localStorage.setItem('clubify:plan-period', plan.id);
+    } catch {}
+    window.location.href = plan.checkoutUrl;
+  }
 
   return (
     <div className="max-w-md mx-auto bg-white rounded-2xl border border-line2 p-5 sm:p-6 shadow-sm">
@@ -123,12 +143,13 @@ export function LandingPricingCheckout({ plans }: { plans: LandingPlan[] }) {
           <span className="text-2xl font-bold">{fmtUSD(plan.price)}</span>
         </div>
         {hasUrl ? (
-          <Link
-            href={`/signup?plan=${plan.id}`}
+          <button
+            type="button"
+            onClick={goToCheckout}
             className="inline-flex items-center justify-center w-full bg-brand text-white font-semibold py-3.5 rounded-pill hover:opacity-95 transition cursor-pointer touch-manipulation [-webkit-tap-highlight-color:transparent] active:scale-[0.98]"
           >
             Continuar al pago →
-          </Link>
+          </button>
         ) : (
           <button
             type="button"
@@ -140,7 +161,7 @@ export function LandingPricingCheckout({ plans }: { plans: LandingPlan[] }) {
           </button>
         )}
         <div className="text-center text-[11px] text-mute mt-3">
-          Te llevamos primero a crear tu cuenta y después al pago seguro.
+          Pago seguro con Hotmart. Apenas pagas, creas tu cuenta en 1 minuto.
         </div>
       </div>
     </div>

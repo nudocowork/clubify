@@ -529,6 +529,33 @@ model Tenant {
   @@index([status])
 }
 
+/// Pago de Hotmart recibido por webhook ANTES de que exista la cuenta
+/// (flujo "pago → datos" del referido). El webhook lo guarda cuando no
+/// matchea ningún tenant; /auth/signup lo consume al crear la cuenta y
+/// activa el tenant al instante reusando la activación del webhook (por
+/// tenantId). Evita perder pagos por la carrera webhook-vs-signup, y
+/// soporta recuperación (SMS/email al comprador que pagó y no volvió).
+model PendingHotmartPayment {
+  id                 String    @id @default(uuid())
+  /// Email del comprador (lowercased) — clave de match con el signup.
+  email              String
+  subscriberCode     String?
+  transactionId      String?
+  /// PURCHASE_APPROVED | PURCHASE_COMPLETE
+  event              String
+  /// Payload completo del webhook para re-ejecutar la activación.
+  rawPayload         Json
+  /// Cuándo se consumió (cuenta creada + activada). null = pendiente.
+  consumedAt         DateTime?
+  /// Cuándo se envió el SMS/email de recuperación al comprador.
+  recoveryNotifiedAt DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([email])
+  @@index([consumedAt])
+}
+
 model User {
   id           String    @id @default(uuid())
   tenantId     String?

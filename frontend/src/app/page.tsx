@@ -7,10 +7,8 @@ import { HeroBanner } from '@/components/HeroBanner';
 import { FidelizacionBanner } from '@/components/FidelizacionBanner';
 import { InfoLinksBanner } from '@/components/InfoLinksBanner';
 import { Logo } from '@/components/Logo';
-import {
-  LandingPricingCheckout,
-  type LandingPlan,
-} from '@/components/LandingPricingCheckout';
+import { LandingPricingCheckout } from '@/components/LandingPricingCheckout';
+import { fetchLandingPlans } from '@/lib/landing-plans';
 
 const TESTIMONIALS = [
   {
@@ -111,75 +109,6 @@ async function fetchNudoMenuItems(): Promise<
     return items;
   } catch {
     return [];
-  }
-}
-
-// Default fallback de planes — los reales se editan desde /admin/branding.
-// Si la API no responde, mostramos estos en la landing para que la sección
-// no quede vacía. checkoutUrl null → botón "Próximamente" deshabilitado.
-const LANDING_PLAN_DEFAULTS: LandingPlan[] = [
-  {
-    id: 'mensual',
-    name: 'Mensual',
-    shortName: '1 mes',
-    months: 1,
-    price: 68,
-    checkoutUrl: null,
-    description: 'Sin compromiso. Cancela cuando quieras.',
-  },
-  {
-    id: 'trimestral',
-    name: 'Trimestral',
-    shortName: '3 meses',
-    months: 3,
-    price: 150,
-    checkoutUrl: null,
-    description: 'Pagas cada 3 meses y ahorras frente al mensual.',
-  },
-  {
-    id: 'semestral',
-    name: 'Semestral',
-    shortName: '6 meses',
-    months: 6,
-    price: 278,
-    checkoutUrl: null,
-    description: 'Compromiso de 6 meses con descuento significativo.',
-  },
-  {
-    id: 'anual',
-    name: 'Anual',
-    shortName: '1 año',
-    months: 12,
-    price: 500,
-    checkoutUrl: null,
-    description: 'El mejor precio por mes. 1 año completo de Clubify.',
-  },
-];
-
-async function fetchLandingPlans(): Promise<LandingPlan[]> {
-  const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
-  try {
-    const r = await fetch(`${API}/api/landing-plans`, {
-      next: { revalidate: 60 },
-    });
-    if (!r.ok) return LANDING_PLAN_DEFAULTS;
-    const d: any = await r.json();
-    // Servidor devuelve { mensual: {price,checkoutUrl}, ... }. Fusionamos
-    // con los defaults para preservar name/months/description/shortName.
-    return LANDING_PLAN_DEFAULTS.map((def) => {
-      const v = d?.[def.id];
-      if (!v) return def;
-      return {
-        ...def,
-        price: Number.isFinite(v.price) && v.price > 0 ? v.price : def.price,
-        checkoutUrl:
-          typeof v.checkoutUrl === 'string' && v.checkoutUrl.trim().length > 0
-            ? v.checkoutUrl.trim()
-            : null,
-      };
-    });
-  } catch {
-    return LANDING_PLAN_DEFAULTS;
   }
 }
 
