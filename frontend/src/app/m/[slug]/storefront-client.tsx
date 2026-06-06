@@ -316,11 +316,11 @@ function StorefrontPublicInner() {
   const [translating, setTranslating] = useState(false);
 
   useEffect(() => {
-    setCart(readCart(slug));
-    const handler = () => setCart(readCart(slug));
+    setCart(readCart(slug, mode));
+    const handler = () => setCart(readCart(slug, mode));
     window.addEventListener(`cart:${slug}`, handler);
     return () => window.removeEventListener(`cart:${slug}`, handler);
-  }, [slug]);
+  }, [slug, mode]);
 
   // Back compat con QRs viejos que apuntan a `?mesa=1`: con la nueva
   // separación `/m/<slug>` ya ES mesa, así que el param es redundante.
@@ -953,6 +953,7 @@ function StorefrontPublicInner() {
           currency={s.currency}
           ordersEnabled={ordersAllowed}
           onClose={() => setOpenProduct(null)}
+          mode={mode}
         />
       )}
 
@@ -963,6 +964,7 @@ function StorefrontPublicInner() {
           slug={slug}
           primary={primary}
           currency={s.currency}
+          mode={mode}
           onClose={() => setShowCart(false)}
           onCheckout={() => {
             setShowCart(false);
@@ -1005,6 +1007,7 @@ function ProductModal({
   currency,
   ordersEnabled,
   onClose,
+  mode,
 }: {
   product: Product;
   slug: string;
@@ -1012,6 +1015,7 @@ function ProductModal({
   currency: string;
   ordersEnabled: boolean;
   onClose: () => void;
+  mode: StorefrontMode;
 }) {
   const tt = useT();
   const defaultVar = product.variants.find((v) => v.isDefault) ?? product.variants[0];
@@ -1029,17 +1033,21 @@ function ProductModal({
   const total = unit * qty;
 
   function add() {
-    addToCart(slug, {
-      productId: product.id,
-      variantId,
-      variantName: variant?.name,
-      extraIds: extras,
-      extras: extrasObj,
-      qty,
-      name: product.name + (variant ? ` (${variant.name})` : ''),
-      unitPrice: unit,
-      note: note || undefined,
-    });
+    addToCart(
+      slug,
+      {
+        productId: product.id,
+        variantId,
+        variantName: variant?.name,
+        extraIds: extras,
+        extras: extrasObj,
+        qty,
+        name: product.name + (variant ? ` (${variant.name})` : ''),
+        unitPrice: unit,
+        note: note || undefined,
+      },
+      mode,
+    );
     onClose();
   }
 
@@ -1218,6 +1226,7 @@ function CartSheet({
   currency,
   onClose,
   onCheckout,
+  mode,
 }: {
   items: CartItem[];
   slug: string;
@@ -1225,6 +1234,7 @@ function CartSheet({
   currency: string;
   onClose: () => void;
   onCheckout: () => void;
+  mode: StorefrontMode;
 }) {
   const tt = useT();
   const totals = cartTotals(items);
@@ -1264,14 +1274,14 @@ function CartSheet({
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => updateQty(slug, i, it.qty - 1)}
+                    onClick={() => updateQty(slug, i, it.qty - 1, mode)}
                     className="w-7 h-7 rounded-full border border-line flex items-center justify-center text-sm"
                   >
                     −
                   </button>
                   <span className="text-sm w-5 text-center">{it.qty}</span>
                   <button
-                    onClick={() => updateQty(slug, i, it.qty + 1)}
+                    onClick={() => updateQty(slug, i, it.qty + 1, mode)}
                     className="w-7 h-7 rounded-full border border-line flex items-center justify-center text-sm"
                   >
                     +
@@ -1416,7 +1426,7 @@ function CheckoutSheet({
         throw new Error(j.message ?? 'No se pudo enviar el pedido');
       }
       const order = await res.json();
-      clearCart(slug);
+      clearCart(slug, mode);
 
       if (order.whatsappLink) {
         window.location.href = order.whatsappLink;
