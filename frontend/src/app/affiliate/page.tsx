@@ -12,6 +12,8 @@ import { Logo } from '@/components/Logo';
 import { toast } from '@/components/Toast';
 import { PhoneInput } from '@/components/PhoneInput';
 import { SupportWidget } from '@/components/SupportWidget';
+import { AffiliateBroadcastBanner } from '@/components/AffiliateBroadcastBanner';
+import { LoginPopupBroadcast } from '@/components/LoginPopupBroadcast';
 
 type Tab =
   | 'overview'
@@ -297,6 +299,11 @@ export default function AffiliatePanel() {
           </div>
         )}
 
+        {/* Difusión interna: banner que el SUPER_ADMIN puede activar
+            desde /admin/ventas/difusion. Si no hay nada activo no
+            ocupa espacio (return null). */}
+        <AffiliateBroadcastBanner />
+
         {/* Wrapper que permite scroll horizontal de la pill bar en TODAS las
             resoluciones (con 8 tabs no caben en desktop estándar tampoco).
             -mx-5 saca el padding del main, px-5 lo re-añade adentro para que
@@ -386,6 +393,11 @@ export default function AffiliatePanel() {
       {/* Mentor de ventas IA flotante — visible para todos los afiliados.
           Prompts pre-cargados de prospección, objeciones, scripts WA/IG. */}
       <SupportWidget audience="affiliate" />
+
+      {/* Popup de difusión interna. Se monta acá porque /affiliate no usa
+          AppShell — el componente checkea el endpoint solo y se rinde
+          como null si no hay pieza pendiente para este user. */}
+      <LoginPopupBroadcast />
     </div>
   );
 }
