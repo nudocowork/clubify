@@ -1,11 +1,9 @@
 import {
   BadRequestException,
   ConflictException,
-  Inject,
   Injectable,
   Logger,
   NotFoundException,
-  forwardRef,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { nanoid } from 'nanoid';
@@ -63,7 +61,6 @@ export class TenantDuplicatorService {
 
   constructor(
     private prisma: PrismaService,
-    @Inject(forwardRef(() => AuthService))
     private auth: AuthService,
     private audit: AuditService,
   ) {}
