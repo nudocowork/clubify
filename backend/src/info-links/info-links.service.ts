@@ -100,6 +100,32 @@ export class InfoLinksService {
     return user.tenantId;
   }
 
+  // 2026-06-06: cuando el dueño crea/duplica sin asignar un slug propio,
+  // el default ahora es `infolink`, `infolink2`, `infolink3`, … en vez del
+  // viejo `slugify(title)` (que producía URLs sucias como `mi-nuevo-link-copia`).
+  // Si el dueño quiere personalizar, sigue pudiendo mandar `slug` en el PATCH.
+  private async nextDefaultSlug(tenantId: string): Promise<string> {
+    const existing = await this.prisma.infoLink.findMany({
+      where: { tenantId, slug: { startsWith: 'infolink' } },
+      select: { slug: true },
+    });
+    // "infolink" se trata como N=1. "infolink<N>" con N>=2 se parsea numérico.
+    // Cualquier slug que arranque con "infolink" pero NO matchee el patrón
+    // (ej. "infolink-promo") se ignora — el siguiente default arranca limpio.
+    let maxN = 0;
+    for (const e of existing) {
+      if (e.slug === 'infolink') {
+        if (maxN < 1) maxN = 1;
+        continue;
+      }
+      const m = /^infolink(\d+)$/.exec(e.slug);
+      if (!m) continue;
+      const n = parseInt(m[1], 10);
+      if (Number.isFinite(n) && n > maxN) maxN = n;
+    }
+    return maxN === 0 ? 'infolink' : `infolink${maxN + 1}`;
+  }
+
   list(user: AuthUser, override?: string) {
     const tid = this.tid(user, override);
     return this.prisma.infoLink.findMany({
@@ -151,17 +177,24 @@ export class InfoLinksService {
 
   async create(user: AuthUser, dto: InfoLinkDto, override?: string) {
     const tid = this.tid(user, override);
-    let slug = dto.slug ? slugify(dto.slug) : slugify(dto.title);
-    // Asegurar unicidad
-    let suffix = 0;
-    while (
-      await this.prisma.infoLink.findFirst({
-        where: { tenantId: tid, slug: suffix === 0 ? slug : `${slug}-${suffix}` },
-      })
-    ) {
-      suffix++;
+    let slug: string;
+    if (dto.slug && dto.slug.trim().length > 0) {
+      // URL personalizada: respetamos lo que escribió el dueño y solo
+      // resolvemos colisiones con sufijo numérico clásico.
+      slug = slugify(dto.slug);
+      let suffix = 0;
+      while (
+        await this.prisma.infoLink.findFirst({
+          where: { tenantId: tid, slug: suffix === 0 ? slug : `${slug}-${suffix}` },
+        })
+      ) {
+        suffix++;
+      }
+      if (suffix > 0) slug = `${slug}-${suffix}`;
+    } else {
+      // Default: `infolink`, `infolink2`, … (URL limpia y compartible).
+      slug = await this.nextDefaultSlug(tid);
     }
-    if (suffix > 0) slug = `${slug}-${suffix}`;
 
     return this.prisma.infoLink.create({
       data: {
@@ -240,28 +273,10 @@ export class InfoLinksService {
   async duplicate(user: AuthUser, id: string) {
     const src = await this.get(user, id);
     const tid = src.tenantId;
-    const baseSlug = slugify(`${src.slug}-copia`);
 
-    // Primer intento: probar slugs secuenciales (`-copia`, `-copia-2`, ...)
-    // hasta encontrar uno libre. findFirst + create NO es atómico — dos
-    // duplicates simultáneos del mismo source pueden detectar libre el
-    // mismo slug y el segundo create tira P2002 contra
-    // `@@unique([tenantId, slug])`. En ese caso reintentamos con sufijo
-    // random hasta 3 veces para resolver la race.
-    let slug = baseSlug;
-    let suffix = 2;
-    while (
-      await this.prisma.infoLink.findFirst({
-        where: { tenantId: tid, slug },
-      })
-    ) {
-      slug = `${baseSlug}-${suffix++}`;
-      if (suffix > 50) {
-        slug = `${baseSlug}-${Date.now().toString(36).slice(-4)}`;
-        break;
-      }
-    }
-
+    // 2026-06-06: el duplicado ahora también usa el pattern `infolink`,
+    // `infolink2`, … (antes generaba URLs sucias como `mi-link-copia`).
+    // Si el dueño quiere personalizar después, edita el slug desde el PATCH.
     const data = {
       tenantId: tid,
       title: `${src.title} (copia)`,
@@ -276,21 +291,18 @@ export class InfoLinksService {
       // arranca su propio tracking limpio.
     };
 
+    // Race condition: dos duplicates concurrentes del mismo source pueden
+    // resolver el mismo `nextDefaultSlug`; el segundo create tira P2002
+    // contra `@@unique([tenantId, slug])`. Reintentamos hasta 4 veces —
+    // cada intento re-resuelve el slug desde el estado actual.
     for (let attempt = 0; attempt < 4; attempt++) {
-      const trySlug =
-        attempt === 0
-          ? slug
-          : `${baseSlug}-${Date.now().toString(36).slice(-4)}${Math.random()
-              .toString(36)
-              .slice(-3)}`;
+      const slug = await this.nextDefaultSlug(tid);
       try {
         return await this.prisma.infoLink.create({
-          data: { ...data, slug: trySlug },
+          data: { ...data, slug },
         });
       } catch (e: any) {
         if (e?.code !== 'P2002') throw e;
-        // P2002 = race condition con otro duplicate. Próximo intento usa
-        // sufijo random.
       }
     }
     throw new Error('No se pudo generar un slug único para la copia. Intenta de nuevo.');
