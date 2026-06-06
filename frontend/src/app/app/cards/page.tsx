@@ -280,7 +280,7 @@ export default function CardsList() {
             </div>
             <div className="text-sm text-mute mt-1.5 max-w-md mx-auto leading-relaxed">
               Tarjetas que viven en Apple Wallet y Google Wallet. Sellos, puntos,
-              cashback, visitas o membresías VIP — vos eliges.
+              cashback, visitas o membresías VIP — tú eliges.
             </div>
             <Link href="/app/cards/new" className="btn-primary inline-flex mt-5">
               <Icon name="plus" /> Crear mi primera tarjeta

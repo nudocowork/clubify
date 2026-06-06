@@ -447,12 +447,12 @@ export class HotmartService {
     const greeting = opts.name ? ` ${opts.name}` : '';
     await this.email.send({
       to: opts.email,
-      subject: 'Completá tu cuenta de Clubify',
+      subject: 'Completa tu cuenta de Clubify',
       html: `<p>Hola${greeting},</p>
 <p>Recibimos tu pago 🎉. Solo falta crear tu cuenta para empezar a usar Clubify.</p>
 <p><a href="${activateUrl}" style="display:inline-block;background:#22C55E;color:#fff;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:600">Completar mi cuenta →</a></p>
-<p>Importante: usá el mismo correo con el que pagaste (<strong>${opts.email}</strong>) para que activemos tu cuenta al instante.</p>`,
-      text: `Recibimos tu pago. Completá tu cuenta en ${activateUrl} usando el correo ${opts.email}.`,
+<p>Importante: usa el mismo correo con el que pagaste (<strong>${opts.email}</strong>) para que activemos tu cuenta al instante.</p>`,
+      text: `Recibimos tu pago. Completa tu cuenta en ${activateUrl} usando el correo ${opts.email}.`,
     });
     this.alerts
       .sendTeamAlert(

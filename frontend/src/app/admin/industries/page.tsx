@@ -253,7 +253,7 @@ export default function AdminIndustriesPage() {
         </h3>
         <p className="text-sm text-mute mt-2 leading-relaxed">
           Cada industria tiene su propio deck con slides específicos para esa
-          vertical. Después de crear una industria, haz click en su card
+          vertical. Después de crear una industria, da clic en su card
           para abrir el <b>editor de slides</b>.
         </p>
       </div>

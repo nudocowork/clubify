@@ -8,7 +8,7 @@ import SellerRegisterClient from './SellerRegisterClient';
 export const metadata: Metadata = {
   title: 'Suma a tu equipo · Clubify',
   description:
-    'Registrate como vendedor del equipo de tu embajador en Clubify.',
+    'Regístrate como vendedor del equipo de tu embajador en Clubify.',
   robots: {
     index: false,
     follow: false,

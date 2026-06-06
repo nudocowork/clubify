@@ -207,7 +207,7 @@ export default function CrmIntegrationsPage() {
                 required
               />
               <p className="text-[11px] text-mute mt-1">
-                Lo encontrás en Grow Business → Settings → Business Profile.
+                Lo encuentras en Grow Business → Settings → Business Profile.
               </p>
             </div>
             <div>

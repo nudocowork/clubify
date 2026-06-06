@@ -179,7 +179,7 @@ export function passwordResetTemplate(args: {
           Hola ${args.fullName}, recibimos una solicitud para cambiar la contraseña de tu cuenta en Clubify.
         </p>
         <p style="margin:0 0 14px;color:#374151;line-height:1.55">
-          Haz click en el botón de abajo para crear una nueva. El link vence en <b>${args.expiresInMinutes} minutos</b>.
+          Da clic en el botón de abajo para crear una nueva. El link vence en <b>${args.expiresInMinutes} minutos</b>.
         </p>
         <p style="margin:16px 0 0;color:#6B7280;font-size:13px">Si no solicitaste este cambio, simplemente ignora este email — tu contraseña actual sigue siendo válida.</p>
       `,
@@ -232,7 +232,7 @@ export function inviteAffiliateTemplate(args: {
     : `Te invitamos a ser embajador de ${args.parentName ?? 'la campaña'}`;
 
   return {
-    subject: `Bienvenido a Clubify — sos ${roleLabel} 🎉`,
+    subject: `Bienvenido a Clubify — eres ${roleLabel} 🎉`,
     text: `Hola ${args.fullName},\n${greeting}.\nTu código: ${args.code} (${args.commissionPercent}% de comisión recurrente).\nActiva tu cuenta aquí:\n${args.inviteUrl}\nEl link vence en 7 días.`,
     html: shell({
       tenant,

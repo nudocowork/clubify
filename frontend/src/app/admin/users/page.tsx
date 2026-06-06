@@ -117,7 +117,7 @@ export default function AdminUsersPage() {
 
   async function toggleActive(u: AdminUser) {
     if (u.id === me?.id && u.isActive) {
-      toast('No puedes desactivarte a vos mismo', 'error');
+      toast('No puedes desactivarte a ti mismo', 'error');
       return;
     }
     if (
@@ -163,7 +163,7 @@ export default function AdminUsersPage() {
 
   async function remove(u: AdminUser) {
     if (u.id === me?.id) {
-      toast('No puedes eliminarte a vos mismo', 'error');
+      toast('No puedes eliminarte a ti mismo', 'error');
       return;
     }
     if (
@@ -329,7 +329,7 @@ export default function AdminUsersPage() {
                       {u.fullName}
                       {isMe && (
                         <span className="ml-2 text-[10px] uppercase tracking-wider text-brand font-semibold">
-                          vos
+                          tú
                         </span>
                       )}
                       {u.phone && (

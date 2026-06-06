@@ -395,8 +395,8 @@ function SelfRegisterCard({
 
   async function share() {
     const shareData = {
-      title: 'Sumate a mi equipo en Clubify',
-      text: 'Registrate como vendedor de mi equipo en Clubify:',
+      title: 'Súmate a mi equipo en Clubify',
+      text: 'Regístrate como vendedor de mi equipo en Clubify:',
       url,
     };
     if (typeof navigator !== 'undefined' && (navigator as any).share) {
@@ -457,7 +457,7 @@ function SelfRegisterCard({
         <div className="flex-1 min-w-0">
           <h3 className="font-semibold m-0">Link de registro de vendedores</h3>
           <p className="text-xs text-mute mt-0.5 leading-snug">
-            Compartí este link con la gente que querés sumar. Cada uno que se
+            Comparte este link con la gente que quieres sumar. Cada uno que se
             registre queda en tu equipo automáticamente.
           </p>
         </div>
@@ -558,10 +558,10 @@ function SummaryCard({ data }: { data: VendorsResp }) {
       </div>
       <div className="text-[11px] text-mute mt-2 leading-snug">
         Cada venta de un vendedor de tu equipo: el vendedor recibe{' '}
-        <strong>su %</strong> y vos recibís <strong>{data.max}% − % del vendedor</strong>.
-        Por ejemplo, si vos tenés 25% y el vendedor 18%: él cobra 18% y vos 7%
+        <strong>su %</strong> y tú recibes <strong>{data.max}% − % del vendedor</strong>.
+        Por ejemplo, si tú tienes 25% y el vendedor 18%: él cobra 18% y tú 7%
         en esa venta. El % de cada vendedor se aplica SOLO en SUS ventas — no
-        se acumula entre vendedores. Tenés {activeCount} vendedor{activeCount === 1 ? '' : 'es'} activo{activeCount === 1 ? '' : 's'}.
+        se acumula entre vendedores. Tienes {activeCount} vendedor{activeCount === 1 ? '' : 'es'} activo{activeCount === 1 ? '' : 's'}.
       </div>
     </div>
   );

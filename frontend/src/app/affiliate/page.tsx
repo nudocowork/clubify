@@ -454,7 +454,7 @@ function Overview({ me }: { me: Me }) {
             <div>
               <div className="font-semibold">Origen de tus referidos</div>
               <div className="text-[11px] text-mute">
-                Lo que traés vos directo vs. lo que traen tus embajadores.
+                Lo que traes tú directo vs. lo que traen tus embajadores.
               </div>
             </div>
           </div>
@@ -1962,7 +1962,7 @@ function TrialStatsView() {
       try {
         await (navigator as any).share({
           title: 'Prueba Clubify gratis',
-          text: 'Probá Clubify gratis por 5 días — sin tarjeta.',
+          text: 'Prueba Clubify gratis por 5 días — sin tarjeta.',
           url: trialLink,
         });
       } catch {

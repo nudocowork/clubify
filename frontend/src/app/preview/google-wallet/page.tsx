@@ -17,7 +17,7 @@ export default function GoogleWalletPreviewPage() {
         <div className="mb-10 text-center">
           <div className="inline-flex items-center gap-2 bg-white border border-line text-xs font-semibold px-3 py-1.5 rounded-full mb-4">
             <span className="w-1.5 h-1.5 rounded-full bg-brand" />
-            Preview rediseño — escogé un estilo
+            Preview rediseño — elige un estilo
           </div>
           <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
             5 mockups Google Wallet

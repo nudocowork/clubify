@@ -937,8 +937,8 @@ function AutomationsTab() {
 
       {!loading && rules.length === 0 && (
         <div className="mt-4 p-4 text-center bg-bg2/40 rounded-lg text-sm text-mute">
-          Sin reglas configuradas. En /app/automations encontrás{' '}
-          <b className="text-ink">6 plantillas</b> listas para activar con un click.
+          Sin reglas configuradas. En /app/automations encuentras{' '}
+          <b className="text-ink">6 plantillas</b> listas para activar con un clic.
         </div>
       )}
     </div>

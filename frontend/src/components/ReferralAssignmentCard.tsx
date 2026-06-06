@@ -236,7 +236,7 @@ function BackfillCommissionButton({ tenantId }: { tenantId: string }) {
         if (!force) {
           const ok = confirm(
             'No se generó comisión porque el tenant no tiene un ciclo de pago activo (currentPeriodEnd).\n\n' +
-              '¿Generar igual? Solo confirmá si sabes que este tenant efectivamente paga (ej. fue creado manualmente o vino de un canal sin tracking de billing).\n\n' +
+              '¿Generar igual? Solo confirma si sabes que este tenant efectivamente paga (ej. fue creado manualmente o vino de un canal sin tracking de billing).\n\n' +
               'La comisión se va a crear como PENDING al influencer/embajador.',
           );
           if (ok) {

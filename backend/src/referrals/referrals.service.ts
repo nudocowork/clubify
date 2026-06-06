@@ -2615,7 +2615,7 @@ export class ReferralsService {
 
     if (vendor.receivedCommissions.length > 0) {
       throw new ConflictException(
-        'Este vendedor tiene comisiones pendientes — no se puede eliminar. Podés desactivarlo en su lugar.',
+        'Este vendedor tiene comisiones pendientes — no se puede eliminar. Puedes desactivarlo en su lugar.',
       );
     }
     // HOTFIX 2026-06-05 (bug #11): si tiene CUALQUIER commission histórica
@@ -3083,7 +3083,7 @@ export class ReferralsService {
       }
       if (amount > outstanding + 0.01) {
         throw new BadRequestException(
-          `El monto (${amount}) excede el pendiente (${outstanding.toFixed(2)}). Ingresá un monto menor o igual.`,
+          `El monto (${amount}) excede el pendiente (${outstanding.toFixed(2)}). Ingresa un monto menor o igual.`,
         );
       }
 

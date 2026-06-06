@@ -166,8 +166,8 @@ export function AffiliatePickerSearch({
           {!loading && items.length === 0 && (
             <div className="px-3 py-3 text-sm text-mute">
               {debouncedQuery.trim()
-                ? 'Sin resultados. Probá con otro término.'
-                : 'Comenzá a tipear para buscar.'}
+                ? 'Sin resultados. Prueba con otro término.'
+                : 'Comienza a escribir para buscar.'}
             </div>
           )}
           {!loading &&

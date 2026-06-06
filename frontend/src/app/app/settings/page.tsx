@@ -904,7 +904,7 @@ const DELIVERY_EVENT_OPTIONS: { key: string; label: string; desc: string }[] = [
   {
     key: 'confirmed',
     label: 'Confirmado',
-    desc: 'Vos aceptaste el pedido en el panel.',
+    desc: 'Tú aceptaste el pedido en el panel.',
   },
   {
     key: 'ready',

@@ -1618,7 +1618,7 @@ function ChangePlanPeriodModal({
             <div className="font-semibold mb-1.5">
               ⚠ Este cambio actualiza la metadata interna del negocio.
             </div>
-            Hotmart NO se entera automáticamente — vos tenés que:
+            Hotmart NO se entera automáticamente — tú tienes que:
             <ol className="list-decimal list-inside mt-1.5 space-y-0.5">
               <li>Cancelar la suscripción vieja en Hotmart.</li>
               <li>

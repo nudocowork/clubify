@@ -1258,7 +1258,7 @@ function CreateCampaignModal({
       });
       if (res?.affiliateCredentials) {
         setCredentials(res.affiliateCredentials);
-        toast('Campaña creada — copiá las credenciales del influencer', 'success');
+        toast('Campaña creada — copia las credenciales del influencer', 'success');
       } else {
         toast('Campaña creada', 'success');
         onCreated();
@@ -2445,9 +2445,9 @@ function VendorConfigModal({
           {activeCount > 0 && !allowVendors && (
             <div className="text-[11px] rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900 leading-snug">
               ⚠ Este embajador tiene <strong>{activeCount}</strong>{' '}
-              vendedor(es) activo(s). Si desactivás el módulo, dejará de
-              poder gestionarlos desde su panel — pero los vendedores y
-              sus comisiones históricas se preservan. Podés re-activar el
+              vendedor(es) activo(s). Si desactivas el módulo, dejará de
+              poder administrarlos desde su panel — pero los vendedores y
+              sus comisiones históricas se preservan. Puedes re-activar el
               módulo cuando quieras sin perder nada.
             </div>
           )}

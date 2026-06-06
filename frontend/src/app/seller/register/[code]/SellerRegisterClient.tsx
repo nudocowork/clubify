@@ -199,7 +199,7 @@ export default function SellerRegisterClient({ code }: { code: string }) {
               👥 Suma al equipo
             </div>
             <h1 className="mt-3 text-2xl sm:text-3xl font-bold tracking-tight">
-              Registrate como vendedor
+              Regístrate como vendedor
             </h1>
             <p className="mt-1.5 text-sm text-mute leading-relaxed">
               Te suma al equipo de{' '}
@@ -346,9 +346,9 @@ export default function SellerRegisterClient({ code }: { code: string }) {
         </div>
 
         <div className="text-center mt-5 text-xs text-mute">
-          ¿Ya tenés cuenta?{' '}
+          ¿Ya tienes cuenta?{' '}
           <Link href="/login" className="underline">
-            Iniciá sesión
+            Inicia sesión
           </Link>
         </div>
       </div>
