@@ -1,7 +1,12 @@
 'use client';
 import { Fragment, Suspense, useEffect, useMemo, useState } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, usePathname, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
+import {
+  buildStorefrontPath,
+  orderModeFor,
+  type StorefrontMode,
+} from '@/lib/menu/storefront-mode';
 import {
   addToCart,
   cartTotals,
@@ -286,6 +291,13 @@ function StorefrontPublicInner() {
   // Search params reactivos (?mesa=N, ?promo=1, ?counter=1) — leídos
   // vía Next hook para consistencia SSR/CSR. Ver comentario en `isTableMode`.
   const searchParams = useSearchParams();
+  // Modo derivado de la ruta (separación definitiva 2026-06-06):
+  //   /m/<slug>           → 'mesa'      (nuevo default)
+  //   /m/<slug>/delivery  → 'delivery'
+  // Legacy: si llega ?mesa=1 (QR viejo) sin /delivery, también mesa.
+  const pathname = usePathname() ?? '';
+  const isDeliveryRoute = pathname.split('/').includes('delivery');
+  const mode: StorefrontMode = isDeliveryRoute ? 'delivery' : 'mesa';
   const [s, setS] = useState<Storefront | null>(null);
   const [menu, setMenu] = useState<Category[]>([]);
   const [tab, setTab] = useState<'menu' | 'promos'>('menu');
@@ -309,6 +321,20 @@ function StorefrontPublicInner() {
     window.addEventListener(`cart:${slug}`, handler);
     return () => window.removeEventListener(`cart:${slug}`, handler);
   }, [slug]);
+
+  // Back compat con QRs viejos que apuntan a `?mesa=1`: con la nueva
+  // separación `/m/<slug>` ya ES mesa, así que el param es redundante.
+  // Lo limpiamos del URL para no contaminar el state (CheckoutSheet leía
+  // `?mesa=N` para forzar DINE_IN — lo cubrimos directo con `mode='mesa'`).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (mode !== 'mesa') return;
+    if (!searchParams.get('mesa')) return;
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete('mesa');
+    const qs = next.toString();
+    window.history.replaceState({}, '', `${window.location.pathname}${qs ? `?${qs}` : ''}`);
+  }, [mode, searchParams]);
 
   // Storefront + menú: ambos fetchs dependen del locale activo. Backend
   // traduce on-the-fly con cache (Fase 2). La primera carga en un idioma
@@ -347,7 +373,7 @@ function StorefrontPublicInner() {
         .catch((e: Error) => {
           if (!cancelled) setLoadError(e.message || 'No disponible');
         }),
-      fetch(`${API}/api/public/m/${slug}/menu?locale=${locale}`)
+      fetch(`${API}/api/public/m/${slug}/menu?locale=${locale}&mode=${mode}`)
         .then(async (r) => (r.ok ? r.json() : []))
         .then((data) => {
           if (!cancelled) setMenu(data);
@@ -361,7 +387,7 @@ function StorefrontPublicInner() {
       cancelled = true;
       if (debounceId) clearTimeout(debounceId);
     };
-  }, [slug, locale]);
+  }, [slug, locale, mode]);
 
   // Capturar ?promo=CODE del QR Descuento. Se persiste en localStorage
   // para que el banner sobreviva navegaciones. El código se PRESENTA al
@@ -446,20 +472,14 @@ function StorefrontPublicInner() {
   const totals = cartTotals(cart);
   const primary = s.primaryColor;
 
-  // Modo "mesa" cuando viene un QR de mesa (?mesa=N): siempre informativo,
-  // sin carrito. El cliente sentado en mesa no debería poder lanzar
-  // pedidos por el menú (los toma el mesero). Solo la vista delivery
-  // respeta el toggle del admin.
-  //
-  // Importante: usar `useSearchParams` de Next/navigation — leer
-  // `window.location.search` durante el render era inconsistente entre
-  // SSR (window undefined → false) y CSR (después del hydration, true),
-  // y como `isTableMode` es una variable derivada (no state), el
-  // hydration NO disparaba re-render → ordersAllowed quedaba como `true`
-  // aunque la URL tuviera `?mesa=1` y el botón "agregar al carrito"
-  // aparecía erróneamente.
-  const isTableMode =
-    (searchParams.get('mesa') ?? '').trim().length > 0;
+  // Vista MESA = siempre informativa, sin carrito. El cliente sentado
+  // en mesa NO lanza pedidos por el menú (los toma el mesero). Solo la
+  // vista DELIVERY respeta el toggle del admin.
+  // Separación 2026-06-06: el modo viene del path (`/m/<slug>` vs
+  // `/m/<slug>/delivery`) — no del query `?mesa=N`. El back compat con
+  // QRs viejos `?mesa=1` se resuelve porque la nueva ruta por defecto
+  // ya es mesa (el QR sin /delivery cae al canal correcto).
+  const isTableMode = mode === 'mesa';
   const ordersAllowed =
     !isTableMode &&
     s.ordersEnabled !== false &&
@@ -507,6 +527,8 @@ function StorefrontPublicInner() {
     (s.bookMenuEnabled === true && s.digitalMenuEnabled === false);
   if (shouldRedirectToBook) {
     if (typeof window !== 'undefined') {
+      // El menú libro no distingue mesa/delivery — comparte una sola vista
+      // visual. Mantenemos sectionSlug si llegó.
       window.location.replace(`/book/${slug}${initialSectionSlug ? `/${initialSectionSlug}` : ''}`);
     }
     return null;
@@ -729,6 +751,7 @@ function StorefrontPublicInner() {
             currency={s.currency}
             onPick={setOpenProduct}
             backButtonConfig={s.backButtonConfig}
+            mode={mode}
           />
           {/* Popups opcionales por categoría — auto al entrar a la
               sección via IntersectionObserver, o click si el header
@@ -745,6 +768,7 @@ function StorefrontPublicInner() {
               categories={localizedMenu}
               initialSectionSlug={initialSectionSlug}
               initialSubSlug={initialSubSlug}
+              mode={mode}
             />
           )}
         </div>
@@ -955,6 +979,7 @@ function StorefrontPublicInner() {
           primary={primary}
           currency={s.currency}
           planName={s.planName ?? null}
+          mode={mode}
           onClose={() => setShowCheckout(false)}
         />
       )}
@@ -1286,6 +1311,7 @@ function CheckoutSheet({
   primary,
   currency,
   planName,
+  mode,
   onClose,
 }: {
   items: CartItem[];
@@ -1293,22 +1319,22 @@ function CheckoutSheet({
   primary: string;
   currency: string;
   planName: string | null;
+  mode: StorefrontMode;
   onClose: () => void;
 }) {
   const tt = useT();
-  // Si la URL trae ?mesa=N (escaneo de QR de mesa), pre-rellenamos y
-  // forzamos fulfillment a DINE_IN. El número de mesa SIEMPRE viene del
-  // QR — el cliente nunca lo escribe a mano.
-  // Usar useSearchParams para consistencia SSR/CSR (sino se quedaba en
-  // '' tras hydration y el form arrancaba con DELIVERY incorrectamente).
+  // Tras la separación 2026-06-06, el carrito solo abre en DELIVERY
+  // (`ordersAllowed` corta el flujo en MESA). Igual mantenemos defaults
+  // consistentes con el modo por si en el futuro habilitamos mesa con
+  // carrito (autoservicio).
+  // Back compat opcional: si llega `?mesa=N` en una ruta delivery legacy,
+  // todavía permitimos pre-llenar el número de mesa.
   const searchParams = useSearchParams();
-  const tableFromQr = searchParams.get('mesa') ?? '';
-  const lockedTable = tableFromQr.trim().length > 0;
+  const tableFromQr = mode === 'mesa' ? (searchParams.get('mesa') ?? '') : '';
+  const lockedTable = mode === 'mesa' || tableFromQr.trim().length > 0;
 
-  // Sin QR de mesa → default DELIVERY (a domicilio). PICKUP fue removido.
-  const defaultFulfillment: 'DINE_IN' | 'DELIVERY' = lockedTable
-    ? 'DINE_IN'
-    : 'DELIVERY';
+  const defaultFulfillment: 'DINE_IN' | 'DELIVERY' =
+    mode === 'mesa' ? 'DINE_IN' : 'DELIVERY';
 
   const [form, setForm] = useState({
     firstName: '',
@@ -1382,6 +1408,7 @@ function CheckoutSheet({
           tableNumber: form.tableNumber || undefined,
           deliveryAddress,
           customerNote: form.customerNote || undefined,
+          mode: orderModeFor(mode),
         }),
       });
       if (!res.ok) {
@@ -1867,19 +1894,22 @@ type RenderProps = {
   onPick: (p: Product) => void;
   /** Solo SECTIONS lo usa por ahora — estilo del botón Volver. */
   backButtonConfig?: BackButtonConfig | null;
+  /** Canal activo (mesa|delivery) — solo SECTIONS lo necesita para
+   *  preservar el prefijo `/delivery` en los replaceState internos. */
+  mode: StorefrontMode;
 };
 
-function MenuRenderer({ layout, menu, primary, currency, onPick, backButtonConfig }: RenderProps) {
+function MenuRenderer({ layout, menu, primary, currency, onPick, backButtonConfig, mode }: RenderProps) {
   if (layout === 'GRID')
-    return <LayoutGrid menu={menu} primary={primary} currency={currency} onPick={onPick} />;
+    return <LayoutGrid menu={menu} primary={primary} currency={currency} onPick={onPick} mode={mode} />;
   if (layout === 'CAROUSELS')
-    return <LayoutCarousels menu={menu} primary={primary} currency={currency} onPick={onPick} />;
+    return <LayoutCarousels menu={menu} primary={primary} currency={currency} onPick={onPick} mode={mode} />;
   if (layout === 'CLEAN')
-    return <LayoutClean menu={menu} primary={primary} currency={currency} onPick={onPick} />;
+    return <LayoutClean menu={menu} primary={primary} currency={currency} onPick={onPick} mode={mode} />;
   if (layout === 'COMPACT')
-    return <LayoutCompact menu={menu} primary={primary} currency={currency} onPick={onPick} />;
+    return <LayoutCompact menu={menu} primary={primary} currency={currency} onPick={onPick} mode={mode} />;
   if (layout === 'CLUVI')
-    return <LayoutCluvi menu={menu} primary={primary} currency={currency} onPick={onPick} />;
+    return <LayoutCluvi menu={menu} primary={primary} currency={currency} onPick={onPick} mode={mode} />;
   if (layout === 'SECTIONS')
     return (
       <LayoutSections
@@ -1888,9 +1918,10 @@ function MenuRenderer({ layout, menu, primary, currency, onPick, backButtonConfi
         currency={currency}
         onPick={onPick}
         backButtonConfig={backButtonConfig}
+        mode={mode}
       />
     );
-  return <LayoutClassic menu={menu} primary={primary} currency={currency} onPick={onPick} />;
+  return <LayoutClassic menu={menu} primary={primary} currency={currency} onPick={onPick} mode={mode} />;
 }
 
 type LP = Omit<RenderProps, 'layout'>;
@@ -2449,7 +2480,8 @@ function LayoutSections({
   currency,
   onPick,
   backButtonConfig,
-}: LP & { backButtonConfig?: BackButtonConfig | null }) {
+  mode,
+}: LP & { backButtonConfig?: BackButtonConfig | null; mode: StorefrontMode }) {
   const tt = useT();
   const params = useParams<{
     slug: string;
@@ -2478,23 +2510,26 @@ function LayoutSections({
 
   // ── Sync URL ← state. Cuando el usuario entra/sale de una sección
   // o sub, actualizamos el path sin inflar el back-button (replaceState).
+  // Preserva el prefijo `/delivery` cuando el canal activo es delivery.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (!storefrontSlug) return;
-    let target = `/m/${storefrontSlug}`;
+    let sectionSlug: string | null = null;
+    let subSlug: string | null = null;
     if (activeSection) {
       const cat = menu.find((c) => c.id === activeSection);
       if (cat?.slug) {
-        target += `/${cat.slug}`;
+        sectionSlug = cat.slug;
         if (activeSub) {
           const sub = (cat.subsections ?? []).find((s) => s.id === activeSub);
-          if (sub?.slug) target += `/${sub.slug}`;
+          if (sub?.slug) subSlug = sub.slug;
         }
       }
     }
+    const target = buildStorefrontPath(storefrontSlug, mode, sectionSlug, subSlug);
     if (window.location.pathname === target) return;
     window.history.replaceState({}, '', target);
-  }, [activeSection, activeSub, menu, storefrontSlug]);
+  }, [activeSection, activeSub, menu, storefrontSlug, mode]);
 
   // Estilo aplicado al botón "Volver". Defaults reproducen el estilo
   // histórico (negro a 40% + flecha blanca + sombra md + 40px) si el

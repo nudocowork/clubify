@@ -50,6 +50,9 @@ export type CreateOrderDto = {
   deliveryAddress?: any;
   customerNote?: string;
   locationId?: string;
+  // Menú público de origen ('MESA' | 'DELIVERY'). Lo manda el frontend
+  // según la ruta. Se persiste como discriminator redundante para reportes.
+  mode?: 'MESA' | 'DELIVERY';
 };
 
 @Injectable()
@@ -392,6 +395,16 @@ export class OrdersService {
             deliveryAddress: dto.deliveryAddress,
             customerNote: dto.customerNote,
             locationId: dto.locationId,
+            // Si el front no manda mode, lo inferimos del fulfillment para
+            // no perder el discriminator (DINE_IN→MESA, DELIVERY→DELIVERY,
+            // PICKUP→null porque puede venir de cualquiera de los dos menús).
+            mode:
+              dto.mode ??
+              (dto.fulfillment === 'DELIVERY'
+                ? 'DELIVERY'
+                : dto.fulfillment === 'DINE_IN'
+                ? 'MESA'
+                : null),
             events: {
               create: { type: 'CREATED', metadata: { source: 'public' } },
             },

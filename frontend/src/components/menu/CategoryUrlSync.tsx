@@ -17,6 +17,7 @@
 // MenuBookViewer con sync interna).
 
 import { useEffect, useRef } from 'react';
+import { buildStorefrontPath, type StorefrontMode } from '@/lib/menu/storefront-mode';
 
 type CategoryLike = {
   id: string;
@@ -29,6 +30,7 @@ export function CategoryUrlSync({
   categories,
   initialSectionSlug,
   initialSubSlug,
+  mode,
 }: {
   /** Slug del negocio (segmento /m/[slug]). */
   storefrontSlug: string;
@@ -38,6 +40,8 @@ export function CategoryUrlSync({
   initialSectionSlug?: string;
   /** Slug de subcategoría inicial desde URL (3er nivel). */
   initialSubSlug?: string;
+  /** Canal activo — preserva /delivery en los replaceState. */
+  mode: StorefrontMode;
 }) {
   // Track del último slug visible para evitar replaceState innecesarios
   // (el observer dispara con cada cambio mínimo de visibility).
@@ -104,9 +108,12 @@ export function CategoryUrlSync({
     function updateUrl(catId: string) {
       const info = slugByCatId.get(catId);
       if (!info) return;
-      const newPath = info.parentSlug
-        ? `/m/${storefrontSlug}/${info.parentSlug}/${info.slug}`
-        : `/m/${storefrontSlug}/${info.slug}`;
+      const newPath = buildStorefrontPath(
+        storefrontSlug,
+        mode,
+        info.parentSlug ?? info.slug,
+        info.parentSlug ? info.slug : null,
+      );
       if (window.location.pathname === newPath) return;
       if (lastSlugRef.current === newPath) return;
       lastSlugRef.current = newPath;
@@ -153,7 +160,7 @@ export function CategoryUrlSync({
     }
     return () => observer.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [categories.length, storefrontSlug]);
+  }, [categories.length, storefrontSlug, mode]);
 
   return null;
 }

@@ -353,8 +353,16 @@ export class PublicMenuController {
   async menu(
     @Param('slug') slug: string,
     @Query('locale') localeRaw?: string,
+    @Query('mode') modeRaw?: string,
   ) {
     const locale = normalizeLocale(localeRaw);
+    // 'mesa' (default) o 'delivery' — filtra productos por flag de visibilidad.
+    // Cualquier valor desconocido cae al default mesa.
+    const mode = modeRaw === 'delivery' ? 'delivery' : 'mesa';
+    const productAvailabilityFilter =
+      mode === 'delivery'
+        ? { isAvailable: true, availableForDelivery: true }
+        : { isAvailable: true, availableForMesa: true };
     const t = await this.prisma.tenant.findUnique({
       where: { slug },
       select: {
@@ -385,7 +393,7 @@ export class PublicMenuController {
           orderBy: { position: 'asc' },
           include: {
             products: {
-              where: { isAvailable: true },
+              where: productAvailabilityFilter,
               orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
               include: {
                 variants: { orderBy: { position: 'asc' } },
@@ -395,7 +403,7 @@ export class PublicMenuController {
           },
         },
         products: {
-          where: { isAvailable: true },
+          where: productAvailabilityFilter,
           orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
           include: {
             variants: { orderBy: { position: 'asc' } },
@@ -436,28 +444,40 @@ export class PublicMenuController {
     const mapPopup = (p: any) =>
       p && typeof p === 'object' && p.enabled ? p : null;
 
-    const mapped = categories.map((c) => ({
-      id: c.id,
-      name: c.name,
-      slug: c.slug,
-      description: c.description,
-      imageUrl: c.imageUrl,
-      tagline: c.tagline,
-      coverConfig: c.coverConfig,
-      popupConfig: mapPopup(c.popupConfig),
-      products: c.products.map(mapProduct),
-      subsections: (c.children ?? []).map((sub: any) => ({
-        id: sub.id,
-        name: sub.name,
-        slug: sub.slug,
-        description: sub.description,
-        imageUrl: sub.imageUrl,
-        tagline: sub.tagline,
-        coverConfig: sub.coverConfig,
-        popupConfig: mapPopup(sub.popupConfig),
-        products: (sub.products ?? []).map(mapProduct),
-      })),
-    }));
+    const mapped = categories
+      .map((c) => {
+        // Subsecciones se conservan solo si tienen ≥1 producto matching;
+        // sino crean ruido visual (header + cero productos).
+        const subsections = (c.children ?? [])
+          .map((sub: any) => ({
+            id: sub.id,
+            name: sub.name,
+            slug: sub.slug,
+            description: sub.description,
+            imageUrl: sub.imageUrl,
+            tagline: sub.tagline,
+            coverConfig: sub.coverConfig,
+            popupConfig: mapPopup(sub.popupConfig),
+            products: (sub.products ?? []).map(mapProduct),
+          }))
+          .filter((sub: any) => sub.products.length > 0);
+        return {
+          id: c.id,
+          name: c.name,
+          slug: c.slug,
+          description: c.description,
+          imageUrl: c.imageUrl,
+          tagline: c.tagline,
+          coverConfig: c.coverConfig,
+          popupConfig: mapPopup(c.popupConfig),
+          products: c.products.map(mapProduct),
+          subsections,
+        };
+      })
+      // Categorías raíz vacías (sin productos y sin subsecciones) tampoco
+      // se devuelven: el menú filtrado por mode no debería mostrar headers
+      // de categorías que no aportan nada al canal actual.
+      .filter((c) => c.products.length > 0 || c.subsections.length > 0);
 
     // Sección virtual "Recomendados" arriba de todo. Recoge productos
     // isRecommended de TODAS las categorías (raíz + hijas). Si no hay
