@@ -20,14 +20,20 @@ export default function TermsPage() {
         <h2 className="text-lg font-semibold mt-6">2. Cuenta y suscripción</h2>
         <p>
           Al crear una cuenta debes completar el pago inicial vía Hotmart
-          para activarla. El plan único Elite tiene un costo de USD 50/mes
-          (o el equivalente en tu moneda local al cambio del día, según la
-          tasa que aplique Hotmart).
+          para activarla. Ofrecemos cuatro planes de suscripción: Mensual,
+          Trimestral, Semestral y Anual. El precio vigente de cada plan se
+          muestra en{' '}
+          <a href="/" className="text-brand hover:underline">
+            soyclubify.com
+          </a>{' '}
+          y se factura en tu moneda local al cambio del día, según la tasa
+          que aplique Hotmart.
         </p>
         <p>
           Apenas se aprueba el primer pago la cuenta queda activa. La
-          suscripción se renueva automáticamente cada mes hasta que decidas
-          cancelarla desde tu panel.
+          suscripción se renueva automáticamente al final de cada período
+          (1, 3, 6 o 12 meses según el plan que hayas elegido) hasta que
+          decidas cancelarla desde tu panel.
         </p>
 
         <h2 className="text-lg font-semibold mt-6">3. Cancelación</h2>

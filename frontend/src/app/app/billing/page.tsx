@@ -187,8 +187,8 @@ export default function BillingPage() {
               </div>
               <p className="text-white/85 text-sm mt-1.5 leading-relaxed">
                 {hotmartConfigured
-                  ? 'Te llevamos al checkout seguro para activar tu suscripción mensual. Cancela cuando quieras desde aquí.'
-                  : 'El cobro recurrente se hará en USD 50/mes facturado en tu moneda local al cambio del día. Estamos terminando la integración: en cuanto esté lista te avisamos por email.'}
+                  ? 'Te llevamos al checkout seguro para activar tu suscripción. Elige Mensual, Trimestral, Semestral o Anual — cancelas cuando quieras desde aquí.'
+                  : 'Tenemos 4 planes (Mensual, Trimestral, Semestral, Anual) facturados en tu moneda local al cambio del día. Estamos terminando la integración: en cuanto esté lista te avisamos por email.'}
               </p>
               {!hotmartConfigured && (
                 <p className="text-white/70 text-xs mt-2">
@@ -245,9 +245,9 @@ export default function BillingPage() {
         </div>
       )}
 
-      {/* Lo que incluye — Elite (único plan) */}
+      {/* Lo que incluye — todos los planes (Mensual/Trimestral/Semestral/Anual) */}
       <div className="card card-pad mt-4">
-        <div className="font-semibold mb-3">Tu plan Elite incluye</div>
+        <div className="font-semibold mb-3">Tu suscripción incluye</div>
         <ul className="grid sm:grid-cols-2 gap-2 text-sm">
           {[
             'Pedidos ilimitados',
