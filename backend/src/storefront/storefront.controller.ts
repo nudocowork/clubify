@@ -3,6 +3,7 @@ import {
   IsArray,
   IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
   IsObject,
   IsOptional,
@@ -48,6 +49,16 @@ class StorefrontBody {
   @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(40)
   bookPopupButtonColor?: string | null;
   @IsOptional() @IsInt() @Min(0) @Max(120) bookPopupDelaySeconds?: number;
+  // M9: tipo del popup global del libro y payload alternativo (CARD/IMAGE).
+  // NULL = EXTERNAL_LINK por back compat.
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsIn(['EXTERNAL_LINK', 'CARD', 'IMAGE'])
+  bookPopupType?: string | null;
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(64)
+  bookPopupCardId?: string | null;
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(40)
+  bookPopupCardCtaLabel?: string | null;
+  @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(200)
+  bookPopupImageCaption?: string | null;
   @IsOptional() @IsBoolean() whatsappButtonEnabled?: boolean;
   // Color CSS válido (#hex, rgb(), nombre). null = usar default del layout.
   @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(40)

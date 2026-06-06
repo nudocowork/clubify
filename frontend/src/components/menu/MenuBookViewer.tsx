@@ -28,13 +28,25 @@ const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 // Tipos espejo del endpoint público
 // ─────────────────────────────────────────────────────────────────────
 
+// M9 (2026-06-06): discriminator del popup. NULL del API = EXTERNAL_LINK
+// por back compat con popups creados antes de M9.
+type PopupType = 'EXTERNAL_LINK' | 'CARD' | 'IMAGE';
+
 type Popup = {
+  // M9: tipo de popup. El API ya defaultea a EXTERNAL_LINK pero el viewer
+  // también lo trata defensivamente para evitar undefined si algo viejo
+  // llega cacheado.
+  type?: PopupType | null;
   title: string | null;
   description: string | null;
   imageUrl: string | null;
   buttonText: string | null;
   buttonUrl: string | null;
   buttonColor: string | null;
+  // M9: payload de CARD/IMAGE. Pueden venir null cuando no aplican.
+  cardId?: string | null;
+  cardCtaLabel?: string | null;
+  imageCaption?: string | null;
 };
 
 type Page = {
@@ -476,6 +488,11 @@ function PopupOverlay({
   popup: Popup;
   onClose: () => void;
 }) {
+  // M9: NULL/missing del API → EXTERNAL_LINK por back compat. Toda la
+  // lógica de render se ramifica acá.
+  const effectiveType: PopupType = popup.type ?? 'EXTERNAL_LINK';
+  const isImageOnly = effectiveType === 'IMAGE';
+
   return (
     <div
       onClick={onClose}
@@ -483,50 +500,112 @@ function PopupOverlay({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="bg-white rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto shadow-xl"
+        className="bg-white rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto shadow-xl relative"
       >
-        {popup.imageUrl && (
-          <img
-            src={popup.imageUrl}
-            alt=""
-            className="w-full max-h-[40vh] object-cover rounded-t-2xl"
-          />
-        )}
-        <div className="p-5 space-y-3">
-          {popup.title && (
-            <h3 className="text-lg font-bold m-0">{popup.title}</h3>
-          )}
-          {popup.description && (
-            <p className="text-sm text-mute whitespace-pre-line leading-relaxed">
-              {popup.description}
-            </p>
-          )}
-          <div className="flex items-center justify-end gap-2 pt-1">
-            <button
-              onClick={onClose}
-              className="text-sm px-3 py-2 rounded-md hover:bg-bg2"
-            >
-              Cerrar
-            </button>
-            {(() => {
-              const safeHref = popup.buttonUrl
-                ? safeUrlOrNull(popup.buttonUrl)
-                : null;
-              if (!popup.buttonText || !safeHref) return null;
-              return (
-                <a
-                  href={safeHref}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sm font-semibold px-4 py-2 rounded-md text-white shadow-sm"
-                  style={{ background: popup.buttonColor || '#22c55e' }}
+        {/* Botón cerrar siempre presente — único modo de salir cuando type=IMAGE. */}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Cerrar"
+          className="absolute top-2 right-2 z-10 w-9 h-9 flex items-center justify-center rounded-full bg-white/90 backdrop-blur-sm shadow text-ink hover:bg-white text-xl leading-none"
+        >
+          ×
+        </button>
+
+        {/* IMAGE: full-bleed sin recortar + caption + sin CTA. */}
+        {isImageOnly ? (
+          <>
+            {popup.imageUrl ? (
+              <img
+                src={popup.imageUrl}
+                alt={popup.title ?? ''}
+                className="w-full max-h-[70vh] object-contain rounded-t-2xl bg-black/5"
+              />
+            ) : (
+              <div className="w-full aspect-[3/4] bg-bg2 rounded-t-2xl flex items-center justify-center text-mute text-sm">
+                Sin imagen
+              </div>
+            )}
+            {(popup.title || popup.imageCaption || popup.description) && (
+              <div className="p-5 space-y-2">
+                {popup.title && (
+                  <h3 className="text-lg font-bold m-0">{popup.title}</h3>
+                )}
+                {popup.imageCaption && (
+                  <p className="text-sm font-medium m-0">
+                    {popup.imageCaption}
+                  </p>
+                )}
+                {popup.description && (
+                  <p className="text-sm text-mute whitespace-pre-line leading-relaxed m-0">
+                    {popup.description}
+                  </p>
+                )}
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            {popup.imageUrl && (
+              <img
+                src={popup.imageUrl}
+                alt=""
+                className="w-full max-h-[40vh] object-cover rounded-t-2xl"
+              />
+            )}
+            <div className="p-5 space-y-3">
+              {popup.title && (
+                <h3 className="text-lg font-bold m-0">{popup.title}</h3>
+              )}
+              {popup.description && (
+                <p className="text-sm text-mute whitespace-pre-line leading-relaxed">
+                  {popup.description}
+                </p>
+              )}
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  onClick={onClose}
+                  className="text-sm px-3 py-2 rounded-md hover:bg-bg2"
                 >
-                  {popup.buttonText}
-                </a>
-              );
-            })()}
-          </div>
-        </div>
+                  Cerrar
+                </button>
+                {effectiveType === 'CARD' && popup.cardId ? (
+                  <a
+                    href={`/c/${popup.cardId}`}
+                    onClick={() => {
+                      // Cerramos antes de la navegación para que al volver
+                      // (back) no quede el popup encima.
+                      onClose();
+                    }}
+                    className="text-sm font-semibold px-4 py-2 rounded-md text-white shadow-sm"
+                    style={{ background: popup.buttonColor || '#22c55e' }}
+                  >
+                    {popup.cardCtaLabel?.trim() || 'Reclamar mi tarjeta'}
+                  </a>
+                ) : null}
+                {effectiveType === 'EXTERNAL_LINK'
+                  ? (() => {
+                      const safeHref = popup.buttonUrl
+                        ? safeUrlOrNull(popup.buttonUrl)
+                        : null;
+                      if (!popup.buttonText || !safeHref) return null;
+                      return (
+                        <a
+                          href={safeHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm font-semibold px-4 py-2 rounded-md text-white shadow-sm"
+                          style={{ background: popup.buttonColor || '#22c55e' }}
+                        >
+                          {popup.buttonText}
+                        </a>
+                      );
+                    })()
+                  : null}
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

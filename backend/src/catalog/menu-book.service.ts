@@ -8,6 +8,11 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { safeUrlOrNull } from '../common/util/safe-url';
 
+// M9 (2026-06-06): tipos de popup mutuamente excluyentes.
+// NULL/missing en DB = EXTERNAL_LINK (back compat con popups creados
+// antes de M9).
+export type PopupType = 'EXTERNAL_LINK' | 'CARD' | 'IMAGE';
+
 export type SectionDto = {
   title: string;
   isActive?: boolean;
@@ -18,6 +23,10 @@ export type SectionDto = {
   popupButtonText?: string | null;
   popupButtonUrl?: string | null;
   popupButtonColor?: string | null;
+  popupType?: string | null;
+  popupCardId?: string | null;
+  popupCardCtaLabel?: string | null;
+  popupImageCaption?: string | null;
 };
 
 export type PageDto = {
@@ -30,6 +39,10 @@ export type PageDto = {
   popupButtonText?: string | null;
   popupButtonUrl?: string | null;
   popupButtonColor?: string | null;
+  popupType?: string | null;
+  popupCardId?: string | null;
+  popupCardCtaLabel?: string | null;
+  popupImageCaption?: string | null;
 };
 
 /**
@@ -55,6 +68,65 @@ export class MenuBookService {
     return user.tenantId;
   }
 
+  /**
+   * M9: valida el shape de un popup según `popupType`. Solo corre cuando
+   * `popupEnabled=true`; con enabled=false el resto del payload se ignora
+   * y no tiene sentido bloquear el guardado.
+   *
+   * - EXTERNAL_LINK (o NULL por back compat): `buttonUrl` requerido y debe
+   *   pasar `safeUrlOrNull` (bloquea javascript:, data:, etc).
+   * - CARD: `cardId` requerido y la Card debe pertenecer al MISMO tenant.
+   * - IMAGE: `imageUrl` requerido y debe pasar `safeUrlOrNull`.
+   *
+   * Devuelve el payload normalizado para usar directo en `data: {...}` del
+   * Prisma create/update.
+   */
+  private async validatePopupPayload(
+    tenantId: string,
+    enabled: boolean,
+    type: string | null | undefined,
+    cardId: string | null | undefined,
+    buttonUrl: string | null | undefined,
+    imageUrl: string | null | undefined,
+  ) {
+    if (!enabled) return; // nothing to validate cuando el popup está apagado.
+    const effective = (type ?? 'EXTERNAL_LINK') as PopupType;
+    if (effective === 'EXTERNAL_LINK') {
+      if (!buttonUrl?.trim()) {
+        throw new BadRequestException('Popup EXTERNAL_LINK requiere buttonUrl');
+      }
+      if (safeUrlOrNull(buttonUrl) == null) {
+        throw new BadRequestException('buttonUrl no es una URL segura');
+      }
+      return;
+    }
+    if (effective === 'CARD') {
+      if (!cardId) {
+        throw new BadRequestException('Popup CARD requiere cardId');
+      }
+      const card = await this.prisma.card.findUnique({
+        where: { id: cardId },
+        select: { tenantId: true },
+      });
+      if (!card || card.tenantId !== tenantId) {
+        throw new BadRequestException(
+          'La tarjeta no existe o no pertenece a tu negocio',
+        );
+      }
+      return;
+    }
+    if (effective === 'IMAGE') {
+      if (!imageUrl?.trim()) {
+        throw new BadRequestException('Popup IMAGE requiere imageUrl');
+      }
+      if (safeUrlOrNull(imageUrl) == null) {
+        throw new BadRequestException('imageUrl no es una URL segura');
+      }
+      return;
+    }
+    throw new BadRequestException(`popupType inválido: ${effective}`);
+  }
+
   /** Lista secciones del tenant con sus páginas, ordenadas. */
   list(user: AuthUser, override?: string) {
     const tid = this.tid(user, override);
@@ -72,6 +144,14 @@ export class MenuBookService {
     if (!dto.title?.trim()) {
       throw new BadRequestException('title requerido');
     }
+    await this.validatePopupPayload(
+      tid,
+      dto.popupEnabled ?? false,
+      dto.popupType,
+      dto.popupCardId,
+      dto.popupButtonUrl,
+      dto.popupImageUrl,
+    );
     const last = await this.prisma.menuBookSection.findFirst({
       where: { tenantId: tid },
       orderBy: { sortOrder: 'desc' },
@@ -85,10 +165,18 @@ export class MenuBookService {
         popupEnabled: dto.popupEnabled ?? false,
         popupTitle: dto.popupTitle ?? null,
         popupDescription: dto.popupDescription ?? null,
-        popupImageUrl: dto.popupImageUrl ?? null,
+        popupImageUrl: dto.popupImageUrl
+          ? safeUrlOrNull(dto.popupImageUrl) ?? null
+          : null,
         popupButtonText: dto.popupButtonText ?? null,
-        popupButtonUrl: dto.popupButtonUrl ? safeUrlOrNull(dto.popupButtonUrl) ?? null : null,
+        popupButtonUrl: dto.popupButtonUrl
+          ? safeUrlOrNull(dto.popupButtonUrl) ?? null
+          : null,
         popupButtonColor: dto.popupButtonColor ?? null,
+        popupType: dto.popupType ?? null,
+        popupCardId: dto.popupCardId ?? null,
+        popupCardCtaLabel: dto.popupCardCtaLabel ?? null,
+        popupImageCaption: dto.popupImageCaption ?? null,
       },
     });
   }
@@ -106,6 +194,28 @@ export class MenuBookService {
     if (!section || section.tenantId !== tid) {
       throw new NotFoundException('Sección no encontrada');
     }
+    // Reconstruir el estado efectivo post-patch para validar shape coherente.
+    const nextEnabled = patch.popupEnabled ?? section.popupEnabled;
+    const nextType =
+      patch.popupType === undefined ? section.popupType : patch.popupType;
+    const nextCardId =
+      patch.popupCardId === undefined ? section.popupCardId : patch.popupCardId;
+    const nextButtonUrl =
+      patch.popupButtonUrl === undefined
+        ? section.popupButtonUrl
+        : patch.popupButtonUrl;
+    const nextImageUrl =
+      patch.popupImageUrl === undefined
+        ? section.popupImageUrl
+        : patch.popupImageUrl;
+    await this.validatePopupPayload(
+      tid,
+      nextEnabled,
+      nextType,
+      nextCardId,
+      nextButtonUrl,
+      nextImageUrl,
+    );
     return this.prisma.menuBookSection.update({
       where: { id },
       data: {
@@ -121,7 +231,9 @@ export class MenuBookService {
         popupImageUrl:
           patch.popupImageUrl === undefined
             ? section.popupImageUrl
-            : patch.popupImageUrl,
+            : patch.popupImageUrl
+            ? safeUrlOrNull(patch.popupImageUrl) ?? null
+            : null,
         popupButtonText:
           patch.popupButtonText === undefined
             ? section.popupButtonText
@@ -136,6 +248,18 @@ export class MenuBookService {
           patch.popupButtonColor === undefined
             ? section.popupButtonColor
             : patch.popupButtonColor,
+        popupType:
+          patch.popupType === undefined ? section.popupType : patch.popupType,
+        popupCardId:
+          patch.popupCardId === undefined ? section.popupCardId : patch.popupCardId,
+        popupCardCtaLabel:
+          patch.popupCardCtaLabel === undefined
+            ? section.popupCardCtaLabel
+            : patch.popupCardCtaLabel,
+        popupImageCaption:
+          patch.popupImageCaption === undefined
+            ? section.popupImageCaption
+            : patch.popupImageCaption,
       },
     });
   }
@@ -200,6 +324,14 @@ export class MenuBookService {
     if (!dto.imageUrl?.trim()) {
       throw new BadRequestException('imageUrl requerido');
     }
+    await this.validatePopupPayload(
+      tid,
+      dto.popupEnabled ?? false,
+      dto.popupType,
+      dto.popupCardId,
+      dto.popupButtonUrl,
+      dto.popupImageUrl,
+    );
     const last = await this.prisma.menuBookPage.findFirst({
       where: { sectionId },
       orderBy: { sortOrder: 'desc' },
@@ -213,10 +345,18 @@ export class MenuBookService {
         popupEnabled: dto.popupEnabled ?? false,
         popupTitle: dto.popupTitle ?? null,
         popupDescription: dto.popupDescription ?? null,
-        popupImageUrl: dto.popupImageUrl ?? null,
+        popupImageUrl: dto.popupImageUrl
+          ? safeUrlOrNull(dto.popupImageUrl) ?? null
+          : null,
         popupButtonText: dto.popupButtonText ?? null,
-        popupButtonUrl: dto.popupButtonUrl ? safeUrlOrNull(dto.popupButtonUrl) ?? null : null,
+        popupButtonUrl: dto.popupButtonUrl
+          ? safeUrlOrNull(dto.popupButtonUrl) ?? null
+          : null,
         popupButtonColor: dto.popupButtonColor ?? null,
+        popupType: dto.popupType ?? null,
+        popupCardId: dto.popupCardId ?? null,
+        popupCardCtaLabel: dto.popupCardCtaLabel ?? null,
+        popupImageCaption: dto.popupImageCaption ?? null,
       },
     });
   }
@@ -235,23 +375,69 @@ export class MenuBookService {
     if (!page || page.section.tenantId !== tid) {
       throw new NotFoundException('Página no encontrada');
     }
+    const nextEnabled = patch.popupEnabled ?? page.popupEnabled;
+    const nextType =
+      patch.popupType === undefined ? page.popupType : patch.popupType;
+    const nextCardId =
+      patch.popupCardId === undefined ? page.popupCardId : patch.popupCardId;
+    const nextButtonUrl =
+      patch.popupButtonUrl === undefined
+        ? page.popupButtonUrl
+        : patch.popupButtonUrl;
+    const nextImageUrl =
+      patch.popupImageUrl === undefined ? page.popupImageUrl : patch.popupImageUrl;
+    await this.validatePopupPayload(
+      tid,
+      nextEnabled,
+      nextType,
+      nextCardId,
+      nextButtonUrl,
+      nextImageUrl,
+    );
     return this.prisma.menuBookPage.update({
       where: { id: pageId },
       data: {
         imageUrl: patch.imageUrl?.trim() ?? page.imageUrl,
         isActive: patch.isActive ?? page.isActive,
         popupEnabled: patch.popupEnabled ?? page.popupEnabled,
-        popupTitle: patch.popupTitle ?? page.popupTitle,
-        popupDescription: patch.popupDescription ?? page.popupDescription,
-        popupImageUrl: patch.popupImageUrl ?? page.popupImageUrl,
-        popupButtonText: patch.popupButtonText ?? page.popupButtonText,
+        popupTitle:
+          patch.popupTitle === undefined ? page.popupTitle : patch.popupTitle,
+        popupDescription:
+          patch.popupDescription === undefined
+            ? page.popupDescription
+            : patch.popupDescription,
+        popupImageUrl:
+          patch.popupImageUrl === undefined
+            ? page.popupImageUrl
+            : patch.popupImageUrl
+            ? safeUrlOrNull(patch.popupImageUrl) ?? null
+            : null,
+        popupButtonText:
+          patch.popupButtonText === undefined
+            ? page.popupButtonText
+            : patch.popupButtonText,
         popupButtonUrl:
           patch.popupButtonUrl === undefined
             ? page.popupButtonUrl
             : patch.popupButtonUrl
             ? safeUrlOrNull(patch.popupButtonUrl) ?? null
             : null,
-        popupButtonColor: patch.popupButtonColor ?? page.popupButtonColor,
+        popupButtonColor:
+          patch.popupButtonColor === undefined
+            ? page.popupButtonColor
+            : patch.popupButtonColor,
+        popupType:
+          patch.popupType === undefined ? page.popupType : patch.popupType,
+        popupCardId:
+          patch.popupCardId === undefined ? page.popupCardId : patch.popupCardId,
+        popupCardCtaLabel:
+          patch.popupCardCtaLabel === undefined
+            ? page.popupCardCtaLabel
+            : patch.popupCardCtaLabel,
+        popupImageCaption:
+          patch.popupImageCaption === undefined
+            ? page.popupImageCaption
+            : patch.popupImageCaption,
       },
     });
   }

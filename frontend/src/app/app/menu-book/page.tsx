@@ -10,6 +10,10 @@ import { toast } from '@/components/Toast';
 // Tipos espejo del backend (catalog/menu-book.service.ts)
 // ─────────────────────────────────────────────────────────────────────
 
+// M9 (2026-06-06): discriminator del popup. Si missing/NULL → EXTERNAL_LINK
+// por back compat con popups creados antes de M9.
+type PopupType = 'EXTERNAL_LINK' | 'CARD' | 'IMAGE';
+
 type BookPage = {
   id: string;
   sectionId: string;
@@ -23,6 +27,10 @@ type BookPage = {
   popupButtonText: string | null;
   popupButtonUrl: string | null;
   popupButtonColor: string | null;
+  popupType: PopupType | null;
+  popupCardId: string | null;
+  popupCardCtaLabel: string | null;
+  popupImageCaption: string | null;
 };
 
 type BookSection = {
@@ -40,6 +48,10 @@ type BookSection = {
   popupButtonText: string | null;
   popupButtonUrl: string | null;
   popupButtonColor: string | null;
+  popupType: PopupType | null;
+  popupCardId: string | null;
+  popupCardCtaLabel: string | null;
+  popupImageCaption: string | null;
   pages: BookPage[];
 };
 
@@ -54,6 +66,18 @@ type BookGlobalPopup = {
   bookPopupButtonUrl: string | null;
   bookPopupButtonColor: string | null;
   bookPopupDelaySeconds: number;
+  bookPopupType: PopupType | null;
+  bookPopupCardId: string | null;
+  bookPopupCardCtaLabel: string | null;
+  bookPopupImageCaption: string | null;
+};
+
+// Card del tenant para el dropdown CARD-picker.
+type CardOption = {
+  id: string;
+  name: string;
+  type: string; // STAMPS / COUPON / etc
+  isActive: boolean;
 };
 
 // ─────────────────────────────────────────────────────────────────────
@@ -90,6 +114,10 @@ export default function MenuBookAdminPage() {
           bookPopupButtonUrl: sf?.bookPopupButtonUrl ?? null,
           bookPopupButtonColor: sf?.bookPopupButtonColor ?? null,
           bookPopupDelaySeconds: sf?.bookPopupDelaySeconds ?? 5,
+          bookPopupType: (sf?.bookPopupType ?? null) as PopupType | null,
+          bookPopupCardId: sf?.bookPopupCardId ?? null,
+          bookPopupCardCtaLabel: sf?.bookPopupCardCtaLabel ?? null,
+          bookPopupImageCaption: sf?.bookPopupImageCaption ?? null,
         });
       })
       .catch(() => {});
@@ -108,6 +136,10 @@ export default function MenuBookAdminPage() {
           bookPopupButtonUrl: next.bookPopupButtonUrl ?? null,
           bookPopupButtonColor: next.bookPopupButtonColor ?? null,
           bookPopupDelaySeconds: next.bookPopupDelaySeconds,
+          bookPopupType: next.bookPopupType ?? null,
+          bookPopupCardId: next.bookPopupCardId ?? null,
+          bookPopupCardCtaLabel: next.bookPopupCardCtaLabel ?? null,
+          bookPopupImageCaption: next.bookPopupImageCaption ?? null,
         }),
       });
       setBookPopup(next);
@@ -610,31 +642,16 @@ function PopupEditorModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [form, setForm] = useState({
-    popupEnabled: page.popupEnabled,
-    popupTitle: page.popupTitle ?? '',
-    popupDescription: page.popupDescription ?? '',
-    popupImageUrl: page.popupImageUrl ?? '',
-    popupButtonText: page.popupButtonText ?? '',
-    popupButtonUrl: page.popupButtonUrl ?? '',
-    popupButtonColor: page.popupButtonColor ?? '#22c55e',
-  });
+  const [form, setForm] = useState<PopupFormState>(() => popupStateFromPage(page));
   const [busy, setBusy] = useState(false);
+  const cards = useTenantCards();
 
   async function save() {
     setBusy(true);
     try {
       await api(`/catalog/menu-book/pages/${page.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({
-          popupEnabled: form.popupEnabled,
-          popupTitle: form.popupTitle.trim() || null,
-          popupDescription: form.popupDescription.trim() || null,
-          popupImageUrl: form.popupImageUrl.trim() || null,
-          popupButtonText: form.popupButtonText.trim() || null,
-          popupButtonUrl: form.popupButtonUrl.trim() || null,
-          popupButtonColor: form.popupButtonColor || null,
-        }),
+        body: JSON.stringify(popupPatchPayload(form)),
       });
       toast('Popup actualizado', 'success');
       onSaved();
@@ -668,106 +685,12 @@ function PopupEditorModal({
               }
               className="w-4 h-4 accent-brand"
             />
-            <span className="text-sm font-medium">Activar popup al hacer tap en esta imagen</span>
+            <span className="text-sm font-medium">
+              Activar popup al hacer tap en esta imagen
+            </span>
           </label>
 
-          <div className={form.popupEnabled ? '' : 'opacity-50 pointer-events-none'}>
-            <div className="grid sm:grid-cols-2 gap-4">
-              <div className="sm:col-span-2 grid sm:grid-cols-[1fr_1fr] gap-4">
-                <div>
-                  <label className="block text-xs font-medium mb-1">Título</label>
-                  <input
-                    value={form.popupTitle}
-                    onChange={(e) =>
-                      setForm({ ...form, popupTitle: e.target.value })
-                    }
-                    maxLength={120}
-                    placeholder="Ej: Recomendación del chef"
-                    className="w-full px-3 py-2 text-sm rounded-md border border-line2"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium mb-1">
-                    Imagen del popup (opcional)
-                  </label>
-                  <ImageUploader
-                    folder="menu-book-popup"
-                    crop={false}
-                    maxSizeMb={25}
-                    value={form.popupImageUrl || null}
-                    onChange={(url) =>
-                      setForm({ ...form, popupImageUrl: url ?? '' })
-                    }
-                  />
-                </div>
-              </div>
-
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-medium mb-1">Descripción</label>
-                <textarea
-                  value={form.popupDescription}
-                  onChange={(e) =>
-                    setForm({ ...form, popupDescription: e.target.value })
-                  }
-                  maxLength={2000}
-                  rows={3}
-                  placeholder="Texto que aparece en el popup. Puedes contar ingredientes, historia del plato, o invitar a una reserva."
-                  className="w-full px-3 py-2 text-sm rounded-md border border-line2 resize-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium mb-1">Texto del botón</label>
-                <input
-                  value={form.popupButtonText}
-                  onChange={(e) =>
-                    setForm({ ...form, popupButtonText: e.target.value })
-                  }
-                  maxLength={40}
-                  placeholder="Ej: Pedir por WhatsApp"
-                  className="w-full px-3 py-2 text-sm rounded-md border border-line2"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium mb-1">Link del botón</label>
-                <input
-                  value={form.popupButtonUrl}
-                  onChange={(e) =>
-                    setForm({ ...form, popupButtonUrl: e.target.value })
-                  }
-                  maxLength={500}
-                  placeholder="https://wa.me/57…"
-                  className="w-full px-3 py-2 text-sm rounded-md border border-line2"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium mb-1">
-                  Color del botón
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={form.popupButtonColor}
-                    onChange={(e) =>
-                      setForm({ ...form, popupButtonColor: e.target.value })
-                    }
-                    className="w-10 h-10 rounded border border-line2 cursor-pointer"
-                  />
-                  <input
-                    value={form.popupButtonColor}
-                    onChange={(e) =>
-                      setForm({ ...form, popupButtonColor: e.target.value })
-                    }
-                    placeholder="#22c55e"
-                    maxLength={7}
-                    className="flex-1 px-3 py-2 text-sm rounded-md border border-line2 font-mono"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
+          <PopupBody form={form} setForm={setForm} cards={cards} />
         </div>
 
         <div className="px-5 py-3 border-t border-line2 flex items-center justify-end gap-2 bg-bg2">
@@ -806,31 +729,18 @@ function SectionPopupModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [form, setForm] = useState({
-    popupEnabled: section.popupEnabled,
-    popupTitle: section.popupTitle ?? '',
-    popupDescription: section.popupDescription ?? '',
-    popupImageUrl: section.popupImageUrl ?? '',
-    popupButtonText: section.popupButtonText ?? '',
-    popupButtonUrl: section.popupButtonUrl ?? '',
-    popupButtonColor: section.popupButtonColor ?? '#22c55e',
-  });
+  const [form, setForm] = useState<PopupFormState>(() =>
+    popupStateFromSection(section),
+  );
   const [busy, setBusy] = useState(false);
+  const cards = useTenantCards();
 
   async function save() {
     setBusy(true);
     try {
       await api(`/catalog/menu-book/sections/${section.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({
-          popupEnabled: form.popupEnabled,
-          popupTitle: form.popupTitle.trim() || null,
-          popupDescription: form.popupDescription.trim() || null,
-          popupImageUrl: form.popupImageUrl.trim() || null,
-          popupButtonText: form.popupButtonText.trim() || null,
-          popupButtonUrl: form.popupButtonUrl.trim() || null,
-          popupButtonColor: form.popupButtonColor || null,
-        }),
+        body: JSON.stringify(popupPatchPayload(form)),
       });
       toast('Popup de sección actualizado', 'success');
       onSaved();
@@ -871,103 +781,7 @@ function SectionPopupModal({
             </span>
           </label>
 
-          <div className={form.popupEnabled ? '' : 'opacity-50 pointer-events-none'}>
-            <div className="grid sm:grid-cols-2 gap-4">
-              <div className="sm:col-span-2 grid sm:grid-cols-[1fr_1fr] gap-4">
-                <div>
-                  <label className="block text-xs font-medium mb-1">Título</label>
-                  <input
-                    value={form.popupTitle}
-                    onChange={(e) =>
-                      setForm({ ...form, popupTitle: e.target.value })
-                    }
-                    maxLength={120}
-                    placeholder="Ej: Producto destacado"
-                    className="w-full px-3 py-2 text-sm rounded-md border border-line2"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium mb-1">
-                    Imagen del popup (opcional)
-                  </label>
-                  <ImageUploader
-                    folder="menu-book-popup"
-                    crop={false}
-                    maxSizeMb={25}
-                    value={form.popupImageUrl || null}
-                    onChange={(url) =>
-                      setForm({ ...form, popupImageUrl: url ?? '' })
-                    }
-                  />
-                </div>
-              </div>
-
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-medium mb-1">Descripción</label>
-                <textarea
-                  value={form.popupDescription}
-                  onChange={(e) =>
-                    setForm({ ...form, popupDescription: e.target.value })
-                  }
-                  maxLength={2000}
-                  rows={3}
-                  placeholder="Texto de la promo, anuncio o producto destacado."
-                  className="w-full px-3 py-2 text-sm rounded-md border border-line2 resize-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium mb-1">Texto del botón</label>
-                <input
-                  value={form.popupButtonText}
-                  onChange={(e) =>
-                    setForm({ ...form, popupButtonText: e.target.value })
-                  }
-                  maxLength={40}
-                  placeholder="Ej: Aprovecha la oferta"
-                  className="w-full px-3 py-2 text-sm rounded-md border border-line2"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium mb-1">Link del botón</label>
-                <input
-                  value={form.popupButtonUrl}
-                  onChange={(e) =>
-                    setForm({ ...form, popupButtonUrl: e.target.value })
-                  }
-                  maxLength={500}
-                  placeholder="https://wa.me/57…"
-                  className="w-full px-3 py-2 text-sm rounded-md border border-line2"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium mb-1">
-                  Color del botón
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={form.popupButtonColor}
-                    onChange={(e) =>
-                      setForm({ ...form, popupButtonColor: e.target.value })
-                    }
-                    className="w-10 h-10 rounded border border-line2 cursor-pointer"
-                  />
-                  <input
-                    value={form.popupButtonColor}
-                    onChange={(e) =>
-                      setForm({ ...form, popupButtonColor: e.target.value })
-                    }
-                    placeholder="#22c55e"
-                    maxLength={7}
-                    className="flex-1 px-3 py-2 text-sm rounded-md border border-line2 font-mono"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
+          <PopupBody form={form} setForm={setForm} cards={cards} />
         </div>
 
         <div className="px-5 py-3 border-t border-line2 flex items-center justify-end gap-2 bg-bg2">
@@ -1004,31 +818,44 @@ function BookGlobalPopupCard({
   popup: BookGlobalPopup;
   onSave: (next: BookGlobalPopup) => Promise<void> | void;
 }) {
-  const [form, setForm] = useState({
-    bookPopupEnabled: popup.bookPopupEnabled,
-    bookPopupTitle: popup.bookPopupTitle ?? '',
-    bookPopupDescription: popup.bookPopupDescription ?? '',
-    bookPopupImageUrl: popup.bookPopupImageUrl ?? '',
-    bookPopupButtonText: popup.bookPopupButtonText ?? '',
-    bookPopupButtonUrl: popup.bookPopupButtonUrl ?? '',
-    bookPopupButtonColor: popup.bookPopupButtonColor ?? '#22c55e',
-    bookPopupDelaySeconds: popup.bookPopupDelaySeconds ?? 5,
-  });
+  // Mapeamos al shape común para reusar PopupBody. Los campos `bookPopup*`
+  // siguen siendo lo que vive en DB; este state es solo para el editor.
+  const [form, setForm] = useState<PopupFormState>(() => ({
+    popupEnabled: popup.bookPopupEnabled,
+    popupTitle: popup.bookPopupTitle ?? '',
+    popupDescription: popup.bookPopupDescription ?? '',
+    popupImageUrl: popup.bookPopupImageUrl ?? '',
+    popupButtonText: popup.bookPopupButtonText ?? '',
+    popupButtonUrl: popup.bookPopupButtonUrl ?? '',
+    popupButtonColor: popup.bookPopupButtonColor ?? '#22c55e',
+    popupType: (popup.bookPopupType ?? 'EXTERNAL_LINK') as PopupType,
+    popupCardId: popup.bookPopupCardId ?? null,
+    popupCardCtaLabel: popup.bookPopupCardCtaLabel ?? '',
+    popupImageCaption: popup.bookPopupImageCaption ?? '',
+  }));
+  const [delaySeconds, setDelaySeconds] = useState<number>(
+    popup.bookPopupDelaySeconds ?? 5,
+  );
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const cards = useTenantCards();
 
   async function save() {
     setBusy(true);
     try {
       await onSave({
-        bookPopupEnabled: form.bookPopupEnabled,
-        bookPopupTitle: form.bookPopupTitle.trim() || null,
-        bookPopupDescription: form.bookPopupDescription.trim() || null,
-        bookPopupImageUrl: form.bookPopupImageUrl.trim() || null,
-        bookPopupButtonText: form.bookPopupButtonText.trim() || null,
-        bookPopupButtonUrl: form.bookPopupButtonUrl.trim() || null,
-        bookPopupButtonColor: form.bookPopupButtonColor || null,
-        bookPopupDelaySeconds: Math.max(0, Math.min(120, form.bookPopupDelaySeconds)),
+        bookPopupEnabled: form.popupEnabled,
+        bookPopupTitle: form.popupTitle.trim() || null,
+        bookPopupDescription: form.popupDescription.trim() || null,
+        bookPopupImageUrl: form.popupImageUrl.trim() || null,
+        bookPopupButtonText: form.popupButtonText.trim() || null,
+        bookPopupButtonUrl: form.popupButtonUrl.trim() || null,
+        bookPopupButtonColor: form.popupButtonColor || null,
+        bookPopupDelaySeconds: Math.max(0, Math.min(120, delaySeconds)),
+        bookPopupType: form.popupType,
+        bookPopupCardId: form.popupCardId ?? null,
+        bookPopupCardCtaLabel: form.popupCardCtaLabel.trim() || null,
+        bookPopupImageCaption: form.popupImageCaption.trim() || null,
       });
     } finally {
       setBusy(false);
@@ -1050,12 +877,12 @@ function BookGlobalPopupCard({
         <div className="flex items-center gap-2">
           <span
             className={`text-xs font-semibold px-2 py-1 rounded-md ${
-              form.bookPopupEnabled
+              form.popupEnabled
                 ? 'bg-brand text-white'
                 : 'bg-bg3 text-mute'
             }`}
           >
-            {form.bookPopupEnabled ? 'ON' : 'OFF'}
+            {form.popupEnabled ? 'ON' : 'OFF'}
           </span>
           <button
             onClick={() => setExpanded((v) => !v)}
@@ -1070,9 +897,9 @@ function BookGlobalPopupCard({
           <label className="flex items-center gap-3 cursor-pointer">
             <input
               type="checkbox"
-              checked={form.bookPopupEnabled}
+              checked={form.popupEnabled}
               onChange={(e) =>
-                setForm({ ...form, bookPopupEnabled: e.target.checked })
+                setForm({ ...form, popupEnabled: e.target.checked })
               }
               className="w-4 h-4 accent-brand"
             />
@@ -1081,123 +908,26 @@ function BookGlobalPopupCard({
             </span>
           </label>
 
-          <div className={form.bookPopupEnabled ? '' : 'opacity-50 pointer-events-none'}>
-            <div className="grid sm:grid-cols-2 gap-4">
-              <div className="sm:col-span-2 grid sm:grid-cols-[1fr_1fr] gap-4">
-                <div>
-                  <label className="block text-xs font-medium mb-1">Título</label>
-                  <input
-                    value={form.bookPopupTitle}
-                    onChange={(e) =>
-                      setForm({ ...form, bookPopupTitle: e.target.value })
-                    }
-                    maxLength={120}
-                    placeholder="Ej: Promo de la semana"
-                    className="w-full px-3 py-2 text-sm rounded-md border border-line2"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium mb-1">
-                    Imagen del popup (opcional)
-                  </label>
-                  <ImageUploader
-                    folder="menu-book-popup"
-                    crop={false}
-                    maxSizeMb={25}
-                    value={form.bookPopupImageUrl || null}
-                    onChange={(url) =>
-                      setForm({ ...form, bookPopupImageUrl: url ?? '' })
-                    }
-                  />
-                </div>
-              </div>
+          <PopupBody form={form} setForm={setForm} cards={cards} />
 
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-medium mb-1">Descripción</label>
-                <textarea
-                  value={form.bookPopupDescription}
-                  onChange={(e) =>
-                    setForm({ ...form, bookPopupDescription: e.target.value })
-                  }
-                  maxLength={2000}
-                  rows={3}
-                  placeholder="Texto del anuncio."
-                  className="w-full px-3 py-2 text-sm rounded-md border border-line2 resize-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium mb-1">Texto del botón</label>
-                <input
-                  value={form.bookPopupButtonText}
-                  onChange={(e) =>
-                    setForm({ ...form, bookPopupButtonText: e.target.value })
-                  }
-                  maxLength={40}
-                  placeholder="Ej: Ver más"
-                  className="w-full px-3 py-2 text-sm rounded-md border border-line2"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium mb-1">Link del botón</label>
-                <input
-                  value={form.bookPopupButtonUrl}
-                  onChange={(e) =>
-                    setForm({ ...form, bookPopupButtonUrl: e.target.value })
-                  }
-                  maxLength={500}
-                  placeholder="https://…"
-                  className="w-full px-3 py-2 text-sm rounded-md border border-line2"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium mb-1">
-                  Color del botón
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={form.bookPopupButtonColor}
-                    onChange={(e) =>
-                      setForm({ ...form, bookPopupButtonColor: e.target.value })
-                    }
-                    className="w-10 h-10 rounded border border-line2 cursor-pointer"
-                  />
-                  <input
-                    value={form.bookPopupButtonColor}
-                    onChange={(e) =>
-                      setForm({ ...form, bookPopupButtonColor: e.target.value })
-                    }
-                    placeholder="#22c55e"
-                    maxLength={7}
-                    className="flex-1 px-3 py-2 text-sm rounded-md border border-line2 font-mono"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium mb-1">
-                  Retraso en segundos
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  max={120}
-                  value={form.bookPopupDelaySeconds}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      bookPopupDelaySeconds: Number(e.target.value) || 0,
-                    })
-                  }
-                  className="w-full px-3 py-2 text-sm rounded-md border border-line2"
-                />
-                <div className="text-[11px] text-mute mt-1">
-                  Cuánto espera antes de aparecer (0-120s). Default 5s.
-                </div>
-              </div>
+          <div
+            className={
+              form.popupEnabled ? '' : 'opacity-50 pointer-events-none'
+            }
+          >
+            <label className="block text-xs font-medium mb-1">
+              Retraso en segundos
+            </label>
+            <input
+              type="number"
+              min={0}
+              max={120}
+              value={delaySeconds}
+              onChange={(e) => setDelaySeconds(Number(e.target.value) || 0)}
+              className="w-full sm:w-32 px-3 py-2 text-sm rounded-md border border-line2"
+            />
+            <div className="text-[11px] text-mute mt-1">
+              Cuánto espera antes de aparecer (0-120s). Default 5s.
             </div>
           </div>
 
@@ -1214,4 +944,419 @@ function BookGlobalPopupCard({
       )}
     </div>
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// M9: helpers compartidos para los 3 tipos de popup
+// ─────────────────────────────────────────────────────────────────────
+
+/** Lista de Cards del tenant en cache local de módulo. Evita re-fetch entre
+ *  modales (page popup, section popup, global popup) durante la misma
+ *  visita al panel. */
+function useTenantCards() {
+  const [cards, setCards] = useState<CardOption[]>([]);
+  useEffect(() => {
+    api<any[]>('/cards')
+      .then((arr) =>
+        setCards(
+          (arr ?? [])
+            .filter((c) => c?.name && String(c.name).trim().length > 0)
+            .map((c) => ({
+              id: c.id,
+              name: c.name,
+              type: c.type ?? '',
+              isActive: !!c.isActive,
+            })),
+        ),
+      )
+      .catch(() => setCards([]));
+  }, []);
+  return cards;
+}
+
+const POPUP_TYPE_OPTIONS: Array<{
+  value: PopupType;
+  label: string;
+  icon: string;
+  hint: string;
+}> = [
+  {
+    value: 'EXTERNAL_LINK',
+    label: 'Enlace externo',
+    icon: '🔗',
+    hint: 'Botón que abre una URL (WhatsApp, web, reserva).',
+  },
+  {
+    value: 'CARD',
+    label: 'Tarjeta de fidelización',
+    icon: '🎁',
+    hint: 'Cliente se inscribe a una Card del negocio (sellos o cupones).',
+  },
+  {
+    value: 'IMAGE',
+    label: 'Imagen promocional',
+    icon: '🖼️',
+    hint: 'Solo visualización: imagen grande + texto opcional, sin CTA.',
+  },
+];
+
+/** Radio-pills para elegir tipo de popup. */
+function PopupTypePicker({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: PopupType;
+  onChange: (v: PopupType) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div>
+      <div className="text-xs font-semibold mb-1.5">Tipo de popup</div>
+      <div className="grid sm:grid-cols-3 gap-2">
+        {POPUP_TYPE_OPTIONS.map((opt) => {
+          const active = value === opt.value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              disabled={disabled}
+              onClick={() => onChange(opt.value)}
+              className={`text-left px-3 py-2 rounded-lg border transition ${
+                active
+                  ? 'border-brand bg-brand/10'
+                  : 'border-line2 bg-white hover:bg-bg2'
+              }`}
+            >
+              <div className="flex items-center gap-1.5 text-sm font-semibold">
+                <span>{opt.icon}</span>
+                <span>{opt.label}</span>
+              </div>
+              <div className="text-[11px] text-mute mt-0.5 leading-snug">
+                {opt.hint}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Estado mutable común a los 3 popups (página/sección/global). Tomamos el
+ *  shape "normalizado" — los componentes de form de cada nivel cuando
+ *  guardan mapean a los nombres reales (popupX vs bookPopupX). */
+type PopupFormState = {
+  popupEnabled: boolean;
+  popupTitle: string;
+  popupDescription: string;
+  popupImageUrl: string;
+  popupButtonText: string;
+  popupButtonUrl: string;
+  popupButtonColor: string;
+  popupType: PopupType;
+  popupCardId: string | null;
+  popupCardCtaLabel: string;
+  popupImageCaption: string;
+};
+
+/** Cuerpo del editor de popup compartido por los 3 niveles. */
+function PopupBody({
+  form,
+  setForm,
+  cards,
+  showTitle = true,
+}: {
+  form: PopupFormState;
+  setForm: (f: PopupFormState) => void;
+  cards: CardOption[];
+  /** El popup global a veces oculta el título cuando ya hay un header
+   *  externo. Default: mostrar. */
+  showTitle?: boolean;
+}) {
+  return (
+    <div className={form.popupEnabled ? 'space-y-4' : 'space-y-4 opacity-50 pointer-events-none'}>
+      <PopupTypePicker
+        value={form.popupType}
+        onChange={(v) => setForm({ ...form, popupType: v })}
+      />
+
+      {showTitle && (
+        <div>
+          <label className="block text-xs font-medium mb-1">
+            Título (opcional)
+          </label>
+          <input
+            value={form.popupTitle}
+            onChange={(e) => setForm({ ...form, popupTitle: e.target.value })}
+            maxLength={120}
+            placeholder="Ej: Recomendación del chef"
+            className="w-full px-3 py-2 text-sm rounded-md border border-line2"
+          />
+        </div>
+      )}
+
+      <div>
+        <label className="block text-xs font-medium mb-1">
+          Descripción (opcional)
+        </label>
+        <textarea
+          value={form.popupDescription}
+          onChange={(e) =>
+            setForm({ ...form, popupDescription: e.target.value })
+          }
+          maxLength={2000}
+          rows={3}
+          placeholder="Texto del popup."
+          className="w-full px-3 py-2 text-sm rounded-md border border-line2 resize-none"
+        />
+      </div>
+
+      {/* CAMPOS ESPECÍFICOS POR TIPO */}
+      {form.popupType === 'EXTERNAL_LINK' && (
+        <div className="space-y-3">
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium mb-1">
+                Texto del botón
+              </label>
+              <input
+                value={form.popupButtonText}
+                onChange={(e) =>
+                  setForm({ ...form, popupButtonText: e.target.value })
+                }
+                maxLength={40}
+                placeholder="Ej: Pedir por WhatsApp"
+                className="w-full px-3 py-2 text-sm rounded-md border border-line2"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1">
+                Link del botón
+              </label>
+              <input
+                value={form.popupButtonUrl}
+                onChange={(e) =>
+                  setForm({ ...form, popupButtonUrl: e.target.value })
+                }
+                maxLength={500}
+                placeholder="https://wa.me/57…"
+                className="w-full px-3 py-2 text-sm rounded-md border border-line2"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">
+              Color del botón
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={form.popupButtonColor}
+                onChange={(e) =>
+                  setForm({ ...form, popupButtonColor: e.target.value })
+                }
+                className="w-10 h-10 rounded border border-line2 cursor-pointer"
+              />
+              <input
+                value={form.popupButtonColor}
+                onChange={(e) =>
+                  setForm({ ...form, popupButtonColor: e.target.value })
+                }
+                placeholder="#22c55e"
+                maxLength={7}
+                className="flex-1 px-3 py-2 text-sm rounded-md border border-line2 font-mono"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">
+              Imagen del popup (opcional)
+            </label>
+            <ImageUploader
+              folder="menu-book-popup"
+              crop={false}
+              maxSizeMb={25}
+              value={form.popupImageUrl || null}
+              onChange={(url) =>
+                setForm({ ...form, popupImageUrl: url ?? '' })
+              }
+            />
+          </div>
+        </div>
+      )}
+
+      {form.popupType === 'CARD' && (
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium mb-1">
+              Tarjeta de fidelización
+            </label>
+            <select
+              value={form.popupCardId ?? ''}
+              onChange={(e) =>
+                setForm({ ...form, popupCardId: e.target.value || null })
+              }
+              className="w-full px-3 py-2 text-sm rounded-md border border-line2"
+            >
+              <option value="">— Elegir tarjeta —</option>
+              {cards.map((c) => (
+                <option key={c.id} value={c.id} disabled={!c.isActive}>
+                  {c.name} · {c.type}
+                  {!c.isActive ? ' · pausada' : ''}
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-mute mt-1 leading-relaxed">
+              Al tocar el botón, el cliente va a la inscripción de esta
+              tarjeta. Solo aparecen Cards de este negocio.
+            </p>
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">
+              Texto del botón
+            </label>
+            <input
+              value={form.popupCardCtaLabel}
+              onChange={(e) =>
+                setForm({ ...form, popupCardCtaLabel: e.target.value })
+              }
+              maxLength={40}
+              placeholder="Reclamar mi tarjeta"
+              className="w-full px-3 py-2 text-sm rounded-md border border-line2"
+            />
+            <p className="text-[11px] text-mute mt-1">
+              Default: "Reclamar mi tarjeta".
+            </p>
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">
+              Color del botón
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={form.popupButtonColor}
+                onChange={(e) =>
+                  setForm({ ...form, popupButtonColor: e.target.value })
+                }
+                className="w-10 h-10 rounded border border-line2 cursor-pointer"
+              />
+              <input
+                value={form.popupButtonColor}
+                onChange={(e) =>
+                  setForm({ ...form, popupButtonColor: e.target.value })
+                }
+                placeholder="#22c55e"
+                maxLength={7}
+                className="flex-1 px-3 py-2 text-sm rounded-md border border-line2 font-mono"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">
+              Imagen del popup (opcional)
+            </label>
+            <ImageUploader
+              folder="menu-book-popup"
+              crop={false}
+              maxSizeMb={25}
+              value={form.popupImageUrl || null}
+              onChange={(url) =>
+                setForm({ ...form, popupImageUrl: url ?? '' })
+              }
+            />
+          </div>
+        </div>
+      )}
+
+      {form.popupType === 'IMAGE' && (
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium mb-1">
+              Imagen promocional <span className="text-bad-ink">*</span>
+            </label>
+            <ImageUploader
+              folder="menu-book-popup"
+              crop={false}
+              maxSizeMb={25}
+              value={form.popupImageUrl || null}
+              onChange={(url) =>
+                setForm({ ...form, popupImageUrl: url ?? '' })
+              }
+            />
+            <p className="text-[11px] text-mute mt-1">
+              Vertical funciona mejor (~600×800). Sin botón CTA — el cliente
+              solo cierra con la X.
+            </p>
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">
+              Caption debajo de la imagen (opcional)
+            </label>
+            <input
+              value={form.popupImageCaption}
+              onChange={(e) =>
+                setForm({ ...form, popupImageCaption: e.target.value })
+              }
+              maxLength={200}
+              placeholder="Ej: Promo válida hasta el domingo"
+              className="w-full px-3 py-2 text-sm rounded-md border border-line2"
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Lee del objeto BookPage/BookSection los campos y arma PopupFormState. */
+function popupStateFromPage(page: BookPage): PopupFormState {
+  return {
+    popupEnabled: page.popupEnabled,
+    popupTitle: page.popupTitle ?? '',
+    popupDescription: page.popupDescription ?? '',
+    popupImageUrl: page.popupImageUrl ?? '',
+    popupButtonText: page.popupButtonText ?? '',
+    popupButtonUrl: page.popupButtonUrl ?? '',
+    popupButtonColor: page.popupButtonColor ?? '#22c55e',
+    popupType: (page.popupType ?? 'EXTERNAL_LINK') as PopupType,
+    popupCardId: page.popupCardId ?? null,
+    popupCardCtaLabel: page.popupCardCtaLabel ?? '',
+    popupImageCaption: page.popupImageCaption ?? '',
+  };
+}
+
+function popupStateFromSection(section: BookSection): PopupFormState {
+  return {
+    popupEnabled: section.popupEnabled,
+    popupTitle: section.popupTitle ?? '',
+    popupDescription: section.popupDescription ?? '',
+    popupImageUrl: section.popupImageUrl ?? '',
+    popupButtonText: section.popupButtonText ?? '',
+    popupButtonUrl: section.popupButtonUrl ?? '',
+    popupButtonColor: section.popupButtonColor ?? '#22c55e',
+    popupType: (section.popupType ?? 'EXTERNAL_LINK') as PopupType,
+    popupCardId: section.popupCardId ?? null,
+    popupCardCtaLabel: section.popupCardCtaLabel ?? '',
+    popupImageCaption: section.popupImageCaption ?? '',
+  };
+}
+
+/** Empaqueta el form para PATCH al endpoint catalog/menu-book — usa los
+ *  nombres `popup*`. */
+function popupPatchPayload(form: PopupFormState) {
+  return {
+    popupEnabled: form.popupEnabled,
+    popupTitle: form.popupTitle.trim() || null,
+    popupDescription: form.popupDescription.trim() || null,
+    popupImageUrl: form.popupImageUrl.trim() || null,
+    popupButtonText: form.popupButtonText.trim() || null,
+    popupButtonUrl: form.popupButtonUrl.trim() || null,
+    popupButtonColor: form.popupButtonColor || null,
+    popupType: form.popupType,
+    popupCardId: form.popupCardId ?? null,
+    popupCardCtaLabel: form.popupCardCtaLabel.trim() || null,
+    popupImageCaption: form.popupImageCaption.trim() || null,
+  };
 }
