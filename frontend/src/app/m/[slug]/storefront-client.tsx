@@ -1901,15 +1901,15 @@ type RenderProps = {
 
 function MenuRenderer({ layout, menu, primary, currency, onPick, backButtonConfig, mode }: RenderProps) {
   if (layout === 'GRID')
-    return <LayoutGrid menu={menu} primary={primary} currency={currency} onPick={onPick} />;
+    return <LayoutGrid menu={menu} primary={primary} currency={currency} onPick={onPick} mode={mode} />;
   if (layout === 'CAROUSELS')
-    return <LayoutCarousels menu={menu} primary={primary} currency={currency} onPick={onPick} />;
+    return <LayoutCarousels menu={menu} primary={primary} currency={currency} onPick={onPick} mode={mode} />;
   if (layout === 'CLEAN')
-    return <LayoutClean menu={menu} primary={primary} currency={currency} onPick={onPick} />;
+    return <LayoutClean menu={menu} primary={primary} currency={currency} onPick={onPick} mode={mode} />;
   if (layout === 'COMPACT')
-    return <LayoutCompact menu={menu} primary={primary} currency={currency} onPick={onPick} />;
+    return <LayoutCompact menu={menu} primary={primary} currency={currency} onPick={onPick} mode={mode} />;
   if (layout === 'CLUVI')
-    return <LayoutCluvi menu={menu} primary={primary} currency={currency} onPick={onPick} />;
+    return <LayoutCluvi menu={menu} primary={primary} currency={currency} onPick={onPick} mode={mode} />;
   if (layout === 'SECTIONS')
     return (
       <LayoutSections
@@ -1921,7 +1921,7 @@ function MenuRenderer({ layout, menu, primary, currency, onPick, backButtonConfi
         mode={mode}
       />
     );
-  return <LayoutClassic menu={menu} primary={primary} currency={currency} onPick={onPick} />;
+  return <LayoutClassic menu={menu} primary={primary} currency={currency} onPick={onPick} mode={mode} />;
 }
 
 type LP = Omit<RenderProps, 'layout'>;
