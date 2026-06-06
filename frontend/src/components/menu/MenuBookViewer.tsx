@@ -583,6 +583,14 @@ function PopupOverlay({
                     {popup.cardCtaLabel?.trim() || 'Reclamar mi tarjeta'}
                   </a>
                 ) : null}
+                {effectiveType === 'CARD' && !popup.cardId ? (
+                  // El popup tipo CARD perdió su FK (Card eliminada con
+                  // ON DELETE SET NULL). Mostramos un fallback discreto en
+                  // lugar de dejar el popup sin CTA.
+                  <span className="text-xs italic text-mute self-center">
+                    Tarjeta no disponible
+                  </span>
+                ) : null}
                 {effectiveType === 'EXTERNAL_LINK'
                   ? (() => {
                       const safeHref = popup.buttonUrl

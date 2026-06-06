@@ -268,10 +268,33 @@ export class OrdersService {
 
     if (!dto.items?.length) throw new BadRequestException('Carrito vacío');
 
+    // Resolver el canal antes de buscar productos para que el filtro
+    // `availableForMesa`/`availableForDelivery` se aplique. Sin esto un
+    // cliente puede mandar `mode='DELIVERY'` con items que el dueño marcó
+    // solo para mesa (bypass de la separación introducida en item 1).
+    const effectiveMode =
+      dto.mode ??
+      (dto.fulfillment === 'DELIVERY'
+        ? 'DELIVERY'
+        : dto.fulfillment === 'DINE_IN'
+          ? 'MESA'
+          : null);
+    const modeFilter =
+      effectiveMode === 'MESA'
+        ? { availableForMesa: true }
+        : effectiveMode === 'DELIVERY'
+          ? { availableForDelivery: true }
+          : {};
+
     // Resolver productos y precios actuales (anti-tampering)
     const productIds = dto.items.map((i) => i.productId);
     const products = await this.prisma.product.findMany({
-      where: { tenantId: tenant.id, id: { in: productIds }, isAvailable: true },
+      where: {
+        tenantId: tenant.id,
+        id: { in: productIds },
+        isAvailable: true,
+        ...modeFilter,
+      },
       include: { variants: true, extras: true },
     });
     const map = new Map(products.map((p) => [p.id, p]));
@@ -395,16 +418,10 @@ export class OrdersService {
             deliveryAddress: dto.deliveryAddress,
             customerNote: dto.customerNote,
             locationId: dto.locationId,
-            // Si el front no manda mode, lo inferimos del fulfillment para
-            // no perder el discriminator (DINE_IN→MESA, DELIVERY→DELIVERY,
-            // PICKUP→null porque puede venir de cualquiera de los dos menús).
-            mode:
-              dto.mode ??
-              (dto.fulfillment === 'DELIVERY'
-                ? 'DELIVERY'
-                : dto.fulfillment === 'DINE_IN'
-                ? 'MESA'
-                : null),
+            // El canal ya se resolvió arriba (effectiveMode) — lo persistimos
+            // como discriminator. PICKUP queda como null porque puede venir
+            // de cualquiera de los dos menús sin ambigüedad.
+            mode: effectiveMode,
             events: {
               create: { type: 'CREATED', metadata: { source: 'public' } },
             },
