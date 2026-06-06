@@ -297,12 +297,11 @@ export default function AffiliatePanel() {
           </div>
         )}
 
-        {/* Wrapper en mobile permite que la pill bar scrolee
-            horizontal (overflow-x-auto del .tabs) sin romper el layout
-            del main padding. -mx-5 saca el padding del main, px-5 lo
-            re-añade adentro para que el primer/último tab no toquen
-            el borde. */}
-        <div className="mb-5 -mx-5 sm:mx-0 overflow-x-auto sm:overflow-visible px-5 sm:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {/* Wrapper que permite scroll horizontal de la pill bar en TODAS las
+            resoluciones (con 8 tabs no caben en desktop estándar tampoco).
+            -mx-5 saca el padding del main, px-5 lo re-añade adentro para que
+            el primer/último tab no toquen el borde. */}
+        <div className="mb-5 -mx-5 overflow-x-auto px-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="tabs">
           <button
             className={`tab ${tab === 'overview' ? 'tab-active' : ''}`}

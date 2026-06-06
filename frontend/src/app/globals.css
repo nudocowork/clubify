@@ -119,8 +119,8 @@
    * para evitar que múltiples pills se desborden o se apilen rotas.
    * El touch-target mínimo en mobile es 44px alto via py-2.5 / min-h. */
   .tabs {
-    @apply flex sm:inline-flex gap-1.5 bg-white border border-line rounded-pill p-1
-           overflow-x-auto sm:overflow-visible flex-nowrap
+    @apply flex gap-1.5 bg-white border border-line rounded-pill p-1
+           overflow-x-auto flex-nowrap max-w-full
            [scrollbar-width:none] [&::-webkit-scrollbar]:hidden;
   }
   .tab {

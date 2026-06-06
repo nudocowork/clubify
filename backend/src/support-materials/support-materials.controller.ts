@@ -87,7 +87,7 @@ export class SupportMaterialsAdminController {
 
 /** Endpoint scoped al afiliado autenticado — solo ve lo que le toca. */
 @Controller('affiliate/support-materials')
-@Roles('AFFILIATE_INFLUENCER', 'AFFILIATE_AMBASSADOR', 'AFFILIATE_SOCIO')
+@Roles('AFFILIATE_INFLUENCER', 'AFFILIATE_AMBASSADOR', 'AFFILIATE_VENDOR', 'AFFILIATE_SOCIO')
 export class SupportMaterialsAffiliateController {
   constructor(private svc: SupportMaterialsService) {}
 
