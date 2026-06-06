@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
 import { OAuth2Client } from 'google-auth-library';
@@ -19,6 +20,10 @@ import {
   isValidCategorySlug,
   DEFAULT_CATEGORY_SLUG,
 } from '../common/business-categories';
+// Solo se usa como TOKEN para ModuleRef.get (resolución lazy en runtime).
+// NO se inyecta por constructor para no crear un ciclo de módulos
+// AuthModule ↔ BillingModule (BillingModule ya importa AuthModule).
+import { HotmartService } from '../billing/hotmart.service';
 
 // Subdominios reservados por Clubify (no pueden ser tenant slugs porque
 // chocan con app.soyclubify.com / api.soyclubify.com / etc.).
@@ -64,6 +69,7 @@ export class AuthService {
     private refreshTokens: RefreshTokenService,
     private twoFactor: TwoFactorService,
     private preregAlerts: PreregAlertsService,
+    private moduleRef: ModuleRef,
   ) {
     const clientId = appConfig.get('GOOGLE_CLIENT_ID');
     this.googleClient = clientId ? new OAuth2Client(clientId) : null;
@@ -747,6 +753,32 @@ export class AuthService {
       } catch {
         /* noop */
       }
+    }
+
+    // Flujo "pago → datos": si el cliente pagó en Hotmart ANTES de crear
+    // la cuenta (eligió plan → pagó → recién ahora llena sus datos), el
+    // webhook ya guardó un PendingHotmartPayment por su email. Lo
+    // consumimos AHORA — después de crear tenant+user+ReferralUse — para
+    // activar el tenant al instante (status ACTIVE + comisión del
+    // referido). Si no hay pago pendiente (flujo normal datos→pago, o
+    // visita directa a /activar), la cuenta queda en TRIAL bloqueada y el
+    // webhook la activará cuando llegue (findTenant ya la encontrará).
+    // Best-effort: si falla, el signup NO se rompe.
+    try {
+      const hotmart = this.moduleRef.get(HotmartService, { strict: false });
+      const activated = await hotmart.consumePendingForTenant(
+        tenant.id,
+        email,
+      );
+      if (activated) {
+        this.logger.log(
+          `Signup activado al instante por pago pendiente — tenant=${tenant.id}`,
+        );
+      }
+    } catch (e) {
+      this.logger.warn(
+        `consumePendingForTenant falló para tenant=${tenant.id}: ${(e as Error).message}`,
+      );
     }
 
     // Welcome email best-effort (no bloqueante)

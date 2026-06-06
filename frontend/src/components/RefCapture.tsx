@@ -49,6 +49,23 @@ export function RefCapture() {
           }
         } catch {}
       }
+
+      // quoteToken (?qt=) del CTA de /q/<token> → closed-loop de
+      // conversión. Lo persistimos en sessionStorage para que /activar lo
+      // mande en el signup final, y disparamos el beacon de CTA-click una
+      // sola vez (cuando viene del URL, no de cache).
+      const qt = sp.get('qt');
+      if (qt && qt.length >= 8 && qt.length <= 64) {
+        try {
+          sessionStorage.setItem('clubify:qt', qt);
+        } catch {}
+        const API =
+          process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
+        fetch(`${API}/api/public/quote/${encodeURIComponent(qt)}/cta-click`, {
+          method: 'POST',
+          keepalive: true,
+        }).catch(() => null);
+      }
     } catch {}
   }, []);
   return null;
