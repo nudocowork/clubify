@@ -7,6 +7,8 @@ import { Icon } from '@/components/Icon';
 import { ImageUploader } from '@/components/ImageUploader';
 import { SortableList, DragHandle } from '@/components/Sortable';
 import { toast } from '@/components/Toast';
+import { ResizableHeader } from '@/components/ResizableHeader';
+import { useColumnResize } from '@/lib/useColumnResize';
 import { SectionCoverEditor } from '@/components/menu/SectionCoverEditor';
 import { SectionCoverPreview } from '@/components/menu/SectionCoverPreview';
 import type { SectionCoverConfig } from '@/lib/menu/section-cover-config';
@@ -85,6 +87,31 @@ export default function MenuEditor() {
   const [togglingOrders, setTogglingOrders] = useState(false);
   const [tenantSlug, setTenantSlug] = useState<string | null>(null);
   const [mainLabel, setMainLabel] = useState<string>('Menú');
+
+  // Columnas redimensionables estilo Excel para que nombres largos de
+  // productos no se corten irrecuperablemente. Cada scope persiste su
+  // layout en localStorage.
+  const productCols = useColumnResize('clubify:menu-product-cols', {
+    name: 360,
+    price: 120,
+    variants: 120,
+    available: 120,
+    actions: 140,
+  });
+  const sidebarCols = useColumnResize('clubify:menu-sidebar', {
+    width: 260,
+  });
+
+  // Solo aplicamos el resize del sidebar en desktop (≥1024px = lg). En
+  // mobile el layout colapsa a una sola columna y el handle estorbaría.
+  const [isDesktop, setIsDesktop] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const update = () => setIsDesktop(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
 
   async function load(preserveActive = true) {
     const c = await api<Category[]>('/catalog/categories');
@@ -466,9 +493,32 @@ export default function MenuEditor() {
         </form>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4">
+      <div
+        className="grid grid-cols-1 gap-4"
+        style={{
+          // En mobile: una columna (sidebar arriba, productos abajo).
+          // En desktop ≥1024px: dos columnas con la primera redimensionable.
+          gridTemplateColumns: isDesktop
+            ? `${sidebarCols.widths.width}px 1fr`
+            : undefined,
+        }}
+      >
         {/* Categorías */}
-        <div className="card p-2 self-start">
+        <div className="card p-2 self-start relative">
+          {/* Handle para arrastrar el borde derecho del sidebar y dar
+              más espacio a nombres largos de categorías. */}
+          <div
+            onMouseDown={(e) => {
+              e.preventDefault();
+              sidebarCols.startResize(
+                'width',
+                e.clientX,
+                sidebarCols.widths.width,
+              );
+            }}
+            className="hidden lg:block absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-brand/40 active:bg-brand/60 transition-colors z-10"
+            title="Arrastra para ajustar el ancho del sidebar"
+          />
           {cats.length === 0 && (
             <div className="text-mute text-sm text-center py-6">
               Sin categorías
@@ -707,14 +757,69 @@ export default function MenuEditor() {
         {/* Productos */}
         <div className="card overflow-hidden">
          <div className="overflow-x-auto">
-          <div className="min-w-[680px]">
-          <div className="grid grid-cols-[40px_1fr_120px_120px_120px_120px] bg-bg2 px-3 py-2.5 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold">
+          {(() => {
+            // Layout dinámico: 40px fijo (drag) + las 5 columnas
+            // redimensionables. Reusamos el mismo string en header y
+            // rows para mantener alineación exacta.
+            const w = productCols.widths;
+            const gridTemplate = `40px ${w.name}px ${w.price}px ${w.variants}px ${w.available}px ${w.actions}px`;
+            const totalMin = 40 + w.name + w.price + w.variants + w.available + w.actions;
+            return (
+          <div style={{ minWidth: totalMin }}>
+          <div className="flex items-center justify-between bg-bg2/60 px-3 py-1.5 border-b border-line2">
+            <div className="text-[10px] uppercase tracking-wider text-mute">
+              💡 Arrastra el borde derecho de cada columna para ajustar el ancho
+            </div>
+            <button
+              type="button"
+              onClick={productCols.reset}
+              className="text-[11px] text-mute hover:text-ink underline"
+              title="Volver al ancho de columna original"
+            >
+              Resetear columnas
+            </button>
+          </div>
+          <div
+            className="grid bg-bg2 px-3 py-2.5 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
+            style={{ gridTemplateColumns: gridTemplate }}
+          >
             <div></div>
-            <div>Producto</div>
-            <div>Precio</div>
-            <div>Variantes</div>
-            <div>Disponible</div>
-            <div className="text-right">Acciones</div>
+            <ResizableHeader
+              label="Producto"
+              width={w.name}
+              onResizeStart={(e) =>
+                productCols.startResize('name', e.clientX, w.name)
+              }
+            />
+            <ResizableHeader
+              label="Precio"
+              width={w.price}
+              onResizeStart={(e) =>
+                productCols.startResize('price', e.clientX, w.price)
+              }
+            />
+            <ResizableHeader
+              label="Variantes"
+              width={w.variants}
+              onResizeStart={(e) =>
+                productCols.startResize('variants', e.clientX, w.variants)
+              }
+            />
+            <ResizableHeader
+              label="Disponible"
+              width={w.available}
+              onResizeStart={(e) =>
+                productCols.startResize('available', e.clientX, w.available)
+              }
+            />
+            <ResizableHeader
+              label="Acciones"
+              width={w.actions}
+              align="right"
+              onResizeStart={(e) =>
+                productCols.startResize('actions', e.clientX, w.actions)
+              }
+            />
           </div>
           {visibleProducts.length === 0 ? (
             <div className="text-center p-12">
@@ -729,18 +834,24 @@ export default function MenuEditor() {
           ) : (
             <SortableList items={visibleProducts} onReorder={reorderProducts}>
               {(p, { dragHandleProps }) => (
-                <div className="grid grid-cols-[40px_1fr_120px_120px_120px_120px] items-center px-3 py-3 border-t border-line2 text-sm">
+                <div
+                  className="grid items-center px-3 py-3 border-t border-line2 text-sm"
+                  style={{ gridTemplateColumns: gridTemplate }}
+                >
                   <div className="flex items-center justify-center">
                     <DragHandle {...dragHandleProps} />
                   </div>
-                  <div>
-                    <div className="font-medium flex items-center gap-1.5">
+                  <div
+                    style={{ width: w.name, maxWidth: w.name }}
+                    className="min-w-0"
+                  >
+                    <div className="font-medium flex items-center gap-1.5 truncate">
                       {p.isRecommended && (
-                        <span title="Recomendado" className="text-amber-500">
+                        <span title="Recomendado" className="text-amber-500 flex-none">
                           ⭐
                         </span>
                       )}
-                      {p.name}
+                      <span className="truncate" title={p.name}>{p.name}</span>
                     </div>
                     {p.tags.length > 0 && (
                       <div className="flex gap-1 mt-1 flex-wrap">
@@ -752,11 +863,22 @@ export default function MenuEditor() {
                       </div>
                     )}
                   </div>
-                  <div className="font-medium">{fmt(Number(p.basePrice))}</div>
-                  <div className="text-mute text-xs">
+                  <div
+                    style={{ width: w.price, maxWidth: w.price }}
+                    className="font-medium truncate"
+                  >
+                    {fmt(Number(p.basePrice))}
+                  </div>
+                  <div
+                    style={{ width: w.variants, maxWidth: w.variants }}
+                    className="text-mute text-xs truncate"
+                  >
                     {p.variants.length}v · {p.extras.length}e
                   </div>
-                  <div className="flex flex-col gap-1 items-start">
+                  <div
+                    style={{ width: w.available, maxWidth: w.available }}
+                    className="flex flex-col gap-1 items-start min-w-0"
+                  >
                     <button
                       onClick={() => toggle(p)}
                       className={`badge ${
@@ -780,7 +902,10 @@ export default function MenuEditor() {
                       </span>
                     )}
                   </div>
-                  <div className="text-right">
+                  <div
+                    style={{ width: w.actions, maxWidth: w.actions }}
+                    className="text-right truncate"
+                  >
                     <button
                       className="btn-link text-xs mr-3"
                       onClick={() => setEditing(p)}
@@ -799,6 +924,8 @@ export default function MenuEditor() {
             </SortableList>
           )}
           </div>
+            );
+          })()}
          </div>
         </div>
       </div>
