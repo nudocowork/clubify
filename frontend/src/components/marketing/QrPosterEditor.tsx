@@ -58,6 +58,7 @@ import {
   rescaleForCanvas,
   pixelRatioForDpi,
   estimateTextBox,
+  computeTextRenderBox,
 } from '@/lib/marketing/qr-poster-config';
 import { QR_TEMPLATES, applyTemplate } from '@/lib/marketing/qr-templates';
 import {
@@ -1536,6 +1537,73 @@ export default function QrPosterEditor({
     };
   }
 
+  /**
+   * Drag handler especializado para textos (fijos y customTexts).
+   *
+   * Diferencia con makeDragHandlers: la posición FÍSICA del nodo Konva
+   * (renderX) NO coincide con el bbox VISUAL del texto cuando boxWidth
+   * está null + align != 'left' — el render usa una caja virtual de
+   * ancho canvas.w y align interno para centrar/derechar. Los smart
+   * guides necesitan comparar el bbox VISUAL del texto contra los
+   * targets visuales de los demás layers, pero la persistencia de
+   * t.x usa el delta del NODO físico (que es lo que Konva mueve al
+   * arrastrar).
+   *
+   * Implementación:
+   * - onDragMove: traduce node.x() físico → visualBox.x para snap,
+   *   computa snap, traduce el snap.x de vuelta a node.x().
+   * - onDragEnd: pasa el delta (node.x() - renderX_inicial) al callback
+   *   para que actualice t.x sin importar el alignment.
+   */
+  function makeTextDragHandlers(
+    layerId: string,
+    initialRenderX: number,
+    visualBox: { x: number; y: number; w: number; h: number },
+    onUpdate: (deltaX: number, deltaY: number) => void,
+  ) {
+    // Offset constante entre el x físico del nodo y el x visual del
+    // texto. Para boxWidth!=null + align=left: offset=0. Para align=
+    // center sin boxWidth: offset = visualBox.x - renderX = (t.x -
+    // widestLine/2) - (t.x - canvas.w/2) = (canvas.w - widestLine)/2.
+    const physToVisualOffsetX = visualBox.x - initialRenderX;
+    // En Y, el render usa y=t.y y visualBox.y=t.y → offset siempre 0.
+    // Lo dejamos como 0 explícito por claridad.
+    const physToVisualOffsetY = 0;
+    return {
+      onDragMove: (e: Konva.KonvaEventObject<DragEvent>) => {
+        const node = e.target;
+        const visualX = node.x() + physToVisualOffsetX;
+        const visualY = node.y() + physToVisualOffsetY;
+        const newVisualBox = {
+          x: visualX,
+          y: visualY,
+          w: visualBox.w,
+          h: visualBox.h,
+        };
+        const others = gatherSnapTargets(cfg);
+        const snap = computeSnap(
+          newVisualBox,
+          others,
+          cfg.canvas.w,
+          cfg.canvas.h,
+          layerId,
+        );
+        if (snap.x !== newVisualBox.x) node.x(snap.x - physToVisualOffsetX);
+        if (snap.y !== newVisualBox.y) node.y(snap.y - physToVisualOffsetY);
+        setGuides(snap.guides);
+      },
+      onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) => {
+        const node = e.target;
+        // Delta del NODO físico — desde renderX inicial al final. Eso
+        // es exactamente cuánto t.x se mueve, sin importar align.
+        const deltaX = node.x() - initialRenderX;
+        const deltaY = node.y() - visualBox.y;
+        onUpdate(deltaX, deltaY);
+        setGuides([]);
+      },
+    };
+  }
+
   // Mientras carga: NO renderizamos el editor — sino el primer paint
   // con cfg=defaultConfig podría disparar autosave si la guard fallara, o
   // el usuario podría empezar a editar sobre datos viejos. El skeleton
@@ -2343,35 +2411,37 @@ export default function QrPosterEditor({
                       const key = id.slice(5) as keyof QrPosterConfig['texts'];
                       const t = cfg.texts[key];
                       if (!t) return null;
-                      // El contenedor de Konva.Text define el área para
-                      // alineación interna. boxWidth seteado = caja propia
-                      // anclada en (x,y); sino, todo el ancho del canvas
-                      // anclado en x=0.
-                      const renderWidth = t.boxWidth ?? cfg.canvas.w;
-                      const renderX = t.boxWidth != null ? t.x : 0;
-                      // Para drag usamos el bbox VISUAL (estimateTextBox)
-                      // no el contenedor — sino los smart guides snapean
-                      // al borde de la caja invisible y no al centro
-                      // óptico del texto.
+                      // Render box derivada con computeTextRenderBox para
+                      // que `t.x` actúe como ANCLA real del texto según
+                      // `align` (left=esq izq, center=centro, right=esq
+                      // der). Antes el render usaba x=0 + width=canvas.w
+                      // sin importar boxWidth, lo que CENTRABA el texto
+                      // en el canvas siempre — t.x se persistía pero el
+                      // render lo IGNORABA → al arrastrar y recargar, los
+                      // textos "volvían a la izquierda" o "no se movían".
+                      // Fix global persistencia QR 2026-06-06.
+                      const { renderX, renderWidth } = computeTextRenderBox(
+                        t,
+                        cfg.canvas.w,
+                      );
+                      // Smart guides usan el bbox VISUAL del texto (no
+                      // el render box, que es la caja virtual de
+                      // canvas.w). Así los snaps apuntan al centro
+                      // óptico real del texto en lugar del borde de la
+                      // caja invisible. Pero el drag persiste el delta
+                      // calculado contra el renderX (que es donde Konva
+                      // mueve el nodo físicamente), para que t.x quede
+                      // sincronizado con el ancla real.
                       const visualBox = estimateTextBox(t, cfg.canvas.w);
                       const handlers = t.locked
                         ? { onDragMove: undefined, onDragEnd: undefined }
-                        : makeDragHandlers(
+                        : makeTextDragHandlers(
                             `text.${key}`,
+                            renderX,
                             visualBox,
-                            (newVisualX, newVisualY) => {
-                              // Convertimos delta visual → delta del anclaje
-                              // (t.x). Si la alineación es center/right
-                              // sin boxWidth, el render X queda fijo en 0
-                              // pero el visualX dependía del texto — solo
-                              // movemos Y. Si tiene boxWidth, el render X
-                              // sí cambia con el drag.
-                              const deltaX = newVisualX - visualBox.x;
-                              const deltaY = newVisualY - visualBox.y;
-                              const canMoveX =
-                                t.boxWidth != null || t.align === 'left';
+                            (deltaX, deltaY) => {
                               patchText(key, {
-                                x: canMoveX ? t.x + deltaX : t.x,
+                                x: t.x + deltaX,
                                 y: t.y + deltaY,
                               });
                             },
@@ -2497,21 +2567,23 @@ export default function QrPosterEditor({
                       const cid = id.slice('customText.'.length);
                       const t = cfg.customTexts?.find((x) => x.id === cid);
                       if (!t || t.hidden) return null;
-                      const renderWidth = t.boxWidth ?? cfg.canvas.w;
-                      const renderX = t.boxWidth != null ? t.x : 0;
+                      // Mismo fix de persistencia QR 2026-06-06 — t.x es
+                      // anchor real del texto según align. Ver comentario
+                      // en el render de text.* arriba.
+                      const { renderX, renderWidth } = computeTextRenderBox(
+                        t,
+                        cfg.canvas.w,
+                      );
                       const visualBox = estimateTextBox(t, cfg.canvas.w);
                       const handlers = t.locked
                         ? { onDragMove: undefined, onDragEnd: undefined }
-                        : makeDragHandlers(
+                        : makeTextDragHandlers(
                             `customText.${cid}`,
+                            renderX,
                             visualBox,
-                            (newVx, newVy) => {
-                              const deltaX = newVx - visualBox.x;
-                              const deltaY = newVy - visualBox.y;
-                              const canMoveX =
-                                t.boxWidth != null || t.align === 'left';
+                            (deltaX, deltaY) => {
                               patchCustomText(cid, {
-                                x: canMoveX ? t.x + deltaX : t.x,
+                                x: t.x + deltaX,
                                 y: t.y + deltaY,
                               });
                             },
