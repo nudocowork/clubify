@@ -280,6 +280,11 @@ export class HotmartService {
         failedPaymentCount: 0,
         lastPaymentAttemptAt: new Date(),
         suspendedAt: null,
+        // 2026-06-06: el trial termina cuando hay pago confirmado. Limpiamos
+        // trialEndsAt para que el dashboard no muestre "Trial: X días
+        // restantes" junto con el plan pagado. trialStartedAt y trialSource
+        // se preservan para analytics de conversión.
+        trialEndsAt: null,
         // Reset de tracking de notificaciones para el nuevo ciclo
         paymentReminderSentFor: null,
         paymentFailureNoticeSentAt: null,
@@ -739,13 +744,15 @@ export class HotmartService {
       orderBy: { createdAt: 'desc' },
     });
 
-    // Sin descuentos: comisiones siempre sobre el precio del plan. Si
-    // Hotmart cobró menos por alguna razón (impuesto, conversión, etc),
-    // referido y socio igual cobran sobre la tarifa lista. La diferencia
-    // la absorbe la empresa.
-    const referralBase = originalPrice;
-    const socioBase = originalPrice;
-    void amountPaid;
+    // 2026-06-06 (bug item 7): la comisión se calcula sobre el MONTO
+    // EFECTIVAMENTE PAGADO por Hotmart, no sobre `priceMonthly`. Con los 4
+    // planes (Mensual 68 / Trimestral 150 / Semestral 278 / Anual 500), el
+    // priceMonthly fijo del plan no refleja el cobro real del ciclo. Si
+    // Hotmart manda el monto en el payload (purchase.price.value), ese es
+    // la base canónica. Solo caemos a originalPrice si el payload viene
+    // vacío (Hotmart raro o reconcile manual).
+    const referralBase = amountPaid;
+    const socioBase = amountPaid;
 
     if (use) {
       const last = use.commissions[0];
