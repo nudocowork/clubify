@@ -63,7 +63,7 @@ export default function BusinessCategoriesPage() {
             frontend/src/lib/business-categories.ts
           </code>{' '}
           y la copia idéntica en backend. Para agregar/editar categorías,
-          modificá ambos archivos y redeployá.
+          modifica ambos archivos y redespliega.
         </p>
       </div>
 

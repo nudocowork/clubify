@@ -232,7 +232,7 @@ export function ImageUploader({
             </div>
             <div className="text-sm font-medium">Sube una imagen</div>
             <div className="text-xs text-mute">
-              Arrastra o haz click · jpg, png, webp · max {maxSizeMb}MB
+              Arrastra o da clic · jpg, png, webp · max {maxSizeMb}MB
             </div>
           </>
         )}

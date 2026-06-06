@@ -190,7 +190,7 @@ export function MapPicker({
         </span>
       </div>
       <p className="text-[11px] text-mute mt-1.5 mb-2">
-        Powered by Google Places · o haz click directo en el mapa
+        Powered by Google Places · o da clic directo en el mapa
       </p>
       <div
         ref={containerRef}

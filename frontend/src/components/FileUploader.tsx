@@ -277,7 +277,7 @@ export function FileUploader({
               {label ?? 'Subir archivo'}
             </div>
             <div className="text-xs text-mute text-center leading-relaxed">
-              Arrastra o haz click ·{' '}
+              Arrastra o da clic ·{' '}
               {kind === 'audio' && 'mp3, wav, m4a, aac, ogg'}
               {kind === 'video' && 'mp4, mov, webm'}
               {kind === 'document' && 'pdf'}

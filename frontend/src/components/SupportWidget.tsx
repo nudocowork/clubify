@@ -271,7 +271,7 @@ export function SupportWidget({
                 }}
                 placeholder={
                   audience === 'affiliate'
-                    ? 'Preguntá sobre ventas, scripts, objeciones…'
+                    ? 'Pregunta sobre ventas, scripts, objeciones…'
                     : 'Escribe tu duda…'
                 }
                 rows={1}

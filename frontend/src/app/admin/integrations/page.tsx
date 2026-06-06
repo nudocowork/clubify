@@ -396,7 +396,7 @@ function AccountForm({
               maxLength={60}
             />
             <div className="text-[10px] text-mute mt-1">
-              Solo para que vos lo identifiques en este panel.
+              Solo para que tú lo identifiques en este panel.
             </div>
           </div>
 

@@ -189,7 +189,7 @@ export function MessageEditor({
         placeholder={placeholder}
       />
       <div className="text-xs text-mute mt-1">
-        💡 Tip: haz click en una variable para insertarla en el cursor.
+        💡 Tip: da clic en una variable para insertarla en el cursor.
       </div>
     </div>
   );

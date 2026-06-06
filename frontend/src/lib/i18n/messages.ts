@@ -151,7 +151,7 @@ export const messages = {
     'review.your_message': '¿Qué pasó?',
     'review.send': 'Enviar feedback',
     'review.thanks_title': 'Gracias por tu feedback',
-    'review.thanks_sub': 'El dueño del negocio se va a contactar con vos.',
+    'review.thanks_sub': 'El dueño del negocio se va a contactar contigo.',
 
     // Signup público
     'signup.title': 'Crea tu cuenta',

@@ -161,11 +161,11 @@ export default function ReviewLocationsPage() {
           <div className="font-semibold">Aún no agregaste sedes</div>
           <p className="text-xs text-mute mt-1 max-w-md mx-auto leading-relaxed">
             Si tu negocio tiene una sola ubicación, no necesitás esta página —
-            seguí usando el link de Google Reviews que configuraste en{' '}
+            sigue usando el link de Google Reviews que configuraste en{' '}
             <Link href="/app/reviews" className="text-brand underline">
               Reseñas
             </Link>
-            . Solo agregá sedes acá si tenés cadenas o sucursales con Google
+            . Solo agrega sedes aquí si tienes cadenas o sucursales con Google
             Business Profile separados.
           </p>
         </div>
@@ -325,7 +325,7 @@ function LocationModal({
   function testLink() {
     const url = form.googleReviewUrl.trim();
     if (!url) {
-      toast('Pegá el link antes de probarlo', 'error');
+      toast('Pega el link antes de probarlo', 'error');
       return;
     }
     window.open(url, '_blank', 'noopener');
@@ -435,7 +435,7 @@ function LocationModal({
               </button>
             </div>
             <div className="text-[11px] text-mute mt-1 leading-relaxed">
-              Lo encontrás en Google Business Profile → "Pide más reseñas" →
+              Lo encuentras en Google Business Profile → "Pide más reseñas" →
               "Compartir formulario". Solo aceptamos dominios de Google
               (g.page, maps.app.goo.gl, etc.).
             </div>

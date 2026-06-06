@@ -946,7 +946,7 @@ export default function InfoLinkEditor() {
                         Mostrar popup antes de abrir
                       </label>
                       <p className="text-[11px] text-mute mt-1 leading-relaxed">
-                        Cuando esté activado, al hacer click el cliente verá
+                        Cuando esté activado, al dar clic el cliente verá
                         un mensaje con tu CTA antes de ejecutar la acción
                         (ej: "Antes de reservar, instala nuestra tarjeta").
                         Hay 2 botones: continuar al link o cancelar.

@@ -914,7 +914,7 @@ function ComparisonEditor({
                 placeholder={
                   isLeft
                     ? 'Lo que pierden hoy…'
-                    : 'Lo que ganan con vos…'
+                    : 'Lo que ganan contigo…'
                 }
               />
               <button

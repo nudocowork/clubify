@@ -535,7 +535,7 @@ function MaintenanceToggleCard() {
     if (
       nextEnabled &&
       !confirm(
-        'Vas a ACTIVAR el modo mantenimiento. Todos los clientes verán la página "Volvemos en un rato". Solo vos (SUPER_ADMIN) vas a poder seguir navegando. ¿Continuar?',
+        'Vas a ACTIVAR el modo mantenimiento. Todos los clientes verán la página "Volvemos en un rato". Solo tú (SUPER_ADMIN) vas a poder seguir navegando. ¿Continuar?',
       )
     )
       return;
@@ -597,8 +597,8 @@ function MaintenanceToggleCard() {
           </h2>
           <p className="text-sm text-mute mt-2 leading-relaxed">
             {enabled
-              ? 'Los clientes ven la página "Volvemos en un rato". Vos seguís navegando normal porque sos SUPER_ADMIN. Desactiva cuando termines el deploy.'
-              : 'Apretá "Activar" antes de hacer un deploy con migración pesada o downtime. Los clientes ven una página estática mientras tanto.'}
+              ? 'Los clientes ven la página "Volvemos en un rato". Tú sigues navegando normal porque eres SUPER_ADMIN. Desactiva cuando termines el deploy.'
+              : 'Presiona "Activar" antes de hacer un deploy con migración pesada o downtime. Los clientes ven una página estática mientras tanto.'}
           </p>
         </div>
       </div>
