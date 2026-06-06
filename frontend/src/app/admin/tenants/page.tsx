@@ -1,10 +1,11 @@
 'use client';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, getUser, startImpersonation } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
+import { ConfirmDeleteModal } from '@/components/ConfirmDeleteModal';
 import { periodLabel, type PlanPeriodicity } from '@/lib/plan-format';
 
 function avatarClass(seed: string) {
@@ -21,14 +22,61 @@ function initials(name: string) {
     .toUpperCase();
 }
 
+type StatusFilter = 'ALL' | 'ACTIVE' | 'TRIAL' | 'SUSPENDED';
+type PlanFilter = 'ALL' | 'ELITE';
+type PeriodFilter = 'ALL' | 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL';
+
+// Aplana un tenant a una bolsa de tokens lowercase para búsqueda
+// multi-keyword AND. Tomamos solo los campos que SÍ devuelve /tenants
+// (brandName/email/phone/whatsappPhone/status/plan/periodicidad).
+// Los campos de atribución (influencer/embajador/vendor/campaña) no
+// vienen en el response actual — si en el futuro se agregan acá los
+// recogemos automático sin tocar la UI.
+function searchHaystack(t: any): string {
+  const parts = [
+    t.brandName,
+    t.name,
+    t.email,
+    t.phone,
+    t.whatsappPhone,
+    t.slug,
+    t.city,
+    t.country,
+    t.status,
+    t.plan?.name,
+    t.planPeriodicity,
+    t.attributionInfluencer?.ownerName,
+    t.attributionAmbassador?.ownerName,
+    t.attributionVendor?.ownerName,
+    t.attributionCampaign?.name,
+    // Concatenado plan+periodicidad para que "elite trimestral" matchee
+    // como una sola frase aunque vengan de campos distintos.
+    t.plan?.name && t.planPeriodicity
+      ? `${t.plan.name} ${t.planPeriodicity}`
+      : null,
+  ];
+  return parts.filter(Boolean).join(' ').toLowerCase();
+}
+
 export default function TenantsPage() {
   const router = useRouter();
   const [list, setList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'ALL' | 'ACTIVE' | 'TRIAL' | 'SUSPENDED'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
+  const [planFilter, setPlanFilter] = useState<PlanFilter>('ALL');
+  const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('ALL');
+  const [searchRaw, setSearchRaw] = useState('');
+  const [searchDebounced, setSearchDebounced] = useState('');
   const [enteringId, setEnteringId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
   const me = getUser();
   const isMarketing = me?.role === 'MARKETING';
+
+  // Debounce 150ms para evitar re-renders por keystroke en listas grandes.
+  useEffect(() => {
+    const id = setTimeout(() => setSearchDebounced(searchRaw.trim()), 150);
+    return () => clearTimeout(id);
+  }, [searchRaw]);
 
   async function enterTenant(t: any) {
     if (enteringId) return;
@@ -78,7 +126,80 @@ export default function TenantsPage() {
     }
   }
 
-  const visible = list.filter((t) => filter === 'ALL' || t.status === filter);
+  // Genera y dispara la descarga de un JSON con los datos del tenant que
+  // tenemos en memoria (sin pegarle al backend de nuevo). Útil para
+  // auditorías rápidas, soporte y handover.
+  function downloadTenant(t: any) {
+    try {
+      const safeName = (t.brandName || t.slug || 'negocio')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
+      const date = new Date().toISOString().slice(0, 10);
+      const blob = new Blob([JSON.stringify(t, null, 2)], {
+        type: 'application/json',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `tenant-${safeName}-${date}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast('Descarga lista', 'success');
+    } catch (e: any) {
+      toast(e.message || 'No se pudo descargar', 'error');
+    }
+  }
+
+  async function deleteTenant(t: any) {
+    try {
+      await api(`/tenants/${t.id}`, { method: 'DELETE' });
+      toast(`${t.brandName} eliminado`, 'success');
+      setDeleteTarget(null);
+      load();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo eliminar el negocio', 'error');
+    }
+  }
+
+  const visible = useMemo(() => {
+    const keywords = searchDebounced
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(Boolean);
+    return list.filter((t) => {
+      if (statusFilter !== 'ALL' && t.status !== statusFilter) return false;
+      if (planFilter !== 'ALL') {
+        const name = (t.plan?.name ?? '').toString().toUpperCase();
+        if (name !== planFilter) return false;
+      }
+      if (periodFilter !== 'ALL') {
+        // Sin periodicidad explícita el backend la trata como MENSUAL
+        // (ver periodLabel) — replicamos esa convención al filtrar.
+        const p = (t.planPeriodicity ?? 'MENSUAL').toString().toUpperCase();
+        if (p !== periodFilter) return false;
+      }
+      if (keywords.length === 0) return true;
+      const hay = searchHaystack(t);
+      return keywords.every((k) => hay.includes(k));
+    });
+  }, [list, statusFilter, planFilter, periodFilter, searchDebounced]);
+
+  const hasActiveFilters =
+    statusFilter !== 'ALL' ||
+    planFilter !== 'ALL' ||
+    periodFilter !== 'ALL' ||
+    searchDebounced.length > 0;
+
+  function clearFilters() {
+    setStatusFilter('ALL');
+    setPlanFilter('ALL');
+    setPeriodFilter('ALL');
+    setSearchRaw('');
+    setSearchDebounced('');
+  }
 
   return (
     <div>
@@ -95,22 +216,78 @@ export default function TenantsPage() {
         </div>
       </div>
 
-      <div className="mb-3.5">
-        <div className="tabs">
-          {(['ALL', 'ACTIVE', 'TRIAL', 'SUSPENDED'] as const).map((f) => (
+      <div className="mb-3.5 flex flex-col sm:flex-row sm:items-center gap-2">
+        <div className="flex items-center gap-2 flex-1 bg-bg2 rounded-pill px-4 py-2.5">
+          <Icon name="search" size={16} className="text-mute shrink-0" />
+          <input
+            type="search"
+            value={searchRaw}
+            onChange={(e) => setSearchRaw(e.target.value)}
+            placeholder="Buscar negocio, cliente, correo, teléfono…"
+            className="flex-1 bg-transparent text-sm outline-none placeholder:text-mute2"
+          />
+          {searchRaw && (
             <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`tab ${filter === f ? 'tab-active' : ''}`}
+              type="button"
+              onClick={() => setSearchRaw('')}
+              className="text-mute hover:text-ink text-lg leading-none shrink-0"
+              aria-label="Limpiar búsqueda"
             >
-              {f === 'ALL' ? 'Todos' : f === 'ACTIVE' ? 'Activos' : f === 'TRIAL' ? 'Trial' : 'Suspendidos'}
+              ×
             </button>
-          ))}
+          )}
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+            className="bg-white border border-line rounded-pill px-3 py-2 text-sm cursor-pointer hover:bg-bg2"
+          >
+            <option value="ALL">Estado: Todos</option>
+            <option value="ACTIVE">Activos</option>
+            <option value="TRIAL">Trial</option>
+            <option value="SUSPENDED">Suspendidos</option>
+          </select>
+          <select
+            value={planFilter}
+            onChange={(e) => setPlanFilter(e.target.value as PlanFilter)}
+            className="bg-white border border-line rounded-pill px-3 py-2 text-sm cursor-pointer hover:bg-bg2"
+          >
+            <option value="ALL">Plan: Todos</option>
+            <option value="ELITE">Elite</option>
+          </select>
+          <select
+            value={periodFilter}
+            onChange={(e) => setPeriodFilter(e.target.value as PeriodFilter)}
+            className="bg-white border border-line rounded-pill px-3 py-2 text-sm cursor-pointer hover:bg-bg2"
+          >
+            <option value="ALL">Periodicidad: Todas</option>
+            <option value="MENSUAL">Mensual</option>
+            <option value="TRIMESTRAL">Trimestral</option>
+            <option value="SEMESTRAL">Semestral</option>
+            <option value="ANUAL">Anual</option>
+          </select>
         </div>
       </div>
 
-      <div className="card overflow-hidden p-0">
-       <div className="overflow-x-auto">
+      {hasActiveFilters && (
+        <div className="mb-3 flex items-center gap-3 text-xs text-mute">
+          <span>
+            <strong className="text-ink">{visible.length}</strong>{' '}
+            {visible.length === 1 ? 'negocio' : 'negocios'}
+          </span>
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="text-brand hover:underline"
+          >
+            Limpiar filtros
+          </button>
+        </div>
+      )}
+
+      <div className="card overflow-visible p-0">
+       <div className="overflow-x-auto overflow-y-visible">
         <table className="w-full text-[13.5px] min-w-[760px]">
           <thead className="bg-bg2">
             <tr>
@@ -140,14 +317,14 @@ export default function TenantsPage() {
                 <td className="px-4 py-12 text-center" colSpan={8}>
                   <div className="text-3xl mb-1">🏢</div>
                   <div className="font-semibold">
-                    {filter === 'ALL'
-                      ? 'Sin negocios todavía'
-                      : `Sin negocios en estado ${filter}`}
+                    {hasActiveFilters
+                      ? 'Sin resultados con esos filtros'
+                      : 'Sin negocios todavía'}
                   </div>
                   <div className="text-mute text-xs mt-1">
-                    {filter === 'ALL'
-                      ? 'Cuando alguien haga signup aparecerá aquí.'
-                      : 'Prueba cambiar el filtro arriba.'}
+                    {hasActiveFilters
+                      ? 'Prueba a limpiar la búsqueda o ajustar los filtros.'
+                      : 'Cuando alguien haga signup aparecerá aquí.'}
                   </div>
                 </td>
               </tr>
@@ -237,59 +414,23 @@ export default function TenantsPage() {
                   })}
                 </td>
                 <td className="px-4 py-3.5">{t._count?.customers ?? 0}</td>
-                <td className="px-4 py-3.5 text-right whitespace-nowrap" onClick={stop}>
-                  {!isMarketing && (
-                    <button
-                      onClick={(e) => {
-                        stop(e);
-                        enterTenant(t);
-                      }}
-                      disabled={!canEnter}
-                      className="inline-flex items-center gap-1.5 bg-brand text-white text-xs font-semibold px-3 py-1.5 rounded-pill hover:bg-brand-700 transition disabled:opacity-40 disabled:cursor-not-allowed"
-                      title={
-                        t.status === 'SUSPENDED'
-                          ? 'Reactiva el negocio para entrar'
-                          : 'Entrar al panel del negocio'
-                      }
-                    >
-                      {enteringId === t.id ? (
-                        <>… Entrando</>
-                      ) : (
-                        <>
-                          <Icon name="arrow-right" size={13} /> Entrar
-                        </>
-                      )}
-                    </button>
-                  )}
-                  <Link
-                    className={`${isMarketing ? '' : 'ml-2.5'} btn-link text-xs`}
-                    href={`/admin/tenants/${t.id}`}
-                    onClick={stop}
-                  >
-                    Ver
-                  </Link>
-                  {!isMarketing &&
-                    (t.status === 'ACTIVE' ? (
-                      <button
-                        onClick={(e) => {
-                          stop(e);
-                          setStatus(t.id, 'SUSPENDED');
-                        }}
-                        className="ml-2.5 text-bad underline text-xs"
-                      >
-                        Suspender
-                      </button>
-                    ) : (
-                      <button
-                        onClick={(e) => {
-                          stop(e);
-                          setStatus(t.id, 'ACTIVE');
-                        }}
-                        className="ml-2.5 text-ok underline text-xs"
-                      >
-                        Activar
-                      </button>
-                    ))}
+                <td
+                  className="px-4 py-3.5 text-right whitespace-nowrap"
+                  onClick={stop}
+                >
+                  <ActionsMenu
+                    canEnter={canEnter}
+                    canManage={!isMarketing}
+                    isEntering={enteringId === t.id}
+                    status={t.status}
+                    onEnter={() => enterTenant(t)}
+                    onView={() => router.push(`/admin/tenants/${t.id}`)}
+                    onDownload={() => downloadTenant(t)}
+                    onToggleStatus={() =>
+                      setStatus(t.id, t.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE')
+                    }
+                    onDelete={() => setDeleteTarget(t)}
+                  />
                 </td>
               </tr>
               );
@@ -298,6 +439,168 @@ export default function TenantsPage() {
         </table>
        </div>
       </div>
+
+      {deleteTarget && (
+        <ConfirmDeleteModal
+          title="Eliminar negocio"
+          confirmLabel="Eliminar definitivamente"
+          requireText={deleteTarget.brandName}
+          description={
+            <>
+              <p>
+                ¿Estás seguro de que deseas eliminar este negocio?
+              </p>
+              <p className="mt-2">Esta acción eliminará:</p>
+              <ul className="mt-1 list-disc list-inside text-mute space-y-0.5">
+                <li>Información del negocio</li>
+                <li>Configuraciones</li>
+                <li>Menús</li>
+                <li>Tarjetas</li>
+                <li>CRM asociado</li>
+                <li>Estadísticas</li>
+              </ul>
+              <p className="mt-3 text-bad font-medium">
+                Esta acción no se puede deshacer.
+              </p>
+            </>
+          }
+          onConfirm={() => deleteTenant(deleteTarget)}
+          onClose={() => setDeleteTarget(null)}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * Menú de acciones por tenant. Reemplaza la columna de botones independientes
+ * (Entrar/Ver/Suspender) por un solo botón "⋮ Acciones" que despliega un
+ * dropdown estilo SaaS. Cierre por click fuera, click en item, o Escape.
+ */
+function ActionsMenu({
+  canEnter,
+  canManage,
+  isEntering,
+  status,
+  onEnter,
+  onView,
+  onDownload,
+  onToggleStatus,
+  onDelete,
+}: {
+  canEnter: boolean;
+  canManage: boolean;
+  isEntering: boolean;
+  status: string;
+  onEnter: () => void;
+  onView: () => void;
+  onDownload: () => void;
+  onToggleStatus: () => void;
+  onDelete: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onMouseDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    document.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  function run(fn: () => void) {
+    return () => {
+      setOpen(false);
+      fn();
+    };
+  }
+
+  return (
+    <div className="relative inline-block" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="btn-ghost text-xs px-3 py-1.5 min-h-0"
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        {isEntering ? '… Entrando' : 'Acciones ▾'}
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 mt-1.5 w-56 bg-white border border-line2 rounded-lg shadow-lg z-20 py-1 text-left"
+        >
+          <MenuItem
+            icon="📥"
+            label="Descargar"
+            onClick={run(onDownload)}
+          />
+          {canEnter && (
+            <MenuItem
+              icon="🏢"
+              label="Ir al panel"
+              onClick={run(onEnter)}
+            />
+          )}
+          <MenuItem icon="👁" label="Ver detalle" onClick={run(onView)} />
+          {canManage && (
+            <MenuItem
+              icon={status === 'ACTIVE' ? '⏸' : '▶'}
+              label={status === 'ACTIVE' ? 'Suspender' : 'Activar'}
+              onClick={run(onToggleStatus)}
+            />
+          )}
+          {canManage && (
+            <>
+              <div className="my-1 border-t border-line2" />
+              <MenuItem
+                icon="🗑️"
+                label="Eliminar negocio"
+                danger
+                onClick={run(onDelete)}
+              />
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MenuItem({
+  icon,
+  label,
+  onClick,
+  danger,
+}: {
+  icon: string;
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-bg2 transition ${
+        danger ? 'text-bad' : 'text-ink'
+      }`}
+    >
+      <span className="w-5 text-center text-base leading-none">{icon}</span>
+      <span>{label}</span>
+    </button>
   );
 }

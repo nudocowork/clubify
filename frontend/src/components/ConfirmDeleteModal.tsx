@@ -12,6 +12,7 @@ export function ConfirmDeleteModal({
   description,
   confirmLabel = 'Eliminar',
   cancelLabel = 'Cancelar',
+  requireText,
   onConfirm,
   onClose,
 }: {
@@ -19,13 +20,21 @@ export function ConfirmDeleteModal({
   description: React.ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
+  /**
+   * Si se provee, el botón confirmar queda deshabilitado hasta que el
+   * usuario tipee EXACTAMENTE este valor (case-sensitive). Pensado para
+   * acciones irreversibles tipo eliminar negocio.
+   */
+  requireText?: string;
   onConfirm: () => Promise<void> | void;
   onClose: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const matches = !requireText || confirmText === requireText;
 
   async function handleConfirm() {
-    if (busy) return;
+    if (busy || !matches) return;
     setBusy(true);
     try {
       await onConfirm();
@@ -61,6 +70,27 @@ export function ConfirmDeleteModal({
         </div>
         <div className="px-5 py-4 text-sm text-ink leading-relaxed">
           {description}
+          {requireText && (
+            <div className="mt-4">
+              <label className="block text-xs text-mute mb-1.5">
+                Escribe{' '}
+                <span className="font-mono font-semibold text-ink bg-bg2 px-1.5 py-0.5 rounded">
+                  {requireText}
+                </span>{' '}
+                para confirmar
+              </label>
+              <input
+                type="text"
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                autoFocus
+                autoComplete="off"
+                spellCheck={false}
+                className="w-full bg-white border border-line2 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-brand"
+                placeholder={requireText}
+              />
+            </div>
+          )}
         </div>
         {/* Mobile: cancelar abajo (col-reverse) — confirm queda arriba
             como acción primaria a tap natural. Desktop: row tradicional. */}
@@ -76,8 +106,8 @@ export function ConfirmDeleteModal({
           <button
             type="button"
             onClick={handleConfirm}
-            disabled={busy}
-            className="text-sm font-semibold px-4 py-2 rounded-md bg-bad text-white hover:bg-bad/90 disabled:opacity-50 min-h-[44px] cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150"
+            disabled={busy || !matches}
+            className="text-sm font-semibold px-4 py-2 rounded-md bg-bad text-white hover:bg-bad/90 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150"
           >
             {busy ? 'Eliminando…' : confirmLabel}
           </button>
