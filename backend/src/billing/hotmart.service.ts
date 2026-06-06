@@ -4,6 +4,7 @@ import { GrowBusinessService } from '../integrations/grow-business.service';
 import { EmailService } from '../email/email.service';
 import { BillingService } from './billing.service';
 import { ReferralsService } from '../referrals/referrals.service';
+import { PreregAlertsService } from '../auth/prereg-alerts.service';
 import {
   smsPaymentConfirmed,
   smsPaymentFailed,
@@ -61,6 +62,7 @@ export class HotmartService {
     private email: EmailService,
     private billing: BillingService,
     private referralsService: ReferralsService,
+    private alerts: PreregAlertsService,
   ) {}
 
   /** Best-effort: manda SMS al dueño, no falla el webhook si no se puede.
@@ -204,6 +206,22 @@ export class HotmartService {
             nextChargeDate: nextCharge,
           }),
         ).catch(() => null);
+
+        // Fan-out post-activación (C2 sprint): alerta al equipo comercial,
+        // creación de CrmContact en el pipeline del afiliado atribuido y
+        // event audit row. Todos fire-and-forget — si fallan no rompen el
+        // webhook (Hotmart reintenta agresivamente y queremos 200 idempotente).
+        await this.postPurchaseFanOut({
+          tenantId: tenant.id,
+          brandName: tenant.brandName,
+          nextCharge,
+          transactionId,
+        }).catch((e) =>
+          this.logger.warn(
+            `postPurchaseFanOut falló: ${(e as Error).message}`,
+          ),
+        );
+
         return { ok: true, action: 'activated' };
       }
 
@@ -810,5 +828,113 @@ export class HotmartService {
     this.logger.log(
       `Notificada cadena referidos (${event}, channel=${channel}): direct=${direct.code} parent=${parent?.code ?? '—'}`,
     );
+  }
+
+  /**
+   * Fan-out post-PURCHASE_APPROVED:
+   *   C2.1 — SMS al equipo comercial (Javier/Jhon) vía PreregAlertsService.
+   *          Como DEFAULT_SUPPORT_SWITCH=2 ya está mergeado, el SMS sale
+   *          automáticamente desde el número de soporte.
+   *   C2.2 — CrmContact en el primer Stage del Pipeline del afiliado
+   *          atribuido (si existe ReferralUse). El CRM de Clubify es
+   *          per-afiliado (ownerUserId @unique en Pipeline), así que el
+   *          contacto entra al kanban del usuario que trajo la venta.
+   *   C2.3 — Event audit row con type='PURCHASE_APPROVED'.
+   *
+   * Cada paso captura sus errores con logger.warn — el caller envuelve
+   * todo en .catch() también para defensa en profundidad.
+   */
+  private async postPurchaseFanOut(opts: {
+    tenantId: string;
+    brandName: string;
+    nextCharge: Date;
+    transactionId?: string;
+  }) {
+    const { tenantId, brandName, nextCharge, transactionId } = opts;
+
+    // Datos extra del tenant para enriquecer la alerta + CrmContact.
+    const fullTenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        email: true,
+        whatsappPhone: true,
+        plan: { select: { name: true } },
+      },
+    });
+    const planName = fullTenant?.plan?.name ?? 'Elite';
+    const email = fullTenant?.email ?? '';
+    const whatsappPhone = fullTenant?.whatsappPhone ?? null;
+
+    // C2.1 — Alerta al equipo comercial.
+    await this.alerts
+      .sendTeamAlert(
+        `🎉 Nueva compra Clubify\nCliente: ${brandName}\nEmail: ${email}\nPlan: ${planName}\nPróximo cobro: ${nextCharge.toLocaleDateString('es-CO')}`,
+      )
+      .catch((e) =>
+        this.logger.warn(
+          `sendTeamAlert post-purchase falló: ${(e as Error)?.message ?? e}`,
+        ),
+      );
+
+    // C2.2 — CrmContact en el pipeline del afiliado atribuido. Si no hay
+    // ReferralUse o el afiliado no tiene Pipeline/Stage, lo dejamos diferido
+    // sin romper.
+    try {
+      const use = await this.prisma.referralUse.findFirst({
+        where: {
+          tenantId,
+          referralCode: { role: { in: ['INFLUENCER', 'AMBASSADOR', 'VENDOR'] } },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { referralCode: { select: { ownerUserId: true } } },
+      });
+      const ownerUserId = use?.referralCode?.ownerUserId ?? null;
+      if (ownerUserId) {
+        const firstStage = await this.prisma.stage.findFirst({
+          where: { pipeline: { ownerUserId } },
+          orderBy: { order: 'asc' },
+          select: { id: true },
+        });
+        if (firstStage) {
+          await this.prisma.crmContact.create({
+            data: {
+              ownerUserId,
+              stageId: firstStage.id,
+              name: brandName,
+              phone: whatsappPhone,
+              description: `Compra confirmada: ${nextCharge.toISOString()}\nEmail: ${email}\nPlan: ${planName}\nHotmart TX: ${transactionId ?? '—'}`,
+              tags: ['compra_hotmart', planName].filter(Boolean) as any,
+            },
+          });
+        } else {
+          this.logger.log(
+            `CrmContact post-purchase skip: afiliado ${ownerUserId} sin Stage configurada`,
+          );
+        }
+      }
+    } catch (e) {
+      this.logger.warn(
+        `CrmContact post-purchase falló: ${(e as Error)?.message ?? e}`,
+      );
+    }
+
+    // C2.3 — Event audit row.
+    await this.prisma.event
+      .create({
+        data: {
+          tenantId,
+          type: 'PURCHASE_APPROVED',
+          payload: {
+            plan: planName,
+            hotmartTxId: transactionId ?? null,
+            nextCharge: nextCharge.toISOString(),
+          } as any,
+        },
+      })
+      .catch((e) =>
+        this.logger.warn(
+          `Event audit PURCHASE_APPROVED falló: ${(e as Error)?.message ?? e}`,
+        ),
+      );
   }
 }
