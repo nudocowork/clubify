@@ -12,6 +12,7 @@ import {
   IsArray,
   IsBoolean,
   IsHexColor,
+  IsIn,
   IsOptional,
   IsString,
   IsUrl,
@@ -21,6 +22,9 @@ import {
 import { MenuBookService } from './menu-book.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
+
+// M9 (2026-06-06): tipos de popup. NULL/missing = EXTERNAL_LINK por back compat.
+const POPUP_TYPES = ['EXTERNAL_LINK', 'CARD', 'IMAGE'] as const;
 
 class SectionBody {
   @IsString() @MaxLength(80) title!: string;
@@ -40,6 +44,15 @@ class SectionBody {
   popupButtonUrl?: string | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsHexColor()
   popupButtonColor?: string | null;
+  // M9: discriminator + payloads para CARD/IMAGE.
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsIn(POPUP_TYPES as any)
+  popupType?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(64)
+  popupCardId?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(40)
+  popupCardCtaLabel?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(200)
+  popupImageCaption?: string | null;
 }
 
 class SectionPatchBody {
@@ -58,6 +71,14 @@ class SectionPatchBody {
   popupButtonUrl?: string | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsHexColor()
   popupButtonColor?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsIn(POPUP_TYPES as any)
+  popupType?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(64)
+  popupCardId?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(40)
+  popupCardCtaLabel?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(200)
+  popupImageCaption?: string | null;
 }
 
 class PageBody {
@@ -98,6 +119,15 @@ class PageBody {
   @ValidateIf((_, v) => v !== null)
   @IsHexColor()
   popupButtonColor?: string | null;
+
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsIn(POPUP_TYPES as any)
+  popupType?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(64)
+  popupCardId?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(40)
+  popupCardCtaLabel?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(200)
+  popupImageCaption?: string | null;
 }
 
 class PagePatchBody {
@@ -138,6 +168,15 @@ class PagePatchBody {
   @ValidateIf((_, v) => v !== null)
   @IsHexColor()
   popupButtonColor?: string | null;
+
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsIn(POPUP_TYPES as any)
+  popupType?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(64)
+  popupCardId?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(40)
+  popupCardCtaLabel?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(200)
+  popupImageCaption?: string | null;
 }
 
 class ReorderBody {

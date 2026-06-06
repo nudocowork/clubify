@@ -1,4 +1,8 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
 import { MenuLayout } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
@@ -22,6 +26,11 @@ export type StorefrontDto = {
   bookPopupButtonUrl?: string | null;
   bookPopupButtonColor?: string | null;
   bookPopupDelaySeconds?: number;
+  // M9: discriminator + payload alternativo del popup global.
+  bookPopupType?: string | null;
+  bookPopupCardId?: string | null;
+  bookPopupCardCtaLabel?: string | null;
+  bookPopupImageCaption?: string | null;
   popupEnabled?: boolean;
   popupImageUrl?: string | null;
   popupCardId?: string | null;
@@ -79,6 +88,50 @@ export class StorefrontService {
   async update(user: AuthUser, dto: StorefrontDto, override?: string) {
     const tid = this.tid(user, override);
     const customDomain = this.normalizeDomain(dto.customDomain);
+    // M9: validar shape efectivo del bookPopup (post-patch) ANTES del upsert
+    // para no dejar payloads incoherentes en DB. Solo si el dto toca alguno
+    // de los campos relevantes — sino dejamos pasar (PATCH parcial común).
+    const touchesBookPopup =
+      dto.bookPopupEnabled !== undefined ||
+      dto.bookPopupType !== undefined ||
+      dto.bookPopupCardId !== undefined ||
+      dto.bookPopupButtonUrl !== undefined ||
+      dto.bookPopupImageUrl !== undefined;
+    if (touchesBookPopup) {
+      const existing = await this.prisma.storefront.findUnique({
+        where: { tenantId: tid },
+        select: {
+          bookPopupEnabled: true,
+          bookPopupType: true,
+          bookPopupCardId: true,
+          bookPopupButtonUrl: true,
+          bookPopupImageUrl: true,
+        },
+      });
+      const nextEnabled = dto.bookPopupEnabled ?? existing?.bookPopupEnabled ?? false;
+      const nextType =
+        dto.bookPopupType === undefined ? existing?.bookPopupType ?? null : dto.bookPopupType;
+      const nextCardId =
+        dto.bookPopupCardId === undefined
+          ? existing?.bookPopupCardId ?? null
+          : dto.bookPopupCardId;
+      const nextButtonUrl =
+        dto.bookPopupButtonUrl === undefined
+          ? existing?.bookPopupButtonUrl ?? null
+          : dto.bookPopupButtonUrl;
+      const nextImageUrl =
+        dto.bookPopupImageUrl === undefined
+          ? existing?.bookPopupImageUrl ?? null
+          : dto.bookPopupImageUrl;
+      await this.validateBookPopup(
+        tid,
+        nextEnabled,
+        nextType,
+        nextCardId,
+        nextButtonUrl,
+        nextImageUrl,
+      );
+    }
     return this.prisma.storefront.upsert({
       where: { tenantId: tid },
       create: {
@@ -115,7 +168,9 @@ export class StorefrontService {
         bookPopupImageUrl:
           dto.bookPopupImageUrl === undefined
             ? undefined
-            : dto.bookPopupImageUrl,
+            : dto.bookPopupImageUrl
+            ? safeUrlOrNull(dto.bookPopupImageUrl) ?? null
+            : null,
         bookPopupButtonText:
           dto.bookPopupButtonText === undefined
             ? undefined
@@ -129,6 +184,19 @@ export class StorefrontService {
             ? undefined
             : dto.bookPopupButtonColor,
         bookPopupDelaySeconds: dto.bookPopupDelaySeconds ?? undefined,
+        // M9: tipo de popup + payload CARD/IMAGE.
+        bookPopupType:
+          dto.bookPopupType === undefined ? undefined : dto.bookPopupType,
+        bookPopupCardId:
+          dto.bookPopupCardId === undefined ? undefined : dto.bookPopupCardId,
+        bookPopupCardCtaLabel:
+          dto.bookPopupCardCtaLabel === undefined
+            ? undefined
+            : dto.bookPopupCardCtaLabel,
+        bookPopupImageCaption:
+          dto.bookPopupImageCaption === undefined
+            ? undefined
+            : dto.bookPopupImageCaption,
         whatsappButtonEnabled: dto.whatsappButtonEnabled ?? undefined,
         pageBackgroundColor:
           dto.pageBackgroundColor === undefined
@@ -184,6 +252,62 @@ export class StorefrontService {
       brandName: sf.tenant.brandName,
       customDomain: sf.customDomain,
     };
+  }
+
+  /**
+   * M9: valida el shape del popup global del libro según `bookPopupType`.
+   * Espejo del helper en MenuBookService.validatePopupPayload pero adaptado
+   * a los nombres de columna `bookPopup*`.
+   */
+  private async validateBookPopup(
+    tenantId: string,
+    enabled: boolean,
+    type: string | null | undefined,
+    cardId: string | null | undefined,
+    buttonUrl: string | null | undefined,
+    imageUrl: string | null | undefined,
+  ) {
+    if (!enabled) return;
+    const effective = (type ?? 'EXTERNAL_LINK') as
+      | 'EXTERNAL_LINK'
+      | 'CARD'
+      | 'IMAGE';
+    if (effective === 'EXTERNAL_LINK') {
+      if (!buttonUrl?.trim()) {
+        throw new BadRequestException(
+          'bookPopup EXTERNAL_LINK requiere bookPopupButtonUrl',
+        );
+      }
+      if (safeUrlOrNull(buttonUrl) == null) {
+        throw new BadRequestException('bookPopupButtonUrl no es una URL segura');
+      }
+      return;
+    }
+    if (effective === 'CARD') {
+      if (!cardId) {
+        throw new BadRequestException('bookPopup CARD requiere bookPopupCardId');
+      }
+      const card = await this.prisma.card.findUnique({
+        where: { id: cardId },
+        select: { tenantId: true },
+      });
+      if (!card || card.tenantId !== tenantId) {
+        throw new BadRequestException(
+          'La tarjeta no existe o no pertenece a tu negocio',
+        );
+      }
+      return;
+    }
+    if (effective === 'IMAGE') {
+      if (!imageUrl?.trim()) {
+        throw new BadRequestException('bookPopup IMAGE requiere bookPopupImageUrl');
+      }
+      if (safeUrlOrNull(imageUrl) == null) {
+        throw new BadRequestException('bookPopupImageUrl no es una URL segura');
+      }
+      return;
+    }
+    throw new BadRequestException(`bookPopupType inválido: ${effective}`);
   }
 
   private normalizeDomain(d?: string | null) {

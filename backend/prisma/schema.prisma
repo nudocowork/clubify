@@ -738,6 +738,10 @@ model Card {
   notifications       Notification[]
   utmLinks            CardUtmLink[]
   popupForStorefronts Storefront[]   @relation("StorefrontPopupCard")
+  // M9: Card como CTA de popups del Menú Libro (global + por sección + por página).
+  bookPopupForStorefronts Storefront[]      @relation("StorefrontBookPopupCard")
+  popupForBookSections    MenuBookSection[] @relation("MenuBookSectionPopupCard")
+  popupForBookPages       MenuBookPage[]    @relation("MenuBookPagePopupCard")
 
   @@index([tenantId])
   @@index([locationId])
@@ -1310,6 +1314,15 @@ model Storefront {
   // después de que el cliente abre /book/<slug>. Independiente del popup
   // del digital menú (que es enrollment a Card). Acá la lógica es
   // promocional (título + descripción + botón).
+  //
+  // M9 (2026-06-06): discriminator `bookPopupType` extiende el comportamiento
+  // a 3 modos mutuamente excluyentes:
+  //   - EXTERNAL_LINK (default + back compat): bookPopupButtonUrl + bookPopupButtonText.
+  //   - CARD: bookPopupCardId apunta a una Card del MISMO tenant. El front
+  //     redirige al enroll /c/<cardId>. bookPopupCardCtaLabel customiza el CTA.
+  //   - IMAGE: solo visualización (bookPopupImageUrl + bookPopupImageCaption opcional, sin CTA).
+  // Si bookPopupType es NULL se interpreta como EXTERNAL_LINK (back compat
+  // con popups creados antes de M9).
   bookPopupEnabled       Boolean    @default(false)
   bookPopupTitle         String?
   bookPopupDescription   String?    @db.Text
@@ -1318,6 +1331,11 @@ model Storefront {
   bookPopupButtonUrl     String?
   bookPopupButtonColor   String?
   bookPopupDelaySeconds  Int        @default(5)
+  bookPopupType          String?
+  bookPopupCardId        String?
+  bookPopupCard          Card?      @relation("StorefrontBookPopupCard", fields: [bookPopupCardId], references: [id], onDelete: SetNull)
+  bookPopupCardCtaLabel  String?
+  bookPopupImageCaption  String?
   // Si false, el botón de WhatsApp NO se muestra en el menú público aunque
   // el tenant tenga whatsappPhone seteado. Permite que el dueño "apague"
   // el botón sin perder el número configurado en /app/settings.
@@ -1410,15 +1428,24 @@ model MenuBookSection {
   // Popup que aparece al entrar a esta sección (M3 2026-06-04). Misma
   // shape que MenuBookPage.popup* para consistencia. Si popupEnabled=
   // false el resto se ignora.
-  popupEnabled     Boolean  @default(false)
-  popupTitle       String?
-  popupDescription String?  @db.Text
-  popupImageUrl    String?
-  popupButtonText  String?
-  popupButtonUrl   String?
-  popupButtonColor String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  //
+  // M9 (2026-06-06): popupType extiende a 3 modos (EXTERNAL_LINK / CARD /
+  // IMAGE). NULL = EXTERNAL_LINK por back compat. Ver comentario en
+  // Storefront.bookPopupType para detalle.
+  popupEnabled       Boolean  @default(false)
+  popupTitle         String?
+  popupDescription   String?  @db.Text
+  popupImageUrl      String?
+  popupButtonText    String?
+  popupButtonUrl     String?
+  popupButtonColor   String?
+  popupType          String?
+  popupCardId        String?
+  popupCard          Card?    @relation("MenuBookSectionPopupCard", fields: [popupCardId], references: [id], onDelete: SetNull)
+  popupCardCtaLabel  String?
+  popupImageCaption  String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   pages MenuBookPage[]
 
@@ -1437,13 +1464,21 @@ model MenuBookPage {
 
   // Popup inline (siempre 1:1 con la página — modelo separado sería
   // overkill). Si popupEnabled=false el resto se ignora.
-  popupEnabled     Boolean @default(false)
-  popupTitle       String?
-  popupDescription String? @db.Text
-  popupImageUrl    String?
-  popupButtonText  String?
-  popupButtonUrl   String?
-  popupButtonColor String? // hex, default lo decide el front
+  //
+  // M9 (2026-06-06): popupType extiende a 3 modos (EXTERNAL_LINK / CARD /
+  // IMAGE). NULL = EXTERNAL_LINK por back compat.
+  popupEnabled       Boolean @default(false)
+  popupTitle         String?
+  popupDescription   String? @db.Text
+  popupImageUrl      String?
+  popupButtonText    String?
+  popupButtonUrl     String?
+  popupButtonColor   String? // hex, default lo decide el front
+  popupType          String?
+  popupCardId        String?
+  popupCard          Card?   @relation("MenuBookPagePopupCard", fields: [popupCardId], references: [id], onDelete: SetNull)
+  popupCardCtaLabel  String?
+  popupImageCaption  String?
 
   @@index([sectionId, sortOrder])
 }

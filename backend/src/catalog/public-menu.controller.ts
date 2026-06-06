@@ -256,6 +256,11 @@ export class PublicMenuController {
             bookPopupButtonUrl: true,
             bookPopupButtonColor: true,
             bookPopupDelaySeconds: true,
+            // M9: discriminator + payload CARD/IMAGE.
+            bookPopupType: true,
+            bookPopupCardId: true,
+            bookPopupCardCtaLabel: true,
+            bookPopupImageCaption: true,
           },
         },
       },
@@ -274,15 +279,24 @@ export class PublicMenuController {
       },
     });
     const sf = t.storefront;
+    // M9: NULL → EXTERNAL_LINK por back compat con popups creados antes
+    // del discriminator.
     const bookPopup =
       sf?.bookPopupEnabled
         ? {
+            type: (sf.bookPopupType ?? 'EXTERNAL_LINK') as
+              | 'EXTERNAL_LINK'
+              | 'CARD'
+              | 'IMAGE',
             title: sf.bookPopupTitle,
             description: sf.bookPopupDescription,
             imageUrl: sf.bookPopupImageUrl,
             buttonText: sf.bookPopupButtonText,
             buttonUrl: sf.bookPopupButtonUrl,
             buttonColor: sf.bookPopupButtonColor,
+            cardId: sf.bookPopupCardId,
+            cardCtaLabel: sf.bookPopupCardCtaLabel,
+            imageCaption: sf.bookPopupImageCaption,
             delaySeconds: sf.bookPopupDelaySeconds ?? 5,
           }
         : null;
@@ -291,15 +305,22 @@ export class PublicMenuController {
       sections: sections.map((s) => ({
         id: s.id,
         title: s.title,
-        // M3: popup que dispara al entrar a la sección.
+        // M3: popup que dispara al entrar a la sección. M9: incluye type.
         popup: s.popupEnabled
           ? {
+              type: (s.popupType ?? 'EXTERNAL_LINK') as
+                | 'EXTERNAL_LINK'
+                | 'CARD'
+                | 'IMAGE',
               title: s.popupTitle,
               description: s.popupDescription,
               imageUrl: s.popupImageUrl,
               buttonText: s.popupButtonText,
               buttonUrl: s.popupButtonUrl,
               buttonColor: s.popupButtonColor,
+              cardId: s.popupCardId,
+              cardCtaLabel: s.popupCardCtaLabel,
+              imageCaption: s.popupImageCaption,
             }
           : null,
         pages: s.pages.map((p) => ({
@@ -307,12 +328,19 @@ export class PublicMenuController {
           imageUrl: p.imageUrl,
           popup: p.popupEnabled
             ? {
+                type: (p.popupType ?? 'EXTERNAL_LINK') as
+                  | 'EXTERNAL_LINK'
+                  | 'CARD'
+                  | 'IMAGE',
                 title: p.popupTitle,
                 description: p.popupDescription,
                 imageUrl: p.popupImageUrl,
                 buttonText: p.popupButtonText,
                 buttonUrl: p.popupButtonUrl,
                 buttonColor: p.popupButtonColor,
+                cardId: p.popupCardId,
+                cardCtaLabel: p.popupCardCtaLabel,
+                imageCaption: p.popupImageCaption,
               }
             : null,
         })),
