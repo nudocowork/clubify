@@ -12,6 +12,12 @@ import { toast } from '@/components/Toast';
 import { PhoneInput } from '@/components/PhoneInput';
 import { AffiliateCredentialsModal } from '@/components/AffiliateCredentialsModal';
 import { ConfirmDeleteModal } from '@/components/ConfirmDeleteModal';
+import {
+  CommissionExceptionModal,
+  CommissionExceptionHistoryDrawer,
+  type AttributionLevel,
+  type ExistingException,
+} from '@/components/CommissionExceptionModal';
 
 type Detail = {
   id: string;
@@ -415,12 +421,211 @@ export default function CampaignDetailPage() {
         )}
       </div>
 
+      {/* Item 6 sprint: comisiones por cliente con excepciones individuales. */}
+      <ClientsCommissionsSection campaignId={id} />
+
       {ambCreds && (
         <AffiliateCredentialsModal
           credentials={ambCreds}
           whoLabel={`embajador ${ambCreds.fullName}`}
           whatsapp={ambCreds.whatsapp}
           onClose={() => setAmbCreds(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+type CampaignClient = {
+  tenantId: string;
+  brandName: string;
+  status: string;
+  email: string | null;
+  attributions: AttributionLevel[];
+  exceptions: ExistingException[];
+};
+
+function ClientsCommissionsSection({ campaignId }: { campaignId: string }) {
+  const [clients, setClients] = useState<CampaignClient[] | null>(null);
+  const [q, setQ] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<CampaignClient | null>(null);
+  const [historyFor, setHistoryFor] = useState<string | null>(null);
+
+  async function load() {
+    setError(null);
+    try {
+      const res = await api<{ items: CampaignClient[] }>(
+        `/admin/commission-exceptions?campaignId=${encodeURIComponent(campaignId)}${
+          q.trim() ? `&q=${encodeURIComponent(q.trim())}` : ''
+        }`,
+      );
+      setClients(res.items);
+    } catch (e: any) {
+      setError(e.message ?? 'No se pudo cargar el listado');
+    }
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaignId]);
+
+  // Refresca de los reportes scoped al cliente cuando se guarda una
+  // excepción — listar comisiones del tenant para cache busted.
+  async function bustTenantReportsCache(tenantId: string) {
+    try {
+      await api(`/admin/commissions?tenantId=${tenantId}&_=${Date.now()}`).catch(() => null);
+    } catch {
+      /* best-effort: el endpoint puede no existir según versión del panel */
+    }
+  }
+
+  return (
+    <div className="card card-pad mb-5">
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+        <h2 className="font-semibold m-0">
+          Clientes atribuidos ({clients?.length ?? 0})
+        </h2>
+        <input
+          className="input text-sm max-w-xs"
+          placeholder="Buscar por nombre o email"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') load();
+          }}
+        />
+      </div>
+
+      {error && (
+        <div className="text-xs text-bad bg-bad-soft/40 rounded-md px-3 py-2 mb-2">
+          {error}
+        </div>
+      )}
+
+      {!clients ? (
+        <div className="text-sm text-mute py-6 text-center">Cargando…</div>
+      ) : clients.length === 0 ? (
+        <div className="text-sm text-mute py-6 text-center">
+          Sin clientes atribuidos a esta campaña aún.
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-[10px] uppercase tracking-wider text-mute border-b border-line2">
+                <th className="py-2 pr-3">Cliente</th>
+                <th className="py-2 pr-3">Atribución</th>
+                <th className="py-2 pr-3">Comisión</th>
+                <th className="py-2 pr-3 text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {clients.map((c) => {
+                // Si hay más de una atribución, mostramos el directo más
+                // grande (= el con mayor % default) como "principal".
+                const principalAttr = [...c.attributions].sort(
+                  (a, b) => b.defaultPercent - a.defaultPercent,
+                )[0];
+                const principalException = principalAttr
+                  ? c.exceptions.find(
+                      (e) => e.recipientCodeId === principalAttr.codeId && e.isActive,
+                    )
+                  : null;
+                return (
+                  <tr key={c.tenantId} className="border-b border-line2/40 last:border-b-0">
+                    <td className="py-2 pr-3">
+                      <div className="font-medium truncate max-w-[200px]">
+                        {c.brandName}
+                      </div>
+                      <div className="text-xs text-mute truncate max-w-[200px]">
+                        {c.email ?? '—'}
+                      </div>
+                    </td>
+                    <td className="py-2 pr-3">
+                      {c.attributions.length === 0 ? (
+                        <span className="text-mute text-xs">Sin atribución</span>
+                      ) : (
+                        <div className="space-y-0.5">
+                          {c.attributions.map((a) => (
+                            <div key={a.codeId} className="text-xs">
+                              <span className="font-mono">{a.code}</span>
+                              <span className="text-mute"> · {a.ownerName}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-2 pr-3">
+                      {principalAttr ? (
+                        principalException ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-semibold">
+                              {principalException.customPercent}%
+                            </span>
+                            <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                              Excepción
+                            </span>
+                            <span title="Excepción activa" aria-hidden>
+                              ✏️
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="text-xs">
+                            <span className="font-semibold">
+                              {principalAttr.defaultPercent}%
+                            </span>{' '}
+                            <span className="text-mute">(campaña)</span>
+                          </div>
+                        )
+                      ) : (
+                        <span className="text-mute text-xs">—</span>
+                      )}
+                    </td>
+                    <td className="py-2 pr-3 text-right whitespace-nowrap">
+                      <button
+                        onClick={() => setEditing(c)}
+                        className="btn-ghost text-xs"
+                      >
+                        Editar comisión
+                      </button>
+                      {principalException && (
+                        <button
+                          onClick={() => setHistoryFor(principalException.id)}
+                          className="btn-ghost text-xs ml-1"
+                          title="Ver historial"
+                        >
+                          📜
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {editing && (
+        <CommissionExceptionModal
+          tenantId={editing.tenantId}
+          brandName={editing.brandName}
+          attributions={editing.attributions}
+          exceptions={editing.exceptions}
+          onClose={() => setEditing(null)}
+          onSaved={async () => {
+            await bustTenantReportsCache(editing.tenantId);
+            await load();
+          }}
+        />
+      )}
+
+      {historyFor && (
+        <CommissionExceptionHistoryDrawer
+          exceptionId={historyFor}
+          onClose={() => setHistoryFor(null)}
         />
       )}
     </div>
