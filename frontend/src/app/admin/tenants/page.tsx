@@ -6,6 +6,7 @@ import { api, getUser, startImpersonation } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { ConfirmDeleteModal } from '@/components/ConfirmDeleteModal';
+import { DuplicateBusinessModal } from '@/components/DuplicateBusinessModal';
 import { periodLabel, type PlanPeriodicity } from '@/lib/plan-format';
 
 function avatarClass(seed: string) {
@@ -69,6 +70,7 @@ export default function TenantsPage() {
   const [searchDebounced, setSearchDebounced] = useState('');
   const [enteringId, setEnteringId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
+  const [duplicateTarget, setDuplicateTarget] = useState<any | null>(null);
   const me = getUser();
   const isMarketing = me?.role === 'MARKETING';
 
@@ -429,6 +431,7 @@ export default function TenantsPage() {
                     onToggleStatus={() =>
                       setStatus(t.id, t.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE')
                     }
+                    onDuplicate={() => setDuplicateTarget(t)}
                     onDelete={() => setDeleteTarget(t)}
                   />
                 </td>
@@ -439,6 +442,17 @@ export default function TenantsPage() {
         </table>
        </div>
       </div>
+
+      {duplicateTarget && (
+        <DuplicateBusinessModal
+          source={{
+            id: duplicateTarget.id,
+            brandName: duplicateTarget.brandName,
+            slug: duplicateTarget.slug,
+          }}
+          onClose={() => setDuplicateTarget(null)}
+        />
+      )}
 
       {deleteTarget && (
         <ConfirmDeleteModal
@@ -486,6 +500,7 @@ function ActionsMenu({
   onView,
   onDownload,
   onToggleStatus,
+  onDuplicate,
   onDelete,
 }: {
   canEnter: boolean;
@@ -496,6 +511,7 @@ function ActionsMenu({
   onView: () => void;
   onDownload: () => void;
   onToggleStatus: () => void;
+  onDuplicate: () => void;
   onDelete: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -565,6 +581,11 @@ function ActionsMenu({
           {canManage && (
             <>
               <div className="my-1 border-t border-line2" />
+              <MenuItem
+                icon="📋"
+                label="Duplicar negocio"
+                onClick={run(onDuplicate)}
+              />
               <MenuItem
                 icon="🗑️"
                 label="Eliminar negocio"

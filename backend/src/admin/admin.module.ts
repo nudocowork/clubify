@@ -10,6 +10,8 @@ import { BusinessMapService } from './business-map.service';
 import { BusinessMapController } from './business-map.controller';
 import { CommissionExceptionsService } from './commission-exceptions.service';
 import { CommissionExceptionsController } from './commission-exceptions.controller';
+import { TenantDuplicatorService } from './tenant-duplicator.service';
+import { TenantDuplicatorController } from './tenant-duplicator.controller';
 import { IntegrationsModule } from '../integrations/integrations.module';
 import { AuthModule } from '../auth/auth.module';
 
@@ -22,6 +24,7 @@ import { AuthModule } from '../auth/auth.module';
     TrialsService,
     BusinessMapService,
     CommissionExceptionsService,
+    TenantDuplicatorService,
   ],
   controllers: [
     RemindersController,
@@ -29,6 +32,7 @@ import { AuthModule } from '../auth/auth.module';
     TrialsController,
     BusinessMapController,
     CommissionExceptionsController,
+    TenantDuplicatorController,
   ],
   exports: [RemindersService],
 })
