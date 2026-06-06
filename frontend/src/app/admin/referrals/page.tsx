@@ -7,6 +7,101 @@ import { toast } from '@/components/Toast';
 import { AffiliateCredentialsModal } from '@/components/AffiliateCredentialsModal';
 import { ConfirmDeleteModal } from '@/components/ConfirmDeleteModal';
 
+// =============================================================
+//                      SEARCH UTILITIES
+// =============================================================
+//
+// Buscadores client-side por sección (item 9 sprint).
+// Cada tab tiene su propio search bar arriba con debounce 150ms.
+// Filtro multi-keyword AND case-insensitive sobre los campos
+// más relevantes de cada tipo de registro.
+
+function useDebouncedValue<T>(value: T, delay = 150): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
+
+function matchesQuery(haystack: string, q: string) {
+  const trimmed = q.trim();
+  if (!trimmed) return true;
+  const hay = haystack.toLowerCase();
+  return trimmed
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .every((kw) => hay.includes(kw));
+}
+
+function useFilteredList<T>(
+  items: T[],
+  query: string,
+  buildHaystack: (item: T) => string,
+): T[] {
+  const debounced = useDebouncedValue(query, 150);
+  return useMemo(() => {
+    if (!debounced.trim()) return items;
+    return items.filter((it) => matchesQuery(buildHaystack(it), debounced));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, debounced]);
+}
+
+function SectionSearchBar({
+  value,
+  onChange,
+  placeholder,
+  resultCount,
+  totalCount,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+  resultCount?: number;
+  totalCount?: number;
+}) {
+  const showCount =
+    typeof resultCount === 'number' &&
+    typeof totalCount === 'number' &&
+    value.trim().length > 0;
+  return (
+    <div className="sticky top-0 z-10 -mx-4 px-4 py-2 mb-4 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/75 md:static md:mx-0 md:p-0 md:bg-transparent md:backdrop-blur-none md:mb-4">
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-1 bg-bg2 rounded-pill px-4 py-2.5">
+          <span aria-hidden className="text-base leading-none">
+            🔍
+          </span>
+          <input
+            type="search"
+            className="flex-1 bg-transparent border-0 outline-none text-sm placeholder:text-mute"
+            placeholder={placeholder}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            aria-label={placeholder}
+          />
+          {value && (
+            <button
+              type="button"
+              onClick={() => onChange('')}
+              className="text-mute hover:text-ink text-base leading-none"
+              aria-label="Limpiar búsqueda"
+            >
+              ×
+            </button>
+          )}
+        </div>
+        {showCount && (
+          <span className="text-xs text-mute whitespace-nowrap">
+            {resultCount}/{totalCount}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 async function enterAffiliatePanel(
   codeId: string,
   ownerName: string,
@@ -323,6 +418,10 @@ function PayoutsTab() {
   const [statusFilter, setStatusFilter] = useState<
     'AVAILABLE_OR_PENDING' | 'APPROVED' | 'PENDING' | 'PAID' | 'ALL'
   >('AVAILABLE_OR_PENDING');
+  // FASE 9 sprint: ahora la búsqueda es 100% client-side (debounce 150ms)
+  // a través del SectionSearchBar arriba — antes pegaba al server con
+  // ?q= y debounce 300ms. Mantenemos los filtros server-side de fecha/
+  // estado/afiliado/cliente porque agregan métricas y reducen payload.
   const [q, setQ] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -336,7 +435,6 @@ function PayoutsTab() {
     try {
       const params = new URLSearchParams();
       if (statusFilter !== 'ALL') params.set('status', statusFilter);
-      if (q.trim()) params.set('q', q.trim());
       if (dateFrom) params.set('dateFrom', dateFrom);
       if (dateTo) params.set('dateTo', dateTo);
       const url = `/referrals/payouts${params.toString() ? `?${params}` : ''}`;
@@ -353,12 +451,32 @@ function PayoutsTab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, dateFrom, dateTo]);
 
-  // Búsqueda con debounce
-  useEffect(() => {
-    const t = setTimeout(() => load(), 300);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q]);
+  const allItems = data?.items ?? [];
+  const itemsAfterDropdowns = useMemo(
+    () =>
+      allItems
+        .filter((c) => (affiliateFilter ? c.ownerEmail === affiliateFilter : true))
+        .filter((c) => (clientFilter ? c.tenantBrand === clientFilter : true)),
+    [allItems, affiliateFilter, clientFilter],
+  );
+
+  const filtered = useFilteredList(itemsAfterDropdowns, q, (c) =>
+    [
+      c.ownerName,
+      c.ownerEmail,
+      c.ownerWhatsapp,
+      c.codeText,
+      c.tenantBrand,
+      c.notes,
+      String(c.amount ?? ''),
+      PAYOUT_STATUS[c.status]?.text,
+      c.status,
+      c.createdAt ? fmtDate(c.createdAt) : '',
+      c.paidAt ? fmtDate(c.paidAt) : '',
+    ]
+      .filter(Boolean)
+      .join(' '),
+  );
 
   async function markPaid(id: string) {
     setBusyId(id);
@@ -410,17 +528,16 @@ function PayoutsTab() {
         <Kpi label="Pagado histórico" value={fmtUsd(data?.totals.paidUsd ?? 0)} tone="brand" />
       </div>
 
+      <SectionSearchBar
+        value={q}
+        onChange={setQ}
+        placeholder="Buscar pago pendiente…"
+        resultCount={filtered.length}
+        totalCount={itemsAfterDropdowns.length}
+      />
+
       {/* Filtros */}
       <div className="card card-pad mb-3 flex flex-wrap items-end gap-3">
-        <div className="flex-1 min-w-[160px]">
-          <label className="label">Buscar</label>
-          <input
-            className="input"
-            placeholder="Nombre, email, código, negocio…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-        </div>
         <div>
           <label className="label">Estado</label>
           <select
@@ -523,7 +640,7 @@ function PayoutsTab() {
                     </td>
                   </tr>
                 ))}
-              {!loading && (data?.items.length ?? 0) === 0 && (
+              {!loading && filtered.length === 0 && (
                 <tr>
                   <td className="px-4 py-12 text-center text-mute" colSpan={8}>
                     <div className="text-3xl mb-2">💸</div>
@@ -534,12 +651,7 @@ function PayoutsTab() {
                 </tr>
               )}
               {!loading &&
-                (data?.items ?? [])
-                  .filter((c) =>
-                    affiliateFilter ? c.ownerEmail === affiliateFilter : true,
-                  )
-                  .filter((c) => (clientFilter ? c.tenantBrand === clientFilter : true))
-                  .map((c) => {
+                filtered.map((c) => {
                   const st = PAYOUT_STATUS[c.status];
                   const dayDiff = daysFromNow(c.availableAt);
                   return (
@@ -1112,6 +1224,7 @@ function CampaignsTab() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [openCampaign, setOpenCampaign] = useState<CampaignSummary | null>(null);
+  const [query, setQuery] = useState('');
 
   async function load() {
     setLoading(true);
@@ -1127,9 +1240,22 @@ function CampaignsTab() {
     load();
   }, []);
 
+  const filtered = useFilteredList(list, query, (c) =>
+    [
+      c.name,
+      c.ownerCode?.code,
+      c.ownerCode?.ownerName,
+      c.status,
+      STATUS_PILL[c.status]?.text,
+      c.createdAt ? fmtDate(c.createdAt) : '',
+    ]
+      .filter(Boolean)
+      .join(' '),
+  );
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <div className="text-sm text-mute">
           Cada campaña pertenece a un influencer. Los embajadores reciben 25%
           y el influencer gana 5% por las ventas indirectas.
@@ -1138,6 +1264,16 @@ function CampaignsTab() {
           <Icon name="plus" /> Nueva campaña
         </button>
       </div>
+
+      {!loading && list.length > 0 && (
+        <SectionSearchBar
+          value={query}
+          onChange={setQuery}
+          placeholder="Buscar campaña…"
+          resultCount={filtered.length}
+          totalCount={list.length}
+        />
+      )}
 
       {loading && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1157,8 +1293,18 @@ function CampaignsTab() {
         </div>
       )}
 
+      {!loading && list.length > 0 && filtered.length === 0 && (
+        <div className="card card-pad text-center py-10">
+          <div className="text-3xl mb-2">🔎</div>
+          <div className="font-semibold">Sin coincidencias</div>
+          <div className="text-sm text-mute mt-1">
+            Ninguna campaña coincide con "{query}".
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {list.map((c) => (
+        {filtered.map((c) => (
           <a
             key={c.id}
             href={`/admin/referrals/campaigns/${c.id}`}
@@ -1873,6 +2019,7 @@ function InfluencersTab() {
   const [enteringId, setEnteringId] = useState<string | null>(null);
   const [demoteTarget, setDemoteTarget] = useState<any | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
+  const [query, setQuery] = useState('');
 
   function reload() {
     setLoading(true);
@@ -1884,10 +2031,35 @@ function InfluencersTab() {
     reload();
   }, []);
 
+  const filtered = useFilteredList(rows, query, (r) =>
+    [
+      r.ownerName,
+      r.ownerEmail,
+      r.ownerWhatsapp,
+      r.code,
+      r.country,
+      r.city,
+      r.campaignName,
+      r.isActive === false ? 'inactivo' : 'activo',
+    ]
+      .filter(Boolean)
+      .join(' '),
+  );
+
   if (loading) return <div className="card card-pad h-32 animate-shimmer" />;
 
   return (
-    <div className="card overflow-hidden p-0">
+    <div>
+      {rows.length > 0 && (
+        <SectionSearchBar
+          value={query}
+          onChange={setQuery}
+          placeholder="Buscar influencer…"
+          resultCount={filtered.length}
+          totalCount={rows.length}
+        />
+      )}
+      <div className="card overflow-hidden p-0">
       <div className="overflow-x-auto">
         <table className="w-full text-sm min-w-[940px]">
           <thead className="bg-bg2">
@@ -1912,7 +2084,15 @@ function InfluencersTab() {
                 </td>
               </tr>
             )}
-            {rows.map((r) => (
+            {rows.length > 0 && filtered.length === 0 && (
+              <tr>
+                <td colSpan={9} className="text-center py-10 text-mute">
+                  <div className="text-2xl mb-1">🔎</div>
+                  Sin influencers que coincidan con "{query}"
+                </td>
+              </tr>
+            )}
+            {filtered.map((r) => (
               <tr key={r.id} className="border-t border-line2 hover:bg-[#FAFAFB]">
                 <td className="px-4 py-3">
                   <div className="font-medium">{r.ownerName}</div>
@@ -2035,6 +2215,7 @@ function InfluencersTab() {
           }}
         />
       )}
+      </div>
     </div>
   );
 }
@@ -2049,6 +2230,7 @@ function AmbassadorsTab() {
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
   // FASE B1: modal de config "Permitir vendedores" + max %.
   const [vendorConfigTarget, setVendorConfigTarget] = useState<any | null>(null);
+  const [query, setQuery] = useState('');
 
   function reload() {
     setLoading(true);
@@ -2059,6 +2241,24 @@ function AmbassadorsTab() {
   useEffect(() => {
     reload();
   }, []);
+
+  const filtered = useFilteredList(rows, query, (r) =>
+    [
+      r.ownerName,
+      r.ownerEmail,
+      r.ownerWhatsapp,
+      r.code,
+      r.country,
+      r.city,
+      r.parentName,
+      r.parentCode,
+      r.campaignName,
+      r.isCompanyDirect ? 'directo empresa' : '',
+      r.isActive === false ? 'inactivo' : 'activo',
+    ]
+      .filter(Boolean)
+      .join(' '),
+  );
 
   if (loading) return <div className="card card-pad h-32 animate-shimmer" />;
 
@@ -2098,6 +2298,16 @@ function AmbassadorsTab() {
         />
       )}
 
+      {rows.length > 0 && (
+        <SectionSearchBar
+          value={query}
+          onChange={setQuery}
+          placeholder="Buscar embajador…"
+          resultCount={filtered.length}
+          totalCount={rows.length}
+        />
+      )}
+
       <div className="card overflow-hidden p-0">
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[1040px]">
@@ -2123,7 +2333,15 @@ function AmbassadorsTab() {
                   </td>
                 </tr>
               )}
-              {rows.map((r) => (
+              {rows.length > 0 && filtered.length === 0 && (
+                <tr>
+                  <td colSpan={11} className="text-center py-10 text-mute">
+                    <div className="text-2xl mb-1">🔎</div>
+                    Sin embajadores que coincidan con "{query}"
+                  </td>
+                </tr>
+              )}
+              {filtered.map((r) => (
                 <tr
                   key={r.id}
                   className={`border-t border-line2 hover:bg-[#FAFAFB] ${r.isActive ? '' : 'opacity-50'}`}
@@ -2753,6 +2971,7 @@ function ClientsTab() {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'active' | 'churned' | 'trial'>('all');
+  const [query, setQuery] = useState('');
 
   useEffect(() => {
     api<any[]>('/referrals/clients')
@@ -2760,17 +2979,47 @@ function ClientsTab() {
       .finally(() => setLoading(false));
   }, []);
 
-  const visible = rows.filter((r) => {
+  const byStatus = rows.filter((r) => {
     if (filter === 'active') return r.status === 'ACTIVE' || r.status === 'PAYING';
     if (filter === 'churned') return r.status === 'CHURNED';
     if (filter === 'trial') return r.status === 'SIGNED_UP';
     return true;
   });
 
+  const visible = useFilteredList(byStatus, query, (r) =>
+    [
+      r.tenantBrand,
+      r.tenantStatus,
+      r.ownerName,
+      r.email,
+      r.whatsappPhone,
+      r.city,
+      r.country,
+      r.plan,
+      r.attribution?.ownerName,
+      r.attribution?.code,
+      r.attribution?.parentName,
+      r.attribution?.parentCode,
+      r.attribution?.role,
+      CLIENT_STATUS[r.status]?.text,
+    ]
+      .filter(Boolean)
+      .join(' '),
+  );
+
   if (loading) return <div className="card card-pad h-32 animate-shimmer" />;
 
   return (
     <div>
+      {rows.length > 0 && (
+        <SectionSearchBar
+          value={query}
+          onChange={setQuery}
+          placeholder="Buscar negocio…"
+          resultCount={visible.length}
+          totalCount={byStatus.length}
+        />
+      )}
       <div className="flex gap-1 mb-3 flex-wrap">
         {(['all', 'active', 'trial', 'churned'] as const).map((f) => {
           const count =
@@ -2875,10 +3124,48 @@ function CommissionsTab() {
   // PayoutsTab ya filtra por defecto a APPROVED, este muestra el ledger completo.
   const [data, setData] = useState<PayoutsResp | null>(null);
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState('');
+  // FASE 9 sprint: chips de filtro adicionales por status.
+  // Periodicidad no viene en el endpoint actual (PayoutItem), se omite.
+  const [statusChip, setStatusChip] = useState<
+    'all' | 'pending' | 'paid' | 'partial'
+  >('all');
 
   useEffect(() => {
     api<PayoutsResp>('/referrals/payouts').then(setData).finally(() => setLoading(false));
   }, []);
+
+  const items = data?.items ?? [];
+
+  const byStatus = useMemo(() => {
+    if (statusChip === 'all') return items;
+    if (statusChip === 'paid') return items.filter((c) => c.status === 'PAID');
+    if (statusChip === 'pending')
+      return items.filter((c) => c.status === 'PENDING' || c.status === 'APPROVED');
+    // "partial" no existe como status nativo del endpoint actual; lo dejamos
+    // mapeado a comisiones rechazadas para no romper el chip cuando no hay data.
+    if (statusChip === 'partial')
+      return items.filter((c) => c.status === 'REJECTED');
+    return items;
+  }, [items, statusChip]);
+
+  const filtered = useFilteredList(byStatus, query, (c) =>
+    [
+      c.ownerName,
+      c.ownerEmail,
+      c.ownerWhatsapp,
+      c.codeText,
+      c.tenantBrand,
+      c.notes,
+      String(c.amount ?? ''),
+      PAYOUT_STATUS[c.status]?.text,
+      c.status,
+      c.createdAt ? fmtDate(c.createdAt) : '',
+      c.paidAt ? fmtDate(c.paidAt) : '',
+    ]
+      .filter(Boolean)
+      .join(' '),
+  );
 
   if (loading) return <div className="card card-pad h-32 animate-shimmer" />;
   if (!data) return null;
@@ -2891,6 +3178,44 @@ function CommissionsTab() {
         <Kpi label="Pagado" value={fmtUsd(data.totals.paidUsd)} tone="brand" />
         <Kpi label="Total registros" value={data.totals.count.toString()} />
       </div>
+
+      {items.length > 0 && (
+        <SectionSearchBar
+          value={query}
+          onChange={setQuery}
+          placeholder="Buscar comisión…"
+          resultCount={filtered.length}
+          totalCount={byStatus.length}
+        />
+      )}
+
+      {items.length > 0 && (
+        <div className="flex gap-1 mb-3 flex-wrap">
+          {(
+            [
+              { id: 'all', label: 'Todas' },
+              { id: 'pending', label: 'Pendiente' },
+              { id: 'paid', label: 'Pagada' },
+              { id: 'partial', label: 'Parcial' },
+            ] as const
+          ).map((chip) => {
+            const active = statusChip === chip.id;
+            return (
+              <button
+                key={chip.id}
+                onClick={() => setStatusChip(chip.id)}
+                className={`text-xs px-3 py-1.5 rounded-pill border ${
+                  active
+                    ? 'bg-ink text-white border-ink'
+                    : 'bg-white border-line text-mute hover:text-ink'
+                }`}
+              >
+                {chip.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div className="card overflow-hidden p-0">
         <div className="overflow-x-auto">
@@ -2910,14 +3235,22 @@ function CommissionsTab() {
               </tr>
             </thead>
             <tbody>
-              {data.items.length === 0 && (
+              {items.length === 0 && (
                 <tr>
                   <td colSpan={7} className="text-center py-12 text-mute">
                     Sin comisiones todavía
                   </td>
                 </tr>
               )}
-              {data.items.map((c) => {
+              {items.length > 0 && filtered.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="text-center py-10 text-mute">
+                    <div className="text-2xl mb-1">🔎</div>
+                    Sin comisiones que coincidan con los filtros
+                  </td>
+                </tr>
+              )}
+              {filtered.map((c) => {
                 const s = PAYOUT_STATUS[c.status];
                 return (
                   <tr key={c.id} className="border-t border-line2 hover:bg-[#FAFAFB]">
