@@ -12,16 +12,57 @@ const path = require('path');
 const { PrismaClient } = require('@prisma/client');
 
 function splitSqlStatements(sql) {
-  // Strip block + line comments first, then split on `;` at end of line.
+  // Strip block + line comments
   const noBlockComments = sql.replace(/\/\*[\s\S]*?\*\//g, '');
   const noLineComments = noBlockComments
     .split('\n')
     .filter((l) => !l.trim().startsWith('--'))
     .join('\n');
-  return noLineComments
-    .split(/;\s*(?:\n|$)/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
+
+  // Split on `;` but respect dollar-quoted blocks (DO $$ ... $$) and
+  // single-quoted strings. Sin esto, los `;` dentro de `DO $$ ... $$`
+  // (común en migrations idempotentes con EXCEPTION blocks) cortan al
+  // medio una statement y la siguiente queda incompleta.
+  const statements = [];
+  let current = '';
+  let inSingleQuote = false;
+  let inDollar = false;
+  let i = 0;
+  const t = noLineComments;
+  while (i < t.length) {
+    const ch = t[i];
+    const next = t[i + 1];
+    if (!inSingleQuote && ch === '$' && next === '$') {
+      inDollar = !inDollar;
+      current += '$$';
+      i += 2;
+      continue;
+    }
+    if (!inDollar && ch === "'") {
+      // Escape '' inside single quote = literal quote
+      if (inSingleQuote && next === "'") {
+        current += "''";
+        i += 2;
+        continue;
+      }
+      inSingleQuote = !inSingleQuote;
+      current += ch;
+      i++;
+      continue;
+    }
+    if (ch === ';' && !inSingleQuote && !inDollar) {
+      const stmt = current.trim();
+      if (stmt.length > 0) statements.push(stmt);
+      current = '';
+      i++;
+      continue;
+    }
+    current += ch;
+    i++;
+  }
+  const last = current.trim();
+  if (last.length > 0) statements.push(last);
+  return statements;
 }
 
 (async () => {
