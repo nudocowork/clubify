@@ -638,6 +638,11 @@ model User {
   labVotes              LabVote[]
   labComments           LabComment[]  @relation("LabCommentAuthor")
 
+  // Difusión interna (Broadcasts): SUPER_ADMIN crea piezas dirigidas a
+  // equipos comerciales; cada user registra qué piezas leyó.
+  broadcastsCreated Broadcast[]     @relation("BroadcastCreator")
+  broadcastReads    BroadcastRead[]
+
   @@index([tenantId])
   @@index([role])
 }
@@ -2977,7 +2982,6 @@ model SequenceExecution {
 }
 
 // ============================================================
-<<<<<<< HEAD
 //   COMMISSION EXCEPTIONS — item 6 sprint
 // ============================================================
 
@@ -3026,7 +3030,9 @@ model CommissionExceptionHistory {
   changedAt       DateTime @default(now())
 
   @@index([exceptionId, changedAt])
-=======
+}
+
+// ============================================================
 //                       CLUBIFY LAB (item 13 sprint)
 // ============================================================
 // Sistema de propuestas de comunidad. Clientes / embajadores / vendedores
@@ -3118,5 +3124,92 @@ model LabComment {
   createdAt  DateTime    @default(now())
 
   @@index([proposalId, createdAt])
->>>>>>> 80b3517 (feat(lab): Clubify Lab — sistema de propuestas de comunidad (item 13 sprint))
+}
+
+// ============================================================
+//                  DIFUSIÓN INTERNA / BROADCASTS
+// ============================================================
+
+enum BroadcastKind {
+  BANNER /// barra arriba del panel afiliado
+  LOGIN_POPUP /// popup al iniciar sesión
+}
+
+enum BroadcastAudience {
+  ALL
+  INFLUENCERS
+  AMBASSADORS
+  VENDORS
+}
+
+enum BroadcastColor {
+  GREEN
+  BLUE
+  YELLOW
+  RED
+  CUSTOM
+}
+
+enum BroadcastIcon {
+  INFO
+  ALERT
+  NEWS
+  TRAINING
+  PROMO
+}
+
+enum BroadcastMediaKind {
+  TEXT
+  IMAGE
+  AUDIO
+  VIDEO
+  PDF
+}
+
+model Broadcast {
+  id          String            @id @default(cuid())
+  kind        BroadcastKind
+  title       String
+  description String            @db.Text
+  audience    BroadcastAudience @default(ALL)
+  isActive    Boolean           @default(true)
+
+  /// Solo para BANNER
+  color       BroadcastColor?
+  customColor String? /// hex si color=CUSTOM
+  icon        BroadcastIcon?
+  ctaLabel    String?
+  ctaUrl      String?
+
+  /// Solo para LOGIN_POPUP
+  mediaKind    BroadcastMediaKind?
+  mediaUrl     String? /// URL a R2 (imagen/audio/video/PDF)
+  /// Texto del botón principal del popup (ej. "He leído", "Entendido").
+  confirmLabel String?             @default("He leído")
+
+  /// Ventana de vigencia opcional.
+  startsAt DateTime?
+  endsAt   DateTime?
+
+  createdById String?
+  createdBy   User?    @relation("BroadcastCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  reads BroadcastRead[]
+
+  @@index([kind, isActive])
+  @@index([audience])
+}
+
+model BroadcastRead {
+  id          String    @id @default(cuid())
+  broadcastId String
+  broadcast   Broadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readAt      DateTime  @default(now())
+
+  @@unique([broadcastId, userId])
+  @@index([userId])
 }

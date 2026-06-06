@@ -13,6 +13,7 @@ import { TrialExpiredLockscreen } from './TrialExpiredLockscreen';
 import { Logo } from './Logo';
 import { TenantSwitcher } from './TenantSwitcher';
 import { SupportWidget } from './SupportWidget';
+import { LoginPopupBroadcast } from './LoginPopupBroadcast';
 import { useBranding } from '@/lib/useBranding';
 import {
   getCategoryBySlug,
@@ -260,6 +261,7 @@ export default function AppShell({
                 { href: '/admin/industries', label: 'Industrias', icon: 'grid' },
                 { href: '/admin/sales-teams', label: 'Equipos de ventas', icon: 'users', hideForMarketing: true },
                 { href: '/admin/sales-leaderboard', label: 'Leaderboard CRM', icon: 'trend-up', hideForMarketing: true },
+                { href: '/admin/ventas/difusion', label: 'Difusión interna', icon: 'spark', hideForMarketing: true },
               ],
             },
             {
@@ -633,6 +635,10 @@ export default function AppShell({
           <QuickCreateFAB />
         </>
       )}
+      {/* Difusión interna: popup global de comunicación. El componente
+          consulta el endpoint por su cuenta y solo se muestra si hay
+          una pieza pendiente para este user. */}
+      <LoginPopupBroadcast />
     </div>
   );
 }
