@@ -29,7 +29,15 @@ type Tenant = {
   whatsappFeedbackMessage?: string | null;
 };
 
-type Step = 'rate' | 'feedback' | 'thanks';
+type ReviewLocation = {
+  id: string;
+  name: string;
+  address: string | null;
+  googleReviewUrl: string;
+  threshold: number;
+};
+
+type Step = 'rate' | 'feedback' | 'thanks' | 'pick-location';
 
 export default function ReviewPage() {
   return (
@@ -47,6 +55,7 @@ function ReviewPageInner() {
   // googleReviewUrl + threshold + asociar el feedback.
   const targetId = search.get('target') || null;
   const [t, setT] = useState<Tenant | null>(null);
+  const [locations, setLocations] = useState<ReviewLocation[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [step, setStep] = useState<Step>('rate');
   const [rating, setRating] = useState<number>(0);
@@ -69,19 +78,36 @@ function ReviewPageInner() {
     const targetQs = targetId
       ? `?target=${encodeURIComponent(targetId)}`
       : '';
-    fetch(`${API}/api/public/r/${slug}${targetQs}`, {
+    // Multi-sede: si vino ?target= ya hay sede explícita en la URL — no
+    // pedimos la lista de sedes (no hay selector intermedio en ese flujo).
+    // Si NO vino target, pedimos en paralelo tenant + sedes para resolver
+    // 0 sedes (legacy) / 1 (redirect directo) / 2+ (selector).
+    const fetchTenant = fetch(`${API}/api/public/r/${slug}${targetQs}`, {
       signal: ctrl.signal,
       cache: 'no-store',
-    })
-      .then(async (r) => {
-        if (!r.ok) {
-          const j = await r.json().catch(() => ({}));
-          throw new Error(j?.message ?? 'No disponible');
-        }
-        return r.json();
-      })
-      .then((data) => {
-        if (!cancelled) setT(data);
+    }).then(async (r) => {
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j?.message ?? 'No disponible');
+      }
+      return r.json();
+    });
+
+    const fetchLocations = targetId
+      ? Promise.resolve([] as ReviewLocation[])
+      : fetch(`${API}/api/public/review-locations/${slug}`, {
+          signal: ctrl.signal,
+          cache: 'no-store',
+        }).then(async (r) => {
+          if (!r.ok) return [] as ReviewLocation[];
+          return (await r.json()) as ReviewLocation[];
+        }).catch(() => [] as ReviewLocation[]);
+
+    Promise.all([fetchTenant, fetchLocations])
+      .then(([tenant, locs]) => {
+        if (cancelled) return;
+        setT(tenant);
+        setLocations(Array.isArray(locs) ? locs : []);
       })
       .catch((e: Error) => {
         if (cancelled) return;
@@ -117,21 +143,41 @@ function ReviewPageInner() {
     // M7.3: usar el threshold del target si vino — sino 4 (default).
     const threshold = t?.threshold ?? 4;
     if (n >= threshold) {
+      // Multi-sede (2026-06-06): si NO vino ?target= y hay 2+ sedes
+      // activas, mostramos selector "¿En qué sede te atendieron?" antes
+      // de redirigir. Con 1 sede, redirect directo a esa. Con 0, legacy.
+      if (!targetId && locations.length >= 2) {
+        setStep('pick-location');
+        return;
+      }
+      const url =
+        !targetId && locations.length === 1
+          ? locations[0].googleReviewUrl
+          : t?.googleReviewUrl;
       // ≥threshold★ → POST silencioso + redirect inmediato a Google.
       // Si no hay googleReviewUrl configurado, mostramos thanks.
-      if (!t?.googleReviewUrl) {
+      if (!url) {
         await postReview(n, true, '', '', '');
         setStep('thanks');
         return;
       }
       await postReview(n, true, '', '', '');
       setTimeout(() => {
-        window.location.href = t.googleReviewUrl!;
+        window.location.href = url;
       }, 150);
     } else {
       // <threshold★ → form obligatorio nombre + teléfono para capturar al cliente
       setStep('feedback');
     }
+  }
+
+  async function chooseLocation(loc: ReviewLocation) {
+    // El cliente eligió una sede en el paso multi-sede — POST silencioso
+    // marcando redirigido, después redirect al Google de la sede.
+    await postReview(rating, true, '', '', '');
+    setTimeout(() => {
+      window.location.href = loc.googleReviewUrl;
+    }, 150);
   }
 
   async function postReview(
@@ -267,6 +313,44 @@ function ReviewPageInner() {
             </div>
             <p className="text-xs text-mute mt-3">{tt('review.sub')}</p>
           </>
+        )}
+
+        {step === 'pick-location' && (
+          <div className="w-full animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="mt-4 text-5xl text-center">📍</div>
+            <h2 className="text-xl font-bold mt-3 text-center">
+              ¿En qué sede te atendieron?
+            </h2>
+            <p className="text-mute mt-2 leading-relaxed text-sm text-center">
+              Te llevamos al Google Reviews de la sede correcta para que tu
+              reseña le sirva al equipo del lugar.
+            </p>
+            <div className="mt-5 space-y-2 text-left">
+              {locations.map((loc) => (
+                <button
+                  key={loc.id}
+                  type="button"
+                  onClick={() => chooseLocation(loc)}
+                  className="w-full p-4 rounded-xl border-2 border-line bg-white hover:border-brand hover:bg-brand-soft transition active:scale-[0.98] text-left"
+                >
+                  <div className="font-semibold text-base flex items-center gap-2">
+                    🏢 {loc.name}
+                  </div>
+                  {loc.address && (
+                    <div className="text-xs text-mute mt-1">
+                      📍 {loc.address}
+                    </div>
+                  )}
+                  <div
+                    className="mt-2 text-xs font-semibold"
+                    style={{ color: primary }}
+                  >
+                    Esa fue → Google Reviews →
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
         )}
 
         {step === 'feedback' && (

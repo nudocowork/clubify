@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -414,7 +415,7 @@ export class ReviewsService {
         location: { select: { id: true, name: true } },
         _count: { select: { feedbacks: true } },
       },
-      orderBy: { createdAt: 'asc' },
+      orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
     });
   }
 
@@ -422,10 +423,12 @@ export class ReviewsService {
     user: AuthUser,
     body: {
       name: string;
+      address?: string | null;
       googleReviewUrl: string;
       locationId?: string | null;
       threshold?: number;
       isActive?: boolean;
+      position?: number;
     },
     override?: string,
   ) {
@@ -440,14 +443,36 @@ export class ReviewsService {
         throw new NotFoundException('Sede no encontrada para este tenant');
       }
     }
+    // Límite de sedes por tenant — más de 20 es un caso real raro y
+    // sin esto un script malicioso podría llenar la tabla.
+    const count = await this.prisma.reviewQrTarget.count({
+      where: { tenantId: tid },
+    });
+    if (count >= 20) {
+      throw new BadRequestException(
+        'Máximo 20 sedes por negocio. Desactiva alguna antes de crear nuevas.',
+      );
+    }
+    // Si no vino position, la mandamos al final.
+    let position = body.position;
+    if (position === undefined) {
+      const last = await this.prisma.reviewQrTarget.findFirst({
+        where: { tenantId: tid },
+        orderBy: { position: 'desc' },
+        select: { position: true },
+      });
+      position = (last?.position ?? -1) + 1;
+    }
     return this.prisma.reviewQrTarget.create({
       data: {
         tenantId: tid,
         name: body.name.trim(),
+        address: body.address?.trim() || null,
         googleReviewUrl: body.googleReviewUrl.trim(),
         locationId: body.locationId ?? null,
         threshold: Math.max(1, Math.min(5, body.threshold ?? 4)),
         isActive: body.isActive ?? true,
+        position,
       },
     });
   }
@@ -457,10 +482,12 @@ export class ReviewsService {
     id: string,
     body: Partial<{
       name: string;
+      address: string | null;
       googleReviewUrl: string;
       locationId: string | null;
       threshold: number;
       isActive: boolean;
+      position: number;
     }>,
   ) {
     const tid = this.tid(user, undefined);
@@ -484,6 +511,8 @@ export class ReviewsService {
       where: { id },
       data: {
         name: body.name?.trim() ?? undefined,
+        address:
+          body.address === undefined ? undefined : body.address?.trim() || null,
         googleReviewUrl: body.googleReviewUrl?.trim() ?? undefined,
         locationId: body.locationId === undefined ? undefined : body.locationId,
         threshold:
@@ -491,8 +520,67 @@ export class ReviewsService {
             ? undefined
             : Math.max(1, Math.min(5, body.threshold)),
         isActive: body.isActive ?? undefined,
+        position: body.position ?? undefined,
       },
     });
+  }
+
+  /** Reorder masivo desde drag-and-drop. Valida que TODOS los IDs
+   *  pertenezcan al tenant del caller para evitar que alguien reordene
+   *  targets de otro negocio. */
+  async reorderTargets(
+    user: AuthUser,
+    items: Array<{ id: string; position: number }>,
+  ) {
+    if (!items.length) return { ok: true };
+    const ids = items.map((i) => i.id);
+    const found = await this.prisma.reviewQrTarget.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, tenantId: true },
+    });
+    if (found.length !== ids.length) {
+      throw new NotFoundException('Alguna sede no existe');
+    }
+    if (user.role !== 'SUPER_ADMIN') {
+      const tid = user.tenantId;
+      if (!tid) throw new ForbiddenException();
+      if (found.some((f) => f.tenantId !== tid)) {
+        throw new ForbiddenException();
+      }
+    }
+    await this.prisma.$transaction(
+      items.map((it) =>
+        this.prisma.reviewQrTarget.update({
+          where: { id: it.id },
+          data: { position: it.position },
+        }),
+      ),
+    );
+    return { ok: true };
+  }
+
+  /** Lista pública para el selector multi-sede del /r/<slug>.
+   *  Devuelve solo sedes activas, sin info sensible. */
+  async listPublicForSlug(slug: string) {
+    const t = await this.prisma.tenant.findUnique({
+      where: { slug },
+      select: { id: true, status: true },
+    });
+    if (!t || t.status === 'SUSPENDED') {
+      throw new NotFoundException('Negocio no disponible');
+    }
+    const items = await this.prisma.reviewQrTarget.findMany({
+      where: { tenantId: t.id, isActive: true },
+      orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+      select: {
+        id: true,
+        name: true,
+        address: true,
+        googleReviewUrl: true,
+        threshold: true,
+      },
+    });
+    return items;
   }
 
   async deleteTarget(user: AuthUser, id: string) {
