@@ -6,6 +6,12 @@ import { api, clearSession } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { ConstructionBadge } from '@/components/UnderConstruction';
+import {
+  formatPlanLabel,
+  periodCadence,
+  periodTotalUsd,
+  type PlanPeriodicity,
+} from '@/lib/plan-format';
 
 type Status = {
   status: 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'SUSPENDED' | 'EXPIRED' | 'CANCELED';
@@ -160,7 +166,18 @@ export default function BillingPage() {
               Plan actual
             </div>
             <div className="text-lg font-semibold mt-1">
-              {tenant?.plan?.name ?? '—'} · USD {Number(tenant?.plan?.priceMonthly ?? 0)}/mes
+              {formatPlanLabel(
+                tenant?.plan?.name,
+                tenant?.planPeriodicity as PlanPeriodicity | null,
+              )}
+            </div>
+            <div className="text-sm text-mute mt-0.5">
+              USD{' '}
+              {periodTotalUsd(
+                tenant?.planPeriodicity as PlanPeriodicity | null,
+                Number(tenant?.plan?.priceMonthly ?? 0),
+              )}
+              {periodCadence(tenant?.planPeriodicity as PlanPeriodicity | null)}
             </div>
             <div className="text-xs text-mute">
               ≈ equivalente al cambio del día en tu país
