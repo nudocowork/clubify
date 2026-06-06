@@ -7,6 +7,13 @@ import { GrowBusinessCard } from '@/components/GrowBusinessCard';
 import { ReferralAssignmentCard } from '@/components/ReferralAssignmentCard';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
+import {
+  formatPlanLabel,
+  periodCadence,
+  periodLabel,
+  periodTotalUsd,
+  type PlanPeriodicity,
+} from '@/lib/plan-format';
 
 export default function TenantDetail() {
   const { id } = useParams<{ id: string }>();
@@ -347,8 +354,15 @@ export default function TenantDetail() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5 mb-4">
         <div className="kpi">
           <div className="kpi-lbl">Plan</div>
-          <div className="kpi-val text-brand">{t.plan?.name}</div>
-          <div className="kpi-sub">${Number(t.plan?.priceMonthly ?? 0).toLocaleString('es-CO')}/mes</div>
+          <div className="kpi-val text-brand">{t.plan?.name ?? 'Elite'}</div>
+          <div className="kpi-sub">
+            🗓️ {periodLabel(t.planPeriodicity as PlanPeriodicity | null)} ·{' '}
+            {periodTotalUsd(
+              t.planPeriodicity as PlanPeriodicity | null,
+              Number(t.plan?.priceMonthly ?? 0),
+            )}{' '}
+            USD{periodCadence(t.planPeriodicity as PlanPeriodicity | null)}
+          </div>
         </div>
         <div className="kpi">
           <div className="kpi-lbl">Tarjetas</div>
@@ -1593,15 +1607,15 @@ function ChangePlanPeriodModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/50 flex items-end md:items-center justify-center p-3 md:p-6"
+      className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-end md:items-center justify-center p-3 md:p-6 animate-in fade-in duration-150"
       onClick={onClose}
     >
       <div
-        className="bg-bg1 rounded-2xl shadow-2xl border border-line w-full max-w-xl max-h-[90vh] overflow-y-auto"
+        className="bg-white rounded-2xl shadow-[0_25px_70px_-12px_rgba(0,0,0,0.45)] border border-line2 w-full max-w-xl max-h-[90vh] overflow-y-auto animate-in slide-in-from-bottom-6 md:slide-in-from-bottom-2 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-5 py-4 border-b border-line flex items-center justify-between sticky top-0 bg-bg1 z-10">
-          <h3 className="text-lg font-semibold m-0">Cambiar plan</h3>
+        <div className="px-5 py-4 border-b border-line2 flex items-center justify-between sticky top-0 bg-white z-10">
+          <h3 className="text-lg font-semibold m-0 text-ink">Cambiar plan</h3>
           <button
             type="button"
             className="text-mute hover:text-ink text-2xl leading-none cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"

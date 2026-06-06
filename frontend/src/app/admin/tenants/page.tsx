@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { api, getUser, startImpersonation } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
+import { periodLabel, type PlanPeriodicity } from '@/lib/plan-format';
 
 function avatarClass(seed: string) {
   const sum = seed.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
@@ -187,7 +188,12 @@ export default function TenantsPage() {
                     </div>
                   </div>
                 </td>
-                <td className="px-4 py-3.5">{t.plan?.name}</td>
+                <td className="px-4 py-3.5">
+                  <div className="font-medium">{t.plan?.name ?? 'Elite'}</div>
+                  <div className="text-[11px] text-mute">
+                    {periodLabel(t.planPeriodicity as PlanPeriodicity | null)}
+                  </div>
+                </td>
                 <td className="px-4 py-3.5">
                   <span
                     className={`badge ${

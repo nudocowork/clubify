@@ -205,7 +205,10 @@ export class BillingService {
     const now = Date.now();
     const dayMs = 24 * 60 * 60 * 1000;
     let daysLeft: number | null = null;
-    if (t.trialEndsAt) {
+    // 2026-06-06: solo calculamos el contador de trial si el tenant
+    // todavía está en TRIAL. Si ya pagó (status ACTIVE/PAST_DUE/SUSPENDED)
+    // el contador no aplica aunque trialEndsAt tenga un valor histórico.
+    if (t.status === 'TRIAL' && t.trialEndsAt) {
       daysLeft = Math.max(
         0,
         Math.ceil((t.trialEndsAt.getTime() - now) / dayMs),

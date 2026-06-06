@@ -41,29 +41,6 @@ export default function PrivacyPage() {
           Nunca.
         </p>
 
-        <h2 className="text-lg font-semibold mt-6">Con quién compartimos datos</h2>
-        <ul className="list-disc pl-5 space-y-1">
-          <li>
-            <b>Proveedores de infraestructura:</b> Vercel (hosting frontend),
-            Railway (backend + base de datos), Cloudflare R2 (almacenamiento de
-            imágenes). Operan bajo acuerdos de protección de datos.
-          </li>
-          <li>
-            <b>Procesador de pagos:</b> Hotmart maneja los datos de tu tarjeta;
-            nosotros nunca los almacenamos.
-          </li>
-          <li>
-            <b>Email:</b> Resend (envío de transaccionales).
-          </li>
-          <li>
-            <b>WhatsApp:</b> Meta (Cloud API), si activas el canal.
-          </li>
-          <li>
-            <b>Wallet:</b> Apple y Google reciben los datos de las tarjetas
-            wallet emitidas para mostrarlas en sus apps.
-          </li>
-        </ul>
-
         <h2 className="text-lg font-semibold mt-6">Tus derechos</h2>
         <p>Puedes en cualquier momento:</p>
         <ul className="list-disc pl-5 space-y-1">

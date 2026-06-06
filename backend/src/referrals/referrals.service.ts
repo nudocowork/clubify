@@ -231,17 +231,26 @@ export class ReferralsService {
    * profundidad por si el webhook Hotmart no llegó en algún ciclo
    * (problemas de red, payload distinto, etc).
    *
-   * Lógica:
-   *   1. Para cada ReferralUse en estado PAYING/ACTIVE
-   *   2. Cuyo tenant esté ACTIVE y currentPeriodEnd > now (sigue suscrito)
-   *   3. Cuya última Commission sea > 28 días (próximo ciclo)
-   *   4. Crea una nueva Commission PENDING con el plan.priceMonthly *
-   *      referralCode.commissionPercent / 100.
+   * 2026-06-06 (bug item 7): la lógica anterior asumía que toda renovación
+   * era mensual (cutoff de 28 días sobre priceMonthly). Con los 4 planes
+   * de periodicidad (Mensual / Trimestral / Semestral / Anual) eso
+   * generaba comisiones falsas mes a mes para clientes con plan trimestral
+   * o más largo, aunque Hotmart NO había confirmado un nuevo pago.
+   *
+   * Nueva lógica:
+   *   1. ReferralUse PAYING/ACTIVE con tenant ACTIVE.
+   *   2. Disparamos SOLO si `tenant.currentPeriodEnd` AVANZÓ después de la
+   *      última Commission — eso señala que Hotmart confirmó una nueva
+   *      renovación (cualquiera sea la periodicidad).
+   *   3. Si Hotmart NO mandó el webhook (la razón de existir este cron),
+   *      `currentPeriodEnd` igual avanzó porque la reconciliación de
+   *      Hotmart o un PATCH manual la movió.
+   *   4. La comisión se calcula sobre `priceMonthly` como fallback — el
+   *      monto real lo pondría el webhook directo. Documentado abajo.
    */
   @Cron(CronExpression.EVERY_DAY_AT_4AM)
   async reconcileRecurringCommissions() {
     const now = new Date();
-    const cutoff = new Date(now.getTime() - 28 * 86400_000);
 
     const candidates = await this.prisma.referralUse.findMany({
       where: {
@@ -254,7 +263,9 @@ export class ReferralsService {
       },
       include: {
         referralCode: { select: { commissionPercent: true } },
-        tenant: { select: { plan: { select: { priceMonthly: true } } } },
+        tenant: {
+          select: { currentPeriodEnd: true, plan: { select: { priceMonthly: true } } },
+        },
         commissions: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
     });
@@ -262,7 +273,18 @@ export class ReferralsService {
     let created = 0;
     for (const use of candidates) {
       const last = use.commissions[0];
-      if (last && new Date(last.createdAt) > cutoff) continue;
+      const cpe = use.tenant?.currentPeriodEnd?.getTime() ?? 0;
+      if (cpe === 0) continue;
+      // Solo generamos si currentPeriodEnd está MÁS NUEVO que la última
+      // commission — es decir, Hotmart confirmó una renovación nueva. Eso
+      // funciona para Mensual (mes a mes), Trimestral (cada 3 meses),
+      // Semestral y Anual sin necesidad de saber la periodicidad.
+      if (last && cpe <= new Date(last.createdAt).getTime()) continue;
+      // Fallback al priceMonthly como base: la base correcta (monto Hotmart)
+      // solo la conoce el webhook directo (`generateReferralCommission`).
+      // Si el webhook llega, esta rama no se ejecuta. Si NO llega (caída),
+      // esta rama paga una aproximación que el SUPER_ADMIN puede corregir
+      // luego (ver excepciones por cliente, item 6 del sprint).
       const price = Number(use.tenant?.plan?.priceMonthly ?? 0);
       if (price <= 0) continue;
       const pct = Number(use.referralCode.commissionPercent ?? 25);
