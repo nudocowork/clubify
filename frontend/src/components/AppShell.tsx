@@ -274,6 +274,15 @@ export default function AppShell({
                 { href: '/admin/audit', label: 'Audit log', icon: 'history', hideForMarketing: true },
               ],
             },
+            {
+              section: 'Comunidad',
+              items: [
+                // Item 13 sprint: review queue + métricas de las propuestas.
+                // Accesible a MARKETING (no requiere hideForMarketing).
+                { href: '/admin/lab', label: '🧪 Lab Admin', icon: 'spark' },
+                { href: '/lab', label: 'Ver Lab público', icon: 'spark' },
+              ],
+            },
           ];
           if (!isMarketing) return adminGroups;
           return adminGroups
@@ -349,6 +358,14 @@ export default function AppShell({
                 { href: '/app/settings', label: 'Configuraciones', icon: 'gear' },
                 { href: '/app/referrals', label: 'Referidos', icon: 'gift' },
                 { href: '/app/whats-new', label: 'Novedades', icon: 'bell' },
+              ],
+            },
+            {
+              section: 'Comunidad',
+              items: [
+                // Clubify Lab — propuestas y votación pública. Accesible a
+                // todos los roles autenticados (item 13 sprint).
+                { href: '/lab', label: '🧪 Clubify Lab', icon: 'spark' },
               ],
             },
           ];

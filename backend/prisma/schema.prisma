@@ -630,6 +630,14 @@ model User {
   commissionExceptionsCreated CommissionException[]          @relation("CommissionExceptionCreator")
   commissionExceptionsChanged CommissionExceptionHistory[]   @relation("CommissionExceptionHistoryChanger")
 
+  // Clubify Lab (item 13 sprint): propuestas de comunidad. Cada user
+  // puede crear propuestas, votar y comentar. SUPER_ADMIN/MARKETING
+  // también figuran en lastStatusChangedBy cuando mueven el status.
+  labProposals          LabProposal[] @relation("LabProposalAuthor")
+  labProposalsChanged   LabProposal[] @relation("LabProposalLastStatusChanger")
+  labVotes              LabVote[]
+  labComments           LabComment[]  @relation("LabCommentAuthor")
+
   @@index([tenantId])
   @@index([role])
 }
@@ -2969,6 +2977,7 @@ model SequenceExecution {
 }
 
 // ============================================================
+<<<<<<< HEAD
 //   COMMISSION EXCEPTIONS — item 6 sprint
 // ============================================================
 
@@ -3017,4 +3026,97 @@ model CommissionExceptionHistory {
   changedAt       DateTime @default(now())
 
   @@index([exceptionId, changedAt])
+=======
+//                       CLUBIFY LAB (item 13 sprint)
+// ============================================================
+// Sistema de propuestas de comunidad. Clientes / embajadores / vendedores
+// proponen mejoras → equipo Clubify revisa → propuestas aprobadas pasan a
+// votación pública → las más votadas entran al roadmap.
+
+enum LabCategory {
+  CLIENTS    /// Para negocios: tarjetas, Wallet, Delivery, QR, automatizaciones, etc.
+  AFFILIATES /// Para embajadores/influencers/vendedores: CRM, comisiones, prospectos, etc.
+}
+
+enum LabPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum LabStatus {
+  PENDING        /// propuesta nueva, no pública aún
+  REJECTED       /// equipo rechazó (no pública)
+  EVALUATING     /// en evaluación pública post-aprobación
+  APPROVED       /// aprobada para roadmap
+  IN_DEVELOPMENT /// en desarrollo
+  IN_TESTING     /// en pruebas
+  IMPLEMENTED    /// implementada
+}
+
+enum LabVoteKind {
+  LIKE          /// Me gusta
+  NEED          /// La necesito
+  HIGH_PRIORITY /// Alta prioridad
+  DISLIKE       /// No la considero necesaria
+}
+
+model LabProposal {
+  id              String      @id @default(cuid())
+  title           String
+  description     String      @db.Text
+  category        LabCategory
+  priority        LabPriority @default(MEDIUM)
+  expectedBenefit String?     @db.Text
+  status          LabStatus   @default(PENDING)
+  /// URL de un adjunto opcional (imagen/PDF/video subido a R2).
+  attachmentUrl   String?
+  attachmentKind  String? /// 'image' | 'pdf' | 'video' | 'document'
+  authorId        String
+  author          User        @relation("LabProposalAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  /// Si fue rechazada, motivo opcional para el autor.
+  rejectionReason String?     @db.Text
+  /// Counter denormalizado (sino las queries de "top votadas" se hacen lentas).
+  votesScore      Int         @default(0)
+  votesCount      Int         @default(0)
+  commentsCount   Int         @default(0)
+  /// Snapshot del último admin que cambió status (para mostrar quién lo movió).
+  lastStatusChangedById String?
+  lastStatusChangedBy   User?     @relation("LabProposalLastStatusChanger", fields: [lastStatusChangedById], references: [id], onDelete: SetNull)
+  lastStatusChangedAt   DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  votes    LabVote[]
+  comments LabComment[]
+
+  @@index([category, status, votesScore])
+  @@index([authorId])
+}
+
+model LabVote {
+  id         String      @id @default(cuid())
+  proposalId String
+  proposal   LabProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind       LabVoteKind
+  createdAt  DateTime    @default(now())
+
+  @@unique([proposalId, userId])
+  @@index([proposalId, kind])
+}
+
+model LabComment {
+  id         String      @id @default(cuid())
+  proposalId String
+  proposal   LabProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  authorId   String
+  author     User        @relation("LabCommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  body       String      @db.Text
+  createdAt  DateTime    @default(now())
+
+  @@index([proposalId, createdAt])
+>>>>>>> 80b3517 (feat(lab): Clubify Lab — sistema de propuestas de comunidad (item 13 sprint))
 }
