@@ -116,6 +116,9 @@ export default function ReviewsPage() {
             </span>
           )}
         </h1>
+        <Link href="/app/reviews/locations" className="btn-ghost text-sm">
+          🏢 Gestionar sedes (multi-ubicación)
+        </Link>
       </div>
 
       <div className="card card-pad mb-5">

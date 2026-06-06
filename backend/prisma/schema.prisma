@@ -1906,17 +1906,23 @@ model ReviewQrTarget {
   locationId      String?
   location        Location?        @relation(fields: [locationId], references: [id], onDelete: SetNull)
   name            String
+  /// Dirección legible mostrada en el selector de sede del /r/<slug>
+  /// cuando el negocio tiene 2+ sedes (multi-sede 2026-06-06).
+  address         String?
   /// URL completa de Google Reviews para esta sede.
   googleReviewUrl String
   /// Rating mínimo inclusive para redirigir a Google (1-5). Default 4.
   threshold       Int              @default(4)
   isActive        Boolean          @default(true)
+  /// Orden de display en el selector multi-sede y admin (drag-and-drop).
+  position        Int              @default(0)
   feedbacks       ReviewFeedback[]
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
   @@index([tenantId])
   @@index([locationId])
+  @@index([tenantId, isActive, position])
 }
 
 // ============================================================
