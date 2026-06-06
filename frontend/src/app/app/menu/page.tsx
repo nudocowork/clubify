@@ -53,6 +53,8 @@ type Product = {
   imageUrl: string | null;
   tags: string[];
   isAvailable: boolean;
+  availableForMesa?: boolean;
+  availableForDelivery?: boolean;
   isRecommended?: boolean;
   categoryId: string;
   stock: number | null;
@@ -316,6 +318,8 @@ export default function MenuEditor() {
       imageUrl: '',
       tags: [],
       isAvailable: true,
+      availableForMesa: true,
+      availableForDelivery: true,
       isRecommended: false,
       variants: [],
       extras: [],
@@ -354,6 +358,8 @@ export default function MenuEditor() {
       imageUrl: p.imageUrl || undefined,
       tags: p.tags ?? [],
       isAvailable: p.isAvailable ?? true,
+      availableForMesa: p.availableForMesa ?? true,
+      availableForDelivery: p.availableForDelivery ?? true,
       isRecommended: p.isRecommended ?? false,
       stock: p.stock ?? null,
       stockAlert: p.stockAlert ?? null,
@@ -853,15 +859,51 @@ export default function MenuEditor() {
                       )}
                       <span className="truncate" title={p.name}>{p.name}</span>
                     </div>
-                    {p.tags.length > 0 && (
-                      <div className="flex gap-1 mt-1 flex-wrap">
-                        {p.tags.map((t) => (
-                          <span key={t} className="badge badge-info text-[10px]">
-                            {t}
-                          </span>
-                        ))}
-                      </div>
-                    )}
+                    {(() => {
+                      // Badges de visibilidad por canal — separación menú
+                      // mesa vs delivery (2026-06-06). Productos creados
+                      // antes de la migration tienen los flags en true por
+                      // defecto. Si ambos están OFF, mostramos warning rojo.
+                      const onMesa = p.availableForMesa ?? true;
+                      const onDelivery = p.availableForDelivery ?? true;
+                      const noChannels = !onMesa && !onDelivery;
+                      return (
+                        <div className="flex gap-1 mt-1 flex-wrap items-center">
+                          {noChannels ? (
+                            <span
+                              className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-800"
+                              title="Este producto no aparecerá en ningún menú público — actívalo en al menos un canal."
+                            >
+                              ⚠️ Sin menú
+                            </span>
+                          ) : (
+                            <>
+                              {onMesa && (
+                                <span
+                                  className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800"
+                                  title="Visible en el menú mesa (/m/<slug>)"
+                                >
+                                  🍽️ Mesa
+                                </span>
+                              )}
+                              {onDelivery && (
+                                <span
+                                  className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-100 text-sky-800"
+                                  title="Visible en el menú delivery (/m/<slug>/delivery)"
+                                >
+                                  🚚 Delivery
+                                </span>
+                              )}
+                            </>
+                          )}
+                          {p.tags.map((t) => (
+                            <span key={t} className="badge badge-info text-[10px]">
+                              {t}
+                            </span>
+                          ))}
+                        </div>
+                      );
+                    })()}
                   </div>
                   <div
                     style={{ width: w.price, maxWidth: w.price }}
@@ -1880,6 +1922,67 @@ function ProductDrawer({
               </div>
             </div>
           </label>
+
+          {/* Visibilidad por canal (separación menú mesa vs delivery, 2026-06-06). */}
+          <fieldset className="border border-line rounded-lg p-3">
+            <legend className="px-1 text-xs font-semibold text-mute">
+              Visibilidad en menús públicos
+            </legend>
+            {(() => {
+              const onMesa = form.availableForMesa ?? true;
+              const onDelivery = form.availableForDelivery ?? true;
+              const noChannels = !onMesa && !onDelivery;
+              return (
+                <>
+                  <label className="flex items-start gap-2.5 py-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={onMesa}
+                      onChange={(e) =>
+                        update('availableForMesa', e.target.checked)
+                      }
+                      className="mt-0.5"
+                    />
+                    <div className="flex-1">
+                      <div className="text-sm font-semibold">
+                        🍽️ Disponible en menú mesa
+                      </div>
+                      <div className="text-xs text-mute mt-0.5">
+                        Aparece en <code>/m/&lt;slug&gt;</code> — vista
+                        informativa que ven los clientes desde el QR de mesa.
+                      </div>
+                    </div>
+                  </label>
+                  <label className="flex items-start gap-2.5 py-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={onDelivery}
+                      onChange={(e) =>
+                        update('availableForDelivery', e.target.checked)
+                      }
+                      className="mt-0.5"
+                    />
+                    <div className="flex-1">
+                      <div className="text-sm font-semibold">
+                        🚚 Disponible en menú delivery
+                      </div>
+                      <div className="text-xs text-mute mt-0.5">
+                        Aparece en <code>/m/&lt;slug&gt;/delivery</code> — vista
+                        con carrito para pedir a domicilio.
+                      </div>
+                    </div>
+                  </label>
+                  {noChannels && (
+                    <div className="mt-2 rounded-md bg-red-50 border border-red-200 px-2.5 py-1.5 text-xs text-red-800">
+                      ⚠️ Este producto no aparecerá en ningún menú público.
+                      Actívalo en al menos un canal para que los clientes
+                      puedan verlo.
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </fieldset>
 
           <fieldset className="border border-line rounded-lg p-3">
             <legend className="px-1 text-xs font-semibold text-mute">

@@ -10,6 +10,7 @@ import {
   IsArray,
   IsEmail,
   IsEnum,
+  IsIn,
   IsInt,
   IsObject,
   IsOptional,
@@ -47,6 +48,11 @@ class PublicOrderBody {
   @IsOptional() @IsObject() deliveryAddress?: any;
   @IsOptional() @IsString() customerNote?: string;
   @IsOptional() @IsString() locationId?: string;
+  // Menú público de origen: 'MESA' o 'DELIVERY'. Redundante con
+  // `fulfillment`/`deliveryAddress` pero el frontend lo manda explícito
+  // según la ruta (`/m/<slug>` vs `/m/<slug>/delivery`) y lo guardamos
+  // para reportes y para futuras reglas de negocio per-canal.
+  @IsOptional() @IsIn(['MESA', 'DELIVERY']) mode?: 'MESA' | 'DELIVERY';
 }
 
 class PublicRateBody {

@@ -972,6 +972,12 @@ model Product {
   imageUrl      String?
   tags          String[]
   isAvailable   Boolean  @default(true)
+  /// Visibilidad en cada uno de los dos menús públicos separados:
+  /// `/m/<slug>` (mesa) y `/m/<slug>/delivery`. Default true en ambos para
+  /// que productos creados antes de la separación sigan apareciendo en los
+  /// dos canales; el dueño los apaga manualmente desde el modal de producto.
+  availableForMesa     Boolean @default(true)
+  availableForDelivery Boolean @default(true)
   /// Marca el producto como "Recomendado". Aparece en una sección virtual
   /// arriba de las categorías en el menú público para empujar las ventas.
   isRecommended Boolean  @default(false)
@@ -1093,6 +1099,12 @@ model Order {
   status          OrderStatus  @default(PENDING)
   channel         OrderChannel @default(WHATSAPP_LINK)
   fulfillment     Fulfillment  @default(PICKUP)
+  /// Discriminador explícito del menú público desde donde se generó la orden:
+  /// 'MESA' o 'DELIVERY'. Es redundante con `fulfillment`/`deliveryAddress`
+  /// pero permite reportes y filtros sin inferir. Nullable para back compat
+  /// con órdenes previas a la separación de menús (2026-06-06).
+  mode            String?
+
   tableNumber     String?
   deliveryAddress Json?
   customerNote    String?
