@@ -9,6 +9,7 @@ import {
   Fulfillment,
   OrderStatus,
   Prisma,
+  TenantStatus,
 } from '@prisma/client';
 import { customAlphabet } from 'nanoid';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -418,12 +419,18 @@ export class OrdersService {
     });
 
     // Emit event para automations
-    this.automations.emit('ORDER_CREATED', {
-      tenantId: tenant.id,
-      orderId: order.id,
-      customerId: customer.id,
-      total,
-    }).catch(() => null);
+    this.automations
+      .emit('ORDER_CREATED', {
+        tenantId: tenant.id,
+        orderId: order.id,
+        customerId: customer.id,
+        total,
+      })
+      .catch((e) =>
+        this.logger.warn(
+          `automations ORDER_CREATED order=${order.id} falló: ${e?.message ?? e}`,
+        ),
+      );
 
     await this.prisma.event.create({
       data: {
@@ -440,7 +447,11 @@ export class OrdersService {
       () => null,
     );
 
-    this.broadcast(order.id).catch(() => null);
+    this.broadcast(order.id).catch((e) =>
+      this.logger.warn(
+        `broadcast createPublic order=${order.id} falló: ${e?.message ?? e}`,
+      ),
+    );
 
     // Email transaccional al cliente (best-effort)
     if (customer.email) {
@@ -513,6 +524,7 @@ export class OrdersService {
     },
   ) {
     const tid = this.tid(user, override);
+    await this.assertTenantActive(tid);
     if (!dto.items?.length) throw new BadRequestException('Carrito vacío');
 
     const customer = await this.prisma.customer.findUnique({
@@ -626,7 +638,11 @@ export class OrdersService {
           customerId: customer.id,
           total,
         })
-        .catch(() => null);
+        .catch((e) =>
+          this.logger.warn(
+            `automations ORDER_CONFIRMED order=${order.id} falló: ${e?.message ?? e}`,
+          ),
+        );
     }
     if (status === 'DELIVERED') {
       this.automations
@@ -635,7 +651,11 @@ export class OrdersService {
           orderId: order.id,
           customerId: customer.id,
         })
-        .catch(() => null);
+        .catch((e) =>
+          this.logger.warn(
+            `automations ORDER_DELIVERED order=${order.id} falló: ${e?.message ?? e}`,
+          ),
+        );
     }
 
     await this.prisma.event.create({
@@ -647,7 +667,11 @@ export class OrdersService {
       },
     });
 
-    this.broadcast(order.id).catch(() => null);
+    this.broadcast(order.id).catch((e) =>
+      this.logger.warn(
+        `broadcast createInternal order=${order.id} falló: ${e?.message ?? e}`,
+      ),
+    );
 
     return order;
   }
@@ -714,7 +738,11 @@ export class OrdersService {
         rating,
         hasComment: !!trimmed,
       })
-      .catch(() => null);
+      .catch((e) =>
+        this.logger.warn(
+          `automations ORDER_RATED order=${o.id} falló: ${e?.message ?? e}`,
+        ),
+      );
 
     return { ok: true, rating: updated.rating, ratedAt: updated.ratedAt };
   }
@@ -730,8 +758,28 @@ export class OrdersService {
     return user.tenantId;
   }
 
+  /**
+   * Valida que el tenant esté activo antes de mutar pedidos. ACTIVE y TRIAL
+   * pasan; SUSPENDED bloquea con ForbiddenException claro para el panel.
+   */
+  private async assertTenantActive(tenantId: string) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { status: true },
+    });
+    if (!tenant) throw new NotFoundException('Tenant no encontrado');
+    const blocked: TenantStatus[] = ['SUSPENDED'];
+    if (blocked.includes(tenant.status)) {
+      throw new ForbiddenException(
+        'La cuenta no está activa. Reactiva tu suscripción para gestionar pedidos.',
+      );
+    }
+  }
+
   list(user: AuthUser, override?: string, status?: OrderStatus) {
     const tid = this.tid(user, override);
+    // `items` es Json scalar — Prisma lo devuelve siempre sin necesidad de
+    // include/select. El frontend lee o.items.length (orders/page.tsx).
     return this.prisma.order.findMany({
       where: { tenantId: tid, ...(status ? { status } : {}) },
       include: {
@@ -746,6 +794,8 @@ export class OrdersService {
     const tid = this.tid(user, override);
     const window = Math.max(1, Math.min(90, days));
     const since = new Date(Date.now() - window * 24 * 60 * 60 * 1000);
+    // `items` es Json scalar — Prisma lo devuelve siempre sin necesidad de
+    // include/select. El frontend lee o.items.length.
     const all = await this.prisma.order.findMany({
       where: {
         tenantId: tid,
@@ -791,6 +841,27 @@ export class OrdersService {
     const o = await this.get(user, id);
     if (o.status === next) return o;
 
+    // Bloquear si la cuenta del tenant no está activa. Aplica también a
+    // super admin para mantener consistencia con createInternal.
+    await this.assertTenantActive(o.tenantId);
+
+    // Máquina de estados: solo transiciones lógicas. DELIVERED y CANCELLED
+    // son finales. Super admin puede saltarse para casos de soporte.
+    if (user.role !== 'SUPER_ADMIN') {
+      const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
+        PENDING: ['CONFIRMED', 'CANCELLED'],
+        CONFIRMED: ['READY', 'CANCELLED'],
+        READY: ['DELIVERED', 'CANCELLED'],
+        DELIVERED: [],
+        CANCELLED: [],
+      };
+      if (!VALID_TRANSITIONS[o.status].includes(next)) {
+        throw new BadRequestException(
+          `Transición inválida: ${o.status} → ${next}`,
+        );
+      }
+    }
+
     const stamp: Record<string, Date | null> = {};
     if (next === 'CONFIRMED') stamp.confirmedAt = new Date();
     if (next === 'READY') stamp.readyAt = new Date();
@@ -814,19 +885,31 @@ export class OrdersService {
     // Si se confirma, intentar auto-sello + automation
     if (next === 'CONFIRMED') {
       await this.autoStampOnConfirm(o.tenantId, o.customerId, o.id).catch(() => null);
-      this.automations.emit('ORDER_CONFIRMED', {
-        tenantId: o.tenantId,
-        orderId: id,
-        customerId: o.customerId,
-        total: Number(o.total),
-      }).catch(() => null);
+      this.automations
+        .emit('ORDER_CONFIRMED', {
+          tenantId: o.tenantId,
+          orderId: id,
+          customerId: o.customerId,
+          total: Number(o.total),
+        })
+        .catch((e) =>
+          this.logger.warn(
+            `automations ORDER_CONFIRMED order=${id} falló: ${e?.message ?? e}`,
+          ),
+        );
     }
     if (next === 'DELIVERED') {
-      this.automations.emit('ORDER_DELIVERED', {
-        tenantId: o.tenantId,
-        orderId: id,
-        customerId: o.customerId,
-      }).catch(() => null);
+      this.automations
+        .emit('ORDER_DELIVERED', {
+          tenantId: o.tenantId,
+          orderId: id,
+          customerId: o.customerId,
+        })
+        .catch((e) =>
+          this.logger.warn(
+            `automations ORDER_DELIVERED order=${id} falló: ${e?.message ?? e}`,
+          ),
+        );
     }
 
     await this.prisma.event.create({
@@ -852,7 +935,11 @@ export class OrdersService {
       ).catch(() => null);
     }
 
-    this.broadcast(id).catch(() => null);
+    this.broadcast(id).catch((e) =>
+      this.logger.warn(
+        `broadcast setStatus order=${id} falló: ${e?.message ?? e}`,
+      ),
+    );
 
     // Emails transaccionales para cambios clave
     if (next === 'CONFIRMED' || next === 'READY') {
@@ -928,7 +1015,11 @@ export class OrdersService {
       updated.customer,
     );
 
-    this.broadcast(id).catch(() => null);
+    this.broadcast(id).catch((e) =>
+      this.logger.warn(
+        `broadcast acceptDeliveryPayment order=${id} falló: ${e?.message ?? e}`,
+      ),
+    );
 
     return {
       order: updated,
