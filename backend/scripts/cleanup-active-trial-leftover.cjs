@@ -26,7 +26,7 @@ const { PrismaClient } = require('@prisma/client');
 
   const before = await prisma.tenant.count({
     where: {
-      status: { in: ['ACTIVE', 'PAST_DUE', 'SUSPENDED'] },
+      status: { in: ['ACTIVE', 'SUSPENDED'] },
       trialEndsAt: { not: null },
     },
   });
@@ -40,7 +40,7 @@ const { PrismaClient } = require('@prisma/client');
 
   const r = await prisma.tenant.updateMany({
     where: {
-      status: { in: ['ACTIVE', 'PAST_DUE', 'SUSPENDED'] },
+      status: { in: ['ACTIVE', 'SUSPENDED'] },
       trialEndsAt: { not: null },
     },
     data: { trialEndsAt: null },
