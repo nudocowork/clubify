@@ -1,11 +1,9 @@
 'use client';
 
 /**
- * Wrapper de Recharts simplificado para los previews del dashboard.
- * Sirve para mini-line y mini-area. Si se pasa `area`, dibuja un área con
- * gradiente; sino, una línea simple. Tooltip y ejes opcionales.
- *
- * Solo se usa en /admin/dashboard-preview. NO toca panel admin oficial.
+ * Wrapper de Recharts simplificado del dashboard admin (Premium).
+ * Si se pasa `area`, dibuja un área con gradiente; sino, una línea
+ * simple. Tooltip y ejes opcionales.
  */
 
 import {

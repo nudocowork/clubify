@@ -1,9 +1,12 @@
 'use client';
 
 /**
- * Preview 5 — PREMIUM (Stripe / Vercel / Linear inspired).
- * Hero ARR + 4 KPIs + 2 charts + mini map + actividad reciente.
- * Glassmorphism, gradients sutiles, tipografía Inter.
+ * Dashboard admin oficial — Premium (Stripe / Vercel / Linear inspired).
+ * Hero ARR + 4 KPIs + 2 charts + pipeline ring + actividad reciente.
+ * Glassmorphism, gradients sutiles.
+ *
+ * Promovido desde /admin/dashboard-preview el 2026-06-07 — el founder
+ * eligió esta de las 5 propuestas.
  */
 
 import { useMemo } from 'react';
@@ -22,14 +25,14 @@ import { KpiCard } from './KpiCard';
 import { MiniLineChart } from './MiniLineChart';
 import { EmptyState } from './EmptyState';
 import {
-  usePreviewData,
+  useDashboardData,
   usd,
   fmtDate,
   buildSimulatedMrrSeries,
 } from './shared';
 
-export function PreviewPremium() {
-  const { global, dashboard, tenants, loading } = usePreviewData();
+export function PremiumDashboard() {
+  const { global, dashboard, tenants, loading } = useDashboardData();
 
   // Crecimiento mes a mes — derivado de la serie simulada.
   const revenueSeries = useMemo(
@@ -85,7 +88,7 @@ export function PreviewPremium() {
   }, [tenants]);
 
   if (loading && !global) {
-    return <EmptyState text="Cargando vista premium…" icon="chart" />;
+    return <EmptyState text="Cargando dashboard…" icon="chart" />;
   }
 
   return (
@@ -98,13 +101,6 @@ export function PreviewPremium() {
             'radial-gradient(circle at 20% 0%, rgba(34,197,94,.08), transparent 50%), radial-gradient(circle at 80% 100%, rgba(99,102,241,.06), transparent 50%)',
         }}
       />
-
-      <div className="mb-5">
-        <h2 className="text-2xl font-bold text-ink">Vista premium</h2>
-        <p className="text-sm text-mute mt-1">
-          Métricas SaaS de alto nivel, diseñadas para escala.
-        </p>
-      </div>
 
       {/* Hero ARR card */}
       <div className="rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-900 text-white p-6 md:p-8 shadow-md2 mb-5">
