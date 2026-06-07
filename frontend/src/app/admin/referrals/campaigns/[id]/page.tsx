@@ -106,11 +106,23 @@ export default function CampaignDetailPage() {
     patch: Partial<{ name: string; ownerCommissionPercent: number }>,
   ) {
     try {
-      await api(`/campaigns/${id}`, {
+      const res = await api<{
+        recalc?: { updated: number; skippedPaid: number; affectedAmount: number } | null;
+      }>(`/campaigns/${id}`, {
         method: 'PATCH',
         body: JSON.stringify(patch),
       });
-      toast('Cambios guardados', 'success');
+      if (res?.recalc && res.recalc.updated > 0) {
+        toast(
+          `Cambios guardados. ${res.recalc.updated} comisiones recalculadas` +
+            (res.recalc.skippedPaid > 0
+              ? ` (${res.recalc.skippedPaid} ya pagadas quedaron intactas).`
+              : '.'),
+          'success',
+        );
+      } else {
+        toast('Cambios guardados', 'success');
+      }
       load();
     } catch (e: any) {
       toast(e.message ?? 'No se pudo guardar', 'error');

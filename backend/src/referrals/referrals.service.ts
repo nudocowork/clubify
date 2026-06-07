@@ -7,6 +7,8 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { AuthService } from '../auth/auth.service';
 import { CommissionExceptionsService } from '../admin/commission-exceptions.service';
+import { CommissionRecalcService } from './commission-recalc.service';
+import { AuditService } from '../audit/audit.service';
 
 const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
 
@@ -31,6 +33,8 @@ export class ReferralsService {
     private auth: AuthService,
     private jwt: JwtService,
     private commissionExceptions: CommissionExceptionsService,
+    private recalc: CommissionRecalcService,
+    private audit: AuditService,
   ) {}
 
   /**
@@ -2568,7 +2572,7 @@ export class ReferralsService {
       }
     }
 
-    return this.prisma.referralCode.update({
+    const updated = await this.prisma.referralCode.update({
       where: { id: vendor.id },
       data: {
         ownerName: patch.fullName ?? undefined,
@@ -2580,6 +2584,29 @@ export class ReferralsService {
             : undefined,
       },
     });
+
+    // Fase E 2026-06-07: si cambió el %, recalcular comisiones
+    // PENDING/APPROVED para que el cambio se refleje inmediato.
+    if (
+      patch.commissionPercent !== undefined &&
+      Number(vendor.commissionPercent ?? 0) !== patch.commissionPercent
+    ) {
+      await this.audit.log({
+        actorId: user.id,
+        action: 'vendor.percent.updated',
+        resource: `ReferralCode:${vendor.id}`,
+        metadata: {
+          previousPercent: Number(vendor.commissionPercent ?? 0),
+          newPercent: patch.commissionPercent,
+        },
+      });
+      await this.recalc.recalcForRecipientCode({
+        recipientCodeId: vendor.id,
+        actorId: user.id,
+        reason: `Vendedor ${vendor.code} — % actualizado`,
+      });
+    }
+    return updated;
   }
 
   /** Desactiva vendedor (soft). Sus commissions históricas se mantienen. */

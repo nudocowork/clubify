@@ -11,6 +11,8 @@ import { CampaignStatus } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { AuthService } from '../auth/auth.service';
+import { CommissionRecalcService } from '../referrals/commission-recalc.service';
+import { AuditService } from '../audit/audit.service';
 
 const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
 
@@ -42,7 +44,12 @@ export type CreateAmbassadorDto = {
 export class CampaignsService {
   private logger = new Logger(CampaignsService.name);
 
-  constructor(private prisma: PrismaService, private auth: AuthService) {}
+  constructor(
+    private prisma: PrismaService,
+    private auth: AuthService,
+    private recalc: CommissionRecalcService,
+    private audit: AuditService,
+  ) {}
 
   private assertAdmin(user: AuthUser) {
     if (user.role !== 'SUPER_ADMIN') {
@@ -284,25 +291,52 @@ export class CampaignsService {
   ) {
     this.assertAdmin(user);
 
+    let recalcSummary:
+      | { updated: number; skippedPaid: number; affectedAmount: number }
+      | null = null;
+
     if (patch.ownerCommissionPercent !== undefined) {
       const camp = await this.prisma.campaign.findUnique({
         where: { id },
         select: { ownerCodeId: true },
       });
       if (!camp) throw new NotFoundException('Campaña');
+      const previous = await this.prisma.referralCode.findUnique({
+        where: { id: camp.ownerCodeId },
+        select: { commissionPercent: true },
+      });
       await this.prisma.referralCode.update({
         where: { id: camp.ownerCodeId },
         data: { commissionPercent: patch.ownerCommissionPercent },
       });
+      await this.audit.log({
+        actorId: user.id,
+        action: 'campaign.percent.updated',
+        resource: `Campaign:${id}`,
+        metadata: {
+          ownerCodeId: camp.ownerCodeId,
+          previousPercent: Number(previous?.commissionPercent ?? 0),
+          newPercent: patch.ownerCommissionPercent,
+        },
+      });
+      // Fase E 2026-06-07: recálculo en tiempo real de comisiones
+      // PENDING/APPROVED para que el cambio se refleje inmediato en
+      // /admin/commissions, rankings y panel afiliado.
+      recalcSummary = await this.recalc.recalcForRecipientCode({
+        recipientCodeId: camp.ownerCodeId,
+        actorId: user.id,
+        reason: `Campaña ${id} — % actualizado`,
+      });
     }
 
-    return this.prisma.campaign.update({
+    const updated = await this.prisma.campaign.update({
       where: { id },
       data: {
         name: patch.name?.trim(),
         status: patch.status,
       },
     });
+    return { ...updated, recalc: recalcSummary };
   }
 
   async addAmbassador(user: AuthUser, campaignId: string, dto: CreateAmbassadorDto) {
