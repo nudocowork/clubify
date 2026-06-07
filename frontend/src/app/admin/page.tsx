@@ -1,99 +1,25 @@
 'use client';
-import Link from 'next/link';
+/**
+ * Dashboard admin (oficial — Premium). Promovido del set de propuestas
+ * el 2026-06-07. El layout y los KPIs viven en
+ * `components/admin-dashboard/PremiumDashboard.tsx` y reusan los mismos
+ * endpoints de métricas globales / dashboard / tenants / trials.
+ *
+ * El alert de expiringSoon se mantiene como hero por sobre el dashboard
+ * (es accionable y aparece arriba si hay pendientes).
+ */
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
+import { PremiumDashboard } from '@/components/admin-dashboard/PremiumDashboard';
 
-type Metrics = {
-  tenants: number;
-  activeTenants: number;
-  trialTenants: number;
-  suspendedTenants: number;
-  expiringSoon: number;
-  passes: number;
-  customers: number;
-  orders30: number;
-  revenue30: number;
-  mrrUsd: number;
-  arrUsd: number;
-  planBreakdown: Record<string, { count: number; mrr: number }>;
-  churnedLast30: number;
-  conversionRate30: number | null;
-  newSignups7: number;
-  pendingCommissions: number;
-};
-
-type DashboardMetrics = {
-  comisionesGeneradasMesUsd: number;
-  comisionesPendientesUsd: number;
-  comisionesPagadasMesUsd: number;
-  proximasRenovaciones: number;
-  clientesActivos: number;
-  clientesVencidos: number;
-  salesByPlan: Array<{
-    periodicity: string;
-    label: string;
-    count: number;
-    billingUsd: number;
-  }>;
-  generatedAt: string;
-};
-
-const KPI = ({
-  label,
-  value,
-  sub,
-  icon,
-  tone = 'neutral',
-  href,
-}: {
-  label: string;
-  value: React.ReactNode;
-  sub?: string;
-  icon: Parameters<typeof Icon>[0]['name'];
-  tone?: 'neutral' | 'ok' | 'brand' | 'warn' | 'bad';
-  href?: string;
-}) => {
-  const toneClass = {
-    neutral: 'text-mute',
-    ok: 'text-ok',
-    brand: 'text-brand',
-    warn: 'text-warn',
-    bad: 'text-bad',
-  }[tone];
-  const valueClass = {
-    neutral: 'text-ink',
-    ok: 'text-ok',
-    brand: 'text-brand',
-    warn: 'text-warn',
-    bad: 'text-bad',
-  }[tone];
-  const inner = (
-    <div className="kpi h-full">
-      <div className="kpi-top">
-        <div className={`kpi-lbl ${toneClass}`}>
-          <Icon name={icon} size={14} /> {label}
-        </div>
-      </div>
-      <div className={`kpi-val ${valueClass}`}>{value}</div>
-      {sub && <div className="kpi-sub">{sub}</div>}
-    </div>
-  );
-  return href ? (
-    <Link href={href} className="block hover:shadow-md transition rounded-card">
-      {inner}
-    </Link>
-  ) : (
-    inner
-  );
-};
+type Metrics = { expiringSoon: number };
 
 export default function AdminDashboard() {
   const [m, setM] = useState<Metrics | null>(null);
-  const [dm, setDm] = useState<DashboardMetrics | null>(null);
   useEffect(() => {
     api<Metrics>('/metrics/global').then(setM).catch(() => null);
-    api<DashboardMetrics>('/admin/dashboard/metrics').then(setDm).catch(() => null);
   }, []);
 
   const today = new Date().toLocaleDateString('es-CO', {
@@ -101,9 +27,6 @@ export default function AdminDashboard() {
     day: 'numeric',
     month: 'long',
   });
-
-  const usdFmt = (n: number) =>
-    `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 
   return (
     <div>
@@ -131,213 +54,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* Revenue: MRR + ARR + breakdown */}
-      <div className="grid gap-3.5 grid-cols-1 md:grid-cols-3 mb-4">
-        <KPI
-          label="MRR"
-          value={usdFmt(m?.mrrUsd ?? 0)}
-          sub={
-            m?.planBreakdown && Object.keys(m.planBreakdown).length > 0
-              ? Object.entries(m.planBreakdown)
-                  .map(([name, b]) => `${b.count} ${name}`)
-                  .join(' · ')
-              : 'sin negocios activos aún'
-          }
-          icon="cash"
-          tone="brand"
-        />
-        <KPI
-          label="ARR"
-          value={usdFmt(m?.arrUsd ?? 0)}
-          sub="MRR × 12"
-          icon="cash"
-          tone="ok"
-        />
-        <KPI
-          label="Conversión 30d"
-          value={
-            m?.conversionRate30 !== null && m?.conversionRate30 !== undefined
-              ? `${m.conversionRate30}%`
-              : '—'
-          }
-          sub={`${m?.churnedLast30 ?? 0} churn este mes`}
-          icon="spark"
-          tone={
-            m?.conversionRate30 !== null && m?.conversionRate30 !== undefined
-              ? m.conversionRate30 >= 50
-                ? 'ok'
-                : m.conversionRate30 >= 25
-                ? 'warn'
-                : 'bad'
-              : 'neutral'
-          }
-        />
-      </div>
-
-      {/* Revenue de pedidos + comisiones */}
-      <div className="grid gap-3.5 grid-cols-1 md:grid-cols-2 mb-4">
-        <KPI
-          label="Revenue de pedidos 30d"
-          value={`$${(m?.revenue30 ?? 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })}`}
-          sub={`${m?.orders30 ?? 0} pedidos en todos los negocios`}
-          icon="shopping-bag"
-          tone="ok"
-        />
-        <KPI
-          label="Comisiones pendientes"
-          value={`$${Number(m?.pendingCommissions ?? 0).toLocaleString('es-CO')}`}
-          sub="por pagar a referrers"
-          icon="gift"
-          tone="warn"
-          href="/admin/referrals"
-        />
-      </div>
-
-      {/* Tenants pipeline */}
-      <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
-        Pipeline de negocios
-      </div>
-      <div className="grid gap-3.5 grid-cols-2 md:grid-cols-4 mb-4">
-        <KPI
-          label="Total"
-          value={m?.tenants ?? '–'}
-          sub={`${m?.newSignups7 ?? 0} nuevos esta semana`}
-          icon="store"
-          href="/admin/tenants"
-        />
-        <KPI
-          label="Activos"
-          value={m?.activeTenants ?? '–'}
-          sub="suscripción al día"
-          icon="check"
-          tone="ok"
-          href="/admin/tenants"
-        />
-        <KPI
-          label="Sin pago aún"
-          value={m?.trialTenants ?? '–'}
-          sub="esperando confirmación Hotmart"
-          icon="spark"
-          tone="brand"
-          href="/admin/tenants"
-        />
-        <KPI
-          label="Suspendidos"
-          value={m?.suspendedTenants ?? '–'}
-          sub="pago fallido o cancelado"
-          icon="bell"
-          tone="bad"
-          href="/admin/tenants"
-        />
-      </div>
-
-      {/* Comisiones del mes + cobros */}
-      <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
-        Comisiones · este mes
-      </div>
-      <div className="grid gap-3.5 grid-cols-2 md:grid-cols-4 mb-4">
-        <KPI
-          label="Generadas este mes"
-          value={`$${Number(dm?.comisionesGeneradasMesUsd ?? 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}`}
-          sub="suma de commission.amount"
-          icon="cash"
-          tone="brand"
-          href="/admin/reports/ambassadors"
-        />
-        <KPI
-          label="Pagadas este mes"
-          value={`$${Number(dm?.comisionesPagadasMesUsd ?? 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}`}
-          sub="amountPaid de PAID/PARTIAL"
-          icon="check"
-          tone="ok"
-        />
-        <KPI
-          label="Pendientes (total)"
-          value={`$${Number(dm?.comisionesPendientesUsd ?? 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}`}
-          sub="por pagar a afiliados"
-          icon="bell"
-          tone="warn"
-          href="/admin/referrals"
-        />
-        <KPI
-          label="Próximas renovaciones"
-          value={dm?.proximasRenovaciones ?? '–'}
-          sub="próximos 30 días"
-          icon="card"
-          tone="brand"
-          href="/admin/tenants"
-        />
-      </div>
-
-      {/* Clientes activos vs vencidos */}
-      <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
-        Clientes
-      </div>
-      <div className="grid gap-3.5 grid-cols-2 md:grid-cols-2 mb-4">
-        <KPI
-          label="Clientes activos"
-          value={dm?.clientesActivos ?? m?.activeTenants ?? '–'}
-          sub="suscripción al día"
-          icon="users"
-          tone="ok"
-        />
-        <KPI
-          label="Clientes vencidos"
-          value={dm?.clientesVencidos ?? '–'}
-          sub="suspendidos o sin renovar"
-          icon="bell"
-          tone="bad"
-        />
-      </div>
-
-      {/* Ventas por plan */}
-      <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
-        Ventas por plan
-      </div>
-      <div className="grid gap-3.5 grid-cols-2 md:grid-cols-4 mb-4">
-        {(dm?.salesByPlan ?? [
-          { periodicity: 'MENSUAL', label: 'Mensual', count: 0, billingUsd: 0 },
-          { periodicity: 'TRIMESTRAL', label: 'Trimestral', count: 0, billingUsd: 0 },
-          { periodicity: 'SEMESTRAL', label: 'Semestral', count: 0, billingUsd: 0 },
-          { periodicity: 'ANUAL', label: 'Anual', count: 0, billingUsd: 0 },
-        ]).map((p) => (
-          <KPI
-            key={p.periodicity}
-            label={p.label}
-            value={p.count}
-            sub={`$${Number(p.billingUsd).toLocaleString('en-US', { maximumFractionDigits: 0 })} facturación`}
-            icon="store"
-            tone="brand"
-          />
-        ))}
-      </div>
-
-      {/* Activity */}
-      <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
-        Actividad acumulada
-      </div>
-      <div className="grid gap-3.5 grid-cols-2 md:grid-cols-3">
-        <KPI
-          label="Pases emitidos"
-          value={m?.passes ?? '–'}
-          sub="todos los tenants"
-          icon="card"
-          tone="brand"
-        />
-        <KPI
-          label="Clientes finales"
-          value={m?.customers ?? '–'}
-          sub="acumulados"
-          icon="users"
-        />
-        <KPI
-          label="Pedidos 30d"
-          value={m?.orders30 ?? '–'}
-          sub="en todos los negocios"
-          icon="shopping-bag"
-          tone="ok"
-        />
-      </div>
+      <PremiumDashboard />
     </div>
   );
 }

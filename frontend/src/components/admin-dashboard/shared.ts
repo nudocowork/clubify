@@ -1,8 +1,7 @@
 'use client';
 
 /**
- * Tipos compartidos + helpers para los 5 previews de dashboard.
- * Solo se usan en /admin/dashboard-preview.
+ * Tipos + helpers + hook compartido del dashboard admin Premium.
  */
 
 import { useEffect, useState } from 'react';
@@ -146,7 +145,7 @@ export const fmtDate = (d: string | null | undefined) => {
 };
 
 // ─── Hook que carga los datos comunes una sola vez ───
-export type PreviewData = {
+export type DashboardData = {
   global: GlobalMetrics | null;
   dashboard: DashboardMetrics | null;
   tenants: TenantRow[] | null;
@@ -154,7 +153,7 @@ export type PreviewData = {
   loading: boolean;
 };
 
-export function usePreviewData(): PreviewData {
+export function useDashboardData(): DashboardData {
   const [global, setGlobal] = useState<GlobalMetrics | null>(null);
   const [dashboard, setDashboard] = useState<DashboardMetrics | null>(null);
   const [tenants, setTenants] = useState<TenantRow[] | null>(null);

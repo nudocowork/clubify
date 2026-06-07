@@ -1,8 +1,7 @@
 'use client';
 
 /**
- * Card reusable de KPI para los previews de dashboard.
- * NO toca el panel admin real — solo se usa en /admin/dashboard-preview.
+ * Card reusable de KPI del dashboard admin (Premium).
  *
  * Props:
  *  - label: texto pequeño arriba (uppercase wrapper aplica visualmente).
