@@ -455,4 +455,23 @@ export class CommissionExceptionsService {
       );
     }
   }
+
+  /**
+   * Resuelve el % efectivo para un (tenant, recipientCode):
+   * si existe una excepción activa, ese % gana; sino, fallback.
+   * Helper compartido — antes vivía duplicado en hotmart.service y
+   * referrals.service con nombres distintos (riesgo de drift).
+   */
+  async resolvePercent(
+    tenantId: string,
+    recipientCodeId: string,
+    fallbackPercent: number,
+  ): Promise<number> {
+    const exc = await this.prisma.commissionException.findUnique({
+      where: { tenantId_recipientCodeId: { tenantId, recipientCodeId } },
+      select: { customPercent: true, isActive: true },
+    });
+    if (exc && exc.isActive) return Number(exc.customPercent);
+    return fallbackPercent;
+  }
 }

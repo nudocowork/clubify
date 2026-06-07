@@ -105,6 +105,6 @@ export class BroadcastsPublicController {
 
   @Post(':id/read')
   markRead(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.svc.markRead(id, user.id);
+    return this.svc.markRead(id, user);
   }
 }

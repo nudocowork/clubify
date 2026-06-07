@@ -6,9 +6,10 @@ import {
   SellerRegistrationController,
 } from './referrals.controller';
 import { AuthModule } from '../auth/auth.module';
+import { AdminModule } from '../admin/admin.module';
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, AdminModule],
   providers: [ReferralsService],
   controllers: [
     ReferralsController,

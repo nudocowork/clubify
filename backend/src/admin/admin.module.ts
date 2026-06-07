@@ -34,6 +34,6 @@ import { AuthModule } from '../auth/auth.module';
     CommissionExceptionsController,
     TenantDuplicatorController,
   ],
-  exports: [RemindersService],
+  exports: [RemindersService, CommissionExceptionsService],
 })
 export class AdminModule {}

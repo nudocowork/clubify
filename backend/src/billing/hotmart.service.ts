@@ -5,6 +5,7 @@ import { EmailService } from '../email/email.service';
 import { BillingService } from './billing.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { PreregAlertsService } from '../auth/prereg-alerts.service';
+import { CommissionExceptionsService } from '../admin/commission-exceptions.service';
 import {
   smsPaymentConfirmed,
   smsPaymentFailed,
@@ -63,6 +64,7 @@ export class HotmartService {
     private billing: BillingService,
     private referralsService: ReferralsService,
     private alerts: PreregAlertsService,
+    private commissionExceptions: CommissionExceptionsService,
   ) {}
 
   /** Best-effort: manda SMS al dueño, no falla el webhook si no se puede.
@@ -928,21 +930,20 @@ export class HotmartService {
   }
 
   /**
-   * Resuelve el % de comisión efectivo para un (tenant, recipientCode):
-   * si el SUPER_ADMIN configuró una excepción activa, ese % gana; si no,
-   * usa el `fallbackPercent` (el normal del ReferralCode). Item 6 sprint.
+   * Resuelve el % de comisión efectivo para un (tenant, recipientCode).
+   * Delegado al helper compartido en CommissionExceptionsService para
+   * evitar drift con la lógica equivalente del cron en ReferralsService.
    */
-  private async resolvePercent(
+  private resolvePercent(
     tenantId: string,
     recipientCodeId: string,
     fallbackPercent: number,
   ): Promise<number> {
-    const exc = await this.prisma.commissionException.findUnique({
-      where: { tenantId_recipientCodeId: { tenantId, recipientCodeId } },
-      select: { customPercent: true, isActive: true },
-    });
-    if (exc && exc.isActive) return Number(exc.customPercent);
-    return fallbackPercent;
+    return this.commissionExceptions.resolvePercent(
+      tenantId,
+      recipientCodeId,
+      fallbackPercent,
+    );
   }
 
   /**
