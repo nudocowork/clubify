@@ -32,7 +32,7 @@ type TenantMe = {
   plan?: { name: string } | null;
 };
 
-type MainSectionMode = 'menu' | 'services' | 'custom';
+type MainSectionMode = 'menu' | 'services' | 'catalog' | 'custom';
 
 /** Lista curada de monedas para LATAM + USD/EUR. Cada entrada es ISO 4217
  *  (`code`), nombre legible (`label`), y país de bandera para visual hint.
@@ -66,6 +66,7 @@ function detectMainMode(override: string | null): {
 } {
   if (!override) return { mode: 'menu', custom: '' };
   if (override === 'Servicios') return { mode: 'services', custom: '' };
+  if (override === 'Catálogo') return { mode: 'catalog', custom: '' };
   if (override === 'Menú') return { mode: 'menu', custom: '' };
   return { mode: 'custom', custom: override };
 }
@@ -131,6 +132,8 @@ export default function SettingsPage() {
     let override: string | null = null;
     if (sectionMode === 'services') {
       override = 'Servicios';
+    } else if (sectionMode === 'catalog') {
+      override = 'Catálogo';
     } else if (sectionMode === 'custom') {
       const trimmed = sectionCustom.trim();
       if (!trimmed) {
@@ -642,12 +645,13 @@ export default function SettingsPage() {
         <form onSubmit={saveSectionLabel} className="mt-4 grid gap-3">
           <div>
             <label className="label">Opción</label>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {(
                 [
                   { v: 'menu', emoji: '🍽', label: 'Menú', hint: 'Por defecto' },
-                  { v: 'services', emoji: '🛠', label: 'Servicios', hint: 'Peluquerías, spas, autolavados' },
-                  { v: 'custom', emoji: '✏️', label: 'Personalizado', hint: 'Tratamientos, Catálogo, etc.' },
+                  { v: 'services', emoji: '🛠', label: 'Servicios', hint: 'Spas, peluquerías' },
+                  { v: 'catalog', emoji: '🛍', label: 'Catálogo', hint: 'Tienda / productos' },
+                  { v: 'custom', emoji: '✏️', label: 'Personalizado', hint: 'Tratamientos, Carta…' },
                 ] as const
               ).map((opt) => {
                 const active = sectionMode === opt.v;

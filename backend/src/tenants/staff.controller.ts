@@ -32,6 +32,8 @@ class InviteStaffBody {
   @IsEmail() email!: string;
   @IsOptional() @IsString() phone?: string;
   @IsOptional() @IsIn(['TENANT_OWNER', 'TENANT_STAFF']) role?: Role;
+  // Fase F 2026-06-07: opcional; null = sin sede asignada / aplica a todas.
+  @IsOptional() @IsString() locationId?: string | null;
 }
 
 class UpdateStaffBody {
@@ -39,6 +41,7 @@ class UpdateStaffBody {
   @IsOptional() @IsString() phone?: string;
   @IsOptional() @IsIn(['TENANT_OWNER', 'TENANT_STAFF']) role?: Role;
   @IsOptional() @IsBoolean() isActive?: boolean;
+  @IsOptional() locationId?: string | null;
 }
 
 class ChangePasswordBody {
@@ -79,6 +82,8 @@ export class StaffController {
         isActive: true,
         lastLoginAt: true,
         createdAt: true,
+        locationId: true,
+        location: { select: { id: true, name: true } },
       },
     });
     return users;
@@ -93,6 +98,16 @@ export class StaffController {
     if (existing) throw new BadRequestException('Ya existe un usuario con ese email');
     const tempPassword = genTempPassword();
     const passwordHash = await this.auth.hashPassword(tempPassword);
+    // Si viene locationId, validar que pertenezca al mismo tenant.
+    if (body.locationId) {
+      const loc = await this.prisma.location.findUnique({
+        where: { id: body.locationId },
+        select: { tenantId: true },
+      });
+      if (!loc || loc.tenantId !== user.tenantId) {
+        throw new BadRequestException('La sede seleccionada no es válida');
+      }
+    }
     const created = await this.prisma.user.create({
       data: {
         tenantId: user.tenantId,
@@ -102,6 +117,7 @@ export class StaffController {
         passwordHash,
         role: body.role ?? 'TENANT_STAFF',
         isActive: true,
+        locationId: body.locationId ?? null,
       },
       select: {
         id: true,
@@ -162,6 +178,15 @@ export class StaffController {
     if (target.id === user.id && body.isActive === false) {
       throw new BadRequestException('No puedes desactivarte a ti mismo');
     }
+    if (body.locationId) {
+      const loc = await this.prisma.location.findUnique({
+        where: { id: body.locationId },
+        select: { tenantId: true },
+      });
+      if (!loc || loc.tenantId !== user.tenantId) {
+        throw new BadRequestException('La sede seleccionada no es válida');
+      }
+    }
     const updated = await this.prisma.user.update({
       where: { id },
       data: {
@@ -169,6 +194,14 @@ export class StaffController {
         phone: body.phone,
         role: body.role,
         isActive: body.isActive,
+        // Permite explícitamente desasignar pasando null o '' (lo
+        // normalizamos a null para no chocar con la FK).
+        locationId:
+          body.locationId === undefined
+            ? undefined
+            : body.locationId === null || body.locationId === ''
+            ? null
+            : body.locationId,
       },
       select: {
         id: true,
@@ -178,6 +211,8 @@ export class StaffController {
         role: true,
         isActive: true,
         lastLoginAt: true,
+        locationId: true,
+        location: { select: { id: true, name: true } },
       },
     });
     return updated;
@@ -215,6 +250,78 @@ export class StaffController {
     }
     await this.prisma.user.delete({ where: { id } });
     return { ok: true };
+  }
+
+  /**
+   * Fase F 2026-06-07: ranking de sellos por miembro + por sede.
+   * Por defecto últimos 30 días. Útil para que el TENANT_OWNER vea
+   * desempeño de su equipo.
+   */
+  @Get('metrics')
+  async metrics(@CurrentUser() user: AuthUser) {
+    if (!user.tenantId) throw new ForbiddenException();
+    const since = new Date(Date.now() - 30 * 86400_000);
+    const [byMember, byLocation, staff, locations] = await Promise.all([
+      this.prisma.stamp.groupBy({
+        by: ['operatorId'],
+        where: { tenantId: user.tenantId, createdAt: { gte: since } },
+        _count: { _all: true },
+      }),
+      this.prisma.stamp.groupBy({
+        by: ['locationId'],
+        where: { tenantId: user.tenantId, createdAt: { gte: since } },
+        _count: { _all: true },
+      }),
+      this.prisma.user.findMany({
+        where: { tenantId: user.tenantId },
+        select: {
+          id: true,
+          fullName: true,
+          role: true,
+          locationId: true,
+          location: { select: { id: true, name: true } },
+        },
+      }),
+      this.prisma.location.findMany({
+        where: { tenantId: user.tenantId, isActive: true },
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      }),
+    ]);
+
+    const memberMap = new Map(staff.map((s) => [s.id, s]));
+    const locMap = new Map(locations.map((l) => [l.id, l.name]));
+
+    const memberRanking = byMember
+      .map((row) => {
+        const m = row.operatorId ? memberMap.get(row.operatorId) : null;
+        return {
+          userId: row.operatorId,
+          fullName: m?.fullName ?? 'Sin operador',
+          role: m?.role ?? null,
+          locationId: m?.locationId ?? null,
+          locationName: m?.location?.name ?? null,
+          stamps: row._count._all,
+        };
+      })
+      .sort((a, b) => b.stamps - a.stamps);
+
+    const locationRanking = byLocation
+      .map((row) => ({
+        locationId: row.locationId,
+        locationName: row.locationId
+          ? locMap.get(row.locationId) ?? '—'
+          : 'Sin sede',
+        stamps: row._count._all,
+      }))
+      .sort((a, b) => b.stamps - a.stamps);
+
+    return {
+      sinceDays: 30,
+      memberRanking,
+      locationRanking,
+      totalStamps: memberRanking.reduce((s, r) => s + r.stamps, 0),
+    };
   }
 }
 

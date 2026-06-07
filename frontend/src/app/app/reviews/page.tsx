@@ -28,6 +28,14 @@ type Resp = {
   };
 };
 
+type ReviewLocation = {
+  id: string;
+  name: string;
+  address: string | null;
+  googleReviewUrl: string;
+  isActive: boolean;
+};
+
 export default function ReviewsPage() {
   const [data, setData] = useState<Resp | null>(null);
   const [loading, setLoading] = useState(true);
@@ -35,17 +43,22 @@ export default function ReviewsPage() {
   const [editingUrl, setEditingUrl] = useState(false);
   const [urlInput, setUrlInput] = useState('');
   const [savingUrl, setSavingUrl] = useState(false);
+  // Fase F 2026-06-07: selector de sede para ver link + QR por ubicación.
+  const [reviewLocations, setReviewLocations] = useState<ReviewLocation[]>([]);
+  const [selectedLocationId, setSelectedLocationId] = useState<string>('');
 
   async function load() {
     setLoading(true);
     try {
-      const [r, me] = await Promise.all([
+      const [r, me, locs] = await Promise.all([
         api<Resp>('/reviews'),
         api<any>('/tenants/me'),
+        api<ReviewLocation[]>('/review-locations').catch(() => []),
       ]);
       setData(r);
       setTenant(me);
       setUrlInput(me?.googleReviewUrl ?? '');
+      setReviewLocations(locs.filter((l) => l.isActive));
     } catch (e: any) {
       toast(e.message || 'Error cargando reseñas', 'error');
     } finally {
@@ -56,10 +69,23 @@ export default function ReviewsPage() {
     load();
   }, []);
 
+  // Sede seleccionada (si hay).
+  const selectedLocation = useMemo(
+    () => reviewLocations.find((l) => l.id === selectedLocationId) ?? null,
+    [reviewLocations, selectedLocationId],
+  );
+
+  // Link público (genérico o por sede).
   const publicUrl = useMemo(() => {
     if (typeof window === 'undefined' || !tenant?.slug) return '';
-    return `${window.location.origin}/r/${tenant.slug}`;
-  }, [tenant]);
+    const base = `${window.location.origin}/r/${tenant.slug}`;
+    return selectedLocation ? `${base}?sede=${selectedLocation.id}` : base;
+  }, [tenant, selectedLocation]);
+
+  // Link directo de Google (depende de la sede o el genérico).
+  const googleUrl = selectedLocation
+    ? selectedLocation.googleReviewUrl
+    : tenant?.googleReviewUrl ?? null;
 
   async function saveUrl() {
     setSavingUrl(true);
@@ -121,6 +147,30 @@ export default function ReviewsPage() {
         </Link>
       </div>
 
+      {/* Fase F: selector de sede que cambia link + QR mostrados abajo. */}
+      {reviewLocations.length > 0 && (
+        <div className="card card-pad mb-4 flex items-center gap-3 flex-wrap">
+          <div className="font-semibold text-sm">📍 Sede:</div>
+          <select
+            className="input text-sm py-1.5 max-w-xs"
+            value={selectedLocationId}
+            onChange={(e) => setSelectedLocationId(e.target.value)}
+          >
+            <option value="">Genérico (todas las sedes)</option>
+            {reviewLocations.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+          <div className="text-xs text-mute flex-1 min-w-[200px]">
+            {selectedLocation
+              ? 'El link y QR de abajo apuntan a esta sede.'
+              : 'Mostrando link genérico (el cliente elige sede al abrir).'}
+          </div>
+        </div>
+      )}
+
       <div className="card card-pad mb-5">
         <h3 className="text-base font-semibold m-0 flex items-center gap-2">
           ⭐ ¿Cómo funciona?
@@ -145,22 +195,57 @@ export default function ReviewsPage() {
       {/* Configuración */}
       <div className="card card-pad mb-4">
         <h3 className="text-base font-semibold m-0">
-          🔗 Tu link de Google Reviews
+          🔗 {selectedLocation
+            ? `Link de Google Reviews · ${selectedLocation.name}`
+            : 'Tu link de Google Reviews'}
         </h3>
         <p className="text-xs text-mute mt-1 leading-relaxed">
-          Lo encuentras en{' '}
-          <a
-            href="https://business.google.com"
-            target="_blank"
-            rel="noreferrer"
-            className="text-brand hover:underline"
-          >
-            Google Business Profile
-          </a>{' '}
-          → "Pide más reseñas" → "Compartir formulario". Sin esto, los clientes
-          felices ven un mensaje pero no pueden dejar reseña.
+          {selectedLocation ? (
+            <>
+              Este link se edita en{' '}
+              <Link
+                href="/app/reviews/locations"
+                className="text-brand hover:underline"
+              >
+                Gestionar sedes
+              </Link>
+              .
+            </>
+          ) : (
+            <>
+              Lo encuentras en{' '}
+              <a
+                href="https://business.google.com"
+                target="_blank"
+                rel="noreferrer"
+                className="text-brand hover:underline"
+              >
+                Google Business Profile
+              </a>{' '}
+              → "Pide más reseñas" → "Compartir formulario". Sin esto, los
+              clientes felices ven un mensaje pero no pueden dejar reseña.
+            </>
+          )}
         </p>
-        {editingUrl ? (
+        {selectedLocation ? (
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
+            {googleUrl ? (
+              <code className="text-xs bg-bg2 rounded-input px-3 py-2 flex-1 break-all min-w-0">
+                {googleUrl}
+              </code>
+            ) : (
+              <span className="text-sm text-amber-700 italic">
+                Sin configurar para esta sede.
+              </span>
+            )}
+            <Link
+              href="/app/reviews/locations"
+              className="btn-ghost text-sm"
+            >
+              <Icon name="edit" /> Editar
+            </Link>
+          </div>
+        ) : editingUrl ? (
           <div className="mt-3 flex items-stretch gap-2 flex-wrap">
             <input
               type="url"
