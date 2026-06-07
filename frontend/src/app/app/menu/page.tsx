@@ -889,7 +889,7 @@ export default function MenuEditor() {
                               {onDelivery && (
                                 <span
                                   className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-100 text-sky-800"
-                                  title="Visible en el menú delivery (/m/<slug>/delivery)"
+                                  title="Visible en el menú delivery (/d/<slug>)"
                                 >
                                   🚚 Delivery
                                 </span>
@@ -1967,7 +1967,7 @@ function ProductDrawer({
                         🚚 Disponible en menú delivery
                       </div>
                       <div className="text-xs text-mute mt-0.5">
-                        Aparece en <code>/m/&lt;slug&gt;/delivery</code> — vista
+                        Aparece en <code>/d/&lt;slug&gt;</code> — vista
                         con carrito para pedir a domicilio.
                       </div>
                     </div>
@@ -2221,8 +2221,8 @@ function PublicMenuLinks({ slug, mainLabel }: { slug: string; mainLabel: string 
   useEffect(() => {
     if (typeof window !== 'undefined') setOrigin(window.location.origin);
   }, []);
-  const mesaUrl = `${origin}/m/${slug}?mesa=1`;
-  const deliveryUrl = `${origin}/m/${slug}`;
+  const mesaUrl = `${origin}/m/${slug}`;
+  const deliveryUrl = `${origin}/d/${slug}`;
   const labelLower = mainLabel.toLowerCase();
 
   async function copy(url: string, label: string) {
@@ -2270,7 +2270,7 @@ function PublicMenuLinks({ slug, mainLabel }: { slug: string; mainLabel: string 
               📋 Copiar
             </button>
             <Link
-              href={`/m/${slug}?mesa=1`}
+              href={`/m/${slug}`}
               target="_blank"
               className="btn-ghost text-xs flex-1 justify-center"
             >
@@ -2304,7 +2304,7 @@ function PublicMenuLinks({ slug, mainLabel }: { slug: string; mainLabel: string 
               📋 Copiar
             </button>
             <Link
-              href={`/m/${slug}`}
+              href={`/d/${slug}`}
               target="_blank"
               className="btn-ghost text-xs flex-1 justify-center"
             >
