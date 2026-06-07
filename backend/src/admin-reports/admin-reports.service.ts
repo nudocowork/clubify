@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { SettingsService } from '../settings/settings.service';
 
 /**
  * Servicio de reportes/rankings/dashboard para SUPER_ADMIN.
@@ -28,7 +29,10 @@ import { AuthUser } from '../common/decorators/current-user.decorator';
  */
 @Injectable()
 export class AdminReportsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private settings: SettingsService,
+  ) {}
 
   // ============================================================
   //                  REPORTES POR EMBAJADOR
@@ -849,9 +853,23 @@ export class AdminReportsService {
     const startLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const endLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
 
+    // FIX 2026-06-07: precios canónicos del bundle (lo que el cliente
+    // realmente paga en Hotmart) — Mensual 68 / Trimestral 150 /
+    // Semestral 278 / Anual 500. Antes usábamos priceMonthly * cycle
+    // (el priceMonthly del Plan podía ser 99 → trimestral salía 297).
+    const landingPlans = await this.settings.getLandingPlans();
+    const PERIODS: Record<
+      string,
+      { months: number; label: string; bundlePrice: number }
+    > = {
+      MENSUAL: { months: 1, label: 'Mensual', bundlePrice: landingPlans.mensual.price },
+      TRIMESTRAL: { months: 3, label: 'Trimestral', bundlePrice: landingPlans.trimestral.price },
+      SEMESTRAL: { months: 6, label: 'Semestral', bundlePrice: landingPlans.semestral.price },
+      ANUAL: { months: 12, label: 'Anual', bundlePrice: landingPlans.anual.price },
+    };
+
     const [
-      billedAgg,
-      billedByPlanRaw,
+      activeTenantsForPricing,
       newCustomersCurrent,
       newCustomersPrev,
       pendingAgg,
@@ -863,31 +881,34 @@ export class AdminReportsService {
       lastTenants,
       lastCommissions,
       mapLocations,
-      mrrFromBreakdown,
     ] = await Promise.all([
-      // Monto facturado en el RANGO (suma de commission.amount / pct % del recipientCode
-      // estimado por hotmartTransactionId). Aproximación: el monto que
-      // generó comisiones es la facturación que vimos. Usamos sum(commission.amount)
-      // como proxy para el rango del dashboard.
-      this.prisma.commission.aggregate({
+      // Tenants ACTIVE con periodicidad y fecha de último ciclo, para
+      // billing por plan + MRR + facturado en rango.
+      this.prisma.tenant.findMany({
         where: {
-          createdAt: { gte: from, lte: to },
-          status: { not: 'REJECTED' },
+          status: 'ACTIVE',
+          OR: [
+            { currentPeriodEnd: null },
+            { currentPeriodEnd: { gte: now } },
+          ],
         },
-        _sum: { amount: true },
+        select: {
+          id: true,
+          planPeriodicity: true,
+          currentPeriodEnd: true,
+        },
       }),
-      // Facturación por plan — usamos tenants ACTIVE * priceMonthly * cycle
-      // (mismo cálculo del endpoint v1 para consistencia).
-      this.prisma.tenant.groupBy({
-        by: ['planPeriodicity'],
-        where: { status: 'ACTIVE' },
-        _count: { _all: true },
-      }),
+      // FIX 2026-06-07: clientes nuevos = solo ACTIVE creados en el
+      // rango. Antes contaba TRIAL también.
       this.prisma.tenant.count({
-        where: { createdAt: { gte: startThisMonth, lte: now } },
+        where: {
+          status: 'ACTIVE',
+          createdAt: { gte: startThisMonth, lte: now },
+        },
       }),
       this.prisma.tenant.count({
         where: {
+          status: 'ACTIVE',
           createdAt: { gte: startLastMonth, lte: endLastMonth },
         },
       }),
@@ -909,17 +930,15 @@ export class AdminReportsService {
         },
       }),
       this.prisma.tenant.count({ where: { status: 'TRIAL' } }),
-      // Cancellation rate: SUSPENDED total (Tenant no tiene updatedAt;
-      // aproximamos a "actualmente cancelados" sobre activos). Refinable
-      // si después agregamos un campo `suspendedAt` al schema.
+      // Cancellation rate: SUSPENDED total (Tenant no tiene suspendedAt;
+      // aproximamos a "actualmente cancelados" sobre activos).
       this.prisma.tenant.count({
         where: { status: 'SUSPENDED' },
       }),
-      // Conversión trial → cliente: signups TRIAL en los últimos 60 días
-      // / cuántos pasaron a ACTIVE. Aproximación útil para el dashboard.
+      // FIX 2026-06-07: conversión escopada AL RANGO (no hardcoded 60d).
       this.prisma.tenant.findMany({
         where: {
-          createdAt: { gte: new Date(now.getTime() - 60 * 86400_000) },
+          createdAt: { gte: from, lte: to },
           OR: [{ trialStartedAt: { not: null } }, { status: 'TRIAL' }],
         },
         select: { status: true, trialStartedAt: true },
@@ -938,7 +957,6 @@ export class AdminReportsService {
           currentPeriodEnd: true,
         },
       }),
-      // Últimas 10 commissions (alta visibilidad de ingresos).
       this.prisma.commission.findMany({
         orderBy: { createdAt: 'desc' },
         take: 10,
@@ -955,7 +973,6 @@ export class AdminReportsService {
           recipientCode: { select: { ownerName: true, role: true } },
         },
       }),
-      // Mini mapa: ubicaciones de tenants ACTIVE (top 200 por nombre).
       this.prisma.location.findMany({
         where: { isActive: true, tenant: { status: 'ACTIVE' } },
         take: 200,
@@ -975,54 +992,35 @@ export class AdminReportsService {
           },
         },
       }),
-      // MRR de la suma de tenants ACTIVE × priceMonthly del plan.
-      this.prisma.tenant.findMany({
-        where: { status: 'ACTIVE' },
-        select: {
-          planPeriodicity: true,
-          plan: { select: { priceMonthly: true } },
-        },
-      }),
     ]);
 
-    const plans = await this.prisma.plan.findMany({
-      where: { isActive: true },
-      select: { id: true, name: true, priceMonthly: true },
-    });
-    const reference = plans
-      .map((p) => Number(p.priceMonthly))
-      .sort((a, b) => b - a)[0] ?? 0;
-
-    const PERIODS: Record<
-      string,
-      { cycle: number; label: string }
-    > = {
-      MENSUAL: { cycle: 1, label: 'Mensual' },
-      TRIMESTRAL: { cycle: 3, label: 'Trimestral' },
-      SEMESTRAL: { cycle: 6, label: 'Semestral' },
-      ANUAL: { cycle: 12, label: 'Anual' },
-    };
-
+    // FIX 2026-06-07: billedByPlan usa precios canónicos del bundle.
+    // Cuenta tenants ACTIVE por periodicidad × bundlePrice.
     const billedByPlan = Object.entries(PERIODS).map(([key, meta]) => {
-      const row = billedByPlanRaw.find((g) => g.planPeriodicity === key);
-      const count = row?._count._all ?? 0;
+      const count = activeTenantsForPricing.filter(
+        (t) => t.planPeriodicity === key,
+      ).length;
       return {
         periodicity: key,
         label: meta.label,
         count,
-        billingUsd: round2(count * reference * meta.cycle),
+        billingUsd: round2(count * meta.bundlePrice),
       };
     });
 
-    // MRR efectivo = sum(priceMonthly) sobre tenants ACTIVE.
+    // FIX 2026-06-07: MRR = suma de equivalencia mensual real del bundle
+    // por tenant ACTIVE. Mensual aporta 68; Trimestral 150/3=50;
+    // Semestral 278/6=46.33; Anual 500/12=41.67. Antes sumábamos
+    // priceMonthly (incorrecto: daba 99 × N).
     const mrrUsd = round2(
-      mrrFromBreakdown.reduce(
-        (s, t) => s + Number(t.plan?.priceMonthly ?? 0),
-        0,
-      ),
+      activeTenantsForPricing.reduce((s, t) => {
+        const period = PERIODS[t.planPeriodicity ?? ''];
+        if (!period) return s;
+        return s + period.bundlePrice / period.months;
+      }, 0),
     );
 
-    // Conversión: si trialStartedAt no null y status = ACTIVE → convirtió.
+    // Conversión: trials del RANGO que ya están ACTIVE.
     const trialsTotal = conversionRows.length;
     const trialsConverted = conversionRows.filter(
       (t) => t.trialStartedAt && t.status === 'ACTIVE',
@@ -1034,6 +1032,27 @@ export class AdminReportsService {
     const cancellationRate = activeTenants
       ? Math.round((churnedLast30 / activeTenants) * 1000) / 10
       : 0;
+
+    // FIX 2026-06-07: billedUsd del RANGO. "Pagó en el rango" ≈ tiene
+    // currentPeriodEnd - bundleMonths dentro del rango. Sumamos
+    // bundlePrice por cada match. Backward compat: si no hay
+    // currentPeriodEnd, lo aproximamos con createdAt.
+    let billedUsd = 0;
+    for (const t of activeTenantsForPricing) {
+      const period = PERIODS[t.planPeriodicity ?? ''];
+      if (!period) continue;
+      const cpe = t.currentPeriodEnd;
+      if (!cpe) continue;
+      const lastPaymentApprox = new Date(cpe);
+      lastPaymentApprox.setMonth(lastPaymentApprox.getMonth() - period.months);
+      if (
+        lastPaymentApprox.getTime() >= from.getTime() &&
+        lastPaymentApprox.getTime() <= to.getTime()
+      ) {
+        billedUsd += period.bundlePrice;
+      }
+    }
+    billedUsd = round2(billedUsd);
 
     const pendingCommissionsUsd = round2(
       Math.max(
@@ -1120,7 +1139,7 @@ export class AdminReportsService {
         to,
       },
       banner: {
-        billedUsd: round2(Number(billedAgg._sum.amount ?? 0)),
+        billedUsd,
         billedByPlan,
         newCustomers: {
           currentMonth: newCustomersCurrent,
