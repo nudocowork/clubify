@@ -102,7 +102,9 @@ export default function CampaignDetailPage() {
     load();
   }
 
-  async function patchCampaign(patch: Partial<{ name: string }>) {
+  async function patchCampaign(
+    patch: Partial<{ name: string; ownerCommissionPercent: number }>,
+  ) {
     try {
       await api(`/campaigns/${id}`, {
         method: 'PATCH',
@@ -637,22 +639,30 @@ function CampaignSettings({
   data,
   onPatch,
 }: {
-  data: { name: string };
-  onPatch: (patch: Partial<{ name: string }>) => Promise<void>;
+  data: { name: string; ownerCode: { commissionPercent: any } };
+  onPatch: (
+    patch: Partial<{ name: string; ownerCommissionPercent: number }>,
+  ) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(data.name);
+  const [pct, setPct] = useState(Number(data.ownerCode.commissionPercent));
 
   useEffect(() => {
     setName(data.name);
-  }, [data.name]);
+    setPct(Number(data.ownerCode.commissionPercent));
+  }, [data.name, data.ownerCode.commissionPercent]);
 
   async function save() {
-    if (!name.trim() || name === data.name) {
-      setEditing(false);
-      return;
+    const patch: Partial<{ name: string; ownerCommissionPercent: number }> = {};
+    if (name.trim() && name !== data.name) patch.name = name.trim();
+    const currentPct = Number(data.ownerCode.commissionPercent);
+    if (Number.isFinite(pct) && pct >= 0 && pct <= 100 && pct !== currentPct) {
+      patch.ownerCommissionPercent = pct;
     }
-    await onPatch({ name: name.trim() });
+    if (Object.keys(patch).length > 0) {
+      await onPatch(patch);
+    }
     setEditing(false);
   }
 
@@ -664,6 +674,9 @@ function CampaignSettings({
             Configuración
           </div>
           <div className="text-sm">Nombre: {data.name}</div>
+          <div className="text-sm">
+            % comisión influencer: {Number(data.ownerCode.commissionPercent)}%
+          </div>
         </div>
         <button onClick={() => setEditing(true)} className="btn-ghost text-sm">
           Editar
@@ -675,18 +688,38 @@ function CampaignSettings({
   return (
     <div className="card card-pad mb-5 space-y-3">
       <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
-        Editar nombre de campaña
+        Editar campaña
       </div>
-      <input
-        className="input"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-      />
+      <label className="block">
+        <div className="text-xs text-mute mb-1">Nombre</div>
+        <input
+          className="input"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+      </label>
+      <label className="block">
+        <div className="text-xs text-mute mb-1">% comisión del influencer</div>
+        <input
+          className="input"
+          type="number"
+          min={0}
+          max={100}
+          step={0.01}
+          value={pct}
+          onChange={(e) => setPct(Number(e.target.value))}
+        />
+        <div className="text-[10px] text-mute mt-1">
+          Aplica a comisiones futuras del influencer titular. Las ya pagadas
+          quedan intactas.
+        </div>
+      </label>
       <div className="flex gap-2 justify-end">
         <button
           onClick={() => {
             setEditing(false);
             setName(data.name);
+            setPct(Number(data.ownerCode.commissionPercent));
           }}
           className="btn-ghost text-sm"
         >

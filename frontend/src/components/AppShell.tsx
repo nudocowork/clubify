@@ -359,7 +359,6 @@ export default function AppShell({
                 { href: '/app/billing', label: 'Suscripción', icon: 'card' },
                 { href: '/app/settings', label: 'Configuraciones', icon: 'gear' },
                 { href: '/app/referrals', label: 'Referidos', icon: 'gift' },
-                { href: '/app/whats-new', label: 'Novedades', icon: 'bell' },
               ],
             },
             {
