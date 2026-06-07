@@ -20,10 +20,11 @@ import {
   isValidCategorySlug,
   DEFAULT_CATEGORY_SLUG,
 } from '../common/business-categories';
-// Solo se usa como TOKEN para ModuleRef.get (resolución lazy en runtime).
-// NO se inyecta por constructor para no crear un ciclo de módulos
-// AuthModule ↔ BillingModule (BillingModule ya importa AuthModule).
-import { HotmartService } from '../billing/hotmart.service';
+// HotmartService se resuelve LAZY vía ModuleRef.get + require() inline
+// (ver consumePendingForTenant en signup). NO importar acá estáticamente
+// — el ciclo de archivos (auth.service ↔ hotmart.service via PreregAlerts)
+// rompe la registración de AuthService al boot. Solo type import.
+import type { HotmartService } from '../billing/hotmart.service';
 
 // Subdominios reservados por Clubify (no pueden ser tenant slugs porque
 // chocan con app.soyclubify.com / api.soyclubify.com / etc.).
@@ -765,7 +766,14 @@ export class AuthService {
     // webhook la activará cuando llegue (findTenant ya la encontrará).
     // Best-effort: si falla, el signup NO se rompe.
     try {
-      const hotmart = this.moduleRef.get(HotmartService, { strict: false });
+      // require() inline para que el módulo `billing/hotmart.service` se
+      // resuelva en runtime, no al cargar este archivo. Sin esto, TS
+      // compila un `require('../billing/hotmart.service')` al top del
+      // archivo y el ciclo a través de PreregAlertsService rompe la
+      // registración de AuthService.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { HotmartService: HotmartServiceClass } = require('../billing/hotmart.service');
+      const hotmart = this.moduleRef.get<HotmartService>(HotmartServiceClass, { strict: false });
       const activated = await hotmart.consumePendingForTenant(
         tenant.id,
         email,
