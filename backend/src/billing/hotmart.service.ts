@@ -955,29 +955,39 @@ export class HotmartService {
     tenantId: string;
     rejectLastCommission: boolean;
   }) {
-    const use = await this.prisma.referralUse.findFirst({
-      where: { tenantId: opts.tenantId },
+    // Fix audit 2026-06-07: con 3-way split (influencer + embajador +
+    // vendor + opcional SOCIO) hay MÚLTIPLES referralUse rows por
+    // tenant. La versión vieja solo agarraba el último (orderBy desc)
+    // y dejaba huérfanas a las commissions de las otras chains. Ahora
+    // churneamos TODOS los uses del tenant.
+    const uses = await this.prisma.referralUse.findMany({
+      where: { tenantId: opts.tenantId, status: { not: 'CHURNED' } },
       include: {
         commissions: {
           where: { status: { in: ['PENDING', 'APPROVED'] } },
           orderBy: { createdAt: 'desc' },
-          take: 1,
         },
       },
-      orderBy: { createdAt: 'desc' },
     });
-    if (!use) return;
+    if (!uses.length) return;
 
-    await this.prisma.referralUse.update({
-      where: { id: use.id },
+    await this.prisma.referralUse.updateMany({
+      where: { id: { in: uses.map((u) => u.id) } },
       data: { status: 'CHURNED' },
     });
 
-    if (opts.rejectLastCommission && use.commissions[0]) {
-      await this.prisma.commission.update({
-        where: { id: use.commissions[0].id },
-        data: { status: 'REJECTED' },
-      });
+    if (opts.rejectLastCommission) {
+      // Rechazar la última commission PENDING/APPROVED de CADA use
+      // (no solo del más reciente). Para 3-way refund: rechaza las 3.
+      const lastCommissionIds = uses
+        .map((u) => u.commissions[0]?.id)
+        .filter((id): id is string => !!id);
+      if (lastCommissionIds.length) {
+        await this.prisma.commission.updateMany({
+          where: { id: { in: lastCommissionIds } },
+          data: { status: 'REJECTED' },
+        });
+      }
     }
   }
 

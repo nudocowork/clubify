@@ -75,11 +75,13 @@ export default function ReviewsPage() {
     [reviewLocations, selectedLocationId],
   );
 
-  // Link público (genérico o por sede).
+  // Link público (genérico o por sede). El query param SE llama `target`
+  // para alinearse con el backend (`@Query('target')` en
+  // reviews.controller) y con /r/[slug] (search.get('target')).
   const publicUrl = useMemo(() => {
     if (typeof window === 'undefined' || !tenant?.slug) return '';
     const base = `${window.location.origin}/r/${tenant.slug}`;
-    return selectedLocation ? `${base}?sede=${selectedLocation.id}` : base;
+    return selectedLocation ? `${base}?target=${selectedLocation.id}` : base;
   }, [tenant, selectedLocation]);
 
   // Link directo de Google (depende de la sede o el genérico).
