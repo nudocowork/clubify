@@ -80,4 +80,18 @@ export class AdminReportsController {
   dashboardMetrics(@CurrentUser() user: AuthUser) {
     return this.svc.dashboardMetrics(user);
   }
+
+  /**
+   * Dashboard v2 (Fase G 2026-06-07). Acepta rango de fechas y devuelve
+   * banner + 4 KPIs + estado clientes + últimos ingresos + mapa.
+   */
+  @Get('dashboard/metrics-v2')
+  dashboardMetricsV2(
+    @CurrentUser() user: AuthUser,
+    @Query('range') range?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.svc.dashboardMetricsV2(user, { range, from, to });
+  }
 }
