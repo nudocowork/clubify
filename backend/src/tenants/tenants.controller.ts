@@ -1,5 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
-import { IsBoolean, IsDateString, IsEmail, IsHexColor, IsIn, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { IsBoolean, IsDateString, IsEmail, IsHexColor, IsIn, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 import { TenantsService } from './tenants.service';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
@@ -45,6 +45,13 @@ class ChangePlanPeriodBody {
   periodicity!: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL';
 }
 
+/** Ajuste de trial (suma o resta). days != 0, hasta ±3650. observation
+ *  opcional (texto libre que aparece en el historial). */
+class AdjustTrialBody {
+  @IsInt() days!: number;
+  @IsOptional() @IsString() @MaxLength(200) observation?: string;
+}
+
 class UpdateTenantBody {
   @IsOptional() @IsString() brandName?: string;
   @IsOptional() @IsEmail() email?: string;
@@ -82,6 +89,19 @@ export class TenantsController {
     return this.svc.list();
   }
 
+  /** Historial de modificaciones de trial — audit log filtrado.
+   *  IMPORTANTE: tiene que declararse antes que @Get(':id') sino el
+   *  router de NestJS matchea `:id` primero con "trial-history" como
+   *  id (gotcha conocido — feedback_nestjs_route_order). */
+  @Get(':id/trial-history')
+  @Roles('SUPER_ADMIN')
+  trialHistory(
+    @Param('id') id: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.svc.listTrialHistory(id, limit ? Number(limit) : 100);
+  }
+
   @Get(':id')
   get(@Param('id') id: string) {
     return this.svc.getById(id);
@@ -109,6 +129,27 @@ export class TenantsController {
   @Roles('SUPER_ADMIN')
   extendTrial(@Param('id') id: string, @Body() body: { days?: number }) {
     return this.svc.extendTrial(id, body?.days ?? 7);
+  }
+
+  /**
+   * Gestión de trial desde el modal del SuperAdmin (2026-06-07).
+   * Suma o resta días al trial actual con audit log persistido. days > 0
+   * extiende; days < 0 descuenta (puede llevar a SUSPENDED). El frontend
+   * muestra el resultado en /admin/tenants → modal "Gestionar Trial" y
+   * en /admin/tenants/[id] → sección "Historial de Trial".
+   */
+  @Post(':id/adjust-trial')
+  @Roles('SUPER_ADMIN')
+  adjustTrial(
+    @Param('id') id: string,
+    @Body() body: AdjustTrialBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.adjustTrial(id, {
+      days: body.days,
+      observation: body.observation ?? null,
+      actorId: user.id,
+    });
   }
 
   /**

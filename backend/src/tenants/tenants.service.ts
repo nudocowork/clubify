@@ -550,6 +550,107 @@ export class TenantsService {
     return updated;
   }
 
+  /**
+   * Ajuste fino de trial desde SuperAdmin → modal "Gestionar Trial"
+   * (2026-06-07). A diferencia de `extendTrial`, este método:
+   *
+   *  - acepta `days` positivos o negativos (sumar/descontar);
+   *  - si el trial actual ya expiró, parte desde HOY (no desde fecha vieja);
+   *  - si el resultado queda ≤ ahora, marca el tenant como SUSPENDED;
+   *  - si el resultado queda > ahora, marca como TRIAL (reactiva expirados);
+   *  - registra cada cambio en AuditLog con action 'tenant.trial_adjusted'
+   *    para que /admin/tenants/[id] muestre el historial.
+   *
+   * No usamos `convertToPaying` porque acá NO disparamos backfill de
+   * comisión (no es un pago real). Solo movemos el reloj.
+   */
+  async adjustTrial(
+    id: string,
+    opts: { days: number; observation?: string | null; actorId: string },
+  ) {
+    const days = Number(opts.days);
+    if (!Number.isFinite(days) || days === 0) {
+      throw new BadRequestException('days debe ser un número distinto de 0');
+    }
+    if (Math.abs(days) > 3650) {
+      throw new BadRequestException('days fuera de rango (±3650 max)');
+    }
+
+    const t = await this.prisma.tenant.findUnique({ where: { id } });
+    if (!t) throw new NotFoundException('Tenant');
+
+    const now = new Date();
+    const previousEnd = t.trialEndsAt;
+    // Base = trialEndsAt si está en el futuro, sino HOY. Sumar a una fecha
+    // vieja daría una "extensión" engañosa (ej: tenant con trial vencido
+    // hace 30d + 5d = -25d → no reactiva). Partir de HOY garantiza que
+    // un valor positivo siempre da días reales por delante.
+    const base =
+      previousEnd && previousEnd.getTime() > now.getTime()
+        ? previousEnd
+        : now;
+    const newEnd = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
+
+    // Si descontamos hasta el pasado, suspendemos. Si extendemos al
+    // futuro, vuelve a TRIAL (reactiva expirados). No tocamos ACTIVE/
+    // PAID — esos vienen por billing real, no por trial.
+    const newStatus = newEnd.getTime() <= now.getTime() ? 'SUSPENDED' : 'TRIAL';
+
+    const updated = await this.prisma.tenant.update({
+      where: { id },
+      data: {
+        trialEndsAt: newEnd,
+        status: newStatus,
+        suspendedAt: newStatus === 'SUSPENDED' ? now : null,
+      },
+    });
+
+    this.audit.log({
+      actorId: opts.actorId,
+      tenantId: id,
+      action: 'tenant.trial_adjusted',
+      resource: `tenant:${id}`,
+      metadata: {
+        brandName: t.brandName,
+        daysDelta: days,
+        previousTrialEndsAt: previousEnd?.toISOString() ?? null,
+        newTrialEndsAt: newEnd.toISOString(),
+        previousStatus: t.status,
+        newStatus,
+        observation: opts.observation?.trim() || null,
+      },
+    });
+
+    invalidateTenantStatusCache(id);
+    return updated;
+  }
+
+  /**
+   * Lista los movimientos de trial (audit log filtrado por action
+   * 'tenant.trial_adjusted') del tenant, más recientes primero. Incluye
+   * el actor (super admin que lo modificó) para la columna "Usuario"
+   * del historial.
+   */
+  async listTrialHistory(tenantId: string, limit = 100) {
+    const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
+    const rows = await this.prisma.auditLog.findMany({
+      where: { tenantId, action: 'tenant.trial_adjusted' },
+      orderBy: { createdAt: 'desc' },
+      take: safeLimit,
+      include: {
+        actor: { select: { id: true, fullName: true, email: true } },
+      },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      createdAt: r.createdAt,
+      actor: r.actor
+        ? { id: r.actor.id, fullName: r.actor.fullName, email: r.actor.email }
+        : null,
+      metadata: r.metadata,
+    }));
+  }
+
   async getMaxLocations(tenantId: string) {
     const t = await this.prisma.tenant.findUnique({
       where: { id: tenantId },

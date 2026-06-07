@@ -350,6 +350,10 @@ export default function TenantDetail() {
         )}
       </div>
 
+      {/* Historial de Trial — audit log de adjust-trial. Solo SUPER_ADMIN
+          ve esto (el endpoint detrás también lo gatea). */}
+      {isSuperAdmin && <TrialHistoryCard tenantId={t.id} />}
+
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5 mb-4">
         <div className="kpi">
@@ -474,6 +478,152 @@ export default function TenantDetail() {
 
         {isSuperAdmin && <HotmartSimulatorCard tenant={t} onChange={load} />}
       </div>
+    </div>
+  );
+}
+
+// ============================================================
+//   Historial de Trial — audit log de tenant.trial_adjusted
+//   (2026-06-07). Renderiza la timeline de modificaciones que
+//   hace el SUPER_ADMIN desde el modal "Gestionar Trial".
+// ============================================================
+
+type TrialHistoryEntry = {
+  id: string;
+  createdAt: string;
+  actor: { id: string; fullName: string; email: string } | null;
+  metadata: {
+    brandName?: string;
+    daysDelta?: number;
+    previousTrialEndsAt?: string | null;
+    newTrialEndsAt?: string | null;
+    previousStatus?: string;
+    newStatus?: string;
+    observation?: string | null;
+  };
+};
+
+function TrialHistoryCard({ tenantId }: { tenantId: string }) {
+  const [rows, setRows] = useState<TrialHistoryEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const data = await api<TrialHistoryEntry[]>(
+          `/tenants/${tenantId}/trial-history`,
+        );
+        if (!cancelled) setRows(data);
+      } catch {
+        // 403 o 404 → simplemente no renderizamos contenido,
+        // el card queda con el empty state.
+        if (!cancelled) setRows([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tenantId]);
+
+  return (
+    <div className="card card-pad mb-4">
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <h2 className="text-base font-semibold m-0">⏱ Historial de Trial</h2>
+        <span className="text-xs text-mute">
+          {loading ? '…' : `${rows.length} movimiento${rows.length === 1 ? '' : 's'}`}
+        </span>
+      </div>
+
+      {loading && (
+        <div className="space-y-2">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="h-12 bg-bg2 rounded animate-shimmer" />
+          ))}
+        </div>
+      )}
+
+      {!loading && rows.length === 0 && (
+        <div className="text-center py-6 text-sm text-mute">
+          <div className="text-2xl mb-1">📭</div>
+          Aún no hay modificaciones de trial registradas.
+          <div className="text-xs mt-1">
+            Usa "Gestionar Trial" desde el listado para sumar o restar días.
+          </div>
+        </div>
+      )}
+
+      {!loading && rows.length > 0 && (
+        <ul className="divide-y divide-line2">
+          {rows.map((r) => {
+            const delta = r.metadata?.daysDelta ?? 0;
+            const positive = delta > 0;
+            return (
+              <li key={r.id} className="py-2.5 flex items-start gap-3">
+                <div
+                  className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm ${
+                    positive
+                      ? 'bg-ok-soft text-ok-ink'
+                      : 'bg-bad-soft text-bad'
+                  }`}
+                >
+                  {positive ? `+${delta}` : delta}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium">
+                    {positive ? 'Suma' : 'Descuento'} de {Math.abs(delta)} día
+                    {Math.abs(delta) === 1 ? '' : 's'}
+                    {r.metadata?.newStatus === 'SUSPENDED' && (
+                      <span className="ml-2 badge badge-bad text-[10px]">
+                        Quedó SUSPENDIDO
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-mute mt-0.5">
+                    {new Date(r.createdAt).toLocaleString('es-CO', {
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                    {r.actor && (
+                      <>
+                        {' · '}
+                        <span className="text-ink font-medium">
+                          {r.actor.fullName || r.actor.email}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  {r.metadata?.previousTrialEndsAt && r.metadata?.newTrialEndsAt && (
+                    <div className="text-[11px] text-mute2 mt-0.5">
+                      Vencía{' '}
+                      {new Date(r.metadata.previousTrialEndsAt).toLocaleDateString(
+                        'es-CO',
+                        { day: 'numeric', month: 'short' },
+                      )}{' '}
+                      → Vence{' '}
+                      {new Date(r.metadata.newTrialEndsAt).toLocaleDateString(
+                        'es-CO',
+                        { day: 'numeric', month: 'short', year: 'numeric' },
+                      )}
+                    </div>
+                  )}
+                  {r.metadata?.observation && (
+                    <div className="text-xs text-ink/80 mt-1 italic">
+                      "{r.metadata.observation}"
+                    </div>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }
