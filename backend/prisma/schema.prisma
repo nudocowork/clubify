@@ -141,6 +141,33 @@ enum CommissionStatus {
   APPROVED
   PAID
   REJECTED
+  // RETAINED — el SUPER_ADMIN frenó el pago temporalmente (ej: el
+  // cliente disputó el pago, problema de KYC del afiliado). NO entra
+  // en "Listo por pagar". Vuelve a APPROVED manual.
+  RETAINED
+}
+
+// Método de pago elegido por el afiliado para recibir comisiones.
+enum PaymentMethodKind {
+  BINANCE
+  BANK
+}
+
+// Estado del perfil de pago del afiliado. El SUPER_ADMIN revisa los
+// datos antes de habilitarlo (no queremos pagar a una cuenta mal
+// digitada). Solo APPROVED entra en la lista "Listo por pagar".
+enum PaymentProfileStatus {
+  NONE             // no llenó el form todavía
+  PENDING_REVIEW   // llenó pero admin no validó
+  APPROVED
+  REJECTED
+}
+
+// Estado del batch de pago al afiliado.
+enum CommissionPayoutStatus {
+  PROCESSING       // admin creó el row pero todavía no marcó como pagado
+  PAID             // admin transfirió + adjuntó comprobante
+  REVERSED         // hubo error, se revirtió (las commissions vuelven a APPROVED)
 }
 
 // Tracking de pago granular sobre Commission (independiente del status
@@ -642,6 +669,12 @@ model User {
   // equipos comerciales; cada user registra qué piezas leyó.
   broadcastsCreated Broadcast[]     @relation("BroadcastCreator")
   broadcastReads    BroadcastRead[]
+
+  // Fase D 2026-06-07: sistema de pago de comisiones.
+  paymentProfile        PaymentProfile?
+  paymentProfilesChanged PaymentProfile[]   @relation("PaymentProfileReviewer")
+  commissionPayouts     CommissionPayout[] @relation("CommissionPayoutRecipient")
+  commissionPayoutsPaid CommissionPayout[] @relation("CommissionPayoutPaidBy")
 
   @@index([tenantId])
   @@index([role])
@@ -1806,6 +1839,10 @@ model Commission {
   // resuelven derivándolo del use.code.
   recipientCodeId      String?
   recipientCode        ReferralCode?           @relation("CommissionRecipient", fields: [recipientCodeId], references: [id], onDelete: SetNull)
+  // Fase D 2026-06-07: link al batch de pago que liquidó esta commission.
+  // SetNull: si se borra el payout, la commission vuelve a estar
+  // "pendiente de pago" sin perder historial.
+  payoutItem           CommissionPayoutItem?
   createdAt            DateTime                @default(now())
 
   @@index([status])
@@ -3212,4 +3249,96 @@ model BroadcastRead {
 
   @@unique([broadcastId, userId])
   @@index([userId])
+}
+
+// ============================================================
+//                    FASE D — PAGO DE COMISIONES
+// ============================================================
+//
+// Sistema completo de pago a afiliados (influencer/embajador/vendedor/
+// socio): el afiliado llena su perfil de pago (Binance o cuenta
+// bancaria), el SUPER_ADMIN lo aprueba, y cuando la persona acumula
+// >= 50 USD de comisiones APPROVED entra en la lista "Listo por pagar"
+// del panel admin. Al transferir, el admin crea un CommissionPayout con
+// las commissions afectadas + sube comprobante (imagen/PDF) a R2.
+//
+// Día oficial de pago: 15 de cada mes (countdown en panel afiliado).
+
+model PaymentProfile {
+  id              String                @id @default(uuid())
+  userId          String                @unique
+  user            User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status          PaymentProfileStatus  @default(NONE)
+  // Datos del titular (común a ambos métodos).
+  firstName       String?
+  lastName        String?
+  phoneCountry    String?               // ej: "+57"
+  phone           String?               // ej: "3001112233"
+  method          PaymentMethodKind?
+  // BINANCE
+  binanceEmail    String?
+  binancePhone    String?               // opcional
+  binanceNote     String?               // observación opcional
+  // BANK
+  bankCountry     String?
+  bankName        String?
+  bankAccountType String?               // "ahorros" | "corriente" | etc
+  bankAccountNo   String?
+  bankHolderName  String?
+  bankHolderDoc   String?               // doc del titular (opcional)
+  bankNote        String?               // observación opcional
+  // Razón de rechazo si status = REJECTED. Visible al afiliado para
+  // que corrija (el SUPER_ADMIN la setea desde el panel admin).
+  rejectionReason String?               @db.Text
+  reviewedByUserId String?
+  reviewedBy       User?                @relation("PaymentProfileReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  reviewedAt       DateTime?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  @@index([status])
+}
+
+model CommissionPayout {
+  id              String                  @id @default(uuid())
+  // El afiliado que recibe el pago.
+  recipientUserId String
+  recipientUser   User                    @relation("CommissionPayoutRecipient", fields: [recipientUserId], references: [id], onDelete: Cascade)
+  amount          Decimal                 @db.Decimal(10, 2)
+  currency        String                  @default("USD")
+  status          CommissionPayoutStatus  @default(PROCESSING)
+  // Snapshot del método al momento del pago (Binance / Bank) para que
+  // si después el afiliado cambia su perfil, el histórico no se mute.
+  methodSnapshot  Json
+  // Comprobante subido a R2. URL pública del bucket. El admin lo sube
+  // como imagen o PDF; null hasta que se adjunte.
+  proofUrl        String?
+  proofMimeType   String?
+  // Quién marcó el pago como hecho (admin).
+  paidByUserId    String?
+  paidBy          User?                   @relation("CommissionPayoutPaidBy", fields: [paidByUserId], references: [id], onDelete: SetNull)
+  paidAt          DateTime?
+  notes           String?                 @db.Text
+  items           CommissionPayoutItem[]
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  @@index([recipientUserId])
+  @@index([status])
+}
+
+// Tabla puente Commission <-> Payout. Unique en commissionId garantiza
+// que una commission solo entra en un payout (sin doble cobro).
+model CommissionPayoutItem {
+  id           String           @id @default(uuid())
+  payoutId     String
+  payout       CommissionPayout @relation(fields: [payoutId], references: [id], onDelete: Cascade)
+  commissionId String           @unique
+  commission   Commission       @relation(fields: [commissionId], references: [id], onDelete: Cascade)
+  // Snapshot del monto al momento del payout (la commission podría
+  // cambiar de amount después de un ajuste manual del admin).
+  amount       Decimal          @db.Decimal(10, 2)
+  createdAt    DateTime         @default(now())
+
+  @@index([payoutId])
 }

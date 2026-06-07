@@ -20,6 +20,7 @@ import { ReferralsModule } from './referrals/referrals.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
 import { BadgesModule } from './badges/badges.module';
 import { AffiliateModule } from './affiliate/affiliate.module';
+import { PayoutsModule } from './payouts/payouts.module';
 import { WalletModule } from './wallet/wallet.module';
 import { ScannerModule } from './scanner/scanner.module';
 import { MetricsModule } from './metrics/metrics.module';
@@ -85,6 +86,7 @@ import { BroadcastsModule } from './broadcasts/broadcasts.module';
     CampaignsModule,
     BadgesModule,
     AffiliateModule,
+    PayoutsModule,
     WalletModule,
     ScannerModule,
     MetricsModule,

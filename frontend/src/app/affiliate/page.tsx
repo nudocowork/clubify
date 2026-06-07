@@ -330,6 +330,9 @@ export default function AffiliatePanel() {
           >
             💵 Comisiones
           </button>
+          <Link href="/affiliate/payouts" className="tab">
+            💳 Pagos
+          </Link>
           {/* HOTFIX 2026-06-05 (bug #10 CRÍTICO): "Mi equipo" se centraliza
               en /affiliate/team (página B1 con CRUD completo). Antes había
               DOS pills "Mi equipo" — un tab inline (TeamView, sin CRUD) y

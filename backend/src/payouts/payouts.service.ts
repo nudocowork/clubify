@@ -1,0 +1,595 @@
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import {
+  CommissionStatus,
+  PaymentMethodKind,
+  PaymentProfileStatus,
+  Prisma,
+} from '@prisma/client';
+import { PrismaService } from '../common/prisma/prisma.service';
+import { AuthUser } from '../common/decorators/current-user.decorator';
+
+// Reglas de negocio Fase D — 2026-06-07.
+export const MIN_PAYOUT_USD = 50;
+export const PAYOUT_DAY_OF_MONTH = 15; // día oficial de pago
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+type PaymentMethodSnapshot = {
+  method: PaymentMethodKind;
+  firstName: string | null;
+  lastName: string | null;
+  phoneCountry: string | null;
+  phone: string | null;
+  binance?: { email: string | null; phone: string | null; note: string | null };
+  bank?: {
+    country: string | null;
+    bankName: string | null;
+    accountType: string | null;
+    accountNo: string | null;
+    holderName: string | null;
+    holderDoc: string | null;
+    note: string | null;
+  };
+};
+
+@Injectable()
+export class PayoutsService {
+  private logger = new Logger(PayoutsService.name);
+
+  constructor(private prisma: PrismaService) {}
+
+  // ============================================================
+  //                       AFFILIATE (self)
+  // ============================================================
+
+  /**
+   * Resumen del estado de pago del afiliado:
+   * - monto disponible (commissions APPROVED no payouted)
+   * - perfil status
+   * - days until next 15 (countdown)
+   * - canRequestPayout (>= 50 + perfil APPROVED)
+   */
+  async summary(user: AuthUser) {
+    const codes = await this.prisma.referralCode.findMany({
+      where: { ownerUserId: user.id },
+      select: { id: true },
+    });
+    const myCodeIds = codes.map((c) => c.id);
+
+    let availableUsd = 0;
+    if (myCodeIds.length) {
+      const rows = await this.prisma.commission.findMany({
+        where: {
+          recipientCodeId: { in: myCodeIds },
+          status: CommissionStatus.APPROVED,
+          payoutItem: null,
+        },
+        select: { amount: true },
+      });
+      availableUsd = rows.reduce((s, r) => s + Number(r.amount), 0);
+    }
+
+    const pendingUsd = await this.sumOfStatus(myCodeIds, CommissionStatus.PENDING);
+
+    const profile = await this.prisma.paymentProfile.findUnique({
+      where: { userId: user.id },
+    });
+    const profileStatus: PaymentProfileStatus = profile?.status ?? 'NONE';
+
+    return {
+      availableUsd: round2(availableUsd),
+      pendingUsd: round2(pendingUsd),
+      minimumPayoutUsd: MIN_PAYOUT_USD,
+      reachedMinimum: availableUsd >= MIN_PAYOUT_USD,
+      profileStatus,
+      profileRejectionReason: profile?.rejectionReason ?? null,
+      payoutDayOfMonth: PAYOUT_DAY_OF_MONTH,
+      daysUntilPayout: daysUntilNext(PAYOUT_DAY_OF_MONTH),
+      canRequestPayout:
+        availableUsd >= MIN_PAYOUT_USD && profileStatus === 'APPROVED',
+    };
+  }
+
+  async getProfile(user: AuthUser) {
+    return (
+      (await this.prisma.paymentProfile.findUnique({
+        where: { userId: user.id },
+      })) ?? null
+    );
+  }
+
+  async upsertProfile(
+    user: AuthUser,
+    dto: {
+      firstName?: string;
+      lastName?: string;
+      phoneCountry?: string;
+      phone?: string;
+      method?: PaymentMethodKind;
+      binanceEmail?: string;
+      binancePhone?: string;
+      binanceNote?: string;
+      bankCountry?: string;
+      bankName?: string;
+      bankAccountType?: string;
+      bankAccountNo?: string;
+      bankHolderName?: string;
+      bankHolderDoc?: string;
+      bankNote?: string;
+    },
+  ) {
+    const existing = await this.prisma.paymentProfile.findUnique({
+      where: { userId: user.id },
+    });
+
+    const next = { ...(existing ?? {}), ...dto };
+    this.assertCompleteProfile(next as any);
+
+    // Cualquier cambio del afiliado vuelve a PENDING_REVIEW (salvo que el
+    // perfil ya estaba APPROVED y no cambió ningún dato relevante — en
+    // ese caso no tocamos el status). Para simplificar siempre marcamos
+    // PENDING_REVIEW si hay diff vs lo aprobado; el admin re-aprueba.
+    const status: PaymentProfileStatus = 'PENDING_REVIEW';
+    const trim = (v?: string | null) =>
+      v == null ? null : v.trim() || null;
+    const data = {
+      firstName: trim(dto.firstName),
+      lastName: trim(dto.lastName),
+      phoneCountry: trim(dto.phoneCountry),
+      phone: trim(dto.phone),
+      method: dto.method ?? null,
+      binanceEmail: trim(dto.binanceEmail),
+      binancePhone: trim(dto.binancePhone),
+      binanceNote: trim(dto.binanceNote),
+      bankCountry: trim(dto.bankCountry),
+      bankName: trim(dto.bankName),
+      bankAccountType: trim(dto.bankAccountType),
+      bankAccountNo: trim(dto.bankAccountNo),
+      bankHolderName: trim(dto.bankHolderName),
+      bankHolderDoc: trim(dto.bankHolderDoc),
+      bankNote: trim(dto.bankNote),
+      status,
+      rejectionReason: null,
+    };
+
+    if (existing) {
+      return this.prisma.paymentProfile.update({
+        where: { userId: user.id },
+        data,
+      });
+    }
+    return this.prisma.paymentProfile.create({
+      data: { userId: user.id, ...data },
+    });
+  }
+
+  async myPayouts(user: AuthUser) {
+    const rows = await this.prisma.commissionPayout.findMany({
+      where: { recipientUserId: user.id },
+      include: {
+        items: {
+          include: {
+            commission: {
+              select: {
+                id: true,
+                amount: true,
+                createdAt: true,
+                referralUse: {
+                  select: { tenant: { select: { brandName: true } } },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map((p) => ({
+      id: p.id,
+      amount: Number(p.amount),
+      currency: p.currency,
+      status: p.status,
+      methodSnapshot: p.methodSnapshot,
+      proofUrl: p.proofUrl,
+      proofMimeType: p.proofMimeType,
+      paidAt: p.paidAt,
+      notes: p.notes,
+      createdAt: p.createdAt,
+      itemsCount: p.items.length,
+      items: p.items.map((it) => ({
+        id: it.id,
+        commissionId: it.commissionId,
+        amount: Number(it.amount),
+        commission: {
+          createdAt: it.commission.createdAt,
+          tenantName:
+            it.commission.referralUse?.tenant?.brandName ?? '—',
+        },
+      })),
+    }));
+  }
+
+  // ============================================================
+  //                       ADMIN
+  // ============================================================
+
+  /**
+   * Lista de afiliados "Listo por pagar": tienen >= MIN_PAYOUT_USD de
+   * APPROVED no-payouted, perfil APPROVED, y NO tienen un payout
+   * PROCESSING ya abierto.
+   */
+  async adminReadyToPay(user: AuthUser) {
+    this.assertAdmin(user);
+    const profiles = await this.prisma.paymentProfile.findMany({
+      where: { status: 'APPROVED' },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            fullName: true,
+            role: true,
+            phone: true,
+            referralCodes: { select: { id: true, code: true, role: true } },
+          },
+        },
+      },
+    });
+
+    const rows: Array<{
+      userId: string;
+      fullName: string;
+      email: string;
+      role: string;
+      method: PaymentMethodKind;
+      availableUsd: number;
+      codes: Array<{ id: string; code: string; role: string }>;
+      profile: any;
+      hasOpenPayout: boolean;
+    }> = [];
+
+    for (const p of profiles) {
+      const codeIds = p.user.referralCodes.map((c) => c.id);
+      if (!codeIds.length || !p.method) continue;
+      const sumRows = await this.prisma.commission.findMany({
+        where: {
+          recipientCodeId: { in: codeIds },
+          status: CommissionStatus.APPROVED,
+          payoutItem: null,
+        },
+        select: { amount: true },
+      });
+      const available = sumRows.reduce((s, r) => s + Number(r.amount), 0);
+      if (available < MIN_PAYOUT_USD) continue;
+      const openPayout = await this.prisma.commissionPayout.findFirst({
+        where: { recipientUserId: p.userId, status: 'PROCESSING' },
+        select: { id: true },
+      });
+      rows.push({
+        userId: p.userId,
+        fullName: p.user.fullName,
+        email: p.user.email,
+        role: p.user.role,
+        method: p.method,
+        availableUsd: round2(available),
+        codes: p.user.referralCodes,
+        profile: this.maskProfile(p),
+        hasOpenPayout: !!openPayout,
+      });
+    }
+
+    rows.sort((a, b) => b.availableUsd - a.availableUsd);
+    return {
+      items: rows,
+      total: rows.length,
+      grandTotalUsd: round2(rows.reduce((s, r) => s + r.availableUsd, 0)),
+    };
+  }
+
+  /**
+   * Lista de perfiles para revisar (status PENDING_REVIEW por default;
+   * con filtro 'all' devuelve todos). El admin aprueba/rechaza.
+   */
+  async adminListProfiles(user: AuthUser, filter?: 'all' | 'pending') {
+    this.assertAdmin(user);
+    const profiles = await this.prisma.paymentProfile.findMany({
+      where: filter === 'all' ? {} : { status: 'PENDING_REVIEW' },
+      include: {
+        user: {
+          select: { id: true, fullName: true, email: true, role: true },
+        },
+        reviewedBy: { select: { id: true, fullName: true } },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+    return profiles.map((p) => this.maskProfile(p));
+  }
+
+  async adminApproveProfile(
+    user: AuthUser,
+    userId: string,
+    approve: boolean,
+    rejectionReason?: string | null,
+  ) {
+    this.assertAdmin(user);
+    const profile = await this.prisma.paymentProfile.findUnique({
+      where: { userId },
+    });
+    if (!profile) throw new NotFoundException('Perfil no encontrado');
+    return this.prisma.paymentProfile.update({
+      where: { userId },
+      data: {
+        status: approve ? 'APPROVED' : 'REJECTED',
+        rejectionReason: approve
+          ? null
+          : rejectionReason?.trim()?.slice(0, 500) ?? null,
+        reviewedByUserId: user.id,
+        reviewedAt: new Date(),
+      },
+    });
+  }
+
+  /**
+   * Crea el CommissionPayout para un afiliado: agarra TODAS sus
+   * commissions APPROVED no-payouted, crea el payout (PROCESSING) y
+   * los items. Las commissions quedan vinculadas pero todavía status
+   * APPROVED — pasan a PAID cuando el admin sube el comprobante.
+   */
+  async adminCreatePayout(user: AuthUser, recipientUserId: string) {
+    this.assertAdmin(user);
+    const profile = await this.prisma.paymentProfile.findUnique({
+      where: { userId: recipientUserId },
+    });
+    if (!profile || profile.status !== 'APPROVED' || !profile.method) {
+      throw new BadRequestException(
+        'El afiliado no tiene un perfil de pago aprobado',
+      );
+    }
+    const open = await this.prisma.commissionPayout.findFirst({
+      where: { recipientUserId, status: 'PROCESSING' },
+      select: { id: true },
+    });
+    if (open) {
+      throw new BadRequestException(
+        'Ya existe un payout abierto para este afiliado',
+      );
+    }
+    const codes = await this.prisma.referralCode.findMany({
+      where: { ownerUserId: recipientUserId },
+      select: { id: true },
+    });
+    const codeIds = codes.map((c) => c.id);
+    if (!codeIds.length) {
+      throw new BadRequestException('El afiliado no tiene códigos asociados');
+    }
+    const commissions = await this.prisma.commission.findMany({
+      where: {
+        recipientCodeId: { in: codeIds },
+        status: CommissionStatus.APPROVED,
+        payoutItem: null,
+      },
+      select: { id: true, amount: true },
+    });
+    const total = commissions.reduce((s, c) => s + Number(c.amount), 0);
+    if (total < MIN_PAYOUT_USD) {
+      throw new BadRequestException(
+        `El monto disponible (${round2(total)} USD) es menor al mínimo de ${MIN_PAYOUT_USD} USD`,
+      );
+    }
+
+    const snapshot: PaymentMethodSnapshot = {
+      method: profile.method,
+      firstName: profile.firstName,
+      lastName: profile.lastName,
+      phoneCountry: profile.phoneCountry,
+      phone: profile.phone,
+      binance:
+        profile.method === 'BINANCE'
+          ? {
+              email: profile.binanceEmail,
+              phone: profile.binancePhone,
+              note: profile.binanceNote,
+            }
+          : undefined,
+      bank:
+        profile.method === 'BANK'
+          ? {
+              country: profile.bankCountry,
+              bankName: profile.bankName,
+              accountType: profile.bankAccountType,
+              accountNo: profile.bankAccountNo,
+              holderName: profile.bankHolderName,
+              holderDoc: profile.bankHolderDoc,
+              note: profile.bankNote,
+            }
+          : undefined,
+    };
+
+    const payout = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.commissionPayout.create({
+        data: {
+          recipientUserId,
+          amount: total,
+          methodSnapshot: snapshot as unknown as Prisma.InputJsonValue,
+          notes: null,
+        },
+      });
+      await tx.commissionPayoutItem.createMany({
+        data: commissions.map((c) => ({
+          payoutId: created.id,
+          commissionId: c.id,
+          amount: c.amount,
+        })),
+      });
+      return created;
+    });
+
+    return {
+      id: payout.id,
+      amount: Number(payout.amount),
+      itemsCount: commissions.length,
+    };
+  }
+
+  /**
+   * Marca el payout como PAID y sube el comprobante (URL ya subida vía
+   * /media/upload). Las commissions linked pasan a status PAID.
+   */
+  async adminMarkPayoutPaid(
+    user: AuthUser,
+    payoutId: string,
+    dto: { proofUrl: string; proofMimeType?: string; notes?: string },
+  ) {
+    this.assertAdmin(user);
+    const payout = await this.prisma.commissionPayout.findUnique({
+      where: { id: payoutId },
+      include: { items: { select: { commissionId: true } } },
+    });
+    if (!payout) throw new NotFoundException('Payout no encontrado');
+    if (payout.status !== 'PROCESSING') {
+      throw new BadRequestException(
+        'El payout ya no está en estado PROCESSING',
+      );
+    }
+    if (!dto.proofUrl?.trim()) {
+      throw new BadRequestException('El comprobante es requerido');
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.commissionPayout.update({
+        where: { id: payoutId },
+        data: {
+          status: 'PAID',
+          proofUrl: dto.proofUrl,
+          proofMimeType: dto.proofMimeType ?? null,
+          notes: dto.notes?.slice(0, 1000) ?? null,
+          paidByUserId: user.id,
+          paidAt: new Date(),
+        },
+      });
+      const ids = payout.items.map((it) => it.commissionId);
+      if (ids.length) {
+        await tx.commission.updateMany({
+          where: { id: { in: ids } },
+          data: {
+            status: CommissionStatus.PAID,
+            paidAt: new Date(),
+            paymentStatus: 'PAID',
+          },
+        });
+      }
+      return updated;
+    });
+  }
+
+  // ============================================================
+  //                       Helpers
+  // ============================================================
+
+  private assertAdmin(user: AuthUser) {
+    if (user.role !== 'SUPER_ADMIN') {
+      throw new ForbiddenException();
+    }
+  }
+
+  private assertCompleteProfile(p: {
+    firstName?: string | null;
+    lastName?: string | null;
+    phoneCountry?: string | null;
+    phone?: string | null;
+    method?: PaymentMethodKind | null;
+    binanceEmail?: string | null;
+    bankCountry?: string | null;
+    bankName?: string | null;
+    bankAccountType?: string | null;
+    bankAccountNo?: string | null;
+    bankHolderName?: string | null;
+  }) {
+    const missing: string[] = [];
+    if (!p.firstName?.trim()) missing.push('Nombre');
+    if (!p.lastName?.trim()) missing.push('Apellido');
+    if (!p.phoneCountry?.trim()) missing.push('Código de país del teléfono');
+    if (!p.phone?.trim()) missing.push('Teléfono');
+    if (!p.method) missing.push('Método de pago');
+    if (p.method === 'BINANCE') {
+      if (!p.binanceEmail?.trim()) missing.push('Correo de Binance');
+    } else if (p.method === 'BANK') {
+      if (!p.bankCountry?.trim()) missing.push('País del banco');
+      if (!p.bankName?.trim()) missing.push('Banco');
+      if (!p.bankAccountType?.trim()) missing.push('Tipo de cuenta');
+      if (!p.bankAccountNo?.trim()) missing.push('Número de cuenta');
+      if (!p.bankHolderName?.trim()) missing.push('Titular de la cuenta');
+    }
+    if (missing.length) {
+      throw new BadRequestException(
+        `Faltan datos: ${missing.join(', ')}`,
+      );
+    }
+  }
+
+  /** Devuelve un perfil con campos sensibles enmascarados parcialmente
+   *  (solo los últimos 4 dígitos del número de cuenta). */
+  private maskProfile(p: any) {
+    return {
+      id: p.id,
+      userId: p.userId,
+      status: p.status,
+      firstName: p.firstName,
+      lastName: p.lastName,
+      phoneCountry: p.phoneCountry,
+      phone: p.phone,
+      method: p.method,
+      binanceEmail: p.binanceEmail,
+      binancePhone: p.binancePhone,
+      binanceNote: p.binanceNote,
+      bankCountry: p.bankCountry,
+      bankName: p.bankName,
+      bankAccountType: p.bankAccountType,
+      bankAccountNo: p.bankAccountNo,
+      bankHolderName: p.bankHolderName,
+      bankHolderDoc: p.bankHolderDoc,
+      bankNote: p.bankNote,
+      rejectionReason: p.rejectionReason,
+      reviewedAt: p.reviewedAt,
+      updatedAt: p.updatedAt,
+      user: p.user,
+      reviewedBy: p.reviewedBy,
+    };
+  }
+
+  private async sumOfStatus(
+    codeIds: string[],
+    status: CommissionStatus,
+  ): Promise<number> {
+    if (!codeIds.length) return 0;
+    const rows = await this.prisma.commission.findMany({
+      where: { recipientCodeId: { in: codeIds }, status },
+      select: { amount: true },
+    });
+    return rows.reduce((s, r) => s + Number(r.amount), 0);
+  }
+}
+
+/**
+ * Días hasta el próximo día N del mes. Si hoy ES el día N, devuelve 0.
+ * Si ya pasó este mes, calcula al N del próximo mes.
+ */
+function daysUntilNext(dayOfMonth: number): number {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const today = now.getDate();
+  let target = new Date(year, month, dayOfMonth);
+  if (today > dayOfMonth) {
+    target = new Date(year, month + 1, dayOfMonth);
+  }
+  const diff = Math.ceil(
+    (target.getTime() - now.getTime()) / (1000 * 60 * 60 * 24),
+  );
+  return Math.max(0, diff);
+}
