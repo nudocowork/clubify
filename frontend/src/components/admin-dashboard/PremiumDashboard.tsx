@@ -402,21 +402,13 @@ export function PremiumDashboard() {
         </div>
 
         <div className="lg:col-span-2 rounded-2xl backdrop-blur bg-white/80 border border-white/60 shadow-md2 p-5">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
-                Mapa
-              </div>
-              <div className="text-base font-bold text-ink mt-0.5">
-                Ubicaciones activas ({data.mapPoints.length})
-              </div>
+          <div className="mb-3">
+            <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
+              Mapa
             </div>
-            <Link
-              href="/admin/business-map"
-              className="text-xs font-semibold text-brand hover:underline"
-            >
-              Ver mapa completo →
-            </Link>
+            <div className="text-base font-bold text-ink mt-0.5">
+              Ubicaciones activas ({data.mapPoints.length})
+            </div>
           </div>
           <MiniMap points={data.mapPoints} />
         </div>
