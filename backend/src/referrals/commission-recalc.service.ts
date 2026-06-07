@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { CommissionStatus } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { SettingsService } from '../settings/settings.service';
 
 /**
  * Recálculo en tiempo real de comisiones cuando cambia un % (Fase E
@@ -26,6 +27,7 @@ export class CommissionRecalcService {
   constructor(
     private prisma: PrismaService,
     private audit: AuditService,
+    private settings: SettingsService,
   ) {}
 
   /**
@@ -105,15 +107,25 @@ export class CommissionRecalcService {
     let affectedAmount = 0;
     const baseFallbackPct = Number(code.commissionPercent ?? 0);
 
+    // FIX 2026-06-07: precios canónicos del bundle (lo que el cliente
+    // paga en Hotmart) — Mensual 68 / Trimestral 150 / Semestral 278 /
+    // Anual 500. Antes usábamos priceMonthly × bundleMonths del Plan
+    // row (legacy ELITE $50 daba 150 para trimestral, OK por suerte,
+    // pero PRO $99 daba 297 — bug). Misma fix del dashboard.
+    const landingPlans = await this.settings.getLandingPlans();
+    const BUNDLE_PRICE: Record<string, number> = {
+      MENSUAL: landingPlans.mensual.price,
+      TRIMESTRAL: landingPlans.trimestral.price,
+      SEMESTRAL: landingPlans.semestral.price,
+      ANUAL: landingPlans.anual.price,
+    };
+
     for (const c of commissions) {
       const tenantId = c.referralUse?.tenantId;
       if (!tenantId) continue;
-      const priceMonthly = Number(
-        c.referralUse?.tenant?.plan?.priceMonthly ?? 0,
-      );
-      if (priceMonthly <= 0) continue;
-      const months = bundleMonths(c.referralUse?.tenant?.planPeriodicity ?? null);
-      const basis = priceMonthly * months;
+      const periodicity = c.referralUse?.tenant?.planPeriodicity ?? '';
+      const basis = BUNDLE_PRICE[periodicity.toUpperCase()] ?? 0;
+      if (basis <= 0) continue;
 
       const pct = await this.resolveEffectivePct(
         tenantId,
@@ -201,16 +213,3 @@ export class CommissionRecalcService {
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
-
-function bundleMonths(periodicity: string | null): number {
-  switch ((periodicity ?? '').toUpperCase()) {
-    case 'TRIMESTRAL':
-      return 3;
-    case 'SEMESTRAL':
-      return 6;
-    case 'ANUAL':
-      return 12;
-    default:
-      return 1;
-  }
-}

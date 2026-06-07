@@ -527,4 +527,41 @@ export class CommissionExceptionsService {
     if (exc && exc.isActive) return Number(exc.customPercent);
     return fallbackPercent;
   }
+
+  /**
+   * Recalcula commissions PENDING/APPROVED para TODAS las excepciones
+   * activas. Útil para corregir registros históricos cuando el recalc
+   * automático no corrió (bug pre-2026-06-07 con ModuleRef silencioso).
+   */
+  async forceRecalcAllActive(actorId: string | null) {
+    const exceptions = await this.prisma.commissionException.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        tenantId: true,
+        recipientCodeId: true,
+        customPercent: true,
+      },
+    });
+    this.logger.log(
+      `forceRecalcAllActive: ${exceptions.length} excepciones activas`,
+    );
+    let totalUpdated = 0;
+    let totalPaidSkipped = 0;
+    for (const e of exceptions) {
+      const summary = await this.recalc.recalcForRecipientCode({
+        recipientCodeId: e.recipientCodeId,
+        tenantId: e.tenantId,
+        actorId,
+        reason: `Recalc retroactivo manual — excepción ${e.id} (${Number(e.customPercent)}%)`,
+      });
+      totalUpdated += summary.updated;
+      totalPaidSkipped += summary.skippedPaid;
+    }
+    return {
+      exceptionsProcessed: exceptions.length,
+      commissionsUpdated: totalUpdated,
+      paidSkipped: totalPaidSkipped,
+    };
+  }
 }
