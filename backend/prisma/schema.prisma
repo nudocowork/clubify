@@ -676,8 +676,15 @@ model User {
   commissionPayouts     CommissionPayout[] @relation("CommissionPayoutRecipient")
   commissionPayoutsPaid CommissionPayout[] @relation("CommissionPayoutPaidBy")
 
+  // Fase F 2026-06-07: cada staff puede estar asociado a una sede.
+  // Permite rankings de sellos por sede + miembro. Null = sin sede
+  // asignada o aplica a todas (ej: TENANT_OWNER, SUPER_ADMIN).
+  locationId String?
+  location   Location? @relation("UserLocation", fields: [locationId], references: [id], onDelete: SetNull)
+
   @@index([tenantId])
   @@index([role])
+  @@index([locationId])
 }
 
 model Customer {
@@ -964,6 +971,9 @@ model Location {
   orders          Order[]
   cards           Card[]
   reviewQrTargets ReviewQrTarget[]
+  // Fase F 2026-06-07: usuarios del tenant pueden estar asociados a una
+  // sede para rankings de sellos por miembro+ubicación.
+  staffUsers      User[] @relation("UserLocation")
 
   @@index([tenantId])
 }

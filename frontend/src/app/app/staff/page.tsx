@@ -13,6 +13,32 @@ type Staff = {
   isActive: boolean;
   lastLoginAt: string | null;
   createdAt: string;
+  locationId: string | null;
+  location: { id: string; name: string } | null;
+};
+
+type Location = {
+  id: string;
+  name: string;
+  isActive: boolean;
+};
+
+type StaffMetrics = {
+  sinceDays: number;
+  totalStamps: number;
+  memberRanking: Array<{
+    userId: string | null;
+    fullName: string;
+    role: string | null;
+    locationId: string | null;
+    locationName: string | null;
+    stamps: number;
+  }>;
+  locationRanking: Array<{
+    locationId: string | null;
+    locationName: string;
+    stamps: number;
+  }>;
 };
 
 function avatarClass(seed: string) {
@@ -32,12 +58,15 @@ function initials(name: string) {
 export default function StaffPage() {
   const me = typeof window !== 'undefined' ? getUser() : null;
   const [list, setList] = useState<Staff[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [metrics, setMetrics] = useState<StaffMetrics | null>(null);
   const [showInvite, setShowInvite] = useState(false);
   const [form, setForm] = useState({
     fullName: '',
     email: '',
     phone: '',
     role: 'TENANT_STAFF' as 'TENANT_OWNER' | 'TENANT_STAFF',
+    locationId: '' as string,
   });
   const [busy, setBusy] = useState(false);
   const [tempCred, setTempCred] = useState<{
@@ -48,7 +77,14 @@ export default function StaffPage() {
 
   async function load() {
     try {
-      setList(await api<Staff[]>('/tenants/me/staff'));
+      const [staff, locs, m] = await Promise.all([
+        api<Staff[]>('/tenants/me/staff'),
+        api<Location[]>('/locations').catch(() => []),
+        api<StaffMetrics>('/tenants/me/staff/metrics').catch(() => null),
+      ]);
+      setList(staff);
+      setLocations(locs.filter((l) => l.isActive));
+      setMetrics(m);
     } catch (e: any) {
       toast(e.message || 'Error cargando empleados', 'error');
     }
@@ -57,18 +93,38 @@ export default function StaffPage() {
     load();
   }, []);
 
+  async function changeLocation(u: Staff, locationId: string) {
+    try {
+      await api(`/tenants/me/staff/${u.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ locationId: locationId || null }),
+      });
+      toast('Sede actualizada', 'success');
+      await load();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo cambiar la sede', 'error');
+    }
+  }
+
   async function invite(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
     setBusy(true);
     try {
+      const body = {
+        fullName: form.fullName,
+        email: form.email,
+        phone: form.phone || undefined,
+        role: form.role,
+        locationId: form.locationId || null,
+      };
       const r = await api<Staff & { tempPassword: string }>('/tenants/me/staff', {
         method: 'POST',
-        body: JSON.stringify(form),
+        body: JSON.stringify(body),
       });
       setTempCred({ email: r.email, tempPassword: r.tempPassword });
       setShowInvite(false);
-      setForm({ fullName: '', email: '', phone: '', role: 'TENANT_STAFF' });
+      setForm({ fullName: '', email: '', phone: '', role: 'TENANT_STAFF', locationId: '' });
       await load();
     } catch (e: any) {
       setErr(e.message);
@@ -207,6 +263,27 @@ export default function StaffPage() {
                 <option value="TENANT_OWNER">Propietario (acceso total)</option>
               </select>
             </label>
+            <label className="block">
+              <span className="label">Sede asignada (opcional)</span>
+              <select
+                className="input"
+                value={form.locationId}
+                onChange={(e) =>
+                  setForm({ ...form, locationId: e.target.value })
+                }
+              >
+                <option value="">Todas las sedes</option>
+                {locations.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.name}
+                  </option>
+                ))}
+              </select>
+              <div className="text-[11px] text-mute mt-1">
+                Si elegís una sede, esta persona aparece como operadora de
+                esa ubicación en los rankings.
+              </div>
+            </label>
           </div>
           {err && (
             <div className="rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink mt-3">
@@ -298,6 +375,11 @@ export default function StaffPage() {
                 )}
               </div>
               <div className="text-xs text-mute truncate">{u.email}</div>
+              {u.location && (
+                <div className="text-[11px] text-mute mt-0.5">
+                  📍 {u.location.name}
+                </div>
+              )}
               {u.lastLoginAt && (
                 <div className="text-[11px] text-mute mt-0.5">
                   Último acceso:{' '}
@@ -330,6 +412,21 @@ export default function StaffPage() {
                     <option value="TENANT_STAFF">Equipo</option>
                     <option value="TENANT_OWNER">Propietario</option>
                   </select>
+                  {locations.length > 0 && (
+                    <select
+                      className="input text-xs py-1 max-w-[160px]"
+                      value={u.locationId ?? ''}
+                      onChange={(e) => changeLocation(u, e.target.value)}
+                      title="Sede asignada"
+                    >
+                      <option value="">Todas las sedes</option>
+                      {locations.map((l) => (
+                        <option key={l.id} value={l.id}>
+                          📍 {l.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   <button
                     className="btn-link text-xs"
                     onClick={() => toggleActive(u)}
@@ -354,6 +451,84 @@ export default function StaffPage() {
           </div>
         ))}
       </div>
+
+      {/* Fase F: rankings de sellos por miembro + por sede (últimos 30d). */}
+      {isOwner && metrics && metrics.totalStamps > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-5">
+          <div className="card overflow-hidden p-0">
+            <div className="px-4 py-3 border-b border-line2 flex items-center justify-between">
+              <div>
+                <div className="font-semibold text-sm">
+                  🏅 Sellos por miembro
+                </div>
+                <div className="text-[11px] text-mute">
+                  Últimos 30 días · {metrics.totalStamps} sellos totales
+                </div>
+              </div>
+            </div>
+            <div className="divide-y divide-line2">
+              {metrics.memberRanking.length === 0 && (
+                <div className="px-4 py-6 text-center text-xs text-mute">
+                  Sin sellos en los últimos 30 días.
+                </div>
+              )}
+              {metrics.memberRanking.slice(0, 10).map((r, i) => (
+                <div
+                  key={r.userId ?? `noop-${i}`}
+                  className="px-4 py-2.5 flex items-center gap-3"
+                >
+                  <div className="w-5 text-center font-bold text-mute text-xs">
+                    {i + 1}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate">
+                      {r.fullName}
+                    </div>
+                    {r.locationName && (
+                      <div className="text-[11px] text-mute">
+                        📍 {r.locationName}
+                      </div>
+                    )}
+                  </div>
+                  <div className="font-bold text-sm">{r.stamps}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="card overflow-hidden p-0">
+            <div className="px-4 py-3 border-b border-line2 flex items-center justify-between">
+              <div>
+                <div className="font-semibold text-sm">📍 Sellos por sede</div>
+                <div className="text-[11px] text-mute">
+                  Últimos 30 días
+                </div>
+              </div>
+            </div>
+            <div className="divide-y divide-line2">
+              {metrics.locationRanking.length === 0 && (
+                <div className="px-4 py-6 text-center text-xs text-mute">
+                  Sin sellos por ubicación.
+                </div>
+              )}
+              {metrics.locationRanking.map((r, i) => (
+                <div
+                  key={r.locationId ?? `noop-${i}`}
+                  className="px-4 py-2.5 flex items-center gap-3"
+                >
+                  <div className="w-5 text-center font-bold text-mute text-xs">
+                    {i + 1}
+                  </div>
+                  <div className="flex-1 min-w-0 text-sm font-medium truncate">
+                    {r.locationName}
+                  </div>
+                  <div className="font-bold text-sm">{r.stamps}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
