@@ -1,7 +1,8 @@
 'use client';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { api, getUser, startImpersonation } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
@@ -515,14 +516,48 @@ function ActionsMenu({
   onDelete: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; width: number }>({
+    top: 0,
+    left: 0,
+    width: 224,
+  });
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Calcular posición del menú alineado al botón cada vez que abre o
+  // hay scroll/resize. Fix 2026-06-07: el contenedor padre tiene
+  // overflow-x-auto que clipea position:absolute. Portal + fixed lo evita.
+  useLayoutEffect(() => {
+    if (!open || !btnRef.current) return;
+    function update() {
+      const rect = btnRef.current!.getBoundingClientRect();
+      const menuW = 240;
+      // Alinear a la derecha del botón; clamp dentro del viewport.
+      const left = Math.max(8, rect.right - menuW);
+      const top = rect.bottom + 6;
+      setPos({ top, left, width: menuW });
+    }
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
     function onMouseDown(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      const target = e.target as Node;
+      if (btnRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
+      setOpen(false);
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') setOpen(false);
@@ -542,9 +577,53 @@ function ActionsMenu({
     };
   }
 
+  const menu = open && mounted ? (
+    <div
+      ref={menuRef}
+      role="menu"
+      className="fixed bg-white border border-line2 rounded-lg shadow-xl py-1 text-left text-sm"
+      style={{
+        top: pos.top,
+        left: pos.left,
+        width: pos.width,
+        zIndex: 9999,
+      }}
+    >
+      <MenuItem icon="📥" label="Descargar" onClick={run(onDownload)} />
+      {canEnter && (
+        <MenuItem icon="🏢" label="Ir al panel" onClick={run(onEnter)} />
+      )}
+      <MenuItem icon="👁" label="Ver detalle" onClick={run(onView)} />
+      {canManage && (
+        <MenuItem
+          icon={status === 'ACTIVE' ? '⏸' : '▶'}
+          label={status === 'ACTIVE' ? 'Suspender' : 'Activar'}
+          onClick={run(onToggleStatus)}
+        />
+      )}
+      {canManage && (
+        <>
+          <div className="my-1 border-t border-line2" />
+          <MenuItem
+            icon="📋"
+            label="Duplicar negocio"
+            onClick={run(onDuplicate)}
+          />
+          <MenuItem
+            icon="🗑️"
+            label="Eliminar negocio"
+            danger
+            onClick={run(onDelete)}
+          />
+        </>
+      )}
+    </div>
+  ) : null;
+
   return (
-    <div className="relative inline-block" ref={ref}>
+    <div className="relative inline-block">
       <button
+        ref={btnRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="btn-ghost text-xs px-3 py-1.5 min-h-0"
@@ -553,49 +632,7 @@ function ActionsMenu({
       >
         {isEntering ? '… Entrando' : 'Acciones ▾'}
       </button>
-      {open && (
-        <div
-          role="menu"
-          className="absolute right-0 mt-1.5 w-56 bg-white border border-line2 rounded-lg shadow-lg z-20 py-1 text-left"
-        >
-          <MenuItem
-            icon="📥"
-            label="Descargar"
-            onClick={run(onDownload)}
-          />
-          {canEnter && (
-            <MenuItem
-              icon="🏢"
-              label="Ir al panel"
-              onClick={run(onEnter)}
-            />
-          )}
-          <MenuItem icon="👁" label="Ver detalle" onClick={run(onView)} />
-          {canManage && (
-            <MenuItem
-              icon={status === 'ACTIVE' ? '⏸' : '▶'}
-              label={status === 'ACTIVE' ? 'Suspender' : 'Activar'}
-              onClick={run(onToggleStatus)}
-            />
-          )}
-          {canManage && (
-            <>
-              <div className="my-1 border-t border-line2" />
-              <MenuItem
-                icon="📋"
-                label="Duplicar negocio"
-                onClick={run(onDuplicate)}
-              />
-              <MenuItem
-                icon="🗑️"
-                label="Eliminar negocio"
-                danger
-                onClick={run(onDelete)}
-              />
-            </>
-          )}
-        </div>
-      )}
+      {menu && createPortal(menu, document.body)}
     </div>
   );
 }
