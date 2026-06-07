@@ -507,15 +507,24 @@ export class HotmartService {
     }
     if (!pending) return false;
     // Marcar consumido ANTES de activar (idempotencia ante reintentos del
-    // signup) y activar el tenant recién creado.
+    // signup) y activar el tenant recién creado. Si activate falla,
+    // revertimos consumedAt para que un retry posterior pueda recuperarlo
+    // (sino el cliente queda PAGÓ-pero-NO-ACTIVO sin forma de recovery).
     await this.prisma.pendingHotmartPayment.update({
       where: { id: pending.id },
       data: { consumedAt: new Date() },
     });
-    await this.activatePurchaseForTenant(
-      tenantId,
-      pending.rawPayload as unknown as HotmartWebhookPayload,
-    );
+    try {
+      await this.activatePurchaseForTenant(
+        tenantId,
+        pending.rawPayload as unknown as HotmartWebhookPayload,
+      );
+    } catch (err) {
+      await this.prisma.pendingHotmartPayment
+        .update({ where: { id: pending.id }, data: { consumedAt: null } })
+        .catch(() => undefined);
+      throw err;
+    }
     this.logger.log(
       `PendingHotmartPayment consumido para tenant=${tenantId} (email=${email})`,
     );
