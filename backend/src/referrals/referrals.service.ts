@@ -254,6 +254,33 @@ export class ReferralsService {
    *   4. La comisión se calcula sobre `priceMonthly` como fallback — el
    *      monto real lo pondría el webhook directo. Documentado abajo.
    */
+  /**
+   * Cron diario que promueve commissions PENDING → APPROVED después
+   * de 30 días de hold. Antes solo se promovía cuando un SUPER_ADMIN
+   * abría `/admin/commissions` (única call-site de `payouts()`). Sin
+   * esto, el panel del afiliado siempre mostraba $0 disponible y
+   * `/admin/payouts/ready-to-pay` nunca tenía a nadie.
+   *
+   * Fix audit 2026-06-07.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_3AM)
+  async promotePendingToApproved() {
+    const HOLD_DAYS = 30;
+    const cutoff = new Date(Date.now() - HOLD_DAYS * 24 * 60 * 60 * 1000);
+    const res = await this.prisma.commission.updateMany({
+      where: {
+        status: 'PENDING',
+        createdAt: { lte: cutoff },
+      },
+      data: { status: 'APPROVED' as CommissionStatus },
+    });
+    if (res.count > 0) {
+      this.logger.log(
+        `promotePendingToApproved: ${res.count} commissions PENDING → APPROVED`,
+      );
+    }
+  }
+
   @Cron(CronExpression.EVERY_DAY_AT_4AM)
   async reconcileRecurringCommissions() {
     const now = new Date();

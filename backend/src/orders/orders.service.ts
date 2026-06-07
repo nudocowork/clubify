@@ -268,17 +268,36 @@ export class OrdersService {
 
     if (!dto.items?.length) throw new BadRequestException('Carrito vacío');
 
-    // Resolver el canal antes de buscar productos para que el filtro
-    // `availableForMesa`/`availableForDelivery` se aplique. Sin esto un
-    // cliente puede mandar `mode='DELIVERY'` con items que el dueño marcó
-    // solo para mesa (bypass de la separación introducida en item 1).
-    const effectiveMode =
-      dto.mode ??
-      (dto.fulfillment === 'DELIVERY'
+    // Fix audit 2026-06-07: derivar SIEMPRE el mode del fulfillment
+    // (no aceptar dto.mode si contradice fulfillment). Antes un cliente
+    // podía mandar `mode='MESA' + fulfillment='DELIVERY'` para bypass
+    // availableForDelivery:false y luego entregar a domicilio. Ahora si
+    // fulfillment es DELIVERY → mode forzado a DELIVERY; DINE_IN → MESA.
+    const derivedMode =
+      dto.fulfillment === 'DELIVERY'
         ? 'DELIVERY'
         : dto.fulfillment === 'DINE_IN'
           ? 'MESA'
-          : null);
+          : null;
+    // Para PICKUP/otros sin fulfillment explícito, cae a dto.mode (o null).
+    const effectiveMode = derivedMode ?? dto.mode ?? null;
+    // Si fulfillment es DELIVERY pero NO viene deliveryAddress, rechazar.
+    if (
+      derivedMode === 'DELIVERY' &&
+      !(dto.deliveryAddress && dto.deliveryAddress.trim?.())
+    ) {
+      throw new BadRequestException(
+        'Falta dirección de entrega para fulfillment DELIVERY',
+      );
+    }
+    // Si fulfillment es DINE_IN, normalizar — no persistir address.
+    // Si fulfillment es DELIVERY, no persistir tableNumber (queda mesa
+    // fantasma en el pedido). Ver mutaciones de tableNumber/address más
+    // abajo donde se persisten.
+    const cleanTableNumber =
+      derivedMode === 'DELIVERY' ? null : dto.tableNumber ?? null;
+    const cleanDeliveryAddress =
+      derivedMode === 'MESA' ? null : dto.deliveryAddress ?? null;
     const modeFilter =
       effectiveMode === 'MESA'
         ? { availableForMesa: true }
@@ -414,8 +433,8 @@ export class OrdersService {
             total,
             appliedPromos: applied as any,
             fulfillment: dto.fulfillment,
-            tableNumber: dto.tableNumber,
-            deliveryAddress: dto.deliveryAddress,
+            tableNumber: cleanTableNumber,
+            deliveryAddress: cleanDeliveryAddress,
             customerNote: dto.customerNote,
             locationId: dto.locationId,
             // El canal ya se resolvió arriba (effectiveMode) — lo persistimos
