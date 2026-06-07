@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { ReferralsService } from './referrals.service';
-import { CommissionRecalcService } from './commission-recalc.service';
 import {
   ReferralsController,
   AdminCommissionsController,
@@ -9,15 +8,16 @@ import {
 import { AuthModule } from '../auth/auth.module';
 import { AdminModule } from '../admin/admin.module';
 import { AuditService } from '../audit/audit.service';
+import { CommissionRecalcModule } from './commission-recalc.module';
 
 @Module({
-  imports: [AuthModule, AdminModule],
-  providers: [ReferralsService, CommissionRecalcService, AuditService],
+  imports: [AuthModule, AdminModule, CommissionRecalcModule],
+  providers: [ReferralsService, AuditService],
   controllers: [
     ReferralsController,
     AdminCommissionsController,
     SellerRegistrationController,
   ],
-  exports: [ReferralsService, CommissionRecalcService, AuditService],
+  exports: [ReferralsService, AuditService],
 })
 export class ReferralsModule {}
