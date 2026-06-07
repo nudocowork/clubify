@@ -276,9 +276,26 @@ export class CampaignsService {
   async update(
     user: AuthUser,
     id: string,
-    patch: { name?: string; status?: CampaignStatus },
+    patch: {
+      name?: string;
+      status?: CampaignStatus;
+      ownerCommissionPercent?: number;
+    },
   ) {
     this.assertAdmin(user);
+
+    if (patch.ownerCommissionPercent !== undefined) {
+      const camp = await this.prisma.campaign.findUnique({
+        where: { id },
+        select: { ownerCodeId: true },
+      });
+      if (!camp) throw new NotFoundException('Campaña');
+      await this.prisma.referralCode.update({
+        where: { id: camp.ownerCodeId },
+        data: { commissionPercent: patch.ownerCommissionPercent },
+      });
+    }
+
     return this.prisma.campaign.update({
       where: { id },
       data: {

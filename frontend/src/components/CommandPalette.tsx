@@ -57,7 +57,6 @@ export function CommandPalette({ variant }: { variant: 'admin' | 'app' }) {
       { id: 'n16', group: 'Ir a', label: 'Equipo de trabajo', href: '/app/staff', icon: 'users', keywords: 'team empleados staff' },
       { id: 'n17', group: 'Ir a', label: 'Suscripción', href: '/app/billing', icon: 'card', keywords: 'pago cobro' },
       { id: 'n18', group: 'Ir a', label: 'Mi cuenta', href: '/app/settings', icon: 'users', keywords: 'profile perfil' },
-      { id: 'n19', group: 'Ir a', label: 'Novedades / changelog', href: '/app/whats-new', icon: 'spark', keywords: 'whats new release notes' },
       { id: 'n20', group: 'Ir a', label: 'Modo cocina TV', href: '/app/orders/display', icon: 'shopping-bag', keywords: 'kitchen display kanban' },
       { id: 'n21', group: 'Ir a', label: `QR ${mainLabel} imprimible`, href: '/app/marketing/qr-menu', icon: 'qr', keywords: 'poster mesa cartel marketing qr menu' },
       { id: 'n22', group: 'Ir a', label: 'Marketing · QR', href: '/app/marketing', icon: 'spark', keywords: 'qr cartel poster marketing' },

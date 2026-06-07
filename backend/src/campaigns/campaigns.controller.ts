@@ -40,6 +40,9 @@ class CreateCampaignBody {
 class UpdateCampaignBody {
   @IsOptional() @IsString() name?: string;
   @IsOptional() @IsEnum(CampaignStatus) status?: CampaignStatus;
+  // % del influencer titular de la campaña. Modifica directamente el
+  // ownerCode.commissionPercent (el dato vive ahí, no en Campaign).
+  @IsOptional() @IsNumber() @Min(0) @Max(100) ownerCommissionPercent?: number;
 }
 
 class AmbassadorBody {
