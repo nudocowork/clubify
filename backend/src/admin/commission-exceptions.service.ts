@@ -4,7 +4,12 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from '../common/prisma/prisma.service';
+// import type — NO emite require() al runtime. El service real se
+// resuelve vía ModuleRef.get para evitar ciclo Admin ↔ Referrals.
+// Ver feedback_static_class_import_as_modulref_token.
+import type { CommissionRecalcService } from '../referrals/commission-recalc.service';
 
 /**
  * Excepciones de comisión por cliente (item 6 sprint).
@@ -18,7 +23,40 @@ import { PrismaService } from '../common/prisma/prisma.service';
 export class CommissionExceptionsService {
   private logger = new Logger(CommissionExceptionsService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private moduleRef: ModuleRef,
+  ) {}
+
+  private getRecalc(): CommissionRecalcService | null {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { CommissionRecalcService: Cls } = require('../referrals/commission-recalc.service');
+      return this.moduleRef.get<CommissionRecalcService>(Cls, { strict: false });
+    } catch {
+      return null;
+    }
+  }
+
+  private async recalcAfterChange(
+    tenantId: string,
+    recipientCodeId: string,
+    actorId: string | null | undefined,
+    reason: string,
+  ) {
+    const svc = this.getRecalc();
+    if (!svc) return;
+    try {
+      await svc.recalcForRecipientCode({
+        recipientCodeId,
+        tenantId,
+        actorId: actorId ?? null,
+        reason,
+      });
+    } catch (e: any) {
+      this.logger.warn(`Recalc after exception change failed: ${e?.message}`);
+    }
+  }
 
   /**
    * Lista los tenants atribuidos a una campaña (uses del ownerCode + uses
@@ -308,6 +346,16 @@ export class CommissionExceptionsService {
       });
     }
 
+    // Fase E 2026-06-07: recálculo inmediato de comisiones PENDING/
+    // APPROVED para el (tenant, recipientCode). Best-effort — si falla
+    // el cambio igual queda persistido.
+    await this.recalcAfterChange(
+      args.tenantId,
+      args.recipientCodeId,
+      args.createdById,
+      `Excepción ${existing ? 'editada' : 'creada'}: ${args.customPercent}%`,
+    );
+
     return {
       exception: {
         id: result.id,
@@ -381,6 +429,12 @@ export class CommissionExceptionsService {
           changedById: changedById ?? null,
         },
       });
+      await this.recalcAfterChange(
+        updated.tenantId,
+        updated.recipientCodeId,
+        changedById,
+        `Excepción patcheada: ${newPercent}%`,
+      );
     }
 
     return {
@@ -418,6 +472,12 @@ export class CommissionExceptionsService {
         changedById: changedById ?? null,
       },
     });
+    await this.recalcAfterChange(
+      existing.tenantId,
+      existing.recipientCodeId,
+      changedById,
+      'Excepción desactivada — vuelve al % default',
+    );
     return { ok: true, alreadyDisabled: false };
   }
 
