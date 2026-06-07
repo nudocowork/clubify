@@ -1,3 +1,10 @@
-// /m/[slug]/delivery/[sectionSlug] — deep-link a sección del menú
-// DELIVERY. Reusa el storefront-client; el modo se infiere del path.
-export { default } from '../../storefront-client';
+// Legacy redirect → /d/<slug>/<sectionSlug>.
+import { redirect } from 'next/navigation';
+
+export default function LegacyDeliverySectionRedirect({
+  params,
+}: {
+  params: { slug: string; sectionSlug: string };
+}) {
+  redirect(`/d/${params.slug}/${params.sectionSlug}`);
+}

@@ -4,6 +4,7 @@ import { useParams, usePathname, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import {
   buildStorefrontPath,
+  modeFromPathname,
   orderModeFor,
   type StorefrontMode,
 } from '@/lib/menu/storefront-mode';
@@ -291,13 +292,12 @@ function StorefrontPublicInner() {
   // Search params reactivos (?mesa=N, ?promo=1, ?counter=1) — leídos
   // vía Next hook para consistencia SSR/CSR. Ver comentario en `isTableMode`.
   const searchParams = useSearchParams();
-  // Modo derivado de la ruta (separación definitiva 2026-06-06):
-  //   /m/<slug>           → 'mesa'      (nuevo default)
-  //   /m/<slug>/delivery  → 'delivery'
-  // Legacy: si llega ?mesa=1 (QR viejo) sin /delivery, también mesa.
+  // Modo derivado del PRIMER segmento de la ruta (separación 2026-06-07):
+  //   /m/<slug>           → 'mesa'      (informativo, sin cart/checkout/WA)
+  //   /d/<slug>           → 'delivery'  (pedido completo)
+  //   /m/<slug>/delivery  → 'delivery'  (compat con QRs viejos, se redirige)
   const pathname = usePathname() ?? '';
-  const isDeliveryRoute = pathname.split('/').includes('delivery');
-  const mode: StorefrontMode = isDeliveryRoute ? 'delivery' : 'mesa';
+  const mode: StorefrontMode = modeFromPathname(pathname);
   const [s, setS] = useState<Storefront | null>(null);
   const [menu, setMenu] = useState<Category[]>([]);
   const [tab, setTab] = useState<'menu' | 'promos'>('menu');
@@ -787,7 +787,9 @@ function StorefrontPublicInner() {
             </div>
           )}
           {s.promotions.map((p) => {
-            const wa = s.whatsappPhone?.replace(/\D/g, '');
+            // Mesa = informativo: no exponer link de WhatsApp ni en promos.
+            const wa =
+              ordersAllowed ? s.whatsappPhone?.replace(/\D/g, '') : null;
             const orderHref = wa
               ? `https://wa.me/${wa}?text=${encodeURIComponent(
                   `Hola! Quiero ordenar esta promoción: ${p.name}`,

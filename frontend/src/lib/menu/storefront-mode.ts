@@ -1,9 +1,12 @@
-// Modo del menú público — separación definitiva (2026-06-06).
+// Modo del menú público — rutas separadas (2026-06-07).
 //
-// `/m/<slug>`           → MESA  (default nuevo)
-// `/m/<slug>/delivery`  → DELIVERY (sub-route)
+// `/m/<slug>`  → MESA      (informativo: sin carrito/checkout/WhatsApp)
+// `/d/<slug>`  → DELIVERY  (pedido completo: carrito + checkout + WhatsApp)
 //
-// El frontend deriva el modo de la ruta y lo propaga a:
+// Legacy:
+// `/m/<slug>/delivery` queda como redirect → `/d/<slug>` para QRs viejos.
+//
+// El frontend deriva el modo del PRIMER segmento del path y lo propaga a:
 //   - el fetch al backend (`?mode=mesa|delivery`)
 //   - el body del POST /orders (`mode: 'MESA'|'DELIVERY'`)
 //   - todos los `<Link>` y `replaceState` internos del storefront, así
@@ -14,9 +17,24 @@
 export type StorefrontMode = 'mesa' | 'delivery';
 
 /**
+ * Detecta el mode del pathname actual. Mira el primer segmento:
+ *   /d/...                 → 'delivery'
+ *   /m/.../delivery        → 'delivery' (compat con QRs viejos)
+ *   resto                  → 'mesa'
+ */
+export function modeFromPathname(pathname: string): StorefrontMode {
+  const segs = pathname.split('/').filter(Boolean);
+  if (segs[0] === 'd') return 'delivery';
+  if (segs[0] === 'm' && segs.includes('delivery')) return 'delivery';
+  return 'mesa';
+}
+
+/**
  * Slug → URL absoluta para una página del storefront, respetando el
  * canal actual (mesa vs delivery). Acepta segmentos opcionales para
  * deep-links (sección + subsección).
+ *
+ * Mesa SIEMPRE en `/m/<slug>`, delivery SIEMPRE en `/d/<slug>`.
  */
 export function buildStorefrontPath(
   storefrontSlug: string,
@@ -26,7 +44,7 @@ export function buildStorefrontPath(
 ): string {
   const base =
     mode === 'delivery'
-      ? `/m/${storefrontSlug}/delivery`
+      ? `/d/${storefrontSlug}`
       : `/m/${storefrontSlug}`;
   if (!sectionSlug) return base;
   const cat = `${base}/${sectionSlug}`;

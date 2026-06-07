@@ -1,3 +1,12 @@
-// /m/[slug]/delivery/[sectionSlug]/[subSlug] — deep-link a subcategoría
-// del menú DELIVERY. Reusa el storefront-client compartido.
-export { default } from '../../../storefront-client';
+// Legacy redirect → /d/<slug>/<sectionSlug>/<subSlug>.
+import { redirect } from 'next/navigation';
+
+export default function LegacyDeliverySubSectionRedirect({
+  params,
+}: {
+  params: { slug: string; sectionSlug: string; subSlug: string };
+}) {
+  redirect(
+    `/d/${params.slug}/${params.sectionSlug}/${params.subSlug}`,
+  );
+}
