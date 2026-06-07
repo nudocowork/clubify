@@ -69,13 +69,32 @@ export class CommissionRecalcService {
     });
     if (!code) return { updated: 0, skippedPaid: 0, affectedAmount: 0 };
 
-    const where: any = {
-      recipientCodeId: opts.recipientCodeId,
+    // FIX 2026-06-07: las commissions viejas (pre-3-way-split) tienen
+    // recipientCodeId=null. Se derivan del use.referralCodeId. Filtro
+    // OR para cubrir ambos casos: rows con recipientCodeId seteado
+    // explícito + rows con null cuyo use apunta al mismo referralCode.
+    const baseStatus = {
       status: { in: [CommissionStatus.PENDING, CommissionStatus.APPROVED] },
     };
-    if (opts.tenantId) {
-      where.referralUse = { tenantId: opts.tenantId };
-    }
+    const useTenantFilter = opts.tenantId
+      ? { tenantId: opts.tenantId }
+      : undefined;
+    const where: any = {
+      ...baseStatus,
+      OR: [
+        {
+          recipientCodeId: opts.recipientCodeId,
+          ...(useTenantFilter ? { referralUse: useTenantFilter } : {}),
+        },
+        {
+          recipientCodeId: null,
+          referralUse: {
+            referralCodeId: opts.recipientCodeId,
+            ...(useTenantFilter ?? {}),
+          },
+        },
+      ],
+    };
 
     const commissions = await this.prisma.commission.findMany({
       where,
@@ -83,6 +102,7 @@ export class CommissionRecalcService {
         referralUse: {
           select: {
             tenantId: true,
+            referralCodeId: true,
             tenant: {
               select: {
                 planPeriodicity: true,
@@ -134,11 +154,22 @@ export class CommissionRecalcService {
       );
       const newAmount = round2((basis * pct) / 100);
       const oldAmount = Number(c.amount);
-      if (newAmount === oldAmount) continue;
+      // FIX 2026-06-07: si recipientCodeId es null (commissions legacy
+      // pre-3-way-split), backfillearlo con el code del use al
+      // actualizar — así futuras consultas no fallan otra vez. Si los
+      // amounts son iguales pero el recipientCodeId está null, igual
+      // actualizamos el campo.
+      const needsRecipientBackfill = (c as any).recipientCodeId == null;
+      if (newAmount === oldAmount && !needsRecipientBackfill) continue;
 
       await this.prisma.commission.update({
         where: { id: c.id },
-        data: { amount: newAmount },
+        data: {
+          amount: newAmount,
+          ...(needsRecipientBackfill
+            ? { recipientCodeId: opts.recipientCodeId }
+            : {}),
+        },
       });
       updated += 1;
       affectedAmount += Math.abs(newAmount - oldAmount);
