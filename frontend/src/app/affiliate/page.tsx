@@ -417,8 +417,32 @@ type DashboardResp = {
     conversions: number;
     revenueUsd: number;
   }>;
+  topVendors?: Array<{
+    id: string;
+    code: string;
+    slug: string;
+    ownerName: string;
+    commissionPercent: number;
+    isActive: boolean;
+    referrals: number;
+    conversions: number;
+    revenueUsd: number;
+    embajador: { id: string; code: string; ownerName: string } | null;
+  }>;
   timeline: Array<{ date: string; signups: number; conversions: number }>;
   sources: Array<{ source: string; referrals: number; conversions: number }>;
+};
+
+type AmbassadorVendorRow = {
+  id: string;
+  code: string;
+  slug: string;
+  ownerName: string;
+  commissionPercent: number;
+  isActive: boolean;
+  referrals: number;
+  conversions: number;
+  revenueUsd: number;
 };
 
 function Overview({ me }: { me: Me }) {
@@ -498,6 +522,12 @@ function Overview({ me }: { me: Me }) {
       {/* Ranking embajadores estilo Pedro: 5 · Laura: 9 · Camila: 2 */}
       {isInfluencer && data && data.ambassadors.length > 0 && (
         <AmbassadorsRanking rows={data.ambassadors} />
+      )}
+
+      {/* Top vendedores GLOBAL (todos los vendors de todos los embajadores).
+          Solo para INFLUENCER — Item Fase C 2026-06-07. */}
+      {isInfluencer && data && (data.topVendors?.length ?? 0) > 0 && (
+        <TopVendorsRanking rows={data.topVendors!} />
       )}
 
       {/* Sources (UTM) — solo si hay datos no-triviales */}
@@ -623,40 +653,221 @@ function AmbassadorsRanking({
   rows: DashboardResp['ambassadors'];
 }) {
   const max = Math.max(1, ...rows.map((r) => r.referrals));
+  const [expanded, setExpanded] = useState<string | null>(null);
+  // Cache de vendors por embajador para no re-fetch al re-expandir.
+  const [vendorsByAmbassador, setVendorsByAmbassador] = useState<
+    Record<string, { loading: boolean; rows: AmbassadorVendorRow[]; error?: string }>
+  >({});
+
+  async function toggle(ambassadorId: string) {
+    if (expanded === ambassadorId) {
+      setExpanded(null);
+      return;
+    }
+    setExpanded(ambassadorId);
+    if (vendorsByAmbassador[ambassadorId]) return;
+    setVendorsByAmbassador((s) => ({
+      ...s,
+      [ambassadorId]: { loading: true, rows: [] },
+    }));
+    try {
+      const list = await api<AmbassadorVendorRow[]>(
+        `/affiliate/ambassadors/${ambassadorId}/vendors`,
+      );
+      setVendorsByAmbassador((s) => ({
+        ...s,
+        [ambassadorId]: { loading: false, rows: list },
+      }));
+    } catch (e: any) {
+      setVendorsByAmbassador((s) => ({
+        ...s,
+        [ambassadorId]: {
+          loading: false,
+          rows: [],
+          error: e?.message ?? 'No se pudo cargar el equipo',
+        },
+      }));
+    }
+  }
+
   return (
     <div className="card overflow-hidden p-0">
       <div className="px-4 py-3 border-b border-line2 flex items-center justify-between">
         <div>
           <div className="font-semibold text-sm">🏆 Ranking de tus embajadores</div>
-          <div className="text-[11px] text-mute">Ordenado por revenue generado.</div>
+          <div className="text-[11px] text-mute">
+            Click en un embajador para ver sus vendedores.
+          </div>
         </div>
         <div className="text-[11px] text-mute">{rows.length} en total</div>
       </div>
       <div className="divide-y divide-line2">
         {rows.map((r, i) => {
           const pct = (r.referrals / max) * 100;
+          const isOpen = expanded === r.id;
+          const vendorsState = vendorsByAmbassador[r.id];
           return (
-            <div key={r.id} className="px-3 sm:px-4 py-3 flex items-center gap-2 sm:gap-3">
-              <div className="w-5 sm:w-6 text-center font-bold text-mute flex-none">{i + 1}</div>
-              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-100 to-violet-200 text-violet-700 flex items-center justify-center font-bold text-sm flex-none">
+            <div key={r.id}>
+              <button
+                type="button"
+                onClick={() => toggle(r.id)}
+                className="w-full text-left px-3 sm:px-4 py-3 flex items-center gap-2 sm:gap-3 hover:bg-bg2/40 active:bg-bg2/60 transition"
+              >
+                <div className="w-5 sm:w-6 text-center font-bold text-mute flex-none">
+                  {i + 1}
+                </div>
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-100 to-violet-200 text-violet-700 flex items-center justify-center font-bold text-sm flex-none">
+                  {initials(r.ownerName)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate">{r.ownerName}</div>
+                  <div className="text-[11px] text-mute font-mono truncate">
+                    {r.code} · {r.commissionPercent}%
+                  </div>
+                  <div className="mt-1 h-1.5 bg-bg2 rounded overflow-hidden">
+                    <div
+                      className="h-full bg-violet-500"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="text-right text-[11px] sm:text-xs flex-none w-20 sm:w-32">
+                  <div className="font-bold text-sm sm:text-base">
+                    {r.referrals}{' '}
+                    <span className="text-mute font-normal hidden sm:inline">
+                      referidos
+                    </span>
+                  </div>
+                  <div className="text-mute text-[10px] sm:text-xs leading-tight">
+                    {r.conversions} conv · {fmtUsd(r.revenueUsd)}
+                  </div>
+                </div>
+                <div className="flex-none text-mute text-xs ml-1">
+                  {isOpen ? '▾' : '▸'}
+                </div>
+              </button>
+              {isOpen && (
+                <div className="bg-bg2/30 border-t border-line2 px-3 sm:px-6 py-3">
+                  {vendorsState?.loading && (
+                    <div className="text-[11px] text-mute py-2">
+                      Cargando vendedores…
+                    </div>
+                  )}
+                  {vendorsState?.error && (
+                    <div className="text-[11px] text-red-700 py-2">
+                      {vendorsState.error}
+                    </div>
+                  )}
+                  {vendorsState &&
+                    !vendorsState.loading &&
+                    !vendorsState.error &&
+                    vendorsState.rows.length === 0 && (
+                      <div className="text-[11px] text-mute py-2">
+                        Este embajador todavía no tiene vendedores.
+                      </div>
+                    )}
+                  {vendorsState && vendorsState.rows.length > 0 && (
+                    <div className="space-y-1.5">
+                      <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
+                        Vendedores ({vendorsState.rows.length})
+                      </div>
+                      {vendorsState.rows.map((v) => (
+                        <div
+                          key={v.id}
+                          className="flex items-center gap-2 px-2 py-1.5 rounded bg-white border border-line2"
+                        >
+                          <div className="w-7 h-7 rounded-full bg-sky-100 text-sky-700 flex items-center justify-center font-bold text-xs flex-none">
+                            {initials(v.ownerName)}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-medium truncate">
+                              {v.ownerName}{' '}
+                              {!v.isActive && (
+                                <span className="text-[10px] text-mute">
+                                  · inactivo
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[10px] text-mute font-mono">
+                              {v.code} · {v.commissionPercent}%
+                            </div>
+                          </div>
+                          <div className="text-right text-[10px] flex-none">
+                            <div className="font-semibold">
+                              {v.referrals} ref · {v.conversions} conv
+                            </div>
+                            <div className="text-mute">{fmtUsd(v.revenueUsd)}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Top vendedores GLOBALES del influencer: agrega vendors de TODOS sus
+ * embajadores en una sola tabla. Útil para ver quiénes son los
+ * vendedores top sin tener que abrir embajador por embajador.
+ */
+function TopVendorsRanking({
+  rows,
+}: {
+  rows: NonNullable<DashboardResp['topVendors']>;
+}) {
+  const max = Math.max(1, ...rows.map((r) => r.revenueUsd));
+  return (
+    <div className="card overflow-hidden p-0">
+      <div className="px-4 py-3 border-b border-line2 flex items-center justify-between">
+        <div>
+          <div className="font-semibold text-sm">⭐ Top vendedores</div>
+          <div className="text-[11px] text-mute">
+            De todos tus embajadores combinados.
+          </div>
+        </div>
+        <div className="text-[11px] text-mute">Top {rows.length}</div>
+      </div>
+      <div className="divide-y divide-line2">
+        {rows.map((r, i) => {
+          const pct = (r.revenueUsd / max) * 100;
+          return (
+            <div
+              key={r.id}
+              className="px-3 sm:px-4 py-3 flex items-center gap-2 sm:gap-3"
+            >
+              <div className="w-5 sm:w-6 text-center font-bold text-mute flex-none">
+                {i + 1}
+              </div>
+              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-sky-100 to-sky-200 text-sky-700 flex items-center justify-center font-bold text-sm flex-none">
                 {initials(r.ownerName)}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="font-medium truncate">{r.ownerName}</div>
-                <div className="text-[11px] text-mute font-mono truncate">
-                  {r.code} · {r.commissionPercent}%
+                <div className="text-[11px] text-mute truncate">
+                  {r.embajador
+                    ? `vía ${r.embajador.ownerName} · ${r.code}`
+                    : r.code}
                 </div>
                 <div className="mt-1 h-1.5 bg-bg2 rounded overflow-hidden">
                   <div
-                    className="h-full bg-violet-500"
+                    className="h-full bg-sky-500"
                     style={{ width: `${pct}%` }}
                   />
                 </div>
               </div>
               <div className="text-right text-[11px] sm:text-xs flex-none w-20 sm:w-32">
-                <div className="font-bold text-sm sm:text-base">{r.referrals} <span className="text-mute font-normal hidden sm:inline">referidos</span></div>
+                <div className="font-bold text-sm sm:text-base">
+                  {fmtUsd(r.revenueUsd)}
+                </div>
                 <div className="text-mute text-[10px] sm:text-xs leading-tight">
-                  {r.conversions} conv · {fmtUsd(r.revenueUsd)}
+                  {r.referrals} ref · {r.conversions} conv
                 </div>
               </div>
             </div>

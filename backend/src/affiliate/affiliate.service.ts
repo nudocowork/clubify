@@ -1,4 +1,9 @@
-import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { customAlphabet } from 'nanoid';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
@@ -266,6 +271,7 @@ export class AffiliateService {
         directs: emptyKpis(),
         indirects: emptyKpis(),
         ambassadors: [] as AmbassadorRow[],
+        topVendors: [] as TopVendorRow[],
         timeline: emptyTimeline(),
         sources: [] as SourceRow[],
       };
@@ -318,6 +324,15 @@ export class AffiliateService {
       })
       .sort((a, b) => b.revenueUsd - a.revenueUsd || b.referrals - a.referrals);
 
+    // Top vendedores GLOBAL del INFLUENCER (item Fase C 2026-06-07):
+    // todos los vendors que pertenecen a CUALQUIERA de sus embajadores,
+    // ordenados por revenue. Para AMBASSADOR/SOCIO/VENDOR este array
+    // queda vacío (sus vendors ya viven en el panel /affiliate/team).
+    const topVendors = await this.computeTopVendorsForInfluencer(
+      user.id,
+      ambassadorCodeIds,
+    );
+
     // Timeline 30 días: buckets diarios de signups + conversiones (PAYING/ACTIVE).
     const timeline = buildTimeline(uses, 30);
 
@@ -337,9 +352,103 @@ export class AffiliateService {
       directs,
       indirects,
       ambassadors,
+      topVendors,
       timeline,
       sources,
     };
+  }
+
+  /**
+   * Top vendedores del influencer — agrega los vendors hijos de TODOS sus
+   * embajadores y los ordena por revenue desc. Para no-influencers
+   * devuelve []. Top 10 por defecto.
+   */
+  private async computeTopVendorsForInfluencer(
+    userId: string,
+    ambassadorCodeIds: string[],
+  ): Promise<TopVendorRow[]> {
+    if (!ambassadorCodeIds.length) return [];
+    const vendors = await this.prisma.referralCode.findMany({
+      where: { parentEmbajadorCodeId: { in: ambassadorCodeIds } },
+      include: {
+        parentEmbajadorCode: {
+          select: { id: true, code: true, ownerName: true },
+        },
+        uses: { include: { commissions: true } },
+      },
+    });
+    const rows: TopVendorRow[] = vendors.map((v) => {
+      const kpi = aggregateKpis(v.uses, [v.id]);
+      return {
+        id: v.id,
+        code: v.code,
+        slug: v.slug ?? v.code.toLowerCase(),
+        ownerName: v.ownerName,
+        commissionPercent: Number(v.commissionPercent ?? 0),
+        isActive: v.isActive,
+        referrals: kpi.referrals,
+        conversions: kpi.conversions,
+        revenueUsd: kpi.revenueUsd,
+        embajador: v.parentEmbajadorCode
+          ? {
+              id: v.parentEmbajadorCode.id,
+              code: v.parentEmbajadorCode.code,
+              ownerName: v.parentEmbajadorCode.ownerName,
+            }
+          : null,
+      };
+    });
+    return rows
+      .sort(
+        (a, b) =>
+          b.revenueUsd - a.revenueUsd ||
+          b.conversions - a.conversions ||
+          b.referrals - a.referrals,
+      )
+      .slice(0, 10);
+  }
+
+  /**
+   * Vendedores de un embajador específico, accesible al INFLUENCER padre
+   * del embajador (drill-down). Mismo shape que las rows de
+   * teamForEmbajador para reuso visual.
+   */
+  async ambassadorVendorsForInfluencer(
+    user: AuthUser,
+    ambassadorCodeId: string,
+  ) {
+    this.assertAffiliate(user);
+    const ambassador = await this.prisma.referralCode.findUnique({
+      where: { id: ambassadorCodeId },
+      include: { parentCode: { select: { ownerUserId: true } } },
+    });
+    if (!ambassador || ambassador.role !== 'AMBASSADOR') {
+      throw new NotFoundException('Embajador no encontrado');
+    }
+    if (ambassador.parentCode?.ownerUserId !== user.id) {
+      throw new ForbiddenException(
+        'No tenés acceso a este embajador',
+      );
+    }
+    const vendors = await this.prisma.referralCode.findMany({
+      where: { parentEmbajadorCodeId: ambassadorCodeId },
+      include: { uses: { include: { commissions: true } } },
+      orderBy: [{ isActive: 'desc' }, { ownerName: 'asc' }],
+    });
+    return vendors.map((v) => {
+      const kpi = aggregateKpis(v.uses, [v.id]);
+      return {
+        id: v.id,
+        code: v.code,
+        slug: v.slug ?? v.code.toLowerCase(),
+        ownerName: v.ownerName,
+        commissionPercent: Number(v.commissionPercent ?? 0),
+        isActive: v.isActive,
+        referrals: kpi.referrals,
+        conversions: kpi.conversions,
+        revenueUsd: kpi.revenueUsd,
+      };
+    });
   }
 
   async updateProfile(
@@ -1128,6 +1237,10 @@ type AmbassadorRow = {
   referrals: number;
   conversions: number;
   revenueUsd: number;
+};
+
+type TopVendorRow = AmbassadorRow & {
+  embajador: { id: string; code: string; ownerName: string } | null;
 };
 
 type SourceRow = { source: string; referrals: number; conversions: number };
