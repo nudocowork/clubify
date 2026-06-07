@@ -37,6 +37,20 @@ const PUBLIC_STATUSES: LabStatus[] = [
   'IMPLEMENTED',
 ];
 
+// Transiciones de status permitidas. IMPLEMENTED es terminal; REJECTED
+// puede reabrirse a EVALUATING o PENDING. Bloquea brincos como
+// PENDING → IMPLEMENTED directo (cambio accidental desde el dropdown
+// admin que dejaba un IMPLEMENTED sin pasar por IN_DEVELOPMENT/TESTING).
+const ALLOWED_STATUS_TRANSITIONS: Record<LabStatus, LabStatus[]> = {
+  PENDING: ['EVALUATING', 'REJECTED'],
+  EVALUATING: ['APPROVED', 'REJECTED', 'PENDING'],
+  APPROVED: ['IN_DEVELOPMENT', 'REJECTED', 'EVALUATING'],
+  IN_DEVELOPMENT: ['IN_TESTING', 'APPROVED', 'REJECTED'],
+  IN_TESTING: ['IMPLEMENTED', 'IN_DEVELOPMENT', 'REJECTED'],
+  IMPLEMENTED: [],
+  REJECTED: ['PENDING', 'EVALUATING'],
+};
+
 export interface CreateProposalInput {
   title: string;
   description: string;
@@ -322,6 +336,15 @@ export class LabService {
       },
     });
     if (!proposal) throw new NotFoundException('Propuesta no encontrada.');
+
+    if (proposal.status !== status) {
+      const allowed = ALLOWED_STATUS_TRANSITIONS[proposal.status] ?? [];
+      if (!allowed.includes(status)) {
+        throw new BadRequestException(
+          `No se puede pasar de ${proposal.status} a ${status} directo.`,
+        );
+      }
+    }
 
     const updated = await this.prisma.labProposal.update({
       where: { id },

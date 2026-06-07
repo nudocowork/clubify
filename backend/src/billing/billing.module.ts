@@ -11,9 +11,10 @@ import { IntegrationsModule } from '../integrations/integrations.module';
 import { EmailModule } from '../email/email.module';
 import { ReferralsModule } from '../referrals/referrals.module';
 import { AuthModule } from '../auth/auth.module';
+import { AdminModule } from '../admin/admin.module';
 
 @Module({
-  imports: [IntegrationsModule, EmailModule, ReferralsModule, AuthModule],
+  imports: [IntegrationsModule, EmailModule, ReferralsModule, AuthModule, AdminModule],
   controllers: [
     BillingController,
     HotmartWebhookController,

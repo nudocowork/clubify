@@ -6,6 +6,7 @@ import { CommissionStatus } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { AuthService } from '../auth/auth.service';
+import { CommissionExceptionsService } from '../admin/commission-exceptions.service';
 
 const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
 
@@ -29,6 +30,7 @@ export class ReferralsService {
     private prisma: PrismaService,
     private auth: AuthService,
     private jwt: JwtService,
+    private commissionExceptions: CommissionExceptionsService,
   ) {}
 
   /**
@@ -264,7 +266,11 @@ export class ReferralsService {
       include: {
         referralCode: { select: { id: true, commissionPercent: true } },
         tenant: {
-          select: { currentPeriodEnd: true, plan: { select: { priceMonthly: true } } },
+          select: {
+            currentPeriodEnd: true,
+            planPeriodicity: true,
+            plan: { select: { priceMonthly: true } },
+          },
         },
         commissions: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
@@ -280,13 +286,17 @@ export class ReferralsService {
       // funciona para Mensual (mes a mes), Trimestral (cada 3 meses),
       // Semestral y Anual sin necesidad de saber la periodicidad.
       if (last && cpe <= new Date(last.createdAt).getTime()) continue;
-      // Fallback al priceMonthly como base: la base correcta (monto Hotmart)
-      // solo la conoce el webhook directo (`generateReferralCommission`).
-      // Si el webhook llega, esta rama no se ejecuta. Si NO llega (caída),
-      // esta rama paga una aproximación que el SUPER_ADMIN puede corregir
-      // luego (ver excepciones por cliente, item 6 del sprint).
-      const price = Number(use.tenant?.plan?.priceMonthly ?? 0);
-      if (price <= 0) continue;
+      // Fallback cuando el webhook directo no llegó. La base correcta
+      // (monto Hotmart real) la conoce `generateReferralCommission`. Acá
+      // aproximamos al precio del BUNDLE según periodicidad — sino para
+      // un tenant Trimestral cobramos sobre priceMonthly=68 cuando el
+      // cliente pagó 150 (el afiliado quedaba sub-cobrado). El precio
+      // exacto del bundle (con descuento) sigue siendo aproximación que
+      // el SUPER_ADMIN puede corregir vía excepción por cliente.
+      const priceMonthly = Number(use.tenant?.plan?.priceMonthly ?? 0);
+      if (priceMonthly <= 0) continue;
+      const months = bundleMonths(use.tenant?.planPeriodicity ?? null);
+      const price = priceMonthly * months;
       // Item 6 sprint: respetar excepción por (tenant, recipientCode) si
       // existe y está activa.
       if (!use.tenantId) continue;
@@ -2785,22 +2795,19 @@ export class ReferralsService {
   }
 
   /**
-   * Item 6 sprint: si el SUPER_ADMIN configuró una excepción activa para
-   * el tenant en ESTE recipientCode, devuelve el % custom; sino el normal.
-   * Cada nivel de la cadena (influencer/embajador/vendor) consulta su
-   * propia excepción de forma independiente.
+   * Delega al helper compartido en CommissionExceptionsService.
+   * Antes vivía duplicado entre referrals + hotmart — riesgo de drift.
    */
-  private async resolveExceptionPercent(
+  private resolveExceptionPercent(
     tenantId: string,
     recipientCodeId: string,
     fallbackPercent: number,
   ): Promise<number> {
-    const exc = await this.prisma.commissionException.findUnique({
-      where: { tenantId_recipientCodeId: { tenantId, recipientCodeId } },
-      select: { customPercent: true, isActive: true },
-    });
-    if (exc && exc.isActive) return Number(exc.customPercent);
-    return fallbackPercent;
+    return this.commissionExceptions.resolvePercent(
+      tenantId,
+      recipientCodeId,
+      fallbackPercent,
+    );
   }
 
   /**
@@ -3392,5 +3399,23 @@ export class ReferralsService {
       paidCount: pending.length,
       totalPaid: Math.round(totalPaid * 100) / 100,
     };
+  }
+}
+
+/**
+ * Meses cubiertos por una periodicidad del bundle de Hotmart.
+ * Usado por reconcileRecurringCommissions para aproximar el monto pagado
+ * cuando el webhook directo no llegó. NO refleja el descuento del bundle.
+ */
+function bundleMonths(periodicity: string | null): number {
+  switch ((periodicity ?? '').toUpperCase()) {
+    case 'TRIMESTRAL':
+      return 3;
+    case 'SEMESTRAL':
+      return 6;
+    case 'ANUAL':
+      return 12;
+    default:
+      return 1;
   }
 }

@@ -131,79 +131,77 @@ export class TenantDuplicatorService {
       now.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000,
     );
 
+    // Tenant + dueño se crean atómicos. Si User.create falla (email
+    // duplicado con allowDuplicateEmail=true, FK constraint, etc.),
+    // el Tenant rollback al rollback de la TX y NO queda huérfano.
     let newTenantId: string;
     try {
-      const newTenant = await this.prisma.tenant.create({
-        data: {
-          name: brandName,
-          brandName,
-          slug,
-          email,
-          // Hereda colores/branding/categorias/timezone/currency del source.
-          phone: source.phone ?? null,
-          whatsappPhone: opts.newOwnerPhone ?? null,
-          googleReviewUrl: source.googleReviewUrl ?? null,
-          whatsappFeedbackEnabled: source.whatsappFeedbackEnabled,
-          whatsappFeedbackNumber: source.whatsappFeedbackNumber ?? null,
-          whatsappFeedbackMessage: source.whatsappFeedbackMessage ?? null,
-          whatsappOrdersPhone: source.whatsappOrdersPhone ?? null,
-          whatsappDeliveryPhone: source.whatsappDeliveryPhone ?? null,
-          logoUrl: source.logoUrl ?? null,
-          walletLogoUrl: source.walletLogoUrl ?? null,
-          pushLogoUrl: source.pushLogoUrl ?? null,
-          primaryColor: source.primaryColor,
-          secondaryColor: source.secondaryColor,
-          businessCategorySlug: source.businessCategorySlug ?? null,
-          planId: source.planId,
-          planPeriodicity: source.planPeriodicity ?? null,
-          maxStampsPerDay: source.maxStampsPerDay ?? null,
-          maxLocationsOverride: source.maxLocationsOverride ?? null,
-          currency: source.currency,
-          timezone: source.timezone,
-          instagramUrl: source.instagramUrl ?? null,
-          facebookUrl: source.facebookUrl ?? null,
-          mapsUrl: source.mapsUrl ?? null,
-          mainSectionLabelOverride: source.mainSectionLabelOverride ?? null,
-          // Trial fresco — no compartimos billing del source.
-          status: 'TRIAL',
-          trialStartedAt: now,
-          trialEndsAt,
-          gracePeriodDays: source.gracePeriodDays,
-          currentPeriodEnd: null,
-          hotmartSubscriberCode: `dup-${nanoid(10)}`,
-          hotmartTransactionId: null,
-          failedPaymentCount: 0,
-          // Onboarding marcado como visto para que el nuevo dueño entre directo.
-          welcomePopupSeenAt: now,
-        },
-        select: { id: true },
+      newTenantId = await this.prisma.$transaction(async (tx) => {
+        const newTenant = await tx.tenant.create({
+          data: {
+            name: brandName,
+            brandName,
+            slug,
+            email,
+            // Hereda colores/branding/categorias/timezone/currency del source.
+            phone: source.phone ?? null,
+            whatsappPhone: opts.newOwnerPhone ?? null,
+            googleReviewUrl: source.googleReviewUrl ?? null,
+            whatsappFeedbackEnabled: source.whatsappFeedbackEnabled,
+            whatsappFeedbackNumber: source.whatsappFeedbackNumber ?? null,
+            whatsappFeedbackMessage: source.whatsappFeedbackMessage ?? null,
+            whatsappOrdersPhone: source.whatsappOrdersPhone ?? null,
+            whatsappDeliveryPhone: source.whatsappDeliveryPhone ?? null,
+            logoUrl: source.logoUrl ?? null,
+            walletLogoUrl: source.walletLogoUrl ?? null,
+            pushLogoUrl: source.pushLogoUrl ?? null,
+            primaryColor: source.primaryColor,
+            secondaryColor: source.secondaryColor,
+            businessCategorySlug: source.businessCategorySlug ?? null,
+            planId: source.planId,
+            planPeriodicity: source.planPeriodicity ?? null,
+            maxStampsPerDay: source.maxStampsPerDay ?? null,
+            maxLocationsOverride: source.maxLocationsOverride ?? null,
+            currency: source.currency,
+            timezone: source.timezone,
+            instagramUrl: source.instagramUrl ?? null,
+            facebookUrl: source.facebookUrl ?? null,
+            mapsUrl: source.mapsUrl ?? null,
+            mainSectionLabelOverride: source.mainSectionLabelOverride ?? null,
+            // Trial fresco — no compartimos billing del source.
+            status: 'TRIAL',
+            trialStartedAt: now,
+            trialEndsAt,
+            gracePeriodDays: source.gracePeriodDays,
+            currentPeriodEnd: null,
+            hotmartSubscriberCode: `dup-${nanoid(10)}`,
+            hotmartTransactionId: null,
+            failedPaymentCount: 0,
+            // Onboarding marcado como visto para que el nuevo dueño entre directo.
+            welcomePopupSeenAt: now,
+          },
+          select: { id: true },
+        });
+        await tx.user.create({
+          data: {
+            tenantId: newTenant.id,
+            email,
+            passwordHash,
+            fullName: brandName,
+            phone: opts.newOwnerPhone ?? null,
+            role: 'TENANT_OWNER',
+            isActive: true,
+          },
+        });
+        return newTenant.id;
       });
-      newTenantId = newTenant.id;
       push('Crear negocio nuevo', 'ok');
+      push('Crear dueño del negocio', 'ok');
     } catch (err: any) {
-      // Sin tenant no podemos continuar — el resto depende de su id.
+      // Sin tenant ni dueño no podemos continuar — el resto depende del id.
       throw new BadRequestException(
         `No se pudo crear el negocio: ${err?.message ?? 'error desconocido'}`,
       );
-    }
-
-    try {
-      await this.prisma.user.create({
-        data: {
-          tenantId: newTenantId,
-          email,
-          passwordHash,
-          fullName: brandName,
-          phone: opts.newOwnerPhone ?? null,
-          role: 'TENANT_OWNER',
-          isActive: true,
-        },
-      });
-      push('Crear dueño del negocio', 'ok');
-    } catch (err: any) {
-      push('Crear dueño del negocio', 'error', {
-        message: err?.message ?? 'No se pudo crear el dueño',
-      });
     }
 
     // Locations — necesario antes de Card/ReviewQrTarget porque referencian.

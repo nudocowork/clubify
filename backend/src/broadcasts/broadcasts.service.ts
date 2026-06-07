@@ -280,17 +280,40 @@ export class BroadcastsService {
   /**
    * Upsert idempotente — si ya existe el registro, no falla ni duplica.
    * Para BANNER significa "descartar"; para LOGIN_POPUP significa "leído".
+   *
+   * Valida audience y vigencia (startsAt/endsAt) antes del upsert: sino
+   * un user fuera de audiencia podría poluir `BroadcastRead` y romper la
+   * métrica `read/sent` (rate > 100%). Sin ruido: respondemos ok igual
+   * para no tener que distinguir "no aplica" de "ya leído" en el cliente.
    */
-  async markRead(broadcastId: string, userId: string) {
-    const exists = await this.prisma.broadcast.findUnique({
+  async markRead(broadcastId: string, user: AuthUser) {
+    const b = await this.prisma.broadcast.findUnique({
       where: { id: broadcastId },
-      select: { id: true },
+      select: {
+        id: true,
+        audience: true,
+        isActive: true,
+        startsAt: true,
+        endsAt: true,
+      },
     });
-    if (!exists) throw new NotFoundException('Broadcast no encontrado');
+    if (!b) throw new NotFoundException('Broadcast no encontrado');
+
+    const audiences = audiencesForRole(user.role);
+    const inAudience = audiences.includes(b.audience);
+    const now = new Date();
+    const inWindow =
+      b.isActive &&
+      (!b.startsAt || b.startsAt <= now) &&
+      (!b.endsAt || b.endsAt >= now);
+
+    if (!inAudience || !inWindow) {
+      return { ok: true, skipped: true };
+    }
 
     await this.prisma.broadcastRead.upsert({
-      where: { broadcastId_userId: { broadcastId, userId } },
-      create: { broadcastId, userId },
+      where: { broadcastId_userId: { broadcastId, userId: user.id } },
+      create: { broadcastId, userId: user.id },
       update: {},
     });
     return { ok: true };
