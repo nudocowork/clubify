@@ -91,6 +91,19 @@ export class AffiliateController {
   }
 
   /**
+   * INFLUENCER drill-down: vendedores de UN embajador específico, con
+   * métricas (referrals/conversions/revenue). El backend valida que el
+   * embajador sea hijo del influencer logueado. Item Fase C 2026-06-07.
+   */
+  @Get('ambassadors/:codeId/vendors')
+  ambassadorVendors(
+    @CurrentUser() user: AuthUser,
+    @Param('codeId') codeId: string,
+  ) {
+    return this.svc.ambassadorVendorsForInfluencer(user, codeId);
+  }
+
+  /**
    * Métricas + detalle de trials atribuidos al afiliado logueado (item 4
    * — 2026-06-05). Scopeado a SU código (resolveAffiliateScope):
    *   - INFLUENCER ve trials de su code + de sus embajadores + de sus
