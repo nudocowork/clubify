@@ -8,6 +8,7 @@ import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { ConfirmDeleteModal } from '@/components/ConfirmDeleteModal';
 import { DuplicateBusinessModal } from '@/components/DuplicateBusinessModal';
+import { ManageTrialModal } from '@/components/ManageTrialModal';
 import { periodLabel, type PlanPeriodicity } from '@/lib/plan-format';
 
 function avatarClass(seed: string) {
@@ -72,6 +73,7 @@ export default function TenantsPage() {
   const [enteringId, setEnteringId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
   const [duplicateTarget, setDuplicateTarget] = useState<any | null>(null);
+  const [trialTarget, setTrialTarget] = useState<any | null>(null);
   const me = getUser();
   const isMarketing = me?.role === 'MARKETING';
 
@@ -432,6 +434,7 @@ export default function TenantsPage() {
                     onToggleStatus={() =>
                       setStatus(t.id, t.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE')
                     }
+                    onManageTrial={() => setTrialTarget(t)}
                     onDuplicate={() => setDuplicateTarget(t)}
                     onDelete={() => setDeleteTarget(t)}
                   />
@@ -455,11 +458,27 @@ export default function TenantsPage() {
         />
       )}
 
+      {trialTarget && (
+        <ManageTrialModal
+          tenant={{
+            id: trialTarget.id,
+            brandName: trialTarget.brandName,
+            status: trialTarget.status,
+            trialEndsAt: trialTarget.trialEndsAt,
+          }}
+          onClose={() => setTrialTarget(null)}
+          onSaved={() => {
+            setTrialTarget(null);
+            load();
+          }}
+        />
+      )}
+
       {deleteTarget && (
         <ConfirmDeleteModal
           title="Eliminar negocio"
           confirmLabel="Eliminar definitivamente"
-          requireText={deleteTarget.brandName}
+          requireText="123"
           description={
             <>
               <p>
@@ -501,6 +520,7 @@ function ActionsMenu({
   onView,
   onDownload,
   onToggleStatus,
+  onManageTrial,
   onDuplicate,
   onDelete,
 }: {
@@ -512,6 +532,7 @@ function ActionsMenu({
   onView: () => void;
   onDownload: () => void;
   onToggleStatus: () => void;
+  onManageTrial: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
 }) {
@@ -597,8 +618,15 @@ function ActionsMenu({
       {canManage && (
         <MenuItem
           icon={status === 'ACTIVE' ? '⏸' : '▶'}
-          label={status === 'ACTIVE' ? 'Suspender' : 'Activar'}
+          label={status === 'ACTIVE' ? 'Suspender negocio' : 'Activar negocio'}
           onClick={run(onToggleStatus)}
+        />
+      )}
+      {canManage && (
+        <MenuItem
+          icon="⏱"
+          label="Gestionar Trial"
+          onClick={run(onManageTrial)}
         />
       )}
       {canManage && (
