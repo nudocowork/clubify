@@ -111,4 +111,15 @@ export class CommissionExceptionsController {
   ) {
     return this.svc.disable(id, user.id, q.reason ?? null);
   }
+
+  /**
+   * Forza el recálculo de TODAS las commissions PENDING/APPROVED
+   * afectadas por excepciones activas. Útil para corregir registros
+   * históricos que NO se recalcularon cuando se crearon (porque el
+   * ModuleRef.get fallaba silencioso pre-fix 2026-06-07).
+   */
+  @Post('recalc-all-active')
+  recalcAllActive(@CurrentUser() user: AuthUser) {
+    return this.svc.forceRecalcAllActive(user.id);
+  }
 }
