@@ -1,4 +1,4 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { RemindersService } from './reminders.service';
 import { RemindersController } from './reminders.controller';
 import { SuppliersService } from './suppliers.service';
@@ -16,7 +16,7 @@ import { IntegrationsModule } from '../integrations/integrations.module';
 import { AuthModule } from '../auth/auth.module';
 
 @Module({
-  imports: [IntegrationsModule, forwardRef(() => AuthModule)],
+  imports: [IntegrationsModule, AuthModule],
   providers: [
     RemindersService,
     SuppliersService,
