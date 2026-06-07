@@ -2,7 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { CommissionStatus } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { CommissionExceptionsService } from '../admin/commission-exceptions.service';
 
 /**
  * Recálculo en tiempo real de comisiones cuando cambia un % (Fase E
@@ -27,8 +26,26 @@ export class CommissionRecalcService {
   constructor(
     private prisma: PrismaService,
     private audit: AuditService,
-    private commissionExceptions: CommissionExceptionsService,
   ) {}
+
+  /**
+   * Helper inline (antes vivía en CommissionExceptionsService — lo
+   * extrajimos para romper ciclo Admin ↔ Referrals 2026-06-07).
+   * Si hay excepción activa para (tenant, recipientCode), usa ese %;
+   * sino, fallback.
+   */
+  private async resolveEffectivePct(
+    tenantId: string,
+    recipientCodeId: string,
+    fallbackPercent: number,
+  ): Promise<number> {
+    const exc = await this.prisma.commissionException.findUnique({
+      where: { tenantId_recipientCodeId: { tenantId, recipientCodeId } },
+      select: { customPercent: true, isActive: true },
+    });
+    if (exc && exc.isActive) return Number(exc.customPercent);
+    return fallbackPercent;
+  }
 
   /**
    * Recalcula las commissions PENDING/APPROVED de un recipientCode.
@@ -98,7 +115,7 @@ export class CommissionRecalcService {
       const months = bundleMonths(c.referralUse?.tenant?.planPeriodicity ?? null);
       const basis = priceMonthly * months;
 
-      const pct = await this.commissionExceptions.resolvePercent(
+      const pct = await this.resolveEffectivePct(
         tenantId,
         opts.recipientCodeId,
         baseFallbackPct,

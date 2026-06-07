@@ -4,12 +4,8 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from '../common/prisma/prisma.service';
-// import type — NO emite require() al runtime. El service real se
-// resuelve vía ModuleRef.get para evitar ciclo Admin ↔ Referrals.
-// Ver feedback_static_class_import_as_modulref_token.
-import type { CommissionRecalcService } from '../referrals/commission-recalc.service';
+import { CommissionRecalcService } from '../referrals/commission-recalc.service';
 
 /**
  * Excepciones de comisión por cliente (item 6 sprint).
@@ -25,34 +21,31 @@ export class CommissionExceptionsService {
 
   constructor(
     private prisma: PrismaService,
-    private moduleRef: ModuleRef,
+    private recalc: CommissionRecalcService,
   ) {}
 
-  private getRecalc(): CommissionRecalcService | null {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { CommissionRecalcService: Cls } = require('../referrals/commission-recalc.service');
-      return this.moduleRef.get<CommissionRecalcService>(Cls, { strict: false });
-    } catch {
-      return null;
-    }
-  }
-
+  /**
+   * Recalcula commissions PENDING/APPROVED del (tenant, recipientCode)
+   * después de un cambio de excepción. Inyección directa (era
+   * ModuleRef.get + require inline que fallaba silenciosamente porque
+   * AdminModule no tenía ReferralsModule en su árbol).
+   */
   private async recalcAfterChange(
     tenantId: string,
     recipientCodeId: string,
     actorId: string | null | undefined,
     reason: string,
   ) {
-    const svc = this.getRecalc();
-    if (!svc) return;
     try {
-      await svc.recalcForRecipientCode({
+      const summary = await this.recalc.recalcForRecipientCode({
         recipientCodeId,
         tenantId,
         actorId: actorId ?? null,
         reason,
       });
+      this.logger.log(
+        `Recalc OK tenant=${tenantId} code=${recipientCodeId} updated=${summary.updated} skippedPaid=${summary.skippedPaid}`,
+      );
     } catch (e: any) {
       this.logger.warn(`Recalc after exception change failed: ${e?.message}`);
     }
