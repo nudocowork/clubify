@@ -152,7 +152,7 @@ export class LabService {
       where: { id },
       include: {
         author: {
-          select: { id: true, fullName: true, role: true, email: true },
+          select: { id: true, fullName: true, role: true },
         },
         lastStatusChangedBy: { select: { id: true, fullName: true } },
       },

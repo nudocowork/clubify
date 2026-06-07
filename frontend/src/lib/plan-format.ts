@@ -27,13 +27,6 @@ const PERIOD_LABEL: Record<PlanPeriodicity, string> = {
   ANUAL: 'Anual',
 };
 
-const PERIOD_MONTHS: Record<PlanPeriodicity, number> = {
-  MENSUAL: 1,
-  TRIMESTRAL: 3,
-  SEMESTRAL: 6,
-  ANUAL: 12,
-};
-
 export function periodLabel(p: PlanPeriodicity | null | undefined): string {
   if (!p) return 'Mensual';
   return PERIOD_LABEL[p] ?? 'Mensual';
@@ -41,20 +34,22 @@ export function periodLabel(p: PlanPeriodicity | null | undefined): string {
 
 /**
  * Precio total de un ciclo según periodicidad.
- * Si conocemos priceMonthly podemos usarlo como base (priceMonthly * months);
- * si no, caemos al precio canónico del LANDING_PLAN_DEFAULTS.
+ * Default: precio canónico del bundle (lo que cobra Hotmart).
+ * Si la periodicidad es MENSUAL y conocemos priceMonthly, lo usamos para
+ * respetar overrides del Plan row. Para TRIMESTRAL/SEMESTRAL/ANUAL NUNCA
+ * multiplicamos priceMonthly: el bundle tiene su propio descuento y
+ * priceMonthly suele ser 68 (Elite mensual), que multiplicado infla los
+ * totales (204/408/816) y no coincide con lo que el cliente pagó.
  */
 export function periodTotalUsd(
   p: PlanPeriodicity | null | undefined,
   priceMonthly?: number | null,
 ): number {
   const period = p ?? 'MENSUAL';
-  const fallback = PERIOD_PRICE_USD[period];
-  if (priceMonthly && priceMonthly > 0) {
-    // Si la base mensual del Plan es razonable, multiplicamos por meses.
-    return priceMonthly * PERIOD_MONTHS[period];
+  if (period === 'MENSUAL' && priceMonthly && priceMonthly > 0) {
+    return priceMonthly;
   }
-  return fallback;
+  return PERIOD_PRICE_USD[period];
 }
 
 /**
