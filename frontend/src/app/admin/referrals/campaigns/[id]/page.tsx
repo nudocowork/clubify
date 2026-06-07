@@ -457,6 +457,14 @@ type CampaignClient = {
   email: string | null;
   attributions: AttributionLevel[];
   exceptions: ExistingException[];
+  breakdown?: {
+    revenueUsd: number;
+    commissionsUsd: number;
+    paidUsd: number;
+    pendingUsd: number;
+    netUsd: number;
+    cyclesCount: number;
+  };
 };
 
 function ClientsCommissionsSection({ campaignId }: { campaignId: string }) {
@@ -532,6 +540,15 @@ function ClientsCommissionsSection({ campaignId }: { campaignId: string }) {
                 <th className="py-2 pr-3">Cliente</th>
                 <th className="py-2 pr-3">Atribución</th>
                 <th className="py-2 pr-3">Comisión</th>
+                <th className="py-2 pr-3 text-right" title="Lo que el cliente le pagó a Clubify (bundle × ciclos)">
+                  Entró
+                </th>
+                <th className="py-2 pr-3 text-right" title="Total de comisiones generadas">
+                  Comisión
+                </th>
+                <th className="py-2 pr-3 text-right" title="Entró − Comisión = lo que retiene la empresa">
+                  Quedó
+                </th>
                 <th className="py-2 pr-3 text-right">Acciones</th>
               </tr>
             </thead>
@@ -596,6 +613,34 @@ function ClientsCommissionsSection({ campaignId }: { campaignId: string }) {
                       ) : (
                         <span className="text-mute text-xs">—</span>
                       )}
+                    </td>
+                    <td className="py-2 pr-3 text-right whitespace-nowrap font-mono text-xs">
+                      {c.breakdown ? fmtUsd(c.breakdown.revenueUsd) : '—'}
+                      {c.breakdown && c.breakdown.cyclesCount > 0 && (
+                        <div className="text-[10px] text-mute font-sans">
+                          {c.breakdown.cyclesCount} ciclo
+                          {c.breakdown.cyclesCount === 1 ? '' : 's'}
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-2 pr-3 text-right whitespace-nowrap font-mono text-xs">
+                      {c.breakdown ? fmtUsd(c.breakdown.commissionsUsd) : '—'}
+                      {c.breakdown && c.breakdown.pendingUsd > 0 && (
+                        <div className="text-[10px] text-amber-700 font-sans">
+                          {fmtUsd(c.breakdown.pendingUsd)} pendiente
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-2 pr-3 text-right whitespace-nowrap font-mono text-xs">
+                      <span
+                        className={
+                          c.breakdown && c.breakdown.netUsd > 0
+                            ? 'text-emerald-700 font-semibold'
+                            : 'text-mute'
+                        }
+                      >
+                        {c.breakdown ? fmtUsd(c.breakdown.netUsd) : '—'}
+                      </span>
                     </td>
                     <td className="py-2 pr-3 text-right whitespace-nowrap">
                       <button

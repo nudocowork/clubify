@@ -15,9 +15,10 @@ import { TenantDuplicatorController } from './tenant-duplicator.controller';
 import { IntegrationsModule } from '../integrations/integrations.module';
 import { AuthModule } from '../auth/auth.module';
 import { CommissionRecalcModule } from '../referrals/commission-recalc.module';
+import { SettingsModule } from '../settings/settings.module';
 
 @Module({
-  imports: [IntegrationsModule, AuthModule, CommissionRecalcModule],
+  imports: [IntegrationsModule, AuthModule, CommissionRecalcModule, SettingsModule],
   providers: [
     RemindersService,
     SuppliersService,

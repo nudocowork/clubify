@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CommissionRecalcService } from '../referrals/commission-recalc.service';
+import { SettingsService } from '../settings/settings.service';
 
 /**
  * Excepciones de comisión por cliente (item 6 sprint).
@@ -22,6 +23,7 @@ export class CommissionExceptionsService {
   constructor(
     private prisma: PrismaService,
     private recalc: CommissionRecalcService,
+    private settings: SettingsService,
   ) {}
 
   /**
@@ -172,6 +174,107 @@ export class CommissionExceptionsService {
       excByTenant.set(e.tenantId, list);
     }
 
+    // Fase G UI 2026-06-07: breakdown financiero por cliente para
+    // SUPER_ADMIN. "Entró" = revenue (bundlePrice × ciclos pagados),
+    // "Comisión" = total commissions del tenant en esta campaña,
+    // "Neto" = entró - comisión.
+    const landingPlans = await this.settings.getLandingPlans();
+    const BUNDLE: Record<string, number> = {
+      MENSUAL: landingPlans.mensual.price,
+      TRIMESTRAL: landingPlans.trimestral.price,
+      SEMESTRAL: landingPlans.semestral.price,
+      ANUAL: landingPlans.anual.price,
+    };
+
+    // Tenants info para bundle calc + commissions agrupadas por tenant.
+    const tenantDetails = tenantIds.length
+      ? await this.prisma.tenant.findMany({
+          where: { id: { in: tenantIds } },
+          select: { id: true, planPeriodicity: true },
+        })
+      : [];
+    const tenantPeriodMap = new Map(
+      tenantDetails.map((t) => [t.id, t.planPeriodicity ?? '']),
+    );
+
+    // Todas las commissions atadas a los uses de esta campaña — por
+    // tenant + transaction (dedup 3-way split: 1 sale = 1 row de
+    // revenue, no 3).
+    const commissions = tenantIds.length
+      ? await this.prisma.commission.findMany({
+          where: {
+            referralUse: {
+              tenantId: { in: tenantIds },
+              referralCodeId: { in: allCodeIds },
+            },
+            status: { not: 'REJECTED' },
+          },
+          select: {
+            amount: true,
+            amountPaid: true,
+            status: true,
+            hotmartTransactionId: true,
+            createdAt: true,
+            referralUseId: true,
+            referralUse: { select: { tenantId: true } },
+          },
+        })
+      : [];
+
+    type Bk = {
+      revenueUsd: number;
+      commissionsUsd: number;
+      paidUsd: number;
+      pendingUsd: number;
+      netUsd: number;
+      cyclesCount: number;
+    };
+    const breakdownByTenant = new Map<string, Bk>();
+    // Dedup por (tenantId, txKey) para contar ciclos únicos.
+    const seenTxByTenant = new Map<string, Set<string>>();
+
+    for (const c of commissions) {
+      const tid = c.referralUse?.tenantId;
+      if (!tid) continue;
+      const cur = breakdownByTenant.get(tid) ?? {
+        revenueUsd: 0,
+        commissionsUsd: 0,
+        paidUsd: 0,
+        pendingUsd: 0,
+        netUsd: 0,
+        cyclesCount: 0,
+      };
+      const amount = Number(c.amount);
+      cur.commissionsUsd += amount;
+      const paid = Number(c.amountPaid);
+      cur.paidUsd += paid;
+      if (c.status === 'PENDING' || c.status === 'APPROVED') {
+        cur.pendingUsd += amount - paid;
+      }
+      // Ciclo único: hotmartTransactionId o fallback (useId+day) — se
+      // cuenta UNA vez aunque haya 3-way split.
+      const dayKey = c.createdAt.toISOString().slice(0, 10);
+      const txKey = c.hotmartTransactionId ?? `${c.referralUseId}:${dayKey}`;
+      const seen = seenTxByTenant.get(tid) ?? new Set<string>();
+      if (!seen.has(txKey)) {
+        seen.add(txKey);
+        seenTxByTenant.set(tid, seen);
+        cur.cyclesCount += 1;
+      }
+      breakdownByTenant.set(tid, cur);
+    }
+
+    // Revenue por tenant = bundlePrice × cycles.
+    for (const [tid, bk] of breakdownByTenant) {
+      const period = (tenantPeriodMap.get(tid) ?? '').toUpperCase();
+      const bundlePrice = BUNDLE[period] ?? 0;
+      bk.revenueUsd = round2(bundlePrice * bk.cyclesCount);
+      bk.commissionsUsd = round2(bk.commissionsUsd);
+      bk.paidUsd = round2(bk.paidUsd);
+      bk.pendingUsd = round2(Math.max(0, bk.pendingUsd));
+      bk.netUsd = round2(bk.revenueUsd - bk.commissionsUsd);
+    }
+
     return tenantList.map((t) => ({
       ...t,
       exceptions: (excByTenant.get(t.tenantId) ?? []).map((e) => ({
@@ -183,6 +286,14 @@ export class CommissionExceptionsService {
         createdAt: e.createdAt,
         updatedAt: e.updatedAt,
       })),
+      breakdown: breakdownByTenant.get(t.tenantId) ?? {
+        revenueUsd: 0,
+        commissionsUsd: 0,
+        paidUsd: 0,
+        pendingUsd: 0,
+        netUsd: 0,
+        cyclesCount: 0,
+      },
     }));
   }
 
@@ -533,6 +644,8 @@ export class CommissionExceptionsService {
    * activas. Útil para corregir registros históricos cuando el recalc
    * automático no corrió (bug pre-2026-06-07 con ModuleRef silencioso).
    */
+  // round2 declarado al final del archivo
+
   async forceRecalcAllActive(actorId: string | null) {
     const exceptions = await this.prisma.commissionException.findMany({
       where: { isActive: true },
@@ -564,4 +677,8 @@ export class CommissionExceptionsService {
       paidSkipped: totalPaidSkipped,
     };
   }
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }
