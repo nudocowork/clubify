@@ -112,9 +112,10 @@ type Button = {
   // Cuando type='POPUP', al hacer click el botón abre un modal con este
   // contenido en lugar de navegar.
   popup?: PopupConfig | null;
-  // Cuando type='MENU', a qué versión del menú apunta el botón (M2.1):
-  //   'DELIVERY' → /m/<slug> (carrito + WhatsApp; default histórico)
-  //   'MESA'     → /m/<slug>?mesa=1 (informativo, sin carrito)
+  // Cuando type='MENU', a qué versión del menú apunta el botón
+  // (actualizado 2026-06-08 con separación de rutas /m vs /d):
+  //   'DELIVERY' → /d/<slug>    (carrito + WhatsApp; default histórico)
+  //   'MESA'     → /m/<slug>    (informativo, sin carrito)
   //   'BOOK'     → /book/<slug> (flipbook visual)
   menuVariant?: 'DELIVERY' | 'MESA' | 'BOOK';
 };

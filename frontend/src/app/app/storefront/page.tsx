@@ -147,10 +147,16 @@ export default function StorefrontEditor() {
   const [whatsappPhone, setWhatsappPhone] = useState<string>('');
   const [primaryColor, setPrimaryColor] = useState<string>('#22C55E');
   const [tenantDirty, setTenantDirty] = useState(false);
+  // Fix 2026-06-08: con la separación de rutas /m vs /d, el link
+  // "público" que se comparte para PEDIR es delivery (/d), no mesa.
+  // publicUrl/publicHref ahora apuntan a delivery para el botón "Ver
+  // delivery" y "Copiar link". Antes ambos caían en /m/ y abría el
+  // menú mesa por error.
   const publicUrl =
     (typeof window !== 'undefined' ? window.location.host : 'clubify.app') +
-    (tenantSlug ? `/m/${tenantSlug}` : '');
-  const publicHref = tenantSlug ? `/m/${tenantSlug}` : '#';
+    (tenantSlug ? `/d/${tenantSlug}` : '');
+  const publicHref = tenantSlug ? `/d/${tenantSlug}` : '#';
+  const mesaHref = tenantSlug ? `/m/${tenantSlug}` : '#';
 
   async function load() {
     setLoadErr(null);
@@ -264,7 +270,7 @@ export default function StorefrontEditor() {
         </h1>
         <div className="flex gap-2 flex-wrap items-center">
           <Link
-            href={tenantSlug ? `/m/${tenantSlug}?mesa=1` : '#'}
+            href={mesaHref}
             target="_blank"
             className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
             title={`Vista del ${mainLabel.toLowerCase()} como la verá un cliente sentado en una mesa`}
@@ -291,7 +297,9 @@ export default function StorefrontEditor() {
             disabled={!tenantSlug}
             onClick={async () => {
               if (!tenantSlug) return;
-              const url = `${window.location.origin}/m/${tenantSlug}`;
+              // Fix 2026-06-08: el link "delivery" copiado tiene que ser
+              // /d/<slug>, no /m/<slug> (que es mesa).
+              const url = `${window.location.origin}/d/${tenantSlug}`;
               try {
                 await navigator.clipboard.writeText(url);
                 toast('Link delivery copiado — pégalo en WhatsApp', 'success');
