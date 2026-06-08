@@ -41,6 +41,50 @@ export type OrderItem = {
   note?: string;
 };
 
+/**
+ * Devuelve true si `addr` representa una dirección de entrega válida.
+ * Acepta:
+ *  - string no vacío (después de trim) — formato histórico
+ *  - objeto con cualquiera de estas keys con contenido: `direccion`,
+ *    `address`, `street` — frontend público manda `direccion`
+ * (2026-06-08).
+ */
+/**
+ * Extrae un string legible de la dirección de entrega, soportando
+ * string libre o objeto con keys `direccion`/`address`/`street` más
+ * `municipio` y `departamento` opcionales. Usado para SMS y display
+ * (2026-06-08).
+ */
+function extractDeliveryAddressText(addr: unknown): string {
+  if (addr == null) return '';
+  if (typeof addr === 'string') return addr.trim();
+  if (typeof addr === 'object') {
+    const o = addr as Record<string, unknown>;
+    const main =
+      [o.direccion, o.address, o.street]
+        .find((v) => typeof v === 'string' && v.trim().length > 0) ?? '';
+    const muni =
+      typeof o.municipio === 'string' ? o.municipio.trim() : '';
+    const depto =
+      typeof o.departamento === 'string' ? o.departamento.trim() : '';
+    return [String(main).trim(), muni, depto].filter(Boolean).join(', ');
+  }
+  return '';
+}
+
+function hasValidDeliveryAddress(addr: unknown): boolean {
+  if (addr == null) return false;
+  if (typeof addr === 'string') return addr.trim().length > 0;
+  if (typeof addr === 'object') {
+    const o = addr as Record<string, unknown>;
+    for (const key of ['direccion', 'address', 'street']) {
+      const v = o[key];
+      if (typeof v === 'string' && v.trim().length > 0) return true;
+    }
+  }
+  return false;
+}
+
 export type CreateOrderDto = {
   tenantSlug: string;
   customer: { fullName: string; phone: string; email?: string };
@@ -169,12 +213,10 @@ export class OrdersService {
         return;
       }
 
-      const addr =
-        order.deliveryAddress &&
-        typeof order.deliveryAddress === 'object' &&
-        'address' in (order.deliveryAddress as any)
-          ? String((order.deliveryAddress as any).address)
-          : '';
+      // Fix 2026-06-08: el frontend público manda la key `direccion`,
+      // no `address`. Soportar ambas + componer con depto/municipio si
+      // el objeto los trae.
+      const addr = extractDeliveryAddressText(order.deliveryAddress);
 
       const eventLabel: Record<typeof eventKey, string> = {
         created: '🛵 NUEVO PEDIDO DELIVERY',
@@ -282,9 +324,13 @@ export class OrdersService {
     // Para PICKUP/otros sin fulfillment explícito, cae a dto.mode (o null).
     const effectiveMode = derivedMode ?? dto.mode ?? null;
     // Si fulfillment es DELIVERY pero NO viene deliveryAddress, rechazar.
+    // Fix 2026-06-08: aceptar string ("Cra. 1 con 23") O objeto
+    // ({departamento, municipio, direccion, ...}). Antes solo string —
+    // si el frontend mandaba objeto, .trim?.() era undefined → tiraba
+    // "Falta dirección" aunque el cliente había completado el form.
     if (
       derivedMode === 'DELIVERY' &&
-      !(dto.deliveryAddress && dto.deliveryAddress.trim?.())
+      !hasValidDeliveryAddress(dto.deliveryAddress)
     ) {
       throw new BadRequestException(
         'Falta dirección de entrega para fulfillment DELIVERY',
