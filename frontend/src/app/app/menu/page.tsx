@@ -431,8 +431,12 @@ export default function MenuEditor() {
           <button className="btn-ghost" onClick={() => setShowCatForm(!showCatForm)}>
             <Icon name="plus" /> Categoría
           </button>
+          {/* Fix 2026-06-08: separación de rutas /m vs /d. El botón
+              "Ver mesa" ahora apunta a /m/<slug> (sin ?mesa=1 legacy) y
+              el botón "Ver delivery" apunta a /d/<slug>. Antes ambos
+              caían en /m/ (mesa) y abría el menú equivocado. */}
           <Link
-            href={tenantSlug ? `/m/${tenantSlug}?mesa=1` : '#'}
+            href={tenantSlug ? `/m/${tenantSlug}` : '#'}
             target="_blank"
             className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
             title={`Vista de ${mainLabel.toLowerCase()} como la verá un cliente sentado en una mesa`}
@@ -440,7 +444,7 @@ export default function MenuEditor() {
             🍽 Ver {mainLabel.toLowerCase()} mesa
           </Link>
           <Link
-            href={tenantSlug ? `/m/${tenantSlug}` : '#'}
+            href={tenantSlug ? `/d/${tenantSlug}` : '#'}
             target="_blank"
             className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
             title={`Vista de ${mainLabel.toLowerCase()} para domicilio — el link público que envías a tus clientes`}

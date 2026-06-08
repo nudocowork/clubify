@@ -37,9 +37,10 @@ type Button = {
   isActive?: boolean;
   /** Config del popup (cuando type='POPUP'). */
   popup?: PopupConfig | null;
-  /** Variante del destino cuando type='MENU' (M2.1 2026-06-04):
-   *  - 'DELIVERY' (default) → /m/<slug> (carrito + WhatsApp).
-   *  - 'MESA'              → /m/<slug>?mesa=1 (informativo).
+  /** Variante del destino cuando type='MENU' (actualizado 2026-06-08
+   *  con separación de rutas /m vs /d):
+   *  - 'DELIVERY' (default) → /d/<slug> (carrito + WhatsApp).
+   *  - 'MESA'              → /m/<slug>   (informativo, sin carrito).
    *  - 'BOOK'              → /book/<slug> (flipbook).
    *  Compat: ausente = DELIVERY (comportamiento histórico). */
   menuVariant?: 'DELIVERY' | 'MESA' | 'BOOK';
@@ -201,12 +202,15 @@ export default function PublicInfoLink() {
         return undefined;
       }
       case 'MENU': {
-        // M2.1: el dueño elige a qué versión del menú lleva el botón.
-        // Default DELIVERY para preservar el comportamiento histórico.
+        // El dueño elige a qué versión del menú lleva el botón. Default
+        // DELIVERY para preservar el comportamiento histórico.
+        // Fix 2026-06-08: con la separación de rutas /m vs /d, DELIVERY
+        // ahora va a /d/<slug>. Antes caía en /m/<slug> y abría el
+        // menú mesa por error.
         const v = b.menuVariant ?? 'DELIVERY';
         if (v === 'BOOK') return `/book/${tenant.slug}`;
-        if (v === 'MESA') return `/m/${tenant.slug}?mesa=1`;
-        return `/m/${tenant.slug}`;
+        if (v === 'MESA') return `/m/${tenant.slug}`;
+        return `/d/${tenant.slug}`;
       }
       case 'CARD':
         return `/m/${tenant.slug}`;
