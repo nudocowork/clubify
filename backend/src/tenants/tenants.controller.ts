@@ -121,14 +121,22 @@ export class TenantsController {
 
   @Patch(':id/status')
   @Roles('SUPER_ADMIN')
-  status(@Param('id') id: string, @Body() body: { status: TenantStatus }) {
-    return this.svc.setStatus(id, body.status);
+  status(
+    @Param('id') id: string,
+    @Body() body: { status: TenantStatus },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.setStatus(id, body.status, user.id);
   }
 
   @Post(':id/extend-trial')
   @Roles('SUPER_ADMIN')
-  extendTrial(@Param('id') id: string, @Body() body: { days?: number }) {
-    return this.svc.extendTrial(id, body?.days ?? 7);
+  extendTrial(
+    @Param('id') id: string,
+    @Body() body: { days?: number },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.extendTrial(id, body?.days ?? 7, user.id);
   }
 
   /**
@@ -163,14 +171,19 @@ export class TenantsController {
   convertToPaying(
     @Param('id') id: string,
     @Body() body: { periodDays?: number },
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.svc.convertToPaying(id, body?.periodDays ?? 30);
+    return this.svc.convertToPaying(id, user.id, body?.periodDays ?? 30);
   }
 
   @Patch(':id/billing')
   @Roles('SUPER_ADMIN')
-  billing(@Param('id') id: string, @Body() body: BillingBody) {
-    return this.svc.updateBilling(id, body);
+  billing(
+    @Param('id') id: string,
+    @Body() body: BillingBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.updateBilling(id, body, user.id);
   }
 
   /** Cambia la periodicidad del plan (Mensual/Trimestral/Semestral/Anual).
@@ -208,10 +221,12 @@ export class TenantsController {
   async setLock(
     @Param('id') id: string,
     @Body() body: { locked: boolean; reason?: string | null },
+    @CurrentUser() user: AuthUser,
   ) {
     const result = await this.svc.setLock(id, {
       locked: !!body?.locked,
       reason: body?.reason ?? null,
+      actorId: user.id,
     });
     this.lockGuard.invalidate(id);
     return result;
@@ -219,7 +234,7 @@ export class TenantsController {
 
   @Delete(':id')
   @Roles('SUPER_ADMIN')
-  remove(@Param('id') id: string) {
-    return this.svc.remove(id);
+  remove(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.svc.remove(id, user.id);
   }
 }

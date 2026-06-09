@@ -340,8 +340,9 @@ export class TenantsService {
       nextChargeDate?: string;
       hotmartSubscriberCode?: string;
     },
+    actorId: string,
   ) {
-    await this.getById(id);
+    const previous = await this.getById(id);
     const now = new Date();
     let data: any = {};
     switch (dto.mode) {
@@ -403,21 +404,70 @@ export class TenantsService {
     // Invalidamos el cache del TenantStatusGuard — sino las escrituras de este
     // tenant siguen 402 hasta 30s después del switch a TRIAL/ACTIVE/free.
     invalidateTenantStatusCache(id);
+    // Audit 2026-06-08: cambiar billing manualmente puede convertir a
+    // un tenant en cortesía (free) o forzar paid sin pago real. Trazable.
+    this.audit.log({
+      actorId,
+      tenantId: id,
+      action: 'tenant.billing_updated',
+      resource: `tenant:${id}`,
+      metadata: {
+        brandName: previous.brandName,
+        mode: dto.mode,
+        previousStatus: previous.status,
+        previousPeriodEnd: previous.currentPeriodEnd?.toISOString() ?? null,
+        trialDays: dto.trialDays ?? null,
+        gracePeriodDays: dto.gracePeriodDays ?? null,
+      },
+    });
     return updated;
   }
 
-  async remove(id: string) {
-    await this.getById(id);
+  async remove(id: string, actorId: string) {
+    const t = await this.getById(id);
     await this.prisma.tenant.delete({ where: { id } });
+    // Audit 2026-06-08: dejar rastro de quién borró qué — antes era
+    // silencioso y un SUPER_ADMIN/MARKETING podía eliminar tenants sin
+    // trazabilidad. Como el tenant ya no existe, persistimos el contexto
+    // útil en metadata para retención.
+    this.audit.log({
+      actorId,
+      tenantId: id,
+      action: 'tenant.deleted',
+      resource: `tenant:${id}`,
+      metadata: {
+        brandName: t.brandName,
+        slug: t.slug,
+        email: t.email,
+        status: t.status,
+      },
+    });
     return { ok: true };
   }
 
-  async setStatus(id: string, status: TenantStatus) {
+  async setStatus(id: string, status: TenantStatus, actorId: string) {
+    const previous = await this.prisma.tenant.findUnique({
+      where: { id },
+      select: { status: true, brandName: true, suspendedAt: true },
+    });
+    if (!previous) throw new NotFoundException('Tenant');
     const data: any = { status };
     if (status === 'ACTIVE') data.suspendedAt = null;
     if (status === 'SUSPENDED') data.suspendedAt = new Date();
     const updated = await this.prisma.tenant.update({ where: { id }, data });
     invalidateTenantStatusCache(id);
+    // Audit 2026-06-08: cambio de status manual del super admin.
+    this.audit.log({
+      actorId,
+      tenantId: id,
+      action: 'tenant.status_changed',
+      resource: `tenant:${id}`,
+      metadata: {
+        brandName: previous.brandName,
+        from: previous.status,
+        to: status,
+      },
+    });
     return updated;
   }
 
@@ -431,7 +481,7 @@ export class TenantsService {
    * efectivo) y el admin quiere convertirlo manualmente para que el
    * afiliado vea su comisión.
    */
-  async convertToPaying(id: string, periodDays = 30) {
+  async convertToPaying(id: string, actorId: string, periodDays = 30) {
     const t = await this.prisma.tenant.findUnique({ where: { id } });
     if (!t) throw new NotFoundException('Tenant');
     const now = new Date();
@@ -451,6 +501,23 @@ export class TenantsService {
       },
     });
     invalidateTenantStatusCache(id);
+
+    // Audit 2026-06-08: dispara backfill de comisión al afiliado. Sin
+    // este log un super admin podría convertir tenants para inflar
+    // comisiones de afiliados sin trazabilidad.
+    this.audit.log({
+      actorId,
+      tenantId: id,
+      action: 'tenant.converted_to_paying',
+      resource: `tenant:${id}`,
+      metadata: {
+        brandName: t.brandName,
+        previousStatus: t.status,
+        previousPeriodEnd: t.currentPeriodEnd?.toISOString() ?? null,
+        newPeriodEnd: newPeriodEnd.toISOString(),
+        periodDays,
+      },
+    });
 
     // Disparar backfill de comisión si tiene asignación de afiliado.
     // Fire-and-forget: si falla, no bloqueamos la conversión — el admin
@@ -533,7 +600,7 @@ export class TenantsService {
   }
 
   /** Extiende el trial agregando `days` al trialEndsAt actual (o desde hoy si no hay). */
-  async extendTrial(id: string, days: number) {
+  async extendTrial(id: string, days: number, actorId: string) {
     const t = await this.prisma.tenant.findUnique({ where: { id } });
     if (!t) throw new NotFoundException('Tenant');
     const base = t.trialEndsAt && t.trialEndsAt.getTime() > Date.now() ? t.trialEndsAt : new Date();
@@ -547,6 +614,22 @@ export class TenantsService {
       },
     });
     invalidateTenantStatusCache(id);
+    // Audit 2026-06-08: dejar rastro de quién extendió y cuánto. El
+    // endpoint nuevo /adjust-trial ya audita; éste (extend-trial) era
+    // silencioso aunque también modificaba trial y status.
+    this.audit.log({
+      actorId,
+      tenantId: id,
+      action: 'tenant.trial_extended',
+      resource: `tenant:${id}`,
+      metadata: {
+        brandName: t.brandName,
+        days,
+        previousTrialEndsAt: t.trialEndsAt?.toISOString() ?? null,
+        newTrialEndsAt: newEnd.toISOString(),
+        previousStatus: t.status,
+      },
+    });
     return updated;
   }
 
@@ -579,6 +662,25 @@ export class TenantsService {
     const t = await this.prisma.tenant.findUnique({ where: { id } });
     if (!t) throw new NotFoundException('Tenant');
 
+    // Guard 2026-06-08: si el tenant es cliente pagante (status=ACTIVE
+    // con currentPeriodEnd futuro), NUNCA degradarlo a TRIAL ni
+    // SUSPENDED. El modal de "Gestionar Trial" se abre desde el listado
+    // sin contexto del billing real — un click descuidado +30d podría
+    // regresar un cliente Hotmart pagante a status TRIAL y romper la
+    // facturación. El SUPER_ADMIN debe usar /admin/tenants/[id] →
+    // Billing card para tenants pagantes.
+    if (
+      t.status === 'ACTIVE' &&
+      t.currentPeriodEnd &&
+      t.currentPeriodEnd.getTime() > Date.now()
+    ) {
+      throw new BadRequestException(
+        'Este negocio es cliente pagante (suscripción activa). ' +
+          'Modificar el trial podría romper su facturación. ' +
+          'Usa el panel del tenant para gestionar billing.',
+      );
+    }
+
     const now = new Date();
     const previousEnd = t.trialEndsAt;
     // Base = trialEndsAt si está en el futuro, sino HOY. Sumar a una fecha
@@ -592,8 +694,9 @@ export class TenantsService {
     const newEnd = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
 
     // Si descontamos hasta el pasado, suspendemos. Si extendemos al
-    // futuro, vuelve a TRIAL (reactiva expirados). No tocamos ACTIVE/
-    // PAID — esos vienen por billing real, no por trial.
+    // futuro, vuelve a TRIAL (reactiva expirados). El guard de arriba
+    // ya excluyó ACTIVE pagante, así que acá solo procesamos TRIAL
+    // y SUSPENDED.
     const newStatus = newEnd.getTime() <= now.getTime() ? 'SUSPENDED' : 'TRIAL';
 
     const updated = await this.prisma.tenant.update({
@@ -697,11 +800,11 @@ export class TenantsService {
    */
   async setLock(
     tenantId: string,
-    opts: { locked: boolean; reason?: string | null },
+    opts: { locked: boolean; reason?: string | null; actorId: string },
   ) {
     const t = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
-      select: { id: true },
+      select: { id: true, isLocked: true, brandName: true },
     });
     if (!t) throw new NotFoundException('Negocio no encontrado');
     const updated = await this.prisma.tenant.update({
@@ -712,6 +815,20 @@ export class TenantsService {
         lockedReason: opts.locked ? (opts.reason ?? null) : null,
       },
       select: { id: true, isLocked: true, lockedAt: true, lockedReason: true },
+    });
+    // Audit 2026-06-08: el demo lock cambia el comportamiento de TODOS
+    // los usuarios del tenant (read-only). Trazable.
+    this.audit.log({
+      actorId: opts.actorId,
+      tenantId,
+      action: opts.locked ? 'tenant.locked' : 'tenant.unlocked',
+      resource: `tenant:${tenantId}`,
+      metadata: {
+        brandName: t.brandName,
+        wasLocked: t.isLocked,
+        nowLocked: opts.locked,
+        reason: opts.reason ?? null,
+      },
     });
     return updated;
   }

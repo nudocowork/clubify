@@ -44,10 +44,13 @@ export default function QrDiscountPage() {
         brandName={tenant.brandName ?? 'Mi Negocio'}
         logoUrl={tenant.walletLogoUrl || tenant.logoUrl || null}
         qrUrl={(meta) => {
+          // Fix 2026-06-08: tras separación /m vs /d, el QR Descuento
+          // debe llevar a /d/ (con carrito) sino el cliente ve el banner
+          // del cupón pero no puede ordenar — conversión muere.
           const code = (meta?.promoCode ?? '').toString().trim();
           return code
-            ? `${origin}/m/${slug}?promo=${encodeURIComponent(code)}`
-            : `${origin}/m/${slug}`;
+            ? `${origin}/d/${slug}?promo=${encodeURIComponent(code)}`
+            : `${origin}/d/${slug}`;
         }}
         metaSlot={(meta, setMeta) => (
           <div className="card card-pad space-y-2">
