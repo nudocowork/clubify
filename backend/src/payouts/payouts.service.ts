@@ -138,22 +138,28 @@ export class PayoutsService {
     const status: PaymentProfileStatus = 'PENDING_REVIEW';
     const trim = (v?: string | null) =>
       v == null ? null : v.trim() || null;
+    // Fix 2026-06-08: usar `next.*` (merge de existing + dto) en lugar
+    // de `dto.*` directo. Si el afiliado guarda solo el bloque de su
+    // método activo (ej. BINANCE), antes `trim(undefined) = null`
+    // wipeaba silenciosamente bankCountry/bankAccountNo/etc. Ahora se
+    // preservan los datos previos del otro método y el afiliado puede
+    // alternar sin reingresar todo.
     const data = {
-      firstName: trim(dto.firstName),
-      lastName: trim(dto.lastName),
-      phoneCountry: trim(dto.phoneCountry),
-      phone: trim(dto.phone),
-      method: dto.method ?? null,
-      binanceEmail: trim(dto.binanceEmail),
-      binancePhone: trim(dto.binancePhone),
-      binanceNote: trim(dto.binanceNote),
-      bankCountry: trim(dto.bankCountry),
-      bankName: trim(dto.bankName),
-      bankAccountType: trim(dto.bankAccountType),
-      bankAccountNo: trim(dto.bankAccountNo),
-      bankHolderName: trim(dto.bankHolderName),
-      bankHolderDoc: trim(dto.bankHolderDoc),
-      bankNote: trim(dto.bankNote),
+      firstName: trim(next.firstName),
+      lastName: trim(next.lastName),
+      phoneCountry: trim(next.phoneCountry),
+      phone: trim(next.phone),
+      method: next.method ?? null,
+      binanceEmail: trim(next.binanceEmail),
+      binancePhone: trim(next.binancePhone),
+      binanceNote: trim(next.binanceNote),
+      bankCountry: trim(next.bankCountry),
+      bankName: trim(next.bankName),
+      bankAccountType: trim(next.bankAccountType),
+      bankAccountNo: trim(next.bankAccountNo),
+      bankHolderName: trim(next.bankHolderName),
+      bankHolderDoc: trim(next.bankHolderDoc),
+      bankNote: trim(next.bankNote),
       status,
       rejectionReason: null,
     };

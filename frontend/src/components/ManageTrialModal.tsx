@@ -116,6 +116,20 @@ export function ManageTrialModal({
         </div>
 
         <div className="px-5 py-4 overflow-y-auto flex-1">
+          {/* Guard 2026-06-08: si el tenant es ACTIVE el backend rechaza
+              cualquier modificación de trial (podría romper su billing
+              Hotmart). Mostramos warning y bloqueamos el form. */}
+          {tenant.status === 'ACTIVE' && (
+            <div className="bg-bad-soft border border-bad/30 rounded-lg p-3 mb-4 text-sm text-bad">
+              <div className="font-semibold mb-1">⚠️ Cliente pagante</div>
+              <div className="text-xs leading-snug">
+                Este negocio tiene una suscripción activa. Modificar el trial
+                podría romper su facturación. Si necesitás cambiar el plan o
+                cancelar, hacelo desde el panel del tenant (Billing card).
+              </div>
+            </div>
+          )}
+
           {/* Estado actual */}
           <div className="bg-bg2 rounded-lg p-3 mb-4">
             <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
@@ -281,7 +295,7 @@ export function ManageTrialModal({
           <button
             type="button"
             onClick={handleConfirm}
-            disabled={busy || !days}
+            disabled={busy || !days || tenant.status === 'ACTIVE'}
             className="text-sm font-semibold px-4 py-2 rounded-md bg-brand text-white hover:bg-brand/90 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150"
           >
             {busy ? 'Aplicando…' : 'Aplicar cambios'}

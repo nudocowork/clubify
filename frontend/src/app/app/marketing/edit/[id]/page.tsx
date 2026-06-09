@@ -202,20 +202,26 @@ export default function EditQrPosterPage() {
       </div>
     );
   } else {
-    // DISCOUNT — M7.2 (2026-06-04): el QR de descuento puede apuntar a:
+    // DISCOUNT — M7.2 (2026-06-04, fix 2026-06-08): el QR de descuento
+    // puede apuntar a:
     //  a) Una Card de cupón específica → /c/<cardId> (el cliente se
     //     inscribe a la tarjeta de cupón y la canjea en su wallet).
-    //  b) Un código promocional libre → /m/<slug>?promo=<code> (legacy,
-    //     valida contra Promociones).
-    //  c) Solo el menú → /m/<slug> (default si no hay ninguno).
+    //  b) Un código promocional libre → /d/<slug>?promo=<code> (delivery
+    //     con carrito para que el cliente pueda aplicar el cupón y
+    //     ordenar en la misma sesión).
+    //  c) Solo el menú → /d/<slug> (default si no hay ninguno).
+    //
+    // Fix 2026-06-08: tras la separación /m vs /d, los DISCOUNT QR
+    // apuntaban a /m/ (mesa sin carrito) → el cliente veía el banner
+    // del cupón pero no podía ordenar.
     const couponCards = cards.filter((c) => c.type === 'COUPON');
     qrUrl = (m) => {
       const cardId = (m?.cardId ?? '').toString().trim();
       if (cardId) return `${origin}/c/${cardId}`;
       const code = (m?.promoCode ?? '').toString().trim();
       return code
-        ? `${origin}/m/${slug}?promo=${encodeURIComponent(code)}`
-        : `${origin}/m/${slug}`;
+        ? `${origin}/d/${slug}?promo=${encodeURIComponent(code)}`
+        : `${origin}/d/${slug}`;
     };
     metaSlot = (m, setM) => (
       <div className="card card-pad space-y-3">
