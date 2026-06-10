@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { use, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import {
@@ -13,12 +13,16 @@ import {
   type ProposalDetail,
 } from '../_shared';
 
+// Fix 2026-06-10: Next.js 14.2.x recibe `params` como objeto plain, no
+// como Promise. El patrón `use(params)` (Next 15+) crasheaba la página
+// con React error #438 al renderizar /lab/<id>. La página entraba al
+// ErrorBoundary ("Algo salió mal"). Volvemos a la firma plana.
 export default function LabDetailPage({
   params,
 }: {
-  params: Promise<{ id: string }>;
+  params: { id: string };
 }) {
-  const { id } = use(params);
+  const { id } = params;
   const [data, setData] = useState<ProposalDetail | null>(null);
   const [commentBody, setCommentBody] = useState('');
   const [busy, setBusy] = useState(false);
