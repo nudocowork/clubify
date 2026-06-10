@@ -8,6 +8,8 @@ import {
 import {
   Fulfillment,
   OrderStatus,
+  PaymentMethod,
+  PaymentStatus,
   Prisma,
   TenantStatus,
 } from '@prisma/client';
@@ -612,8 +614,8 @@ export class OrdersService {
       customerNote?: string;
       locationId?: string;
       status?: OrderStatus;
-      paymentStatus?: 'PAID' | 'PENDING' | 'NOT_REQUIRED';
-      paymentMethod?: string;
+      paymentStatus?: PaymentStatus;
+      paymentMethod?: PaymentMethod;
       /** Monto del delivery sumado al total. null/undefined = no aplica. */
       deliveryAmount?: number | null;
     },
