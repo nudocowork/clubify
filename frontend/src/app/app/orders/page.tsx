@@ -757,7 +757,13 @@ function NewOrderModal({
           items: cart.map((c) => ({ productId: c.productId, qty: c.qty })),
           status,
           paymentStatus,
-          paymentMethod: paymentStatus === 'PAID' ? 'CASH' : 'CASH_ON_DELIVERY',
+          // Fix 2026-06-10: el enum Prisma `PaymentMethod` solo acepta
+          // CASH_ON_DELIVERY | STUB | STRIPE | MERCADO_PAGO | WOMPI | PSE.
+          // El panel mandaba 'CASH' para pagos cobrados al momento →
+          // Prisma rechazaba con 500. Usamos CASH_ON_DELIVERY como
+          // método universal de efectivo (cubre walk-in cobrado en caja
+          // Y "pagar al recibir"); `paidAt` distingue ambos en reportes.
+          paymentMethod: 'CASH_ON_DELIVERY',
           fulfillment: tableNumber.trim() ? 'DINE_IN' : 'PICKUP',
           tableNumber: tableNumber.trim() || undefined,
           customerNote: customerNote.trim() || undefined,

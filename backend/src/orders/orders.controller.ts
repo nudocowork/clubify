@@ -21,7 +21,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { Fulfillment, OrderStatus } from '@prisma/client';
+import { Fulfillment, OrderStatus, PaymentMethod, PaymentStatus } from '@prisma/client';
 import { Response } from 'express';
 import { OrdersService } from './orders.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
@@ -49,8 +49,11 @@ class ManualOrderBody {
   @IsOptional() @IsString() customerNote?: string;
   @IsOptional() @IsString() locationId?: string;
   @IsOptional() @IsEnum(OrderStatus) status?: OrderStatus;
-  @IsOptional() @IsString() paymentStatus?: 'PAID' | 'PENDING' | 'NOT_REQUIRED';
-  @IsOptional() @IsString() paymentMethod?: string;
+  // Fix 2026-06-10: antes paymentStatus/paymentMethod eran IsString libre
+  // y un valor inválido (ej. 'CASH' que no está en el enum Prisma) caía
+  // a Prisma → 500. Ahora validamos contra el enum real → 400 claro.
+  @IsOptional() @IsEnum(PaymentStatus) paymentStatus?: PaymentStatus;
+  @IsOptional() @IsEnum(PaymentMethod) paymentMethod?: PaymentMethod;
   @IsOptional() @IsNumber() @Min(0) deliveryAmount?: number | null;
 }
 
