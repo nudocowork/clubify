@@ -151,6 +151,81 @@ export class PreregAlertsService {
   }
 
   /**
+   * Envía SMS + WhatsApp al COMPRADOR (no al equipo) con el link de
+   * activación post-pago Hotmart (2026-06-11). Idempotente desde el
+   * caller — éste se llama dentro de `notifyPendingRecovery` que
+   * controla recoveryNotifiedAt.
+   *
+   * Estrategia: intenta WhatsApp primero (más engagement en LATAM); si
+   * el LeadConnector no tiene WhatsApp habilitado en la subcuenta cae
+   * a SMS. Si tampoco hay teléfono válido, devolvemos ok=false y el
+   * email queda como única notificación.
+   */
+  async sendBuyerActivationLink(opts: {
+    email: string;
+    name: string | null;
+    phone: string | null;
+    activateUrl: string;
+  }): Promise<{ ok: boolean; channel: 'whatsapp' | 'sms' | 'none' }> {
+    try {
+      const phone = normalizeBuyerPhone(opts.phone);
+      if (!phone) {
+        this.logger.warn(
+          `sendBuyerActivationLink: teléfono inválido o ausente para ${opts.email}`,
+        );
+        return { ok: false, channel: 'none' };
+      }
+      const account = await this.resolveAccount();
+      if (!account) {
+        this.logger.warn('sendBuyerActivationLink: sin GrowBusinessAccount');
+        return { ok: false, channel: 'none' };
+      }
+      const greeting = opts.name
+        ? `Hola ${opts.name.split(' ')[0]} 👋`
+        : 'Hola 👋';
+      const body =
+        `${greeting} Recibimos tu pago de Clubify 🎉.\n\n` +
+        `Para activar tu cuenta en 30 segundos, entrá acá:\n${opts.activateUrl}\n\n` +
+        `Importante: usá el mismo correo del pago (${opts.email}) para que se active al instante.`;
+
+      // Try WhatsApp first (better engagement in LATAM).
+      const wa = await this.growBusiness
+        .sendWhatsAppWithCreds(
+          { locationId: account.locationId, apiKey: account.apiKey },
+          phone,
+          body,
+        )
+        .catch((e) => ({ ok: false as const, message: (e as Error).message }));
+      if (wa.ok) return { ok: true, channel: 'whatsapp' };
+      this.logger.log(
+        `sendBuyerActivationLink WhatsApp falló (${(wa as any).message ?? 'unknown'}), fallback SMS`,
+      );
+
+      // Fallback SMS.
+      const sms = await this.growBusiness
+        .sendSmsWithCreds(
+          {
+            locationId: account.locationId,
+            apiKey: account.apiKey,
+            switchNumber: account.switchNumber,
+          },
+          phone,
+          body,
+        )
+        .catch((e) => ({ ok: false as const, message: (e as Error).message }));
+      return {
+        ok: sms.ok,
+        channel: sms.ok ? 'sms' : 'none',
+      };
+    } catch (e) {
+      this.logger.warn(
+        `sendBuyerActivationLink falló: ${(e as Error).message}`,
+      );
+      return { ok: false, channel: 'none' };
+    }
+  }
+
+  /**
    * Resuelve la GrowBusinessAccount a usar. Prioridad:
    * 1. Setting `prereg.alertAccountId` si apunta a una válida.
    * 2. Primera account con `purpose='GENERAL'` no eliminada.
@@ -247,4 +322,42 @@ export class PreregAlertsService {
     lines.push('', 'Revisar en Clubify.');
     return lines.join('\n');
   }
+}
+
+/**
+ * Normaliza un teléfono del comprador Hotmart al formato E.164. Hotmart
+ * a veces manda el número sin el `+` y otras veces sin código de país
+ * (ej. 5016258620 podría ser Salvador 503 o Colombia 57 mal escrito).
+ *
+ * Reglas:
+ *  - Si arranca con `+` y tiene 10-15 dígitos → válido tal cual.
+ *  - Si arranca con `00` lo convertimos a `+` (formato europeo).
+ *  - Si tiene 10 dígitos y empieza con 3, asumimos Colombia (+57).
+ *  - Si tiene 11+ dígitos sin `+`, agregamos `+` al inicio.
+ *  - Cualquier otro caso → null (no enviar, caemos a email solo).
+ */
+function normalizeBuyerPhone(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const digits = String(raw).replace(/[^\d+]/g, '');
+  if (!digits) return null;
+
+  if (digits.startsWith('+')) {
+    const rest = digits.slice(1);
+    if (/^\d{10,15}$/.test(rest)) return digits;
+    return null;
+  }
+  if (digits.startsWith('00')) {
+    const candidate = '+' + digits.slice(2);
+    if (/^\+\d{10,15}$/.test(candidate)) return candidate;
+    return null;
+  }
+  // Colombia local: 10 dígitos que empiezan con 3 (celular).
+  if (digits.length === 10 && digits.startsWith('3')) {
+    return '+57' + digits;
+  }
+  // 11+ dígitos sin `+` — asumimos que ya trae el código de país.
+  if (digits.length >= 11 && digits.length <= 15) {
+    return '+' + digits;
+  }
+  return null;
 }

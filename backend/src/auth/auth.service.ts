@@ -605,6 +605,74 @@ export class AuthService {
     return { ok: true };
   }
 
+  /**
+   * Devuelve datos del PendingHotmartPayment para el email dado, para
+   * que /activar pre-llene el form. Endpoint público — devolvemos
+   * `{ found: false }` cuando no hay match para no filtrar via 404
+   * la existencia de emails. El comprador llegó con `?email=` desde el
+   * WhatsApp/SMS/email de recuperación post-pago Hotmart (2026-06-11).
+   */
+  async checkPendingPayment(emailRaw: string): Promise<{
+    found: boolean;
+    buyerName?: string | null;
+    buyerPhone?: string | null;
+    productName?: string | null;
+    purchaseValue?: number | null;
+    periodicity?: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL' | null;
+  }> {
+    const email = String(emailRaw ?? '').trim().toLowerCase();
+    if (!email || !email.includes('@')) {
+      return { found: false };
+    }
+    const pending = await this.prisma.pendingHotmartPayment.findFirst({
+      where: { email, consumedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!pending) return { found: false };
+
+    const raw = (pending.rawPayload ?? {}) as any;
+    const buyer = raw?.data?.buyer ?? {};
+    const purchase = raw?.data?.purchase ?? {};
+    const product = raw?.data?.product ?? {};
+    const value =
+      Number(purchase?.price?.value) ||
+      Number(purchase?.original_offer_price?.value) ||
+      null;
+
+    // Heurística: derivar periodicidad del nombre del producto. Si no
+    // matchea, fallback a inferir por monto USD aproximado vs landing
+    // plans (los 4 default son ~68/150/278/500 USD por el sprint
+    // 2026-06-04). El backend NO depende de esto para activar — es
+    // solo informativo para el pre-fill UI.
+    const productName: string = String(product?.name ?? '');
+    let periodicity:
+      | 'MENSUAL'
+      | 'TRIMESTRAL'
+      | 'SEMESTRAL'
+      | 'ANUAL'
+      | null = null;
+    const upper = productName.toUpperCase();
+    if (/ANUAL/.test(upper)) periodicity = 'ANUAL';
+    else if (/SEMESTRAL/.test(upper)) periodicity = 'SEMESTRAL';
+    else if (/TRIMESTRAL/.test(upper)) periodicity = 'TRIMESTRAL';
+    else if (/MENSUAL|MENSU/.test(upper)) periodicity = 'MENSUAL';
+    else if (value != null) {
+      if (value >= 400) periodicity = 'ANUAL';
+      else if (value >= 250) periodicity = 'SEMESTRAL';
+      else if (value >= 120) periodicity = 'TRIMESTRAL';
+      else if (value > 0) periodicity = 'MENSUAL';
+    }
+
+    return {
+      found: true,
+      buyerName: buyer?.name ?? null,
+      buyerPhone: buyer?.checkout_phone ?? buyer?.phone ?? null,
+      productName: productName || null,
+      purchaseValue: value,
+      periodicity,
+    };
+  }
+
   async signup(dto: {
     email: string;
     password: string;

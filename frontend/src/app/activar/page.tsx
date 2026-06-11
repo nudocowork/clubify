@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { api, setSession } from '@/lib/api';
 
@@ -53,9 +53,17 @@ const PLAN_PERIOD_MAP: Record<
  */
 function ActivarInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [planPeriod, setPlanPeriod] = useState<PlanPeriodId | null>(null);
   const [planData, setPlanData] = useState<LandingPlanLite | null>(null);
+  // Fix 2026-06-11: si el cliente llegó vía WhatsApp/SMS/email post-pago
+  // con `?email=X`, hacemos lookup del PendingHotmartPayment para
+  // pre-llenar el form (nombre, teléfono, plan derivado del producto
+  // comprado). Eso resuelve el caso donde el cliente perdió
+  // localStorage (cambió de dispositivo, no pasó por /signup).
+  const [pendingDetected, setPendingDetected] = useState(false);
+  const [pendingPrice, setPendingPrice] = useState<number | null>(null);
 
   const [form, setForm] = useState({
     fullName: '',
@@ -70,19 +78,64 @@ function ActivarInner() {
   const [err, setErr] = useState<string | null>(null);
   const [showPwd, setShowPwd] = useState(false);
 
+  // Lookup del PendingHotmartPayment si vino ?email=. Carga primero
+  // este antes que el localStorage para que el plan del pago real
+  // tenga prioridad sobre el plan del picker (que pudo haber sido
+  // editado o ser de una sesión vieja).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const emailParam = (searchParams?.get('email') ?? '').trim();
+    if (!emailParam) return;
+    let cancelled = false;
+    fetch(
+      `${API}/api/auth/check-pending?email=${encodeURIComponent(emailParam)}`,
+    )
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: any) => {
+        if (cancelled || !d?.found) return;
+        setPendingDetected(true);
+        setPendingPrice(
+          typeof d.purchaseValue === 'number' ? d.purchaseValue : null,
+        );
+        setForm((f) => ({
+          ...f,
+          email: emailParam,
+          fullName: f.fullName || d.buyerName || '',
+          whatsappPhone: f.whatsappPhone || d.buyerPhone || '',
+        }));
+        if (d.periodicity) {
+          const map: Record<string, PlanPeriodId> = {
+            MENSUAL: 'mensual',
+            TRIMESTRAL: 'trimestral',
+            SEMESTRAL: 'semestral',
+            ANUAL: 'anual',
+          };
+          const p = map[d.periodicity as string];
+          if (p) setPlanPeriod(p);
+        }
+      })
+      .catch(() => null);
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams]);
+
   // Plan elegido: persistido por el picker en localStorage. Si no hay nada
   // (ej. llegó desde el email de recuperación sin pasar por el picker) lo
   // dejamos null → badge genérico, no asumimos un plan que podría ser
   // incorrecto (el billing real lo dicta Hotmart, esto es informativo).
+  // Fix 2026-06-11: solo aplicamos el localStorage si NO detectamos un
+  // PendingHotmartPayment (cuyo plan tiene prioridad por ser el real).
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    if (pendingDetected) return;
     let raw = '';
     try {
       raw = (localStorage.getItem('clubify:plan-period') || '').toLowerCase();
     } catch {}
     const valid: PlanPeriodId[] = ['mensual', 'trimestral', 'semestral', 'anual'];
     setPlanPeriod(valid.includes(raw as PlanPeriodId) ? (raw as PlanPeriodId) : null);
-  }, []);
+  }, [pendingDetected]);
 
   // Precio del plan para el badge informativo.
   useEffect(() => {
@@ -220,10 +273,18 @@ function ActivarInner() {
           <div className="max-w-md mx-auto lg:mx-0">
             <div className="inline-flex items-center gap-2 bg-brand-soft text-brand-700 text-xs font-semibold px-3 py-1 rounded-full mb-5">
               <span className="w-1.5 h-1.5 rounded-full bg-brand" />
-              {planPeriod && planData
-                ? `Pago confirmado · Plan ${PLAN_PERIOD_MAP[planPeriod].label} · USD ${planData.price}`
-                : 'Pago confirmado · activa tu cuenta'}
+              {pendingDetected && planPeriod
+                ? `Pago detectado · Plan ${PLAN_PERIOD_MAP[planPeriod].label}${pendingPrice ? ` · USD ${pendingPrice}` : ''}`
+                : planPeriod && planData
+                  ? `Pago confirmado · Plan ${PLAN_PERIOD_MAP[planPeriod].label} · USD ${planData.price}`
+                  : 'Pago confirmado · activa tu cuenta'}
             </div>
+            {pendingDetected && (
+              <div className="mb-4 rounded-lg bg-ok-soft border border-ok/30 text-ok-ink px-3 py-2 text-sm">
+                ✅ Encontramos tu pago. Completá los datos faltantes y entrás
+                al panel al instante.
+              </div>
+            )}
             <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
               Crea tu cuenta en Clubify
             </h1>
