@@ -175,11 +175,29 @@ export default function CardDetail() {
   }, [passesOfCard, passSearch]);
 
   async function changeStamps(passId: string, action: 'STAMP' | 'REFUND', amount = 1) {
+    // Fix 2026-06-10: el backend exige `purchaseAmount` cuando
+    // action='STAMP' en cards STAMPS/VISITS/HYBRID. Sin esto devolvía
+    // "Monto de compra requerido para registrar el sello" y parecía
+    // que el botón no funcionaba. REFUND no requiere monto.
+    const payload: Record<string, unknown> = { passId, action, amount };
+    if (action === 'STAMP') {
+      const raw = window.prompt(
+        'Monto de la compra (en $) para registrar el sello:',
+        '',
+      );
+      if (raw === null) return; // cancelado
+      const purchaseAmount = Number(raw.replace(',', '.'));
+      if (!Number.isFinite(purchaseAmount) || purchaseAmount <= 0) {
+        toast('Monto inválido — debe ser un número mayor a 0', 'error');
+        return;
+      }
+      payload.purchaseAmount = purchaseAmount;
+    }
     setStampingPassId(passId);
     try {
       await api('/stamps', {
         method: 'POST',
-        body: JSON.stringify({ passId, action, amount }),
+        body: JSON.stringify(payload),
       });
       toast(action === 'STAMP' ? '+1 sello' : '−1 sello', 'success');
       load();

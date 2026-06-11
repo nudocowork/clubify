@@ -113,11 +113,31 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
   const canRedeem = p.card.type === 'STAMPS' && stamps >= required;
 
   async function addStamp() {
+    // Fix 2026-06-10: el backend exige `purchaseAmount` para STAMPS/
+    // VISITS/HYBRID (regla anti-fraude) salvo SUPER_ADMIN. Sin esto el
+    // panel devolvía "Monto de compra requerido para registrar el
+    // sello" y el botón parecía "no funcionar". Ahora preguntamos el
+    // monto al staff antes del POST.
+    const raw = window.prompt(
+      'Monto de la compra (en $) para registrar el sello:',
+      '',
+    );
+    if (raw === null) return; // cancelado
+    const purchaseAmount = Number(raw.replace(',', '.'));
+    if (!Number.isFinite(purchaseAmount) || purchaseAmount <= 0) {
+      toast('Monto inválido — debe ser un número mayor a 0', 'error');
+      return;
+    }
     setBusy(true);
     try {
       await api('/stamps', {
         method: 'POST',
-        body: JSON.stringify({ passId: p.id, action: 'STAMP', amount: 1 }),
+        body: JSON.stringify({
+          passId: p.id,
+          action: 'STAMP',
+          amount: 1,
+          purchaseAmount,
+        }),
       });
       toast('Sello agregado', 'success');
       onChange();
