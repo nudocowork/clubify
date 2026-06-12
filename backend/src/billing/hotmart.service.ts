@@ -434,23 +434,34 @@ export class HotmartService {
     this.logger.log(
       `Pago Hotmart sin cuenta — guardado PendingHotmartPayment para ${email} (tx=${args.transactionId ?? '—'})`,
     );
+    const buyerAny = args.payload.data?.buyer as any;
     await this.notifyPendingRecovery({
       email,
       name: args.payload.data?.buyer?.name ?? null,
+      phone: buyerAny?.checkout_phone ?? buyerAny?.phone ?? null,
     }).catch(() => null);
   }
 
   /**
-   * Recuperación de pago "huérfano": email al comprador con el link a
-   * /activar para completar su cuenta + SMS al equipo comercial. Marca
-   * recoveryNotifiedAt para no re-enviar en reintentos del webhook.
+   * Recuperación de pago "huérfano": email + WhatsApp/SMS al COMPRADOR
+   * con el link a /activar (pre-llenado por email), y SMS al equipo
+   * comercial. Marca recoveryNotifiedAt para no re-enviar en reintentos
+   * del webhook.
+   *
+   * Fix 2026-06-11: antes solo se mandaba email + alert interna.
+   * Si el correo del comprador caía en spam o no lo leía, quedaba en
+   * limbo (caso Carlos Pérez urbancafe501@gmail.com). Ahora también:
+   *  - WhatsApp al comprador (fallback SMS si no hay WA en la subcuenta).
+   *  - Link `/activar?email=<email>` para que la página pre-llene el form
+   *    desde el PendingHotmartPayment (nombre, teléfono, plan, precio).
    */
   private async notifyPendingRecovery(opts: {
     email: string;
     name: string | null;
+    phone: string | null;
   }) {
     const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
-    const activateUrl = `${appUrl}/activar`;
+    const activateUrl = `${appUrl}/activar?email=${encodeURIComponent(opts.email)}`;
     const greeting = opts.name ? ` ${opts.name}` : '';
     await this.email.send({
       to: opts.email,
@@ -461,9 +472,23 @@ export class HotmartService {
 <p>Importante: usa el mismo correo con el que pagaste (<strong>${opts.email}</strong>) para que activemos tu cuenta al instante.</p>`,
       text: `Recibimos tu pago. Completa tu cuenta en ${activateUrl} usando el correo ${opts.email}.`,
     });
+
+    // WhatsApp/SMS al comprador con el link pre-llenado.
+    const buyerNotify = await this.alerts
+      .sendBuyerActivationLink({
+        email: opts.email,
+        name: opts.name,
+        phone: opts.phone,
+        activateUrl,
+      })
+      .catch((e) => ({ ok: false, channel: 'none' as const, error: e?.message }));
+
     this.alerts
       .sendTeamAlert(
-        `💳 Pago Hotmart recibido SIN cuenta aún.\nEmail: ${opts.email}\nSe le envió link a /activar para completar. Si no aparece la cuenta pronto, contactar.`,
+        `💳 Pago Hotmart recibido SIN cuenta aún.\n` +
+          `Email: ${opts.email}\n` +
+          `Aviso al comprador: email ✅, ${buyerNotify.ok ? `${buyerNotify.channel} ✅` : `WhatsApp/SMS ❌ (sin tel válido)`}\n` +
+          `Link: ${activateUrl}`,
       )
       .catch(() => null);
     await this.prisma.pendingHotmartPayment

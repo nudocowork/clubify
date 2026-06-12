@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Ip, Post } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Ip, Post, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import {
   IsEmail,
@@ -163,6 +163,18 @@ export class AuthController {
   @Post('signup')
   signup(@Body() dto: SignupDto, @Ip() ip: string) {
     return this.auth.signup(dto, ip);
+  }
+
+  /** Check-pending: el frontend `/activar` consulta este endpoint para
+   *  pre-llenar el form con los datos del pago Hotmart pendiente (nombre,
+   *  teléfono, plan, precio). Read-only, público, throttled.
+   *  Devuelve 200 con `{ found: false }` si no hay payment para evitar
+   *  enumeration leaks vía status code. */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  @Get('check-pending')
+  checkPending(@Query('email') email?: string) {
+    return this.auth.checkPendingPayment(email ?? '');
   }
 
   /** Modo prueba — 5 días gratis. Crea tenant en TRIAL con trialEndsAt
