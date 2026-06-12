@@ -1981,6 +1981,10 @@ enum SupportMaterialAudience {
   INFLUENCER
   AMBASSADOR
   BOTH
+  // 2026-06-12 (F): VENDOR ve materiales scoped a vendors O heredados
+  // del embajador padre. ALL = visible para INFLUENCER/AMBASSADOR/VENDOR.
+  VENDOR
+  ALL
 }
 
 model SupportMaterial {

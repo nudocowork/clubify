@@ -58,33 +58,62 @@ export class SupportMaterialsService {
   /**
    * Lista los materiales visibles para el afiliado autenticado.
    * Aplica filtros de audience y scope:
-   * - audience: matchea su rol (INFLUENCER o AMBASSADOR) o BOTH
+   * - audience: matchea su rol (INFLUENCER / AMBASSADOR / VENDOR / BOTH / ALL)
    * - scope: si el material tiene scopeInfluencerId, solo lo ven:
    *   - El propio influencer dueño del code, o
-   *   - Embajadores cuyo parentCode es ese influencer
+   *   - Embajadores cuyo parentCode es ese influencer, o
+   *   - Vendors cuyo embajador padre tiene ese influencer como parent
+   *
+   * Fix 2026-06-12 (F): antes el VENDOR no estaba contemplado en el
+   * gate inicial → respuesta 403. Ahora hereda los materiales que ve
+   * su embajador padre (AMBASSADOR + BOTH + ALL), más los específicos
+   * para VENDOR.
    */
   async listForAffiliate(user: AuthUser) {
     if (
       user.role !== 'AFFILIATE_INFLUENCER' &&
       user.role !== 'AFFILIATE_AMBASSADOR' &&
-      user.role !== 'AFFILIATE_SOCIO'
+      user.role !== 'AFFILIATE_SOCIO' &&
+      user.role !== 'AFFILIATE_VENDOR'
     ) {
       throw new ForbiddenException('No es un afiliado');
     }
 
-    // Cargar mi código + parent (si soy ambassador) para resolver el
-    // influencerId con el que se podría scopear material.
+    // Cargar mi código + parents para resolver el influencerId con el
+    // que se podría scopear material. Para vendor: leer el code de su
+    // embajador padre (vía parentEmbajadorCodeId) para heredar scope.
     const myCode = await this.prisma.referralCode.findFirst({
       where: { ownerUserId: user.id },
-      select: { id: true, role: true, parentCodeId: true },
+      select: {
+        id: true,
+        role: true,
+        parentCodeId: true,
+        parentEmbajadorCodeId: true,
+      },
     });
-    const myInfluencerId =
-      myCode?.role === 'INFLUENCER' ? myCode.id : myCode?.parentCodeId ?? null;
+    let myInfluencerId: string | null = null;
+    if (myCode?.role === 'INFLUENCER') {
+      myInfluencerId = myCode.id;
+    } else if (myCode?.role === 'AMBASSADOR') {
+      myInfluencerId = myCode.parentCodeId ?? null;
+    } else if (myCode?.role === 'VENDOR' && myCode.parentEmbajadorCodeId) {
+      const parentAmbassador = await this.prisma.referralCode.findUnique({
+        where: { id: myCode.parentEmbajadorCodeId },
+        select: { parentCodeId: true },
+      });
+      myInfluencerId = parentAmbassador?.parentCodeId ?? null;
+    }
 
-    const audienceFilter: SupportMaterialAudience[] = ['BOTH'];
+    const audienceFilter: SupportMaterialAudience[] = ['BOTH', 'ALL'];
     if (user.role === 'AFFILIATE_INFLUENCER') audienceFilter.push('INFLUENCER');
     if (user.role === 'AFFILIATE_AMBASSADOR' || user.role === 'AFFILIATE_SOCIO')
       audienceFilter.push('AMBASSADOR');
+    if (user.role === 'AFFILIATE_VENDOR') {
+      // Vendor hereda lo del embajador padre + ve material específico
+      // para vendors. INFLUENCER queda fuera (no es para él).
+      audienceFilter.push('AMBASSADOR');
+      audienceFilter.push('VENDOR');
+    }
 
     const where: Prisma.SupportMaterialWhereInput = {
       isActive: true,

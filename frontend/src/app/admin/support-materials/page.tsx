@@ -30,7 +30,7 @@ type Type =
   | 'PRESENTATION'
   | 'TEMPLATE'
   | 'OTHER';
-type Audience = 'INFLUENCER' | 'AMBASSADOR' | 'BOTH';
+type Audience = 'INFLUENCER' | 'AMBASSADOR' | 'BOTH' | 'VENDOR' | 'ALL';
 
 type Material = {
   id: string;
@@ -68,6 +68,8 @@ const AUDIENCE_LABEL: Record<Audience, string> = {
   INFLUENCER: '🌟 Solo influencers',
   AMBASSADOR: '👥 Solo embajadores',
   BOTH: '👥🌟 Influencers + embajadores',
+  VENDOR: '💼 Solo vendedores',
+  ALL: '🌍 Todos (incluye vendedores)',
 };
 
 const SUGGESTED_CATEGORIES = [
@@ -239,7 +241,9 @@ export default function SupportMaterialsAdmin() {
             <option value="">Toda la audiencia</option>
             <option value="INFLUENCER">Solo influencers</option>
             <option value="AMBASSADOR">Solo embajadores</option>
-            <option value="BOTH">Ambos</option>
+            <option value="VENDOR">Solo vendedores</option>
+            <option value="BOTH">Influencers + embajadores</option>
+            <option value="ALL">Todos (incluye vendedores)</option>
           </select>
         </div>
       </div>
