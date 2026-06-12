@@ -73,6 +73,7 @@ export default function IndustryDeckPublicPage() {
       industryThemeColor={data.themeColor}
       backHref="/industrias"
       emptyMessage={`${data.name} todavía no tiene slides publicados`}
+      pdfName={`clubify-industria-${data.slug ?? data.name}`}
     />
   );
 }

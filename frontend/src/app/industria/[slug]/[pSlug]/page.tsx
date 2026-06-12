@@ -81,6 +81,7 @@ export default function SlideDeckPage() {
       industryThemeColor={deck.industry.themeColor}
       backHref={`/industria/${slug}`}
       emptyMessage="Esta presentación todavía no tiene slides"
+      pdfName={`clubify-${deck.industry.slug ?? deck.industry.name}-${deck.slug ?? deck.title ?? 'presentacion'}`}
     />
   );
 }
