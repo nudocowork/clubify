@@ -83,9 +83,6 @@ export default function SettingsPage() {
   const [pwdMsg, setPwdMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const [tenant, setTenant] = useState<TenantMe | null>(null);
-  const [waForm, setWaForm] = useState({ ordersPhone: '', deliveryPhone: '' });
-  const [savingWa, setSavingWa] = useState(false);
-  const [waMsg, setWaMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const [sectionMode, setSectionMode] = useState<MainSectionMode>('menu');
   const [sectionCustom, setSectionCustom] = useState<string>('');
@@ -112,10 +109,6 @@ export default function SettingsPage() {
     api<TenantMe>('/tenants/me')
       .then((t) => {
         setTenant(t);
-        setWaForm({
-          ordersPhone: t.whatsappOrdersPhone ?? '',
-          deliveryPhone: t.whatsappDeliveryPhone ?? '',
-        });
         const { mode, custom } = detectMainMode(t.mainSectionLabelOverride);
         setSectionMode(mode);
         setSectionCustom(custom);
@@ -221,27 +214,6 @@ export default function SettingsPage() {
       setCurrencyMsg({ ok: false, text: e.message || 'No se pudo guardar' });
     } finally {
       setSavingCurrency(false);
-    }
-  }
-
-  async function saveWhatsapp(e: React.FormEvent) {
-    e.preventDefault();
-    setWaMsg(null);
-    setSavingWa(true);
-    try {
-      const updated = await api<TenantMe>('/tenants/me', {
-        method: 'PATCH',
-        body: JSON.stringify({
-          whatsappOrdersPhone: waForm.ordersPhone.trim() || null,
-          whatsappDeliveryPhone: waForm.deliveryPhone.trim() || null,
-        }),
-      });
-      setTenant(updated);
-      setWaMsg({ ok: true, text: 'Números actualizados' });
-    } catch (e: any) {
-      setWaMsg({ ok: false, text: e.message || 'No se pudo actualizar' });
-    } finally {
-      setSavingWa(false);
     }
   }
 
@@ -553,83 +525,9 @@ export default function SettingsPage() {
         </div>
       </form>
 
-      {/* Mensajería de WhatsApp */}
-      <div className="card card-pad mb-4">
-        <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div>
-            <h2 className="text-base font-semibold m-0 flex items-center gap-2">
-              💬 Mensajería de WhatsApp
-            </h2>
-            <p className="text-xs text-mute mt-1 leading-relaxed">
-              Configura los dos números que enrutan tus pedidos: dónde reciben
-              tus clientes el pedido inicial y dónde despachas a domicilio.
-            </p>
-          </div>
-        </div>
-
-          <form onSubmit={saveWhatsapp} className="mt-4 grid gap-3">
-            <div>
-              <label className="label flex items-center gap-1.5">
-                <span>🍽 Pedido a Negocio (caja)</span>
-              </label>
-              <input
-                className="input"
-                placeholder="+57 300 000 0000"
-                value={waForm.ordersPhone}
-                onChange={(e) =>
-                  setWaForm({ ...waForm, ordersPhone: e.target.value })
-                }
-              />
-              <p className="text-[11px] text-mute mt-1 leading-relaxed">
-                Cuando un cliente envía su pedido desde el menú (mesa o
-                delivery), el wa.me se abre a este número. Si lo dejas vacío,
-                usa el WhatsApp principal del negocio.
-              </p>
-            </div>
-
-            <div>
-              <label className="label flex items-center gap-1.5">
-                <span>🛵 Negocio a Domicilio (courier)</span>
-              </label>
-              <input
-                className="input"
-                placeholder="+57 300 000 0000"
-                value={waForm.deliveryPhone}
-                onChange={(e) =>
-                  setWaForm({ ...waForm, deliveryPhone: e.target.value })
-                }
-              />
-              <p className="text-[11px] text-mute mt-1 leading-relaxed">
-                Cuando aceptes el pago de un pedido de domicilio en{' '}
-                <Link href="/app/orders" className="underline">
-                  /app/orders
-                </Link>
-                , se abre un wa.me a este número con el resumen + dirección
-                listo para despachar al motorizado.
-              </p>
-            </div>
-
-            {waMsg && (
-              <div
-                className={`text-sm rounded-lg px-3 py-2 ${
-                  waMsg.ok ? 'bg-ok-soft text-ok' : 'bg-bad-soft text-bad-ink'
-                }`}
-              >
-                {waMsg.text}
-              </div>
-            )}
-
-            <div className="flex justify-end">
-              <button
-                type="submit"
-                disabled={savingWa}
-                className="btn-primary text-sm"
-              >
-                {savingWa ? 'Guardando…' : 'Guardar números'}
-              </button>
-            </div>
-          </form>
-      </div>
+      {/* Mensajería de WhatsApp: movido a /admin/tenants/[id] (Bloque 8
+          2026-06-12). El cliente final ya no la edita — solo SUPER_ADMIN
+          desde el panel de administración del negocio. */}
 
       {/* Nombre de sección principal */}
       <div className="card card-pad mb-4">

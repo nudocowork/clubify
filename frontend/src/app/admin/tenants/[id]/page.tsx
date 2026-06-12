@@ -476,8 +476,128 @@ export default function TenantDetail() {
 
         {isSuperAdmin && <BillingCard tenant={t} onChange={load} />}
 
+        {isSuperAdmin && <WhatsappMessagingCard tenant={t} onSaved={load} />}
+
         {isSuperAdmin && <HotmartSimulatorCard tenant={t} onChange={load} />}
       </div>
+    </div>
+  );
+}
+
+// ============================================================
+//   Mensajería WhatsApp del negocio (Bloque 8 — 2026-06-12)
+//   Movido desde /app/settings: el cliente final ya no la edita,
+//   solo SUPER_ADMIN desde acá.
+// ============================================================
+
+function WhatsappMessagingCard({
+  tenant,
+  onSaved,
+}: {
+  tenant: any;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({
+    whatsappPhone: tenant.whatsappPhone ?? '',
+    whatsappOrdersPhone: tenant.whatsappOrdersPhone ?? '',
+    whatsappDeliveryPhone: tenant.whatsappDeliveryPhone ?? '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setMsg(null);
+    try {
+      await api(`/tenants/${tenant.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          whatsappPhone: form.whatsappPhone.trim() || '',
+          whatsappOrdersPhone: form.whatsappOrdersPhone.trim() || '',
+          whatsappDeliveryPhone: form.whatsappDeliveryPhone.trim() || '',
+        }),
+      });
+      setMsg({ ok: true, text: 'Números guardados' });
+      onSaved();
+    } catch (e: any) {
+      setMsg({ ok: false, text: e.message || 'No se pudo guardar' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="card card-pad">
+      <h2 className="text-base font-semibold m-0 flex items-center gap-2">
+        💬 Mensajería WhatsApp
+      </h2>
+      <p className="text-xs text-mute mt-1 leading-relaxed">
+        Configura los teléfonos que enrutan los pedidos del negocio. El cliente
+        final no ve esta sección — solo SUPER_ADMIN puede editarla.
+      </p>
+
+      <form onSubmit={save} className="mt-4 grid gap-3">
+        <div>
+          <label className="label">WhatsApp principal del negocio</label>
+          <input
+            className="input"
+            placeholder="+57 300 000 0000"
+            value={form.whatsappPhone}
+            onChange={(e) =>
+              setForm({ ...form, whatsappPhone: e.target.value })
+            }
+          />
+        </div>
+
+        <div>
+          <label className="label">🍽 Pedido a Negocio (caja)</label>
+          <input
+            className="input"
+            placeholder="+57 300 000 0000"
+            value={form.whatsappOrdersPhone}
+            onChange={(e) =>
+              setForm({ ...form, whatsappOrdersPhone: e.target.value })
+            }
+          />
+          <p className="text-[11px] text-mute mt-1 leading-relaxed">
+            Cuando un cliente envía pedido desde el menú, el wa.me abre a este
+            número. Si está vacío usa el WhatsApp principal.
+          </p>
+        </div>
+
+        <div>
+          <label className="label">🛵 Negocio a Domicilio (courier)</label>
+          <input
+            className="input"
+            placeholder="+57 300 000 0000"
+            value={form.whatsappDeliveryPhone}
+            onChange={(e) =>
+              setForm({ ...form, whatsappDeliveryPhone: e.target.value })
+            }
+          />
+          <p className="text-[11px] text-mute mt-1 leading-relaxed">
+            Cuando se acepta el pago de un pedido domicilio, se abre wa.me a
+            este número con el resumen y dirección listo para despachar.
+          </p>
+        </div>
+
+        {msg && (
+          <div
+            className={`text-sm rounded-lg px-3 py-2 ${
+              msg.ok ? 'bg-ok-soft text-ok-ink' : 'bg-bad-soft text-bad'
+            }`}
+          >
+            {msg.text}
+          </div>
+        )}
+
+        <div className="flex justify-end">
+          <button type="submit" disabled={saving} className="btn-primary text-sm">
+            {saving ? 'Guardando…' : 'Guardar números'}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

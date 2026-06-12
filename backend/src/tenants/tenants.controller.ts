@@ -74,6 +74,11 @@ class UpdateTenantBody {
   // Asignar subcuenta global de Grow Business para SMS a empresas de
   // domicilio cuando pedidos delivery cambian de estado. null = tenant.
   @IsOptional() deliveryAlertsAccountId?: string | null;
+  // Mensajería WhatsApp del negocio (Bloque 8 2026-06-12). Antes el
+  // tenant owner editaba esto desde /app/settings — movido a admin.
+  @IsOptional() @IsString() whatsappPhone?: string;
+  @IsOptional() @IsString() whatsappOrdersPhone?: string;
+  @IsOptional() @IsString() whatsappDeliveryPhone?: string;
 }
 
 @Controller('tenants')
