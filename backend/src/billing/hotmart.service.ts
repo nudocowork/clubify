@@ -118,13 +118,21 @@ export class HotmartService {
     // agresivamente — el mismo webhook puede llegar 3-5 veces. Antes la
     // dedup era por externalTxId en Commission y por window de 25 días.
     // Ahora persistimos el id del evento y rechazamos los retries.
+    //
+    // FIX 2026-06-12 (race condition): el patrón anterior era
+    // check→run→mark, lo que permitía que dos retries simultáneos
+    // pasaran ambos el check, corrieran activatePurchase dos veces y
+    // crearan commissions/SMS duplicados. Ahora reclamamos el eventId
+    // ANTES de correr la lógica (atomic INSERT + catch P2002). Si la
+    // lógica falla después, el evento queda marcado igualmente y los
+    // retries de Hotmart no re-disparan side effects — la falla
+    // requiere intervención manual (igual que antes, porque el caller
+    // siempre devolvía 200).
     const eventId = this.computeEventId(payload);
-    const alreadyProcessed = await this.prisma.hotmartWebhookEvent
-      .findUnique({ where: { eventId } })
-      .catch(() => null);
-    if (alreadyProcessed) {
+    const claimed = await this.claimEvent(eventId, event, payload);
+    if (!claimed) {
       this.logger.log(
-        `Hotmart event ${eventId} (${event}) ya procesado el ${alreadyProcessed.processedAt.toISOString()} — skip`,
+        `Hotmart event ${eventId} (${event}) ya procesado — skip duplicate`,
       );
       return { ok: true, action: 'duplicate_event' };
     }
@@ -153,65 +161,68 @@ export class HotmartService {
             `storePendingPayment falló para ${buyerEmail}: ${(e as Error).message}`,
           ),
         );
-        await this.markEventProcessed(eventId, event, null, payload).catch(
-          () => null,
-        );
         return { ok: true, action: 'pending_stored' };
       }
       this.logger.warn(
         `Hotmart event ${event}: no tenant matched (email=${buyerEmail} subscriber=${subscriberCode})`,
       );
-      await this.markEventProcessed(eventId, event, null, payload).catch(
-        () => null,
-      );
       return { ok: true, action: 'tenant_not_found' };
     }
 
-    // Wrappeamos el switch para poder marcar el evento como procesado
-    // (idempotency) DESPUÉS de que la lógica corrió sin lanzar.
-    const result = await this.runEventLogic(event, tenant, payload);
-    await this.markEventProcessed(eventId, event, tenant.id, payload).catch(
-      (e) =>
-        this.logger.warn(
-          `markEventProcessed falló para ${eventId}: ${(e as Error)?.message}`,
-        ),
-    );
-    return result;
+    // Actualizar tenantId en el evento ya reclamado (mejor traceability).
+    await this.prisma.hotmartWebhookEvent
+      .update({ where: { eventId }, data: { tenantId: tenant.id } })
+      .catch(() => null);
+
+    return this.runEventLogic(event, tenant, payload);
   }
 
-  /** Computa un eventId determinístico para event-level idempotency. */
+  /** Computa un eventId determinístico para event-level idempotency.
+   *  FIX 2026-06-12 (colisión): el fallback antes era
+   *  `derived:EVENT:TX:SUB`. Si Hotmart NO mandaba `id`, `transaction`
+   *  ni `subscriber.code` (primer pago de dos clientes distintos del
+   *  mismo producto), el fallback se reducía a `derived:EVENT::` para
+   *  ambos → el segundo cliente quedaba marcado como duplicado y sin
+   *  activarse. Ahora incluimos buyerEmail + approved_date como
+   *  desambiguadores estables. */
   private computeEventId(payload: HotmartWebhookPayload): string {
     const raw = (payload as any).id;
     if (typeof raw === 'string' && raw.length > 0) return raw;
-    // Hash fallback: event + transactionId + subscriberCode. Lo suficiente
-    // para que retries del mismo evento generen el MISMO id.
     const event = payload.event ?? 'unknown';
     const tx = payload.data?.purchase?.transaction ?? '';
     const sub = payload.data?.subscription?.subscriber?.code ?? '';
-    return `derived:${event}:${tx}:${sub}`;
+    const buyer = payload.data?.buyer?.email?.toLowerCase() ?? '';
+    const approved = payload.data?.purchase?.approved_date ?? '';
+    return `derived:${event}:${tx}:${sub}:${buyer}:${approved}`;
   }
 
-  /** INSERT en HotmartWebhookEvent. Falla en silencio en duplicado
-   *  (race condition) gracias al unique constraint. */
-  private async markEventProcessed(
+  /** Atomically claim el eventId antes de correr lógica. Retorna true si
+   *  ganamos el INSERT (procesar), false si ya estaba (duplicate).
+   *  El UNIQUE(eventId) garantiza que solo un retry pase aunque dos
+   *  webhooks lleguen al mismo tiempo. */
+  private async claimEvent(
     eventId: string,
     eventType: string,
-    tenantId: string | null,
     payload: HotmartWebhookPayload,
-  ): Promise<void> {
-    await this.prisma.hotmartWebhookEvent
-      .create({
+  ): Promise<boolean> {
+    try {
+      await this.prisma.hotmartWebhookEvent.create({
         data: {
           eventId,
           eventType,
-          tenantId: tenantId ?? undefined,
           payload: payload as any,
         },
-      })
-      .catch((e) => {
-        if ((e as any)?.code === 'P2002') return; // Unique violation = race con otro retry. OK.
-        throw e;
       });
+      return true;
+    } catch (e) {
+      if ((e as any)?.code === 'P2002') return false;
+      // Otro error de DB — loggeamos pero dejamos pasar para que la
+      // lógica corra (preferimos un dup raro sobre perder un pago).
+      this.logger.error(
+        `claimEvent falló para ${eventId}: ${(e as Error)?.message}`,
+      );
+      return true;
+    }
   }
 
   /** Switch principal — extraído para que handleEvent pueda
@@ -348,14 +359,27 @@ export class HotmartService {
     const subscriberCode = payload.data?.subscription?.subscriber?.code;
     const transactionId = payload.data?.purchase?.transaction;
     // E (2026-06-12): Hotmart es la fuente oficial de fechas. Si
-    // date_next_charge NO viene, NO inventamos +30 días — preservamos
-    // currentPeriodEnd existente y solo loggeamos warning. Antes el
-    // +30 local pisaba renovaciones legítimas con fechas incorrectas.
+    // date_next_charge NO viene en una RENOVACIÓN, NO inventamos +30
+    // días — preservamos currentPeriodEnd existente. Antes el +30 local
+    // pisaba renovaciones legítimas con fechas incorrectas.
+    //
+    // FIX 2026-06-12 (primer pago): si es PRIMER pago (no hay
+    // currentPeriodEnd existente) y Hotmart tampoco lo envía, sí
+    // hacemos fallback a +30 días — sino el tenant queda sin fecha de
+    // próximo cobro PERMANENTEMENTE y el cron de billing nunca le manda
+    // recordatorios. El usuario puede ajustar a mano después.
     const nextChargeRaw = payload.data?.subscription?.date_next_charge;
-    const nextCharge = nextChargeRaw ? new Date(nextChargeRaw) : null;
-    if (!nextCharge) {
+    let nextCharge = nextChargeRaw ? new Date(nextChargeRaw) : null;
+    if (!nextCharge && !tenant.currentPeriodEnd) {
+      const fallback = new Date();
+      fallback.setDate(fallback.getDate() + 30);
+      nextCharge = fallback;
       this.logger.warn(
-        `activatePurchase tenant=${tenant.id}: Hotmart no envió date_next_charge — preservamos currentPeriodEnd=${tenant.currentPeriodEnd?.toISOString() ?? 'null'}`,
+        `activatePurchase tenant=${tenant.id}: primer pago sin date_next_charge — fallback +30d=${nextCharge.toISOString()}`,
+      );
+    } else if (!nextCharge) {
+      this.logger.warn(
+        `activatePurchase tenant=${tenant.id}: Hotmart no envió date_next_charge en renovación — preservamos currentPeriodEnd=${tenant.currentPeriodEnd?.toISOString()}`,
       );
     }
     // lastChargeAt — timestamp del pago aprobado real (no calculado).
@@ -365,7 +389,8 @@ export class HotmartService {
       where: { id: tenant.id },
       data: {
         status: 'ACTIVE',
-        // Solo update si Hotmart mandó la fecha — sino preserve.
+        // Solo update si Hotmart mandó la fecha O si es primer pago
+        // (fallback) — en renovaciones sin date_next_charge preservamos.
         ...(nextCharge ? { currentPeriodEnd: nextCharge } : {}),
         lastChargeAt,
         hotmartSubscriberCode: subscriberCode ?? tenant.hotmartSubscriberCode,
