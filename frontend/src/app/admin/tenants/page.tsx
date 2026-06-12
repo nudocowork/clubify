@@ -708,7 +708,7 @@ function DeleteTenantModal({
   }
 
   async function runHard() {
-    if (confirmText !== '123') return;
+    if (confirmText.trim() !== '123') return;
     setBusy(true);
     try {
       await onConfirm({ keepHistory: false });
@@ -843,7 +843,7 @@ function DeleteTenantModal({
             <button
               type="button"
               onClick={runHard}
-              disabled={busy || confirmText !== '123'}
+              disabled={busy || confirmText.trim() !== '123'}
               className="text-sm font-semibold px-4 py-2 rounded-md bg-bad text-white hover:bg-bad/90 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
             >
               {busy ? 'Eliminando…' : 'Eliminar todo definitivamente'}
