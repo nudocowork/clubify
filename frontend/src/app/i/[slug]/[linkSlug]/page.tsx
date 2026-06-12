@@ -7,6 +7,12 @@ import { useLocale } from '@/lib/i18n';
 import { InfoLinkPopupModal } from '@/components/InfoLinkPopupModal';
 import type { PopupConfig } from '@/lib/info-link-popup';
 import { safeUrlOrNull } from '@/lib/safe-url';
+import {
+  backgroundCss,
+  type InfoLinkBackground,
+  type InfoLinkPopup,
+} from '@/lib/info-link-extras';
+import { InfoLinkGlobalPopup } from '@/components/info-link-global-popup';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
@@ -76,7 +82,11 @@ type Link = {
   gallery: string[];
   sections: Section[];
   buttons: Button[];
-  theme: { primaryColor?: string };
+  theme: {
+    primaryColor?: string;
+    background?: InfoLinkBackground | null;
+    popup?: InfoLinkPopup | null;
+  };
   views: number;
 };
 
@@ -435,6 +445,7 @@ export default function PublicInfoLink() {
     ) : null;
 
   const template = resolveTemplate(link.theme);
+  const customBg = backgroundCss(link.theme?.background ?? null);
 
   return (
     <>
@@ -445,12 +456,18 @@ export default function PublicInfoLink() {
         primary={primary}
         buttons={resolvedButtons}
         sectionsNode={sectionsNode}
+        customBackground={customBg}
       />
       <InfoLinkPopupModal
         popup={openPopup?.config ?? null}
         primary={primary}
         onClose={() => setOpenPopup(null)}
         continueAction={openPopup?.continueAction}
+      />
+      <InfoLinkGlobalPopup
+        linkId={link.id}
+        config={link.theme?.popup ?? null}
+        primary={primary}
       />
     </>
   );
