@@ -196,6 +196,11 @@ export default function AppShell({
       '/admin/audit',
       '/admin/tenants/new',
       '/admin/map',
+      // ALTO #8 (2026-06-12): payouts (gestión de pagos a afiliados) es
+      // dato financiero sensible. Estaba oculto en el sidebar pero el
+      // route guard no lo bloqueaba — MARKETING podía entrar por URL
+      // directa. Ahora también está bloqueado.
+      '/admin/payouts',
     ];
     if (blocked.some((p) => pathname === p || pathname.startsWith(p + '/'))) {
       router.replace('/admin');

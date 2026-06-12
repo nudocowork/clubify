@@ -493,6 +493,84 @@ export class PayoutsService {
     });
   }
 
+  /**
+   * Reversar un payout (ALTO #9 — 2026-06-12). Casos de uso:
+   *  - El pago Binance/banco falló o se devolvió.
+   *  - El admin se equivocó al marcar como PAID.
+   *  - Disputa: el afiliado dice que no recibió, hay que reabrir.
+   *
+   * Acciones (atómicas en $transaction):
+   *  1. Payout pasa a status='REVERSED' con notes del motivo.
+   *  2. Cada Commission del payout vuelve a APPROVED + paymentStatus
+   *     se resetea a PENDING + paidAt=null.
+   *  3. **Los CommissionPayoutItem se BORRAN** — antes quedaban
+   *     "ocupando" la commission via UNIQUE(commissionId), impidiendo
+   *     que un futuro payout la incluya. Sin esta liberación, el
+   *     afiliado nunca podría cobrar esa commission de nuevo.
+   *
+   * Solo se puede reversar payouts en status PAID (sentido contable).
+   */
+  async adminReversePayout(
+    user: AuthUser,
+    payoutId: string,
+    dto: { reason: string },
+  ) {
+    this.assertAdmin(user);
+    const reason = dto.reason?.trim();
+    if (!reason) throw new BadRequestException('Motivo requerido');
+
+    const payout = await this.prisma.commissionPayout.findUnique({
+      where: { id: payoutId },
+      include: { items: { select: { id: true, commissionId: true } } },
+    });
+    if (!payout) throw new NotFoundException('Payout no encontrado');
+    if (payout.status !== 'PAID') {
+      throw new BadRequestException(
+        `Solo se pueden reversar payouts en estado PAID (este es ${payout.status})`,
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const commissionIds = payout.items.map((it) => it.commissionId);
+      const itemIds = payout.items.map((it) => it.id);
+
+      // 1) Marcar payout como REVERSED + preservar notas + proof.
+      const reversedPayout = await tx.commissionPayout.update({
+        where: { id: payoutId },
+        data: {
+          status: 'REVERSED',
+          notes:
+            (payout.notes ? `${payout.notes}\n\n` : '') +
+            `[REVERSED ${new Date().toISOString()}] ${reason}`,
+        },
+      });
+
+      // 2) Commissions vuelven a APPROVED (pueden re-incluirse en
+      //    futuros payouts). PaymentStatus a PENDING + paidAt=null.
+      if (commissionIds.length) {
+        await tx.commission.updateMany({
+          where: { id: { in: commissionIds } },
+          data: {
+            status: CommissionStatus.APPROVED,
+            paymentStatus: 'PENDING',
+            paidAt: null,
+            amountPaid: 0,
+          },
+        });
+      }
+
+      // 3) Liberar los CommissionPayoutItem. UNIQUE(commissionId) impide
+      //    re-incluir las commissions en otro payout si no borramos.
+      if (itemIds.length) {
+        await tx.commissionPayoutItem.deleteMany({
+          where: { id: { in: itemIds } },
+        });
+      }
+
+      return reversedPayout;
+    });
+  }
+
   // ============================================================
   //                       Helpers
   // ============================================================
