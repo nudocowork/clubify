@@ -618,6 +618,7 @@ export class AuthService {
     buyerPhone?: string | null;
     productName?: string | null;
     purchaseValue?: number | null;
+    purchaseCurrency?: string | null;
     periodicity?: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL' | null;
   }> {
     const email = String(emailRaw ?? '').trim().toLowerCase();
@@ -638,6 +639,11 @@ export class AuthService {
       Number(purchase?.price?.value) ||
       Number(purchase?.original_offer_price?.value) ||
       null;
+    // Fix 2026-06-12: la moneda viene en el payload, no asumir USD.
+    const purchaseCurrency =
+      (purchase?.price?.currency_code ??
+        purchase?.original_offer_price?.currency_code ??
+        null) as string | null;
 
     // Heurística: derivar periodicidad del nombre del producto. Si no
     // matchea, fallback a inferir por monto USD aproximado vs landing
@@ -656,7 +662,11 @@ export class AuthService {
     else if (/SEMESTRAL/.test(upper)) periodicity = 'SEMESTRAL';
     else if (/TRIMESTRAL/.test(upper)) periodicity = 'TRIMESTRAL';
     else if (/MENSUAL|MENSU/.test(upper)) periodicity = 'MENSUAL';
-    else if (value != null) {
+    else if (value != null && (purchaseCurrency === 'USD' || !purchaseCurrency)) {
+      // Heurística por monto SOLO si la moneda es USD (que es donde los
+      // landing plans fueron definidos: 68/150/278/500). En COP/BRL/etc
+      // el monto convertido no matchea, así que dejamos `periodicity`
+      // en null y el frontend cae al picker normal.
       if (value >= 400) periodicity = 'ANUAL';
       else if (value >= 250) periodicity = 'SEMESTRAL';
       else if (value >= 120) periodicity = 'TRIMESTRAL';
@@ -669,6 +679,7 @@ export class AuthService {
       buyerPhone: buyer?.checkout_phone ?? buyer?.phone ?? null,
       productName: productName || null,
       purchaseValue: value,
+      purchaseCurrency,
       periodicity,
     };
   }

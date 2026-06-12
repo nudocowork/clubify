@@ -64,6 +64,7 @@ function ActivarInner() {
   // localStorage (cambió de dispositivo, no pasó por /signup).
   const [pendingDetected, setPendingDetected] = useState(false);
   const [pendingPrice, setPendingPrice] = useState<number | null>(null);
+  const [pendingCurrency, setPendingCurrency] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     fullName: '',
@@ -96,6 +97,9 @@ function ActivarInner() {
         setPendingDetected(true);
         setPendingPrice(
           typeof d.purchaseValue === 'number' ? d.purchaseValue : null,
+        );
+        setPendingCurrency(
+          typeof d.purchaseCurrency === 'string' ? d.purchaseCurrency : null,
         );
         setForm((f) => ({
           ...f,
@@ -273,8 +277,8 @@ function ActivarInner() {
           <div className="max-w-md mx-auto lg:mx-0">
             <div className="inline-flex items-center gap-2 bg-brand-soft text-brand-700 text-xs font-semibold px-3 py-1 rounded-full mb-5">
               <span className="w-1.5 h-1.5 rounded-full bg-brand" />
-              {pendingDetected && planPeriod
-                ? `Pago detectado · Plan ${PLAN_PERIOD_MAP[planPeriod].label}${pendingPrice ? ` · USD ${pendingPrice}` : ''}`
+              {pendingDetected
+                ? `Pago detectado${planPeriod ? ` · Plan ${PLAN_PERIOD_MAP[planPeriod].label}` : ''}${pendingPrice ? ` · ${pendingCurrency ?? 'USD'} ${pendingPrice}` : ''}`
                 : planPeriod && planData
                   ? `Pago confirmado · Plan ${PLAN_PERIOD_MAP[planPeriod].label} · USD ${planData.price}`
                   : 'Pago confirmado · activa tu cuenta'}
