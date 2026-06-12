@@ -435,6 +435,10 @@ model Tenant {
   hotmartTransactionId        String?
   failedPaymentCount          Int                  @default(0)
   lastPaymentAttemptAt        DateTime?
+  // E (2026-06-12): timestamp del último pago aprobado real (approved_date
+  // del payload Hotmart). Útil para reportes y debugging — antes solo
+  // teníamos currentPeriodEnd que es el PRÓXIMO cobro.
+  lastChargeAt                DateTime?
   suspendedAt                 DateTime?
   // Tracking de notificaciones de cobro automáticas (idempotencia del cron):
   // - paymentReminderSentFor: igualamos a currentPeriodEnd cuando ya
@@ -595,6 +599,28 @@ model PendingHotmartPayment {
   @@index([email])
   @@index([consumedAt])
   @@index([teamReminderSentAt])
+}
+
+/// E (2026-06-12): event-level idempotency para el webhook Hotmart.
+/// Antes la dedup era solo por externalTxId en Commission (caso por caso).
+/// Ahora cada webhook event que llega registra su id + type en esta tabla;
+/// si el id ya existe, se ignora — Hotmart reintenta con el MISMO id.
+///
+/// eventId viene del campo `id` del payload Hotmart cuando existe, o
+/// un hash determinístico de (eventType + transactionId + subscriber)
+/// como fallback.
+model HotmartWebhookEvent {
+  id          String   @id @default(uuid())
+  /// Identificador único del evento Hotmart (campo `id` del payload o
+  /// hash determinístico). UNIQUE — segundo INSERT del mismo evento falla.
+  eventId     String   @unique
+  eventType   String
+  /// Tenant resuelto (puede ser null si fue PendingHotmartPayment).
+  tenantId    String?
+  payload     Json
+  processedAt DateTime @default(now())
+
+  @@index([tenantId, eventType, processedAt])
 }
 
 model User {

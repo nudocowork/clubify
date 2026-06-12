@@ -114,6 +114,21 @@ export class HotmartService {
 
     if (!event) return { ok: true, action: 'no_event' };
 
+    // E (2026-06-12): event-level idempotency. Hotmart reintenta
+    // agresivamente — el mismo webhook puede llegar 3-5 veces. Antes la
+    // dedup era por externalTxId en Commission y por window de 25 días.
+    // Ahora persistimos el id del evento y rechazamos los retries.
+    const eventId = this.computeEventId(payload);
+    const alreadyProcessed = await this.prisma.hotmartWebhookEvent
+      .findUnique({ where: { eventId } })
+      .catch(() => null);
+    if (alreadyProcessed) {
+      this.logger.log(
+        `Hotmart event ${eventId} (${event}) ya procesado el ${alreadyProcessed.processedAt.toISOString()} — skip`,
+      );
+      return { ok: true, action: 'duplicate_event' };
+    }
+
     // Localizar tenant por email del buyer (caso primer pago) o por subscriberCode (renovaciones).
     const tenant = await this.findTenant({ buyerEmail, subscriberCode });
     if (!tenant) {
@@ -138,14 +153,75 @@ export class HotmartService {
             `storePendingPayment falló para ${buyerEmail}: ${(e as Error).message}`,
           ),
         );
+        await this.markEventProcessed(eventId, event, null, payload).catch(
+          () => null,
+        );
         return { ok: true, action: 'pending_stored' };
       }
       this.logger.warn(
         `Hotmart event ${event}: no tenant matched (email=${buyerEmail} subscriber=${subscriberCode})`,
       );
+      await this.markEventProcessed(eventId, event, null, payload).catch(
+        () => null,
+      );
       return { ok: true, action: 'tenant_not_found' };
     }
 
+    // Wrappeamos el switch para poder marcar el evento como procesado
+    // (idempotency) DESPUÉS de que la lógica corrió sin lanzar.
+    const result = await this.runEventLogic(event, tenant, payload);
+    await this.markEventProcessed(eventId, event, tenant.id, payload).catch(
+      (e) =>
+        this.logger.warn(
+          `markEventProcessed falló para ${eventId}: ${(e as Error)?.message}`,
+        ),
+    );
+    return result;
+  }
+
+  /** Computa un eventId determinístico para event-level idempotency. */
+  private computeEventId(payload: HotmartWebhookPayload): string {
+    const raw = (payload as any).id;
+    if (typeof raw === 'string' && raw.length > 0) return raw;
+    // Hash fallback: event + transactionId + subscriberCode. Lo suficiente
+    // para que retries del mismo evento generen el MISMO id.
+    const event = payload.event ?? 'unknown';
+    const tx = payload.data?.purchase?.transaction ?? '';
+    const sub = payload.data?.subscription?.subscriber?.code ?? '';
+    return `derived:${event}:${tx}:${sub}`;
+  }
+
+  /** INSERT en HotmartWebhookEvent. Falla en silencio en duplicado
+   *  (race condition) gracias al unique constraint. */
+  private async markEventProcessed(
+    eventId: string,
+    eventType: string,
+    tenantId: string | null,
+    payload: HotmartWebhookPayload,
+  ): Promise<void> {
+    await this.prisma.hotmartWebhookEvent
+      .create({
+        data: {
+          eventId,
+          eventType,
+          tenantId: tenantId ?? undefined,
+          payload: payload as any,
+        },
+      })
+      .catch((e) => {
+        if ((e as any)?.code === 'P2002') return; // Unique violation = race con otro retry. OK.
+        throw e;
+      });
+  }
+
+  /** Switch principal — extraído para que handleEvent pueda
+   *  wrappear con el markEventProcessed. */
+  private async runEventLogic(
+    event: HotmartEventType,
+    tenant: Awaited<ReturnType<typeof this.findTenant>>,
+    payload: HotmartWebhookPayload,
+  ) {
+    if (!tenant) return { ok: true, action: 'tenant_not_found' as const };
     switch (event) {
       case 'PURCHASE_APPROVED':
       case 'PURCHASE_COMPLETE':
@@ -265,19 +341,33 @@ export class HotmartService {
       brandName: string;
       hotmartSubscriberCode: string | null;
       hotmartTransactionId: string | null;
+      currentPeriodEnd?: Date | null;
     },
     payload: HotmartWebhookPayload,
   ) {
     const subscriberCode = payload.data?.subscription?.subscriber?.code;
     const transactionId = payload.data?.purchase?.transaction;
-    const nextCharge = payload.data?.subscription?.date_next_charge
-      ? new Date(payload.data.subscription.date_next_charge)
-      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    // E (2026-06-12): Hotmart es la fuente oficial de fechas. Si
+    // date_next_charge NO viene, NO inventamos +30 días — preservamos
+    // currentPeriodEnd existente y solo loggeamos warning. Antes el
+    // +30 local pisaba renovaciones legítimas con fechas incorrectas.
+    const nextChargeRaw = payload.data?.subscription?.date_next_charge;
+    const nextCharge = nextChargeRaw ? new Date(nextChargeRaw) : null;
+    if (!nextCharge) {
+      this.logger.warn(
+        `activatePurchase tenant=${tenant.id}: Hotmart no envió date_next_charge — preservamos currentPeriodEnd=${tenant.currentPeriodEnd?.toISOString() ?? 'null'}`,
+      );
+    }
+    // lastChargeAt — timestamp del pago aprobado real (no calculado).
+    const approvedDate = payload.data?.purchase?.approved_date;
+    const lastChargeAt = approvedDate ? new Date(approvedDate) : new Date();
     await this.prisma.tenant.update({
       where: { id: tenant.id },
       data: {
         status: 'ACTIVE',
-        currentPeriodEnd: nextCharge,
+        // Solo update si Hotmart mandó la fecha — sino preserve.
+        ...(nextCharge ? { currentPeriodEnd: nextCharge } : {}),
+        lastChargeAt,
         hotmartSubscriberCode: subscriberCode ?? tenant.hotmartSubscriberCode,
         hotmartTransactionId: transactionId ?? tenant.hotmartTransactionId,
         failedPaymentCount: 0,
@@ -366,7 +456,9 @@ export class HotmartService {
     await this.postPurchaseFanOut({
       tenantId: tenant.id,
       brandName: tenant.brandName,
-      nextCharge,
+      // Si Hotmart no mandó date_next_charge, pasamos el currentPeriodEnd
+      // preservado (puede ser null en casos edge — el fan-out maneja eso).
+      nextCharge: nextCharge ?? tenant.currentPeriodEnd ?? new Date(),
       transactionId,
     }).catch((e) =>
       this.logger.warn(`postPurchaseFanOut falló: ${(e as Error).message}`),
@@ -391,6 +483,7 @@ export class HotmartService {
         brandName: true,
         hotmartSubscriberCode: true,
         hotmartTransactionId: true,
+        currentPeriodEnd: true,
       },
     });
     if (!tenant) return { ok: true, action: 'tenant_not_found' };
@@ -574,6 +667,7 @@ export class HotmartService {
           brandName: true,
           hotmartSubscriberCode: true,
           hotmartTransactionId: true,
+          currentPeriodEnd: true,
         },
       });
       if (t) return t;
@@ -621,6 +715,7 @@ export class HotmartService {
             brandName: true,
             hotmartSubscriberCode: true,
             hotmartTransactionId: true,
+            currentPeriodEnd: true,
           },
         });
       }
