@@ -189,6 +189,10 @@ export class TenantsService {
 
   async list() {
     const tenants = await this.prisma.tenant.findMany({
+      // Bloque 5 (2026-06-12): excluir soft-deleted del listado admin.
+      // El SUPER_ADMIN no debería ver tenants eliminados que conservaron
+      // historial — la contabilidad sigue por separado vía AuditLog.
+      where: { deletedAt: null },
       include: { plan: true, _count: { select: { users: true, cards: true, customers: true } } },
       orderBy: { createdAt: 'desc' },
     });
@@ -428,13 +432,74 @@ export class TenantsService {
     return updated;
   }
 
-  async remove(id: string, actorId: string) {
+  /**
+   * Eliminar tenant — Bloque 5 (2026-06-12). 2 modos:
+   *
+   *  - keepHistory=true (default seguro): soft-delete. UPDATE deletedAt,
+   *    status='SUSPENDED', renombrar email para liberar el UNIQUE
+   *    constraint. Las relaciones (Order/Commission/ReferralUse) se
+   *    preservan → la contabilidad histórica del afiliado/embajador
+   *    sigue trazable, las comisiones PAID se mantienen.
+   *
+   *  - keepHistory=false: hard-delete con cascade (comportamiento
+   *    legacy). Borra TODO: customers, cards, orders, commissions,
+   *    referral uses, etc. Solo elegir esto si la cuenta no tiene
+   *    actividad crítica (ej. duplicado accidental).
+   *
+   * Ambos modos disparan AuditLog con el modo aplicado.
+   */
+  async remove(
+    id: string,
+    actorId: string,
+    opts: { keepHistory: boolean } = { keepHistory: true },
+  ) {
     const t = await this.getById(id);
+
+    if (opts.keepHistory) {
+      const now = new Date();
+      // Renombrar email para liberar UNIQUE — formato deterministic con
+      // id corto para que un futuro admin pueda revertir manualmente
+      // identificando cuál tenant era.
+      const tombstoneEmail = `deleted-${id.slice(0, 8)}@deleted.local`;
+      // Soft-delete atómico: tenant + users del tenant inactivos en una
+      // sola transacción para que login no quede inconsistente.
+      await this.prisma.$transaction([
+        this.prisma.tenant.update({
+          where: { id },
+          data: {
+            deletedAt: now,
+            status: 'SUSPENDED',
+            suspendedAt: now,
+            email: tombstoneEmail,
+          },
+        }),
+        // Desactivar usuarios del tenant para que ninguno pueda loguear.
+        // No los borramos — su AuditLog histórico (actorId) sigue resoluble.
+        this.prisma.user.updateMany({
+          where: { tenantId: id, isActive: true },
+          data: { isActive: false },
+        }),
+      ]);
+      this.audit.log({
+        actorId,
+        tenantId: id,
+        action: 'tenant.soft_deleted',
+        resource: `tenant:${id}`,
+        metadata: {
+          brandName: t.brandName,
+          slug: t.slug,
+          email: t.email,
+          status: t.status,
+          tombstoneEmail,
+          mode: 'keep_history',
+        },
+      });
+      invalidateTenantStatusCache(id);
+      return { ok: true, mode: 'soft' as const };
+    }
+
+    // Hard delete: comportamiento legacy (cascade).
     await this.prisma.tenant.delete({ where: { id } });
-    // Audit 2026-06-08: dejar rastro de quién borró qué — antes era
-    // silencioso y un SUPER_ADMIN/MARKETING podía eliminar tenants sin
-    // trazabilidad. Como el tenant ya no existe, persistimos el contexto
-    // útil en metadata para retención.
     this.audit.log({
       actorId,
       tenantId: id,
@@ -445,9 +510,10 @@ export class TenantsService {
         slug: t.slug,
         email: t.email,
         status: t.status,
+        mode: 'hard',
       },
     });
-    return { ok: true };
+    return { ok: true, mode: 'hard' as const };
   }
 
   async setStatus(id: string, status: TenantStatus, actorId: string) {
