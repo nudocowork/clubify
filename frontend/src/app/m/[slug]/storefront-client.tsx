@@ -18,6 +18,10 @@ import {
 } from '@/lib/cart';
 import { Icon } from '@/components/Icon';
 import { Barcode } from '@/components/Barcode';
+import {
+  ProductBadge,
+  PrimaryProductBadge,
+} from '@/components/storefront/ProductBadge';
 import { ClubifyBadge } from '@/components/ClubifyBadge';
 import { isDarkBackground } from '@/lib/contrast';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
@@ -2063,14 +2067,9 @@ function LayoutClassic({ menu, primary, currency, onPick }: LP) {
                   <div className="text-xs text-mute mt-0.5 line-clamp-2">{p.description}</div>
                   <div className="flex items-center justify-between mt-2">
                     <div className="font-bold text-sm">{fmtProductPrice(p, currency)}</div>
-                    <div className="flex gap-1">
+                    <div className="flex gap-1 flex-wrap">
                       {p.tags.map((t) => (
-                        <span
-                          key={t}
-                          className="text-[10px] px-1.5 py-0.5 rounded-full bg-brand-soft text-brand-700"
-                        >
-                          {t}
-                        </span>
+                        <ProductBadge key={t} tag={t} variant="inline" />
                       ))}
                     </div>
                   </div>
@@ -2141,11 +2140,7 @@ function LayoutGrid({ menu, primary, currency, onPick }: LP) {
                       🍽
                     </div>
                   )}
-                  {p.tags[0] && (
-                    <span className="absolute top-2 left-2 text-[9px] uppercase tracking-wider bg-white/95 text-ink font-bold px-1.5 py-0.5 rounded shadow-sm">
-                      {p.tags[0]}
-                    </span>
-                  )}
+                  <PrimaryProductBadge tags={p.tags} variant="overlay" />
                   <div
                     className="absolute bottom-2 right-2 w-9 h-9 rounded-full text-white shadow-lg text-xl flex items-center justify-center"
                     style={{ background: primary }}
@@ -2220,11 +2215,7 @@ function LayoutCarousels({ menu, primary, currency, onPick }: LP) {
                           🍽
                         </div>
                       )}
-                      {p.tags[0] && (
-                        <span className="absolute top-1.5 left-1.5 text-[8px] uppercase tracking-wider bg-white/95 text-ink font-bold px-1 py-0.5 rounded">
-                          {p.tags[0]}
-                        </span>
-                      )}
+                      <PrimaryProductBadge tags={p.tags} variant="overlay" />
                     </div>
                     <div className="mt-1 px-0.5">
                       <div className="text-xs font-semibold leading-tight line-clamp-2 min-h-[2.4em]">
@@ -2292,8 +2283,8 @@ function LayoutClean({ menu, primary, currency, onPick }: LP) {
                   <div className="text-[12px] text-mute mt-1 italic">{p.description}</div>
                 )}
                 {p.tags[0] && (
-                  <div className="text-[10px] uppercase tracking-wider text-brand font-bold mt-1">
-                    ▸ {p.tags[0]}
+                  <div className="mt-1.5">
+                    <PrimaryProductBadge tags={p.tags} variant="inline" />
                   </div>
                 )}
               </button>
@@ -2367,14 +2358,7 @@ function LayoutCompact({ menu, primary, currency, onPick }: LP) {
                 <div className="flex items-baseline justify-between gap-2">
                   <div className="font-semibold text-sm flex items-center gap-1.5">
                     {p.name}
-                    {p.tags[0] && (
-                      <span
-                        className="text-[8px] uppercase font-bold px-1 py-0.5 rounded text-white"
-                        style={{ background: primary }}
-                      >
-                        {p.tags[0]}
-                      </span>
-                    )}
+                    <PrimaryProductBadge tags={p.tags} variant="inline" />
                   </div>
                   <div className="font-bold text-sm whitespace-nowrap">
                     {fmtProductPrice(p, currency)}
@@ -2430,17 +2414,20 @@ function LayoutCluvi({ menu, primary, currency, onPick }: LP) {
                 onClick={() => onPick(p)}
                 className="w-full bg-white text-ink rounded-2xl shadow-md text-left flex items-stretch overflow-hidden"
               >
-                {p.imageUrl ? (
-                  <img
-                    src={p.imageUrl}
-                    alt=""
-                    className="w-28 h-28 sm:w-32 sm:h-32 object-cover flex-none"
-                  />
-                ) : (
-                  <div className="w-28 h-28 sm:w-32 sm:h-32 bg-bg2 flex-none flex items-center justify-center text-3xl text-mute">
-                    🍽
-                  </div>
-                )}
+                <div className="relative w-28 h-28 sm:w-32 sm:h-32 flex-none">
+                  {p.imageUrl ? (
+                    <img
+                      src={p.imageUrl}
+                      alt=""
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-bg2 flex items-center justify-center text-3xl text-mute">
+                      🍽
+                    </div>
+                  )}
+                  <PrimaryProductBadge tags={p.tags} variant="overlay" />
+                </div>
                 <div className="flex-1 p-3 sm:p-4 min-w-0 flex flex-col">
                   <div className="font-bold text-base leading-tight">
                     {p.name}
