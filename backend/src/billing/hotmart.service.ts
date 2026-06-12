@@ -1269,8 +1269,9 @@ export class HotmartService {
         const ageMinutes = Math.floor(
           (Date.now() - p.createdAt.getTime()) / 60000,
         );
+        const ageLabel = formatElapsed(ageMinutes);
         const body =
-          `🚨 Cliente pagó hace ${ageMinutes}min y NO completó /activar.\n\n` +
+          `🚨 Cliente pagó hace ${ageLabel} y NO completó /activar.\n\n` +
           `Cliente: ${buyerName}\n` +
           `Email: ${p.email}\n` +
           `Producto: ${productName}\n` +
@@ -1341,4 +1342,20 @@ export class HotmartService {
       select: { locationId: true, apiKey: true, switchNumber: true },
     });
   }
+}
+
+/**
+ * Convierte minutos transcurridos en una etiqueta legible: "45 min",
+ * "2h 15min", "1d 4h". Pensado para mensajes al equipo donde 472min
+ * no se lee bien — mejor "7h 52min".
+ */
+function formatElapsed(totalMinutes: number): string {
+  const m = Math.max(0, Math.floor(totalMinutes));
+  if (m < 60) return `${m} min`;
+  const hours = Math.floor(m / 60);
+  const mins = m % 60;
+  if (hours < 24) return mins > 0 ? `${hours}h ${mins}min` : `${hours}h`;
+  const days = Math.floor(hours / 24);
+  const remainingHours = hours % 24;
+  return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`;
 }
