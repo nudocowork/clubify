@@ -1450,6 +1450,119 @@ export class ReferralsService {
    * van al nuevo parent. Las históricas (en uses separados del antiguo
    * parent) quedan como están — son pasado consolidado.
    */
+  /**
+   * Reasignación de un CLIENTE (ReferralUse) a otro código de afiliado.
+   * Bloque 4 (2026-06-12). El SUPER_ADMIN puede:
+   *   - Mover un ReferralUse de un embajador/influencer a otro.
+   *   - Opcionalmente borrar las comisiones futuras PENDING/APPROVED
+   *     del afiliado anterior (deleteFuturePending). PAID intacta.
+   *   - Las próximas comisiones que se generen lo harán con el nuevo
+   *     referralCodeId (cron de reconciliación o webhook Hotmart).
+   *
+   * Atómica via $transaction. Loggea a AuditLog con metadata completa
+   * para trazabilidad regulatoria.
+   */
+  async reassignReferralUseToCode(
+    user: AuthUser,
+    referralUseId: string,
+    opts: {
+      newReferralCodeId: string;
+      deleteFuturePending: boolean;
+      reason?: string;
+    },
+  ) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    if (!opts.newReferralCodeId) {
+      throw new BadRequestException('newReferralCodeId requerido');
+    }
+
+    const use = await this.prisma.referralUse.findUnique({
+      where: { id: referralUseId },
+      select: {
+        id: true,
+        referralCodeId: true,
+        tenantId: true,
+        status: true,
+        tenant: { select: { brandName: true } },
+        referralCode: {
+          select: { code: true, ownerName: true, role: true },
+        },
+      },
+    });
+    if (!use) throw new NotFoundException('ReferralUse no encontrado');
+
+    const newCode = await this.prisma.referralCode.findUnique({
+      where: { id: opts.newReferralCodeId },
+      select: { id: true, code: true, ownerName: true, role: true },
+    });
+    if (!newCode) {
+      throw new NotFoundException('Código destino no encontrado');
+    }
+    if (use.referralCodeId === opts.newReferralCodeId) {
+      return { ok: true, alreadyAssigned: true };
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Reasignar el ReferralUse al nuevo código.
+      await tx.referralUse.update({
+        where: { id: referralUseId },
+        data: { referralCodeId: opts.newReferralCodeId },
+      });
+
+      let deletedCount = 0;
+      if (opts.deleteFuturePending) {
+        // Borrar comisiones PENDING/APPROVED del use. PAID se mantiene
+        // (histórico cerrado — no se toca). Las próximas comisiones
+        // que genere el cron / webhook Hotmart usarán el nuevo
+        // referralCodeId vía el path normal de generation.
+        const del = await tx.commission.deleteMany({
+          where: {
+            referralUseId,
+            status: { in: ['PENDING', 'APPROVED'] },
+            paidAt: null,
+          },
+        });
+        deletedCount = del.count;
+      }
+
+      return { deletedCount };
+    });
+
+    this.audit.log({
+      actorId: user.id,
+      tenantId: use.tenantId,
+      action: 'referral_use.reassigned',
+      resource: `referral_use:${referralUseId}`,
+      metadata: {
+        tenantBrandName: use.tenant?.brandName ?? null,
+        fromCodeId: use.referralCodeId,
+        fromCode: use.referralCode?.code ?? null,
+        fromOwner: use.referralCode?.ownerName ?? null,
+        fromRole: use.referralCode?.role ?? null,
+        toCodeId: opts.newReferralCodeId,
+        toCode: newCode.code,
+        toOwner: newCode.ownerName,
+        toRole: newCode.role,
+        deletedFutureCommissions: result.deletedCount,
+        deletedFuturePending: opts.deleteFuturePending,
+        reason: opts.reason?.trim() || null,
+      },
+    });
+
+    this.logger.log(
+      `ReferralUse reassigned: use=${referralUseId} tenant=${use.tenantId} ` +
+        `from=${use.referralCode?.code ?? '—'} to=${newCode.code} ` +
+        `deletedFuture=${result.deletedCount} by ${user.email}`,
+    );
+
+    return {
+      ok: true,
+      from: use.referralCode,
+      to: newCode,
+      deletedFutureCommissions: result.deletedCount,
+    };
+  }
+
   async reassignAmbassadorParent(
     user: AuthUser,
     codeId: string,
