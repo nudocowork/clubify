@@ -203,8 +203,12 @@ export class ReviewsController {
   // Panel del tenant
   @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
   @Get('reviews')
-  list(@CurrentUser() user: AuthUser, @Query('tenantId') tenantId?: string) {
-    return this.svc.listMine(user, tenantId);
+  list(
+    @CurrentUser() user: AuthUser,
+    @Query('tenantId') tenantId?: string,
+    @Query('targetId') targetId?: string,
+  ) {
+    return this.svc.listMine(user, tenantId, targetId);
   }
 
   @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
