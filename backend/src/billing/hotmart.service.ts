@@ -7,6 +7,7 @@ import { BillingService } from './billing.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { PreregAlertsService } from '../auth/prereg-alerts.service';
 import { CommissionExceptionsService } from '../admin/commission-exceptions.service';
+import { monthKey } from '../common/period-key';
 import {
   smsPaymentConfirmed,
   smsPaymentFailed,
@@ -948,14 +949,26 @@ export class HotmartService {
             data: { status: 'PAYING', convertedAt: new Date() },
           });
         }
-        await this.prisma.commission.create({
-          data: {
-            referralUseId: use.id,
-            amount: direct,
-            status: 'PENDING',
-            externalTxId: opts.transactionId ?? null,
-          },
-        });
+        await this.prisma.commission
+          .create({
+            data: {
+              referralUseId: use.id,
+              amount: direct,
+              status: 'PENDING',
+              externalTxId: opts.transactionId ?? null,
+              recipientCodeId: use.referralCode.id,
+              periodKey: monthKey(),
+            },
+          })
+          .catch((e: any) => {
+            if (e?.code === 'P2002') {
+              this.logger.warn(
+                `generateReferralCommission: skip dup directa (useId=${use.id}, code=${use.referralCode.id}, periodKey=${monthKey()})`,
+              );
+              return null;
+            }
+            throw e;
+          });
         this.logger.log(
           `Comisión directa: ${use.referralCode.role} ${use.referralCode.code} $${direct} (${pct}% sobre $${referralBase})`,
         );
@@ -1005,14 +1018,26 @@ export class HotmartService {
               },
             });
           });
-          await this.prisma.commission.create({
-            data: {
-              referralUseId: parentUse.id,
-              amount: indirect,
-              status: 'PENDING',
-              externalTxId: opts.transactionId ?? null,
-            },
-          });
+          await this.prisma.commission
+            .create({
+              data: {
+                referralUseId: parentUse.id,
+                amount: indirect,
+                status: 'PENDING',
+                externalTxId: opts.transactionId ?? null,
+                recipientCodeId: parent.id,
+                periodKey: monthKey(),
+              },
+            })
+            .catch((e: any) => {
+              if (e?.code === 'P2002') {
+                this.logger.warn(
+                  `generateReferralCommission: skip dup indirecta (useId=${parentUse.id}, code=${parent.id}, periodKey=${monthKey()})`,
+                );
+                return null;
+              }
+              throw e;
+            });
           this.logger.log(
             `Comisión indirecta INFLUENCER ${parent.code}: $${indirect} (${indirectPct}%)`,
           );
@@ -1062,9 +1087,25 @@ export class HotmartService {
     if (last && (Date.now() - new Date(last.createdAt).getTime()) / 86400_000 < 25) {
       return; // mismo ciclo
     }
-    await this.prisma.commission.create({
-      data: { referralUseId: use.id, amount, status: 'PENDING' },
-    });
+    await this.prisma.commission
+      .create({
+        data: {
+          referralUseId: use.id,
+          amount,
+          status: 'PENDING',
+          recipientCodeId: socio.id,
+          periodKey: monthKey(),
+        },
+      })
+      .catch((e: any) => {
+        if (e?.code === 'P2002') {
+          this.logger.warn(
+            `generateSocioCommission: skip dup (useId=${use.id}, code=${socio.id}, periodKey=${monthKey()})`,
+          );
+          return null;
+        }
+        throw e;
+      });
     this.logger.log(`Comisión SOCIO ${socio.code}: $${amount} (${pct}%)`);
   }
 
