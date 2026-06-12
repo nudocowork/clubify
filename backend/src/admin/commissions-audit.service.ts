@@ -206,10 +206,24 @@ export class CommissionsAuditService {
     }
 
     const safeIds = safeToMark.map((c) => c.id);
+    // FIX 2026-06-12 (race): el filtro de status se evaluó arriba sobre el
+    // findMany. Si entre el findMany y este updateMany alguna commission
+    // transicionó a PAID (cron promote o pago manual), igual la marcaríamos
+    // REJECTED. Repetimos el filtro acá para que la DB rechace cualquier
+    // commission que ya no esté en PENDING/APPROVED.
     const result = await this.prisma.commission.updateMany({
-      where: { id: { in: safeIds } },
+      where: {
+        id: { in: safeIds },
+        status: { in: ['PENDING', 'APPROVED'] },
+      },
       data: { status: 'REJECTED' },
     });
+    const skippedRaced = safeIds.length - result.count;
+    if (skippedRaced > 0) {
+      this.logger.warn(
+        `markRejected: ${skippedRaced} commission(s) cambiaron de status entre el read y el write (probable promote a PAID).`,
+      );
+    }
 
     // Audit log por cada commission tocada — granular para trazabilidad.
     for (const c of safeToMark) {
@@ -231,12 +245,12 @@ export class CommissionsAuditService {
     }
 
     this.logger.log(
-      `markRejected: ${result.count} updated, ${skippedPaid} skipped (PAID), ${skippedNotFound} not found, actor=${opts.actorId}`,
+      `markRejected: ${result.count} updated, ${skippedPaid} skipped (PAID), ${skippedNotFound} not found, ${skippedRaced} raced, actor=${opts.actorId}`,
     );
 
     return {
       updated: result.count,
-      skippedPaid,
+      skippedPaid: skippedPaid + skippedRaced,
       skippedNotFound,
     };
   }
