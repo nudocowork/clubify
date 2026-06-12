@@ -6,7 +6,6 @@ import { createPortal } from 'react-dom';
 import { api, getUser, startImpersonation } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
-import { ConfirmDeleteModal } from '@/components/ConfirmDeleteModal';
 import { DuplicateBusinessModal } from '@/components/DuplicateBusinessModal';
 import { ManageTrialModal } from '@/components/ManageTrialModal';
 import { periodLabel, type PlanPeriodicity } from '@/lib/plan-format';
@@ -158,10 +157,22 @@ export default function TenantsPage() {
     }
   }
 
-  async function deleteTenant(t: any) {
+  /**
+   * Bloque 5 (2026-06-12): eliminar con opción "conservar historial".
+   * keepHistory=true (default seguro) → soft delete. Las relaciones se
+   * preservan (Order/Commission/ReferralUse) y el tenant desaparece de
+   * los listados. keepHistory=false → hard delete con cascade.
+   */
+  async function deleteTenant(t: any, opts: { keepHistory: boolean }) {
     try {
-      await api(`/tenants/${t.id}`, { method: 'DELETE' });
-      toast(`${t.brandName} eliminado`, 'success');
+      await api(`/tenants/${t.id}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ keepHistory: opts.keepHistory }),
+      });
+      toast(
+        `${t.brandName} eliminado${opts.keepHistory ? ' (historial conservado)' : ''}`,
+        'success',
+      );
       setDeleteTarget(null);
       load();
     } catch (e: any) {
@@ -475,31 +486,10 @@ export default function TenantsPage() {
       )}
 
       {deleteTarget && (
-        <ConfirmDeleteModal
-          title="Eliminar negocio"
-          confirmLabel="Eliminar definitivamente"
-          requireText="123"
-          description={
-            <>
-              <p>
-                ¿Estás seguro de que deseas eliminar este negocio?
-              </p>
-              <p className="mt-2">Esta acción eliminará:</p>
-              <ul className="mt-1 list-disc list-inside text-mute space-y-0.5">
-                <li>Información del negocio</li>
-                <li>Configuraciones</li>
-                <li>Menús</li>
-                <li>Tarjetas</li>
-                <li>CRM asociado</li>
-                <li>Estadísticas</li>
-              </ul>
-              <p className="mt-3 text-bad font-medium">
-                Esta acción no se puede deshacer.
-              </p>
-            </>
-          }
-          onConfirm={() => deleteTenant(deleteTarget)}
+        <DeleteTenantModal
+          tenant={deleteTarget}
           onClose={() => setDeleteTarget(null)}
+          onConfirm={(opts) => deleteTenant(deleteTarget, opts)}
         />
       )}
     </div>
@@ -688,5 +678,179 @@ function MenuItem({
       <span className="w-5 text-center text-base leading-none">{icon}</span>
       <span>{label}</span>
     </button>
+  );
+}
+
+// =====================================================
+// DeleteTenantModal — Bloque 5 (2026-06-12)
+// 3 opciones: Cancelar / Conservar historial / Eliminar todo
+// =====================================================
+function DeleteTenantModal({
+  tenant,
+  onClose,
+  onConfirm,
+}: {
+  tenant: { id: string; brandName: string };
+  onClose: () => void;
+  onConfirm: (opts: { keepHistory: boolean }) => Promise<void> | void;
+}) {
+  const [mode, setMode] = useState<'choose' | 'confirmHard'>('choose');
+  const [confirmText, setConfirmText] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function runSoft() {
+    setBusy(true);
+    try {
+      await onConfirm({ keepHistory: true });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runHard() {
+    if (confirmText !== '123') return;
+    setBusy(true);
+    try {
+      await onConfirm({ keepHistory: false });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+        <div className="px-5 py-4 border-b border-line2 flex items-start gap-3">
+          <div className="w-9 h-9 rounded-full bg-bad-soft flex items-center justify-center text-bad shrink-0">
+            🗑
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-semibold text-base">Eliminar negocio</div>
+            <div className="text-xs text-mute mt-0.5">{tenant.brandName}</div>
+          </div>
+        </div>
+
+        {mode === 'choose' && (
+          <div className="px-5 py-4 space-y-3">
+            <p className="text-sm text-ink">
+              Elige cómo querés eliminar este negocio:
+            </p>
+
+            {/* Opción 1: Conservar historial (recomendada) */}
+            <button
+              type="button"
+              onClick={runSoft}
+              disabled={busy}
+              className="w-full text-left rounded-lg border-2 border-brand bg-brand-soft/40 hover:bg-brand-soft/60 transition p-3 disabled:opacity-60"
+            >
+              <div className="flex items-start gap-2">
+                <div className="text-lg">📚</div>
+                <div className="flex-1">
+                  <div className="font-semibold text-sm">
+                    Conservar historial{' '}
+                    <span className="text-[10px] uppercase tracking-wider bg-brand text-white px-1.5 py-0.5 rounded ml-1">
+                      recomendado
+                    </span>
+                  </div>
+                  <div className="text-xs text-mute mt-0.5 leading-snug">
+                    El negocio queda inaccesible pero las relaciones (pedidos,
+                    comisiones, referidos) se preservan para auditoría
+                    contable. Las comisiones PAID al afiliado se mantienen
+                    intactas.
+                  </div>
+                </div>
+              </div>
+            </button>
+
+            {/* Opción 2: Eliminar todo (peligrosa) */}
+            <button
+              type="button"
+              onClick={() => setMode('confirmHard')}
+              disabled={busy}
+              className="w-full text-left rounded-lg border border-bad/30 bg-bad-soft/30 hover:bg-bad-soft/50 transition p-3 disabled:opacity-60"
+            >
+              <div className="flex items-start gap-2">
+                <div className="text-lg">⚠️</div>
+                <div className="flex-1">
+                  <div className="font-semibold text-sm text-bad">
+                    Eliminar todo (irreversible)
+                  </div>
+                  <div className="text-xs text-mute mt-0.5 leading-snug">
+                    Borra el negocio + clientes + tarjetas + pedidos +
+                    comisiones + referidos. Usar solo si la cuenta no tiene
+                    actividad crítica (duplicado accidental).
+                  </div>
+                </div>
+              </div>
+            </button>
+          </div>
+        )}
+
+        {mode === 'confirmHard' && (
+          <div className="px-5 py-4 space-y-3">
+            <p className="text-sm text-ink">
+              Vas a <strong>borrar todo</strong> el historial de este negocio.
+              Esta acción NO se puede deshacer.
+            </p>
+            <p className="text-xs text-mute leading-relaxed">
+              Se eliminarán: información del negocio, configuraciones, menús,
+              tarjetas, clientes, CRM, estadísticas, comisiones y referrals.
+            </p>
+            <div>
+              <label className="block text-xs text-mute mb-1.5">
+                Escribe{' '}
+                <span className="font-mono font-semibold text-ink bg-bg2 px-1.5 py-0.5 rounded">
+                  123
+                </span>{' '}
+                para confirmar
+              </label>
+              <input
+                type="text"
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                autoFocus
+                autoComplete="off"
+                className="w-full bg-white border border-line2 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-bad"
+                placeholder="123"
+              />
+            </div>
+          </div>
+        )}
+
+        <div className="px-5 py-3 border-t border-line2 flex flex-col-reverse sm:flex-row items-stretch sm:items-center sm:justify-end gap-2">
+          {mode === 'confirmHard' && (
+            <button
+              type="button"
+              onClick={() => {
+                setMode('choose');
+                setConfirmText('');
+              }}
+              disabled={busy}
+              className="btn-ghost text-sm min-h-[44px] disabled:opacity-50"
+            >
+              ← Volver
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            className="btn-ghost text-sm justify-center min-h-[44px] disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          {mode === 'confirmHard' && (
+            <button
+              type="button"
+              onClick={runHard}
+              disabled={busy || confirmText !== '123'}
+              className="text-sm font-semibold px-4 py-2 rounded-md bg-bad text-white hover:bg-bad/90 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+            >
+              {busy ? 'Eliminando…' : 'Eliminar todo definitivamente'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

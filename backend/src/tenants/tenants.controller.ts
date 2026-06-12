@@ -243,7 +243,16 @@ export class TenantsController {
 
   @Delete(':id')
   @Roles('SUPER_ADMIN')
-  remove(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.svc.remove(id, user.id);
+  remove(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Body() body?: { keepHistory?: boolean },
+  ) {
+    // Bloque 5 (2026-06-12): default keepHistory=true (seguro). Si el
+    // admin quiere hard-delete tiene que pasar `keepHistory: false`
+    // explícito desde el modal de confirmación.
+    return this.svc.remove(id, user.id, {
+      keepHistory: body?.keepHistory !== false,
+    });
   }
 }

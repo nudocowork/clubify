@@ -400,6 +400,12 @@ model Tenant {
   // SUPER_ADMIN lo apague desde /admin/tenants/[id].
   tutorialsEnabled            Boolean              @default(true)
   academyEnabled              Boolean              @default(true)
+  // Bloque 5 (2026-06-12): soft-delete con "conservar historial".
+  // Si está seteado, el tenant queda inaccesible (no aparece en list/
+  // login) pero las relaciones (Order/Commission/ReferralUse) se
+  // preservan para auditoría contable. Hard delete sigue siendo
+  // posible vía DELETE (cascade) eligiendo "eliminar todo" en el modal.
+  deletedAt                   DateTime?
   referredByCode              String?
   currency                    String               @default("COP")
   timezone                    String               @default("America/Bogota")
