@@ -75,6 +75,9 @@ export type UpdateTenantDto = Partial<{
   reviewAlertsAccountId: string | null;
   billingAlertsAccountId: string | null;
   deliveryAlertsAccountId: string | null;
+  whatsappPhone: string;
+  whatsappOrdersPhone: string;
+  whatsappDeliveryPhone: string;
 }>;
 
 export type UpdateMyTenantDto = Partial<{
