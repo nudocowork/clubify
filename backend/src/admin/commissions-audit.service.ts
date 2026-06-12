@@ -1,5 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 
 /**
  * Servicio read-only que detecta posibles comisiones duplicadas para
@@ -22,7 +28,10 @@ import { PrismaService } from '../common/prisma/prisma.service';
 export class CommissionsAuditService {
   private readonly logger = new Logger(CommissionsAuditService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private audit: AuditService,
+  ) {}
 
   /**
    * Devuelve grupos de comisiones que comparten (referralUseId,
@@ -133,6 +142,102 @@ export class CommissionsAuditService {
           paidAt: c.paidAt,
         })),
       })),
+    };
+  }
+
+  /**
+   * Marca comisiones específicas como REJECTED tras revisión del
+   * SUPER_ADMIN en la UI de auditoría (Fase B 2026-06-12). Reglas:
+   *  - Solo afecta comisiones PENDING o APPROVED. PAID nunca se toca
+   *    (histórico cerrado, ya transferido al afiliado).
+   *  - Máximo 50 ids por request (chunkear si hay más).
+   *  - Cada cambio queda en AuditLog con actorId + reason para
+   *    trazabilidad regulatoria.
+   *  - Si todas las ids quedan filtradas por PAID, devolvemos 400.
+   */
+  async markRejected(opts: {
+    actorId: string;
+    ids: string[];
+    reason?: string;
+  }): Promise<{
+    updated: number;
+    skippedPaid: number;
+    skippedNotFound: number;
+  }> {
+    const ids = Array.from(new Set(opts.ids ?? [])).filter(
+      (x): x is string => typeof x === 'string' && x.length > 0,
+    );
+    if (ids.length === 0) {
+      throw new BadRequestException('ids requerido');
+    }
+    if (ids.length > 50) {
+      throw new BadRequestException('Máximo 50 ids por request');
+    }
+
+    const found = await this.prisma.commission.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        status: true,
+        amount: true,
+        referralUseId: true,
+        recipientCodeId: true,
+        referralUse: {
+          select: {
+            tenantId: true,
+            tenant: { select: { brandName: true } },
+          },
+        },
+      },
+    });
+
+    const foundIds = new Set(found.map((c) => c.id));
+    const skippedNotFound = ids.length - foundIds.size;
+
+    const safeToMark = found.filter(
+      (c) => c.status === 'PENDING' || c.status === 'APPROVED',
+    );
+    const skippedPaid = found.length - safeToMark.length;
+
+    if (safeToMark.length === 0) {
+      throw new BadRequestException(
+        'Ninguna commission elegible: todas están en estado PAID o REJECTED.',
+      );
+    }
+
+    const safeIds = safeToMark.map((c) => c.id);
+    const result = await this.prisma.commission.updateMany({
+      where: { id: { in: safeIds } },
+      data: { status: 'REJECTED' },
+    });
+
+    // Audit log por cada commission tocada — granular para trazabilidad.
+    for (const c of safeToMark) {
+      this.audit.log({
+        actorId: opts.actorId,
+        tenantId: c.referralUse?.tenantId ?? null,
+        action: 'commission.marked_rejected',
+        resource: `commission:${c.id}`,
+        metadata: {
+          tenantBrandName: c.referralUse?.tenant?.brandName ?? null,
+          previousStatus: c.status,
+          amount: Number(c.amount),
+          recipientCodeId: c.recipientCodeId,
+          referralUseId: c.referralUseId,
+          reason: opts.reason?.trim() || null,
+          source: 'audit_duplicates_ui',
+        },
+      });
+    }
+
+    this.logger.log(
+      `markRejected: ${result.count} updated, ${skippedPaid} skipped (PAID), ${skippedNotFound} not found, actor=${opts.actorId}`,
+    );
+
+    return {
+      updated: result.count,
+      skippedPaid,
+      skippedNotFound,
     };
   }
 }
