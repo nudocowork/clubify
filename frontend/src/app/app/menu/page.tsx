@@ -57,7 +57,7 @@ type Product = {
   availableForMesa?: boolean;
   availableForDelivery?: boolean;
   isRecommended?: boolean;
-  categoryId: string;
+  categoryId: string | null;
   stock: number | null;
   stockAlert: number | null;
   variants: Variant[];
@@ -317,9 +317,12 @@ export default function MenuEditor() {
   }
 
   function newProduct() {
-    if (!activeCat) return;
+    // Bloque 2 (2026-06-12): si NO hay categorías creadas, permitimos
+    // crear productos sin categoría (categoryId=null). Antes este return
+    // bloqueaba la creación silenciosamente — el usuario veía el botón
+    // pero no pasaba nada.
     setEditing({
-      categoryId: activeCat,
+      categoryId: activeCat ?? undefined,
       name: '',
       description: '',
       basePrice: 0,
@@ -356,7 +359,9 @@ export default function MenuEditor() {
     // `createdAt`, `timesOrdered`, relación `category`, etc., que el
     // PATCH rechaza con 400.
     const payload = {
-      categoryId: p.categoryId,
+      // null explícito → producto sin categoría (Bloque 2 2026-06-12).
+      // undefined → no tocar en update (backend respeta).
+      categoryId: p.categoryId ?? null,
       name: p.name,
       description: p.description ?? '',
       basePrice: Number(p.basePrice ?? 0),
@@ -409,7 +414,14 @@ export default function MenuEditor() {
     }
   }
 
-  const visibleProducts = products.filter((p) => p.categoryId === activeCat);
+  // Bloque 2 (2026-06-12): si no hay categorías, mostramos TODOS los
+  // productos juntos. Si hay categoría activa pero === null (categoría
+  // virtual "Sin categoría"), mostramos los productos con categoryId null.
+  const visibleProducts = cats.length === 0
+    ? products
+    : activeCat === null
+      ? products.filter((p) => p.categoryId === null)
+      : products.filter((p) => p.categoryId === activeCat);
 
   return (
     <div>
@@ -488,7 +500,12 @@ export default function MenuEditor() {
           <button
             className="btn-primary"
             onClick={newProduct}
-            disabled={!activeCat}
+            // Bloque 2 (2026-06-12): habilitar siempre. Antes pedía
+            // categoría activa, ahora permite producto sin categoría
+            // cuando el tenant todavía no creó ninguna.
+            title={!activeCat && cats.length > 0
+              ? 'Elegí una categoría primero o creá una nueva'
+              : 'Crear producto'}
           >
             <Icon name="plus" /> Producto
           </button>
@@ -1782,15 +1799,18 @@ function ProductDrawer({
             />
           </div>
           <div>
-            <label className="label">Categoría</label>
+            <label className="label">Categoría (opcional)</label>
             <select
               className="input"
               value={form.categoryId ?? ''}
-              onChange={(e) => update('categoryId', e.target.value)}
+              onChange={(e) =>
+                update('categoryId', e.target.value === '' ? null : e.target.value)
+              }
             >
-              {/* Renderea roots primero, e indenta sus hijas con "↳ <padre> / <hijo>"
-                  para que el dueño pueda asignar productos a subsecciones sin
-                  ambigüedad. El backend acepta cualquier categoryId del tenant. */}
+              {/* Bloque 2 (2026-06-12): "" = sin categoría. El storefront
+                  renderiza productos sin categoría en una sección "Otros"
+                  al final, sin layout especial. */}
+              <option value="">— Sin categoría —</option>
               {categories
                 .filter((c) => !c.parentId)
                 .flatMap((root) => {

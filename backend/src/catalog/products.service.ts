@@ -20,7 +20,8 @@ export type ExtraDto = {
 };
 
 export type ProductDto = {
-  categoryId: string;
+  // null/undefined → producto sin categoría (Bloque 2 2026-06-12).
+  categoryId?: string | null;
   name: string;
   description?: string;
   basePrice: number;
@@ -80,7 +81,7 @@ export class ProductsService {
     return this.prisma.product.create({
       data: {
         tenantId: tid,
-        categoryId: dto.categoryId,
+        categoryId: dto.categoryId ?? null,
         name: dto.name,
         description: dto.description ?? '',
         basePrice: dto.basePrice,
@@ -131,7 +132,14 @@ export class ProductsService {
       const updated = await tx.product.update({
         where: { id },
         data: {
-          categoryId: dto.categoryId ?? undefined,
+          // categoryId: si el caller mandó null explícito, limpiamos
+          // (producto sin categoría). undefined = no tocar el valor existente.
+          categoryId:
+            dto.categoryId === null
+              ? null
+              : dto.categoryId !== undefined
+              ? dto.categoryId
+              : undefined,
           name: dto.name ?? undefined,
           description: dto.description ?? undefined,
           basePrice: dto.basePrice ?? undefined,

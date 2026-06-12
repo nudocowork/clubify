@@ -1094,8 +1094,13 @@ model Product {
   id            String   @id @default(uuid())
   tenantId      String
   tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  categoryId    String
-  category      Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  /// 2026-06-12 (Bloque 2 i18n batch): nullable para que tenants sin
+  /// categorías creadas puedan agregar productos. Cuando la categoría
+  /// se elimina, los productos quedan huérfanos (SetNull) en lugar de
+  /// borrarse — el dueño decide si crearles una categoría nueva o
+  /// dejarlos como "Sin categoría" en storefront.
+  categoryId    String?
+  category      Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   name          String
   description   String   @default("")
   basePrice     Decimal  @db.Decimal(10, 2)
