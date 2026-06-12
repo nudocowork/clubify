@@ -579,11 +579,16 @@ model PendingHotmartPayment {
   consumedAt         DateTime?
   /// Cuándo se envió el SMS/email de recuperación al comprador.
   recoveryNotifiedAt DateTime?
+  /// Cuándo se envió el SMS de recordatorio al equipo (founder) porque
+  /// el comprador no completó /activar en 1h+. Idempotente — el cron
+  /// no re-envía si este campo ya tiene valor (2026-06-12).
+  teamReminderSentAt DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
   @@index([email])
   @@index([consumedAt])
+  @@index([teamReminderSentAt])
 }
 
 model User {

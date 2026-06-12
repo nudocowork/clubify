@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { EmailService } from '../email/email.service';
@@ -1213,5 +1214,131 @@ export class HotmartService {
           `Event audit PURCHASE_APPROVED falló: ${(e as Error)?.message ?? e}`,
         ),
       );
+  }
+
+  /**
+   * Cron (cada 15 min): si un PendingHotmartPayment lleva ≥ 1 hora sin
+   * que el comprador complete /activar, manda SMS al founder para que
+   * lo contacte manualmente (2026-06-12).
+   *
+   * Idempotente: marca `teamReminderSentAt` para no re-enviar. Solo
+   * busca pagos de los últimos 7 días para no spammear con backlog
+   * histórico al desplegar.
+   *
+   * Destinatario: Setting `prereg.followupPhone` si está seteado, sino
+   * fallback hardcoded a `+573181666999` (Jhon, founder).
+   */
+  @Cron(CronExpression.EVERY_30_MINUTES)
+  async notifyFounderForStaleHotmartPayments(): Promise<void> {
+    try {
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const stale = await this.prisma.pendingHotmartPayment.findMany({
+        where: {
+          consumedAt: null,
+          teamReminderSentAt: null,
+          createdAt: { lte: oneHourAgo, gte: sevenDaysAgo },
+        },
+        orderBy: { createdAt: 'asc' },
+        take: 20,
+      });
+      if (stale.length === 0) return;
+
+      const followupSetting = await this.prisma.setting.findUnique({
+        where: { key: 'prereg.followupPhone' },
+      });
+      const phone =
+        (followupSetting?.value?.trim() || '+573181666999');
+
+      const account = await this.resolveFollowupAccount();
+      if (!account) {
+        this.logger.warn(
+          `[stale-pending] sin GrowBusinessAccount — skip (${stale.length} pagos pendientes)`,
+        );
+        return;
+      }
+
+      for (const p of stale) {
+        const raw = (p.rawPayload ?? {}) as any;
+        const buyerName = raw?.data?.buyer?.name ?? '(sin nombre)';
+        const productName = raw?.data?.product?.name ?? '(sin producto)';
+        const purchaseValue =
+          raw?.data?.purchase?.price?.value ??
+          raw?.data?.purchase?.original_offer_price?.value ??
+          null;
+        const ageMinutes = Math.floor(
+          (Date.now() - p.createdAt.getTime()) / 60000,
+        );
+        const body =
+          `🚨 Cliente pagó hace ${ageMinutes}min y NO completó /activar.\n\n` +
+          `Cliente: ${buyerName}\n` +
+          `Email: ${p.email}\n` +
+          `Producto: ${productName}\n` +
+          (purchaseValue ? `Monto: USD ${purchaseValue}\n` : '') +
+          `\nContactar manualmente.\n` +
+          `Link directo: https://soyclubify.com/activar?email=${encodeURIComponent(p.email)}`;
+        const r = await this.growBusiness
+          .sendSmsWithCreds(
+            {
+              locationId: account.locationId,
+              apiKey: account.apiKey,
+              switchNumber: account.switchNumber,
+            },
+            phone,
+            body,
+          )
+          .catch((e) => ({ ok: false as const, message: (e as Error).message }));
+        if (r.ok) {
+          await this.prisma.pendingHotmartPayment.update({
+            where: { id: p.id },
+            data: { teamReminderSentAt: new Date() },
+          });
+          this.logger.log(
+            `[stale-pending] SMS enviado para ${p.email} (${ageMinutes}min sin activar)`,
+          );
+        } else {
+          this.logger.warn(
+            `[stale-pending] SMS falló para ${p.email}: ${(r as any).message ?? 'unknown'}`,
+          );
+        }
+      }
+    } catch (e) {
+      this.logger.warn(
+        `notifyFounderForStaleHotmartPayments falló: ${(e as Error)?.message ?? e}`,
+      );
+    }
+  }
+
+  /** Resuelve la GrowBusinessAccount para el SMS de followup. Misma
+   *  prioridad que PreregAlertsService pero sin import del service para
+   *  evitar ciclo (HotmartService ya depende de PreregAlertsService
+   *  como `alerts` y agregarle método público re-entrante crea
+   *  superficie sin necesidad). */
+  private async resolveFollowupAccount(): Promise<{
+    locationId: string;
+    apiKey: string;
+    switchNumber: number | null;
+  } | null> {
+    const setting = await this.prisma.setting.findUnique({
+      where: { key: 'prereg.alertAccountId' },
+    });
+    if (setting?.value) {
+      const acc = await this.prisma.growBusinessAccount.findFirst({
+        where: { id: setting.value, deletedAt: null },
+        select: { locationId: true, apiKey: true, switchNumber: true },
+      });
+      if (acc) return acc;
+    }
+    const general = await this.prisma.growBusinessAccount.findFirst({
+      where: { purpose: 'GENERAL', deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+      select: { locationId: true, apiKey: true, switchNumber: true },
+    });
+    if (general) return general;
+    return this.prisma.growBusinessAccount.findFirst({
+      where: { deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+      select: { locationId: true, apiKey: true, switchNumber: true },
+    });
   }
 }
