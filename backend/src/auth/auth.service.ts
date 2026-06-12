@@ -415,6 +415,22 @@ export class AuthService {
         },
       });
     } else if (
+      user.role === 'TENANT_OWNER' ||
+      user.role === 'TENANT_STAFF' ||
+      user.role === 'SUPER_ADMIN' ||
+      user.role === 'MARKETING'
+    ) {
+      // ALTO #5 (2026-06-12): antes el caller (admin) NO sabía que el
+      // email ya pertenecía a un user no-afiliado. La ReferralCode se
+      // linkeaba al user existente silenciosamente → el TENANT_OWNER
+      // pasaba a ser dueño de un code de afiliado sin ningún cambio
+      // visible. Ahora bloqueamos explícito y dejamos que el admin
+      // decida (usar otro email o re-crear el user).
+      throw new ConflictException(
+        `El email ${email} ya pertenece a un usuario ${user.role}. ` +
+          `Usa otro email o elimina la cuenta existente primero.`,
+      );
+    } else if (
       user.role !== opts.role &&
       (user.role === 'AFFILIATE_INFLUENCER' ||
         user.role === 'AFFILIATE_AMBASSADOR' ||
@@ -1012,25 +1028,83 @@ export class AuthService {
     // Dedup estricto: email (User), phone (User), email (Tenant), brandName
     // (Tenant). Mensaje único para no filtrar cuál campo colisionó —
     // protección anti-enumeration + mensaje legible para el dueño.
+    //
+    // ALTO #6 (2026-06-12): si la cuenta previa está SUSPENDED + sin
+    // pago Hotmart (= trial abandonado), permitimos re-intentar.
+    // Renombramos los datos del user viejo a tombstone para liberar
+    // las constraints UNIQUE. Tenant viejo queda como histórico
+    // (status SUSPENDED + emails/brandName cambiados con sufijo).
     const dupUser = await this.prisma.user.findFirst({
       where: phoneRaw
         ? { OR: [{ email }, { phone: phoneRaw }] }
         : { email },
-      select: { id: true },
+      select: {
+        id: true,
+        email: true,
+        phone: true,
+        tenant: {
+          select: {
+            id: true,
+            status: true,
+            deletedAt: true,
+            hotmartSubscriberCode: true,
+          },
+        },
+      },
     });
-    if (dupUser) {
+    const dupTenant = await this.prisma.tenant.findFirst({
+      where: { OR: [{ email }, { brandName }] },
+      select: {
+        id: true,
+        status: true,
+        deletedAt: true,
+        hotmartSubscriberCode: true,
+        email: true,
+        brandName: true,
+      },
+    });
+
+    function isAbandonedTrialTenant(t: {
+      status: string;
+      deletedAt: Date | null;
+      hotmartSubscriberCode: string | null;
+    }): boolean {
+      if (t.deletedAt) return true;
+      // SUSPENDED + sin código Hotmart = nunca pagó → es trial muerto.
+      return t.status === 'SUSPENDED' && !t.hotmartSubscriberCode;
+    }
+
+    const userBlocking =
+      dupUser &&
+      !(dupUser.tenant && isAbandonedTrialTenant(dupUser.tenant));
+    const tenantBlocking = dupTenant && !isAbandonedTrialTenant(dupTenant);
+
+    if (userBlocking || tenantBlocking) {
       throw new ConflictException(
         'Ya existe una prueba asociada a esta información.',
       );
     }
-    const dupTenant = await this.prisma.tenant.findFirst({
-      where: { OR: [{ email }, { brandName }] },
-      select: { id: true },
-    });
-    if (dupTenant) {
-      throw new ConflictException(
-        'Ya existe una prueba asociada a esta información.',
-      );
+
+    // Liberar las UNIQUE renombrando los registros abandonados.
+    const tombstoneSuffix = `-deleted-${Date.now()}`;
+    if (dupUser && dupUser.tenant && isAbandonedTrialTenant(dupUser.tenant)) {
+      await this.prisma.user.update({
+        where: { id: dupUser.id },
+        data: {
+          email: dupUser.email + tombstoneSuffix,
+          phone: dupUser.phone ? dupUser.phone + tombstoneSuffix : null,
+          isActive: false,
+        },
+      });
+    }
+    if (dupTenant && isAbandonedTrialTenant(dupTenant)) {
+      await this.prisma.tenant.update({
+        where: { id: dupTenant.id },
+        data: {
+          email: dupTenant.email + tombstoneSuffix,
+          brandName: dupTenant.brandName + tombstoneSuffix,
+        },
+      });
     }
 
     let slug = slugify(brandName) || `prueba-${Date.now()}`;

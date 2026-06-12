@@ -199,7 +199,17 @@ export class BroadcastsService {
       this.prisma.user.count({
         where: { isActive: true, role: { in: roleFilter } },
       }),
-      this.prisma.broadcastRead.count({ where: { broadcastId: id } }),
+      // ALTO #7 (2026-06-12): antes contábamos TODAS las BroadcastRead
+      // del broadcast incluyendo lecturas de SUPER_ADMIN/MARKETING que
+      // se metieron desde el panel admin para preview → rate inflada
+      // (>100% en algunos casos). Ahora filtramos por user.role en el
+      // roleFilter para que `read` y `sent` cuenten la misma audiencia.
+      this.prisma.broadcastRead.count({
+        where: {
+          broadcastId: id,
+          user: { isActive: true, role: { in: roleFilter } },
+        },
+      }),
     ]);
 
     const pending = Math.max(0, sent - read);

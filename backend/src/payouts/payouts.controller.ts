@@ -114,4 +114,16 @@ export class AdminPayoutsController {
   ) {
     return this.svc.adminMarkPayoutPaid(user, payoutId, body);
   }
+
+  /** Reversar un payout PAID (ALTO #9 2026-06-12). Las commissions
+   *  vuelven a APPROVED y los PayoutItems se borran para liberar la
+   *  unique constraint. */
+  @Post(':payoutId/reverse')
+  reverse(
+    @CurrentUser() user: AuthUser,
+    @Param('payoutId') payoutId: string,
+    @Body() body: { reason: string },
+  ) {
+    return this.svc.adminReversePayout(user, payoutId, body);
+  }
 }
