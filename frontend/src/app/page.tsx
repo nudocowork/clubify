@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { getTranslations } from 'next-intl/server';
 import { Icon } from '@/components/Icon';
 import { RefCapture } from '@/components/RefCapture';
 import { FadeIn } from '@/components/FadeIn';
@@ -8,6 +9,7 @@ import { FidelizacionBanner } from '@/components/FidelizacionBanner';
 import { InfoLinksBanner } from '@/components/InfoLinksBanner';
 import { Logo } from '@/components/Logo';
 import { LandingPricingCheckout } from '@/components/LandingPricingCheckout';
+import { LanguageSwitcherIntl } from '@/components/LanguageSwitcherIntl';
 import { fetchLandingPlans } from '@/lib/landing-plans';
 
 const TESTIMONIALS = [
@@ -143,10 +145,13 @@ async function fetchBranding(): Promise<BrandingPublic> {
 }
 
 export default async function Landing() {
-  const [branding, nudoMenuItems, landingPlans] = await Promise.all([
+  const [branding, nudoMenuItems, landingPlans, tHeader, tHero, tLogos] = await Promise.all([
     fetchBranding(),
     fetchNudoMenuItems(),
     fetchLandingPlans(),
+    getTranslations('landing.header'),
+    getTranslations('landing.hero'),
+    getTranslations('landing.logos'),
   ]);
   const { sales, stats, landingLogoUrl } = branding;
   const waLink = sales.whatsapp
@@ -196,19 +201,20 @@ export default async function Landing() {
           </Link>
 
           <nav className="hidden lg:flex items-center gap-8 text-[14px] text-mute">
-            <a href="#clientes" className="hover:text-ink">Clientes</a>
-            <a href="#precios" className="hover:text-ink">Precios</a>
+            <a href="#clientes" className="hover:text-ink">{tHeader('nav_customers')}</a>
+            <a href="#precios" className="hover:text-ink">{tHeader('nav_pricing')}</a>
           </nav>
 
           <div className="flex gap-2 items-center">
+            <LanguageSwitcherIntl />
             <Link className="inline-flex text-sm text-mute hover:text-ink" href="/login">
-              Ingresar
+              {tHeader('cta_login')}
             </Link>
             <Link
               className="inline-flex items-center gap-1.5 bg-ink text-white text-sm font-semibold px-4 py-2 rounded-pill hover:bg-ink/90"
               href="#precios"
             >
-              Empezar ahora →
+              {tHeader('cta_start')} →
             </Link>
           </div>
         </div>
@@ -229,36 +235,39 @@ export default async function Landing() {
             <div>
               <div className="inline-flex items-center gap-2 bg-white border border-line shadow-sm text-xs font-semibold px-3 py-1.5 rounded-full mb-6">
                 <span className="text-amber-500">★★★★★</span>
-                <span>4.9/5</span>
+                <span>{tHero('badge_rating', { rating: '4.9' })}</span>
                 <span className="text-mute font-normal">·</span>
-                <span className="text-mute font-normal">+150 negocios en LATAM</span>
+                <span className="text-mute font-normal">{tHero('badge_businesses')}</span>
               </div>
 
               <h1 className="text-[44px] md:text-[56px] lg:text-[64px] font-bold leading-[1.04] tracking-tight">
-                Una plataforma{' '}
+                {tHero('title_pre')}{' '}
                 <span className="bg-gradient-to-r from-brand-400 via-brand-500 to-brand-700 bg-clip-text text-transparent">
-                  todo en uno
+                  {tHero('title_highlight')}
                 </span>{' '}
-                para tu negocio local.
+                {tHero('title_post')}
               </h1>
 
               <p className="mt-6 text-lg lg:text-xl text-mute max-w-xl leading-relaxed">
-                Tarjetas de fidelización, menú digital, CRM de pedidos y
-                automatizaciones de delivery.
+                {tHero('subtitle')}
               </p>
 
               {/* Pilares inline */}
               <div className="flex flex-wrap gap-2 mt-6">
-                {['Pedidos', 'Fidelización', 'Automatización', 'CRM', 'Analítica'].map(
-                  (p) => (
-                    <span
-                      key={p}
-                      className="text-xs font-medium bg-bg2 text-ink/80 px-2.5 py-1 rounded-full"
-                    >
-                      {p}
-                    </span>
-                  ),
-                )}
+                {([
+                  tHero('pillars.orders'),
+                  tHero('pillars.loyalty'),
+                  tHero('pillars.automation'),
+                  tHero('pillars.crm'),
+                  tHero('pillars.analytics'),
+                ]).map((p) => (
+                  <span
+                    key={p}
+                    className="text-xs font-medium bg-bg2 text-ink/80 px-2.5 py-1 rounded-full"
+                  >
+                    {p}
+                  </span>
+                ))}
               </div>
 
               <div className="flex gap-3 mt-8 flex-wrap">
@@ -266,7 +275,7 @@ export default async function Landing() {
                   className="inline-flex items-center bg-ink text-white font-semibold text-base px-6 py-3.5 rounded-pill hover:bg-ink/90 transition shadow-md"
                   href="#precios"
                 >
-                  Ver plan y empezar
+                  {tHero('cta_start_now')}
                 </Link>
                 <a
                   className="inline-flex items-center gap-2 bg-white border border-line text-ink font-semibold text-base px-6 py-3.5 rounded-pill hover:border-ink/30 transition"
@@ -274,19 +283,19 @@ export default async function Landing() {
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Agendar una Demo
+                  {tHero('cta_demo')}
                 </a>
               </div>
 
               <div className="flex items-center gap-5 mt-8 text-xs text-mute flex-wrap">
                 <div className="flex items-center gap-1.5">
-                  <Icon name="check" size={14} className="text-ok" /> Activación inmediata
+                  <Icon name="check" size={14} className="text-ok" /> {tHero('check_instant_activation')}
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <Icon name="check" size={14} className="text-ok" /> Cancela cuando quieras
+                  <Icon name="check" size={14} className="text-ok" /> {tHero('check_cancel_anytime')}
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <Icon name="check" size={14} className="text-ok" /> En español, soporte LATAM
+                  <Icon name="check" size={14} className="text-ok" /> {tHero('check_spanish_support')}
                 </div>
               </div>
             </div>
@@ -301,7 +310,7 @@ export default async function Landing() {
       <section className="border-y border-line/80 bg-bg2/40 py-8 overflow-hidden">
         <div className="mx-auto max-w-7xl px-6">
           <div className="text-center text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-5">
-            Negocios LATAM creciendo con Clubify
+            {tLogos('title')}
           </div>
         </div>
         <div className="relative">

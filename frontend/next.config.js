@@ -1,4 +1,9 @@
 const { withSentryConfig } = require('@sentry/nextjs');
+const createNextIntlPlugin = require('next-intl/plugin');
+
+// Apunta al request config en src/i18n/request.ts — provee el locale
+// detectado (cookie/header/IP) y las messages al SSR.
+const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -57,4 +62,4 @@ const sentryConfig = {
   disableLogger: true,
 };
 
-module.exports = withSentryConfig(nextConfig, sentryConfig);
+module.exports = withSentryConfig(withNextIntl(nextConfig), sentryConfig);

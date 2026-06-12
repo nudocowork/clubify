@@ -654,6 +654,11 @@ model User {
   // (PreregAlertsService). Evita doble envío si el cron de reintentos
   // re-procesa este user. null = sin alerta enviada (todavía o nunca).
   preregAlertedAt   DateTime?
+  // 2026-06-12: preferencia de idioma de UI ('es' | 'en' | 'pt'). null =
+  // detectar dinámicamente (browser Accept-Language → IP geo → ES).
+  // Cuando el user lo elige manualmente, se persiste acá; en el resto
+  // de devices el cookie NEXT_LOCALE actúa como fallback de sesión.
+  preferredLocale   String?
 
   stampsOperated      Stamp[]              @relation("operator")
   referralCodes       ReferralCode[]
