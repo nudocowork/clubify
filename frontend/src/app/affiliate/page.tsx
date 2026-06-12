@@ -365,6 +365,16 @@ export default function AffiliatePanel() {
           >
             📚 Material de apoyo
           </button>
+          {/* Academia Clubify — link externo (Bloque 2 2026-06-12).
+              Visible para todos los roles AFFILIATE_*. */}
+          <a
+            href="https://academy.soyclubify.lat/Embajadores"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="tab"
+          >
+            🎓 Academia Clubify
+          </a>
           <button
             className={`tab ${tab === 'settings' ? 'tab-active' : ''}`}
             onClick={() => setTab('settings')}

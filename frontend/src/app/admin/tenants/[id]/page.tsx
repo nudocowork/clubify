@@ -478,6 +478,8 @@ export default function TenantDetail() {
 
         {isSuperAdmin && <WhatsappMessagingCard tenant={t} onSaved={load} />}
 
+        {isSuperAdmin && <AcademyTogglesCard tenant={t} onSaved={load} />}
+
         {isSuperAdmin && <HotmartSimulatorCard tenant={t} onChange={load} />}
       </div>
     </div>
@@ -598,6 +600,116 @@ function WhatsappMessagingCard({
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+// ============================================================
+//   Tutoriales / Academia toggles (Bloque 2 — 2026-06-12)
+//   Controla la visibilidad de los links externos a
+//   academy.soyclubify.lat en el sidebar del cliente.
+// ============================================================
+
+function AcademyTogglesCard({
+  tenant,
+  onSaved,
+}: {
+  tenant: any;
+  onSaved: () => void;
+}) {
+  const [tutorials, setTutorials] = useState<boolean>(
+    tenant.tutorialsEnabled ?? true,
+  );
+  const [academy, setAcademy] = useState<boolean>(
+    tenant.academyEnabled ?? true,
+  );
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function save() {
+    setSaving(true);
+    setMsg(null);
+    try {
+      await api(`/tenants/${tenant.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          tutorialsEnabled: tutorials,
+          academyEnabled: academy,
+        }),
+      });
+      setMsg({ ok: true, text: 'Cambios guardados' });
+      onSaved();
+    } catch (e: any) {
+      setMsg({ ok: false, text: e.message || 'No se pudo guardar' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="card card-pad">
+      <h2 className="text-base font-semibold m-0 flex items-center gap-2">
+        🎓 Tutoriales / Academia
+      </h2>
+      <p className="text-xs text-mute mt-1 leading-relaxed">
+        Controla si este negocio ve los links externos a la academia desde
+        su sidebar / panel.
+      </p>
+
+      <div className="mt-4 space-y-3">
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={tutorials}
+            onChange={(e) => setTutorials(e.target.checked)}
+            className="mt-1"
+          />
+          <div>
+            <div className="text-sm font-semibold">Mostrar Tutoriales</div>
+            <div className="text-xs text-mute leading-snug">
+              Link "🎓 Tutoriales" en el sidebar del cliente
+              (academy.soyclubify.lat/cliente).
+            </div>
+          </div>
+        </label>
+
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={academy}
+            onChange={(e) => setAcademy(e.target.checked)}
+            className="mt-1"
+          />
+          <div>
+            <div className="text-sm font-semibold">Mostrar Academia Clubify</div>
+            <div className="text-xs text-mute leading-snug">
+              Reservado (campo per-tenant para uso futuro — la Academia para
+              afiliados se muestra siempre por ahora).
+            </div>
+          </div>
+        </label>
+      </div>
+
+      {msg && (
+        <div
+          className={`mt-3 text-sm rounded-lg px-3 py-2 ${
+            msg.ok ? 'bg-ok-soft text-ok-ink' : 'bg-bad-soft text-bad'
+          }`}
+        >
+          {msg.text}
+        </div>
+      )}
+
+      <div className="mt-4 flex justify-end">
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving}
+          className="btn-primary text-sm"
+        >
+          {saving ? 'Guardando…' : 'Guardar'}
+        </button>
+      </div>
     </div>
   );
 }
