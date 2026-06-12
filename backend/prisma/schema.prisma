@@ -1896,6 +1896,12 @@ model Commission {
   // SetNull: si se borra el payout, la commission vuelve a estar
   // "pendiente de pago" sin perder historial.
   payoutItem           CommissionPayoutItem?
+  // 2026-06-12: período de devengamiento (YYYY-MM). Sirve como dedup
+  // key estructural junto a (referralUseId, recipientCodeId) para que
+  // la DB rechace duplicados con UNIQUE constraint, no solo el código.
+  // Nullable por backwards-compat con filas pre-migration que tienen
+  // recipientCodeId también null. Los inserts nuevos siempre lo setean.
+  periodKey            String?
   createdAt            DateTime                @default(now())
 
   @@index([status])
@@ -1907,6 +1913,11 @@ model Commission {
   // /admin/commissions y /admin/commissions/payments.
   @@index([paymentStatus])
   @@index([paymentStatus, createdAt])
+  // 2026-06-12: previene duplicados a nivel DB. PostgreSQL trata NULLs
+  // como distintos, así que filas legacy con recipientCodeId/periodKey
+  // null no chocan. Para filas nuevas (ambos NOT NULL) garantiza
+  // unicidad y race-safety atómica vs el código de aplicación.
+  @@unique([referralUseId, recipientCodeId, periodKey])
 }
 
 // ============================================================

@@ -9,6 +9,7 @@ import { AuthService } from '../auth/auth.service';
 import { CommissionExceptionsService } from '../admin/commission-exceptions.service';
 import { CommissionRecalcService } from './commission-recalc.service';
 import { AuditService } from '../audit/audit.service';
+import { monthKey } from '../common/period-key';
 
 const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
 
@@ -337,10 +338,29 @@ export class ReferralsService {
         Number(use.referralCode.commissionPercent ?? 25),
       );
       const amount = Math.round((price * pct) / 100 * 100) / 100;
-      await this.prisma.commission.create({
-        data: { referralUseId: use.id, amount, status: 'PENDING' },
-      });
-      created += 1;
+      // FIX 2026-06-12: periodKey + recipientCodeId para activar el
+      // UNIQUE constraint. Si el cron corre dos veces el mismo mes,
+      // la segunda escritura cae con P2002 y la atrapamos.
+      try {
+        await this.prisma.commission.create({
+          data: {
+            referralUseId: use.id,
+            amount,
+            status: 'PENDING',
+            recipientCodeId: use.referralCode.id,
+            periodKey: monthKey(),
+          },
+        });
+        created += 1;
+      } catch (e: any) {
+        if (e?.code === 'P2002') {
+          this.logger.warn(
+            `reconcileRecurringCommissions: skip dup (useId=${use.id}, recipientCodeId=${use.referralCode.id}, periodKey=${monthKey()})`,
+          );
+          continue;
+        }
+        throw e;
+      }
     }
 
     if (created > 0) {
@@ -506,8 +526,21 @@ export class ReferralsService {
   }
 
   async createCommission(useId: string, amount: number) {
+    // SUPER_ADMIN manual create. Necesitamos resolver el recipientCodeId
+    // del use para que el UNIQUE constraint funcione. Sin él, la
+    // commission queda con (null, null, null) y no dedupa.
+    const use = await this.prisma.referralUse.findUnique({
+      where: { id: useId },
+      select: { referralCodeId: true },
+    });
     return this.prisma.commission.create({
-      data: { referralUseId: useId, amount, status: 'PENDING' },
+      data: {
+        referralUseId: useId,
+        amount,
+        status: 'PENDING',
+        recipientCodeId: use?.referralCodeId ?? null,
+        periodKey: monthKey(),
+      },
     });
   }
 
@@ -1971,13 +2004,25 @@ export class ReferralsService {
     const pct = Number(code.commissionPercent ?? 25);
     const direct = round2((price * pct) / 100);
 
-    await this.prisma.commission.create({
-      data: {
-        referralUseId: useId,
-        amount: direct,
-        status: 'PENDING',
-      },
-    });
+    await this.prisma.commission
+      .create({
+        data: {
+          referralUseId: useId,
+          amount: direct,
+          status: 'PENDING',
+          recipientCodeId: code.id,
+          periodKey: monthKey(),
+        },
+      })
+      .catch((e: any) => {
+        if (e?.code === 'P2002') {
+          this.logger.warn(
+            `awardCommissionForReferral: skip dup direct (useId=${useId}, code=${code.id}, periodKey=${monthKey()})`,
+          );
+          return null;
+        }
+        throw e;
+      });
 
     // Indirecta: AMBASSADOR con parent INFLUENCER → 5% al influencer.
     if (code.role === 'AMBASSADOR' && code.parentCode) {
@@ -2015,13 +2060,26 @@ export class ReferralsService {
         lastParent &&
         (Date.now() - new Date(lastParent.createdAt).getTime()) / 86400_000 < 25;
       if (!recentParent) {
-        await this.prisma.commission.create({
-          data: {
-            referralUseId: parentUse.id,
-            amount: indirect,
-            status: 'PENDING',
-          },
-        });
+        const parentCodeId = code.parentCode.id;
+        await this.prisma.commission
+          .create({
+            data: {
+              referralUseId: parentUse.id,
+              amount: indirect,
+              status: 'PENDING',
+              recipientCodeId: parentCodeId,
+              periodKey: monthKey(),
+            },
+          })
+          .catch((e: any) => {
+            if (e?.code === 'P2002') {
+              this.logger.warn(
+                `awardCommissionForReferral: skip dup indirect (useId=${parentUse.id}, code=${parentCodeId}, periodKey=${monthKey()})`,
+              );
+              return null;
+            }
+            throw e;
+          });
       }
     }
   }
@@ -3078,6 +3136,7 @@ export class ReferralsService {
     // dedupeaba las creadas y creaba las faltantes — pero la chain
     // pudo haber cambiado entre invocaciones (% diferentes) → state
     // inconsistente con plata mal calculada. Atómico = todo o nada.
+    const periodKey = monthKey();
     try {
       const counts = await this.prisma.$transaction(async (tx) => {
         let g = 0;
@@ -3096,20 +3155,31 @@ export class ReferralsService {
               continue;
             }
           }
-          await tx.commission.create({
-            data: {
-              referralUseId: use.id,
-              amount: row.amount,
-              status: 'PENDING',
-              paymentStatus: 'PENDING',
-              amountPaid: 0,
-              recipientCodeId: row.recipientCodeId,
-              vendorCodeId: row.vendorCodeId,
-              hotmartTransactionId: txId,
-              externalTxId: txId,
-            },
-          });
-          g++;
+          try {
+            await tx.commission.create({
+              data: {
+                referralUseId: use.id,
+                amount: row.amount,
+                status: 'PENDING',
+                paymentStatus: 'PENDING',
+                amountPaid: 0,
+                recipientCodeId: row.recipientCodeId,
+                vendorCodeId: row.vendorCodeId,
+                hotmartTransactionId: txId,
+                externalTxId: txId,
+                periodKey,
+              },
+            });
+            g++;
+          } catch (e: any) {
+            if (e?.code === 'P2002') {
+              // UNIQUE(referralUseId, recipientCodeId, periodKey) hit —
+              // ya existe esa commission para este mes. Skip silente.
+              s++;
+              continue;
+            }
+            throw e;
+          }
         }
         return { generated: g, skipped: s };
       });
