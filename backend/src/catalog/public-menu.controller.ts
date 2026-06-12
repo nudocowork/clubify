@@ -444,6 +444,24 @@ export class PublicMenuController {
     const mapPopup = (p: any) =>
       p && typeof p === 'object' && p.enabled ? p : null;
 
+    // Bloque 2 (2026-06-12): productos huérfanos (categoryId=null).
+    // Pueden existir porque (a) el dueño los creó sin categoría desde
+    // /app/menu cuando no tenía categorías, o (b) la categoría fue
+    // borrada después (FK SetNull). Los renderizamos en una sección
+    // virtual "Otros" al final del menú.
+    const orphanProducts = await this.prisma.product.findMany({
+      where: {
+        tenantId: t.id,
+        categoryId: null,
+        ...productAvailabilityFilter,
+      },
+      orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+      include: {
+        variants: { orderBy: { position: 'asc' } },
+        extras: { where: { isAvailable: true } },
+      },
+    });
+
     const mapped = categories
       .map((c) => {
         // Subsecciones se conservan solo si tienen ≥1 producto matching;
@@ -479,13 +497,33 @@ export class PublicMenuController {
       // de categorías que no aportan nada al canal actual.
       .filter((c) => c.products.length > 0 || c.subsections.length > 0);
 
+    // Sección virtual "Otros" para productos sin categoría (Bloque 2).
+    // Va al FINAL del array `mapped` antes de los Recomendados.
+    if (orphanProducts.length > 0) {
+      mapped.push({
+        id: '__uncategorized__',
+        name: 'Otros',
+        slug: 'otros',
+        description: null,
+        imageUrl: null,
+        tagline: null,
+        coverConfig: null,
+        popupConfig: null,
+        products: orphanProducts.map(mapProduct),
+        subsections: [],
+      });
+    }
+
     // Sección virtual "Recomendados" arriba de todo. Recoge productos
-    // isRecommended de TODAS las categorías (raíz + hijas). Si no hay
-    // ninguno, no se incluye la sección.
-    const allProducts = categories.flatMap((c) => [
-      ...c.products,
-      ...(c.children ?? []).flatMap((sub: any) => sub.products ?? []),
-    ]);
+    // isRecommended de TODAS las categorías (raíz + hijas) + huérfanos.
+    // Si no hay ninguno, no se incluye la sección.
+    const allProducts = [
+      ...categories.flatMap((c) => [
+        ...c.products,
+        ...(c.children ?? []).flatMap((sub: any) => sub.products ?? []),
+      ]),
+      ...orphanProducts,
+    ];
     const recommended = allProducts
       .filter((p: any) => p.isRecommended)
       .map(mapProduct);

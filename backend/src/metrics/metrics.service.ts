@@ -310,7 +310,7 @@ export class MetricsService {
             id: p.id,
             name: p.name,
             count: p.timesOrdered,
-            category: p.category.name,
+            category: p.category?.name ?? 'Sin categoría',
           })),
     };
   }

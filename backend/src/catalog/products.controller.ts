@@ -14,7 +14,14 @@ import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorat
 import { Roles } from '../common/decorators/roles.decorator';
 
 class ProductBody {
-  @IsUUID() categoryId!: string;
+  // 2026-06-12: nullable para permitir productos sin categoría
+  // (Bloque 2 spec). ValidateIf deja pasar null explícito sin pedirle
+  // UUID. Cuando es null el producto se renderiza en una sección
+  // "Sin categoría" en los storefront layouts.
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsOptional()
+  @IsUUID()
+  categoryId?: string | null;
   @IsString() name!: string;
   @IsOptional() @IsString() description?: string;
   @IsNumber() basePrice!: number;

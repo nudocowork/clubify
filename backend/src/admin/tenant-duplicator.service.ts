@@ -297,8 +297,9 @@ export class TenantDuplicatorService {
       });
       let n = 0;
       for (const p of products) {
-        const newCategoryId = categoryMap.get(p.categoryId);
-        if (!newCategoryId) continue;
+        // Bloque 2 (2026-06-12): categoryId puede ser null en productos
+        // sin categoría — los duplicamos también pero sin mapearlos.
+        const newCategoryId = p.categoryId ? categoryMap.get(p.categoryId) ?? null : null;
         await this.prisma.product.create({
           data: {
             tenantId: newTenantId,
