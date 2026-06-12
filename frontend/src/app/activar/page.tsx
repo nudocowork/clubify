@@ -281,7 +281,7 @@ function ActivarInner() {
             </div>
             {pendingDetected && (
               <div className="mb-4 rounded-lg bg-ok-soft border border-ok/30 text-ok-ink px-3 py-2 text-sm">
-                ✅ Encontramos tu pago. Completá los datos faltantes y entrás
+                ✅ Encontramos tu pago. Completa los datos faltantes y entra
                 al panel al instante.
               </div>
             )}

@@ -185,8 +185,8 @@ export class PreregAlertsService {
         : 'Hola 👋';
       const body =
         `${greeting} Recibimos tu pago de Clubify 🎉.\n\n` +
-        `Para activar tu cuenta en 30 segundos, entrá acá:\n${opts.activateUrl}\n\n` +
-        `Importante: usá el mismo correo del pago (${opts.email}) para que se active al instante.`;
+        `Para activar tu cuenta en 30 segundos, entra aquí:\n${opts.activateUrl}\n\n` +
+        `Importante: usa el mismo correo del pago (${opts.email}) para que se active al instante.`;
 
       // Try WhatsApp first (better engagement in LATAM).
       const wa = await this.growBusiness
