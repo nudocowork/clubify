@@ -11,6 +11,7 @@ import { AppConfigService } from '../common/config/app-config.service';
 import { RefreshTokenService } from './refresh-token.service';
 import { TwoFactorService } from './two-factor.service';
 import { PreregAlertsService } from './prereg-alerts.service';
+import { AuthUser } from '../common/decorators/current-user.decorator';
 import {
   welcomeOwnerTemplate,
   passwordResetTemplate,
@@ -619,6 +620,32 @@ export class AuthService {
     await this.refreshTokens.revokeAllForUser(record.userId);
 
     return { ok: true };
+  }
+
+  /**
+   * Devuelve el AuthUser enriquecido con preferredLocale. Llamado
+   * desde GET /auth/me — el frontend hidrata el i18n provider con
+   * este valor al login para que el idioma elegido siga al user.
+   */
+  async meWithPreferredLocale(user: AuthUser): Promise<AuthUser & { preferredLocale: string | null }> {
+    const row = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      select: { preferredLocale: true },
+    });
+    return { ...user, preferredLocale: row?.preferredLocale ?? null };
+  }
+
+  /**
+   * Persiste la elección de idioma del user. El DTO ya validó el enum
+   * ('es' | 'en' | 'pt') a nivel controller. Idempotente — actualizar
+   * con el mismo valor no rompe nada.
+   */
+  async updatePreferredLocale(userId: string, locale: 'es' | 'en' | 'pt') {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { preferredLocale: locale },
+    });
+    return { ok: true, locale };
   }
 
   /**

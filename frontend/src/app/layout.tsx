@@ -1,4 +1,6 @@
 import type { Metadata, Viewport } from 'next';
+import { NextIntlClientProvider } from 'next-intl';
+import { getLocale, getMessages } from 'next-intl/server';
 import './globals.css';
 import { PWARegister } from '@/components/PWARegister';
 import { ToastProvider } from '@/components/Toast';
@@ -128,9 +130,14 @@ export const viewport: Viewport = {
   viewportFit: 'cover',
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // i18n foundation 2026-06-12: el locale se resuelve server-side
+  // (cookie NEXT_LOCALE → Accept-Language → x-vercel-ip-country → 'es').
+  // Las messages se importan dinámicamente desde frontend/messages/.
+  const locale = await getLocale();
+  const messages = await getMessages();
   return (
-    <html lang="es">
+    <html lang={locale}>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
@@ -148,7 +155,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <DynamicFavicon />
-        <ToastProvider>{children}</ToastProvider>
+        <NextIntlClientProvider locale={locale} messages={messages}>
+          <ToastProvider>{children}</ToastProvider>
+        </NextIntlClientProvider>
         <PWARegister />
       </body>
     </html>

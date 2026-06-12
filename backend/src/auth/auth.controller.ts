@@ -43,6 +43,10 @@ class ResetPasswordDto {
   @IsString() @MinLength(8) newPassword!: string;
 }
 
+class SetLocaleDto {
+  @IsString() @IsIn(['es', 'en', 'pt']) locale!: 'es' | 'en' | 'pt';
+}
+
 class SignupAttributionDto {
   @IsOptional() @IsString() @MaxLength(80) viaSlug?: string;
   @IsOptional() @IsString() @MaxLength(80) utmSource?: string;
@@ -208,8 +212,27 @@ export class AuthController {
   }
 
   @Get('me')
-  me(@CurrentUser() user: AuthUser) {
-    return user;
+  async me(@CurrentUser() user: AuthUser) {
+    // Enriquecemos con preferredLocale para que el frontend lo
+    // hidrate al login y respete la elección del user entre devices.
+    return this.auth.meWithPreferredLocale(user);
+  }
+
+  // ============================================================
+  // i18n — preferencia de idioma
+  // ============================================================
+
+  /**
+   * Actualiza el idioma preferido del user logueado. El frontend
+   * persiste localmente (cookie NEXT_LOCALE) Y llama acá si está
+   * autenticado, para que la preferencia siga al user entre devices.
+   */
+  @Post('locale')
+  setLocale(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: SetLocaleDto,
+  ) {
+    return this.auth.updatePreferredLocale(user.id, dto.locale);
   }
 
   // ============================================================

@@ -1,0 +1,69 @@
+{
+  "common": {
+    "save": "Salvar",
+    "cancel": "Cancelar",
+    "delete": "Excluir",
+    "edit": "Editar",
+    "close": "Fechar",
+    "back": "Voltar",
+    "next": "Próximo",
+    "loading": "Carregando…",
+    "saving": "Salvando…",
+    "saved": "Salvo",
+    "search": "Buscar",
+    "language": "Idioma",
+    "yes": "Sim",
+    "no": "Não",
+    "confirm": "Confirmar",
+    "error": "Erro",
+    "success": "Pronto"
+  },
+  "landing": {
+    "header": {
+      "nav_customers": "Clientes",
+      "nav_pricing": "Preços",
+      "cta_login": "Entrar",
+      "cta_start": "Começar agora"
+    },
+    "hero": {
+      "badge_rating": "{rating}/5",
+      "badge_businesses": "+150 negócios na América Latina",
+      "title_pre": "Uma plataforma",
+      "title_highlight": "tudo em um",
+      "title_post": "para o seu negócio local.",
+      "subtitle": "Cartões de fidelidade, cardápio digital, CRM de pedidos e automações de delivery.",
+      "pillars": {
+        "orders": "Pedidos",
+        "loyalty": "Fidelização",
+        "automation": "Automação",
+        "crm": "CRM",
+        "analytics": "Análise"
+      },
+      "cta_start_now": "Ver planos e começar",
+      "cta_demo": "Agendar uma demo",
+      "check_instant_activation": "Ativação imediata",
+      "check_cancel_anytime": "Cancele quando quiser",
+      "check_spanish_support": "Suporte em português LATAM"
+    },
+    "logos": {
+      "title": "Negócios LATAM crescendo com a Clubify"
+    },
+    "stats": {
+      "businesses": "Negócios ativos na América Latina",
+      "wallet_customers": "Clientes com cartão wallet",
+      "orders": "Pedidos processados / mês",
+      "rating": "Avaliação dos donos"
+    },
+    "footer": {
+      "contact_whatsapp": "Fale conosco no WhatsApp",
+      "contact_email": "Email",
+      "contact_instagram": "Instagram"
+    }
+  },
+  "language_switcher": {
+    "label": "Mudar idioma",
+    "spanish": "Español",
+    "english": "English",
+    "portuguese": "Português"
+  }
+}

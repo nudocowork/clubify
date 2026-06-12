@@ -1,0 +1,69 @@
+{
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "close": "Close",
+    "back": "Back",
+    "next": "Next",
+    "loading": "Loading…",
+    "saving": "Saving…",
+    "saved": "Saved",
+    "search": "Search",
+    "language": "Language",
+    "yes": "Yes",
+    "no": "No",
+    "confirm": "Confirm",
+    "error": "Error",
+    "success": "Done"
+  },
+  "landing": {
+    "header": {
+      "nav_customers": "Customers",
+      "nav_pricing": "Pricing",
+      "cta_login": "Log in",
+      "cta_start": "Get started"
+    },
+    "hero": {
+      "badge_rating": "{rating}/5",
+      "badge_businesses": "+150 businesses across LATAM",
+      "title_pre": "An",
+      "title_highlight": "all-in-one",
+      "title_post": "platform for your local business.",
+      "subtitle": "Loyalty cards, digital menu, orders CRM, and delivery automations.",
+      "pillars": {
+        "orders": "Orders",
+        "loyalty": "Loyalty",
+        "automation": "Automation",
+        "crm": "CRM",
+        "analytics": "Analytics"
+      },
+      "cta_start_now": "See plans and start",
+      "cta_demo": "Book a demo",
+      "check_instant_activation": "Instant activation",
+      "check_cancel_anytime": "Cancel anytime",
+      "check_spanish_support": "Spanish-speaking LATAM support"
+    },
+    "logos": {
+      "title": "LATAM businesses growing with Clubify"
+    },
+    "stats": {
+      "businesses": "Active businesses in LATAM",
+      "wallet_customers": "Wallet card holders",
+      "orders": "Orders processed / month",
+      "rating": "Owner rating"
+    },
+    "footer": {
+      "contact_whatsapp": "Message us on WhatsApp",
+      "contact_email": "Email",
+      "contact_instagram": "Instagram"
+    }
+  },
+  "language_switcher": {
+    "label": "Change language",
+    "spanish": "Español",
+    "english": "English",
+    "portuguese": "Português"
+  }
+}

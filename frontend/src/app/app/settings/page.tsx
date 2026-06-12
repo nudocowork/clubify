@@ -5,6 +5,7 @@ import { api, downloadFile, getUser, setSession, clearSession } from '@/lib/api'
 import { useRouter } from 'next/navigation';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
+import { LanguageSwitcherIntl } from '@/components/LanguageSwitcherIntl';
 
 type Profile = {
   id: string;
@@ -338,6 +339,19 @@ export default function SettingsPage() {
           </button>
         </div>
       </form>
+
+      {/* Idioma — i18n foundation 2026-06-12. El switcher persiste la
+          elección en cookie + User.preferredLocale (al estar logueado)
+          via POST /api/locale → POST /api/auth/locale. */}
+      <section className="card card-pad mb-4">
+        <h2 className="text-base font-semibold m-0">Idioma</h2>
+        <p className="text-xs text-mute mt-1">
+          Aplica al panel y se sincroniza entre tus dispositivos.
+        </p>
+        <div className="mt-4">
+          <LanguageSwitcherIntl variant="panel" />
+        </div>
+      </section>
 
       {/* Password */}
       <form onSubmit={changePassword} className="card card-pad mb-4">
