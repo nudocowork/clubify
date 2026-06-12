@@ -20,6 +20,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 export type SlideLayout =
   | 'COVER'
@@ -66,15 +68,22 @@ export function SlideDeck({
   industryThemeColor,
   backHref,
   emptyMessage = 'Esta presentación todavía no tiene slides',
+  pdfName,
 }: {
   slides: Slide[];
   themeColor?: string | null;
   industryThemeColor?: string | null;
   backHref: string;
   emptyMessage?: string;
+  /** Base del nombre del PDF al exportar (sin extensión).
+   *  Ej: "clubify-mascotas" → "clubify-mascotas-2026-06-12.pdf". */
+  pdfName?: string;
 }) {
   const router = useRouter();
   const [idx, setIdx] = useState(0);
+  const [exporting, setExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState({ current: 0, total: 0 });
+  const slideContainerRef = useRef<HTMLDivElement>(null);
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
 
@@ -103,6 +112,77 @@ export function SlideDeck({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [goNext, goPrev, router, backHref]);
+
+  /**
+   * Exporta los slides como PDF landscape A4 (PDF 2026-06-12).
+   * Itera setIdx por cada slide, espera el render + animations, y
+   * captura con html2canvas. Cada slide = 1 página.
+   */
+  const exportPdf = useCallback(async () => {
+    if (exporting || total === 0) return;
+    setExporting(true);
+    setExportProgress({ current: 0, total });
+    // Snapshot del idx actual para restaurarlo al final.
+    const startIdx = idx;
+    try {
+      // A4 landscape: 297x210mm. Convertido a px asumiendo 96 DPI →
+      // 1123x794 px aprox. jsPDF maneja el resize internamente.
+      const pdf = new jsPDF({
+        unit: 'mm',
+        format: 'a4',
+        orientation: 'landscape',
+        compress: true,
+      });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+
+      for (let i = 0; i < total; i += 1) {
+        setIdx(i);
+        // Esperar a que React aplique el setState y el slide se renderee.
+        // Dos rAF para garantizar paint completo + un pequeño extra
+        // para imágenes que carguen via background-url.
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => setTimeout(resolve, 120)),
+          ),
+        );
+        const node = slideContainerRef.current;
+        if (!node) continue;
+        const slideAccent =
+          slides[i].bgColor ??
+          themeColor ??
+          industryThemeColor ??
+          '#0A0A0A';
+        const canvas = await html2canvas(node, {
+          backgroundColor: slideAccent,
+          scale: 2,
+          useCORS: true,
+          logging: false,
+        });
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+        if (i > 0) pdf.addPage();
+        pdf.addImage(dataUrl, 'JPEG', 0, 0, pageW, pageH, undefined, 'FAST');
+        setExportProgress({ current: i + 1, total });
+      }
+
+      const stamp = new Date().toISOString().slice(0, 10);
+      const base = (pdfName || 'clubify-industria')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
+      pdf.save(`${base}-${stamp}.pdf`);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('PDF export failed', e);
+      alert(
+        'No se pudo generar el PDF. Intenta de nuevo o revisa la consola.',
+      );
+    } finally {
+      setIdx(startIdx);
+      setExporting(false);
+      setExportProgress({ current: 0, total: 0 });
+    }
+  }, [exporting, total, idx, slides, themeColor, industryThemeColor, pdfName]);
 
   function onTouchStart(e: React.TouchEvent) {
     const t = e.touches[0];
@@ -156,7 +236,7 @@ export function SlideDeck({
         />
       </div>
 
-      {/* Top bar: close + counter */}
+      {/* Top bar: close + download + counter */}
       <div className="absolute top-3 inset-x-0 z-20 flex items-center justify-between px-4">
         <Link
           href={backHref}
@@ -164,15 +244,43 @@ export function SlideDeck({
         >
           ← Salir
         </Link>
-        <div className="text-xs font-mono opacity-80">
-          {idx + 1} / {total}
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={exportPdf}
+            disabled={exporting}
+            className="inline-flex items-center gap-1 text-xs opacity-80 hover:opacity-100 disabled:opacity-50"
+            title="Descargar esta presentación como PDF"
+          >
+            {exporting
+              ? `📄 ${exportProgress.current}/${exportProgress.total}…`
+              : '📄 PDF'}
+          </button>
+          <div className="text-xs font-mono opacity-80">
+            {idx + 1} / {total}
+          </div>
         </div>
       </div>
 
-      {/* Slide content — key re-monta para re-disparar la animación */}
+      {/* Overlay de export en progreso */}
+      {exporting && (
+        <div className="absolute inset-0 z-40 bg-black/40 flex items-center justify-center pointer-events-none">
+          <div className="bg-white text-ink rounded-lg px-5 py-4 shadow-xl text-center">
+            <div className="text-2xl">📄</div>
+            <div className="font-semibold mt-1 text-sm">Generando PDF…</div>
+            <div className="text-xs text-mute mt-1">
+              {exportProgress.current} / {exportProgress.total} slides
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Slide content — key re-monta para re-disparar la animación.
+          ref usado para capturar PNG con html2canvas durante el export. */}
       <div
+        ref={slideContainerRef}
         key={`${current.id}-${idx}`}
-        className={`absolute inset-0 flex items-center justify-center px-4 sm:px-8 md:px-16 ${animClass}`}
+        className={`absolute inset-0 flex items-center justify-center px-4 sm:px-8 md:px-16 ${exporting ? '' : animClass}`}
       >
         <SlideRenderer slide={current} textColor={textColor} />
       </div>
