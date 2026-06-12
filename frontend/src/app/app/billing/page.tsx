@@ -211,7 +211,7 @@ export default function BillingPage() {
                 <p className="text-white/70 text-xs mt-2">
                   Si necesitas activación manual, escríbenos por{' '}
                   <a
-                    href="https://wa.me/573000000000"
+                    href="https://wa.me/573167689240"
                     target="_blank"
                     className="underline hover:text-white"
                   >
@@ -302,7 +302,7 @@ export default function BillingPage() {
 
       <div className="text-xs text-mute mt-6 text-center">
         ¿Dudas? Escríbenos por{' '}
-        <a href="https://wa.me/573000000000" className="text-brand hover:underline">
+        <a href="https://wa.me/573167689240" className="text-brand hover:underline">
           WhatsApp
         </a>{' '}
         o{' '}

@@ -36,7 +36,7 @@ export default function GlobalError({
           </Link>
         </div>
         <a
-          href="https://wa.me/573000000000?text=Error%20en%20Clubify"
+          href="https://wa.me/573167689240?text=Error%20en%20Clubify"
           className="block text-xs text-brand hover:underline mt-4"
         >
           Avisar por WhatsApp →

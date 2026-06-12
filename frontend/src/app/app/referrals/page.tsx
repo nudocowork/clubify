@@ -205,7 +205,7 @@ export default function TenantReferrals() {
         El pago de comisiones se realiza cada 30 días vía Wise o transferencia
         local.{' '}
         <a
-          href="https://wa.me/573000000000"
+          href="https://wa.me/573167689240"
           target="_blank"
           className="text-brand hover:underline"
         >

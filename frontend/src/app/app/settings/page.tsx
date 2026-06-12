@@ -85,6 +85,14 @@ export default function SettingsPage() {
 
   const [tenant, setTenant] = useState<TenantMe | null>(null);
 
+  // Bloque 3 (2026-06-12): edición del nombre del negocio. Persiste en
+  // Tenant.brandName via PATCH /tenants/me. NO toca slug ni subdomain
+  // (esos quedan fijos desde el create), así que solo afecta lo visible
+  // en UI: storefront, wallet, headers, emails, etc.
+  const [brandNameDraft, setBrandNameDraft] = useState<string>('');
+  const [savingBrandName, setSavingBrandName] = useState(false);
+  const [brandNameMsg, setBrandNameMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
   const [sectionMode, setSectionMode] = useState<MainSectionMode>('menu');
   const [sectionCustom, setSectionCustom] = useState<string>('');
   const [savingSection, setSavingSection] = useState(false);
@@ -110,6 +118,7 @@ export default function SettingsPage() {
     api<TenantMe>('/tenants/me')
       .then((t) => {
         setTenant(t);
+        setBrandNameDraft(t.brandName ?? '');
         const { mode, custom } = detectMainMode(t.mainSectionLabelOverride);
         setSectionMode(mode);
         setSectionCustom(custom);
@@ -248,6 +257,47 @@ export default function SettingsPage() {
     }
   }
 
+  async function saveBrandName(e: React.FormEvent) {
+    e.preventDefault();
+    setBrandNameMsg(null);
+    const trimmed = brandNameDraft.trim();
+    if (!trimmed) {
+      setBrandNameMsg({ ok: false, text: 'El nombre no puede quedar vacío' });
+      return;
+    }
+    if (trimmed.length > 80) {
+      setBrandNameMsg({ ok: false, text: 'Máximo 80 caracteres' });
+      return;
+    }
+    if (trimmed === tenant?.brandName) {
+      setBrandNameMsg({ ok: true, text: 'Sin cambios' });
+      return;
+    }
+    setSavingBrandName(true);
+    try {
+      const updated = await api<TenantMe>('/tenants/me', {
+        method: 'PATCH',
+        body: JSON.stringify({ brandName: trimmed }),
+      });
+      setTenant(updated);
+      setBrandNameDraft(updated.brandName ?? trimmed);
+      // Sync localStorage para que el TenantSwitcher / sidebar reflejen
+      // el nombre nuevo sin reload manual.
+      const u = getUser();
+      if (u && u.tenant) {
+        localStorage.setItem(
+          'clubify_user',
+          JSON.stringify({ ...u, tenant: { ...u.tenant, brandName: updated.brandName ?? trimmed } }),
+        );
+      }
+      setBrandNameMsg({ ok: true, text: 'Nombre del negocio actualizado' });
+    } catch (e: any) {
+      setBrandNameMsg({ ok: false, text: e.message || 'No se pudo actualizar' });
+    } finally {
+      setSavingBrandName(false);
+    }
+  }
+
   async function changePassword(e: React.FormEvent) {
     e.preventDefault();
     setPwdMsg(null);
@@ -336,6 +386,41 @@ export default function SettingsPage() {
         <div className="mt-4 flex justify-end">
           <button type="submit" className="btn-primary" disabled={savingProfile}>
             {savingProfile ? 'Guardando…' : 'Guardar cambios'}
+          </button>
+        </div>
+      </form>
+
+      {/* Nombre del negocio (Bloque 3 2026-06-12). Solo afecta lo visible
+          (storefront, wallet, headers, emails). Slug/subdomain quedan
+          fijos desde el create — cambiar brandName NO los toca. */}
+      <form onSubmit={saveBrandName} className="card card-pad mb-4">
+        <h2 className="text-base font-semibold m-0">Nombre del negocio</h2>
+        <p className="text-xs text-mute mt-1">
+          Así aparecerá en el menú público, la tarjeta wallet, los recibos y los emails.
+        </p>
+        <div className="mt-4">
+          <label className="label">Nombre comercial</label>
+          <input
+            className="input"
+            value={brandNameDraft}
+            onChange={(e) => setBrandNameDraft(e.target.value)}
+            placeholder="Café del Día"
+            maxLength={80}
+            required
+          />
+        </div>
+        {brandNameMsg && (
+          <div
+            className={`mt-3 text-sm rounded-lg px-3 py-2 ${
+              brandNameMsg.ok ? 'bg-ok-soft text-ok' : 'bg-bad-soft text-bad-ink'
+            }`}
+          >
+            {brandNameMsg.text}
+          </div>
+        )}
+        <div className="mt-4 flex justify-end">
+          <button type="submit" className="btn-primary" disabled={savingBrandName}>
+            {savingBrandName ? 'Guardando…' : 'Guardar nombre'}
           </button>
         </div>
       </form>
