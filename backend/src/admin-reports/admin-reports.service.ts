@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/commo
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { SettingsService } from '../settings/settings.service';
+import { normalizePlanPeriod } from '../common/plan-period';
 
 /**
  * Servicio de reportes/rankings/dashboard para SUPER_ADMIN.
@@ -872,9 +873,8 @@ export class AdminReportsService {
     // tratan como MENSUAL (misma convención que tenants.service.list y
     // periodLabel). Antes el lookup en PERIODS devolvía undefined → el
     // tenant quedaba excluido del MRR y de billedUsd. Resultado:
-    // subestimación de métricas.
-    const normalizePeriod = (p: string | null | undefined): string =>
-      p && PERIODS[p.toUpperCase()] ? p.toUpperCase() : 'MENSUAL';
+    // subestimación de métricas. Helper compartido en common/plan-period.
+    const normalizePeriod = normalizePlanPeriod;
 
     const [
       activeTenantsForPricing,

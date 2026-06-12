@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CommissionRecalcService } from '../referrals/commission-recalc.service';
 import { SettingsService } from '../settings/settings.service';
+import { normalizePlanPeriod } from '../common/plan-period';
 
 /**
  * Excepciones de comisión por cliente (item 6 sprint).
@@ -187,9 +188,9 @@ export class CommissionExceptionsService {
     };
     // ALTO #3 (2026-06-12): tenants con planPeriodicity=null daban
     // bundlePrice=0 → revenueUsd=0 con commissionsUsd>0 → netUsd
-    // negativo aparente. Convención: null = MENSUAL.
-    const normalizePeriod = (p: string | null | undefined): string =>
-      p && BUNDLE[p.toUpperCase()] ? p.toUpperCase() : 'MENSUAL';
+    // negativo aparente. Convención: null = MENSUAL. Helper compartido
+    // en common/plan-period.
+    const normalizePeriod = normalizePlanPeriod;
 
     // Tenants info para bundle calc + commissions agrupadas por tenant.
     const tenantDetails = tenantIds.length
