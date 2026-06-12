@@ -1266,6 +1266,14 @@ export class HotmartService {
           raw?.data?.purchase?.price?.value ??
           raw?.data?.purchase?.original_offer_price?.value ??
           null;
+        // Fix 2026-06-12: la moneda viene en el payload — no asumir USD.
+        // Hotmart manda el monto en la moneda del país del comprador
+        // (COP para Colombia, BRL para Brasil, etc.). Si no viene
+        // currency_code fallback a USD que es el plan default.
+        const currency =
+          (raw?.data?.purchase?.price?.currency_code ??
+            raw?.data?.purchase?.original_offer_price?.currency_code ??
+            'USD') as string;
         const ageMinutes = Math.floor(
           (Date.now() - p.createdAt.getTime()) / 60000,
         );
@@ -1275,7 +1283,9 @@ export class HotmartService {
           `Cliente: ${buyerName}\n` +
           `Email: ${p.email}\n` +
           `Producto: ${productName}\n` +
-          (purchaseValue ? `Monto: USD ${purchaseValue}\n` : '') +
+          (purchaseValue
+            ? `Monto: ${currency} ${formatMoneyForSms(purchaseValue, currency)}\n`
+            : '') +
           `\nContactar manualmente.\n` +
           `Link directo: https://soyclubify.com/activar?email=${encodeURIComponent(p.email)}`;
         const r = await this.growBusiness
@@ -1349,6 +1359,27 @@ export class HotmartService {
  * "2h 15min", "1d 4h". Pensado para mensajes al equipo donde 472min
  * no se lee bien — mejor "7h 52min".
  */
+/**
+ * Formato de monto monetario para SMS. Monedas sin decimales típicas
+ * (COP, CLP, etc.) salen con miles separados por coma; con decimales
+ * (USD, EUR, BRL) van con 2 decimales fijos. Devuelve sin símbolo —
+ * el caller arma "COP 549.095" / "USD 148.55".
+ */
+function formatMoneyForSms(value: number, currency: string): string {
+  const ZERO_DEC = new Set(['COP', 'CLP', 'PYG', 'JPY', 'KRW', 'VND']);
+  const ccy = (currency || 'USD').toUpperCase();
+  const hasFractional = Math.abs(value - Math.trunc(value)) > 0.001;
+  const useZero = ZERO_DEC.has(ccy) && !hasFractional;
+  try {
+    return new Intl.NumberFormat('en-US', {
+      minimumFractionDigits: useZero ? 0 : 2,
+      maximumFractionDigits: useZero ? 0 : 2,
+    }).format(value);
+  } catch {
+    return String(value);
+  }
+}
+
 function formatElapsed(totalMinutes: number): string {
   const m = Math.max(0, Math.floor(totalMinutes));
   if (m < 60) return `${m} min`;
