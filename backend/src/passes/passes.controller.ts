@@ -4,6 +4,7 @@ import { Response } from 'express';
 import { IsEmail, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 import { PassesService } from './passes.service';
 import { WalletService } from '../wallet/wallet.service';
+import { QueueService } from '../jobs/queue.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -38,6 +39,7 @@ export class PassesController {
   constructor(
     private svc: PassesService,
     private wallet: WalletService,
+    private jobs: QueueService,
     private prisma: PrismaService,
     private translator: TranslationService,
   ) {}
@@ -356,5 +358,51 @@ export class PassesController {
       `Admin push-update requested by ${user.id} for pass ${pass.serialNumber}`,
     );
     return this.wallet.pushPassUpdate(pass.id);
+  }
+
+  /**
+   * Refresh global: encola un push update para TODOS los passes activos
+   * del tenant. Útil tras cambiar branding (logo, colores, strip) para
+   * que todos los wallets se actualicen sin tener que tocar uno por
+   * uno. Solo SUPER_ADMIN (operación masiva sensible, 2026-06-12 D).
+   *
+   * Estrategia:
+   *  - Filtra passes no-REVOKED del tenant.
+   *  - Bump lastActivityAt en batch (Apple usa If-Modified-Since para
+   *    decidir si re-fetchear).
+   *  - Encola un job wallet.push por cada pass. El worker BullMQ
+   *    procesa en background con su throttle/retry default.
+   */
+  @Roles('SUPER_ADMIN')
+  @Post('refresh-all/:tenantId')
+  async refreshAllForTenant(
+    @CurrentUser() user: AuthUser,
+    @Param('tenantId') tenantId: string,
+  ) {
+    const passes = await this.prisma.pass.findMany({
+      where: { tenantId, status: { not: 'REVOKED' } },
+      select: { id: true },
+    });
+    if (passes.length === 0) {
+      return { tenantId, total: 0, enqueued: 0 };
+    }
+    // Bump lastActivityAt en batch para forzar If-Modified-Since.
+    const now = new Date();
+    await this.prisma.pass.updateMany({
+      where: { id: { in: passes.map((p) => p.id) } },
+      data: { lastActivityAt: now },
+    });
+    // Encolar en background — sin bloquear la response.
+    let enqueued = 0;
+    for (const p of passes) {
+      const ok = await this.jobs
+        .enqueue('wallet.push', { passId: p.id, reason: 'admin_refresh_all' })
+        .catch(() => false);
+      if (ok !== false) enqueued += 1;
+    }
+    this.logger.log(
+      `Admin refresh-all by ${user.id} for tenant ${tenantId}: ${enqueued}/${passes.length} encolados`,
+    );
+    return { tenantId, total: passes.length, enqueued };
   }
 }
