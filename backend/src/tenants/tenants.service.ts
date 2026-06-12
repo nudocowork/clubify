@@ -78,6 +78,8 @@ export type UpdateTenantDto = Partial<{
   whatsappPhone: string;
   whatsappOrdersPhone: string;
   whatsappDeliveryPhone: string;
+  tutorialsEnabled: boolean;
+  academyEnabled: boolean;
 }>;
 
 export type UpdateMyTenantDto = Partial<{

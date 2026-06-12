@@ -32,6 +32,9 @@ type NavItem = {
   /** Si está true, el item NO se muestra para usuarios con rol MARKETING.
    *  Aplica solo al sidebar admin (financiero, admins, infra). */
   hideForMarketing?: boolean;
+  /** Link externo (abre en nueva pestaña). Usado para Tutoriales /
+   *  Academia Clubify (Bloque 2 2026-06-12). */
+  external?: boolean;
 };
 type NavGroup = { section: string; items: NavItem[] };
 
@@ -82,6 +85,10 @@ export default function AppShell({
     // de "completar pago" NO aplica hasta que el trial expire.
     trialEndsAt?: string | null;
     status?: string | null;
+    // Bloque 2 (2026-06-12): toggles per-tenant para ocultar los links
+    // externos de Tutoriales / Academia Clubify desde admin.
+    tutorialsEnabled?: boolean;
+    academyEnabled?: boolean;
   } | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
     new Set(),
@@ -210,6 +217,8 @@ export default function AppShell({
           isLocked: t?.isLocked ?? false,
           trialEndsAt: t?.trialEndsAt ?? null,
           status: t?.status ?? null,
+          tutorialsEnabled: t?.tutorialsEnabled ?? true,
+          academyEnabled: t?.academyEnabled ?? true,
         });
       })
       .catch(() => null);
@@ -369,6 +378,19 @@ export default function AppShell({
                 // Clubify Lab — propuestas y votación pública. Accesible a
                 // todos los roles autenticados (item 13 sprint).
                 { href: '/lab', label: '🧪 Clubify Lab', icon: 'spark' },
+                // Tutoriales — link externo a la academia (Bloque 2 2026-06-12).
+                // SUPER_ADMIN puede ocultarlo per-tenant desde
+                // /admin/tenants/[id] vía Tenant.tutorialsEnabled.
+                ...(tenantInfo?.tutorialsEnabled !== false
+                  ? [
+                      {
+                        href: 'https://academy.soyclubify.lat/cliente',
+                        label: '🎓 Tutoriales',
+                        icon: 'book' as IconName,
+                        external: true,
+                      },
+                    ]
+                  : []),
               ],
             },
           ];
@@ -509,16 +531,36 @@ export default function AppShell({
               )}
               {(noHeader || !collapsed) &&
                 g.items.map((n) => {
-                  const active = isHrefActive(n.href, pathname);
+                  const active = !n.external && isHrefActive(n.href, pathname);
+                  const className = `flex items-center gap-2.5 px-3 py-2.5 rounded-[10px] text-[13.5px] transition cursor-pointer ${
+                    active
+                      ? 'bg-sidebar-active text-white shadow-active'
+                      : 'text-gray-300 hover:bg-sidebar-hover hover:text-white'
+                  }`;
+                  // Links externos (Tutoriales/Academia) abren en nueva pestaña.
+                  if (n.external) {
+                    return (
+                      <a
+                        key={n.href}
+                        href={n.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={className}
+                      >
+                        <Icon
+                          name={n.icon}
+                          size={18}
+                          className="opacity-90 flex-none"
+                        />
+                        <span>{n.label}</span>
+                      </a>
+                    );
+                  }
                   return (
                     <Link
                       key={n.href}
                       href={n.href}
-                      className={`flex items-center gap-2.5 px-3 py-2.5 rounded-[10px] text-[13.5px] transition cursor-pointer ${
-                        active
-                          ? 'bg-sidebar-active text-white shadow-active'
-                          : 'text-gray-300 hover:bg-sidebar-hover hover:text-white'
-                      }`}
+                      className={className}
                     >
                       <Icon
                         name={n.icon}

@@ -394,6 +394,12 @@ model Tenant {
   // promocionales (cumpleaños, evento, doble sello, etc).
   maxStampsPerDay             Int?
   maxLocationsOverride        Int?
+  // Bloque 2 (2026-06-12): toggles per-tenant para mostrar/ocultar
+  // los links de Tutoriales (sidebar TENANT_OWNER) y Academia Clubify
+  // (sidebar afiliados). Default true — el negocio los ve a menos que
+  // SUPER_ADMIN lo apague desde /admin/tenants/[id].
+  tutorialsEnabled            Boolean              @default(true)
+  academyEnabled              Boolean              @default(true)
   referredByCode              String?
   currency                    String               @default("COP")
   timezone                    String               @default("America/Bogota")

@@ -79,6 +79,10 @@ class UpdateTenantBody {
   @IsOptional() @IsString() whatsappPhone?: string;
   @IsOptional() @IsString() whatsappOrdersPhone?: string;
   @IsOptional() @IsString() whatsappDeliveryPhone?: string;
+  // Bloque 2 (2026-06-12): toggles per-tenant para mostrar/ocultar
+  // los links de Tutoriales y Academia Clubify en los sidebars.
+  @IsOptional() @IsBoolean() tutorialsEnabled?: boolean;
+  @IsOptional() @IsBoolean() academyEnabled?: boolean;
 }
 
 @Controller('tenants')
