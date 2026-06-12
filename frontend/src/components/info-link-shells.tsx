@@ -197,19 +197,23 @@ export type ShellProps = {
   buttons: ResolvedButton[];
   /** Bloque de "sections" del editor renderizado. Se inyecta abajo. */
   sectionsNode?: ReactNode;
+  /** Background CSS override del usuario (Bloque 1 2026-06-12). Si está
+   *  presente, reemplaza el fondo por defecto del template. */
+  customBackground?: string;
 };
 
 // =============================================================
 //  AURORA · gradient mesh + glassmorphism
 // =============================================================
 
-export function AuroraShell({ tenant, link, primary, buttons, sectionsNode }: ShellProps) {
+export function AuroraShell({ tenant, link, primary, buttons, sectionsNode, customBackground }: ShellProps) {
   const initial = tenant.brandName[0]?.toUpperCase() ?? '?';
+  const defaultBg = `radial-gradient(circle at 15% 0%, ${primary}66 0%, transparent 40%), radial-gradient(circle at 85% 25%, ${tenant.secondaryColor || '#8B4513'}66 0%, transparent 40%), radial-gradient(circle at 50% 100%, #1a0e2e 0%, transparent 60%), linear-gradient(180deg, #2D1B4E 0%, #1A0E2E 100%)`;
   return (
     <div
       className="min-h-screen text-white animate-in fade-in duration-500"
       style={{
-        background: `radial-gradient(circle at 15% 0%, ${primary}66 0%, transparent 40%), radial-gradient(circle at 85% 25%, ${tenant.secondaryColor || '#8B4513'}66 0%, transparent 40%), radial-gradient(circle at 50% 100%, #1a0e2e 0%, transparent 60%), linear-gradient(180deg, #2D1B4E 0%, #1A0E2E 100%)`,
+        background: customBackground ?? defaultBg,
         fontFamily: link.theme?.fontFamily ?? undefined,
       }}
     >
@@ -295,7 +299,7 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode }: Sh
 //  MINIMAL · profile clean
 // =============================================================
 
-export function MinimalShell({ tenant, link, primary, buttons, sectionsNode }: ShellProps) {
+export function MinimalShell({ tenant, link, primary, buttons, sectionsNode, customBackground }: ShellProps) {
   const initial = tenant.brandName[0]?.toUpperCase() ?? '?';
   const social: { emoji: string; href?: string }[] = [
     { emoji: '📷', href: tenant.instagramUrl ?? undefined },
@@ -310,8 +314,11 @@ export function MinimalShell({ tenant, link, primary, buttons, sectionsNode }: S
 
   return (
     <div
-      className="min-h-screen bg-white animate-in fade-in duration-500"
-      style={{ fontFamily: link.theme?.fontFamily ?? undefined }}
+      className={`min-h-screen animate-in fade-in duration-500 ${customBackground ? '' : 'bg-white'}`}
+      style={{
+        fontFamily: link.theme?.fontFamily ?? undefined,
+        ...(customBackground ? { background: customBackground } : {}),
+      }}
     >
       <article className="max-w-md mx-auto px-6 pt-10 pb-12">
         <div className="flex flex-col items-center text-center">
@@ -397,7 +404,7 @@ export function MinimalShell({ tenant, link, primary, buttons, sectionsNode }: S
 //  SHOP · hero + grid de productos (gallery)
 // =============================================================
 
-export function ShopShell({ tenant, link, primary, buttons, sectionsNode }: ShellProps) {
+export function ShopShell({ tenant, link, primary, buttons, sectionsNode, customBackground }: ShellProps) {
   const initial = tenant.brandName[0]?.toUpperCase() ?? '?';
   const heroBg =
     link.heroImageUrl ||
@@ -415,8 +422,11 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode }: Shel
   const overlayBg = getBannerOverlayBackground(bannerConfig);
   return (
     <div
-      className="min-h-screen bg-[#FAFAFA] animate-in fade-in duration-500"
-      style={{ fontFamily: link.theme?.fontFamily ?? undefined }}
+      className={`min-h-screen animate-in fade-in duration-500 ${customBackground ? '' : 'bg-[#FAFAFA]'}`}
+      style={{
+        fontFamily: link.theme?.fontFamily ?? undefined,
+        ...(customBackground ? { background: customBackground } : {}),
+      }}
     >
       {/* IMPORTANTE: el article NO debe tener overflow-hidden — sino el
           logo flotante (con -mt-14) se cortaría al desbordar el banner. */}
@@ -571,14 +581,17 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode }: Shel
 //  STORIES · IG-style feed
 // =============================================================
 
-export function StoriesShell({ tenant, link, primary, buttons, sectionsNode }: ShellProps) {
+export function StoriesShell({ tenant, link, primary, buttons, sectionsNode, customBackground }: ShellProps) {
   const initial = tenant.brandName[0]?.toUpperCase() ?? '?';
   const stories = (link.gallery ?? []).slice(0, 6);
 
   return (
     <div
-      className="min-h-screen bg-white animate-in fade-in duration-500"
-      style={{ fontFamily: link.theme?.fontFamily ?? undefined }}
+      className={`min-h-screen animate-in fade-in duration-500 ${customBackground ? '' : 'bg-white'}`}
+      style={{
+        fontFamily: link.theme?.fontFamily ?? undefined,
+        ...(customBackground ? { background: customBackground } : {}),
+      }}
     >
       <article className="max-w-md mx-auto bg-white shadow-sm min-h-screen pb-10">
         <div className="px-5 pt-7 pb-3 border-b border-line2">
@@ -685,7 +698,7 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode }: S
 //  NEON · dark accent
 // =============================================================
 
-export function NeonShell({ tenant, link, primary, buttons, sectionsNode }: ShellProps) {
+export function NeonShell({ tenant, link, primary, buttons, sectionsNode, customBackground }: ShellProps) {
   const accent = primary;
   const initial = tenant.brandName[0]?.toUpperCase() ?? '?';
   return (
@@ -693,6 +706,7 @@ export function NeonShell({ tenant, link, primary, buttons, sectionsNode }: Shel
       className="min-h-screen text-white animate-in fade-in duration-500"
       style={{
         background:
+          customBackground ??
           'radial-gradient(ellipse at top, #1a1a2e 0%, #0f0f1e 100%)',
         fontFamily: link.theme?.fontFamily ?? undefined,
       }}

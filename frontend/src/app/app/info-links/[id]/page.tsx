@@ -13,6 +13,10 @@ import {
 import { SectionCoverEditor } from '@/components/menu/SectionCoverEditor';
 import { SectionCoverPreview } from '@/components/menu/SectionCoverPreview';
 import { uploadCoverImage } from '@/lib/menu/upload-cover-image';
+import {
+  type InfoLinkBackground,
+  type InfoLinkPopup,
+} from '@/lib/info-link-extras';
 import type { SectionCoverConfig } from '@/lib/menu/section-cover-config';
 import { SortableList, DragHandle } from '@/components/Sortable';
 import {
@@ -1465,6 +1469,8 @@ function VisualSection({
     logoContainer?: LogoContainerConfig | null;
     bannerConfig?: BannerConfig | null;
     fontFamily?: string | null;
+    background?: InfoLinkBackground | null;
+    popup?: InfoLinkPopup | null;
   };
   primary: string;
   tenantLogoUrl: string | null;
@@ -1473,6 +1479,8 @@ function VisualSection({
     logoContainer?: LogoContainerConfig | null;
     bannerConfig?: BannerConfig | null;
     fontFamily?: string | null;
+    background?: InfoLinkBackground | null;
+    popup?: InfoLinkPopup | null;
   }) => void;
 }) {
   function applyFullLook(id: FullLookId) {
@@ -1591,6 +1599,344 @@ function VisualSection({
           onChange={(next) => onChange({ bannerConfig: next })}
         />
       </div>
+
+      {/* Fondo personalizable (Bloque 1 2026-06-12) */}
+      <div className="border-t border-line pt-5">
+        <BackgroundPanel
+          value={theme.background ?? null}
+          onChange={(next) => onChange({ background: next })}
+        />
+      </div>
+
+      {/* Popup promocional global */}
+      <div className="border-t border-line pt-5">
+        <PopupPanel
+          value={theme.popup ?? null}
+          primary={primary}
+          onChange={(next) => onChange({ popup: next })}
+        />
+      </div>
+    </div>
+  );
+}
+
+// =====================================================
+// BackgroundPanel — fondo sólido / imagen / gradiente
+// =====================================================
+function BackgroundPanel({
+  value,
+  onChange,
+}: {
+  value: InfoLinkBackground | null;
+  onChange: (next: InfoLinkBackground | null) => void;
+}) {
+  const type = value?.type ?? 'NONE';
+
+  function setType(t: 'NONE' | 'SOLID' | 'IMAGE' | 'GRADIENT') {
+    if (t === 'NONE') return onChange(null);
+    if (t === 'SOLID') return onChange({ type: 'SOLID', color: (value as any)?.color ?? '#0F172A' });
+    if (t === 'IMAGE')
+      return onChange({
+        type: 'IMAGE',
+        imageUrl: (value as any)?.imageUrl ?? '',
+        overlay: (value as any)?.overlay ?? 30,
+      });
+    if (t === 'GRADIENT')
+      return onChange({
+        type: 'GRADIENT',
+        from: (value as any)?.from ?? '#22C55E',
+        to: (value as any)?.to ?? '#0EA5E9',
+        angle: (value as any)?.angle ?? 180,
+      });
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h4 className="font-semibold text-sm m-0">Fondo de la página</h4>
+        <div className="text-[11px] text-mute mt-0.5 leading-snug">
+          Reemplaza el fondo por defecto del template con un color, una imagen o un gradiente.
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {(
+          [
+            { id: 'NONE', label: 'Template', hint: 'Por defecto' },
+            { id: 'SOLID', label: 'Color', hint: 'Sólido' },
+            { id: 'IMAGE', label: 'Imagen', hint: 'Foto cover' },
+            { id: 'GRADIENT', label: 'Gradiente', hint: '2 colores' },
+          ] as const
+        ).map((opt) => {
+          const active = type === opt.id;
+          return (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => setType(opt.id)}
+              className={`text-left rounded-lg p-2.5 border transition ${
+                active
+                  ? 'border-brand bg-brand/5 shadow-sm'
+                  : 'border-line hover:border-ink/30'
+              }`}
+            >
+              <div className="font-semibold text-xs">{opt.label}</div>
+              <div className="text-[10px] text-mute mt-0.5">{opt.hint}</div>
+            </button>
+          );
+        })}
+      </div>
+
+      {value?.type === 'SOLID' && (
+        <div>
+          <label className="label">Color sólido</label>
+          <input
+            type="color"
+            value={value.color}
+            onChange={(e) => onChange({ type: 'SOLID', color: e.target.value })}
+            className="w-full h-10 cursor-pointer rounded"
+          />
+        </div>
+      )}
+
+      {value?.type === 'IMAGE' && (
+        <div className="space-y-3">
+          <div>
+            <label className="label">URL de la imagen de fondo</label>
+            <input
+              type="url"
+              className="input"
+              placeholder="https://..."
+              value={value.imageUrl ?? ''}
+              onChange={(e) =>
+                onChange({ ...value, imageUrl: e.target.value })
+              }
+            />
+          </div>
+          <div>
+            <label className="label">
+              Oscurecer ({value.overlay ?? 0}%) — mejor legibilidad
+            </label>
+            <input
+              type="range"
+              min={0}
+              max={80}
+              step={5}
+              value={value.overlay ?? 0}
+              onChange={(e) =>
+                onChange({ ...value, overlay: Number(e.target.value) })
+              }
+              className="w-full"
+            />
+          </div>
+        </div>
+      )}
+
+      {value?.type === 'GRADIENT' && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Color inicial</label>
+              <input
+                type="color"
+                value={value.from}
+                onChange={(e) => onChange({ ...value, from: e.target.value })}
+                className="w-full h-10 cursor-pointer rounded"
+              />
+            </div>
+            <div>
+              <label className="label">Color final</label>
+              <input
+                type="color"
+                value={value.to}
+                onChange={(e) => onChange({ ...value, to: e.target.value })}
+                className="w-full h-10 cursor-pointer rounded"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="label">
+              Ángulo ({value.angle ?? 180}°)
+            </label>
+            <input
+              type="range"
+              min={0}
+              max={360}
+              step={15}
+              value={value.angle ?? 180}
+              onChange={(e) =>
+                onChange({ ...value, angle: Number(e.target.value) })
+              }
+              className="w-full"
+            />
+          </div>
+        </div>
+      )}
+
+      {value && (
+        <div
+          className="h-24 rounded-lg border border-line"
+          style={{
+            background:
+              value.type === 'SOLID'
+                ? value.color
+                : value.type === 'GRADIENT'
+                  ? `linear-gradient(${value.angle ?? 180}deg, ${value.from}, ${value.to})`
+                  : value.type === 'IMAGE' && value.imageUrl
+                    ? `linear-gradient(rgba(0,0,0,${(value.overlay ?? 0) / 100}), rgba(0,0,0,${(value.overlay ?? 0) / 100})), url("${value.imageUrl}") center/cover`
+                    : undefined,
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// =====================================================
+// PopupPanel — popup promocional global
+// =====================================================
+function PopupPanel({
+  value,
+  primary,
+  onChange,
+}: {
+  value: InfoLinkPopup | null;
+  primary: string;
+  onChange: (next: InfoLinkPopup | null) => void;
+}) {
+  const enabled = !!value?.enabled;
+
+  function patch(next: Partial<InfoLinkPopup>) {
+    onChange({
+      enabled: true,
+      delaySeconds: 3,
+      oncePerSession: true,
+      ...(value ?? {}),
+      ...next,
+    });
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h4 className="font-semibold text-sm m-0">Popup promocional</h4>
+          <div className="text-[11px] text-mute mt-0.5 leading-snug">
+            Ventana emergente opcional para promos, descuentos o fidelización.
+            Aparece al entrar a la página después de unos segundos.
+          </div>
+        </div>
+        <label className="inline-flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) =>
+              e.target.checked
+                ? patch({ enabled: true })
+                : onChange({ ...(value ?? { enabled: false }), enabled: false })
+            }
+          />
+          <span className="text-xs font-semibold">
+            {enabled ? 'Activo' : 'Apagado'}
+          </span>
+        </label>
+      </div>
+
+      {enabled && (
+        <div className="space-y-3">
+          <div>
+            <label className="label">Título</label>
+            <input
+              type="text"
+              className="input"
+              maxLength={80}
+              value={value?.title ?? ''}
+              onChange={(e) => patch({ title: e.target.value })}
+              placeholder="Ej: 🎁 ¡15% de descuento!"
+            />
+          </div>
+          <div>
+            <label className="label">Descripción</label>
+            <textarea
+              className="input min-h-[70px]"
+              maxLength={300}
+              value={value?.description ?? ''}
+              onChange={(e) => patch({ description: e.target.value })}
+              placeholder="Detalle del popup"
+            />
+          </div>
+          <div>
+            <label className="label">URL de la imagen (opcional)</label>
+            <input
+              type="url"
+              className="input"
+              placeholder="https://..."
+              value={value?.imageUrl ?? ''}
+              onChange={(e) => patch({ imageUrl: e.target.value })}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Texto del botón</label>
+              <input
+                type="text"
+                className="input"
+                maxLength={40}
+                value={value?.buttonText ?? ''}
+                onChange={(e) => patch({ buttonText: e.target.value })}
+                placeholder="Ver más"
+              />
+            </div>
+            <div>
+              <label className="label">URL del botón</label>
+              <input
+                type="url"
+                className="input"
+                value={value?.buttonUrl ?? ''}
+                onChange={(e) => patch({ buttonUrl: e.target.value })}
+                placeholder="https://..."
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Color del botón</label>
+              <input
+                type="color"
+                className="w-full h-10 cursor-pointer rounded"
+                value={value?.buttonColor ?? primary}
+                onChange={(e) => patch({ buttonColor: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="label">
+                Retraso ({value?.delaySeconds ?? 3}s)
+              </label>
+              <input
+                type="range"
+                min={0}
+                max={20}
+                step={1}
+                value={value?.delaySeconds ?? 3}
+                onChange={(e) =>
+                  patch({ delaySeconds: Number(e.target.value) })
+                }
+                className="w-full"
+              />
+            </div>
+          </div>
+          <label className="inline-flex items-center gap-2 cursor-pointer text-xs">
+            <input
+              type="checkbox"
+              checked={value?.oncePerSession ?? true}
+              onChange={(e) =>
+                patch({ oncePerSession: e.target.checked })
+              }
+            />
+            Mostrar solo 1 vez por sesión
+          </label>
+        </div>
+      )}
     </div>
   );
 }
