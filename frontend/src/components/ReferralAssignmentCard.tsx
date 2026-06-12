@@ -42,6 +42,11 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
   const [options, setOptions] = useState<CodeOption[]>([]);
   const [selected, setSelected] = useState<string>('');
   const [saving, setSaving] = useState(false);
+  // Bloque 4 (2026-06-12): cuando se reasigna a OTRO código, opcional
+  // borrar las comisiones futuras PENDING/APPROVED del afiliado anterior
+  // para que el nuevo afiliado las reciba desde el próximo ciclo.
+  const [deleteFuture, setDeleteFuture] = useState(false);
+  const [reason, setReason] = useState('');
 
   async function load() {
     setLoading(true);
@@ -109,6 +114,40 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
   async function save(nextCodeId: string | null) {
     setSaving(true);
     try {
+      // Si hay assignment actual + nuevo código distinto → usamos el
+      // endpoint de reasignación (Bloque 4 2026-06-12) que mantiene el
+      // referralUseId existente, opcionalmente borra comisiones futuras
+      // y deja audit log. El endpoint legacy (setTenantAssignment)
+      // borraba+recreaba el ReferralUse → perdía historial.
+      if (
+        current &&
+        nextCodeId &&
+        nextCodeId !== current.code.id &&
+        current.referralUseId
+      ) {
+        const res = await api<{ deletedFutureCommissions: number }>(
+          `/referrals/uses/${current.referralUseId}/reassign`,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              newReferralCodeId: nextCodeId,
+              deleteFuturePending: deleteFuture,
+              reason: reason.trim() || undefined,
+            }),
+          },
+        );
+        toast(
+          deleteFuture
+            ? `Reasignado · ${res.deletedFutureCommissions} comisiones futuras borradas`
+            : 'Reasignación completada',
+          'success',
+        );
+        setDeleteFuture(false);
+        setReason('');
+        await load();
+        return;
+      }
+      // Sin asignación previa O quitar asignación → endpoint legacy.
       await api(`/referrals/tenants/${tenantId}/assignment`, {
         method: 'PATCH',
         body: JSON.stringify({ referralCodeId: nextCodeId }),
@@ -188,7 +227,7 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
           disabled={saving || selected === (current?.code.id ?? '')}
           onClick={() => save(selected || null)}
         >
-          {saving ? 'Guardando…' : current ? 'Actualizar' : 'Asignar'}
+          {saving ? 'Guardando…' : current ? 'Reasignar' : 'Asignar'}
         </button>
         {current && (
           <button
@@ -208,6 +247,47 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
           </button>
         )}
       </div>
+
+      {/* Bloque 4 (2026-06-12): cuando hay assignment y se selecciona OTRO
+          código distinto al actual, mostrar opciones avanzadas de
+          reasignación. PAID se mantiene intacta siempre. */}
+      {current && selected && selected !== current.code.id && (
+        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3">
+          <div className="text-xs font-semibold text-amber-900">
+            ⚠️ Estás reasignando este cliente a OTRO afiliado
+          </div>
+          <p className="text-[11px] text-amber-900/80 mt-1 leading-snug">
+            Las comisiones PAID históricas se mantienen intactas siempre.
+          </p>
+          <label className="flex items-start gap-2 mt-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={deleteFuture}
+              onChange={(e) => setDeleteFuture(e.target.checked)}
+              disabled={saving}
+              className="mt-0.5"
+            />
+            <span className="text-xs text-amber-900 leading-snug">
+              Borrar comisiones <strong>PENDING / APPROVED</strong> del
+              afiliado anterior (las próximas comisiones irán al nuevo).
+            </span>
+          </label>
+          <div className="mt-2">
+            <label className="text-[10px] uppercase tracking-wider text-amber-900/70 font-semibold">
+              Motivo (opcional, queda en audit log)
+            </label>
+            <input
+              type="text"
+              className="input mt-1 text-xs"
+              maxLength={200}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Ej: cliente realmente lo trajo X embajador"
+              disabled={saving}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

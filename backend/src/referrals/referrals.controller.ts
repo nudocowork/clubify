@@ -185,6 +185,27 @@ export class ReferralsController {
     return this.svc.reassignAmbassadorParent(user, id, body.newParentId);
   }
 
+  /** Reasignación de un CLIENTE (ReferralUse) a otro código de afiliado
+   *  (Bloque 4 2026-06-12). Atómica + audita en AuditLog. */
+  @Roles('SUPER_ADMIN')
+  @Post('uses/:id/reassign')
+  reassignReferralUse(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body()
+    body: {
+      newReferralCodeId: string;
+      deleteFuturePending?: boolean;
+      reason?: string;
+    },
+  ) {
+    return this.svc.reassignReferralUseToCode(user, id, {
+      newReferralCodeId: body.newReferralCodeId,
+      deleteFuturePending: !!body.deleteFuturePending,
+      reason: body.reason,
+    });
+  }
+
   @Roles('SUPER_ADMIN')
   @Post('socio')
   createOrInviteSocio(
