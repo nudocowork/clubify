@@ -22,6 +22,11 @@ export default function TenantDetail() {
   const [extraLocations, setExtraLocations] = useState<number | ''>('');
   const [saving, setSaving] = useState(false);
   const [actioning, setActioning] = useState(false);
+  // Bloque 3 (2026-06-12): editar brandName desde el admin. Patch
+  // /tenants/:id soporta el campo desde antes — solo faltaba la UI.
+  const [brandEditing, setBrandEditing] = useState(false);
+  const [brandDraft, setBrandDraft] = useState('');
+  const [brandSaving, setBrandSaving] = useState(false);
   // MARKETING ve la página pero sin acciones de billing/status — esos
   // endpoints son SUPER_ADMIN only y mostrarían "Permisos insuficientes"
   // al click. Esconderlos limpia UX en lugar de fallar fuerte.
@@ -46,6 +51,36 @@ export default function TenantDetail() {
   useEffect(() => {
     load();
   }, [id]);
+
+  async function saveBrandName() {
+    const trimmed = brandDraft.trim();
+    if (!trimmed) {
+      toast('El nombre no puede quedar vacío', 'error');
+      return;
+    }
+    if (trimmed.length > 80) {
+      toast('Máximo 80 caracteres', 'error');
+      return;
+    }
+    if (trimmed === t?.brandName) {
+      setBrandEditing(false);
+      return;
+    }
+    setBrandSaving(true);
+    try {
+      await api(`/tenants/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ brandName: trimmed }),
+      });
+      toast('Nombre actualizado', 'success');
+      setBrandEditing(false);
+      await load();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo actualizar', 'error');
+    } finally {
+      setBrandSaving(false);
+    }
+  }
 
   async function save() {
     setSaving(true);
@@ -165,9 +200,55 @@ export default function TenantDetail() {
   return (
     <div className="max-w-4xl">
       <div className="page-head">
-        <h1 className="page-title">
-          {t.brandName} <span className="page-crumb">/ Negocios</span>
-        </h1>
+        {brandEditing ? (
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              autoFocus
+              className="input text-2xl font-bold"
+              style={{ minWidth: 260 }}
+              value={brandDraft}
+              maxLength={80}
+              onChange={(e) => setBrandDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') saveBrandName();
+                if (e.key === 'Escape') setBrandEditing(false);
+              }}
+            />
+            <button
+              type="button"
+              className="btn-primary text-sm"
+              disabled={brandSaving}
+              onClick={saveBrandName}
+            >
+              {brandSaving ? 'Guardando…' : 'Guardar'}
+            </button>
+            <button
+              type="button"
+              className="btn-ghost text-sm"
+              disabled={brandSaving}
+              onClick={() => setBrandEditing(false)}
+            >
+              Cancelar
+            </button>
+          </div>
+        ) : (
+          <h1 className="page-title flex items-center gap-2">
+            {t.brandName} <span className="page-crumb">/ Negocios</span>
+            {isSuperAdmin && (
+              <button
+                type="button"
+                className="text-mute hover:text-ink"
+                title="Editar nombre del negocio"
+                onClick={() => {
+                  setBrandDraft(t.brandName ?? '');
+                  setBrandEditing(true);
+                }}
+              >
+                <Icon name="edit" size={16} />
+              </button>
+            )}
+          </h1>
+        )}
         <button className="btn-ghost" onClick={() => router.push('/admin/tenants')}>
           ← Volver
         </button>

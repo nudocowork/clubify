@@ -264,7 +264,7 @@ function HelpPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
           <div className="text-mute mb-2">¿No encuentras tu respuesta?</div>
           <div className="flex gap-2">
             <a
-              href="https://wa.me/573000000000"
+              href="https://wa.me/573167689240"
               target="_blank"
               rel="noreferrer"
               className="flex-1 inline-flex items-center justify-center gap-1.5 bg-ok text-white font-semibold px-3 py-2 rounded-pill text-xs hover:bg-ok/90"
