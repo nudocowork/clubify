@@ -145,7 +145,11 @@ export default function CommissionsAuditPage() {
       {data && !loading && data.groups.length > 0 && (
         <div className="space-y-3">
           {data.groups.map((g) => (
-            <GroupCard key={`${g.referralUseId}-${g.recipientCode?.code}`} g={g} />
+            <GroupCard
+              key={`${g.referralUseId}-${g.recipientCode?.code}`}
+              g={g}
+              onChanged={load}
+            />
           ))}
         </div>
       )}
@@ -179,7 +183,80 @@ function KpiCard({
   );
 }
 
-function GroupCard({ g }: { g: AuditGroup }) {
+function GroupCard({
+  g,
+  onChanged,
+}: {
+  g: AuditGroup;
+  onChanged: () => void;
+}) {
+  // Selección de filas para mark-rejected (Fase B 2026-06-12).
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+
+  // Solo PENDING/APPROVED son seleccionables. PAID nunca se puede tocar.
+  const selectable = g.commissions.filter(
+    (c) => c.status === 'PENDING' || c.status === 'APPROVED',
+  );
+  const allSelectableIds = selectable.map((c) => c.id);
+
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    if (selected.size === allSelectableIds.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(allSelectableIds));
+    }
+  }
+
+  async function markRejected() {
+    if (selected.size === 0) return;
+    const reason = window.prompt(
+      'Motivo del rechazo (queda en audit log):',
+      'Duplicado detectado en revisión manual',
+    );
+    if (reason === null) return;
+    if (
+      !confirm(
+        `¿Marcar ${selected.size} comision${selected.size === 1 ? '' : 'es'} como REJECTED?\n\n` +
+          'Esta acción NO se puede deshacer desde la UI. PAID nunca se toca.',
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      const res = await api<{
+        updated: number;
+        skippedPaid: number;
+        skippedNotFound: number;
+      }>('/admin/commissions/audit/mark-rejected', {
+        method: 'POST',
+        body: JSON.stringify({
+          ids: Array.from(selected),
+          reason: reason.trim() || undefined,
+        }),
+      });
+      toast(
+        `${res.updated} marcadas REJECTED${res.skippedPaid > 0 ? ` · ${res.skippedPaid} PAID skipped` : ''}`,
+        'success',
+      );
+      setSelected(new Set());
+      onChanged();
+    } catch (e: any) {
+      toast(e?.message ?? 'Error marcando como REJECTED', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="card overflow-hidden">
       <div className="px-4 py-3 bg-bg2 border-b border-line2 flex items-start justify-between gap-3 flex-wrap">
@@ -214,10 +291,43 @@ function GroupCard({ g }: { g: AuditGroup }) {
           </div>
         </div>
       </div>
+
+      {/* Toolbar de bulk action (solo si hay seleccionables) */}
+      {selectable.length > 0 && (
+        <div className="px-4 py-2 bg-white border-b border-line2 flex items-center justify-between gap-2 flex-wrap text-xs">
+          <label className="inline-flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={
+                selected.size === allSelectableIds.length &&
+                allSelectableIds.length > 0
+              }
+              onChange={toggleAll}
+              disabled={busy}
+            />
+            <span className="text-mute">
+              Seleccionar todas las PENDING/APPROVED ({allSelectableIds.length})
+            </span>
+          </label>
+          {selected.size > 0 && (
+            <button
+              type="button"
+              onClick={markRejected}
+              disabled={busy}
+              className="bg-bad text-white font-semibold text-xs px-3 py-1.5 rounded-md hover:bg-bad/90 disabled:opacity-50"
+            >
+              {busy
+                ? 'Marcando…'
+                : `🗑 Marcar ${selected.size} como REJECTED`}
+            </button>
+          )}
+        </div>
+      )}
       <div className="overflow-x-auto">
         <table className="w-full text-[12.5px]">
           <thead className="bg-white border-b border-line2">
             <tr>
+              <th className="px-3 py-2 w-8"></th>
               <th className="text-left px-3 py-2 text-[10px] uppercase tracking-wider text-mute font-semibold">
                 ID
               </th>
@@ -239,8 +349,23 @@ function GroupCard({ g }: { g: AuditGroup }) {
             </tr>
           </thead>
           <tbody>
-            {g.commissions.map((c) => (
-              <tr key={c.id} className="border-b border-line2 last:border-0">
+            {g.commissions.map((c) => {
+              const canSelect =
+                c.status === 'PENDING' || c.status === 'APPROVED';
+              return (
+              <tr key={c.id} className={`border-b border-line2 last:border-0 ${selected.has(c.id) ? 'bg-bad-soft/30' : ''}`}>
+                <td className="px-3 py-2 text-center">
+                  {canSelect ? (
+                    <input
+                      type="checkbox"
+                      checked={selected.has(c.id)}
+                      onChange={() => toggle(c.id)}
+                      disabled={busy}
+                    />
+                  ) : (
+                    <span className="text-mute2 text-xs" title="PAID no se puede tocar">🔒</span>
+                  )}
+                </td>
                 <td className="px-3 py-2 font-mono text-[11px]">
                   {c.id.slice(0, 8)}
                 </td>
@@ -283,7 +408,8 @@ function GroupCard({ g }: { g: AuditGroup }) {
                     : '—'}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
