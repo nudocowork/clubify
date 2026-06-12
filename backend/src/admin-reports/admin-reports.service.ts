@@ -868,6 +868,14 @@ export class AdminReportsService {
       ANUAL: { months: 12, label: 'Anual', bundlePrice: landingPlans.anual.price },
     };
 
+    // ALTO #1 + #2 (2026-06-12): tenants con planPeriodicity=null se
+    // tratan como MENSUAL (misma convención que tenants.service.list y
+    // periodLabel). Antes el lookup en PERIODS devolvía undefined → el
+    // tenant quedaba excluido del MRR y de billedUsd. Resultado:
+    // subestimación de métricas.
+    const normalizePeriod = (p: string | null | undefined): string =>
+      p && PERIODS[p.toUpperCase()] ? p.toUpperCase() : 'MENSUAL';
+
     const [
       activeTenantsForPricing,
       newCustomersCurrent,
@@ -896,6 +904,7 @@ export class AdminReportsService {
           id: true,
           planPeriodicity: true,
           currentPeriodEnd: true,
+          createdAt: true,
         },
       }),
       // FIX 2026-06-07: clientes nuevos = solo ACTIVE creados en el
@@ -1012,10 +1021,11 @@ export class AdminReportsService {
     // por tenant ACTIVE. Mensual aporta 68; Trimestral 150/3=50;
     // Semestral 278/6=46.33; Anual 500/12=41.67. Antes sumábamos
     // priceMonthly (incorrecto: daba 99 × N).
+    // ALTO #1 (2026-06-12): tenants con planPeriodicity=null ahora se
+    // tratan como MENSUAL en vez de excluirse → métricas reales.
     const mrrUsd = round2(
       activeTenantsForPricing.reduce((s, t) => {
-        const period = PERIODS[t.planPeriodicity ?? ''];
-        if (!period) return s;
+        const period = PERIODS[normalizePeriod(t.planPeriodicity)];
         return s + period.bundlePrice / period.months;
       }, 0),
     );
@@ -1035,16 +1045,28 @@ export class AdminReportsService {
 
     // FIX 2026-06-07: billedUsd del RANGO. "Pagó en el rango" ≈ tiene
     // currentPeriodEnd - bundleMonths dentro del rango. Sumamos
-    // bundlePrice por cada match. Backward compat: si no hay
-    // currentPeriodEnd, lo aproximamos con createdAt.
+    // bundlePrice por cada match.
+    //
+    // ALTO #2 (2026-06-12): tenants con currentPeriodEnd null ahora
+    // usan createdAt como aproximación (asumiendo que el pago inicial
+    // = createdAt). Antes se excluían silenciosamente → métricas
+    // sub-estimadas. planPeriodicity null → MENSUAL.
     let billedUsd = 0;
     for (const t of activeTenantsForPricing) {
-      const period = PERIODS[t.planPeriodicity ?? ''];
-      if (!period) continue;
-      const cpe = t.currentPeriodEnd;
-      if (!cpe) continue;
-      const lastPaymentApprox = new Date(cpe);
-      lastPaymentApprox.setMonth(lastPaymentApprox.getMonth() - period.months);
+      const period = PERIODS[normalizePeriod(t.planPeriodicity)];
+      const cpe = t.currentPeriodEnd ?? null;
+      // Si no hay currentPeriodEnd, aproximamos: el pago inicial ocurrió
+      // en createdAt. Para tenants viejos sin Hotmart wire-up esto da
+      // una cota inferior razonable.
+      const lastPaymentApprox = cpe
+        ? new Date(cpe)
+        : t.createdAt
+          ? new Date(t.createdAt)
+          : null;
+      if (cpe) lastPaymentApprox?.setMonth(
+        (lastPaymentApprox as Date).getMonth() - period.months,
+      );
+      if (!lastPaymentApprox) continue;
       if (
         lastPaymentApprox.getTime() >= from.getTime() &&
         lastPaymentApprox.getTime() <= to.getTime()

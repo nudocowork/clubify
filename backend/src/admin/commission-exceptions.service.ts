@@ -185,6 +185,11 @@ export class CommissionExceptionsService {
       SEMESTRAL: landingPlans.semestral.price,
       ANUAL: landingPlans.anual.price,
     };
+    // ALTO #3 (2026-06-12): tenants con planPeriodicity=null daban
+    // bundlePrice=0 → revenueUsd=0 con commissionsUsd>0 → netUsd
+    // negativo aparente. Convención: null = MENSUAL.
+    const normalizePeriod = (p: string | null | undefined): string =>
+      p && BUNDLE[p.toUpperCase()] ? p.toUpperCase() : 'MENSUAL';
 
     // Tenants info para bundle calc + commissions agrupadas por tenant.
     const tenantDetails = tenantIds.length
@@ -266,7 +271,7 @@ export class CommissionExceptionsService {
 
     // Revenue por tenant = bundlePrice × cycles.
     for (const [tid, bk] of breakdownByTenant) {
-      const period = (tenantPeriodMap.get(tid) ?? '').toUpperCase();
+      const period = normalizePeriod(tenantPeriodMap.get(tid));
       const bundlePrice = BUNDLE[period] ?? 0;
       bk.revenueUsd = round2(bundlePrice * bk.cyclesCount);
       bk.commissionsUsd = round2(bk.commissionsUsd);
