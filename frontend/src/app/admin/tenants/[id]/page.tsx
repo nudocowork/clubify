@@ -480,7 +480,82 @@ export default function TenantDetail() {
 
         {isSuperAdmin && <AcademyTogglesCard tenant={t} onSaved={load} />}
 
+        {isSuperAdmin && <WalletsGlobalRefreshCard tenantId={t.id} />}
+
         {isSuperAdmin && <HotmartSimulatorCard tenant={t} onChange={load} />}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+//   Refresh global wallets — Bloque 11/D (2026-06-12)
+//   Botón que encola un push update para TODOS los passes
+//   activos del tenant. Útil tras cambios de branding.
+// ============================================================
+
+function WalletsGlobalRefreshCard({ tenantId }: { tenantId: string }) {
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<{
+    total: number;
+    enqueued: number;
+  } | null>(null);
+
+  async function trigger() {
+    if (
+      !confirm(
+        '¿Encolar refresh de TODAS las wallets activas de este negocio?\n\n' +
+          'Esto NO modifica sellos / puntos / beneficios — solo le pide a ' +
+          'Apple / Google que vuelvan a descargar el .pkpass actualizado ' +
+          '(útil tras cambios de branding o diseño). Cada wallet recibe ' +
+          'un silent push en background.',
+      )
+    )
+      return;
+    setRunning(true);
+    setResult(null);
+    try {
+      const res = await api<{ total: number; enqueued: number }>(
+        `/passes/refresh-all/${tenantId}`,
+        { method: 'POST' },
+      );
+      setResult(res);
+      toast(
+        `${res.enqueued} / ${res.total} wallets encoladas para refresh`,
+        'success',
+      );
+    } catch (e: any) {
+      toast(e.message || 'No se pudo disparar el refresh', 'error');
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="card card-pad">
+      <h2 className="text-base font-semibold m-0 flex items-center gap-2">
+        🔁 Refresh global de wallets
+      </h2>
+      <p className="text-xs text-mute mt-1 leading-relaxed">
+        Encola un push update para todas las wallets activas del negocio.
+        Útil tras cambiar branding (logo, colores, strip). No modifica sellos
+        ni beneficios — solo re-sincroniza el diseño del .pkpass.
+      </p>
+      {result && (
+        <div className="mt-3 text-sm rounded-lg px-3 py-2 bg-ok-soft text-ok-ink">
+          {result.enqueued} de {result.total} wallets encoladas correctamente.
+          El refresh corre en background (1-2 min en tenants grandes).
+        </div>
+      )}
+      <div className="mt-4 flex justify-end">
+        <button
+          type="button"
+          onClick={trigger}
+          disabled={running}
+          className="btn-primary text-sm"
+        >
+          {running ? 'Encolando…' : '🔁 Refrescar todas las wallets'}
+        </button>
       </div>
     </div>
   );
