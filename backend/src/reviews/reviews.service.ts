@@ -341,11 +341,16 @@ export class ReviewsService {
     return user.tenantId;
   }
 
-  /** Lista feedback recibido + KPIs del tenant. */
-  async listMine(user: AuthUser, override?: string) {
+  /** Lista feedback recibido + KPIs del tenant. Soporta filtro por
+   *  sede vía `targetId` (Bloque H 2026-06-12). Si targetId='' o no se
+   *  pasa, retorna todas las sedes consolidadas. */
+  async listMine(user: AuthUser, override?: string, targetId?: string) {
     const tid = this.tid(user, override);
     const items = await this.prisma.reviewFeedback.findMany({
-      where: { tenantId: tid },
+      where: {
+        tenantId: tid,
+        ...(targetId ? { reviewTargetId: targetId } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       take: 200,
     });

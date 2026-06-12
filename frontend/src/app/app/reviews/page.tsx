@@ -50,8 +50,13 @@ export default function ReviewsPage() {
   async function load() {
     setLoading(true);
     try {
+      // Bloque H 2026-06-12: cuando hay sede seleccionada, pasamos
+      // ?targetId= para que el backend filtre stats + items por sede.
+      const reviewsUrl = selectedLocationId
+        ? `/reviews?targetId=${encodeURIComponent(selectedLocationId)}`
+        : '/reviews';
       const [r, me, locs] = await Promise.all([
-        api<Resp>('/reviews'),
+        api<Resp>(reviewsUrl),
         api<any>('/tenants/me'),
         api<ReviewLocation[]>('/review-locations').catch(() => []),
       ]);
@@ -67,7 +72,8 @@ export default function ReviewsPage() {
   }
   useEffect(() => {
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedLocationId]);
 
   // Sede seleccionada (si hay).
   const selectedLocation = useMemo(
@@ -167,8 +173,8 @@ export default function ReviewsPage() {
           </select>
           <div className="text-xs text-mute flex-1 min-w-[200px]">
             {selectedLocation
-              ? 'El link y QR de abajo apuntan a esta sede.'
-              : 'Mostrando link genérico (el cliente elige sede al abrir).'}
+              ? 'Link, QR, estadísticas y feedback abajo filtrados a esta sede.'
+              : 'Mostrando link genérico (el cliente elige sede al abrir). Stats consolidadas de todas las sedes.'}
           </div>
         </div>
       )}
