@@ -421,6 +421,69 @@ export default function PlanoPage() {
 
 // ============ Operation View ============
 
+// ============ Operation View — Premium Pulido (mapa fotorealista) ============
+// Renderiza un plano cenital con paredes, sombras, ventanas en zonas
+// outdoor, plantas decorativas, puerta de entrada. Cada zona se dibuja
+// como una "habitación" con bounding box computado a partir de las
+// posiciones de las mesas. Las mesas usan posX/posY del DB para
+// posicionamiento absoluto.
+
+const PREMIUM_CANVAS_H = 580;
+const ZONE_PADDING = 36;
+
+/** Bounding box de una zona = mín/máx de las mesas dentro + padding. */
+function computeZoneBox(tablesInZone: Table[]) {
+  if (tablesInZone.length === 0) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const t of tablesInZone) {
+    const dims = tableDims(t);
+    if (t.posX < minX) minX = t.posX;
+    if (t.posY < minY) minY = t.posY;
+    if (t.posX + dims.w > maxX) maxX = t.posX + dims.w;
+    if (t.posY + dims.h > maxY) maxY = t.posY + dims.h;
+  }
+  return {
+    x: Math.max(0, minX - ZONE_PADDING),
+    y: Math.max(0, minY - ZONE_PADDING),
+    w: maxX - minX + ZONE_PADDING * 2,
+    h: maxY - minY + ZONE_PADDING * 2,
+  };
+}
+
+const ZONE_WALL_STYLE: Record<string, { bg: string; border: string; dashed: boolean; emphasis: boolean; label: string }> = {
+  INDOOR: {
+    bg: 'rgba(34,197,94,0.04)',
+    border: '#0f172a',
+    dashed: false,
+    emphasis: false,
+    label: '#0f172a',
+  },
+  OUTDOOR: {
+    bg: 'rgba(59,130,246,0.05)',
+    border: '#0f172a',
+    dashed: true, // dashed = exterior
+    emphasis: false,
+    label: '#0f172a',
+  },
+  BAR: {
+    bg: 'rgba(249,115,22,0.04)',
+    border: '#0f172a',
+    dashed: false,
+    emphasis: false,
+    label: '#0f172a',
+  },
+  PRIVATE: {
+    bg: 'rgba(139,92,246,0.06)',
+    border: '#0f172a',
+    dashed: false,
+    emphasis: true,
+    label: '#0f172a',
+  },
+};
+
 function OperationView({
   zones,
   orphanTables,
@@ -446,97 +509,163 @@ function OperationView({
       </div>
     );
   }
+
+  // Detectar si las mesas no fueron acomodadas (todas en posición
+  // default ~60,60). Avisar al user que vaya al editor.
+  const stackedAtDefault = tables.length > 1 && tables.every((t) => t.posX < 80 && t.posY < 80);
+
   return (
-    <div className="space-y-3">
-      {zones.map((zone) => {
-        const zoneTables = tables.filter((t) => t.zoneId === zone.id);
-        const style = ZONE_BG[zone.type] ?? ZONE_BG.INDOOR;
-        return (
-          <div
-            key={zone.id}
-            className="rounded-2xl p-4"
-            style={{ background: style.bg, border: `1px solid ${style.border}` }}
-          >
-            <div
-              className="text-[10px] font-bold tracking-[0.18em] uppercase mb-3"
-              style={{ color: style.label }}
-            >
-              {zone.name}
-              <span className="ml-2 opacity-60">· {zoneTables.length} mesa{zoneTables.length === 1 ? '' : 's'}</span>
-            </div>
-            {zoneTables.length === 0 ? (
-              <p className="text-xs text-mute italic">Sin mesas en esta zona.</p>
-            ) : (
-              <div className="flex flex-wrap gap-3">
-                {zoneTables.map((t) => (
-                  <MesaCircle
-                    key={t.id}
-                    table={t}
-                    state={mesaStates.get(t.id)?.state ?? 'libre'}
-                    selected={t.id === selectedId}
-                    onClick={() => onSelect(t.id)}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      })}
-      {orphanTables.length > 0 && (
-        <div className="rounded-2xl p-4 bg-bg2/40 border border-line">
-          <div className="text-[10px] font-bold tracking-[0.18em] uppercase mb-3 text-mute">
-            Sin zona · {orphanTables.length} mesa{orphanTables.length === 1 ? '' : 's'}
-          </div>
-          <div className="flex flex-wrap gap-3">
-            {orphanTables.map((t) => (
-              <MesaCircle
-                key={t.id}
-                table={t}
-                state={mesaStates.get(t.id)?.state ?? 'libre'}
-                selected={t.id === selectedId}
-                onClick={() => onSelect(t.id)}
-              />
-            ))}
+    <div>
+      {stackedAtDefault && (
+        <div className="mb-3 rounded-lg p-3 text-xs flex items-start gap-2" style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e' }}>
+          <span className="shrink-0">💡</span>
+          <div className="leading-snug">
+            Tus mesas están apiladas en la esquina. Cambia al modo{' '}
+            <strong>Editor</strong> y arrástralas para acomodar el plano real del local.
           </div>
         </div>
       )}
-    </div>
-  );
-}
+      <div
+        className="relative rounded-2xl overflow-hidden mx-auto"
+        style={{
+          background: '#fafaf9',
+          backgroundImage:
+            'linear-gradient(45deg, #f1f5f4 25%, transparent 25%), linear-gradient(-45deg, #f1f5f4 25%, transparent 25%)',
+          backgroundSize: '20px 20px',
+          height: PREMIUM_CANVAS_H,
+          boxShadow: 'inset 0 0 80px rgba(0,0,0,0.04)',
+        }}
+      >
+        {/* Paredes y plantas/ventanas de cada zona */}
+        {zones.map((zone) => {
+          const zoneTables = tables.filter((t) => t.zoneId === zone.id);
+          if (zoneTables.length === 0) return null;
+          const box = computeZoneBox(zoneTables);
+          if (!box) return null;
+          const wallStyle = ZONE_WALL_STYLE[zone.type] ?? ZONE_WALL_STYLE.INDOOR;
+          const isOutdoor = zone.type === 'OUTDOOR';
+          return (
+            <div key={zone.id}>
+              {/* Wall + bg */}
+              <div
+                className="absolute"
+                style={{
+                  left: box.x,
+                  top: box.y,
+                  width: box.w,
+                  height: box.h,
+                  background: wallStyle.bg,
+                  border: wallStyle.dashed ? `2px dashed ${wallStyle.border}` : `3px solid ${wallStyle.border}`,
+                  borderRadius: 4,
+                }}
+              />
+              {/* Etiqueta de zona */}
+              <div
+                className="absolute bg-white px-2 text-[10px] font-bold tracking-wider shadow-sm whitespace-nowrap"
+                style={{
+                  left: box.x + 12,
+                  top: box.y - 9,
+                  color: wallStyle.label,
+                }}
+              >
+                {zone.name.toUpperCase()}
+              </div>
+              {/* Ventanas en pared exterior (sólo OUTDOOR) */}
+              {isOutdoor &&
+                Array.from({ length: Math.max(2, Math.floor(box.w / 80)) }).map((_, i, arr) => (
+                  <div
+                    key={`win-${i}`}
+                    className="absolute"
+                    style={{
+                      left: box.x + (box.w / (arr.length + 1)) * (i + 1) - 15,
+                      top: box.y - 2,
+                      width: 30,
+                      height: 4,
+                      background: '#94a3b8',
+                    }}
+                  />
+                ))}
+              {/* Plantas decorativas en OUTDOOR */}
+              {isOutdoor && (
+                <>
+                  <div className="absolute" style={{ left: box.x + 8, top: box.y + 10, fontSize: 14, pointerEvents: 'none' }}>
+                    🌿
+                  </div>
+                  <div
+                    className="absolute"
+                    style={{
+                      left: box.x + box.w - 22,
+                      top: box.y + box.h - 24,
+                      fontSize: 14,
+                      pointerEvents: 'none',
+                    }}
+                  >
+                    🌿
+                  </div>
+                </>
+              )}
+              {/* Corona para PRIVATE/VIP */}
+              {wallStyle.emphasis && (
+                <div
+                  className="absolute"
+                  style={{
+                    left: box.x + box.w - 28,
+                    top: box.y + 8,
+                    fontSize: 14,
+                    pointerEvents: 'none',
+                  }}
+                >
+                  👑
+                </div>
+              )}
+            </div>
+          );
+        })}
 
-function MesaCircle({
-  table,
-  state,
-  selected,
-  onClick,
-}: {
-  table: Table;
-  state: MesaState;
-  selected: boolean;
-  onClick: () => void;
-}) {
-  const style = STATE_STYLES[state];
-  const isRound = table.shape === 'ROUND';
-  const isBar = table.shape === 'BAR';
-  const size = isRound ? (table.seats <= 2 ? 56 : table.seats <= 4 ? 64 : 80) : 0;
-  return (
-    <button
-      onClick={onClick}
-      className="relative inline-flex flex-col items-center justify-center font-bold transition shrink-0"
-      style={{
-        width: isRound ? size : isBar ? 130 : 100,
-        height: isRound ? size : isBar ? 48 : 60,
-        borderRadius: isRound ? '50%' : 12,
-        background: style.bg,
-        border: `2px solid ${selected ? '#0f172a' : style.border}`,
-        boxShadow: selected ? '0 0 0 3px rgba(15,23,42,0.15)' : 'none',
-        color: style.text,
-      }}
-      title={`Mesa ${table.number} · ${state}`}
-    >
-      <span className="text-sm leading-none">{table.number}</span>
-      <span className="text-[10px] leading-none mt-0.5 opacity-90">{table.seats}p</span>
-    </button>
+        {/* Mesas — encima de las paredes */}
+        {tables.map((t) => {
+          const dims = tableDims(t);
+          const meta = mesaStates.get(t.id);
+          const state = meta?.state ?? 'libre';
+          const style = STATE_STYLES[state];
+          const isRound = dims.isRound;
+          const selected = t.id === selectedId;
+          return (
+            <button
+              key={t.id}
+              onClick={() => onSelect(t.id)}
+              className="absolute flex flex-col items-center justify-center font-bold transition"
+              style={{
+                left: t.posX,
+                top: t.posY,
+                width: dims.w,
+                height: dims.h,
+                borderRadius: isRound ? '50%' : 12,
+                background: style.bg,
+                border: `2px solid ${selected ? '#0f172a' : style.border}`,
+                color: style.text,
+                boxShadow: selected
+                  ? '0 0 0 3px rgba(15,23,42,0.15), 0 4px 12px rgba(0,0,0,0.12)'
+                  : '0 2px 4px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.08)',
+                cursor: 'pointer',
+                userSelect: 'none',
+              }}
+              title={`Mesa ${t.number} · ${state}`}
+            >
+              <span className="text-sm leading-none">{t.number}</span>
+              <span className="text-[10px] leading-none mt-0.5 opacity-90">{t.seats}p</span>
+            </button>
+          );
+        })}
+
+        {/* Puerta de entrada */}
+        <div className="absolute" style={{ bottom: 8, left: '50%', transform: 'translateX(-50%)' }}>
+          <div className="flex items-center gap-1 bg-white px-3 py-1.5 rounded-full shadow-lg border border-line">
+            <span className="text-xs font-bold tracking-wider text-ink">↑ ENTRADA</span>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
