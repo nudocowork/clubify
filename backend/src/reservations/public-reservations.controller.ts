@@ -1,4 +1,15 @@
-import { Body, Controller, Get, NotFoundException, Param, Post } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  DefaultValuePipe,
+  Get,
+  NotFoundException,
+  Param,
+  ParseIntPipe,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { IsEmail, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 import { ReservationsService } from './reservations.service';
@@ -57,6 +68,38 @@ export class PublicReservationsController {
       // las reservas existentes para esa fecha + capacidad de mesas.
       defaultSlots: ['13:00', '13:30', '14:00', '14:30', '21:00', '21:30', '22:00'],
     };
+  }
+
+  /** Disponibilidad de slots para (date, party, zoneSlug?). Throttle ligero
+   *  porque el wizard puede chequear varias veces al cambiar fecha. */
+  @Get(':slug/availability')
+  @Public()
+  async availability(
+    @Param('slug') slug: string,
+    @Query('date') date: string,
+    @Query('party', new DefaultValuePipe(2), ParseIntPipe) party: number,
+    @Query('zoneSlug') zoneSlug?: string,
+  ) {
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      throw new BadRequestException('date YYYY-MM-DD requerido');
+    }
+    const t = await this.prisma.tenant.findUnique({
+      where: { slug },
+      select: { id: true, status: true, reservationsEnabled: true },
+    });
+    if (!t || t.status === 'SUSPENDED' || !t.reservationsEnabled) {
+      throw new NotFoundException('Reservas no disponibles');
+    }
+    let zoneId: string | null = null;
+    if (zoneSlug) {
+      const z = await this.prisma.reservationZone.findFirst({
+        where: { tenantId: t.id, slug: zoneSlug, isActive: true },
+        select: { id: true },
+      });
+      zoneId = z?.id ?? null;
+    }
+    const slots = await this.svc.getAvailability(t.id, date, party, zoneId);
+    return { date, party, zoneSlug: zoneSlug ?? null, slots };
   }
 
   /** Crea reserva pública. Throttle ajustado: 5 por minuto desde la

@@ -1,4 +1,11 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ReservationStatus, ReservationChannel } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
@@ -201,20 +208,31 @@ export class ReservationsService {
     });
   }
 
-  async create(user: AuthUser, dto: ReservationDto, override?: string) {
+  async create(user: AuthUser, dto: ReservationDto, override?: string, opts?: { force?: boolean }) {
     const tid = this.tid(user, override);
-    return this.createForTenant(tid, dto, dto.channel ?? 'PHONE', { notify: true });
+    return this.createForTenant(tid, dto, dto.channel ?? 'PHONE', {
+      notify: true,
+      skipCapacityCheck: opts?.force === true,
+    });
   }
 
   /** Crea reserva para un tenant — usado por admin y por endpoint público.
-   *  Encadena: findOrCreate Customer por phone, crea reservation, notifica. */
+   *  Encadena: validación de slot, findOrCreate Customer por phone, crea
+   *  reservation, notifica. */
   async createForTenant(
     tenantId: string,
     dto: ReservationDto,
     channel: ReservationChannel,
-    opts: { notify: boolean },
+    opts: { notify: boolean; skipCapacityCheck?: boolean },
   ) {
     this.assertValidDto(dto);
+
+    // Validación de capacidad / slot. Skip si admin lo desactiva
+    // explícitamente (e.g. fuerza una reserva fuera de horario).
+    if (!opts.skipCapacityCheck) {
+      await this.assertSlotAvailable(tenantId, dto.date, dto.time, dto.zoneId ?? null, dto.party);
+    }
+
     // FindOrCreate Customer por phone (CRM enrichment)
     const phone = dto.customerPhone.trim();
     const customer = await this.findOrCreateCustomer(tenantId, phone, dto.customerName.trim(), dto.customerEmail);
@@ -329,6 +347,145 @@ export class ReservationsService {
       }
       throw e;
     }
+  }
+
+  // ============================================================
+  //                      SLOT CAPACITY / AVAILABILITY
+  // ============================================================
+
+  /** Ventana en minutos durante la cual una reserva "ocupa" la zona/mesa.
+   *  Una reserva a las 13:00 bloquea capacidad entre [11:30, 14:30) — es
+   *  decir, otras reservas dentro de esa ventana cuentan al sumar
+   *  occupancy. 90 min es el turnover típico de restaurante. */
+  private static readonly SLOT_WINDOW_MIN = 90;
+
+  /** Default slots públicos. Idénticos a los del controller para que
+   *  availability pueda chequear todos los slots de un día sin hardcode
+   *  duplicado. */
+  private static readonly DEFAULT_SLOTS = [
+    '13:00', '13:30', '14:00', '14:30', '21:00', '21:30', '22:00',
+  ];
+
+  /** Suma de seats de mesas activas y no bloqueadas. Si zoneId es null,
+   *  cuenta todas las mesas del tenant. Si la zona no tiene mesas (o el
+   *  tenant no tiene mesas configuradas), retorna 0. */
+  private async getCapacity(tenantId: string, zoneId: string | null): Promise<number> {
+    const tables = await this.prisma.reservationTable.findMany({
+      where: {
+        tenantId,
+        isActive: true,
+        isBlocked: false,
+        ...(zoneId ? { zoneId } : {}),
+      },
+      select: { seats: true },
+    });
+    return tables.reduce((acc, t) => acc + (t.seats || 0), 0);
+  }
+
+  /** Suma de party de reservas que solapan con (date, time) por menos de
+   *  SLOT_WINDOW_MIN. Solo cuenta status activos (no CANCELLED/COMPLETED/
+   *  NO_SHOW). Si zoneId está provisto, solo cuenta reservas en esa zona o
+   *  sin zona asignada (porque ocupan capacidad global). Si zoneId es
+   *  null, cuenta todas las reservas activas del día. */
+  private async getOccupancy(
+    tenantId: string,
+    date: string,
+    time: string,
+    zoneId: string | null,
+    excludeReservationId?: string,
+  ): Promise<number> {
+    const [y, m, d] = date.split('-').map(Number);
+    const start = new Date(Date.UTC(y, m - 1, d, 0, 0, 0));
+    const end = new Date(Date.UTC(y, m - 1, d, 23, 59, 59));
+    const reservations = await this.prisma.reservation.findMany({
+      where: {
+        tenantId,
+        date: { gte: start, lte: end },
+        status: { in: ['PENDING', 'CONFIRMED', 'SEATED'] },
+        ...(excludeReservationId ? { id: { not: excludeReservationId } } : {}),
+      },
+      select: { id: true, time: true, party: true, zoneId: true },
+    });
+    const slotMin = ReservationsService.toMinutes(time);
+    return reservations
+      .filter((r) => {
+        // Filtrar por zona: si pedimos availability con zoneId, solo
+        // suman las reservas en esa zona. Si pedimos global (zoneId null),
+        // suman todas.
+        if (zoneId && r.zoneId && r.zoneId !== zoneId) return false;
+        // Filtrar por ventana de tiempo.
+        const diff = Math.abs(ReservationsService.toMinutes(r.time) - slotMin);
+        return diff < ReservationsService.SLOT_WINDOW_MIN;
+      })
+      .reduce((acc, r) => acc + r.party, 0);
+  }
+
+  private static toMinutes(time: string): number {
+    const [h, m] = time.split(':').map(Number);
+    return h * 60 + m;
+  }
+
+  /** Lanza ConflictException 409 si no hay capacidad para `party` en
+   *  (date, time, zoneId). Si el tenant no tiene mesas configuradas la
+   *  validación se salta (bootstrap mode — sigue permitiendo reservas). */
+  async assertSlotAvailable(
+    tenantId: string,
+    date: string,
+    time: string,
+    zoneId: string | null,
+    party: number,
+  ): Promise<void> {
+    const capacity = await this.getCapacity(tenantId, zoneId);
+    if (capacity === 0) {
+      // Si pidieron zona específica y la zona no tiene mesas → conflict.
+      // Si pidieron global y el tenant no tiene NINGUNA mesa → bootstrap,
+      // dejamos pasar (caso de tenant recién activado).
+      if (zoneId) {
+        throw new ConflictException('Esta zona no tiene mesas disponibles');
+      }
+      this.logger.warn(
+        `Tenant ${tenantId} sin mesas configuradas — saltando validación de slot`,
+      );
+      return;
+    }
+    const occupied = await this.getOccupancy(tenantId, date, time, zoneId);
+    const remaining = capacity - occupied;
+    if (remaining < party) {
+      throw new ConflictException(
+        remaining > 0
+          ? `Solo quedan ${remaining} lugares en este horario. Probá otra hora.`
+          : 'Este horario está completo. Probá otra hora.',
+      );
+    }
+  }
+
+  /** Devuelve disponibilidad por slot para una fecha + party. Para cada
+   *  slot del DEFAULT_SLOTS calcula capacity - occupancy y marca como
+   *  available si remaining >= party. Si no hay mesas configuradas se
+   *  marca todo como available (bootstrap mode). */
+  async getAvailability(
+    tenantId: string,
+    date: string,
+    party: number,
+    zoneId: string | null = null,
+  ): Promise<{ time: string; available: boolean; remaining: number }[]> {
+    const capacity = await this.getCapacity(tenantId, zoneId);
+    if (capacity === 0) {
+      // Bootstrap: sin mesas, todo available (la validación misma se salta).
+      return ReservationsService.DEFAULT_SLOTS.map((time) => ({
+        time,
+        available: true,
+        remaining: 99,
+      }));
+    }
+    const results = await Promise.all(
+      ReservationsService.DEFAULT_SLOTS.map(async (time) => {
+        const occupied = await this.getOccupancy(tenantId, date, time, zoneId);
+        const remaining = Math.max(0, capacity - occupied);
+        return { time, available: remaining >= party, remaining };
+      }),
+    );
+    return results;
   }
 
   /** Manda WhatsApp/SMS al tenant owner avisando de la reserva nueva.

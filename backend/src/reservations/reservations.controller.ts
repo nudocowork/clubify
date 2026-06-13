@@ -1,4 +1,15 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  DefaultValuePipe,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import {
   IsBoolean,
   IsEmail,
@@ -103,9 +114,35 @@ export class ReservationsController {
     return this.svc.list(user, { date, status }, tenantId);
   }
 
+  /** Disponibilidad por slot — útil para el admin antes de crear una
+   *  reserva manual. zoneId opcional. force=true permite ignorar el check
+   *  al crear (POST). */
+  @Get('availability')
+  async availability(
+    @CurrentUser() user: AuthUser,
+    @Query('date') date: string,
+    @Query('party', new DefaultValuePipe(2)) party: string,
+    @Query('zoneId') zoneId?: string,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      throw new BadRequestException('date YYYY-MM-DD requerido');
+    }
+    const tid = user.role === 'SUPER_ADMIN' ? tenantId : user.tenantId;
+    if (!tid) throw new BadRequestException('tenantId requerido');
+    const partyNum = Math.max(1, parseInt(party, 10) || 2);
+    const slots = await this.svc.getAvailability(tid, date, partyNum, zoneId ?? null);
+    return { date, party: partyNum, zoneId: zoneId ?? null, slots };
+  }
+
   @Post()
-  create(@CurrentUser() user: AuthUser, @Body() body: ReservationBody, @Query('tenantId') tenantId?: string) {
-    return this.svc.create(user, body, tenantId);
+  create(
+    @CurrentUser() user: AuthUser,
+    @Body() body: ReservationBody,
+    @Query('tenantId') tenantId?: string,
+    @Query('force') force?: string,
+  ) {
+    return this.svc.create(user, body, tenantId, { force: force === 'true' });
   }
 
   @Patch(':id')

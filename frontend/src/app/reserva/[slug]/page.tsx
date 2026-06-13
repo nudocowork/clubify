@@ -25,6 +25,8 @@ function nextDates(n = 7) {
   return out;
 }
 
+type SlotAvailability = { time: string; available: boolean; remaining: number };
+
 export default function PublicReservation() {
   const { slug } = useParams<{ slug: string }>();
   const [info, setInfo] = useState<Info | null>(null);
@@ -39,6 +41,8 @@ export default function PublicReservation() {
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [confirmation, setConfirmation] = useState<any>(null);
+  const [availability, setAvailability] = useState<SlotAvailability[] | null>(null);
+  const [loadingSlots, setLoadingSlots] = useState(false);
 
   useEffect(() => {
     const API = process.env.NEXT_PUBLIC_API_URL ?? '';
@@ -50,6 +54,29 @@ export default function PublicReservation() {
       .then((data) => setInfo(data))
       .catch(() => setError('Este negocio aún no tiene reservas online activadas.'));
   }, [slug]);
+
+  /** Refetch availability cuando cambian (party, date). Si el slot
+   *  actualmente elegido queda no-disponible se deselecciona. */
+  useEffect(() => {
+    if (!info) return;
+    const API = process.env.NEXT_PUBLIC_API_URL ?? '';
+    setLoadingSlots(true);
+    const url = `${API}/api/public/reservations/${slug}/availability?date=${date}&party=${party}${
+      zoneSlug ? `&zoneSlug=${zoneSlug}` : ''
+    }`;
+    fetch(url)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data?.slots) {
+          setAvailability(data.slots);
+          if (time && !data.slots.find((s: SlotAvailability) => s.time === time && s.available)) {
+            setTime(null);
+          }
+        }
+      })
+      .catch(() => setAvailability(null))
+      .finally(() => setLoadingSlots(false));
+  }, [info, slug, date, party, zoneSlug]);
 
   if (error) {
     return (
@@ -170,21 +197,41 @@ export default function PublicReservation() {
                 ))}
               </div>
 
-              <h2 className="text-sm font-semibold mb-2">Hora</h2>
-              <div className="grid grid-cols-3 gap-2 mb-2">
-                {info.defaultSlots.map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => setTime(s)}
-                    className={`py-2 rounded-lg font-semibold text-sm ${
-                      time === s ? 'text-white' : 'bg-white border border-line text-ink'
-                    }`}
-                    style={time === s ? { background: primary } : {}}
-                  >
-                    {s}
-                  </button>
-                ))}
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-sm font-semibold m-0">Hora</h2>
+                {loadingSlots && (
+                  <span className="text-[10px] text-mute">Verificando…</span>
+                )}
               </div>
+              <div className="grid grid-cols-3 gap-2 mb-2">
+                {info.defaultSlots.map((s) => {
+                  const slotMeta = availability?.find((a) => a.time === s);
+                  const isFull = slotMeta ? !slotMeta.available : false;
+                  return (
+                    <button
+                      key={s}
+                      onClick={() => !isFull && setTime(s)}
+                      disabled={isFull}
+                      className={`py-2 rounded-lg font-semibold text-sm relative ${
+                        time === s
+                          ? 'text-white'
+                          : isFull
+                          ? 'bg-bg2 border border-line text-mute cursor-not-allowed line-through opacity-60'
+                          : 'bg-white border border-line text-ink'
+                      }`}
+                      style={time === s ? { background: primary } : {}}
+                      title={isFull ? 'Sin lugares disponibles' : ''}
+                    >
+                      {s}
+                    </button>
+                  );
+                })}
+              </div>
+              {availability && availability.every((a) => !a.available) && (
+                <div className="text-xs text-mute mt-1 text-center">
+                  Sin lugares disponibles para {party} {party === 1 ? 'persona' : 'personas'} ese día. Probá con otra fecha.
+                </div>
+              )}
             </>
           )}
 
