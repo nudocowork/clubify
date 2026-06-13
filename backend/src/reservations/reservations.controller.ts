@@ -33,10 +33,12 @@ class ZoneBody {
   @IsOptional() @IsIn(['INDOOR', 'OUTDOOR', 'BAR', 'PRIVATE']) type?: string;
   @IsOptional() @IsInt() position?: number;
   @IsOptional() @IsBoolean() isActive?: boolean;
+  @IsOptional() locationId?: string | null;
 }
 
 class TableBody {
   @IsOptional() zoneId?: string | null;
+  @IsOptional() locationId?: string | null;
   @IsString() @MaxLength(16) number!: string;
   @IsInt() @Min(1) @Max(40) seats!: number;
   @IsOptional() @IsIn(['ROUND', 'RECT', 'BAR']) shape?: string;
@@ -58,6 +60,7 @@ class ReservationBody {
   @IsOptional() @IsString() @MaxLength(500) notes?: string;
   @IsOptional() zoneId?: string | null;
   @IsOptional() tableId?: string | null;
+  @IsOptional() locationId?: string | null;
   @IsOptional() @IsIn(['WEB', 'WHATSAPP', 'PHONE', 'QR', 'IN_PERSON']) channel?: ReservationChannel;
   @IsOptional() @IsIn(['PENDING', 'CONFIRMED', 'SEATED', 'COMPLETED', 'CANCELLED', 'NO_SHOW']) status?: ReservationStatus;
 }
@@ -69,8 +72,12 @@ export class ReservationsController {
 
   // -------- zones --------
   @Get('zones')
-  listZones(@CurrentUser() user: AuthUser, @Query('tenantId') tenantId?: string) {
-    return this.svc.listZones(user, tenantId);
+  listZones(
+    @CurrentUser() user: AuthUser,
+    @Query('tenantId') tenantId?: string,
+    @Query('locationId') locationId?: string,
+  ) {
+    return this.svc.listZones(user, tenantId, locationId);
   }
   @Post('zones')
   createZone(@CurrentUser() user: AuthUser, @Body() body: ZoneBody, @Query('tenantId') tenantId?: string) {
@@ -87,8 +94,12 @@ export class ReservationsController {
 
   // -------- tables --------
   @Get('tables')
-  listTables(@CurrentUser() user: AuthUser, @Query('tenantId') tenantId?: string) {
-    return this.svc.listTables(user, tenantId);
+  listTables(
+    @CurrentUser() user: AuthUser,
+    @Query('tenantId') tenantId?: string,
+    @Query('locationId') locationId?: string,
+  ) {
+    return this.svc.listTables(user, tenantId, locationId);
   }
   @Post('tables')
   createTable(@CurrentUser() user: AuthUser, @Body() body: TableBody, @Query('tenantId') tenantId?: string) {
@@ -110,8 +121,9 @@ export class ReservationsController {
     @Query('date') date?: string,
     @Query('status') status?: ReservationStatus,
     @Query('tenantId') tenantId?: string,
+    @Query('locationId') locationId?: string,
   ) {
-    return this.svc.list(user, { date, status }, tenantId);
+    return this.svc.list(user, { date, status, locationId }, tenantId);
   }
 
   /** Métricas agregadas para el dashboard de /app/reservations. Default:

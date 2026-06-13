@@ -16,7 +16,7 @@ function tableDims(t: { shape: string; seats: number; width?: number | null; hei
   return { w, h, isRound };
 }
 
-function ZoneAddForm({ onCreated }: { onCreated: () => void }) {
+function ZoneAddForm({ onCreated, locationId }: { onCreated: () => void; locationId?: string | null }) {
   const [name, setName] = useState('');
   const [type, setType] = useState('INDOOR');
   const [busy, setBusy] = useState(false);
@@ -27,7 +27,7 @@ function ZoneAddForm({ onCreated }: { onCreated: () => void }) {
     try {
       await api('/reservations/zones', {
         method: 'POST',
-        body: JSON.stringify({ name: name.trim(), type }),
+        body: JSON.stringify({ name: name.trim(), type, locationId: locationId || null }),
       });
       setName('');
       onCreated();
@@ -62,7 +62,9 @@ function ZoneAddForm({ onCreated }: { onCreated: () => void }) {
   );
 }
 
-type Zone = { id: string; name: string; slug: string; type: string };
+type Location = { id: string; name: string };
+
+type Zone = { id: string; name: string; slug: string; type: string; locationId?: string | null };
 type Table = {
   id: string;
   number: string;
@@ -112,6 +114,8 @@ export default function ReservationsPage() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [zones, setZones] = useState<Zone[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [activeLocationId, setActiveLocationId] = useState<string>(''); // '' = todas
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({
@@ -124,14 +128,19 @@ export default function ReservationsPage() {
 
   async function loadAll() {
     try {
-      const [res, zn, tb] = await Promise.all([
-        api<Reservation[]>(`/reservations?date=${date}`),
-        api<Zone[]>(`/reservations/zones`),
-        api<Table[]>(`/reservations/tables`),
+      const locQs = activeLocationId ? `&locationId=${activeLocationId}` : '';
+      const [res, zn, tb, locs] = await Promise.all([
+        api<Reservation[]>(`/reservations?date=${date}${locQs}`),
+        api<Zone[]>(`/reservations/zones${activeLocationId ? `?locationId=${activeLocationId}` : ''}`),
+        api<Table[]>(`/reservations/tables${activeLocationId ? `?locationId=${activeLocationId}` : ''}`),
+        locations.length === 0
+          ? api<Location[]>('/locations').catch(() => [])
+          : Promise.resolve(locations),
       ]);
       setReservations(res);
       setZones(zn);
       setTables(tb);
+      if (locations.length === 0) setLocations(locs);
     } catch (e: any) {
       toast(e.message || 'Error cargando reservas', 'error');
     }
@@ -139,7 +148,7 @@ export default function ReservationsPage() {
 
   useEffect(() => {
     loadAll();
-  }, [date]);
+  }, [date, activeLocationId]);
 
   const stats = useMemo(() => {
     const pax = reservations.reduce((s, r) => s + r.party, 0);
@@ -246,6 +255,7 @@ export default function ReservationsPage() {
           seats: Math.max(1, Math.min(40, newTable.seats)),
           shape: newTable.shape,
           zoneId: newTable.zoneId || null,
+          locationId: activeLocationId || null,
           posX: 60,
           posY: 60,
         }),
@@ -332,7 +342,23 @@ export default function ReservationsPage() {
     <div>
       <div className="page-head">
         <h1 className="page-title">Reservas <span className="page-crumb">/ {date}</span></h1>
-        <div className="flex gap-2 items-center">
+        <div className="flex gap-2 items-center flex-wrap">
+          {locations.length > 1 && (
+            <select
+              value={activeLocationId}
+              onChange={(e) => setActiveLocationId(e.target.value)}
+              className="input text-sm"
+              style={{ width: 'auto' }}
+              title="Filtrar por sede"
+            >
+              <option value="">📍 Todas las sedes</option>
+              {locations.map((loc) => (
+                <option key={loc.id} value={loc.id}>
+                  📍 {loc.name}
+                </option>
+              ))}
+            </select>
+          )}
           <button
             onClick={() => setWalkInOpen(true)}
             className="btn-primary text-sm"
@@ -789,7 +815,7 @@ export default function ReservationsPage() {
                 ))}
               </ul>
             )}
-            <ZoneAddForm onCreated={loadAll} />
+            <ZoneAddForm onCreated={loadAll} locationId={activeLocationId} />
           </div>
           </div>
         </div>
