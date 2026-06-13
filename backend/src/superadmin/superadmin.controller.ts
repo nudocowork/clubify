@@ -33,6 +33,12 @@ class HotmartLinkBody {
   @IsOptional() @IsString() @MaxLength(8) currency?: string;
   @IsOptional() @IsInt() position?: number;
   @IsOptional() @IsBoolean() isActive?: boolean;
+  @IsOptional() @IsString() @MaxLength(40) productId?: string;
+  @IsOptional() @IsString() @MaxLength(40) offerCode?: string;
+}
+
+class AssignPurchaseBody {
+  @IsString() whiteLabelId!: string;
 }
 
 class ToggleModuleBody {
@@ -118,6 +124,26 @@ export class SuperAdminController {
   @Delete('hotmart-links/:id')
   removeHotmartLink(@Param('id') id: string) {
     return this.svc.removeHotmartLink(id);
+  }
+
+  // -------- Hotmart Credit Purchases (auditoría + manual assign) --------
+
+  @Get('hotmart-purchases')
+  listCreditPurchases(
+    @Body() _ignored: any,
+    @Param('whiteLabelId') whiteLabelId?: string,
+  ) {
+    return this.svc.listCreditPurchases({ whiteLabelId });
+  }
+
+  @Get('hotmart-purchases/unassigned')
+  listUnassigned() {
+    return this.svc.listCreditPurchases({ unassigned: true });
+  }
+
+  @Post('hotmart-purchases/:id/assign')
+  assignCreditPurchase(@Param('id') id: string, @Body() body: AssignPurchaseBody) {
+    return this.svc.assignCreditPurchase(id, body.whiteLabelId);
   }
 
   // -------- Módulos --------

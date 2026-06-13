@@ -405,6 +405,53 @@ export class SuperAdminService {
     return { ok: true };
   }
 
+  /** Lista las compras Hotmart de packs de créditos. Útil para auditoría
+   *  + reasignar compras que no matchearon a ninguna marca por email. */
+  async listCreditPurchases(filter: { whiteLabelId?: string | null; unassigned?: boolean } = {}) {
+    return this.prisma.hotmartCreditPurchase.findMany({
+      where: {
+        ...(filter.whiteLabelId ? { whiteLabelId: filter.whiteLabelId } : {}),
+        ...(filter.unassigned ? { whiteLabelId: null } : {}),
+      },
+      include: { link: { select: { id: true, label: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+  }
+
+  /** Asigna una compra huérfana (sin marca) a una marca blanca y le suma
+   *  los créditos correspondientes. Útil cuando el buyer.email del Hotmart
+   *  webhook no matcheó a ninguna WhiteLabel.adminEmail. */
+  async assignCreditPurchase(purchaseId: string, whiteLabelId: string) {
+    const p = await this.prisma.hotmartCreditPurchase.findUnique({ where: { id: purchaseId } });
+    if (!p) throw new NotFoundException();
+    if (p.whiteLabelId) {
+      throw new BadRequestException('La compra ya está asignada a una marca');
+    }
+    const wl = await this.prisma.whiteLabel.findUnique({ where: { id: whiteLabelId } });
+    if (!wl) throw new NotFoundException('Marca no encontrada');
+
+    await this.prisma.$transaction([
+      this.prisma.hotmartCreditPurchase.update({
+        where: { id: purchaseId },
+        data: { whiteLabelId },
+      }),
+      this.prisma.whiteLabel.update({
+        where: { id: whiteLabelId },
+        data: { creditsAvailable: wl.creditsAvailable + p.credits },
+      }),
+      this.prisma.creditTransaction.create({
+        data: {
+          whiteLabelId,
+          type: 'PURCHASE',
+          amount: p.credits,
+          note: `Hotmart asignada manualmente · ${p.buyerEmail} · tx ${p.transactionId}`,
+        },
+      }),
+    ]);
+    return { ok: true };
+  }
+
   // ============================================================
   //                           MÓDULOS
   // ============================================================

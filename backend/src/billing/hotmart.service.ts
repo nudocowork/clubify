@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { EmailService } from '../email/email.service';
@@ -136,6 +137,20 @@ export class HotmartService {
         `Hotmart event ${eventId} (${event}) ya procesado — skip duplicate`,
       );
       return { ok: true, action: 'duplicate_event' };
+    }
+
+    // SUPERADMIN (2026-06-13): si el productId del payload coincide con
+    // un HotmartCreditLink, no es una suscripción de Clubify — es una
+    // compra de PACK DE CRÉDITOS por parte del dueño de una marca blanca.
+    // Va al flujo de créditos, no al de tenant.
+    if (event === 'PURCHASE_APPROVED' || event === 'PURCHASE_COMPLETE') {
+      const handled = await this.tryHandleCreditPurchase(payload).catch((e) => {
+        this.logger.warn(`tryHandleCreditPurchase falló: ${(e as Error).message}`);
+        return false;
+      });
+      if (handled) {
+        return { ok: true, action: 'credit_purchase' };
+      }
     }
 
     // Localizar tenant por email del buyer (caso primer pago) o por subscriberCode (renovaciones).
@@ -1512,6 +1527,111 @@ export class HotmartService {
       orderBy: { createdAt: 'asc' },
       select: { locationId: true, apiKey: true, switchNumber: true },
     });
+  }
+
+  // ============================================================
+  //              SUPERADMIN — compra de créditos
+  // ============================================================
+
+  /** Si el productId del payload matchea un HotmartCreditLink, procesa
+   *  la compra como un pack de créditos. Devuelve true si tomó la
+   *  responsabilidad (la suscripción tradicional ya no debe ejecutarse).
+   *
+   *  Routing: buyer.email del payload → WhiteLabel.adminEmail. Si no hay
+   *  match, queda guardado en HotmartCreditPurchase con whiteLabelId=null
+   *  para que el PLATFORM_OWNER lo asigne manualmente desde la UI.
+   */
+  async tryHandleCreditPurchase(
+    payload: HotmartWebhookPayload,
+  ): Promise<boolean> {
+    const productId = String(payload.data?.product?.id ?? '');
+    if (!productId) return false;
+
+    const offerCode =
+      (payload.data?.purchase as any)?.offer?.code ??
+      (payload.data?.purchase as any)?.offer?.payment_mode ??
+      null;
+
+    // Buscar link que coincida con productId (+ offerCode si está seteado)
+    const link = await this.prisma.hotmartCreditLink.findFirst({
+      where: {
+        productId,
+        ...(offerCode ? { OR: [{ offerCode }, { offerCode: null }] } : {}),
+        isActive: true,
+      },
+      orderBy: { offerCode: 'desc' }, // los que tienen offerCode específico ganan
+    });
+    if (!link) {
+      // No es un pack de créditos — dejar que el flujo de suscripciones
+      // tradicional lo procese.
+      return false;
+    }
+
+    const buyerEmail = payload.data?.buyer?.email?.toLowerCase() ?? '';
+    const transactionId = payload.data?.purchase?.transaction ?? '';
+    if (!buyerEmail || !transactionId) {
+      this.logger.warn(
+        `Credit purchase sin buyerEmail o transactionId — link=${link.id}`,
+      );
+      return false;
+    }
+
+    // Idempotency: si ya procesamos esta transacción, no duplicamos.
+    const existing = await this.prisma.hotmartCreditPurchase.findUnique({
+      where: { transactionId },
+    });
+    if (existing) {
+      this.logger.log(
+        `Hotmart credit purchase ${transactionId} ya procesada — skip`,
+      );
+      return true; // ya manejada
+    }
+
+    // Match con marca blanca por email del comprador
+    const whiteLabel = await this.prisma.whiteLabel.findFirst({
+      where: { adminEmail: { equals: buyerEmail, mode: 'insensitive' } },
+    });
+
+    const amount = (payload.data?.purchase as any)?.price?.value as number | undefined;
+    const currency =
+      ((payload.data?.purchase as any)?.price?.currency_value as string | undefined) ?? 'MXN';
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.hotmartCreditPurchase.create({
+        data: {
+          linkId: link.id,
+          whiteLabelId: whiteLabel?.id ?? null,
+          buyerEmail,
+          productId,
+          offerCode,
+          credits: link.credits,
+          amount: amount ? new Prisma.Decimal(amount) : null,
+          currency,
+          transactionId,
+          rawPayload: payload as any,
+        },
+      });
+
+      if (whiteLabel) {
+        await tx.whiteLabel.update({
+          where: { id: whiteLabel.id },
+          data: { creditsAvailable: whiteLabel.creditsAvailable + link.credits },
+        });
+        await tx.creditTransaction.create({
+          data: {
+            whiteLabelId: whiteLabel.id,
+            type: 'PURCHASE',
+            amount: link.credits,
+            note: `Hotmart · ${link.label} · tx ${transactionId}`,
+          },
+        });
+      }
+    });
+
+    this.logger.log(
+      `Hotmart credit purchase OK: +${link.credits} a ${whiteLabel?.name ?? '(SIN MARCA — manual)'} · buyer=${buyerEmail} tx=${transactionId}`,
+    );
+    return true;
   }
 }
 

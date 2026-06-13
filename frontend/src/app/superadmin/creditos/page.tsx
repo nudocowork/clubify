@@ -31,6 +31,8 @@ type HotmartLink = {
   currency: string;
   position: number;
   isActive: boolean;
+  productId: string | null;
+  offerCode: string | null;
 };
 
 function fmt(n: number) {
@@ -182,6 +184,15 @@ export default function CreditsCenterPage() {
                     <div className="text-[11px] font-mono truncate" style={{ color: '#6b7785' }}>
                       {l.url}
                     </div>
+                    {l.productId ? (
+                      <div className="text-[10px] mt-0.5" style={{ color: '#15803d' }}>
+                        ✓ Auto-créditos · prod {l.productId}{l.offerCode ? ` · offer ${l.offerCode}` : ''}
+                      </div>
+                    ) : (
+                      <div className="text-[10px] mt-0.5" style={{ color: '#b45309' }}>
+                        ⚠ Sin productId — el webhook no podrá acreditar automático
+                      </div>
+                    )}
                   </div>
                   {l.price && (
                     <div className="text-sm font-bold shrink-0" style={{ color: '#16241c' }}>
@@ -423,7 +434,7 @@ function EditLinksModal({
   onChanged: () => void;
 }) {
   const [rows, setRows] = useState<HotmartLink[]>(links);
-  const [draft, setDraft] = useState({ credits: 1, label: '', url: '', price: '', currency: 'MXN' });
+  const [draft, setDraft] = useState({ credits: 1, label: '', url: '', price: '', currency: 'MXN', productId: '', offerCode: '' });
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -443,9 +454,11 @@ function EditLinksModal({
           url: draft.url,
           price: draft.price ? Number(draft.price) : null,
           currency: draft.currency,
+          productId: draft.productId.trim() || undefined,
+          offerCode: draft.offerCode.trim() || undefined,
         }),
       });
-      setDraft({ credits: 1, label: '', url: '', price: '', currency: 'MXN' });
+      setDraft({ credits: 1, label: '', url: '', price: '', currency: 'MXN', productId: '', offerCode: '' });
       onChanged();
     } finally {
       setBusy(false);
@@ -589,6 +602,33 @@ function EditLinksModal({
               onChange={(e) => setDraft({ ...draft, price: e.target.value })}
               placeholder="$"
               className="w-full text-sm"
+              style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #d7dbe0' }}
+            />
+          </div>
+          <div className="col-span-6">
+            <label className="block text-[10px] font-bold uppercase mb-1" style={{ color: '#6b7785' }}>
+              Product ID Hotmart
+            </label>
+            <input
+              value={draft.productId}
+              onChange={(e) => setDraft({ ...draft, productId: e.target.value })}
+              placeholder="1234567"
+              className="w-full text-sm font-mono"
+              style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #d7dbe0' }}
+            />
+            <div className="text-[10px] mt-1" style={{ color: '#6b7785' }}>
+              Necesario para auto-créditos via webhook.
+            </div>
+          </div>
+          <div className="col-span-6">
+            <label className="block text-[10px] font-bold uppercase mb-1" style={{ color: '#6b7785' }}>
+              Offer Code (opcional)
+            </label>
+            <input
+              value={draft.offerCode}
+              onChange={(e) => setDraft({ ...draft, offerCode: e.target.value })}
+              placeholder="ABCXYZ"
+              className="w-full text-sm font-mono"
               style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #d7dbe0' }}
             />
           </div>

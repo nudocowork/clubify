@@ -3820,9 +3820,44 @@ model HotmartCreditLink {
   /// Orden de despliegue.
   position  Int      @default(0)
   isActive  Boolean  @default(true)
+  /// productId numérico de Hotmart. El webhook lo trae en data.product.id
+  /// y lo usamos para matchear al link y saber cuántos créditos sumar.
+  productId String?
+  /// offerCode de Hotmart (alfanumérico opcional). Si está seteado se
+  /// usa para diferenciar dos ofertas del mismo producto.
+  offerCode String?
   updatedAt DateTime @updatedAt
 
+  purchases HotmartCreditPurchase[]
+
   @@index([isActive, position])
+  @@index([productId])
+}
+
+/// Compra concretada de un pack de créditos via Hotmart webhook.
+/// Registro de auditoría — qué link compró quién y para qué marca.
+model HotmartCreditPurchase {
+  id            String             @id @default(uuid())
+  linkId        String?
+  link          HotmartCreditLink? @relation(fields: [linkId], references: [id], onDelete: SetNull)
+  whiteLabelId  String?
+  /// Email del comprador (para matchear a la marca por adminEmail).
+  buyerEmail    String
+  productId     String?
+  offerCode     String?
+  /// Cantidad de créditos otorgados (snapshot del link al momento).
+  credits       Int
+  /// Monto pagado.
+  amount        Decimal?           @db.Decimal(12, 2)
+  currency      String             @default("MXN")
+  /// Transaction id de Hotmart — único para idempotencia.
+  transactionId String             @unique
+  /// Raw payload del webhook por si necesitamos auditar el origen.
+  rawPayload    Json
+  createdAt     DateTime           @default(now())
+
+  @@index([whiteLabelId, createdAt])
+  @@index([buyerEmail])
 }
 
 /// Integraciones globales de la plataforma (NO marcas blancas). Ejemplo:
