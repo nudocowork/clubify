@@ -56,6 +56,11 @@ export class SuperAdminController {
     return this.svc.dashboard();
   }
 
+  @Get('sidebar-badges')
+  sidebarBadges() {
+    return this.svc.sidebarBadges();
+  }
+
   @Get('white-labels')
   listWhiteLabels() {
     return this.svc.listWhiteLabels();
@@ -136,5 +141,22 @@ export class SuperAdminController {
   @Get('billing')
   billingCenter() {
     return this.svc.billingCenter();
+  }
+
+  // -------- Integraciones --------
+
+  @Get('integrations')
+  listIntegrations() {
+    return this.svc.listIntegrations();
+  }
+
+  @Patch('integrations/:key')
+  updateIntegration(@Param('key') key: string, @Body() body: { config?: any; status?: string }) {
+    return this.svc.updateIntegration(key, body);
+  }
+
+  @Post('integrations/:key/test')
+  testIntegration(@Param('key') key: string) {
+    return this.svc.testIntegration(key);
   }
 }
