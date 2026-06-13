@@ -1,7 +1,8 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
+import { uploadCoverImage } from '@/lib/menu/upload-cover-image';
 import { fmtLongDate, todayISO, to12h } from '../_shared';
 
 type EventStatus = 'DRAFT' | 'PUBLISHED' | 'CANCELLED' | 'COMPLETED';
@@ -326,11 +327,9 @@ function EventFormModal({
             placeholder="Información del evento que verán los clientes"
           />
         </div>
-        <Input
-          label="Imagen de portada (URL)"
+        <CoverImagePicker
           value={form.coverImageUrl}
-          onChange={(v) => setForm({ ...form, coverImageUrl: v })}
-          placeholder="https://..."
+          onChange={(url) => setForm({ ...form, coverImageUrl: url })}
         />
         <div>
           <label className="label">Fecha</label>
@@ -744,6 +743,99 @@ function AddAttendeeModal({
 // =================================================================
 // Helpers
 // =================================================================
+
+function CoverImagePicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (url: string) => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  async function handleFile(file: File | null | undefined) {
+    if (!file) return;
+    setUploading(true);
+    try {
+      const url = await uploadCoverImage(file, 'reservations/events');
+      onChange(url);
+      toast('Imagen cargada', 'success');
+    } catch (e: any) {
+      toast(e.message || 'No se pudo subir la imagen', 'error');
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    handleFile(e.dataTransfer.files?.[0]);
+  }
+
+  return (
+    <div>
+      <label className="label">Imagen de portada</label>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => handleFile(e.target.files?.[0])}
+      />
+
+      {value ? (
+        <div className="relative rounded-xl overflow-hidden border border-line">
+          <div
+            className="bg-cover bg-center"
+            style={{ backgroundImage: `url(${value})`, height: 140 }}
+          />
+          <div className="absolute inset-x-0 bottom-0 flex gap-1.5 p-2 bg-gradient-to-t from-black/60 to-transparent">
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              disabled={uploading}
+              className="text-[11px] font-semibold px-2.5 py-1 rounded bg-white text-ink"
+            >
+              {uploading ? 'Subiendo…' : '🔄 Cambiar'}
+            </button>
+            <button
+              type="button"
+              onClick={() => onChange('')}
+              className="text-[11px] font-semibold px-2.5 py-1 rounded bg-white/90 text-bad"
+            >
+              Quitar
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={handleDrop}
+          disabled={uploading}
+          className="w-full rounded-xl border-2 border-dashed border-line bg-bg2/40 hover:bg-bg2 transition py-8 px-4 text-center"
+        >
+          {uploading ? (
+            <div className="text-sm text-mute">Subiendo imagen…</div>
+          ) : (
+            <>
+              <div className="text-2xl mb-1">🖼️</div>
+              <div className="text-sm font-semibold">
+                Click o arrastra una imagen
+              </div>
+              <div className="text-[11px] text-mute mt-0.5">
+                JPG / PNG / WebP · máx. 15 MB
+              </div>
+            </>
+          )}
+        </button>
+      )}
+    </div>
+  );
+}
 
 function Modal({
   title,

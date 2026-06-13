@@ -13,7 +13,7 @@ function getToken(): string | null {
 }
 
 /** Sube un File a R2 y devuelve la URL pública. Throws si falla. */
-export async function uploadCoverImage(file: File): Promise<string> {
+export async function uploadCoverImage(file: File, folder = 'sections'): Promise<string> {
   if (!file.type.startsWith('image/')) {
     throw new Error('Solo imágenes (JPG/PNG/WebP)');
   }
@@ -25,7 +25,7 @@ export async function uploadCoverImage(file: File): Promise<string> {
   const headers: HeadersInit = {};
   const token = getToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  const res = await fetch(`${API}/api/media/upload?folder=sections`, {
+  const res = await fetch(`${API}/api/media/upload?folder=${encodeURIComponent(folder)}`, {
     method: 'POST',
     headers,
     body: fd,

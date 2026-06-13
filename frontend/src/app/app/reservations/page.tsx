@@ -171,24 +171,6 @@ export default function AgendaPage() {
     }
   }
 
-  function shareAgenda() {
-    const lines = [
-      `📅 Reservas ${date}`,
-      ...filtered.map((r) =>
-        `${r.time} · ${r.customerName} · ${r.party} pax${r.table?.number ? ` · Mesa ${r.table.number}` : ''}`,
-      ),
-    ];
-    const txt = lines.join('\n');
-    if (navigator.share) {
-      navigator.share({ title: 'Agenda del día', text: txt }).catch(() => null);
-    } else {
-      navigator.clipboard.writeText(txt).then(
-        () => toast('Agenda copiada al portapapeles', 'success'),
-        () => toast('No se pudo copiar', 'error'),
-      );
-    }
-  }
-
   const shiftCounts = useMemo(() => {
     const counts = { diurno: 0, tarde: 0, noche: 0 };
     reservations.forEach((r) => {
@@ -243,9 +225,6 @@ export default function AgendaPage() {
             className="input text-sm"
             style={{ width: 160 }}
           />
-          <button onClick={shareAgenda} className="btn-ghost text-sm">
-            ⤴ Compartir
-          </button>
           <button
             onClick={() => setWalkInOpen(true)}
             className="text-sm font-semibold px-3 py-2 rounded-pill text-white"
