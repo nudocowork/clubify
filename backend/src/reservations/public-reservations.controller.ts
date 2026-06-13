@@ -43,6 +43,14 @@ export class PublicReservationsController {
     return this.svc.getPublicReservation(token);
   }
 
+  /** Pase digital de confirmación — incluye QR scaneable por el staff. */
+  @Get('pase/:token')
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
+  async getPass(@Param('token') token: string) {
+    return this.svc.getPassData(token);
+  }
+
   /** Cancela la reserva si el token es válido. Idempotente: si ya
    *  estaba cancelada o completada, devuelve el estado actual. */
   @Post('cancel/:token')
