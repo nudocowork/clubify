@@ -13,6 +13,8 @@ import { AuthUser } from '../common/decorators/current-user.decorator';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { WalletService } from '../wallet/wallet.service';
 import { PassesService } from '../passes/passes.service';
+import { AppConfigService } from '../common/config/app-config.service';
+import { sign, verify } from 'jsonwebtoken';
 
 export type ZoneDto = {
   name: string;
@@ -62,7 +64,29 @@ export class ReservationsService {
     private growBusiness: GrowBusinessService,
     private wallet: WalletService,
     private passes: PassesService,
+    private appConfig: AppConfigService,
   ) {}
+
+  /** Genera token HMAC-firmado para que el cliente pueda cancelar su
+   *  reserva desde el SMS. Reusa QR_HMAC_SECRET para evitar más secrets. */
+  signCancelToken(reservationId: string): string {
+    return sign(
+      { rid: reservationId, t: 'cancel' },
+      this.appConfig.QR_HMAC_SECRET,
+      { algorithm: 'HS256', expiresIn: '30d' },
+    );
+  }
+
+  /** Valida el token y devuelve el reservationId si es válido. */
+  verifyCancelToken(token: string): string | null {
+    try {
+      const payload = verify(token, this.appConfig.QR_HMAC_SECRET) as any;
+      if (payload?.t !== 'cancel' || !payload?.rid) return null;
+      return payload.rid as string;
+    } catch {
+      return null;
+    }
+  }
 
   private tid(user: AuthUser, override?: string) {
     if (user.role === 'SUPER_ADMIN') {
@@ -592,7 +616,8 @@ export class ReservationsService {
   // ============================================================
 
   /** Notifica al cliente cuando el negocio confirma su reserva.
-   *  Mensaje incluye fecha, hora, party, nombre del negocio. Fire-and-forget. */
+   *  Mensaje incluye fecha, hora, party, nombre del negocio + link de
+   *  cancelación firmado. Fire-and-forget. */
   private async notifyCustomerConfirmed(reservationId: string) {
     const r = await this.prisma.reservation.findUnique({
       where: { id: reservationId },
@@ -611,11 +636,90 @@ export class ReservationsService {
     const dateStr = r.date.toISOString().slice(0, 10);
     const partyStr = `${r.party} ${r.party === 1 ? 'persona' : 'personas'}`;
     const zoneStr = r.zone?.name ? ` (${r.zone.name})` : '';
+    const token = this.signCancelToken(reservationId);
+    const cancelUrl = `https://soyclubify.com/r/cancelar/${token}`;
     const body =
       `✅ ¡Tu reserva está confirmada!\n` +
       `${r.tenant.brandName} te espera el ${dateStr} a las ${r.time} para ${partyStr}${zoneStr}.\n` +
-      `Llegá 5 min antes. ¡Nos vemos!`;
+      `Llegá 5 min antes. ¡Nos vemos!\n\n` +
+      `Si no podés asistir: ${cancelUrl}`;
     await this.growBusiness.sendSms(r.tenantId, r.customerPhone, body);
+  }
+
+  /** Self-cancel desde link en SMS. Verifica token, marca CANCELLED y
+   *  avisa al tenant. Idempotente: si ya está cancelada, devuelve el
+   *  estado actual sin re-notificar. */
+  async selfCancel(token: string): Promise<{ ok: boolean; alreadyCancelled?: boolean; reservation: any }> {
+    const rid = this.verifyCancelToken(token);
+    if (!rid) throw new BadRequestException('Link inválido o expirado');
+    const r = await this.prisma.reservation.findUnique({
+      where: { id: rid },
+      include: {
+        zone: { select: { name: true } },
+        tenant: { select: { brandName: true, whatsappPhone: true, phone: true } },
+      },
+    });
+    if (!r) throw new NotFoundException('Reserva no encontrada');
+    if (r.status === 'CANCELLED' || r.status === 'NO_SHOW' || r.status === 'COMPLETED') {
+      return { ok: true, alreadyCancelled: true, reservation: this.publicReservationSummary(r) };
+    }
+    const updated = await this.prisma.reservation.update({
+      where: { id: rid },
+      data: { status: 'CANCELLED', cancelledAt: new Date() },
+      include: {
+        zone: { select: { name: true } },
+        tenant: { select: { brandName: true, whatsappPhone: true, phone: true } },
+      },
+    });
+    this.notifyTenantOfCustomerCancellation(updated as any).catch((e) =>
+      this.logger.warn(`notifyTenantOfCustomerCancellation falló: ${(e as Error).message}`),
+    );
+    return { ok: true, reservation: this.publicReservationSummary(updated) };
+  }
+
+  /** Para mostrar al cliente en la página de cancelación. */
+  async getPublicReservation(token: string) {
+    const rid = this.verifyCancelToken(token);
+    if (!rid) throw new BadRequestException('Link inválido o expirado');
+    const r = await this.prisma.reservation.findUnique({
+      where: { id: rid },
+      include: {
+        zone: { select: { name: true } },
+        tenant: { select: { brandName: true, primaryColor: true, logoUrl: true } },
+      },
+    });
+    if (!r) throw new NotFoundException('Reserva no encontrada');
+    return this.publicReservationSummary(r);
+  }
+
+  private publicReservationSummary(r: any) {
+    return {
+      id: r.id,
+      customerName: r.customerName,
+      party: r.party,
+      date: r.date.toISOString().slice(0, 10),
+      time: r.time,
+      zone: r.zone?.name ?? null,
+      status: r.status,
+      brandName: r.tenant?.brandName ?? '',
+      primaryColor: r.tenant?.primaryColor ?? null,
+      logoUrl: r.tenant?.logoUrl ?? null,
+    };
+  }
+
+  /** Manda SMS al tenant avisando que el CLIENTE canceló su reserva. */
+  private async notifyTenantOfCustomerCancellation(r: any) {
+    const dest = r.tenant?.whatsappPhone || r.tenant?.phone;
+    if (!dest) return;
+    const dateStr = r.date.toISOString().slice(0, 10);
+    const zoneStr = r.zone?.name ? ` · ${r.zone.name}` : '';
+    const body =
+      `❌ RESERVA CANCELADA POR EL CLIENTE\n` +
+      `${r.customerName} canceló su reserva.\n` +
+      `📅 ${dateStr} a las ${r.time}${zoneStr} · ${r.party} pax\n` +
+      `📞 ${r.customerPhone}\n` +
+      `El slot vuelve a estar disponible.`;
+    await this.growBusiness.sendSms(r.tenantId, dest, body);
   }
 
   /** Notifica al cliente cuando el negocio cancela su reserva. */
@@ -795,10 +899,13 @@ export class ReservationsService {
       });
       if (claim.count === 0) continue; // otro worker se lo llevó
 
+      const token = this.signCancelToken(r.id);
+      const cancelUrl = `https://soyclubify.com/r/cancelar/${token}`;
       const body =
         `Hola ${r.customerName}! Te recordamos tu reserva en ${r.tenant.brandName} ` +
         `mañana a las ${r.time} para ${r.party} ${r.party === 1 ? 'persona' : 'personas'}. ` +
-        `Si no podés asistir, avísanos por favor. ¡Te esperamos!`;
+        `¡Te esperamos!\n\n` +
+        `Si no podés asistir, cancelá aquí: ${cancelUrl}`;
 
       try {
         await this.growBusiness.sendSms(r.tenantId, r.customerPhone, body);
