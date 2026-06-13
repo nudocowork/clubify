@@ -541,6 +541,7 @@ model Tenant {
   locations           Location[]
   stamps              Stamp[]
   walletNotifications Notification[]
+  recurringNotifications RecurringNotification[]
   automations         AutomationRule[]
   referralUses        ReferralUse[]
   categories          Category[]
@@ -873,6 +874,7 @@ model Card {
 
   passes              Pass[]
   notifications       Notification[]
+  recurringNotifications RecurringNotification[]
   utmLinks            CardUtmLink[]
   popupForStorefronts Storefront[]   @relation("StorefrontPopupCard")
   // M9: Card como CTA de popups del Menú Libro (global + por sección + por página).
@@ -1045,6 +1047,40 @@ model Notification {
 
   @@index([tenantId, sentAt])
   @@index([scheduledAt])
+}
+
+/// 2026-06-12: notificaciones PUSH recurrentes. A diferencia de
+/// `Notification` (one-shot con scheduledAt opcional), este modelo
+/// guarda una plantilla que el cron dispara N veces a la semana en
+/// los días + hora configurados. Cuando dispara crea una `Notification`
+/// con triggerType=SCHEDULED como audit trail del envío real.
+model RecurringNotification {
+  id           String   @id @default(uuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cardId       String?
+  card         Card?    @relation(fields: [cardId], references: [id], onDelete: SetNull)
+  title        String
+  body         String
+  segment      Json?
+  /// Días de la semana en los que dispara. 0=Domingo, 1=Lunes...6=Sábado.
+  /// Array vacío = configurada pero sin días → nunca dispara (defensa).
+  daysOfWeek   Int[]
+  /// Hora local en formato "HH:MM" 24h. Combinado con `timezone` para
+  /// calcular el instante exacto. Validación en el DTO.
+  timeOfDay    String
+  /// IANA timezone (ej "America/Bogota"). Default al TZ del founder.
+  /// Permite que un tenant en CDMX dispare a las 10am local sin que
+  /// importe la hora del servidor.
+  timezone     String   @default("America/Bogota")
+  isActive     Boolean  @default(true)
+  /// Última vez que el cron disparó esta recurrencia. Sirve como
+  /// idempotency dentro del mismo día calendario en `timezone`.
+  lastDispatchedAt DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([tenantId, isActive])
 }
 
 // ============================================================
