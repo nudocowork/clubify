@@ -885,6 +885,11 @@ model Reservation {
   /// El cron lo claimea atómicamente al disparar para evitar dobles envíos.
   reminderSentAt DateTime?
 
+  /// Cuándo se otorgó el sello de fidelización al cliente por esta reserva.
+  /// Claim atómico al transicionar a SEATED para evitar doble-sello en
+  /// caso de re-status changes. Null = todavía no recibió sello.
+  stampGrantedAt DateTime?
+
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
 
