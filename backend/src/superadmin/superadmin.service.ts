@@ -282,7 +282,37 @@ export class SuperAdminService {
     return { ...wl, admins };
   }
 
-  async createWhiteLabel(dto: WhiteLabelDto) {
+  /** Historial de eventos del Master Admin. Filtra el AuditLog global
+   *  para mostrar sólo las acciones que el PLATFORM_OWNER hizo (action
+   *  empieza con "superadmin.") */
+  async history(filter: { actorId?: string; limit?: number } = {}) {
+    const items = await this.prisma.auditLog.findMany({
+      where: {
+        action: { startsWith: 'superadmin.' },
+        ...(filter.actorId ? { actorId: filter.actorId } : {}),
+      },
+      include: {
+        actor: { select: { id: true, email: true, fullName: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(500, filter.limit ?? 100),
+    });
+    return items;
+  }
+
+  /** Audit helper para que cualquier acción del módulo quede trackeada
+   *  sin tener que pasar el actorId explícito desde cada método. */
+  private async logAction(actorId: string | undefined, action: string, resource: string, metadata: any = {}) {
+    if (!actorId) return;
+    try {
+      await this.audit.log({ actorId, action, resource, metadata });
+    } catch (e) {
+      // No bloquear la operación si falla el audit.
+      console.warn('audit log fail', (e as Error).message);
+    }
+  }
+
+  async createWhiteLabel(dto: WhiteLabelDto, actorId?: string) {
     if (!dto.name?.trim()) throw new BadRequestException('Nombre requerido');
     const slug = (dto.slug || dto.name)
       .toLowerCase()
@@ -290,7 +320,7 @@ export class SuperAdminService {
       .replace(/^-|-$/g, '');
     if (!slug) throw new BadRequestException('Slug inválido');
     try {
-      return await this.prisma.whiteLabel.create({
+      const created = await this.prisma.whiteLabel.create({
         data: {
           name: dto.name.trim(),
           slug,
@@ -308,6 +338,12 @@ export class SuperAdminService {
           },
         },
       });
+      await this.logAction(actorId, 'superadmin.white_label.create', `whiteLabel:${created.id}`, {
+        whiteLabelName: created.name,
+        slug: created.slug,
+        adminEmail: created.adminEmail,
+      });
+      return created;
     } catch (e: any) {
       if (e?.code === 'P2002') {
         throw new ConflictException('Slug ya en uso');
@@ -316,10 +352,10 @@ export class SuperAdminService {
     }
   }
 
-  async updateWhiteLabel(id: string, patch: Partial<WhiteLabelDto>) {
+  async updateWhiteLabel(id: string, patch: Partial<WhiteLabelDto>, actorId?: string) {
     const existing = await this.prisma.whiteLabel.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException();
-    return this.prisma.whiteLabel.update({
+    const updated = await this.prisma.whiteLabel.update({
       where: { id },
       data: {
         name: patch.name?.trim() ?? existing.name,
@@ -330,16 +366,27 @@ export class SuperAdminService {
         adminEmail: patch.adminEmail === undefined ? undefined : patch.adminEmail?.trim().toLowerCase() || null,
       },
     });
+    await this.logAction(actorId, 'superadmin.white_label.update', `whiteLabel:${id}`, {
+      whiteLabelName: existing.name,
+      changes: patch,
+    });
+    return updated;
   }
 
   /** Suspende o reactiva la marca. Las marcas NO se eliminan (regla PRD). */
-  async setStatus(id: string, status: WhiteLabelStatus) {
+  async setStatus(id: string, status: WhiteLabelStatus, actorId?: string) {
     const existing = await this.prisma.whiteLabel.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException();
-    return this.prisma.whiteLabel.update({
+    const updated = await this.prisma.whiteLabel.update({
       where: { id },
       data: { status },
     });
+    await this.logAction(actorId, 'superadmin.white_label.status', `whiteLabel:${id}`, {
+      whiteLabelName: existing.name,
+      from: existing.status,
+      to: status,
+    });
+    return updated;
   }
 
   // ============================================================
@@ -409,7 +456,7 @@ export class SuperAdminService {
 
   /** Ajuste manual de créditos: agrega o descuenta. Crea CreditTransaction
    *  de tipo PURCHASE (positivo) / ADJUSTMENT (negativo) o el tipo explícito. */
-  async adjustCredits(dto: CreditAdjustDto) {
+  async adjustCredits(dto: CreditAdjustDto, actorId?: string) {
     if (!dto.amount || dto.amount === 0) {
       throw new BadRequestException('amount distinto de 0 requerido');
     }
@@ -436,6 +483,12 @@ export class SuperAdminService {
         },
       }),
     ]);
+    await this.logAction(actorId, 'superadmin.credits.adjust', `whiteLabel:${wl.id}`, {
+      whiteLabelName: wl.name,
+      amount: dto.amount,
+      type: dto.type ?? (dto.amount > 0 ? 'PURCHASE' : 'ADJUSTMENT'),
+      note: dto.note,
+    });
     return updated;
   }
 
@@ -521,14 +574,20 @@ export class SuperAdminService {
     return { modules: ALL_MODULES, rows };
   }
 
-  async toggleModule(whiteLabelId: string, module: ModuleKey, enabled: boolean) {
+  async toggleModule(whiteLabelId: string, module: ModuleKey, enabled: boolean, actorId?: string) {
     const wl = await this.prisma.whiteLabel.findUnique({ where: { id: whiteLabelId } });
     if (!wl) throw new NotFoundException();
-    return this.prisma.whiteLabelModule.upsert({
+    const updated = await this.prisma.whiteLabelModule.upsert({
       where: { whiteLabelId_module: { whiteLabelId, module } },
       update: { enabled },
       create: { whiteLabelId, module, enabled },
     });
+    await this.logAction(actorId, 'superadmin.module.toggle', `whiteLabel:${whiteLabelId}`, {
+      whiteLabelName: wl.name,
+      module,
+      enabled,
+    });
+    return updated;
   }
 
   // ============================================================
