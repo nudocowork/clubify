@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/commo
 import { IsBoolean, IsEmail, IsHexColor, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { ModuleKey, WhiteLabelStatus } from '@prisma/client';
 import { Roles } from '../common/decorators/roles.decorator';
+import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { SuperAdminService } from './superadmin.service';
 import { RenewalsService } from './renewals.service';
 
@@ -88,6 +89,12 @@ export class SuperAdminController {
   @Patch('white-labels/:id/status')
   setStatus(@Param('id') id: string, @Body() body: StatusBody) {
     return this.svc.setStatus(id, body.status);
+  }
+
+  /** PLATFORM_OWNER entra al panel de la marca como su SUPER_ADMIN. */
+  @Post('white-labels/:id/impersonate')
+  impersonate(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.svc.impersonateWhiteLabel(id, user.id);
   }
 
   // -------- Centro de Créditos --------

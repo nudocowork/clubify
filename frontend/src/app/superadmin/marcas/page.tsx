@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { api } from '@/lib/api';
+import { api, startImpersonation } from '@/lib/api';
 
 type WhiteLabel = {
   id: string;
@@ -363,7 +363,31 @@ function Drawer({
   onClose: () => void;
   onChanged: (msg: string) => void;
 }) {
+  const router = useRouter();
   const [w, setW] = useState<WhiteLabelDetail | null>(null);
+  const [entering, setEntering] = useState(false);
+
+  async function enterAs() {
+    if (!w) return;
+    setEntering(true);
+    try {
+      const r = await api<{ accessToken: string; user: any; whiteLabel: any }>(
+        `/superadmin/white-labels/${w.id}/impersonate`,
+        { method: 'POST' },
+      );
+      startImpersonation({
+        accessToken: r.accessToken,
+        user: r.user,
+        tenant: { id: r.whiteLabel.id, brandName: r.whiteLabel.name },
+      });
+      // Llevar al admin de la marca
+      router.push('/admin');
+    } catch (e: any) {
+      onChanged(e.message ?? 'No se pudo entrar');
+    } finally {
+      setEntering(false);
+    }
+  }
   useEffect(() => {
     api<WhiteLabelDetail>(`/superadmin/white-labels/${id}`)
       .then(setW)
@@ -535,15 +559,16 @@ function Drawer({
               style={{ background: 'white', borderColor: '#eef0f2' }}
             >
               <button
-                disabled
-                className="flex-1 py-2.5 rounded-[10px] text-sm font-bold text-white opacity-60 cursor-not-allowed"
+                onClick={enterAs}
+                disabled={entering || w.status === 'SUSPENDED'}
+                className="flex-1 py-2.5 rounded-[10px] text-sm font-bold text-white disabled:opacity-50"
                 style={{
                   background: 'linear-gradient(180deg, #28c95f, #16a34a)',
                   boxShadow: '0 2px 6px rgba(22,163,74,.35)',
                 }}
-                title="Próximamente — impersonate"
+                title={w.status === 'SUSPENDED' ? 'Reactivá la marca primero' : 'Iniciar sesión como super admin de esta marca'}
               >
-                Entrar como empresa
+                {entering ? 'Entrando…' : 'Entrar como empresa'}
               </button>
               <button
                 onClick={toggleStatus}
