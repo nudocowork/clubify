@@ -34,6 +34,24 @@ export class PublicReservationsController {
     private prisma: PrismaService,
   ) {}
 
+  /** Devuelve detalles de la reserva para mostrar antes de cancelar.
+   *  El token debe haber sido emitido por signCancelToken. */
+  @Get('cancel/:token')
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  async getCancel(@Param('token') token: string) {
+    return this.svc.getPublicReservation(token);
+  }
+
+  /** Cancela la reserva si el token es válido. Idempotente: si ya
+   *  estaba cancelada o completada, devuelve el estado actual. */
+  @Post('cancel/:token')
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  async postCancel(@Param('token') token: string) {
+    return this.svc.selfCancel(token);
+  }
+
   /** Devuelve metadata pública del flujo de reserva: brandName, zonas
    *  disponibles, configuración de slots (hardcoded en MVP). 404 si el
    *  módulo está desactivado para el tenant. */
