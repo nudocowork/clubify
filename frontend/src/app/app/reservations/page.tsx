@@ -184,6 +184,48 @@ export default function ReservationsPage() {
     }
   }
 
+  // ---------- Walk-in: cliente arrived, sin reserva previa ----------
+  const [walkInOpen, setWalkInOpen] = useState(false);
+  const [walkIn, setWalkIn] = useState({ customerName: '', customerPhone: '', party: 2, tableId: '' });
+  const [walkInSubmitting, setWalkInSubmitting] = useState(false);
+
+  async function submitWalkIn(e: React.FormEvent) {
+    e.preventDefault();
+    if (!walkIn.customerName.trim()) {
+      toast('Nombre requerido', 'error');
+      return;
+    }
+    setWalkInSubmitting(true);
+    try {
+      const now = new Date();
+      const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      // force=true para saltar la validación de capacidad — walk-in
+      // siempre debería poder sentarse aunque haya overbooking nominal
+      // (el negocio ya decidió que sí).
+      await api('/reservations?force=true', {
+        method: 'POST',
+        body: JSON.stringify({
+          customerName: walkIn.customerName.trim(),
+          customerPhone: walkIn.customerPhone.trim() || `walkin-${Date.now()}`,
+          party: walkIn.party,
+          date: todayISO(),
+          time: hhmm,
+          channel: 'IN_PERSON',
+          status: 'SEATED',
+          tableId: walkIn.tableId || null,
+        }),
+      });
+      setWalkIn({ customerName: '', customerPhone: '', party: 2, tableId: '' });
+      setWalkInOpen(false);
+      loadAll();
+      toast('Walk-in registrado · sello asignado al cliente', 'success');
+    } catch (err: any) {
+      toast(err.message || 'No se pudo registrar', 'error');
+    } finally {
+      setWalkInSubmitting(false);
+    }
+  }
+
   // ---------- Plano: drag + create + edit ----------
   const canvasRef = useRef<HTMLDivElement>(null);
   const [newTable, setNewTable] = useState({ number: '', seats: 4, shape: 'ROUND' as 'ROUND' | 'RECT' | 'BAR', zoneId: '' });
@@ -291,6 +333,14 @@ export default function ReservationsPage() {
       <div className="page-head">
         <h1 className="page-title">Reservas <span className="page-crumb">/ {date}</span></h1>
         <div className="flex gap-2 items-center">
+          <button
+            onClick={() => setWalkInOpen(true)}
+            className="btn-primary text-sm"
+            style={{ background: '#1d4ed8' }}
+            title="Cliente que llegó sin reserva previa"
+          >
+            🚶 Walk-in
+          </button>
           <input
             type="date"
             value={date}
@@ -300,6 +350,72 @@ export default function ReservationsPage() {
           />
         </div>
       </div>
+
+      {walkInOpen && (
+        <div className="card card-pad mb-4 border-2" style={{ borderColor: '#1d4ed8' }}>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-base font-semibold m-0">🚶 Registrar walk-in</h2>
+            <button onClick={() => setWalkInOpen(false)} className="text-mute hover:text-ink">
+              ✕
+            </button>
+          </div>
+          <p className="text-xs text-mute mb-3">
+            Cliente llegó sin reserva previa. Queda marcado como{' '}
+            <strong>SEATED</strong> al toque y recibe sello de fidelización
+            automáticamente.
+          </p>
+          <form onSubmit={submitWalkIn} className="grid grid-cols-1 md:grid-cols-5 gap-2 items-end">
+            <div>
+              <label className="label">Nombre</label>
+              <input
+                className="input"
+                value={walkIn.customerName}
+                onChange={(e) => setWalkIn({ ...walkIn, customerName: e.target.value })}
+                placeholder="Juan Pérez"
+                required
+              />
+            </div>
+            <div>
+              <label className="label">Teléfono (opcional)</label>
+              <input
+                className="input"
+                value={walkIn.customerPhone}
+                onChange={(e) => setWalkIn({ ...walkIn, customerPhone: e.target.value })}
+                placeholder="+52 55..."
+              />
+            </div>
+            <div>
+              <label className="label">Pax</label>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                className="input"
+                value={walkIn.party}
+                onChange={(e) => setWalkIn({ ...walkIn, party: Number(e.target.value) })}
+              />
+            </div>
+            <div>
+              <label className="label">Mesa (opcional)</label>
+              <select
+                className="input"
+                value={walkIn.tableId}
+                onChange={(e) => setWalkIn({ ...walkIn, tableId: e.target.value })}
+              >
+                <option value="">Sin asignar</option>
+                {tables.filter((t) => !t.isBlocked).map((t) => (
+                  <option key={t.id} value={t.id}>
+                    Mesa {t.number} · {t.seats}p
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button className="btn-primary text-sm justify-center" disabled={walkInSubmitting}>
+              {walkInSubmitting ? 'Sentando…' : 'Sentar walk-in'}
+            </button>
+          </form>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 bg-bg2 p-1 rounded-lg mb-4 w-fit">
