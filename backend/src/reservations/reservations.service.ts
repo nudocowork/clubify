@@ -16,6 +16,8 @@ import { PassesService } from '../passes/passes.service';
 import { AppConfigService } from '../common/config/app-config.service';
 import { sign, verify } from 'jsonwebtoken';
 
+const QR_RESERVATION_PROTOCOL = 'clubify-reservation:';
+
 export type ZoneDto = {
   name: string;
   slug?: string;
@@ -67,8 +69,7 @@ export class ReservationsService {
     private appConfig: AppConfigService,
   ) {}
 
-  /** Genera token HMAC-firmado para que el cliente pueda cancelar su
-   *  reserva desde el SMS. Reusa QR_HMAC_SECRET para evitar más secrets. */
+  /** Token HMAC-firmado para cancelar (SMS). Reusa QR_HMAC_SECRET. */
   signCancelToken(reservationId: string): string {
     return sign(
       { rid: reservationId, t: 'cancel' },
@@ -76,12 +77,29 @@ export class ReservationsService {
       { algorithm: 'HS256', expiresIn: '30d' },
     );
   }
-
-  /** Valida el token y devuelve el reservationId si es válido. */
   verifyCancelToken(token: string): string | null {
     try {
       const payload = verify(token, this.appConfig.QR_HMAC_SECRET) as any;
       if (payload?.t !== 'cancel' || !payload?.rid) return null;
+      return payload.rid as string;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Token HMAC-firmado para el pase digital de confirmación. Diferente
+   *  del cancel para que un link no permita la otra acción. */
+  signPassToken(reservationId: string): string {
+    return sign(
+      { rid: reservationId, t: 'pass' },
+      this.appConfig.QR_HMAC_SECRET,
+      { algorithm: 'HS256', expiresIn: '60d' },
+    );
+  }
+  verifyPassToken(token: string): string | null {
+    try {
+      const payload = verify(token, this.appConfig.QR_HMAC_SECRET) as any;
+      if (payload?.t !== 'pass' || !payload?.rid) return null;
       return payload.rid as string;
     } catch {
       return null;
@@ -754,13 +772,15 @@ export class ReservationsService {
     const dateStr = r.date.toISOString().slice(0, 10);
     const partyStr = `${r.party} ${r.party === 1 ? 'persona' : 'personas'}`;
     const zoneStr = r.zone?.name ? ` (${r.zone.name})` : '';
-    const token = this.signCancelToken(reservationId);
-    const cancelUrl = `https://soyclubify.com/r/cancelar/${token}`;
+    const cancelToken = this.signCancelToken(reservationId);
+    const passToken = this.signPassToken(reservationId);
+    const cancelUrl = `https://soyclubify.com/r/cancelar/${cancelToken}`;
+    const passUrl = `https://soyclubify.com/r/pase/${passToken}`;
     const body =
       `✅ ¡Tu reserva está confirmada!\n` +
-      `${r.tenant.brandName} te espera el ${dateStr} a las ${r.time} para ${partyStr}${zoneStr}.\n` +
-      `Llegá 5 min antes. ¡Nos vemos!\n\n` +
-      `Si no podés asistir: ${cancelUrl}`;
+      `${r.tenant.brandName} te espera el ${dateStr} a las ${r.time} para ${partyStr}${zoneStr}.\n\n` +
+      `📱 Tu pase digital: ${passUrl}\n` +
+      `❌ Cancelar: ${cancelUrl}`;
     await this.growBusiness.sendSms(r.tenantId, r.customerPhone, body);
   }
 
@@ -808,6 +828,35 @@ export class ReservationsService {
     });
     if (!r) throw new NotFoundException('Reserva no encontrada');
     return this.publicReservationSummary(r);
+  }
+
+  /** Datos para el pase digital de confirmación. Incluye un QR payload
+   *  con un protocolo propio que el scanner del staff puede leer. */
+  async getPassData(token: string) {
+    const rid = this.verifyPassToken(token);
+    if (!rid) throw new BadRequestException('Link inválido o expirado');
+    const r = await this.prisma.reservation.findUnique({
+      where: { id: rid },
+      include: {
+        zone: { select: { name: true } },
+        tenant: {
+          select: {
+            brandName: true,
+            primaryColor: true,
+            logoUrl: true,
+            whatsappPhone: true,
+            phone: true,
+          },
+        },
+      },
+    });
+    if (!r) throw new NotFoundException('Reserva no encontrada');
+    const summary = this.publicReservationSummary(r);
+    return {
+      ...summary,
+      whatsappPhone: r.tenant?.whatsappPhone ?? r.tenant?.phone ?? null,
+      qrPayload: `${QR_RESERVATION_PROTOCOL}${r.id}`,
+    };
   }
 
   private publicReservationSummary(r: any) {
