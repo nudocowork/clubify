@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
-import { IsEmail, IsHexColor, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
+import { IsBoolean, IsEmail, IsHexColor, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { WhiteLabelStatus } from '@prisma/client';
 import { Roles } from '../common/decorators/roles.decorator';
 import { SuperAdminService } from './superadmin.service';
@@ -16,6 +16,23 @@ class WhiteLabelBody {
 
 class StatusBody {
   @IsIn(['ACTIVE', 'SUSPENDED']) status!: WhiteLabelStatus;
+}
+
+class AdjustCreditsBody {
+  @IsString() whiteLabelId!: string;
+  @IsInt() @Min(-1000000) @Max(1000000) amount!: number;
+  @IsOptional() @IsString() @MaxLength(500) note?: string;
+  @IsOptional() @IsIn(['PURCHASE', 'CONSUME', 'COMMIT', 'REFUND', 'ADJUSTMENT']) type?: any;
+}
+
+class HotmartLinkBody {
+  @IsInt() @Min(1) credits!: number;
+  @IsString() @MaxLength(120) label!: string;
+  @IsString() @MaxLength(500) url!: string;
+  @IsOptional() @IsNumber() price?: number | null;
+  @IsOptional() @IsString() @MaxLength(8) currency?: string;
+  @IsOptional() @IsInt() position?: number;
+  @IsOptional() @IsBoolean() isActive?: boolean;
 }
 
 /**
@@ -58,5 +75,39 @@ export class SuperAdminController {
   @Patch('white-labels/:id/status')
   setStatus(@Param('id') id: string, @Body() body: StatusBody) {
     return this.svc.setStatus(id, body.status);
+  }
+
+  // -------- Centro de Créditos --------
+
+  @Get('credits')
+  creditsCenter() {
+    return this.svc.creditsCenter();
+  }
+
+  @Post('credits/adjust')
+  adjust(@Body() body: AdjustCreditsBody) {
+    return this.svc.adjustCredits(body);
+  }
+
+  // -------- Hotmart Links --------
+
+  @Get('hotmart-links')
+  listHotmartLinks() {
+    return this.svc.listHotmartLinks();
+  }
+
+  @Post('hotmart-links')
+  createHotmartLink(@Body() body: HotmartLinkBody) {
+    return this.svc.createHotmartLink(body);
+  }
+
+  @Patch('hotmart-links/:id')
+  updateHotmartLink(@Param('id') id: string, @Body() body: Partial<HotmartLinkBody>) {
+    return this.svc.updateHotmartLink(id, body);
+  }
+
+  @Delete('hotmart-links/:id')
+  removeHotmartLink(@Param('id') id: string) {
+    return this.svc.removeHotmartLink(id);
   }
 }

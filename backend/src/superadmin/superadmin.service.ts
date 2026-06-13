@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, WhiteLabelStatus } from '@prisma/client';
+import { Prisma, WhiteLabelStatus, CreditTransactionType } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 
 export type WhiteLabelDto = {
@@ -10,6 +10,23 @@ export type WhiteLabelDto = {
   primaryColor?: string;
   initial?: string;
   adminEmail?: string;
+};
+
+export type HotmartLinkDto = {
+  credits: number;
+  label: string;
+  url: string;
+  price?: number | null;
+  currency?: string;
+  position?: number;
+  isActive?: boolean;
+};
+
+export type CreditAdjustDto = {
+  whiteLabelId: string;
+  amount: number; // positivo agrega, negativo descuenta
+  note?: string;
+  type?: CreditTransactionType;
 };
 
 /**
@@ -240,5 +257,151 @@ export class SuperAdminService {
       where: { id },
       data: { status },
     });
+  }
+
+  // ============================================================
+  //                           CRÉDITOS
+  // ============================================================
+
+  /** Datos para /superadmin/creditos: KPIs globales + breakdown por
+   *  marca + consumidos del mes y del año. */
+  async creditsCenter() {
+    const [agg, whiteLabels, monthAgg, yearAgg, pendingTenants] = await Promise.all([
+      this.prisma.whiteLabel.aggregate({
+        _sum: {
+          creditsAvailable: true,
+          creditsCommitted: true,
+          creditsUsed: true,
+        },
+      }),
+      this.prisma.whiteLabel.findMany({
+        orderBy: { creditsAvailable: 'desc' },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          initial: true,
+          primaryColor: true,
+          status: true,
+          creditsAvailable: true,
+          creditsCommitted: true,
+          creditsUsed: true,
+        },
+      }),
+      this.prisma.creditTransaction.aggregate({
+        _sum: { amount: true },
+        where: {
+          type: 'CONSUME',
+          createdAt: { gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) },
+        },
+      }),
+      this.prisma.creditTransaction.aggregate({
+        _sum: { amount: true },
+        where: {
+          type: 'CONSUME',
+          createdAt: { gte: new Date(new Date().getFullYear(), 0, 1) },
+        },
+      }),
+      this.prisma.tenant.count({
+        where: {
+          OR: [
+            { status: 'TRIAL', trialEndsAt: { lt: new Date() } },
+            { status: 'ACTIVE', currentPeriodEnd: { lt: new Date() } },
+          ],
+        },
+      }),
+    ]);
+
+    return {
+      summary: {
+        available: agg._sum.creditsAvailable ?? 0,
+        committed: agg._sum.creditsCommitted ?? 0,
+        usedMonth: Math.abs(monthAgg._sum.amount ?? 0),
+        usedYear: Math.abs(yearAgg._sum.amount ?? 0),
+        pendingTenants,
+      },
+      whiteLabels,
+    };
+  }
+
+  /** Ajuste manual de créditos: agrega o descuenta. Crea CreditTransaction
+   *  de tipo PURCHASE (positivo) / ADJUSTMENT (negativo) o el tipo explícito. */
+  async adjustCredits(dto: CreditAdjustDto) {
+    if (!dto.amount || dto.amount === 0) {
+      throw new BadRequestException('amount distinto de 0 requerido');
+    }
+    const wl = await this.prisma.whiteLabel.findUnique({ where: { id: dto.whiteLabelId } });
+    if (!wl) throw new NotFoundException('Marca no encontrada');
+
+    const newAvailable = Math.max(0, wl.creditsAvailable + dto.amount);
+    const newUsed = dto.amount < 0 ? wl.creditsUsed + Math.abs(dto.amount) : wl.creditsUsed;
+
+    const [, updated] = await this.prisma.$transaction([
+      this.prisma.creditTransaction.create({
+        data: {
+          whiteLabelId: dto.whiteLabelId,
+          type: dto.type ?? (dto.amount > 0 ? 'PURCHASE' : 'ADJUSTMENT'),
+          amount: dto.amount,
+          note: dto.note?.trim() || null,
+        },
+      }),
+      this.prisma.whiteLabel.update({
+        where: { id: dto.whiteLabelId },
+        data: {
+          creditsAvailable: newAvailable,
+          creditsUsed: newUsed,
+        },
+      }),
+    ]);
+    return updated;
+  }
+
+  // ============================================================
+  //                       HOTMART CREDIT LINKS
+  // ============================================================
+
+  listHotmartLinks() {
+    return this.prisma.hotmartCreditLink.findMany({
+      orderBy: [{ position: 'asc' }, { credits: 'asc' }],
+    });
+  }
+
+  async createHotmartLink(dto: HotmartLinkDto) {
+    if (!dto.credits || dto.credits < 1) throw new BadRequestException('credits >= 1');
+    if (!dto.label?.trim()) throw new BadRequestException('label requerido');
+    if (!dto.url?.trim()) throw new BadRequestException('url requerida');
+    return this.prisma.hotmartCreditLink.create({
+      data: {
+        credits: dto.credits,
+        label: dto.label.trim(),
+        url: dto.url.trim(),
+        price: dto.price !== null && dto.price !== undefined ? new Prisma.Decimal(dto.price) : null,
+        currency: dto.currency ?? 'MXN',
+        position: dto.position ?? 0,
+        isActive: dto.isActive ?? true,
+      },
+    });
+  }
+
+  async updateHotmartLink(id: string, patch: Partial<HotmartLinkDto>) {
+    const existing = await this.prisma.hotmartCreditLink.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException();
+    const data: any = {
+      label: patch.label?.trim(),
+      url: patch.url?.trim(),
+      credits: patch.credits,
+      currency: patch.currency,
+      position: patch.position,
+      isActive: patch.isActive,
+    };
+    if (patch.price !== undefined) {
+      data.price = patch.price === null ? null : new Prisma.Decimal(patch.price);
+    }
+    return this.prisma.hotmartCreditLink.update({ where: { id }, data });
+  }
+
+  async removeHotmartLink(id: string) {
+    await this.prisma.hotmartCreditLink.delete({ where: { id } });
+    return { ok: true };
   }
 }
