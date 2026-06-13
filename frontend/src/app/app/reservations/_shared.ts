@@ -124,6 +124,15 @@ export function channelMeta(channel: string): { label: string; icon: string } {
   return map[channel] ?? { label: channel, icon: '·' };
 }
 
+/** Convierte "13:00" → "1:00 p.m.", "00:30" → "12:30 a.m.", "12:00" → "12:00 p.m." */
+export function to12h(time: string): string {
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return time;
+  const [h, m] = time.split(':').map(Number);
+  const period = h >= 12 ? 'p.m.' : 'a.m.';
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+}
+
 export function fmtLongDate(iso: string) {
   const [y, m, d] = iso.split('-').map(Number);
   const date = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));

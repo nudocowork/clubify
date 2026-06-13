@@ -126,6 +126,43 @@ export class ReservationsController {
     return this.svc.list(user, { date, status, locationId }, tenantId);
   }
 
+  /** Devuelve los slots de reservas configurados del tenant (con
+   *  fallback al default si no configuró). */
+  @Get('config/slots')
+  async getSlots(
+    @CurrentUser() user: AuthUser,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    const tid = user.role === 'SUPER_ADMIN' ? tenantId : user.tenantId;
+    if (!tid) throw new BadRequestException('tenantId requerido');
+    const slots = await this.svc.getTenantSlots(tid);
+    return { slots };
+  }
+
+  /** Guarda los slots del tenant. Acepta array vacío para volver al
+   *  default. Valida formato HH:MM 24h. */
+  @Patch('config/slots')
+  async setSlots(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { slots: string[] },
+    @Query('tenantId') tenantId?: string,
+  ) {
+    const tid = user.role === 'SUPER_ADMIN' ? tenantId : user.tenantId;
+    if (!tid) throw new BadRequestException('tenantId requerido');
+    if (!Array.isArray(body?.slots)) {
+      throw new BadRequestException('slots[] requerido');
+    }
+    const re = /^([01]\d|2[0-3]):[0-5]\d$/;
+    for (const s of body.slots) {
+      if (typeof s !== 'string' || !re.test(s)) {
+        throw new BadRequestException(`Slot inválido: ${s} (formato HH:MM 24h)`);
+      }
+    }
+    const unique = Array.from(new Set(body.slots)).sort();
+    await this.svc.setTenantSlots(tid, unique);
+    return { slots: unique };
+  }
+
   /** KPIs del día (Agenda header): reservas + comparación vs ayer,
    *  pax esperados, % ocupación + peak hour, no-show count + %. */
   @Get('daily-kpis')

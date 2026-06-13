@@ -85,14 +85,15 @@ export class PublicReservationsController {
       orderBy: { position: 'asc' },
       select: { id: true, name: true, slug: true, type: true },
     });
+    // Slots configurados por el tenant (con fallback al default si no
+    // configuró nada). El frontend público los muestra en formato 12h.
+    const defaultSlots = await this.svc.getTenantSlots(t.id);
     return {
       brandName: t.brandName,
       logoUrl: t.logoUrl,
       primaryColor: t.primaryColor,
       zones,
-      // Slots por defecto. En una iteración futura se calcula contra
-      // las reservas existentes para esa fecha + capacidad de mesas.
-      defaultSlots: ['13:00', '13:30', '14:00', '14:30', '21:00', '21:30', '22:00'],
+      defaultSlots,
     };
   }
 
