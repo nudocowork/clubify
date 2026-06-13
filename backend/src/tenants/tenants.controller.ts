@@ -83,6 +83,8 @@ class UpdateTenantBody {
   // los links de Tutoriales y Academia Clubify en los sidebars.
   @IsOptional() @IsBoolean() tutorialsEnabled?: boolean;
   @IsOptional() @IsBoolean() academyEnabled?: boolean;
+  // Reservations module gate (2026-06-12).
+  @IsOptional() @IsBoolean() reservationsEnabled?: boolean;
 }
 
 @Controller('tenants')
