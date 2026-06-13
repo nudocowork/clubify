@@ -37,14 +37,60 @@ function fmtDate(d: string | null) {
   return new Date(d).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
+type RenewalSummary = {
+  considered: number;
+  renewed: number;
+  grace: number;
+  suspended: number;
+  skipped: number;
+  details: Array<{ tenantId: string; brandName: string; action: string; reason?: string }>;
+};
+
 export default function CobrosPage() {
   const [data, setData] = useState<BillingData | null>(null);
+  const [preview, setPreview] = useState<RenewalSummary | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
+  function flashToast(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2800);
+  }
+
+  async function loadBilling() {
+    const d = await api<BillingData>('/superadmin/billing');
+    setData(d);
+  }
   useEffect(() => {
-    api<BillingData>('/superadmin/billing')
-      .then(setData)
-      .catch((e) => console.error(e));
+    loadBilling().catch((e) => console.error(e));
   }, []);
+
+  async function loadPreview() {
+    setBusy(true);
+    try {
+      const p = await api<RenewalSummary>('/superadmin/renewals/preview');
+      setPreview(p);
+    } catch (e: any) {
+      flashToast(e.message ?? 'Error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runReal() {
+    if (!confirm('¿Correr el cron de renovaciones AHORA? Va a consumir créditos y suspender tenants vencidos.')) return;
+    setBusy(true);
+    try {
+      const r = await api<RenewalSummary>('/superadmin/renewals/run', { method: 'POST' });
+      flashToast(`Renovaciones: ${r.renewed} renovadas · ${r.grace} en gracia · ${r.suspended} suspendidas`);
+      setPreview(r);
+      loadBilling();
+    } catch (e: any) {
+      flashToast(e.message ?? 'Error');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   if (!data) return <div className="text-sm" style={{ color: '#9aa4af' }}>Cargando…</div>;
   const s = data.summary;
@@ -63,6 +109,117 @@ export default function CobrosPage() {
         <Stat label="Pendientes de renov." value={fmt(s.pending)} color="#b91c1c" />
         <Stat label="En gracia" value={fmt(s.inGrace)} color="#b45309" />
         <Stat label="Suspendidos" value={fmt(s.suspended)} color="#6b7785" />
+      </div>
+
+      {/* Cron de renovaciones automáticas */}
+      <div
+        className="rounded-[14px] p-5 mb-6"
+        style={{
+          background: 'linear-gradient(135deg, #064e3b, #0a2c1a)',
+          color: 'white',
+          boxShadow: '0 4px 20px rgba(6,78,59,.25)',
+        }}
+      >
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div className="min-w-0">
+            <div className="text-[10.5px] font-bold uppercase opacity-80" style={{ letterSpacing: 0.8 }}>
+              Auto-Renovaciones
+            </div>
+            <div className="text-lg font-extrabold mt-1">
+              Cron diario · 02:00 UTC
+            </div>
+            <div className="text-xs opacity-80 mt-1 leading-snug max-w-xl">
+              Cada día consume 1 crédito por tenant que cumple ciclo. 5 días de gracia
+              si la marca queda sin créditos. Después, suspensión automática.
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={loadPreview}
+              disabled={busy}
+              className="text-sm font-semibold px-3 py-2 rounded-[10px]"
+              style={{
+                background: 'rgba(255,255,255,.12)',
+                color: 'white',
+                border: '1px solid rgba(255,255,255,.2)',
+              }}
+            >
+              👁 Preview (dry-run)
+            </button>
+            <button
+              onClick={runReal}
+              disabled={busy}
+              className="text-sm font-bold px-4 py-2 rounded-[10px] text-white"
+              style={{
+                background: 'linear-gradient(180deg, #28c95f, #16a34a)',
+                boxShadow: '0 2px 6px rgba(22,163,74,.35)',
+              }}
+            >
+              ▶ Correr ahora
+            </button>
+          </div>
+        </div>
+
+        {preview && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+            <PreviewCard label="Considerados" value={preview.considered} />
+            <PreviewCard label="Renovados" value={preview.renewed} color="#86efac" />
+            <PreviewCard label="En gracia" value={preview.grace} color="#fcd34d" />
+            <PreviewCard label="Suspendidos" value={preview.suspended} color="#fca5a5" />
+          </div>
+        )}
+
+        {preview && preview.details.length > 0 && (
+          <div className="mt-4 max-h-60 overflow-y-auto rounded-lg" style={{ background: 'rgba(0,0,0,.15)' }}>
+            <table className="w-full text-left text-xs">
+              <thead className="sticky top-0" style={{ background: 'rgba(0,0,0,.4)' }}>
+                <tr>
+                  <th className="px-3 py-2 font-semibold opacity-80">Tenant</th>
+                  <th className="px-3 py-2 font-semibold opacity-80">Acción</th>
+                  <th className="px-3 py-2 font-semibold opacity-80">Razón</th>
+                </tr>
+              </thead>
+              <tbody>
+                {preview.details.slice(0, 50).map((d, i) => (
+                  <tr key={i} style={{ borderTop: '1px solid rgba(255,255,255,.05)' }}>
+                    <td className="px-3 py-1.5 font-semibold">{d.brandName}</td>
+                    <td className="px-3 py-1.5">
+                      <span
+                        className="text-[10px] font-bold px-2 py-0.5 rounded"
+                        style={{
+                          background:
+                            d.action === 'RENEWED'
+                              ? 'rgba(34,197,94,.25)'
+                              : d.action === 'GRACE'
+                              ? 'rgba(251,191,36,.25)'
+                              : d.action === 'SUSPENDED'
+                              ? 'rgba(239,68,68,.25)'
+                              : 'rgba(156,163,175,.25)',
+                          color:
+                            d.action === 'RENEWED'
+                              ? '#86efac'
+                              : d.action === 'GRACE'
+                              ? '#fcd34d'
+                              : d.action === 'SUSPENDED'
+                              ? '#fca5a5'
+                              : '#d1d5db',
+                        }}
+                      >
+                        {d.action}
+                      </span>
+                    </td>
+                    <td className="px-3 py-1.5 opacity-80">{d.reason ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {preview.details.length > 50 && (
+              <div className="text-center text-[11px] py-2 opacity-60">
+                Mostrando 50 de {preview.details.length}.
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div
@@ -160,6 +317,31 @@ export default function CobrosPage() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {toast && (
+        <div
+          className="fixed left-1/2 bottom-7 -translate-x-1/2 px-4 py-2.5 rounded-[10px] text-sm font-semibold shadow-lg z-50"
+          style={{ background: '#0f172a', color: 'white', boxShadow: '0 12px 30px rgba(0,0,0,.25)' }}
+        >
+          {toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PreviewCard({ label, value, color = 'white' }: { label: string; value: number; color?: string }) {
+  return (
+    <div
+      className="rounded-[10px] p-3"
+      style={{ background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.12)' }}
+    >
+      <div className="text-[10px] font-bold uppercase opacity-80" style={{ letterSpacing: 0.5 }}>
+        {label}
+      </div>
+      <div className="text-2xl font-extrabold mt-1" style={{ color }}>
+        {value}
       </div>
     </div>
   );
