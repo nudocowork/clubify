@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, WhiteLabelStatus, CreditTransactionType } from '@prisma/client';
+import { Prisma, WhiteLabelStatus, CreditTransactionType, ModuleKey } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 
 export type WhiteLabelDto = {
@@ -403,5 +403,128 @@ export class SuperAdminService {
   async removeHotmartLink(id: string) {
     await this.prisma.hotmartCreditLink.delete({ where: { id } });
     return { ok: true };
+  }
+
+  // ============================================================
+  //                           MÓDULOS
+  // ============================================================
+
+  /** Matriz para /superadmin/modulos: filas = marcas, columnas =
+   *  los 3 módulos. Si la marca no tiene una fila de
+   *  WhiteLabelModule para un módulo, asumimos enabled=false. */
+  async modulesMatrix() {
+    const ALL_MODULES: ModuleKey[] = ['REFERRALS', 'ORDERS', 'GROW_BUSINESS_SMS'];
+    const whiteLabels = await this.prisma.whiteLabel.findMany({
+      orderBy: { name: 'asc' },
+      include: {
+        modules: true,
+      },
+    });
+    const rows = whiteLabels.map((w) => {
+      const flags: Record<string, boolean> = {};
+      for (const k of ALL_MODULES) {
+        const m = w.modules.find((x) => x.module === k);
+        flags[k] = m?.enabled ?? false;
+      }
+      return {
+        id: w.id,
+        name: w.name,
+        initial: w.initial,
+        primaryColor: w.primaryColor,
+        status: w.status,
+        modules: flags,
+      };
+    });
+    return { modules: ALL_MODULES, rows };
+  }
+
+  async toggleModule(whiteLabelId: string, module: ModuleKey, enabled: boolean) {
+    const wl = await this.prisma.whiteLabel.findUnique({ where: { id: whiteLabelId } });
+    if (!wl) throw new NotFoundException();
+    return this.prisma.whiteLabelModule.upsert({
+      where: { whiteLabelId_module: { whiteLabelId, module } },
+      update: { enabled },
+      create: { whiteLabelId, module, enabled },
+    });
+  }
+
+  // ============================================================
+  //                          CENTRO DE COBROS
+  // ============================================================
+
+  /** KPIs + tabla de próximas renovaciones para /superadmin/cobros.
+   *  Por ahora cada Tenant activo cuenta como 1 crédito por renovación
+   *  (1 crédito = 30 días). En el futuro: derivar del plan/periodicidad. */
+  async billingCenter() {
+    const now = new Date();
+    const in7d = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const in14d = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+    const minus5d = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
+
+    const [upcoming, pending, inGrace, suspended] = await Promise.all([
+      this.prisma.tenant.count({
+        where: {
+          status: 'ACTIVE',
+          currentPeriodEnd: { gte: now, lte: in7d },
+        },
+      }),
+      this.prisma.tenant.count({
+        where: {
+          status: 'ACTIVE',
+          currentPeriodEnd: { lt: now },
+        },
+      }),
+      this.prisma.tenant.count({
+        where: {
+          status: 'ACTIVE',
+          currentPeriodEnd: { gte: minus5d, lt: now },
+        },
+      }),
+      this.prisma.tenant.count({ where: { status: 'SUSPENDED' } }),
+    ]);
+
+    const renewals = await this.prisma.tenant.findMany({
+      where: {
+        currentPeriodEnd: { lte: in14d },
+        status: { in: ['ACTIVE'] },
+      },
+      orderBy: { currentPeriodEnd: 'asc' },
+      take: 50,
+      select: {
+        id: true,
+        brandName: true,
+        slug: true,
+        status: true,
+        currentPeriodEnd: true,
+        whiteLabel: {
+          select: { id: true, name: true, primaryColor: true, initial: true },
+        },
+      },
+    });
+
+    const rows = renewals.map((t) => {
+      const due = t.currentPeriodEnd ? new Date(t.currentPeriodEnd) : null;
+      let state: 'POR_RENOVAR' | 'PENDIENTE' | 'EN_GRACIA' = 'POR_RENOVAR';
+      if (due) {
+        if (due < now && due >= minus5d) state = 'EN_GRACIA';
+        else if (due < minus5d) state = 'PENDIENTE';
+      }
+      return {
+        id: t.id,
+        brandName: t.brandName,
+        slug: t.slug,
+        whiteLabel: t.whiteLabel
+          ? { id: t.whiteLabel.id, name: t.whiteLabel.name, primaryColor: t.whiteLabel.primaryColor, initial: t.whiteLabel.initial }
+          : null,
+        currentPeriodEnd: t.currentPeriodEnd,
+        creditsRequired: 1,
+        state,
+      };
+    });
+
+    return {
+      summary: { upcoming, pending, inGrace, suspended },
+      renewals: rows,
+    };
   }
 }
