@@ -6,6 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { ReservationStatus, ReservationChannel } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
@@ -532,5 +533,79 @@ export class ReservationsService {
     } catch (e) {
       this.logger.warn(`SMS notif falló: ${(e as Error).message}`);
     }
+  }
+
+  // ============================================================
+  //                  REMINDER CRON (24h antes)
+  // ============================================================
+
+  /** Cada 30 min busca reservas confirmadas para "mañana" (en UTC) que
+   *  todavía no recibieron recordatorio y manda SMS al cliente.
+   *
+   *  Gate horario: solo dispara entre 14:00-22:00 UTC para evitar mandar
+   *  recordatorios de madrugada en LATAM (≈ 08:00-16:00 hora local en
+   *  CDMX/Bogota/Lima). Si más tenants se suman fuera de LATAM hay que
+   *  agregar tenant.timezone y ajustar por zona.
+   *
+   *  Claim atómico: updateMany WHERE reminderSentAt IS NULL → si count=1
+   *  somos los dueños del envío. Si el SMS falla, lo des-claimeamos para
+   *  reintentar en la próxima vuelta. */
+  @Cron(CronExpression.EVERY_30_MINUTES)
+  async sendReminderCron() {
+    const now = new Date();
+    const hourUtc = now.getUTCHours();
+    if (hourUtc < 14 || hourUtc >= 22) return;
+
+    // "Mañana" en UTC: date = now + 1 día a las 12:00 UTC (mismo formato
+    // de storage que createForTenant).
+    const tomorrow = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 12, 0, 0),
+    );
+
+    const candidates = await this.prisma.reservation.findMany({
+      where: {
+        reminderSentAt: null,
+        status: { in: ['CONFIRMED', 'PENDING'] },
+        date: tomorrow,
+      },
+      include: {
+        tenant: {
+          select: { id: true, brandName: true },
+        },
+      },
+      take: 200,
+    });
+
+    if (candidates.length === 0) return;
+    this.logger.log(`Reminder cron: ${candidates.length} candidatos para mañana`);
+
+    let sent = 0;
+    let failed = 0;
+    for (const r of candidates) {
+      const claim = await this.prisma.reservation.updateMany({
+        where: { id: r.id, reminderSentAt: null },
+        data: { reminderSentAt: now },
+      });
+      if (claim.count === 0) continue; // otro worker se lo llevó
+
+      const body =
+        `Hola ${r.customerName}! Te recordamos tu reserva en ${r.tenant.brandName} ` +
+        `mañana a las ${r.time} para ${r.party} ${r.party === 1 ? 'persona' : 'personas'}. ` +
+        `Si no podés asistir, avísanos por favor. ¡Te esperamos!`;
+
+      try {
+        await this.growBusiness.sendSms(r.tenantId, r.customerPhone, body);
+        sent++;
+      } catch (e) {
+        // Des-claim para reintento en la próxima vuelta del cron.
+        await this.prisma.reservation.updateMany({
+          where: { id: r.id },
+          data: { reminderSentAt: null },
+        });
+        failed++;
+        this.logger.warn(`Reminder failed for ${r.id}: ${(e as Error).message}`);
+      }
+    }
+    this.logger.log(`Reminder cron: ${sent} enviados, ${failed} fallidos`);
   }
 }
