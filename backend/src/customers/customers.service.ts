@@ -128,6 +128,59 @@ export class CustomersService {
     return { ...c, orders };
   }
 
+  /** Historial de reservas del cliente + stats agregadas. Útil en
+   *  /app/customers/:id para identificar VIPs (mucho lifetime value) o
+   *  problem customers (alto no-show rate). */
+  async getReservations(user: AuthUser, id: string) {
+    const c = await this.prisma.customer.findUnique({
+      where: { id },
+      select: { id: true, tenantId: true },
+    });
+    if (!c) throw new NotFoundException('Customer');
+    if (user.role !== 'SUPER_ADMIN' && c.tenantId !== user.tenantId) {
+      throw new ForbiddenException();
+    }
+    const reservations = await this.prisma.reservation.findMany({
+      where: { customerId: id },
+      orderBy: [{ date: 'desc' }, { time: 'desc' }],
+      take: 50,
+      select: {
+        id: true,
+        party: true,
+        date: true,
+        time: true,
+        status: true,
+        channel: true,
+        notes: true,
+        confirmedAt: true,
+        seatedAt: true,
+        completedAt: true,
+        cancelledAt: true,
+        zone: { select: { name: true } },
+      },
+    });
+    const total = reservations.length;
+    const completed = reservations.filter((r) => ['SEATED', 'COMPLETED'].includes(r.status)).length;
+    const noShow = reservations.filter((r) => r.status === 'NO_SHOW').length;
+    const cancelled = reservations.filter((r) => r.status === 'CANCELLED').length;
+    const pending = reservations.filter((r) => ['PENDING', 'CONFIRMED'].includes(r.status)).length;
+    const resolved = total - pending;
+    return {
+      total,
+      stats: {
+        completed,
+        noShow,
+        cancelled,
+        pending,
+        noShowRate: resolved > 0 ? Math.round((noShow / resolved) * 100) : 0,
+        completionRate: resolved > 0 ? Math.round((completed / resolved) * 100) : 0,
+        lastVisit: reservations.find((r) => ['SEATED', 'COMPLETED'].includes(r.status))?.date ?? null,
+        totalPax: reservations.reduce((s, r) => s + r.party, 0),
+      },
+      reservations,
+    };
+  }
+
   async create(user: AuthUser, dto: CustomerDto, override?: string) {
     const tid = this.tenantId(user, override);
     try {
