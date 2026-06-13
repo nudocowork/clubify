@@ -12,6 +12,11 @@ datasource db {
 // ============================================================
 
 enum Role {
+  // PLATFORM_OWNER (2026-06-13): Super Admin de la PLATAFORMA (Nivel 1).
+  // Está por encima de SUPER_ADMIN — gestiona Marcas Blancas (Clubify es
+  // una de ellas) desde /superadmin. NO tiene tenantId. Sus permisos
+  // son globales sobre todas las marcas + créditos + módulos + integraciones.
+  PLATFORM_OWNER
   SUPER_ADMIN
   TENANT_OWNER
   TENANT_STAFF
@@ -323,6 +328,11 @@ model RefreshToken {
 
 model Tenant {
   id                          String               @id @default(uuid())
+  /// Marca Blanca a la que pertenece este negocio (Nivel 3 → Nivel 2).
+  /// Nullable solo durante el backfill — todos los tenants existentes se
+  /// asignan a la marca "Clubify" en la migration de 2026-06-13.
+  whiteLabelId                String?
+  whiteLabel                  WhiteLabel?          @relation(fields: [whiteLabelId], references: [id], onDelete: SetNull)
   name                        String
   brandName                   String
   slug                        String               @unique
@@ -3688,4 +3698,146 @@ model CommissionPayoutItem {
   createdAt    DateTime         @default(now())
 
   @@index([payoutId])
+}
+
+// ============================================================
+//                    PLATAFORMA / MASTER ADMIN (Nivel 1)
+// ============================================================
+//
+// La PLATAFORMA (p.ej. "Fidelia") es el nivel superior del SaaS.
+// Vende el motor de fidelización a Marcas Blancas (Nivel 2 — Clubify
+// es una de ellas). Cada Marca Blanca opera bajo su propio dominio,
+// branding y créditos, y gestiona sus propios negocios (Nivel 3 =
+// el actual modelo Tenant).
+//
+// Aislamiento absoluto: una marca blanca nunca ve datos de otra. El
+// PLATFORM_OWNER (Mauricio, etc.) es el único con visión global.
+
+model WhiteLabel {
+  id              String          @id @default(uuid())
+  name            String          // "Clubify", "LoyalMX", etc.
+  slug            String          @unique // "clubify", "loyalmx"
+  /// Dominio principal de marketing/landing (ej "clubify.app").
+  domain          String?
+  /// Dominio del panel de cuenta (ej "app.clubify.app").
+  appDomain       String?
+  /// Color hex del avatar / botones primarios de la marca.
+  primaryColor    String          @default("#16a34a")
+  /// Letra inicial mostrada en el avatar cuadrado.
+  initial         String?
+  /// Email del admin principal (queda informativo; los logins reales son
+  /// User con role SUPER_ADMIN o TENANT_OWNER bajo esta marca).
+  adminEmail      String?
+  status          WhiteLabelStatus @default(ACTIVE)
+
+  /// Créditos disponibles para gastar en activaciones / renovaciones
+  /// de sus negocios. 1 crédito = 30 días de servicio. Acumulativos,
+  /// no vencen. Se descuentan automáticamente.
+  creditsAvailable Int            @default(0)
+  /// Créditos comprometidos (negocios próximos a renovar dentro de la
+  /// ventana). Calculado por proceso periódico.
+  creditsCommitted Int            @default(0)
+  /// Créditos usados acumulados (auditoría).
+  creditsUsed      Int            @default(0)
+
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  // Relaciones — todo lo "scoped" a una marca blanca cuelga de acá.
+  tenants         Tenant[]
+  modules         WhiteLabelModule[]
+  creditTransactions CreditTransaction[]
+
+  @@index([status])
+}
+
+enum WhiteLabelStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+/// Módulos toggleables por marca blanca. Si está deshabilitado, los
+/// negocios bajo esa marca NO ven el módulo en su sidebar ni en el
+/// flujo. Catálogo cerrado: REFERIDOS / PEDIDOS / GROW_BUSINESS_SMS
+/// (puede crecer luego).
+model WhiteLabelModule {
+  id           String        @id @default(uuid())
+  whiteLabelId String
+  whiteLabel   WhiteLabel    @relation(fields: [whiteLabelId], references: [id], onDelete: Cascade)
+  module       ModuleKey
+  enabled      Boolean       @default(true)
+  updatedAt    DateTime      @updatedAt
+
+  @@unique([whiteLabelId, module])
+  @@index([module])
+}
+
+enum ModuleKey {
+  REFERRALS
+  ORDERS
+  GROW_BUSINESS_SMS
+}
+
+/// Ledger de movimientos de créditos por marca blanca. Cada compra,
+/// consumo, compromiso o devolución queda registrado. Audit + soporte.
+model CreditTransaction {
+  id           String                @id @default(uuid())
+  whiteLabelId String
+  whiteLabel   WhiteLabel            @relation(fields: [whiteLabelId], references: [id], onDelete: Cascade)
+  type         CreditTransactionType
+  amount       Int                   // positivo en compra, negativo en consumo
+  note         String?               @db.Text
+  /// ID del negocio (Tenant) si el movimiento se aplicó por una renovación
+  /// específica. Null para compras manuales y ajustes administrativos.
+  tenantId     String?
+  createdAt    DateTime              @default(now())
+
+  @@index([whiteLabelId, createdAt])
+}
+
+enum CreditTransactionType {
+  PURCHASE
+  CONSUME
+  COMMIT
+  REFUND
+  ADJUSTMENT
+}
+
+/// Links públicos de Hotmart (pago único, sin recurrencia) para comprar
+/// packs de créditos. El admin de la marca blanca los muestra a sus
+/// clientes; el dueño de la plataforma los configura aquí.
+model HotmartCreditLink {
+  id        String   @id @default(uuid())
+  /// Cantidad de créditos que entrega el link.
+  credits   Int
+  /// Etiqueta visible ("1 crédito · mensual", "5 créditos · ahorro").
+  label     String
+  /// URL del checkout de Hotmart.
+  url       String
+  /// Precio en MXN (mostrado a clientes). Opcional.
+  price     Decimal? @db.Decimal(12, 2)
+  currency  String   @default("MXN")
+  /// Orden de despliegue.
+  position  Int      @default(0)
+  isActive  Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, position])
+}
+
+/// Integraciones globales de la plataforma (NO marcas blancas). Ejemplo:
+/// GrowBusiness SMS. Editables desde /superadmin/integraciones.
+model PlatformIntegration {
+  id        String   @id @default(uuid())
+  /// Identificador de la integración ("grow_business").
+  key       String   @unique
+  /// Nombre visible ("GrowBusiness").
+  name      String
+  description String?  @db.Text
+  /// Si está conectada y operativa.
+  status    String   @default("DISCONNECTED")
+  /// Credenciales/datos serializados (API key, config). En lectura se
+  /// expone enmascarada al frontend.
+  config    Json     @default("{}")
+  updatedAt DateTime @updatedAt
 }

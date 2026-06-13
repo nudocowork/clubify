@@ -39,7 +39,9 @@ function LoginInner() {
       );
       setSession(data.accessToken, data.user, { refreshToken: data.refreshToken });
       router.push(
-        data.user.role === 'SUPER_ADMIN' || data.user.role === 'MARKETING'
+        data.user.role === 'PLATFORM_OWNER'
+          ? '/superadmin'
+          : data.user.role === 'SUPER_ADMIN' || data.user.role === 'MARKETING'
           ? '/admin'
           : data.user.role?.startsWith('AFFILIATE_')
           ? '/affiliate'
@@ -62,7 +64,9 @@ function LoginInner() {
       );
       setSession(data.accessToken, data.user, { refreshToken: data.refreshToken });
       router.push(
-        data.user.role === 'SUPER_ADMIN' || data.user.role === 'MARKETING'
+        data.user.role === 'PLATFORM_OWNER'
+          ? '/superadmin'
+          : data.user.role === 'SUPER_ADMIN' || data.user.role === 'MARKETING'
           ? '/admin'
           : data.user.role?.startsWith('AFFILIATE_')
           ? '/affiliate'
