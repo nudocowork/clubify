@@ -1,5 +1,16 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma, WhiteLabelStatus } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
+
+export type WhiteLabelDto = {
+  name: string;
+  slug?: string;
+  domain?: string;
+  appDomain?: string;
+  primaryColor?: string;
+  initial?: string;
+  adminEmail?: string;
+};
 
 /**
  * SuperAdminService — capa de datos del panel global (Nivel 1).
@@ -151,7 +162,7 @@ export class SuperAdminService {
     const wl = await this.prisma.whiteLabel.findUnique({
       where: { id },
       include: {
-        modules: true,
+        modules: { orderBy: { module: 'asc' } },
         tenants: {
           select: { id: true, brandName: true, slug: true, status: true },
           orderBy: { brandName: 'asc' },
@@ -160,6 +171,74 @@ export class SuperAdminService {
       },
     });
     if (!wl) throw new NotFoundException();
-    return wl;
+    const admins = await this.prisma.user.findMany({
+      where: {
+        role: { in: ['SUPER_ADMIN', 'TENANT_OWNER'] },
+        tenant: { whiteLabelId: wl.id },
+      },
+      select: { id: true, email: true, fullName: true, role: true },
+      take: 20,
+    });
+    return { ...wl, admins };
+  }
+
+  async createWhiteLabel(dto: WhiteLabelDto) {
+    if (!dto.name?.trim()) throw new BadRequestException('Nombre requerido');
+    const slug = (dto.slug || dto.name)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+    if (!slug) throw new BadRequestException('Slug inválido');
+    try {
+      return await this.prisma.whiteLabel.create({
+        data: {
+          name: dto.name.trim(),
+          slug,
+          domain: dto.domain?.trim() || null,
+          appDomain: dto.appDomain?.trim() || null,
+          primaryColor: dto.primaryColor || '#16a34a',
+          initial: (dto.initial || dto.name.trim()[0] || 'M').toUpperCase().slice(0, 1),
+          adminEmail: dto.adminEmail?.trim().toLowerCase() || null,
+          modules: {
+            create: [
+              { module: 'REFERRALS', enabled: true },
+              { module: 'ORDERS', enabled: true },
+              { module: 'GROW_BUSINESS_SMS', enabled: true },
+            ],
+          },
+        },
+      });
+    } catch (e: any) {
+      if (e?.code === 'P2002') {
+        throw new ConflictException('Slug ya en uso');
+      }
+      throw e;
+    }
+  }
+
+  async updateWhiteLabel(id: string, patch: Partial<WhiteLabelDto>) {
+    const existing = await this.prisma.whiteLabel.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException();
+    return this.prisma.whiteLabel.update({
+      where: { id },
+      data: {
+        name: patch.name?.trim() ?? existing.name,
+        domain: patch.domain === undefined ? undefined : patch.domain?.trim() || null,
+        appDomain: patch.appDomain === undefined ? undefined : patch.appDomain?.trim() || null,
+        primaryColor: patch.primaryColor ?? undefined,
+        initial: patch.initial ? patch.initial.toUpperCase().slice(0, 1) : undefined,
+        adminEmail: patch.adminEmail === undefined ? undefined : patch.adminEmail?.trim().toLowerCase() || null,
+      },
+    });
+  }
+
+  /** Suspende o reactiva la marca. Las marcas NO se eliminan (regla PRD). */
+  async setStatus(id: string, status: WhiteLabelStatus) {
+    const existing = await this.prisma.whiteLabel.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException();
+    return this.prisma.whiteLabel.update({
+      where: { id },
+      data: { status },
+    });
   }
 }
