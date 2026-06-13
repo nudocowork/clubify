@@ -1,160 +1,96 @@
 'use client';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { api } from '@/lib/api';
-import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
+import {
+  Reservation,
+  Location,
+  Zone,
+  Table,
+  STATUS_META,
+  LABEL_COLORS,
+  todayISO,
+  initials,
+  avatarColor,
+  channelMeta,
+  reservationShift,
+  fmtLongDate,
+} from './_shared';
 
-const GRID = 26;
-const CANVAS_H = 520;
-function snap(v: number) {
-  return Math.max(0, Math.round(v / GRID) * GRID);
-}
-function tableDims(t: { shape: string; seats: number; width?: number | null; height?: number | null }) {
-  const isRound = t.shape === 'ROUND';
-  const w = t.width ?? (isRound ? (t.seats <= 2 ? 54 : t.seats <= 4 ? 66 : 80) : t.shape === 'BAR' ? 130 : 100);
-  const h = t.height ?? (isRound ? w : t.shape === 'BAR' ? 50 : 60);
-  return { w, h, isRound };
-}
-
-function ZoneAddForm({ onCreated, locationId }: { onCreated: () => void; locationId?: string | null }) {
-  const [name, setName] = useState('');
-  const [type, setType] = useState('INDOOR');
-  const [busy, setBusy] = useState(false);
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!name.trim()) return;
-    setBusy(true);
-    try {
-      await api('/reservations/zones', {
-        method: 'POST',
-        body: JSON.stringify({ name: name.trim(), type, locationId: locationId || null }),
-      });
-      setName('');
-      onCreated();
-      toast('Zona creada', 'success');
-    } catch (e: any) {
-      toast(e.message || 'No se pudo crear', 'error');
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <form onSubmit={submit} className="flex gap-1 mt-2">
-      <input
-        className="input text-xs"
-        placeholder="Nueva zona"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-      />
-      <select
-        className="input text-xs"
-        value={type}
-        onChange={(e) => setType(e.target.value)}
-        style={{ width: 100 }}
-      >
-        <option value="INDOOR">Indoor</option>
-        <option value="OUTDOOR">Terraza</option>
-        <option value="BAR">Barra</option>
-        <option value="PRIVATE">Privado</option>
-      </select>
-      <button className="btn-primary text-xs px-3" disabled={busy}>+</button>
-    </form>
-  );
-}
-
-type Location = { id: string; name: string };
-
-type Zone = { id: string; name: string; slug: string; type: string; locationId?: string | null };
-type Table = {
-  id: string;
-  number: string;
-  seats: number;
-  shape: string;
-  posX: number;
-  posY: number;
-  width?: number | null;
-  height?: number | null;
-  isBlocked: boolean;
-  zoneId?: string | null;
-  zone?: { name: string } | null;
-};
-type Reservation = {
-  id: string;
-  customerName: string;
-  customerPhone: string;
-  customerEmail?: string | null;
-  party: number;
+type DailyKpis = {
   date: string;
-  time: string;
-  notes?: string | null;
-  status: 'PENDING' | 'CONFIRMED' | 'SEATED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
-  channel: string;
-  table?: { number: string } | null;
-  zone?: { name: string } | null;
-  customer?: { id: string; fullName: string; tags: string[] } | null;
+  reservations: { count: number; delta: number };
+  pax: { expected: number };
+  occupancy: { percent: number; peakHour: string | null };
+  noShow: { count: number; percent: number };
 };
 
-const STATUS_META: Record<string, { label: string; bg: string; fg: string }> = {
-  PENDING: { label: 'Pendiente', bg: '#fff7ed', fg: '#b45309' },
-  CONFIRMED: { label: 'Confirmada', bg: '#ecfdf3', fg: '#15803d' },
-  SEATED: { label: 'Sentada', bg: '#eff6ff', fg: '#1d4ed8' },
-  COMPLETED: { label: 'Completada', bg: '#f3f4f6', fg: '#6b7280' },
-  CANCELLED: { label: 'Cancelada', bg: '#f3f4f6', fg: '#6b7280' },
-  NO_SHOW: { label: 'Ausente', bg: '#fef2f2', fg: '#dc2626' },
-};
-
-function todayISO() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-export default function ReservationsPage() {
-  const [tab, setTab] = useState<'agenda' | 'plano' | 'metricas'>('agenda');
+export default function AgendaPage() {
   const [date, setDate] = useState(todayISO());
   const [reservations, setReservations] = useState<Reservation[]>([]);
-  const [zones, setZones] = useState<Zone[]>([]);
-  const [tables, setTables] = useState<Table[]>([]);
+  const [kpis, setKpis] = useState<DailyKpis | null>(null);
   const [locations, setLocations] = useState<Location[]>([]);
-  const [activeLocationId, setActiveLocationId] = useState<string>(''); // '' = todas
-  const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({
+  const [activeLocationId, setActiveLocationId] = useState<string>('');
+  const [shift, setShift] = useState<'todos' | 'diurno' | 'tarde' | 'noche'>('todos');
+  const [search, setSearch] = useState('');
+  const [tables, setTables] = useState<Table[]>([]);
+  const [zones, setZones] = useState<Zone[]>([]);
+
+  // Walk-in
+  const [walkInOpen, setWalkInOpen] = useState(false);
+  const [walkIn, setWalkIn] = useState({ customerName: '', customerPhone: '', party: 2, tableId: '' });
+  const [walkInBusy, setWalkInBusy] = useState(false);
+
+  // Nueva reserva (modal)
+  const [newOpen, setNewOpen] = useState(false);
+  const [newForm, setNewForm] = useState({
     customerName: '',
     customerPhone: '',
     party: 2,
     time: '21:00',
     notes: '',
+    zoneId: '',
   });
+  const [newBusy, setNewBusy] = useState(false);
 
   async function loadAll() {
     try {
       const locQs = activeLocationId ? `&locationId=${activeLocationId}` : '';
-      const [res, zn, tb, locs] = await Promise.all([
+      const [res, kp, locs, zn, tb] = await Promise.all([
         api<Reservation[]>(`/reservations?date=${date}${locQs}`),
+        api<DailyKpis>(`/reservations/daily-kpis?date=${date}${locQs}`),
+        locations.length === 0 ? api<Location[]>('/locations').catch(() => []) : Promise.resolve(locations),
         api<Zone[]>(`/reservations/zones${activeLocationId ? `?locationId=${activeLocationId}` : ''}`),
         api<Table[]>(`/reservations/tables${activeLocationId ? `?locationId=${activeLocationId}` : ''}`),
-        locations.length === 0
-          ? api<Location[]>('/locations').catch(() => [])
-          : Promise.resolve(locations),
       ]);
       setReservations(res);
+      setKpis(kp);
       setZones(zn);
       setTables(tb);
       if (locations.length === 0) setLocations(locs);
     } catch (e: any) {
-      toast(e.message || 'Error cargando reservas', 'error');
+      toast(e.message || 'Error cargando agenda', 'error');
     }
   }
-
   useEffect(() => {
     loadAll();
   }, [date, activeLocationId]);
 
-  const stats = useMemo(() => {
-    const pax = reservations.reduce((s, r) => s + r.party, 0);
-    const cancelled = reservations.filter((r) => r.status === 'CANCELLED' || r.status === 'NO_SHOW').length;
-    return { count: reservations.length, pax, cancelled };
-  }, [reservations]);
+  const filtered = useMemo(() => {
+    return reservations.filter((r) => {
+      if (shift !== 'todos' && reservationShift(r.time) !== shift) return false;
+      if (search.trim()) {
+        const q = search.toLowerCase().trim();
+        const hay =
+          r.customerName.toLowerCase().includes(q) ||
+          r.customerPhone.includes(q) ||
+          (r.table?.number ?? '').toLowerCase().includes(q);
+        if (!hay) return false;
+      }
+      return true;
+    });
+  }, [reservations, shift, search]);
 
   async function changeStatus(id: string, status: Reservation['status']) {
     try {
@@ -166,51 +102,16 @@ export default function ReservationsPage() {
     }
   }
 
-  async function submitReservation(e: React.FormEvent) {
-    e.preventDefault();
-    if (!form.customerName.trim() || !form.customerPhone.trim()) {
-      toast('Nombre y teléfono son obligatorios', 'error');
-      return;
-    }
-    setCreating(true);
-    try {
-      await api('/reservations', {
-        method: 'POST',
-        body: JSON.stringify({
-          ...form,
-          date,
-          channel: 'PHONE',
-          status: 'CONFIRMED',
-        }),
-      });
-      setForm({ customerName: '', customerPhone: '', party: 2, time: '21:00', notes: '' });
-      loadAll();
-      toast('Reserva creada', 'success');
-    } catch (e: any) {
-      toast(e.message || 'No se pudo crear', 'error');
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  // ---------- Walk-in: cliente arrived, sin reserva previa ----------
-  const [walkInOpen, setWalkInOpen] = useState(false);
-  const [walkIn, setWalkIn] = useState({ customerName: '', customerPhone: '', party: 2, tableId: '' });
-  const [walkInSubmitting, setWalkInSubmitting] = useState(false);
-
   async function submitWalkIn(e: React.FormEvent) {
     e.preventDefault();
     if (!walkIn.customerName.trim()) {
       toast('Nombre requerido', 'error');
       return;
     }
-    setWalkInSubmitting(true);
+    setWalkInBusy(true);
     try {
       const now = new Date();
       const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-      // force=true para saltar la validación de capacidad — walk-in
-      // siempre debería poder sentarse aunque haya overbooking nominal
-      // (el negocio ya decidió que sí).
       await api('/reservations?force=true', {
         method: 'POST',
         body: JSON.stringify({
@@ -237,125 +138,94 @@ export default function ReservationsPage() {
     } catch (err: any) {
       toast(err.message || 'No se pudo registrar', 'error');
     } finally {
-      setWalkInSubmitting(false);
+      setWalkInBusy(false);
     }
   }
 
-  // ---------- Plano: drag + create + edit ----------
-  const canvasRef = useRef<HTMLDivElement>(null);
-  const [newTable, setNewTable] = useState({ number: '', seats: 4, shape: 'ROUND' as 'ROUND' | 'RECT' | 'BAR', zoneId: '' });
-  const [showAddTable, setShowAddTable] = useState(false);
-  const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
-
-  async function createTable(e: React.FormEvent) {
+  async function submitNew(e: React.FormEvent) {
     e.preventDefault();
-    if (!newTable.number.trim()) {
-      toast('Número de mesa requerido', 'error');
+    if (!newForm.customerName.trim() || !newForm.customerPhone.trim()) {
+      toast('Nombre y teléfono son obligatorios', 'error');
       return;
     }
+    setNewBusy(true);
     try {
-      await api('/reservations/tables', {
+      await api('/reservations', {
         method: 'POST',
         body: JSON.stringify({
-          number: newTable.number.trim(),
-          seats: Math.max(1, Math.min(40, newTable.seats)),
-          shape: newTable.shape,
-          zoneId: newTable.zoneId || null,
-          locationId: activeLocationId || null,
-          posX: 60,
-          posY: 60,
+          ...newForm,
+          date,
+          channel: 'PHONE',
+          status: 'CONFIRMED',
+          zoneId: newForm.zoneId || null,
         }),
       });
-      setNewTable({ number: '', seats: 4, shape: 'ROUND', zoneId: '' });
-      setShowAddTable(false);
+      setNewForm({ customerName: '', customerPhone: '', party: 2, time: '21:00', notes: '', zoneId: '' });
+      setNewOpen(false);
       loadAll();
-      toast('Mesa creada', 'success');
-    } catch (err: any) {
-      toast(err.message || 'No se pudo crear', 'error');
-    }
-  }
-
-  async function patchTable(id: string, patch: Partial<Table>) {
-    // Optimistic update
-    setTables((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
-    try {
-      await api(`/reservations/tables/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+      toast('Reserva creada', 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo actualizar', 'error');
-      loadAll();
+      toast(e.message || 'No se pudo crear', 'error');
+    } finally {
+      setNewBusy(false);
     }
   }
 
-  async function toggleBlock(t: Table) {
-    patchTable(t.id, { isBlocked: !t.isBlocked });
-  }
-
-  async function deleteTable(t: Table) {
-    if (!confirm(`Eliminar mesa "${t.number}"? Las reservas asociadas no se borran.`)) return;
-    try {
-      await api(`/reservations/tables/${t.id}`, { method: 'DELETE' });
-      setSelectedTableId(null);
-      loadAll();
-      toast('Mesa eliminada', 'success');
-    } catch (e: any) {
-      toast(e.message || 'No se pudo eliminar', 'error');
+  function shareAgenda() {
+    const lines = [
+      `📅 Reservas ${date}`,
+      ...filtered.map((r) =>
+        `${r.time} · ${r.customerName} · ${r.party} pax${r.table?.number ? ` · Mesa ${r.table.number}` : ''}`,
+      ),
+    ];
+    const txt = lines.join('\n');
+    if (navigator.share) {
+      navigator.share({ title: 'Agenda del día', text: txt }).catch(() => null);
+    } else {
+      navigator.clipboard.writeText(txt).then(
+        () => toast('Agenda copiada al portapapeles', 'success'),
+        () => toast('No se pudo copiar', 'error'),
+      );
     }
   }
 
-  function handlePointerDown(e: React.PointerEvent, t: Table) {
-    if (!canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const offsetX = e.clientX - rect.left - t.posX;
-    const offsetY = e.clientY - rect.top - t.posY;
-    dragRef.current = { id: t.id, offsetX, offsetY };
-    setSelectedTableId(t.id);
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  }
-  function handlePointerMove(e: React.PointerEvent) {
-    if (!dragRef.current || !canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const t = tables.find((x) => x.id === dragRef.current!.id);
-    if (!t) return;
-    const dims = tableDims(t);
-    const rawX = e.clientX - rect.left - dragRef.current.offsetX;
-    const rawY = e.clientY - rect.top - dragRef.current.offsetY;
-    const maxX = rect.width - dims.w;
-    const maxY = CANVAS_H - dims.h;
-    const x = Math.min(maxX, Math.max(0, snap(rawX)));
-    const y = Math.min(maxY, Math.max(0, snap(rawY)));
-    setTables((prev) => prev.map((tt) => (tt.id === t.id ? { ...tt, posX: x, posY: y } : tt)));
-  }
-  function handlePointerUp(e: React.PointerEvent) {
-    if (!dragRef.current) return;
-    const id = dragRef.current.id;
-    dragRef.current = null;
-    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
-    const t = tables.find((x) => x.id === id);
-    if (!t) return;
-    // Persist final position
-    api(`/reservations/tables/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ posX: t.posX, posY: t.posY }),
-    }).catch((err: any) => {
-      toast(err.message || 'No se pudo guardar la posición', 'error');
-      loadAll();
+  const shiftCounts = useMemo(() => {
+    const counts = { diurno: 0, tarde: 0, noche: 0 };
+    reservations.forEach((r) => {
+      counts[reservationShift(r.time)]++;
     });
-  }
+    return counts;
+  }, [reservations]);
 
-  const selectedTable = tables.find((t) => t.id === selectedTableId) || null;
+  const whatsappCount = useMemo(
+    () => reservations.filter((r) => ['WHATSAPP', 'WEB', 'QR'].includes(r.channel)).length,
+    [reservations],
+  );
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">Reservas <span className="page-crumb">/ {date}</span></h1>
-        <div className="flex gap-2 items-center flex-wrap">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3 mb-5 flex-wrap">
+        <div>
+          <h1 className="page-title m-0">
+            Reservas <span className="page-crumb text-mute font-normal">/ {fmtLongDate(date)}</span>
+          </h1>
+          <p className="text-xs text-mute mt-1">Agenda y operación del servicio de hoy</p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-ok-soft text-ok-ink text-xs font-semibold">
+            <span className="relative inline-block w-2 h-2">
+              <span className="absolute inset-0 rounded-full bg-ok animate-ping opacity-75" />
+              <span className="absolute inset-0 rounded-full bg-ok" />
+            </span>
+            Tiempo real
+          </div>
           {locations.length > 1 && (
             <select
               value={activeLocationId}
               onChange={(e) => setActiveLocationId(e.target.value)}
               className="input text-sm"
               style={{ width: 'auto' }}
-              title="Filtrar por sede"
             >
               <option value="">📍 Todas las sedes</option>
               {locations.map((loc) => (
@@ -365,13 +235,27 @@ export default function ReservationsPage() {
               ))}
             </select>
           )}
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar"
+            className="input text-sm"
+            style={{ width: 160 }}
+          />
+          <button onClick={shareAgenda} className="btn-ghost text-sm">
+            ⤴ Compartir
+          </button>
           <button
             onClick={() => setWalkInOpen(true)}
-            className="btn-primary text-sm"
+            className="text-sm font-semibold px-3 py-2 rounded-pill text-white"
             style={{ background: '#1d4ed8' }}
-            title="Cliente que llegó sin reserva previa"
+            title="Cliente sin reserva previa"
           >
             🚶 Walk-in
+          </button>
+          <button onClick={() => setNewOpen(true)} className="btn-primary text-sm">
+            + Nueva reserva
           </button>
           <input
             type="date"
@@ -383,650 +267,446 @@ export default function ReservationsPage() {
         </div>
       </div>
 
-      {walkInOpen && (
-        <div className="card card-pad mb-4 border-2" style={{ borderColor: '#1d4ed8' }}>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-base font-semibold m-0">🚶 Registrar walk-in</h2>
-            <button onClick={() => setWalkInOpen(false)} className="text-mute hover:text-ink">
-              ✕
-            </button>
-          </div>
-          <p className="text-xs text-mute mb-3">
-            Cliente llegó sin reserva previa. Queda marcado como{' '}
-            <strong>SEATED</strong> al toque y recibe sello de fidelización
-            automáticamente.
-          </p>
-          <form onSubmit={submitWalkIn} className="grid grid-cols-1 md:grid-cols-5 gap-2 items-end">
-            <div>
-              <label className="label">Nombre</label>
-              <input
-                className="input"
-                value={walkIn.customerName}
-                onChange={(e) => setWalkIn({ ...walkIn, customerName: e.target.value })}
-                placeholder="Juan Pérez"
-                required
-              />
-            </div>
-            <div>
-              <label className="label">Teléfono (opcional)</label>
-              <input
-                className="input"
-                value={walkIn.customerPhone}
-                onChange={(e) => setWalkIn({ ...walkIn, customerPhone: e.target.value })}
-                placeholder="+52 55..."
-              />
-            </div>
-            <div>
-              <label className="label">Pax</label>
-              <input
-                type="number"
-                min={1}
-                max={20}
-                className="input"
-                value={walkIn.party}
-                onChange={(e) => setWalkIn({ ...walkIn, party: Number(e.target.value) })}
-              />
-            </div>
-            <div>
-              <label className="label">Mesa (opcional)</label>
-              <select
-                className="input"
-                value={walkIn.tableId}
-                onChange={(e) => setWalkIn({ ...walkIn, tableId: e.target.value })}
-              >
-                <option value="">Sin asignar</option>
-                {tables.filter((t) => !t.isBlocked).map((t) => (
-                  <option key={t.id} value={t.id}>
-                    Mesa {t.number} · {t.seats}p
-                  </option>
-                ))}
-              </select>
-            </div>
-            <button className="btn-primary text-sm justify-center" disabled={walkInSubmitting}>
-              {walkInSubmitting ? 'Sentando…' : 'Sentar walk-in'}
-            </button>
-          </form>
-        </div>
-      )}
-
-      {/* Tabs */}
-      <div className="flex gap-1 bg-bg2 p-1 rounded-lg mb-4 w-fit">
-        {([
-          { v: 'agenda' as const, label: '📅 Agenda', count: stats.count },
-          { v: 'plano' as const, label: '🪑 Plano', count: tables.length },
-          { v: 'metricas' as const, label: '📊 Métricas', count: null as number | null },
-        ]).map((tb) => {
-          const active = tab === tb.v;
-          return (
-            <button
-              key={tb.v}
-              onClick={() => setTab(tb.v)}
-              className={`text-sm font-semibold px-4 py-2 rounded-md transition flex items-center gap-2 ${
-                active ? 'bg-white text-ink shadow-sm' : 'text-mute hover:text-ink'
-              }`}
-            >
-              {tb.label}
-              {tb.count !== null && (
-                <span className="text-[10px] font-bold bg-bg2 text-mute px-1.5 py-0.5 rounded">
-                  {tb.count}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      {tab === 'agenda' && (
-        <div className="grid lg:grid-cols-[1fr_320px] gap-4">
-          <div className="card card-pad">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-base font-semibold m-0">Reservas del día</h2>
-              <div className="flex gap-3 text-xs text-mute">
-                <span><strong className="text-ink">{stats.count}</strong> reservas</span>
-                <span><strong className="text-ink">{stats.pax}</strong> pax</span>
-                <span><strong className="text-bad">{stats.cancelled}</strong> ausencias</span>
-              </div>
-            </div>
-            {reservations.length === 0 ? (
-              <p className="text-sm text-mute py-6 text-center">
-                Sin reservas para este día. Las nuevas reservas del flujo público aparecerán aquí.
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {reservations.map((r) => {
-                  const sm = STATUS_META[r.status];
-                  return (
-                    <div
-                      key={r.id}
-                      className="flex items-center gap-3 p-3 rounded-lg border border-line bg-white"
-                    >
-                      <div className="w-14 text-center shrink-0">
-                        <div className="text-sm font-bold">{r.time}</div>
-                        <div className="text-[10px] text-mute">{r.channel}</div>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold truncate">{r.customerName}</div>
-                        <div className="text-xs text-mute">
-                          {r.party} pax · {r.customerPhone}
-                          {r.table?.number && ` · Mesa ${r.table.number}`}
-                          {r.zone?.name && ` · ${r.zone.name}`}
-                        </div>
-                        {r.notes && (
-                          <div className="text-[11px] text-mute mt-1 italic line-clamp-1">{r.notes}</div>
-                        )}
-                      </div>
-                      <span
-                        className="text-[11px] font-bold px-2 py-1 rounded"
-                        style={{ background: sm.bg, color: sm.fg }}
-                      >
-                        {sm.label}
-                      </span>
-                      <select
-                        value={r.status}
-                        onChange={(e) => changeStatus(r.id, e.target.value as Reservation['status'])}
-                        className="text-[11px] border border-line rounded px-2 py-1 bg-white"
-                      >
-                        {Object.entries(STATUS_META).map(([v, m]) => (
-                          <option key={v} value={v}>{m.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <form onSubmit={submitReservation} className="card card-pad self-start">
-            <h2 className="text-base font-semibold m-0">Nueva reserva</h2>
-            <p className="text-xs text-mute mt-1">Carga manual desde el panel.</p>
-            <div className="mt-3 space-y-2">
-              <div>
-                <label className="label">Nombre</label>
-                <input
-                  className="input"
-                  value={form.customerName}
-                  onChange={(e) => setForm({ ...form, customerName: e.target.value })}
-                  required
-                />
-              </div>
-              <div>
-                <label className="label">Teléfono</label>
-                <input
-                  className="input"
-                  value={form.customerPhone}
-                  onChange={(e) => setForm({ ...form, customerPhone: e.target.value })}
-                  required
-                  placeholder="+52 55 0000 0000"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="label">Pax</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={20}
-                    className="input"
-                    value={form.party}
-                    onChange={(e) => setForm({ ...form, party: Number(e.target.value) })}
-                  />
-                </div>
-                <div>
-                  <label className="label">Hora</label>
-                  <input
-                    type="time"
-                    className="input"
-                    value={form.time}
-                    onChange={(e) => setForm({ ...form, time: e.target.value })}
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="label">Notas (opcional)</label>
-                <textarea
-                  className="input"
-                  rows={2}
-                  value={form.notes}
-                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                />
-              </div>
-            </div>
-            <button className="btn-primary mt-3 w-full justify-center" disabled={creating}>
-              {creating ? 'Creando…' : 'Crear reserva'}
-            </button>
-          </form>
-        </div>
-      )}
-
-      {tab === 'plano' && (
-        <div className="grid lg:grid-cols-[1fr_300px] gap-4">
-          <div className="card card-pad">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h2 className="text-base font-semibold m-0">Plano de mesas</h2>
-                <p className="text-[11px] text-mute mt-0.5">
-                  Arrastrá las mesas para reorganizar el plano. Los cambios se guardan al soltar.
-                </p>
-              </div>
-              <button onClick={() => setShowAddTable((v) => !v)} className="btn-primary text-sm">
-                <Icon name="plus" /> Mesa
-              </button>
-            </div>
-
-            {showAddTable && (
-              <form onSubmit={createTable} className="mb-3 p-3 bg-bg2/60 rounded-lg border border-line grid grid-cols-2 md:grid-cols-5 gap-2 items-end">
-                <div>
-                  <label className="label">Número/etiqueta</label>
-                  <input
-                    className="input"
-                    value={newTable.number}
-                    onChange={(e) => setNewTable({ ...newTable, number: e.target.value })}
-                    placeholder="1 / VIP / Barra"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="label">Capacidad</label>
-                  <input
-                    type="number"
-                    className="input"
-                    min={1}
-                    max={40}
-                    value={newTable.seats}
-                    onChange={(e) => setNewTable({ ...newTable, seats: Number(e.target.value) })}
-                  />
-                </div>
-                <div>
-                  <label className="label">Forma</label>
-                  <select
-                    className="input"
-                    value={newTable.shape}
-                    onChange={(e) => setNewTable({ ...newTable, shape: e.target.value as any })}
-                  >
-                    <option value="ROUND">Redonda</option>
-                    <option value="RECT">Rectangular</option>
-                    <option value="BAR">Barra</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="label">Zona</label>
-                  <select
-                    className="input"
-                    value={newTable.zoneId}
-                    onChange={(e) => setNewTable({ ...newTable, zoneId: e.target.value })}
-                  >
-                    <option value="">Sin zona</option>
-                    {zones.map((z) => (
-                      <option key={z.id} value={z.id}>{z.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <button className="btn-primary text-sm justify-center">Crear</button>
-              </form>
-            )}
-
-            {tables.length === 0 ? (
-              <p className="text-sm text-mute py-10 text-center">
-                Aún no hay mesas. Creá la primera con el botón de arriba.
-              </p>
-            ) : (
-              <div
-                ref={canvasRef}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerUp}
-                className="relative bg-bg2/40 border border-line rounded-lg overflow-hidden touch-none"
-                style={{
-                  height: CANVAS_H,
-                  backgroundImage: 'linear-gradient(#eef1f3 1px, transparent 1px), linear-gradient(90deg, #eef1f3 1px, transparent 1px)',
-                  backgroundSize: `${GRID}px ${GRID}px`,
-                }}
-              >
-                {tables.map((t) => {
-                  const { w, h, isRound } = tableDims(t);
-                  const sel = t.id === selectedTableId;
-                  return (
-                    <div
-                      key={t.id}
-                      onPointerDown={(e) => handlePointerDown(e, t)}
-                      style={{
-                        position: 'absolute',
-                        left: t.posX,
-                        top: t.posY,
-                        width: w,
-                        height: h,
-                        borderRadius: isRound ? '50%' : 12,
-                        background: t.isBlocked
-                          ? 'repeating-linear-gradient(45deg,#f3f4f6,#f3f4f6 6px,#e9ebee 6px,#e9ebee 12px)'
-                          : '#fff',
-                        border: sel ? '2px solid #22C55E' : '1.5px solid #cdeed9',
-                        boxShadow: sel ? '0 0 0 3px rgba(34,197,94,.2)' : '0 1px 3px rgba(0,0,0,.06)',
-                        cursor: 'grab',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: t.isBlocked ? '#9ca3af' : '#15803d',
-                        userSelect: 'none',
-                        touchAction: 'none',
-                      }}
-                    >
-                      <span style={{ fontSize: 14, fontWeight: 800 }}>{t.number}</span>
-                      <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.8 }}>{t.seats}p</span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-4 self-start">
-          <div className="card card-pad">
-            <h2 className="text-base font-semibold m-0">
-              {selectedTable ? `Mesa ${selectedTable.number}` : 'Detalles de mesa'}
-            </h2>
-            {selectedTable ? (
-              <div className="mt-3 space-y-3">
-                <div>
-                  <label className="label">Número/etiqueta</label>
-                  <input
-                    className="input"
-                    defaultValue={selectedTable.number}
-                    key={selectedTable.id}
-                    onBlur={(e) => {
-                      if (e.target.value.trim() && e.target.value !== selectedTable.number) {
-                        patchTable(selectedTable.id, { number: e.target.value.trim() });
-                      }
-                    }}
-                  />
-                </div>
-                <div>
-                  <label className="label">Capacidad (pax)</label>
-                  <input
-                    type="number"
-                    className="input"
-                    min={1}
-                    max={40}
-                    value={selectedTable.seats}
-                    onChange={(e) => patchTable(selectedTable.id, { seats: Math.max(1, Math.min(40, Number(e.target.value) || 1)) })}
-                  />
-                </div>
-                <div>
-                  <label className="label">Forma</label>
-                  <select
-                    className="input"
-                    value={selectedTable.shape}
-                    onChange={(e) => patchTable(selectedTable.id, { shape: e.target.value })}
-                  >
-                    <option value="ROUND">Redonda</option>
-                    <option value="RECT">Rectangular</option>
-                    <option value="BAR">Barra</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="label">Zona</label>
-                  <select
-                    className="input"
-                    value={selectedTable.zoneId ?? ''}
-                    onChange={(e) => patchTable(selectedTable.id, { zoneId: e.target.value || null })}
-                  >
-                    <option value="">Sin zona</option>
-                    {zones.map((z) => (
-                      <option key={z.id} value={z.id}>{z.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="text-xs">
-                  Estado:{' '}
-                  {selectedTable.isBlocked ? (
-                    <span className="text-bad font-semibold">Bloqueada</span>
-                  ) : (
-                    <span className="text-ok font-semibold">Disponible</span>
-                  )}
-                </div>
-                <button
-                  onClick={() => toggleBlock(selectedTable)}
-                  className="btn-ghost w-full justify-center text-sm"
-                >
-                  {selectedTable.isBlocked ? '▶ Desbloquear' : '⏸ Bloquear mesa'}
-                </button>
-                <button
-                  onClick={() => deleteTable(selectedTable)}
-                  className="w-full justify-center text-sm py-2 rounded-lg border border-bad text-bad hover:bg-bad-soft"
-                >
-                  🗑 Eliminar mesa
-                </button>
-              </div>
-            ) : (
-              <p className="text-sm text-mute mt-2">
-                Tocá una mesa para ver sus detalles o arrastrala para reposicionarla.
-              </p>
-            )}
-
-          </div>
-          <div className="card card-pad">
-            <h3 className="text-sm font-semibold m-0">Zonas</h3>
-            <p className="text-[11px] text-mute mt-0.5 mb-2">
-              Salón, Terraza, Barra, VIP... el cliente puede elegir al reservar.
-            </p>
-            {zones.length === 0 ? (
-              <p className="text-xs text-mute italic">Sin zonas todavía.</p>
-            ) : (
-              <ul className="space-y-1 mb-2">
-                {zones.map((z) => (
-                  <li key={z.id} className="flex items-center justify-between text-xs py-1.5 px-2 bg-bg2/60 rounded">
-                    <span className="font-semibold">{z.name}</span>
-                    <span className="text-mute text-[10px]">{z.type}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <ZoneAddForm onCreated={loadAll} locationId={activeLocationId} />
-          </div>
-          </div>
-        </div>
-      )}
-
-      {tab === 'metricas' && <MetricsTab />}
-    </div>
-  );
-}
-
-function MetricsTab() {
-  const [stats, setStats] = useState<any>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [range, setRange] = useState<'7d' | '30d' | '90d'>('30d');
-
-  useEffect(() => {
-    const now = new Date();
-    const daysBack = range === '7d' ? 7 : range === '30d' ? 30 : 90;
-    const from = new Date(now);
-    from.setDate(from.getDate() - daysBack);
-    const to = new Date(now);
-    to.setDate(to.getDate() + 7); // incluye próximos 7 días
-    const f = from.toISOString().slice(0, 10);
-    const t = to.toISOString().slice(0, 10);
-    api<any>(`/reservations/stats?from=${f}&to=${t}`)
-      .then(setStats)
-      .catch((e: any) => setError(e.message || 'Error'));
-  }, [range]);
-
-  if (error) {
-    return <p className="text-sm text-bad py-6 text-center">{error}</p>;
-  }
-  if (!stats) {
-    return <p className="text-sm text-mute py-6 text-center">Cargando métricas…</p>;
-  }
-
-  const DOW_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-  const maxDow = Math.max(1, ...Object.values<number>(stats.byDow));
-  const maxZone = Math.max(1, ...stats.zoneBreakdown.map((z: any) => z.pax));
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="text-sm text-mute">
-          Rango: <strong className="text-ink">{stats.range.from}</strong> →{' '}
-          <strong className="text-ink">{stats.range.to}</strong> ({stats.range.days} días)
-        </div>
-        <div className="flex gap-1 bg-bg2 p-1 rounded-lg">
-          {(['7d', '30d', '90d'] as const).map((r) => (
-            <button
-              key={r}
-              onClick={() => setRange(r)}
-              className={`text-xs font-semibold px-3 py-1.5 rounded-md ${
-                range === r ? 'bg-white text-ink shadow-sm' : 'text-mute'
-              }`}
-            >
-              {r === '7d' ? '7 días' : r === '30d' ? '30 días' : '90 días'}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {/* KPI cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="card card-pad">
-          <div className="text-xs text-mute font-bold">RESERVAS</div>
-          <div className="text-2xl font-extrabold mt-1">{stats.totals.reservations}</div>
-          <div className="text-xs text-mute mt-1">{stats.totals.pax} pax · {stats.totals.avgParty} prom</div>
-        </div>
-        <div className="card card-pad">
-          <div className="text-xs text-mute font-bold">COMPLETION</div>
-          <div className="text-2xl font-extrabold mt-1 text-ok">{stats.rates.completionRate}%</div>
-          <div className="text-xs text-mute mt-1">{stats.totals.completed} completadas</div>
-        </div>
-        <div className="card card-pad">
-          <div className="text-xs text-mute font-bold">NO-SHOW</div>
-          <div className={`text-2xl font-extrabold mt-1 ${stats.rates.noShowRate > 15 ? 'text-bad' : ''}`}>
-            {stats.rates.noShowRate}%
-          </div>
-          <div className="text-xs text-mute mt-1">{stats.totals.noShow} ausentes</div>
-        </div>
-        <div className="card card-pad">
-          <div className="text-xs text-mute font-bold">CANCELACIONES</div>
-          <div className="text-2xl font-extrabold mt-1">{stats.rates.cancelRate}%</div>
-          <div className="text-xs text-mute mt-1">{stats.totals.cancelled} canceladas</div>
-        </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+        <KpiCard
+          label="Reservas hoy"
+          value={kpis?.reservations.count ?? 0}
+          valueColor="#15803d"
+          sub={
+            kpis && kpis.reservations.delta !== 0
+              ? `${kpis.reservations.delta > 0 ? '+' : ''}${kpis.reservations.delta} vs. ayer`
+              : 'Sin cambio vs. ayer'
+          }
+          icon="📅"
+        />
+        <KpiCard
+          label="Comensales"
+          value={kpis?.pax.expected ?? 0}
+          valueColor="#1d4ed8"
+          sub="Pax esperados"
+          icon="👥"
+        />
+        <KpiCard
+          label="Ocupación"
+          value={`${kpis?.occupancy.percent ?? 0}%`}
+          valueColor="#b45309"
+          sub={kpis?.occupancy.peakHour ? `Pico ${kpis.occupancy.peakHour}` : 'Sin picos calculados'}
+          icon="📈"
+        />
+        <KpiCard
+          label="Ausencias"
+          value={kpis?.noShow.count ?? 0}
+          valueColor="#dc2626"
+          sub={`${kpis?.noShow.percent ?? 0}% del total`}
+          icon="⏰"
+        />
       </div>
 
-      {/* Estado breakdown */}
-      <div className="card card-pad">
-        <h3 className="text-sm font-semibold m-0 mb-3">Estado de las reservas</h3>
-        <div className="space-y-2">
-          {[
-            { label: 'Pendientes', val: stats.totals.pending, color: '#b45309' },
-            { label: 'Confirmadas', val: stats.totals.confirmed, color: '#1d4ed8' },
-            { label: 'Completadas', val: stats.totals.completed, color: '#15803d' },
-            { label: 'Canceladas', val: stats.totals.cancelled, color: '#6b7280' },
-            { label: 'Ausentes', val: stats.totals.noShow, color: '#dc2626' },
-          ].map((s) => {
-            const pct = stats.totals.reservations > 0
-              ? Math.round((s.val / stats.totals.reservations) * 100)
-              : 0;
-            return (
-              <div key={s.label} className="flex items-center gap-3">
-                <div className="text-xs font-semibold w-24">{s.label}</div>
-                <div className="flex-1 h-5 bg-bg2 rounded overflow-hidden">
-                  <div
-                    className="h-full transition-all"
-                    style={{ width: `${pct}%`, background: s.color }}
-                  />
-                </div>
-                <div className="text-xs text-mute w-16 text-right">
-                  {s.val} ({pct}%)
-                </div>
+      <div className="grid lg:grid-cols-[1fr_340px] gap-4">
+        {/* Reservas del día */}
+        <div className="card card-pad">
+          <div className="flex items-start justify-between mb-3 flex-wrap gap-2">
+            <div>
+              <div className="text-[10px] text-mute font-semibold tracking-[0.18em] uppercase">
+                Reservas del día
               </div>
-            );
-          })}
-        </div>
-      </div>
+              <h2 className="text-lg font-bold m-0 mt-0.5">
+                Agenda · {filtered.length} reserva{filtered.length === 1 ? '' : 's'}
+              </h2>
+            </div>
+            <div className="flex gap-1 bg-bg2 p-1 rounded-lg text-xs">
+              {([
+                { v: 'todos' as const, label: 'Todos', count: reservations.length },
+                { v: 'diurno' as const, label: 'Diurno', count: shiftCounts.diurno },
+                { v: 'tarde' as const, label: 'Tarde', count: shiftCounts.tarde },
+                { v: 'noche' as const, label: 'Noche', count: shiftCounts.noche },
+              ]).map((s) => (
+                <button
+                  key={s.v}
+                  onClick={() => setShift(s.v)}
+                  className={`px-3 py-1.5 rounded-md font-semibold transition ${
+                    shift === s.v ? 'bg-white text-ink shadow-sm' : 'text-mute hover:text-ink'
+                  }`}
+                >
+                  {s.label}
+                  {s.count > 0 && (
+                    <span className="ml-1 opacity-60 text-[10px]">{s.count}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
 
-      <div className="grid md:grid-cols-2 gap-4">
-        {/* Top horarios */}
-        <div className="card card-pad">
-          <h3 className="text-sm font-semibold m-0 mb-3">Horarios más solicitados</h3>
-          {stats.topHours.length === 0 ? (
-            <p className="text-xs text-mute italic">Sin datos en este rango</p>
+          {filtered.length === 0 ? (
+            <p className="text-sm text-mute py-10 text-center">
+              {reservations.length === 0
+                ? 'Sin reservas para este día. Las nuevas reservas del flujo público aparecerán aquí.'
+                : 'Sin resultados con los filtros actuales.'}
+            </p>
           ) : (
-            <div className="space-y-2">
-              {stats.topHours.map((h: any) => {
-                const max = stats.topHours[0].pax;
-                const pct = Math.round((h.pax / max) * 100);
-                return (
-                  <div key={h.hour} className="flex items-center gap-3">
-                    <div className="text-sm font-semibold w-14">{h.hour}</div>
-                    <div className="flex-1 h-4 bg-bg2 rounded overflow-hidden">
-                      <div className="h-full bg-ok" style={{ width: `${pct}%` }} />
-                    </div>
-                    <div className="text-xs text-mute w-12 text-right">{h.pax} pax</div>
-                  </div>
-                );
-              })}
+            <div className="hidden md:grid grid-cols-[80px_1fr_60px_120px_140px] gap-3 text-[10px] uppercase tracking-wider text-mute font-bold border-b border-line2 pb-2 mb-2">
+              <span>Hora</span>
+              <span>Cliente</span>
+              <span className="text-center">Pax</span>
+              <span>Mesa</span>
+              <span className="text-right">Estado</span>
             </div>
           )}
-        </div>
 
-        {/* Día de la semana */}
-        <div className="card card-pad">
-          <h3 className="text-sm font-semibold m-0 mb-3">Pax por día de la semana</h3>
-          <div className="grid grid-cols-7 gap-1 items-end h-32 mt-2">
-            {[1, 2, 3, 4, 5, 6, 0].map((dow) => {
-              const pax = stats.byDow[dow] || 0;
-              const h = Math.round((pax / maxDow) * 100);
+          <div className="space-y-1">
+            {filtered.map((r) => {
+              const sm = STATUS_META[r.status];
+              const ch = channelMeta(r.channel);
+              const primaryLabel = r.labels?.[0];
               return (
-                <div key={dow} className="flex flex-col items-center gap-1 h-full justify-end">
-                  <div className="text-[10px] font-bold text-mute">{pax}</div>
-                  <div
-                    className="w-full bg-ok rounded-t transition-all"
-                    style={{ height: `${Math.max(2, h)}%` }}
-                  />
-                  <div className="text-[10px] font-bold text-mute">{DOW_LABELS[dow]}</div>
+                <div
+                  key={r.id}
+                  className="grid grid-cols-[80px_1fr_60px_120px_140px] gap-3 items-center p-2 rounded-lg hover:bg-bg2/60 transition"
+                >
+                  <div className="text-sm">
+                    <div className="font-bold">{r.time}</div>
+                    <div className="text-[10px] text-mute flex items-center gap-1">
+                      <span>{ch.icon}</span>
+                      <span className="truncate">{ch.label}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div
+                      className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
+                      style={{ background: avatarColor(r.customerName) }}
+                    >
+                      {initials(r.customerName)}
+                    </div>
+                    <div className="min-w-0">
+                      <Link
+                        href={r.customer?.id ? `/app/customers/${r.customer.id}` : '#'}
+                        className="text-sm font-semibold truncate hover:underline block"
+                      >
+                        {r.customerName}
+                      </Link>
+                      {primaryLabel && (
+                        <span
+                          className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded mt-0.5"
+                          style={{
+                            background: LABEL_COLORS[primaryLabel]?.bg ?? '#f3f4f6',
+                            color: LABEL_COLORS[primaryLabel]?.fg ?? '#6b7280',
+                          }}
+                        >
+                          {primaryLabel}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-sm text-center">{r.party} pax</div>
+                  <div className="text-sm truncate">
+                    {r.table?.number ? `Mesa ${r.table.number}` : (
+                      <span className="text-mute italic">Sin asignar</span>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-end gap-2">
+                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold">
+                      <span
+                        className="w-2 h-2 rounded-full"
+                        style={{ background: sm.dot }}
+                      />
+                      <span style={{ color: sm.fg }}>{sm.label}</span>
+                    </span>
+                    <select
+                      value={r.status}
+                      onChange={(e) => changeStatus(r.id, e.target.value as Reservation['status'])}
+                      className="text-[10px] border border-line rounded px-1.5 py-0.5 bg-white"
+                      title="Cambiar estado"
+                    >
+                      {Object.entries(STATUS_META).map(([v, m]) => (
+                        <option key={v} value={v}>{m.label}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               );
             })}
           </div>
         </div>
-      </div>
 
-      {/* Zonas y canales */}
-      <div className="grid md:grid-cols-2 gap-4">
-        <div className="card card-pad">
-          <h3 className="text-sm font-semibold m-0 mb-3">Top zonas</h3>
-          {stats.zoneBreakdown.length === 0 ? (
-            <p className="text-xs text-mute italic">Sin datos</p>
-          ) : (
-            <div className="space-y-2">
-              {stats.zoneBreakdown.map((z: any) => {
-                const pct = Math.round((z.pax / maxZone) * 100);
-                return (
-                  <div key={z.name} className="flex items-center gap-3">
-                    <div className="text-sm font-semibold w-24 truncate">{z.name}</div>
-                    <div className="flex-1 h-4 bg-bg2 rounded overflow-hidden">
-                      <div className="h-full bg-info" style={{ width: `${pct}%` }} />
-                    </div>
-                    <div className="text-xs text-mute w-16 text-right">
-                      {z.pax} pax
-                    </div>
-                  </div>
-                );
-              })}
+        {/* Sidebar derecho: Aviso al negocio + Cómo se confirma */}
+        <div className="space-y-3">
+          <div
+            className="rounded-2xl p-5 text-white"
+            style={{ background: 'linear-gradient(155deg, #064e3b, #022c1f)' }}
+          >
+            <div className="text-[10px] font-bold tracking-[0.18em] uppercase opacity-80 flex items-center gap-1">
+              💬 Aviso al negocio
             </div>
-          )}
-        </div>
+            <div className="font-semibold text-sm mt-2 opacity-95">Reservas avisadas hoy</div>
+            <div className="flex items-baseline gap-2 mt-1">
+              <span className="text-4xl font-extrabold">{whatsappCount}</span>
+              <span className="text-sm opacity-80">por WhatsApp</span>
+            </div>
+            <p className="text-xs opacity-80 mt-2 leading-relaxed">
+              El cliente <strong>no recibe SMS</strong> hasta que tu equipo confirma manualmente. El
+              aviso con los datos llega a tu WhatsApp configurado.
+            </p>
+            <Link
+              href="/app/settings"
+              className="block mt-3 text-center bg-white/15 hover:bg-white/25 backdrop-blur rounded-lg py-2 text-sm font-semibold transition"
+            >
+              Configurar número receptor
+            </Link>
+          </div>
 
-        <div className="card card-pad">
-          <h3 className="text-sm font-semibold m-0 mb-3">Canal de origen</h3>
-          <div className="grid grid-cols-2 gap-2">
-            {Object.entries(stats.byChannel).map(([ch, n]) => (
-              <div key={ch} className="p-3 rounded-lg bg-bg2/60 text-center">
-                <div className="text-xs text-mute font-bold">{ch}</div>
-                <div className="text-lg font-extrabold">{n as number}</div>
-              </div>
-            ))}
+          <div className="card card-pad">
+            <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-mute mb-3">
+              Cómo se confirma
+            </div>
+            <ol className="space-y-3 text-sm">
+              {[
+                'El cliente reserva online desde la web de Clubify.',
+                'Tu negocio recibe el aviso por WhatsApp y push con todos los datos.',
+                'Tu equipo confirma y contacta al cliente manualmente.',
+              ].map((step, i) => (
+                <li key={i} className="flex items-start gap-3">
+                  <span className="w-6 h-6 rounded-full bg-ok-soft text-ok-ink text-xs font-bold flex items-center justify-center shrink-0">
+                    {i + 1}
+                  </span>
+                  <span className="text-sm leading-snug">{step}</span>
+                </li>
+              ))}
+            </ol>
           </div>
         </div>
       </div>
+
+      {/* Modal Walk-in */}
+      {walkInOpen && (
+        <Modal title="🚶 Registrar walk-in" onClose={() => setWalkInOpen(false)}>
+          <p className="text-xs text-mute mb-3">
+            Cliente llegó sin reserva previa. Queda como <strong>SEATED</strong> al instante y
+            recibe sello de fidelización si tiene teléfono.
+          </p>
+          <form onSubmit={submitWalkIn} className="space-y-2">
+            <Input
+              label="Nombre"
+              required
+              value={walkIn.customerName}
+              onChange={(v) => setWalkIn({ ...walkIn, customerName: v })}
+            />
+            <Input
+              label="Teléfono (opcional)"
+              value={walkIn.customerPhone}
+              onChange={(v) => setWalkIn({ ...walkIn, customerPhone: v })}
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <NumberInput
+                label="Pax"
+                min={1}
+                max={20}
+                value={walkIn.party}
+                onChange={(v) => setWalkIn({ ...walkIn, party: v })}
+              />
+              <div>
+                <label className="label">Mesa</label>
+                <select
+                  className="input"
+                  value={walkIn.tableId}
+                  onChange={(e) => setWalkIn({ ...walkIn, tableId: e.target.value })}
+                >
+                  <option value="">Sin asignar</option>
+                  {tables.filter((t) => !t.isBlocked).map((t) => (
+                    <option key={t.id} value={t.id}>
+                      Mesa {t.number} · {t.seats}p
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <button className="btn-primary w-full justify-center" disabled={walkInBusy}>
+              {walkInBusy ? 'Sentando…' : 'Sentar walk-in'}
+            </button>
+          </form>
+        </Modal>
+      )}
+
+      {/* Modal Nueva reserva */}
+      {newOpen && (
+        <Modal title="+ Nueva reserva" onClose={() => setNewOpen(false)}>
+          <p className="text-xs text-mute mb-3">
+            Carga manual desde el panel. Pasa al estado <strong>Confirmada</strong>.
+          </p>
+          <form onSubmit={submitNew} className="space-y-2">
+            <Input
+              label="Nombre"
+              required
+              value={newForm.customerName}
+              onChange={(v) => setNewForm({ ...newForm, customerName: v })}
+            />
+            <Input
+              label="Teléfono"
+              required
+              value={newForm.customerPhone}
+              onChange={(v) => setNewForm({ ...newForm, customerPhone: v })}
+              placeholder="+52 55 0000 0000"
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <NumberInput
+                label="Pax"
+                min={1}
+                max={20}
+                value={newForm.party}
+                onChange={(v) => setNewForm({ ...newForm, party: v })}
+              />
+              <div>
+                <label className="label">Hora</label>
+                <input
+                  type="time"
+                  className="input"
+                  value={newForm.time}
+                  onChange={(e) => setNewForm({ ...newForm, time: e.target.value })}
+                />
+              </div>
+            </div>
+            {zones.length > 0 && (
+              <div>
+                <label className="label">Zona (opcional)</label>
+                <select
+                  className="input"
+                  value={newForm.zoneId}
+                  onChange={(e) => setNewForm({ ...newForm, zoneId: e.target.value })}
+                >
+                  <option value="">Asignación automática</option>
+                  {zones.map((z) => (
+                    <option key={z.id} value={z.id}>{z.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div>
+              <label className="label">Notas (opcional)</label>
+              <textarea
+                className="input"
+                rows={2}
+                value={newForm.notes}
+                onChange={(e) => setNewForm({ ...newForm, notes: e.target.value })}
+              />
+            </div>
+            <button className="btn-primary w-full justify-center" disabled={newBusy}>
+              {newBusy ? 'Creando…' : 'Crear reserva'}
+            </button>
+          </form>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function KpiCard({
+  label,
+  value,
+  valueColor,
+  sub,
+  icon,
+}: {
+  label: string;
+  value: string | number;
+  valueColor: string;
+  sub: string;
+  icon: string;
+}) {
+  return (
+    <div className="card card-pad">
+      <div className="flex items-start justify-between">
+        <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-mute">{label}</div>
+        <span className="text-base">{icon}</span>
+      </div>
+      <div className="text-3xl font-extrabold mt-2" style={{ color: valueColor }}>
+        {value}
+      </div>
+      <div className="text-xs text-mute mt-1">{sub}</div>
+    </div>
+  );
+}
+
+function Modal({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-base font-semibold m-0">{title}</h2>
+          <button onClick={onClose} className="text-mute hover:text-ink text-lg leading-none">
+            ✕
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Input({
+  label,
+  value,
+  onChange,
+  placeholder,
+  required,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  required?: boolean;
+}) {
+  return (
+    <div>
+      <label className="label">{label}</label>
+      <input
+        className="input"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        required={required}
+      />
+    </div>
+  );
+}
+
+function NumberInput({
+  label,
+  value,
+  onChange,
+  min,
+  max,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  min: number;
+  max: number;
+}) {
+  return (
+    <div>
+      <label className="label">{label}</label>
+      <input
+        type="number"
+        className="input"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
     </div>
   );
 }
