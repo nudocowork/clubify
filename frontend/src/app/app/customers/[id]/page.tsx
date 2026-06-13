@@ -584,6 +584,9 @@ export default function CustomerDetail() {
             )}
           </div>
 
+          {/* Reservas */}
+          <ReservationsSection customerId={id} />
+
           {/* Sellos */}
           {c.stamps.length > 0 && (
             <div className="card card-pad">
@@ -1135,6 +1138,125 @@ function GamificationBanner({ customerId }: { customerId: string }) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+type CustomerReservation = {
+  id: string;
+  party: number;
+  date: string;
+  time: string;
+  status: string;
+  channel: string;
+  notes: string | null;
+  zone: { name: string } | null;
+};
+
+const RESERVATION_STATUS_META: Record<string, { label: string; bg: string; fg: string }> = {
+  PENDING: { label: 'Pendiente', bg: '#fff7ed', fg: '#b45309' },
+  CONFIRMED: { label: 'Confirmada', bg: '#ecfdf3', fg: '#15803d' },
+  SEATED: { label: 'Sentada', bg: '#eff6ff', fg: '#1d4ed8' },
+  COMPLETED: { label: 'Completada', bg: '#f3f4f6', fg: '#6b7280' },
+  CANCELLED: { label: 'Cancelada', bg: '#f3f4f6', fg: '#6b7280' },
+  NO_SHOW: { label: 'Ausente', bg: '#fef2f2', fg: '#dc2626' },
+};
+
+function ReservationsSection({ customerId }: { customerId: string }) {
+  const [data, setData] = useState<{
+    total: number;
+    stats: {
+      completed: number;
+      noShow: number;
+      cancelled: number;
+      pending: number;
+      noShowRate: number;
+      completionRate: number;
+      lastVisit: string | null;
+      totalPax: number;
+    };
+    reservations: CustomerReservation[];
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api<typeof data>(`/customers/${customerId}/reservations`)
+      .then(setData)
+      .catch((e: any) => setError(e.message || 'Error'));
+  }, [customerId]);
+
+  if (error) return null;
+  if (!data || data.total === 0) return null;
+
+  const lastVisitStr = data.stats.lastVisit
+    ? new Date(data.stats.lastVisit).toISOString().slice(0, 10)
+    : 'Nunca';
+
+  return (
+    <div className="card card-pad">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold m-0">📅 Reservas ({data.total})</h3>
+        {data.stats.noShowRate > 25 && (
+          <span className="text-[10px] font-bold px-2 py-1 rounded bg-bad-soft text-bad">
+            No-show alto · {data.stats.noShowRate}%
+          </span>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+        <div className="bg-bg2/60 rounded-lg p-2 text-center">
+          <div className="text-[10px] text-mute font-bold">COMPLETADAS</div>
+          <div className="text-lg font-extrabold">{data.stats.completed}</div>
+        </div>
+        <div className="bg-bg2/60 rounded-lg p-2 text-center">
+          <div className="text-[10px] text-mute font-bold">CANCELADAS</div>
+          <div className="text-lg font-extrabold">{data.stats.cancelled}</div>
+        </div>
+        <div className="bg-bg2/60 rounded-lg p-2 text-center">
+          <div className="text-[10px] text-mute font-bold">AUSENTES</div>
+          <div className={`text-lg font-extrabold ${data.stats.noShow > 0 ? 'text-bad' : ''}`}>
+            {data.stats.noShow}
+          </div>
+        </div>
+        <div className="bg-bg2/60 rounded-lg p-2 text-center">
+          <div className="text-[10px] text-mute font-bold">ÚLTIMA VISITA</div>
+          <div className="text-sm font-bold mt-0.5">{lastVisitStr}</div>
+        </div>
+      </div>
+
+      <div className="space-y-1.5 text-sm">
+        {data.reservations.slice(0, 15).map((r) => {
+          const sm = RESERVATION_STATUS_META[r.status];
+          const dateStr = new Date(r.date).toISOString().slice(0, 10);
+          return (
+            <div
+              key={r.id}
+              className="flex items-center gap-3 py-2 border-b border-line2 last:border-0"
+            >
+              <div className="w-20 shrink-0">
+                <div className="text-xs font-bold">{dateStr}</div>
+                <div className="text-[10px] text-mute">{r.time}</div>
+              </div>
+              <div className="flex-1 min-w-0 text-xs">
+                <span className="font-semibold">{r.party} pax</span>
+                {r.zone?.name && <span className="text-mute"> · {r.zone.name}</span>}
+                {r.notes && <span className="text-mute italic"> · {r.notes}</span>}
+              </div>
+              <span
+                className="text-[10px] font-bold px-2 py-0.5 rounded"
+                style={{ background: sm.bg, color: sm.fg }}
+              >
+                {sm.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      {data.reservations.length > 15 && (
+        <p className="text-[11px] text-mute mt-2 text-center">
+          Mostrando 15 de {data.reservations.length} reservas recientes.
+        </p>
+      )}
     </div>
   );
 }

@@ -133,6 +133,11 @@ export class CustomersController {
     return this.gamification.getCustomerGamification(id, c.tenantId);
   }
 
+  @Get(':id/reservations')
+  getReservations(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.getReservations(user, id);
+  }
+
   @Get(':id')
   get(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.get(user, id);
