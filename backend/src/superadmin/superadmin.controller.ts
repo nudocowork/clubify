@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
 import { IsBoolean, IsEmail, IsHexColor, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
-import { WhiteLabelStatus } from '@prisma/client';
+import { ModuleKey, WhiteLabelStatus } from '@prisma/client';
 import { Roles } from '../common/decorators/roles.decorator';
 import { SuperAdminService } from './superadmin.service';
 
@@ -33,6 +33,10 @@ class HotmartLinkBody {
   @IsOptional() @IsString() @MaxLength(8) currency?: string;
   @IsOptional() @IsInt() position?: number;
   @IsOptional() @IsBoolean() isActive?: boolean;
+}
+
+class ToggleModuleBody {
+  @IsBoolean() enabled!: boolean;
 }
 
 /**
@@ -109,5 +113,28 @@ export class SuperAdminController {
   @Delete('hotmart-links/:id')
   removeHotmartLink(@Param('id') id: string) {
     return this.svc.removeHotmartLink(id);
+  }
+
+  // -------- Módulos --------
+
+  @Get('modules')
+  modulesMatrix() {
+    return this.svc.modulesMatrix();
+  }
+
+  @Patch('modules/:whiteLabelId/:module')
+  toggleModule(
+    @Param('whiteLabelId') whiteLabelId: string,
+    @Param('module') module: ModuleKey,
+    @Body() body: ToggleModuleBody,
+  ) {
+    return this.svc.toggleModule(whiteLabelId, module, body.enabled);
+  }
+
+  // -------- Centro de Cobros --------
+
+  @Get('billing')
+  billingCenter() {
+    return this.svc.billingCenter();
   }
 }
