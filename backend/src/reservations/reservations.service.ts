@@ -24,10 +24,12 @@ export type ZoneDto = {
   type?: string;
   position?: number;
   isActive?: boolean;
+  locationId?: string | null;
 };
 
 export type TableDto = {
   zoneId?: string | null;
+  locationId?: string | null;
   number: string;
   seats: number;
   shape?: string;
@@ -49,6 +51,7 @@ export type ReservationDto = {
   notes?: string;
   zoneId?: string | null;
   tableId?: string | null;
+  locationId?: string | null;
   channel?: ReservationChannel;
   status?: ReservationStatus;
 };
@@ -119,12 +122,19 @@ export class ReservationsService {
   //                              ZONES
   // ============================================================
 
-  listZones(user: AuthUser, override?: string) {
+  listZones(user: AuthUser, override?: string, locationId?: string | null) {
     const tid = this.tid(user, override);
     return this.prisma.reservationZone.findMany({
-      where: { tenantId: tid, isActive: true },
+      where: {
+        tenantId: tid,
+        isActive: true,
+        ...(locationId === null ? { locationId: null } : locationId ? { locationId } : {}),
+      },
       orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
-      include: { tables: { where: { isActive: true }, orderBy: { number: 'asc' } } },
+      include: {
+        tables: { where: { isActive: true }, orderBy: { number: 'asc' } },
+        location: { select: { id: true, name: true } },
+      },
     });
   }
 
@@ -135,6 +145,7 @@ export class ReservationsService {
     return this.prisma.reservationZone.create({
       data: {
         tenantId: tid,
+        locationId: dto.locationId ?? null,
         name: dto.name.trim(),
         slug,
         type: dto.type ?? 'INDOOR',
@@ -174,21 +185,35 @@ export class ReservationsService {
   //                              TABLES
   // ============================================================
 
-  listTables(user: AuthUser, override?: string) {
+  listTables(user: AuthUser, override?: string, locationId?: string | null) {
     const tid = this.tid(user, override);
     return this.prisma.reservationTable.findMany({
-      where: { tenantId: tid, isActive: true },
+      where: {
+        tenantId: tid,
+        isActive: true,
+        ...(locationId === null ? { locationId: null } : locationId ? { locationId } : {}),
+      },
       orderBy: { createdAt: 'asc' },
-      include: { zone: true },
+      include: { zone: true, location: { select: { id: true, name: true } } },
     });
   }
 
   async createTable(user: AuthUser, dto: TableDto, override?: string) {
     const tid = this.tid(user, override);
+    // Si no se pasó locationId explícito pero la zona lo tiene, lo herda.
+    let locationId = dto.locationId ?? null;
+    if (!locationId && dto.zoneId) {
+      const z = await this.prisma.reservationZone.findUnique({
+        where: { id: dto.zoneId },
+        select: { locationId: true },
+      });
+      locationId = z?.locationId ?? null;
+    }
     return this.prisma.reservationTable.create({
       data: {
         tenantId: tid,
         zoneId: dto.zoneId ?? null,
+        locationId,
         number: String(dto.number).trim(),
         seats: dto.seats,
         shape: dto.shape ?? 'ROUND',
@@ -238,7 +263,11 @@ export class ReservationsService {
   //                          RESERVATIONS
   // ============================================================
 
-  list(user: AuthUser, filters: { date?: string; status?: ReservationStatus } = {}, override?: string) {
+  list(
+    user: AuthUser,
+    filters: { date?: string; status?: ReservationStatus; locationId?: string | null } = {},
+    override?: string,
+  ) {
     const tid = this.tid(user, override);
     const where: any = { tenantId: tid };
     if (filters.date) {
@@ -248,10 +277,17 @@ export class ReservationsService {
       where.date = { gte: start, lte: end };
     }
     if (filters.status) where.status = filters.status;
+    if (filters.locationId === null) where.locationId = null;
+    else if (filters.locationId) where.locationId = filters.locationId;
     return this.prisma.reservation.findMany({
       where,
       orderBy: [{ date: 'asc' }, { time: 'asc' }],
-      include: { table: true, zone: true, customer: { select: { id: true, fullName: true, tags: true } } },
+      include: {
+        table: true,
+        zone: true,
+        location: { select: { id: true, name: true } },
+        customer: { select: { id: true, fullName: true, tags: true } },
+      },
     });
   }
 
@@ -288,9 +324,27 @@ export class ReservationsService {
     // Mediodía UTC para evitar problemas de zona horaria al filtrar por día.
     const dateAtNoonUtc = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
 
+    // Multi-sede: si vino locationId, usarlo; sino, heredarlo de zone/table.
+    let locationId = dto.locationId ?? null;
+    if (!locationId && dto.zoneId) {
+      const z = await this.prisma.reservationZone.findUnique({
+        where: { id: dto.zoneId },
+        select: { locationId: true },
+      });
+      locationId = z?.locationId ?? null;
+    }
+    if (!locationId && dto.tableId) {
+      const t = await this.prisma.reservationTable.findUnique({
+        where: { id: dto.tableId },
+        select: { locationId: true },
+      });
+      locationId = t?.locationId ?? null;
+    }
+
     const reservation = await this.prisma.reservation.create({
       data: {
         tenantId,
+        locationId,
         customerId: customer?.id ?? null,
         customerName: dto.customerName.trim(),
         customerPhone: phone,

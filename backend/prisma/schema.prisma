@@ -800,6 +800,9 @@ model ReservationZone {
   id        String                @id @default(uuid())
   tenantId  String
   tenant    Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Multi-sede (2026-06-12): si null = todas las sedes / single-location tenant.
+  locationId String?
+  location   Location?            @relation(fields: [locationId], references: [id], onDelete: SetNull)
   name      String
   slug      String
   /// INDOOR | OUTDOOR | BAR | PRIVATE — para UX en el flujo público.
@@ -812,6 +815,7 @@ model ReservationZone {
 
   @@unique([tenantId, slug])
   @@index([tenantId, isActive])
+  @@index([locationId])
 }
 
 /// Mesa física del salón. Tiene posición/forma para el plano interactivo.
@@ -823,6 +827,10 @@ model ReservationTable {
   tenant    Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   zoneId    String?
   zone      ReservationZone?      @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  /// Multi-sede (2026-06-12): denormalizado de zone.locationId pero opcional
+  /// permite mesas sin zona en una sede específica.
+  locationId String?
+  location   Location?            @relation(fields: [locationId], references: [id], onDelete: SetNull)
   /// Etiqueta visible al cliente y al admin. Puede ser número "1", "12" o texto "Barra", "VIP".
   number    String
   seats     Int                   @default(4)
@@ -840,6 +848,7 @@ model ReservationTable {
 
   @@index([tenantId, isActive])
   @@index([zoneId])
+  @@index([locationId])
 }
 
 /// Reserva del cliente. Se crea desde el flujo público (sin auth, throttled)
@@ -851,6 +860,9 @@ model Reservation {
   id            String              @id @default(uuid())
   tenantId      String
   tenant        Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Multi-sede (2026-06-12). Tipicamente heredado de zone.locationId al crear.
+  locationId    String?
+  location      Location?           @relation(fields: [locationId], references: [id], onDelete: SetNull)
   zoneId        String?
   zone          ReservationZone?    @relation(fields: [zoneId], references: [id], onDelete: SetNull)
   tableId       String?
@@ -897,6 +909,7 @@ model Reservation {
   @@index([tableId])
   @@index([customerId])
   @@index([reminderSentAt, status])
+  @@index([locationId, date])
 }
 
 enum ReservationStatus {
@@ -1159,6 +1172,10 @@ model Location {
   // Fase F 2026-06-07: usuarios del tenant pueden estar asociados a una
   // sede para rankings de sellos por miembro+ubicación.
   staffUsers      User[] @relation("UserLocation")
+  // Multi-sede reservas (2026-06-12)
+  reservationZones  ReservationZone[]
+  reservationTables ReservationTable[]
+  reservations      Reservation[]
 
   @@index([tenantId])
 }
