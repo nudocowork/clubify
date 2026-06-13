@@ -164,12 +164,19 @@ export class PublicReservationsController {
       'WEB',
       { notify: true },
     );
+    // Token del pase digital: emite ya aunque la reserva esté PENDING,
+    // así el cliente puede ver/guardar su pase desde el confirm step.
+    // El pase muestra el estado actual (Pendiente → Confirmada → Sentada).
+    const passToken = this.svc.signPassToken(r.id);
+    const passUrl = `https://soyclubify.com/r/pase/${passToken}`;
     return {
       id: r.id,
       status: r.status,
       date: r.date,
       time: r.time,
       party: r.party,
+      passUrl,
+      passToken,
       message: 'Reserva recibida. El restaurante te contactará para confirmar.',
     };
   }
