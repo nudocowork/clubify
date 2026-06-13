@@ -1,9 +1,9 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
-import { fmtLongDate, todayISO } from '../_shared';
+import { fmtLongDate, todayISO, to12h } from '../_shared';
 
 type Tenant = {
   slug: string;
@@ -96,6 +96,9 @@ export default function ReservaOnlinePage() {
             ))}
           </div>
 
+          {/* Configuración de horarios disponibles */}
+          <SlotsConfigCard />
+
           <div className="card card-pad mt-6 max-w-md">
             <div className="flex items-start gap-3">
               <div className="w-12 h-12 rounded-xl bg-ink/90 flex items-center justify-center text-white shrink-0">
@@ -180,22 +183,7 @@ export default function ReservaOnlinePage() {
                   ))}
                 </div>
                 <div className="text-xs font-semibold mb-2">Hora disponible</div>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {['13:00', '13:30', '14:00', '21:00', '21:30', '22:00'].map((t, i) => (
-                    <div
-                      key={t}
-                      className={`text-center py-1.5 rounded-lg text-[11px] font-semibold border ${
-                        t === '21:00'
-                          ? 'bg-ink text-white border-ink'
-                          : i === 2
-                          ? 'border-line text-mute line-through opacity-50'
-                          : 'border-line'
-                      }`}
-                    >
-                      {t}
-                    </div>
-                  ))}
-                </div>
+                <MockSlots />
                 <div className="mt-5 text-center py-2.5 rounded-xl text-white font-bold text-sm bg-ok">
                   Continuar
                 </div>
@@ -207,3 +195,196 @@ export default function ReservaOnlinePage() {
     </div>
   );
 }
+
+function MockSlots() {
+  const [slots, setSlots] = useState<string[]>([]);
+  useEffect(() => {
+    api<{ slots: string[] }>(`/reservations/config/slots`)
+      .then((d) => setSlots(d.slots))
+      .catch(() => setSlots(['13:00', '13:30', '14:00', '21:00', '21:30', '22:00']));
+  }, []);
+  const shown = slots.slice(0, 6);
+  return (
+    <div className="grid grid-cols-3 gap-1.5">
+      {shown.map((t, i) => (
+        <div
+          key={t}
+          className={`text-center py-1.5 rounded-lg text-[10px] font-semibold border ${
+            i === 0
+              ? 'bg-ink text-white border-ink'
+              : i === 2
+              ? 'border-line text-mute line-through opacity-50'
+              : 'border-line'
+          }`}
+        >
+          {to12h(t)}
+        </div>
+      ))}
+      {shown.length === 0 && (
+        <div className="col-span-3 text-center text-[10px] text-mute italic py-2">
+          Sin horarios configurados
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SlotsConfigCard() {
+  const [slots, setSlots] = useState<string[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+
+  useEffect(() => {
+    api<{ slots: string[] }>(`/reservations/config/slots`)
+      .then((d) => {
+        setSlots(d.slots);
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, []);
+
+  // Generar la grilla de slots posibles (cada 30 min)
+  const ALL_SLOTS = useMemo(() => {
+    const arr: string[] = [];
+    for (let h = 0; h < 24; h++) {
+      for (const m of [0, 30]) {
+        arr.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+      }
+    }
+    return arr;
+  }, []);
+
+  function toggleSlot(s: string) {
+    setSlots((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s].sort()));
+  }
+
+  async function save() {
+    setBusy(true);
+    try {
+      await api(`/reservations/config/slots`, {
+        method: 'PATCH',
+        body: JSON.stringify({ slots }),
+      });
+      toast('Horarios guardados', 'success');
+    } catch (e: any) {
+      toast(e.message || 'No se pudo guardar', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function applyPreset(preset: 'almuerzo' | 'cena' | 'completo' | 'default') {
+    let next: string[] = [];
+    if (preset === 'almuerzo') next = ['12:00', '12:30', '13:00', '13:30', '14:00', '14:30', '15:00'];
+    else if (preset === 'cena') next = ['19:00', '19:30', '20:00', '20:30', '21:00', '21:30', '22:00'];
+    else if (preset === 'completo')
+      next = [
+        '12:00', '12:30', '13:00', '13:30', '14:00', '14:30', '15:00',
+        '19:00', '19:30', '20:00', '20:30', '21:00', '21:30', '22:00',
+      ];
+    else next = ['13:00', '13:30', '14:00', '14:30', '21:00', '21:30', '22:00'];
+    setSlots(next);
+  }
+
+  if (!loaded) {
+    return (
+      <div className="card card-pad mt-6 max-w-md">
+        <div className="text-sm text-mute">Cargando horarios…</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card card-pad mt-6 max-w-md">
+      <div className="flex items-start gap-3 mb-3">
+        <div className="w-12 h-12 rounded-xl bg-ok-soft text-ok-ink flex items-center justify-center shrink-0">
+          <span className="text-xl">🕐</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-sm">Horarios disponibles</div>
+          <div className="text-xs text-mute leading-snug mt-0.5">
+            Elige las horas en que aceptas reservas online. El cliente solo verá estos
+            horarios al reservar (en formato 12h).
+          </div>
+        </div>
+      </div>
+
+      <div className="flex gap-1 flex-wrap mb-3">
+        {(['almuerzo', 'cena', 'completo', 'default'] as const).map((p) => (
+          <button
+            key={p}
+            onClick={() => applyPreset(p)}
+            className="text-[11px] font-semibold px-2.5 py-1 rounded-full border border-line text-mute hover:text-ink"
+          >
+            {p === 'almuerzo'
+              ? '🍽 Solo almuerzo'
+              : p === 'cena'
+              ? '🍷 Solo cena'
+              : p === 'completo'
+              ? '☀️🌙 Completo'
+              : '↺ Default'}
+          </button>
+        ))}
+      </div>
+
+      {slots.length > 0 ? (
+        <div className="flex gap-1 flex-wrap mb-3 p-2 bg-bg2/40 rounded-lg">
+          {slots.map((s) => (
+            <span
+              key={s}
+              className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded bg-ok-soft text-ok-ink"
+            >
+              {to12h(s)}
+              <button
+                onClick={() => toggleSlot(s)}
+                className="text-base leading-none opacity-60 hover:opacity-100"
+                title="Quitar"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-mute italic mb-3 px-2">
+          Sin horarios configurados. Si guardas vacío, el cliente verá los 7 horarios por
+          defecto (almuerzo + cena).
+        </p>
+      )}
+
+      <button
+        onClick={() => setShowAll((v) => !v)}
+        className="text-xs font-semibold text-ok-ink hover:underline mb-2"
+      >
+        {showAll ? '▴ Ocultar' : '▾ Elegir horarios uno por uno'}
+      </button>
+
+      {showAll && (
+        <div className="grid grid-cols-4 gap-1 mb-3 max-h-72 overflow-y-auto p-2 bg-bg2/40 rounded-lg">
+          {ALL_SLOTS.map((s) => {
+            const active = slots.includes(s);
+            return (
+              <button
+                key={s}
+                onClick={() => toggleSlot(s)}
+                className={`text-[10px] font-semibold py-1.5 rounded transition ${
+                  active
+                    ? 'bg-ok text-white'
+                    : 'bg-white border border-line text-mute hover:text-ink'
+                }`}
+              >
+                {to12h(s)}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      <button onClick={save} disabled={busy} className="btn-primary w-full justify-center text-sm">
+        {busy ? 'Guardando…' : 'Guardar horarios'}
+      </button>
+    </div>
+  );
+}
+

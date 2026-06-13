@@ -632,12 +632,32 @@ export class ReservationsService {
    *  occupancy. 90 min es el turnover típico de restaurante. */
   private static readonly SLOT_WINDOW_MIN = 90;
 
-  /** Default slots públicos. Idénticos a los del controller para que
-   *  availability pueda chequear todos los slots de un día sin hardcode
-   *  duplicado. */
-  private static readonly DEFAULT_SLOTS = [
+  /** Default slots públicos cuando el tenant no configuró slots propios. */
+  static readonly DEFAULT_SLOTS = [
     '13:00', '13:30', '14:00', '14:30', '21:00', '21:30', '22:00',
   ];
+
+  /** Resuelve los slots configurados del tenant, con fallback al default
+   *  si el array está vacío o el tenant no se encuentra. Los slots se
+   *  ordenan asc por hora. */
+  async getTenantSlots(tenantId: string): Promise<string[]> {
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { reservationSlots: true },
+    });
+    const configured = t?.reservationSlots ?? [];
+    if (configured.length === 0) return ReservationsService.DEFAULT_SLOTS;
+    return [...configured].sort();
+  }
+
+  /** Persiste los slots configurados del tenant. Array vacío restablece
+   *  al default. */
+  async setTenantSlots(tenantId: string, slots: string[]): Promise<void> {
+    await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: { reservationSlots: slots },
+    });
+  }
 
   /** Resuelve el locationId de una zona, si la zona tiene una asignada.
    *  Usado por slot validation para scopear capacity/occupancy a sede. */
@@ -765,16 +785,17 @@ export class ReservationsService {
     locationId: string | null = null,
   ): Promise<{ time: string; available: boolean; remaining: number }[]> {
     const effectiveLocation = locationId ?? (await this.resolveZoneLocation(zoneId));
+    const slots = await this.getTenantSlots(tenantId);
     const capacity = await this.getCapacity(tenantId, zoneId, effectiveLocation);
     if (capacity === 0) {
-      return ReservationsService.DEFAULT_SLOTS.map((time) => ({
+      return slots.map((time) => ({
         time,
         available: true,
         remaining: 99,
       }));
     }
     const results = await Promise.all(
-      ReservationsService.DEFAULT_SLOTS.map(async (time) => {
+      slots.map(async (time) => {
         const occupied = await this.getOccupancy(tenantId, date, time, zoneId, effectiveLocation);
         const remaining = Math.max(0, capacity - occupied);
         return { time, available: remaining >= party, remaining };

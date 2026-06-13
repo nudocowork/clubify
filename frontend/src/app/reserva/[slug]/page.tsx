@@ -14,6 +14,15 @@ function formatDate(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/** "13:00" → "1:00 p.m." */
+function to12h(time: string): string {
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return time;
+  const [h, m] = time.split(':').map(Number);
+  const period = h >= 12 ? 'p.m.' : 'a.m.';
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+}
+
 function nextDates(n = 7) {
   const out: { iso: string; dow: string; day: string }[] = [];
   const dows = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'];
@@ -222,7 +231,7 @@ export default function PublicReservation() {
                       style={time === s ? { background: primary } : {}}
                       title={isFull ? 'Sin lugares disponibles' : ''}
                     >
-                      {s}
+                      {to12h(s)}
                     </button>
                   );
                 })}
@@ -391,7 +400,7 @@ export default function PublicReservation() {
                   </div>
                   <div>
                     <div className="text-[10px] text-mute font-bold">HORA</div>
-                    <div className="text-sm font-bold">{time}</div>
+                    <div className="text-sm font-bold">{time ? to12h(time) : ''}</div>
                   </div>
                   <div>
                     <div className="text-[10px] text-mute font-bold">PAX</div>

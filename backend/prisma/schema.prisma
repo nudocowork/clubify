@@ -404,6 +404,10 @@ model Tenant {
   /// activa por tenant. Cuando false el sidebar oculta el módulo y el
   /// endpoint público /reserva/:slug devuelve 404.
   reservationsEnabled         Boolean              @default(false)
+  /// Horarios disponibles para reservas online (HH:MM 24h, ej. ["13:00","13:30","21:00"]).
+  /// Si vacío, el backend cae al default histórico (turnos almuerzo + cena).
+  /// El frontend público los muestra en formato 12h (1:00 p.m.) automáticamente.
+  reservationSlots            String[]             @default([])
   // Bloque 5 (2026-06-12): soft-delete con "conservar historial".
   // Si está seteado, el tenant queda inaccesible (no aparece en list/
   // login) pero las relaciones (Order/Commission/ReferralUse) se
