@@ -60,6 +60,19 @@ function isHrefActive(href: string, pathname: string) {
   return pathname === href || pathname.startsWith(href + '/');
 }
 
+/** Devuelve el href "más específico" que matchea el pathname actual.
+ *  Esto evita que parent routes (ej. /app/reservations) queden activos
+ *  cuando el usuario está en una sub-ruta (ej. /app/reservations/eventos)
+ *  donde otro item también matchea de forma exacta. */
+function findBestActiveHref(allHrefs: string[], pathname: string): string | null {
+  let best: string | null = null;
+  for (const h of allHrefs) {
+    if (!isHrefActive(h, pathname)) continue;
+    if (best === null || h.length > best.length) best = h;
+  }
+  return best;
+}
+
 export default function AppShell({
   variant,
   children,
@@ -120,6 +133,9 @@ export default function AppShell({
   // (estado default: todas colapsadas) para invertir la semántica del
   // set sin tener que recalcular `groups` desde el closure.
   const sectionNamesRef = useRef<string[]>([]);
+  // Href más específico que matchea el pathname actual — calculado en el
+  // render del nav y leído por cada item para decidir su estado activo.
+  const bestActiveHrefRef = useRef<string | null>(null);
 
   function toggleSection(name: string) {
     if (!hasUserPref) {
@@ -528,10 +544,22 @@ export default function AppShell({
           sectionNamesRef.current = groups.map((g) => g.section).filter(Boolean);
           return null;
         })()}
+        {(() => {
+          // Calcula el href más específico que matchea el pathname.
+          // Si dos items (parent y child) ambos matchean, solo el child
+          // queda activo. Evita el bug "Agenda" + "Eventos" iluminadas
+          // al estar en /app/reservations/eventos.
+          // Inline en lugar de useMemo porque groups se recalcula cada
+          // render y la lista es chica (~30 items).
+          const allHrefs = groups.flatMap((g) => g.items.map((n) => n.href));
+          bestActiveHrefRef.current = findBestActiveHref(allHrefs, pathname);
+          return null;
+        })()}
         {groups.map((g, gi) => {
+          const bestActiveHref = bestActiveHrefRef.current;
           // Si el path activo está dentro de esta sección, fuerza expand para
           // que el usuario vea dónde está parado.
-          const hasActive = g.items.some((n) => isHrefActive(n.href, pathname));
+          const hasActive = g.items.some((n) => n.href === bestActiveHref);
           // Default cerrado si el user nunca tocó nada (hasUserPref=false).
           // Si ya tiene preferencia, respetamos el set guardado.
           const collapsed =
@@ -566,7 +594,9 @@ export default function AppShell({
               )}
               {(noHeader || !collapsed) &&
                 g.items.map((n) => {
-                  const active = !n.external && isHrefActive(n.href, pathname);
+                  // Active solo si este es el href más específico que
+                  // matchea el pathname (no si es solo prefijo).
+                  const active = !n.external && n.href === bestActiveHref;
                   const className = `flex items-center gap-2.5 px-3 py-2.5 rounded-[10px] text-[13.5px] transition cursor-pointer ${
                     active
                       ? 'bg-sidebar-active text-white shadow-active'
