@@ -263,7 +263,7 @@ export class ReservationsService {
   //                          RESERVATIONS
   // ============================================================
 
-  list(
+  async list(
     user: AuthUser,
     filters: { date?: string; status?: ReservationStatus; locationId?: string | null } = {},
     override?: string,
@@ -279,16 +279,86 @@ export class ReservationsService {
     if (filters.status) where.status = filters.status;
     if (filters.locationId === null) where.locationId = null;
     else if (filters.locationId) where.locationId = filters.locationId;
-    return this.prisma.reservation.findMany({
+    const reservations = await this.prisma.reservation.findMany({
       where,
       orderBy: [{ date: 'asc' }, { time: 'asc' }],
       include: {
         table: true,
         zone: true,
         location: { select: { id: true, name: true } },
-        customer: { select: { id: true, fullName: true, tags: true } },
+        customer: {
+          select: {
+            id: true,
+            fullName: true,
+            tags: true,
+            birthday: true,
+            totalOrdersAmount: true,
+            totalOrdersCount: true,
+          },
+        },
       },
     });
+
+    // Enriquecer cada reserva con labels dinámicos derivados del histórico
+    // del customer (Frecuente, VIP, Primera visita, Cumpleaños, Alto valor).
+    const customerIds = reservations.map((r) => r.customerId).filter((id): id is string => !!id);
+    const reservationCounts = customerIds.length > 0
+      ? await this.prisma.reservation.groupBy({
+          by: ['customerId'],
+          where: {
+            tenantId: tid,
+            customerId: { in: customerIds },
+            status: { in: ['SEATED', 'COMPLETED'] },
+          },
+          _count: { _all: true },
+        })
+      : [];
+    const countByCustomer = new Map<string, number>();
+    reservationCounts.forEach((row) => {
+      if (row.customerId) countByCustomer.set(row.customerId, row._count._all);
+    });
+
+    return reservations.map((r) => ({
+      ...r,
+      labels: ReservationsService.deriveLabels({
+        customer: r.customer,
+        reservationDate: r.date,
+        completedReservations: r.customerId ? countByCustomer.get(r.customerId) ?? 0 : 0,
+      }),
+    }));
+  }
+
+  /** Genera array de labels visuales para la reserva. Heurísticas:
+   *  - "Primera visita": el customer no tiene reservas SEATED/COMPLETED previas
+   *  - "Frecuente": >= 5 reservas SEATED/COMPLETED previas
+   *  - "VIP": tag manual o totalOrdersAmount > 500 USD equivalente
+   *  - "Cumpleaños": birthday matches mes+día de la reserva
+   *  - "Alto valor": totalOrdersAmount > 200 USD pero < VIP threshold */
+  private static deriveLabels(input: {
+    customer: { tags?: string[]; birthday?: Date | null; totalOrdersAmount?: any } | null;
+    reservationDate: Date;
+    completedReservations: number;
+  }): string[] {
+    const labels: string[] = [];
+    const c = input.customer;
+    if (!c) return labels;
+    const manualTags = c.tags ?? [];
+    if (manualTags.includes('VIP') || manualTags.includes('vip')) {
+      labels.push('VIP');
+    }
+    const totalSpend = Number(c.totalOrdersAmount ?? 0);
+    if (!labels.includes('VIP') && totalSpend > 500_000) labels.push('VIP');
+    else if (totalSpend > 200_000) labels.push('Alto valor');
+    if (input.completedReservations >= 5) labels.push('Frecuente');
+    else if (input.completedReservations === 0) labels.push('Primera visita');
+    if (c.birthday) {
+      const b = new Date(c.birthday);
+      const r = input.reservationDate;
+      if (b.getUTCMonth() === r.getUTCMonth() && b.getUTCDate() === r.getUTCDate()) {
+        labels.push('Cumpleaños');
+      }
+    }
+    return labels;
   }
 
   async create(user: AuthUser, dto: ReservationDto, override?: string, opts?: { force?: boolean }) {
@@ -757,6 +827,103 @@ export class ReservationsService {
     } catch (e) {
       this.logger.warn(`SMS notif falló: ${(e as Error).message}`);
     }
+  }
+
+  // ============================================================
+  //                       DAILY KPIs (Agenda header)
+  // ============================================================
+
+  /** KPIs para la cabecera de Agenda del día. Devuelve totales del día +
+   *  comparación con ayer, peak hour, ocupación %, no-show %. */
+  async dailyKpis(
+    user: AuthUser,
+    params: { date: string; locationId?: string | null; tenantId?: string },
+  ) {
+    const tid = this.tid(user, params.tenantId);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(params.date)) {
+      throw new BadRequestException('date YYYY-MM-DD requerido');
+    }
+    const [y, m, d] = params.date.split('-').map(Number);
+    const start = new Date(Date.UTC(y, m - 1, d, 0, 0, 0));
+    const end = new Date(Date.UTC(y, m - 1, d, 23, 59, 59));
+    const yesterdayStart = new Date(Date.UTC(y, m - 1, d - 1, 0, 0, 0));
+    const yesterdayEnd = new Date(Date.UTC(y, m - 1, d - 1, 23, 59, 59));
+
+    const baseWhere: any = { tenantId: tid };
+    if (params.locationId) baseWhere.locationId = params.locationId;
+
+    const [today, yesterday] = await Promise.all([
+      this.prisma.reservation.findMany({
+        where: { ...baseWhere, date: { gte: start, lte: end } },
+        select: { id: true, party: true, time: true, status: true },
+      }),
+      this.prisma.reservation.findMany({
+        where: { ...baseWhere, date: { gte: yesterdayStart, lte: yesterdayEnd } },
+        select: { id: true },
+      }),
+    ]);
+
+    const totalToday = today.length;
+    const totalYesterday = yesterday.length;
+    const delta = totalToday - totalYesterday;
+
+    const activeStatuses = ['PENDING', 'CONFIRMED', 'SEATED', 'COMPLETED'];
+    const pax = today
+      .filter((r) => activeStatuses.includes(r.status))
+      .reduce((s, r) => s + r.party, 0);
+
+    const noShow = today.filter((r) => r.status === 'NO_SHOW').length;
+    const resolved = today.filter((r) => r.status !== 'PENDING').length;
+    const noShowRate = resolved > 0 ? (noShow / resolved) * 100 : 0;
+
+    // Peak hour: ventana de 2h con más pax (asumiendo turnover 2h)
+    const byHour: Record<number, number> = {};
+    today
+      .filter((r) => activeStatuses.includes(r.status))
+      .forEach((r) => {
+        const h = parseInt(r.time.slice(0, 2), 10);
+        byHour[h] = (byHour[h] || 0) + r.party;
+      });
+    let peakHour = 0;
+    let peakPax = 0;
+    Object.entries(byHour).forEach(([h, p]) => {
+      if (p > peakPax) {
+        peakPax = p;
+        peakHour = parseInt(h, 10);
+      }
+    });
+
+    // Capacidad para % ocupación: sum seats de todas las mesas activas
+    // de la sede (o del tenant si no se pasó location).
+    const tables = await this.prisma.reservationTable.findMany({
+      where: {
+        tenantId: tid,
+        isActive: true,
+        isBlocked: false,
+        ...(params.locationId ? { locationId: params.locationId } : {}),
+      },
+      select: { seats: true },
+    });
+    const totalCapacity = tables.reduce((s, t) => s + (t.seats || 0), 0);
+    // Ocupación = peak pax sobre capacidad total (no por slot porque la
+    // capacidad rota durante el día).
+    const occupancyPct = totalCapacity > 0
+      ? Math.min(100, Math.round((peakPax / totalCapacity) * 100))
+      : 0;
+
+    return {
+      date: params.date,
+      reservations: { count: totalToday, delta },
+      pax: { expected: pax },
+      occupancy: {
+        percent: occupancyPct,
+        peakHour: peakHour > 0 ? `${String(peakHour).padStart(2, '0')}:00–${String(peakHour + 1).padStart(2, '0')}:00` : null,
+      },
+      noShow: {
+        count: noShow,
+        percent: Math.round(noShowRate * 10) / 10,
+      },
+    };
   }
 
   // ============================================================

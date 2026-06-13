@@ -126,6 +126,18 @@ export class ReservationsController {
     return this.svc.list(user, { date, status, locationId }, tenantId);
   }
 
+  /** KPIs del día (Agenda header): reservas + comparación vs ayer,
+   *  pax esperados, % ocupación + peak hour, no-show count + %. */
+  @Get('daily-kpis')
+  dailyKpis(
+    @CurrentUser() user: AuthUser,
+    @Query('date') date: string,
+    @Query('locationId') locationId?: string,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.svc.dailyKpis(user, { date, locationId, tenantId });
+  }
+
   /** Métricas agregadas para el dashboard de /app/reservations. Default:
    *  últimos 30 días + próximos 7. */
   @Get('stats')

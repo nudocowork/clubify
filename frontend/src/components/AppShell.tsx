@@ -36,7 +36,7 @@ type NavItem = {
    *  Academia Clubify (Bloque 2 2026-06-12). */
   external?: boolean;
 };
-type NavGroup = { section: string; items: NavItem[] };
+type NavGroup = { section: string; items: NavItem[]; badge?: string };
 
 function initials(name: string) {
   return name
@@ -351,8 +351,13 @@ export default function AppShell({
               ? [
                   {
                     section: 'Reservas',
+                    badge: 'NUEVO',
                     items: [
-                      { href: '/app/reservations', label: 'Agenda', icon: 'calendar' as const },
+                      { href: '/app/reservations', label: 'Agenda del día', icon: 'calendar' as const },
+                      { href: '/app/reservations/plano', label: 'Plano de mesas', icon: 'menu' as const },
+                      { href: '/app/reservations/eventos', label: 'Eventos', icon: 'spark' as const },
+                      { href: '/app/reservations/online', label: 'Reserva online', icon: 'qr' as const },
+                      { href: '/app/reservations/reportes', label: 'Reportes', icon: 'spark' as const },
                     ],
                   },
                 ]
@@ -543,7 +548,17 @@ export default function AppShell({
                   onClick={() => toggleSection(g.section)}
                   className="w-full text-left text-[10px] tracking-[0.18em] uppercase text-sidebar-section font-semibold opacity-85 pt-3.5 px-3 pb-1.5 flex items-center justify-between hover:opacity-100 transition"
                 >
-                  <span>{g.section}</span>
+                  <span className="inline-flex items-center gap-1.5">
+                    {g.section}
+                    {g.badge && (
+                      <span
+                        className="text-[8px] font-extrabold px-1.5 py-0.5 rounded tracking-wider"
+                        style={{ background: '#22C55E', color: 'white' }}
+                      >
+                        {g.badge}
+                      </span>
+                    )}
+                  </span>
                   <span className="text-[9px] opacity-60">
                     {collapsed ? '▸' : '▾'}
                   </span>
