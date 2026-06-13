@@ -139,14 +139,14 @@ export class ReservationsController {
   }
 
   /** Disponibilidad por slot — útil para el admin antes de crear una
-   *  reserva manual. zoneId opcional. force=true permite ignorar el check
-   *  al crear (POST). */
+   *  reserva manual. zoneId / locationId opcionales. */
   @Get('availability')
   async availability(
     @CurrentUser() user: AuthUser,
     @Query('date') date: string,
     @Query('party', new DefaultValuePipe(2)) party: string,
     @Query('zoneId') zoneId?: string,
+    @Query('locationId') locationId?: string,
     @Query('tenantId') tenantId?: string,
   ) {
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -155,8 +155,20 @@ export class ReservationsController {
     const tid = user.role === 'SUPER_ADMIN' ? tenantId : user.tenantId;
     if (!tid) throw new BadRequestException('tenantId requerido');
     const partyNum = Math.max(1, parseInt(party, 10) || 2);
-    const slots = await this.svc.getAvailability(tid, date, partyNum, zoneId ?? null);
-    return { date, party: partyNum, zoneId: zoneId ?? null, slots };
+    const slots = await this.svc.getAvailability(
+      tid,
+      date,
+      partyNum,
+      zoneId ?? null,
+      locationId ?? null,
+    );
+    return {
+      date,
+      party: partyNum,
+      zoneId: zoneId ?? null,
+      locationId: locationId ?? null,
+      slots,
+    };
   }
 
   @Post()

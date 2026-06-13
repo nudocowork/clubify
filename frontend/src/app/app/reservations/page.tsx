@@ -224,10 +224,16 @@ export default function ReservationsPage() {
           tableId: walkIn.tableId || null,
         }),
       });
+      const hadPhone = walkIn.customerPhone.trim().length > 0;
       setWalkIn({ customerName: '', customerPhone: '', party: 2, tableId: '' });
       setWalkInOpen(false);
       loadAll();
-      toast('Walk-in registrado · sello asignado al cliente', 'success');
+      toast(
+        hadPhone
+          ? 'Walk-in registrado · sello asignado al cliente'
+          : 'Walk-in registrado (sin teléfono → no se le pudo asignar sello)',
+        'success',
+      );
     } catch (err: any) {
       toast(err.message || 'No se pudo registrar', 'error');
     } finally {

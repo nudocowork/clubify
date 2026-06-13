@@ -313,12 +313,28 @@ export class ReservationsService {
     // Validación de capacidad / slot. Skip si admin lo desactiva
     // explícitamente (e.g. fuerza una reserva fuera de horario).
     if (!opts.skipCapacityCheck) {
-      await this.assertSlotAvailable(tenantId, dto.date, dto.time, dto.zoneId ?? null, dto.party);
+      // Multi-sede: el locationId del DTO (o derivado de zone) scopea
+      // el chequeo a la sede correcta. Sin esto, multi-sede crossea
+      // capacidad entre locales y oversellearía.
+      await this.assertSlotAvailable(
+        tenantId,
+        dto.date,
+        dto.time,
+        dto.zoneId ?? null,
+        dto.party,
+        dto.locationId ?? null,
+      );
     }
 
-    // FindOrCreate Customer por phone (CRM enrichment)
+    // FindOrCreate Customer por phone (CRM enrichment).
+    // FIX 2026-06-12: skip si el phone es placeholder de walk-in
+    // (vacío o prefijo "walkin-"). Antes creaba Customer huérfano con
+    // phone fake → no se puede vincular al cliente real después.
     const phone = dto.customerPhone.trim();
-    const customer = await this.findOrCreateCustomer(tenantId, phone, dto.customerName.trim(), dto.customerEmail);
+    const isPlaceholderPhone = !phone || phone.startsWith('walkin-') || phone.length < 5;
+    const customer = isPlaceholderPhone
+      ? null
+      : await this.findOrCreateCustomer(tenantId, phone, dto.customerName.trim(), dto.customerEmail);
 
     const [y, m, d] = dto.date.split('-').map(Number);
     // Mediodía UTC para evitar problemas de zona horaria al filtrar por día.
@@ -341,6 +357,22 @@ export class ReservationsService {
       locationId = t?.locationId ?? null;
     }
 
+    // FIX 2026-06-12: si se crea con status final (CONFIRMED/SEATED/COMPLETED),
+    // sellar los timestamps correspondientes. Antes el reservation quedaba con
+    // status=SEATED pero seatedAt=null, lo que rompía reportes/auditoría.
+    const now = new Date();
+    const initStatus = dto.status ?? 'PENDING';
+    const timestamps: any = {};
+    if (initStatus === 'CONFIRMED' || initStatus === 'SEATED' || initStatus === 'COMPLETED') {
+      timestamps.confirmedAt = now;
+    }
+    if (initStatus === 'SEATED' || initStatus === 'COMPLETED') {
+      timestamps.seatedAt = now;
+    }
+    if (initStatus === 'COMPLETED') {
+      timestamps.completedAt = now;
+    }
+
     const reservation = await this.prisma.reservation.create({
       data: {
         tenantId,
@@ -356,7 +388,8 @@ export class ReservationsService {
         zoneId: dto.zoneId ?? null,
         tableId: dto.tableId ?? null,
         channel,
-        status: dto.status ?? 'PENDING',
+        status: initStatus,
+        ...timestamps,
       },
       include: { table: true, zone: true },
     });
@@ -364,6 +397,24 @@ export class ReservationsService {
     if (opts.notify) {
       this.notifyTenant(reservation).catch((e) =>
         this.logger.warn(`notifyTenant falló (reservationId=${reservation.id}): ${(e as Error).message}`),
+      );
+    }
+    // FIX 2026-06-12: side effects de status final en create. Antes solo
+    // update() los disparaba, por lo que reservas creadas directamente con
+    // status=CONFIRMED se perdían el SMS de confirmación, y status=SEATED
+    // (walk-ins) no recibían el sello de fidelización.
+    if (initStatus === 'CONFIRMED') {
+      this.notifyCustomerConfirmed(reservation.id).catch((e) =>
+        this.logger.warn(
+          `notifyCustomerConfirmed falló (reservationId=${reservation.id}): ${(e as Error).message}`,
+        ),
+      );
+    }
+    if (initStatus === 'SEATED' || initStatus === 'COMPLETED') {
+      this.grantReservationStamp(reservation.id).catch((e) =>
+        this.logger.warn(
+          `grantReservationStamp falló (reservationId=${reservation.id}): ${(e as Error).message}`,
+        ),
       );
     }
     return reservation;
@@ -469,12 +520,15 @@ export class ReservationsService {
       where: { tenantId_phone: { tenantId, phone } },
     });
     if (existing) {
-      if (!existing.tags?.includes('reserva')) {
-        await this.prisma.customer.update({
-          where: { id: existing.id },
-          data: { tags: { push: 'reserva' } },
-        });
-      }
+      // FIX 2026-06-12: race-safe append. Antes el check-then-act
+      // (if !has 'reserva' → push) podía duplicar el tag si dos
+      // reservas del mismo phone llegaban concurrentes. updateMany con
+      // NOT { has: 'reserva' } es atómico en Postgres — si ya está el
+      // tag el count queda en 0 y nada se duplica.
+      await this.prisma.customer.updateMany({
+        where: { id: existing.id, NOT: { tags: { has: 'reserva' } } },
+        data: { tags: { push: 'reserva' } },
+      });
       return existing;
     }
     try {
@@ -515,16 +569,36 @@ export class ReservationsService {
     '13:00', '13:30', '14:00', '14:30', '21:00', '21:30', '22:00',
   ];
 
+  /** Resuelve el locationId de una zona, si la zona tiene una asignada.
+   *  Usado por slot validation para scopear capacity/occupancy a sede. */
+  private async resolveZoneLocation(zoneId: string | null): Promise<string | null> {
+    if (!zoneId) return null;
+    const z = await this.prisma.reservationZone.findUnique({
+      where: { id: zoneId },
+      select: { locationId: true },
+    });
+    return z?.locationId ?? null;
+  }
+
   /** Suma de seats de mesas activas y no bloqueadas. Si zoneId es null,
-   *  cuenta todas las mesas del tenant. Si la zona no tiene mesas (o el
-   *  tenant no tiene mesas configuradas), retorna 0. */
-  private async getCapacity(tenantId: string, zoneId: string | null): Promise<number> {
+   *  cuenta todas las mesas del tenant (filtradas por locationId si se
+   *  pasa). Si la zona no tiene mesas (o el tenant no tiene mesas
+   *  configuradas), retorna 0.
+   *  FIX 2026-06-12: agrega filtro por locationId para multi-sede. Antes
+   *  cuando no se pasaba zoneId, sumaba capacidad GLOBAL del tenant
+   *  cruzando sedes → overselling. */
+  private async getCapacity(
+    tenantId: string,
+    zoneId: string | null,
+    locationId: string | null = null,
+  ): Promise<number> {
     const tables = await this.prisma.reservationTable.findMany({
       where: {
         tenantId,
         isActive: true,
         isBlocked: false,
         ...(zoneId ? { zoneId } : {}),
+        ...(locationId ? { locationId } : {}),
       },
       select: { seats: true },
     });
@@ -533,14 +607,15 @@ export class ReservationsService {
 
   /** Suma de party de reservas que solapan con (date, time) por menos de
    *  SLOT_WINDOW_MIN. Solo cuenta status activos (no CANCELLED/COMPLETED/
-   *  NO_SHOW). Si zoneId está provisto, solo cuenta reservas en esa zona o
-   *  sin zona asignada (porque ocupan capacidad global). Si zoneId es
-   *  null, cuenta todas las reservas activas del día. */
+   *  NO_SHOW). Si zoneId está provisto, filtra por zona; si locationId
+   *  está provisto, filtra por sede (multi-sede).
+   *  FIX 2026-06-12: agrega filtro por locationId. */
   private async getOccupancy(
     tenantId: string,
     date: string,
     time: string,
     zoneId: string | null,
+    locationId: string | null = null,
     excludeReservationId?: string,
   ): Promise<number> {
     const [y, m, d] = date.split('-').map(Number);
@@ -551,6 +626,7 @@ export class ReservationsService {
         tenantId,
         date: { gte: start, lte: end },
         status: { in: ['PENDING', 'CONFIRMED', 'SEATED'] },
+        ...(locationId ? { locationId } : {}),
         ...(excludeReservationId ? { id: { not: excludeReservationId } } : {}),
       },
       select: { id: true, time: true, party: true, zoneId: true },
@@ -575,20 +651,21 @@ export class ReservationsService {
   }
 
   /** Lanza ConflictException 409 si no hay capacidad para `party` en
-   *  (date, time, zoneId). Si el tenant no tiene mesas configuradas la
-   *  validación se salta (bootstrap mode — sigue permitiendo reservas). */
+   *  (date, time, zoneId, locationId). Si el tenant no tiene mesas
+   *  configuradas la validación se salta (bootstrap mode).
+   *  FIX 2026-06-12: deriva locationId de la zona si no se pasa explícito,
+   *  para que multi-sede no cruce capacidad entre locales. */
   async assertSlotAvailable(
     tenantId: string,
     date: string,
     time: string,
     zoneId: string | null,
     party: number,
+    locationId: string | null = null,
   ): Promise<void> {
-    const capacity = await this.getCapacity(tenantId, zoneId);
+    const effectiveLocation = locationId ?? (await this.resolveZoneLocation(zoneId));
+    const capacity = await this.getCapacity(tenantId, zoneId, effectiveLocation);
     if (capacity === 0) {
-      // Si pidieron zona específica y la zona no tiene mesas → conflict.
-      // Si pidieron global y el tenant no tiene NINGUNA mesa → bootstrap,
-      // dejamos pasar (caso de tenant recién activado).
       if (zoneId) {
         throw new ConflictException('Esta zona no tiene mesas disponibles');
       }
@@ -597,7 +674,7 @@ export class ReservationsService {
       );
       return;
     }
-    const occupied = await this.getOccupancy(tenantId, date, time, zoneId);
+    const occupied = await this.getOccupancy(tenantId, date, time, zoneId, effectiveLocation);
     const remaining = capacity - occupied;
     if (remaining < party) {
       throw new ConflictException(
@@ -608,19 +685,18 @@ export class ReservationsService {
     }
   }
 
-  /** Devuelve disponibilidad por slot para una fecha + party. Para cada
-   *  slot del DEFAULT_SLOTS calcula capacity - occupancy y marca como
-   *  available si remaining >= party. Si no hay mesas configuradas se
-   *  marca todo como available (bootstrap mode). */
+  /** Devuelve disponibilidad por slot para una fecha + party.
+   *  FIX 2026-06-12: agrega locationId param para multi-sede. */
   async getAvailability(
     tenantId: string,
     date: string,
     party: number,
     zoneId: string | null = null,
+    locationId: string | null = null,
   ): Promise<{ time: string; available: boolean; remaining: number }[]> {
-    const capacity = await this.getCapacity(tenantId, zoneId);
+    const effectiveLocation = locationId ?? (await this.resolveZoneLocation(zoneId));
+    const capacity = await this.getCapacity(tenantId, zoneId, effectiveLocation);
     if (capacity === 0) {
-      // Bootstrap: sin mesas, todo available (la validación misma se salta).
       return ReservationsService.DEFAULT_SLOTS.map((time) => ({
         time,
         available: true,
@@ -629,7 +705,7 @@ export class ReservationsService {
     }
     const results = await Promise.all(
       ReservationsService.DEFAULT_SLOTS.map(async (time) => {
-        const occupied = await this.getOccupancy(tenantId, date, time, zoneId);
+        const occupied = await this.getOccupancy(tenantId, date, time, zoneId, effectiveLocation);
         const remaining = Math.max(0, capacity - occupied);
         return { time, available: remaining >= party, remaining };
       }),
