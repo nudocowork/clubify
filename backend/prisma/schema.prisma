@@ -881,12 +881,17 @@ model Reservation {
   /// botón "Crear reserva" del flujo público no avisamos 2 veces.
   notifiedAt    DateTime?
 
+  /// Recordatorio SMS/WhatsApp al cliente 24h antes de la reserva.
+  /// El cron lo claimea atómicamente al disparar para evitar dobles envíos.
+  reminderSentAt DateTime?
+
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
 
   @@index([tenantId, date, status])
   @@index([tableId])
   @@index([customerId])
+  @@index([reminderSentAt, status])
 }
 
 enum ReservationStatus {
