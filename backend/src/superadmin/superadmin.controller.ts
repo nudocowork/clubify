@@ -77,24 +77,31 @@ export class SuperAdminController {
   }
 
   @Post('white-labels')
-  createWhiteLabel(@Body() body: WhiteLabelBody) {
-    return this.svc.createWhiteLabel(body);
+  createWhiteLabel(@Body() body: WhiteLabelBody, @CurrentUser() user: AuthUser) {
+    return this.svc.createWhiteLabel(body, user.id);
   }
 
   @Patch('white-labels/:id')
-  updateWhiteLabel(@Param('id') id: string, @Body() body: Partial<WhiteLabelBody>) {
-    return this.svc.updateWhiteLabel(id, body);
+  updateWhiteLabel(@Param('id') id: string, @Body() body: Partial<WhiteLabelBody>, @CurrentUser() user: AuthUser) {
+    return this.svc.updateWhiteLabel(id, body, user.id);
   }
 
   @Patch('white-labels/:id/status')
-  setStatus(@Param('id') id: string, @Body() body: StatusBody) {
-    return this.svc.setStatus(id, body.status);
+  setStatus(@Param('id') id: string, @Body() body: StatusBody, @CurrentUser() user: AuthUser) {
+    return this.svc.setStatus(id, body.status, user.id);
   }
 
   /** PLATFORM_OWNER entra al panel de la marca como su SUPER_ADMIN. */
   @Post('white-labels/:id/impersonate')
   impersonate(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.svc.impersonateWhiteLabel(id, user.id);
+  }
+
+  // -------- Historial --------
+
+  @Get('history')
+  history() {
+    return this.svc.history({});
   }
 
   // -------- Centro de Créditos --------
@@ -105,8 +112,8 @@ export class SuperAdminController {
   }
 
   @Post('credits/adjust')
-  adjust(@Body() body: AdjustCreditsBody) {
-    return this.svc.adjustCredits(body);
+  adjust(@Body() body: AdjustCreditsBody, @CurrentUser() user: AuthUser) {
+    return this.svc.adjustCredits(body, user.id);
   }
 
   // -------- Hotmart Links --------
@@ -143,8 +150,9 @@ export class SuperAdminController {
     @Param('whiteLabelId') whiteLabelId: string,
     @Param('module') module: ModuleKey,
     @Body() body: ToggleModuleBody,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.svc.toggleModule(whiteLabelId, module, body.enabled);
+    return this.svc.toggleModule(whiteLabelId, module, body.enabled, user.id);
   }
 
   // -------- Centro de Cobros --------
