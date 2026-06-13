@@ -287,15 +287,23 @@ export class ReservationsService {
       tableId: patch.tableId === null ? null : patch.tableId,
     };
     let grantStamp = false;
+    let notifyConfirmed = false;
+    let notifyCancelled = false;
     if (patch.status && patch.status !== r.status) {
       data.status = patch.status;
-      if (patch.status === 'CONFIRMED' && !r.confirmedAt) data.confirmedAt = now;
+      if (patch.status === 'CONFIRMED' && !r.confirmedAt) {
+        data.confirmedAt = now;
+        notifyConfirmed = true;
+      }
       if (patch.status === 'SEATED' && !r.seatedAt) {
         data.seatedAt = now;
         if (!r.stampGrantedAt) grantStamp = true;
       }
       if (patch.status === 'COMPLETED' && !r.completedAt) data.completedAt = now;
-      if (patch.status === 'CANCELLED' && !r.cancelledAt) data.cancelledAt = now;
+      if (patch.status === 'CANCELLED' && !r.cancelledAt) {
+        data.cancelledAt = now;
+        notifyCancelled = true;
+      }
     }
     const updated = await this.prisma.reservation.update({
       where: { id },
@@ -307,6 +315,20 @@ export class ReservationsService {
       this.grantReservationStamp(updated.id).catch((e) =>
         this.logger.warn(
           `grantReservationStamp falló (reservationId=${updated.id}): ${(e as Error).message}`,
+        ),
+      );
+    }
+    if (notifyConfirmed) {
+      this.notifyCustomerConfirmed(updated.id).catch((e) =>
+        this.logger.warn(
+          `notifyCustomerConfirmed falló (reservationId=${updated.id}): ${(e as Error).message}`,
+        ),
+      );
+    }
+    if (notifyCancelled) {
+      this.notifyCustomerCancelled(updated.id).catch((e) =>
+        this.logger.warn(
+          `notifyCustomerCancelled falló (reservationId=${updated.id}): ${(e as Error).message}`,
         ),
       );
     }
@@ -563,6 +585,60 @@ export class ReservationsService {
     } catch (e) {
       this.logger.warn(`SMS notif falló: ${(e as Error).message}`);
     }
+  }
+
+  // ============================================================
+  //               NOTIFICACIONES AL CLIENTE
+  // ============================================================
+
+  /** Notifica al cliente cuando el negocio confirma su reserva.
+   *  Mensaje incluye fecha, hora, party, nombre del negocio. Fire-and-forget. */
+  private async notifyCustomerConfirmed(reservationId: string) {
+    const r = await this.prisma.reservation.findUnique({
+      where: { id: reservationId },
+      select: {
+        tenantId: true,
+        customerName: true,
+        customerPhone: true,
+        party: true,
+        date: true,
+        time: true,
+        zone: { select: { name: true } },
+        tenant: { select: { brandName: true } },
+      },
+    });
+    if (!r) return;
+    const dateStr = r.date.toISOString().slice(0, 10);
+    const partyStr = `${r.party} ${r.party === 1 ? 'persona' : 'personas'}`;
+    const zoneStr = r.zone?.name ? ` (${r.zone.name})` : '';
+    const body =
+      `✅ ¡Tu reserva está confirmada!\n` +
+      `${r.tenant.brandName} te espera el ${dateStr} a las ${r.time} para ${partyStr}${zoneStr}.\n` +
+      `Llegá 5 min antes. ¡Nos vemos!`;
+    await this.growBusiness.sendSms(r.tenantId, r.customerPhone, body);
+  }
+
+  /** Notifica al cliente cuando el negocio cancela su reserva. */
+  private async notifyCustomerCancelled(reservationId: string) {
+    const r = await this.prisma.reservation.findUnique({
+      where: { id: reservationId },
+      select: {
+        tenantId: true,
+        customerName: true,
+        customerPhone: true,
+        date: true,
+        time: true,
+        tenant: { select: { brandName: true, whatsappPhone: true, phone: true } },
+      },
+    });
+    if (!r) return;
+    const dateStr = r.date.toISOString().slice(0, 10);
+    const contact = r.tenant.whatsappPhone || r.tenant.phone || '';
+    const contactStr = contact ? `\nContactá a ${r.tenant.brandName}: ${contact}` : '';
+    const body =
+      `Hola ${r.customerName}, tu reserva en ${r.tenant.brandName} para el ${dateStr} a las ${r.time} fue cancelada.${contactStr}\n` +
+      `Lamentamos las molestias.`;
+    await this.growBusiness.sendSms(r.tenantId, r.customerPhone, body);
   }
 
   // ============================================================
