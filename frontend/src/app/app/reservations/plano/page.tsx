@@ -1,14 +1,25 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { api } from '@/lib/api';
-import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
+import {
+  Location,
+  Reservation,
+  Table,
+  Zone,
+  fmtLongDate,
+  todayISO,
+  LABEL_COLORS,
+} from '../_shared';
 
 const GRID = 26;
-const CANVAS_H = 520;
+const CANVAS_H = 560;
+
 function snap(v: number) {
   return Math.max(0, Math.round(v / GRID) * GRID);
 }
+
 function tableDims(t: { shape: string; seats: number; width?: number | null; height?: number | null }) {
   const isRound = t.shape === 'ROUND';
   const w = t.width ?? (isRound ? (t.seats <= 2 ? 54 : t.seats <= 4 ? 66 : 80) : t.shape === 'BAR' ? 130 : 100);
@@ -16,237 +27,151 @@ function tableDims(t: { shape: string; seats: number; width?: number | null; hei
   return { w, h, isRound };
 }
 
-function ZoneAddForm({ onCreated, locationId }: { onCreated: () => void; locationId?: string | null }) {
-  const [name, setName] = useState('');
-  const [type, setType] = useState('INDOOR');
-  const [busy, setBusy] = useState(false);
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!name.trim()) return;
-    setBusy(true);
-    try {
-      await api('/reservations/zones', {
-        method: 'POST',
-        body: JSON.stringify({ name: name.trim(), type, locationId: locationId || null }),
-      });
-      setName('');
-      onCreated();
-      toast('Zona creada', 'success');
-    } catch (e: any) {
-      toast(e.message || 'No se pudo crear', 'error');
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <form onSubmit={submit} className="flex gap-1 mt-2">
-      <input
-        className="input text-xs"
-        placeholder="Nueva zona"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-      />
-      <select
-        className="input text-xs"
-        value={type}
-        onChange={(e) => setType(e.target.value)}
-        style={{ width: 100 }}
-      >
-        <option value="INDOOR">Indoor</option>
-        <option value="OUTDOOR">Terraza</option>
-        <option value="BAR">Barra</option>
-        <option value="PRIVATE">Privado</option>
-      </select>
-      <button className="btn-primary text-xs px-3" disabled={busy}>+</button>
-    </form>
-  );
+// Estilos de zona según tipo
+const ZONE_BG: Record<string, { bg: string; border: string; label: string }> = {
+  INDOOR: { bg: 'rgba(34,197,94,0.08)', border: 'rgba(34,197,94,0.25)', label: '#15803d' },
+  OUTDOOR: { bg: 'rgba(59,130,246,0.08)', border: 'rgba(59,130,246,0.25)', label: '#1d4ed8' },
+  BAR: { bg: 'rgba(249,115,22,0.08)', border: 'rgba(249,115,22,0.25)', label: '#b45309' },
+  PRIVATE: { bg: 'rgba(139,92,246,0.10)', border: 'rgba(139,92,246,0.30)', label: '#6d28d9' },
+};
+
+type MesaState = 'libre' | 'reservada' | 'sentada' | 'bloqueada';
+const STATE_STYLES: Record<
+  MesaState,
+  { bg: string; border: string; text: string; pattern?: string }
+> = {
+  libre: { bg: '#ffffff', border: '#cbd5e1', text: '#475569' },
+  reservada: { bg: '#fef3c7', border: '#f59e0b', text: '#b45309' },
+  sentada: { bg: '#22C55E', border: '#15803d', text: '#ffffff' },
+  bloqueada: {
+    bg: 'repeating-linear-gradient(45deg,#f3f4f6,#f3f4f6 6px,#e9ebee 6px,#e9ebee 12px)',
+    border: '#cbd5e1',
+    text: '#94a3b8',
+  },
+};
+
+function reservationToTimestamp(r: Reservation): number {
+  const [y, m, d] = r.date.split('T')[0].split('-').map(Number);
+  const [h, min] = r.time.split(':').map(Number);
+  return Date.UTC(y, m - 1, d, h + 5, min, 0); // UTC-5 LATAM
 }
 
-type Location = { id: string; name: string };
-
-type Zone = { id: string; name: string; slug: string; type: string; locationId?: string | null };
-type Table = {
-  id: string;
-  number: string;
-  seats: number;
-  shape: string;
-  posX: number;
-  posY: number;
-  width?: number | null;
-  height?: number | null;
-  isBlocked: boolean;
-  zoneId?: string | null;
-  zone?: { name: string } | null;
-};
-type Reservation = {
-  id: string;
-  customerName: string;
-  customerPhone: string;
-  customerEmail?: string | null;
-  party: number;
-  date: string;
-  time: string;
-  notes?: string | null;
-  status: 'PENDING' | 'CONFIRMED' | 'SEATED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
-  channel: string;
-  table?: { number: string } | null;
-  zone?: { name: string } | null;
-  customer?: { id: string; fullName: string; tags: string[] } | null;
-};
-
-const STATUS_META: Record<string, { label: string; bg: string; fg: string }> = {
-  PENDING: { label: 'Pendiente', bg: '#fff7ed', fg: '#b45309' },
-  CONFIRMED: { label: 'Confirmada', bg: '#ecfdf3', fg: '#15803d' },
-  SEATED: { label: 'Sentada', bg: '#eff6ff', fg: '#1d4ed8' },
-  COMPLETED: { label: 'Completada', bg: '#f3f4f6', fg: '#6b7280' },
-  CANCELLED: { label: 'Cancelada', bg: '#f3f4f6', fg: '#6b7280' },
-  NO_SHOW: { label: 'Ausente', bg: '#fef2f2', fg: '#dc2626' },
-};
-
-function todayISO() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+function computeMesaState(
+  table: Table,
+  reservations: Reservation[],
+  now: number,
+): { state: MesaState; reservation: Reservation | null } {
+  if (table.isBlocked) return { state: 'bloqueada', reservation: null };
+  const linked = reservations.filter((r) => r.tableId === table.id);
+  // Sentada ahora
+  const seated = linked.find((r) => r.status === 'SEATED');
+  if (seated) return { state: 'sentada', reservation: seated };
+  // Confirmada próxima (dentro de 3h hacia adelante)
+  const upcoming = linked
+    .filter((r) => ['CONFIRMED', 'PENDING'].includes(r.status))
+    .map((r) => ({ r, ts: reservationToTimestamp(r) }))
+    .filter(({ ts }) => ts - now < 3 * 60 * 60 * 1000 && ts - now > -2 * 60 * 60 * 1000)
+    .sort((a, b) => a.ts - b.ts);
+  if (upcoming.length > 0) return { state: 'reservada', reservation: upcoming[0].r };
+  return { state: 'libre', reservation: null };
 }
 
 export default function PlanoPage() {
-  const [tab] = useState<'agenda' | 'plano' | 'metricas'>('plano');
-  const setTab = (_: any) => {};
-  const [date, setDate] = useState(todayISO());
+  const [mode, setMode] = useState<'operacion' | 'editor'>('operacion');
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [zones, setZones] = useState<Zone[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
-  const [activeLocationId, setActiveLocationId] = useState<string>(''); // '' = todas
+  const [activeLocationId, setActiveLocationId] = useState<string>('');
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({
-    customerName: '',
-    customerPhone: '',
-    party: 2,
-    time: '21:00',
-    notes: '',
-  });
+  const [zoneFilter, setZoneFilter] = useState<string>('todas');
 
   async function loadAll() {
     try {
-      const locQs = activeLocationId ? `&locationId=${activeLocationId}` : '';
-      const [res, zn, tb, locs] = await Promise.all([
-        api<Reservation[]>(`/reservations?date=${date}${locQs}`),
-        api<Zone[]>(`/reservations/zones${activeLocationId ? `?locationId=${activeLocationId}` : ''}`),
-        api<Table[]>(`/reservations/tables${activeLocationId ? `?locationId=${activeLocationId}` : ''}`),
-        locations.length === 0
-          ? api<Location[]>('/locations').catch(() => [])
-          : Promise.resolve(locations),
+      const locQs = activeLocationId ? `?locationId=${activeLocationId}` : '';
+      const [zn, tb, locs, res] = await Promise.all([
+        api<Zone[]>(`/reservations/zones${locQs}`),
+        api<Table[]>(`/reservations/tables${locQs}`),
+        locations.length === 0 ? api<Location[]>('/locations').catch(() => []) : Promise.resolve(locations),
+        api<Reservation[]>(`/reservations?date=${todayISO()}${activeLocationId ? `&locationId=${activeLocationId}` : ''}`),
       ]);
-      setReservations(res);
       setZones(zn);
       setTables(tb);
+      setReservations(res);
       if (locations.length === 0) setLocations(locs);
     } catch (e: any) {
-      toast(e.message || 'Error cargando reservas', 'error');
+      toast(e.message || 'Error cargando plano', 'error');
     }
   }
 
   useEffect(() => {
     loadAll();
-  }, [date, activeLocationId]);
+  }, [activeLocationId]);
 
-  const stats = useMemo(() => {
-    const pax = reservations.reduce((s, r) => s + r.party, 0);
-    const cancelled = reservations.filter((r) => r.status === 'CANCELLED' || r.status === 'NO_SHOW').length;
-    return { count: reservations.length, pax, cancelled };
-  }, [reservations]);
+  const now = Date.now();
 
-  async function changeStatus(id: string, status: Reservation['status']) {
+  // Mesa states map
+  const mesaStates = useMemo(() => {
+    const m = new Map<string, { state: MesaState; reservation: Reservation | null }>();
+    tables.forEach((t) => m.set(t.id, computeMesaState(t, reservations, now)));
+    return m;
+  }, [tables, reservations, now]);
+
+  // Counts agregados
+  const counts = useMemo(() => {
+    const c = { libre: 0, reservada: 0, sentada: 0, bloqueada: 0 };
+    mesaStates.forEach((v) => c[v.state]++);
+    return c;
+  }, [mesaStates]);
+
+  // Zonas filtradas
+  const visibleZones = useMemo(() => {
+    if (zoneFilter === 'todas') return zones;
+    return zones.filter((z) => z.id === zoneFilter || z.type.toLowerCase() === zoneFilter);
+  }, [zones, zoneFilter]);
+
+  // Tablas sin zona (huérfanas)
+  const orphanTables = useMemo(() => tables.filter((t) => !t.zoneId), [tables]);
+
+  const selectedTable = tables.find((t) => t.id === selectedTableId) || null;
+  const selectedState = selectedTable ? mesaStates.get(selectedTable.id) : null;
+  const selectedZone = selectedTable?.zoneId ? zones.find((z) => z.id === selectedTable.zoneId) : null;
+
+  // Actions
+  async function setReservationStatus(reservationId: string, status: Reservation['status']) {
     try {
-      await api(`/reservations/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+      await api(`/reservations/${reservationId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      });
       loadAll();
-      toast(`Reserva marcada como ${STATUS_META[status].label.toLowerCase()}`, 'success');
     } catch (e: any) {
       toast(e.message || 'No se pudo actualizar', 'error');
     }
   }
 
-  async function submitReservation(e: React.FormEvent) {
-    e.preventDefault();
-    if (!form.customerName.trim() || !form.customerPhone.trim()) {
-      toast('Nombre y teléfono son obligatorios', 'error');
-      return;
-    }
-    setCreating(true);
+  async function toggleBlock(t: Table) {
     try {
-      await api('/reservations', {
-        method: 'POST',
-        body: JSON.stringify({
-          ...form,
-          date,
-          channel: 'PHONE',
-          status: 'CONFIRMED',
-        }),
+      await api(`/reservations/tables/${t.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isBlocked: !t.isBlocked }),
       });
-      setForm({ customerName: '', customerPhone: '', party: 2, time: '21:00', notes: '' });
       loadAll();
-      toast('Reserva creada', 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo crear', 'error');
-    } finally {
-      setCreating(false);
+      toast(e.message || 'No se pudo actualizar', 'error');
     }
   }
 
-  // ---------- Walk-in: cliente arrived, sin reserva previa ----------
-  const [walkInOpen, setWalkInOpen] = useState(false);
-  const [walkIn, setWalkIn] = useState({ customerName: '', customerPhone: '', party: 2, tableId: '' });
-  const [walkInSubmitting, setWalkInSubmitting] = useState(false);
-
-  async function submitWalkIn(e: React.FormEvent) {
-    e.preventDefault();
-    if (!walkIn.customerName.trim()) {
-      toast('Nombre requerido', 'error');
-      return;
-    }
-    setWalkInSubmitting(true);
-    try {
-      const now = new Date();
-      const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-      // force=true para saltar la validación de capacidad — walk-in
-      // siempre debería poder sentarse aunque haya overbooking nominal
-      // (el negocio ya decidió que sí).
-      await api('/reservations?force=true', {
-        method: 'POST',
-        body: JSON.stringify({
-          customerName: walkIn.customerName.trim(),
-          customerPhone: walkIn.customerPhone.trim() || `walkin-${Date.now()}`,
-          party: walkIn.party,
-          date: todayISO(),
-          time: hhmm,
-          channel: 'IN_PERSON',
-          status: 'SEATED',
-          tableId: walkIn.tableId || null,
-        }),
-      });
-      const hadPhone = walkIn.customerPhone.trim().length > 0;
-      setWalkIn({ customerName: '', customerPhone: '', party: 2, tableId: '' });
-      setWalkInOpen(false);
-      loadAll();
-      toast(
-        hadPhone
-          ? 'Walk-in registrado · sello asignado al cliente'
-          : 'Walk-in registrado (sin teléfono → no se le pudo asignar sello)',
-        'success',
-      );
-    } catch (err: any) {
-      toast(err.message || 'No se pudo registrar', 'error');
-    } finally {
-      setWalkInSubmitting(false);
-    }
-  }
-
-  // ---------- Plano: drag + create + edit ----------
+  // === Editor mode (drag + add tables/zones) ===
   const canvasRef = useRef<HTMLDivElement>(null);
-  const [newTable, setNewTable] = useState({ number: '', seats: 4, shape: 'ROUND' as 'ROUND' | 'RECT' | 'BAR', zoneId: '' });
-  const [showAddTable, setShowAddTable] = useState(false);
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
+  const [newTable, setNewTable] = useState({
+    number: '',
+    seats: 4,
+    shape: 'ROUND' as 'ROUND' | 'RECT' | 'BAR',
+    zoneId: '',
+  });
+  const [showAddTable, setShowAddTable] = useState(false);
 
   async function createTable(e: React.FormEvent) {
     e.preventDefault();
@@ -277,7 +202,6 @@ export default function PlanoPage() {
   }
 
   async function patchTable(id: string, patch: Partial<Table>) {
-    // Optimistic update
     setTables((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
     try {
       await api(`/reservations/tables/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
@@ -287,23 +211,19 @@ export default function PlanoPage() {
     }
   }
 
-  async function toggleBlock(t: Table) {
-    patchTable(t.id, { isBlocked: !t.isBlocked });
-  }
-
   async function deleteTable(t: Table) {
-    if (!confirm(`Eliminar mesa "${t.number}"? Las reservas asociadas no se borran.`)) return;
+    if (!confirm(`Eliminar mesa "${t.number}"?`)) return;
     try {
       await api(`/reservations/tables/${t.id}`, { method: 'DELETE' });
       setSelectedTableId(null);
       loadAll();
-      toast('Mesa eliminada', 'success');
     } catch (e: any) {
       toast(e.message || 'No se pudo eliminar', 'error');
     }
   }
 
   function handlePointerDown(e: React.PointerEvent, t: Table) {
+    if (mode !== 'editor') return;
     if (!canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
     const offsetX = e.clientX - rect.left - t.posX;
@@ -312,6 +232,7 @@ export default function PlanoPage() {
     setSelectedTableId(t.id);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
+
   function handlePointerMove(e: React.PointerEvent) {
     if (!dragRef.current || !canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
@@ -326,6 +247,7 @@ export default function PlanoPage() {
     const y = Math.min(maxY, Math.max(0, snap(rawY)));
     setTables((prev) => prev.map((tt) => (tt.id === t.id ? { ...tt, posX: x, posY: y } : tt)));
   }
+
   function handlePointerUp(e: React.PointerEvent) {
     if (!dragRef.current) return;
     const id = dragRef.current.id;
@@ -333,7 +255,6 @@ export default function PlanoPage() {
     (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
     const t = tables.find((x) => x.id === id);
     if (!t) return;
-    // Persist final position
     api(`/reservations/tables/${id}`, {
       method: 'PATCH',
       body: JSON.stringify({ posX: t.posX, posY: t.posY }),
@@ -343,684 +264,725 @@ export default function PlanoPage() {
     });
   }
 
-  const selectedTable = tables.find((t) => t.id === selectedTableId) || null;
-
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">Reservas <span className="page-crumb">/ {date}</span></h1>
-        <div className="flex gap-2 items-center flex-wrap">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3 mb-5 flex-wrap">
+        <div>
+          <h1 className="page-title m-0">
+            Plano de mesas{' '}
+            <span className="page-crumb text-mute font-normal">/ {fmtLongDate(todayISO())}</span>
+          </h1>
+          <p className="text-xs text-mute mt-1">
+            Distribución en tiempo real
+            {locations.length > 0 && activeLocationId
+              ? ` · ${locations.find((l) => l.id === activeLocationId)?.name ?? ''}`
+              : locations.length === 1
+              ? ` · ${locations[0].name}`
+              : ''}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-ok-soft text-ok-ink text-xs font-semibold">
+            <span className="relative inline-block w-2 h-2">
+              <span className="absolute inset-0 rounded-full bg-ok animate-ping opacity-75" />
+              <span className="absolute inset-0 rounded-full bg-ok" />
+            </span>
+            Tiempo real
+          </div>
           {locations.length > 1 && (
             <select
               value={activeLocationId}
               onChange={(e) => setActiveLocationId(e.target.value)}
               className="input text-sm"
               style={{ width: 'auto' }}
-              title="Filtrar por sede"
             >
               <option value="">📍 Todas las sedes</option>
               {locations.map((loc) => (
-                <option key={loc.id} value={loc.id}>
-                  📍 {loc.name}
-                </option>
+                <option key={loc.id} value={loc.id}>📍 {loc.name}</option>
               ))}
             </select>
           )}
-          <button
-            onClick={() => setWalkInOpen(true)}
-            className="btn-primary text-sm"
-            style={{ background: '#1d4ed8' }}
-            title="Cliente que llegó sin reserva previa"
-          >
-            🚶 Walk-in
-          </button>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="input text-sm"
-            style={{ width: 'auto' }}
+        </div>
+      </div>
+
+      {/* Toolbar: filtros + mode toggle */}
+      <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+        <div className="flex gap-1.5 text-xs flex-wrap">
+          <FilterChip
+            label="Todas"
+            active={zoneFilter === 'todas'}
+            onClick={() => setZoneFilter('todas')}
           />
+          {zones.map((z) => (
+            <FilterChip
+              key={z.id}
+              label={z.name}
+              active={zoneFilter === z.id}
+              onClick={() => setZoneFilter(z.id)}
+            />
+          ))}
+        </div>
+        <div className="flex gap-1 bg-bg2 p-1 rounded-lg text-xs">
+          <button
+            onClick={() => setMode('operacion')}
+            className={`px-3 py-1.5 rounded-md font-semibold transition flex items-center gap-1.5 ${
+              mode === 'operacion' ? 'bg-white text-ink shadow-sm' : 'text-mute hover:text-ink'
+            }`}
+          >
+            🗂 Operación
+          </button>
+          <button
+            onClick={() => setMode('editor')}
+            className={`px-3 py-1.5 rounded-md font-semibold transition flex items-center gap-1.5 ${
+              mode === 'editor' ? 'bg-white text-ink shadow-sm' : 'text-mute hover:text-ink'
+            }`}
+          >
+            ⚙ Editor
+          </button>
         </div>
       </div>
 
-      {walkInOpen && (
-        <div className="card card-pad mb-4 border-2" style={{ borderColor: '#1d4ed8' }}>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-base font-semibold m-0">🚶 Registrar walk-in</h2>
-            <button onClick={() => setWalkInOpen(false)} className="text-mute hover:text-ink">
-              ✕
-            </button>
-          </div>
-          <p className="text-xs text-mute mb-3">
-            Cliente llegó sin reserva previa. Queda marcado como{' '}
-            <strong>SEATED</strong> al toque y recibe sello de fidelización
-            automáticamente.
-          </p>
-          <form onSubmit={submitWalkIn} className="grid grid-cols-1 md:grid-cols-5 gap-2 items-end">
-            <div>
-              <label className="label">Nombre</label>
-              <input
-                className="input"
-                value={walkIn.customerName}
-                onChange={(e) => setWalkIn({ ...walkIn, customerName: e.target.value })}
-                placeholder="Juan Pérez"
-                required
-              />
-            </div>
-            <div>
-              <label className="label">Teléfono (opcional)</label>
-              <input
-                className="input"
-                value={walkIn.customerPhone}
-                onChange={(e) => setWalkIn({ ...walkIn, customerPhone: e.target.value })}
-                placeholder="+52 55..."
-              />
-            </div>
-            <div>
-              <label className="label">Pax</label>
-              <input
-                type="number"
-                min={1}
-                max={20}
-                className="input"
-                value={walkIn.party}
-                onChange={(e) => setWalkIn({ ...walkIn, party: Number(e.target.value) })}
-              />
-            </div>
-            <div>
-              <label className="label">Mesa (opcional)</label>
-              <select
-                className="input"
-                value={walkIn.tableId}
-                onChange={(e) => setWalkIn({ ...walkIn, tableId: e.target.value })}
-              >
-                <option value="">Sin asignar</option>
-                {tables.filter((t) => !t.isBlocked).map((t) => (
-                  <option key={t.id} value={t.id}>
-                    Mesa {t.number} · {t.seats}p
-                  </option>
-                ))}
-              </select>
-            </div>
-            <button className="btn-primary text-sm justify-center" disabled={walkInSubmitting}>
-              {walkInSubmitting ? 'Sentando…' : 'Sentar walk-in'}
-            </button>
-          </form>
-        </div>
-      )}
+      <div className="grid lg:grid-cols-[1fr_320px] gap-4">
+        {/* Main canvas */}
+        <div className="card card-pad">
+          {mode === 'operacion' ? (
+            <OperationView
+              zones={visibleZones}
+              orphanTables={orphanTables}
+              tables={tables}
+              mesaStates={mesaStates}
+              selectedId={selectedTableId}
+              onSelect={setSelectedTableId}
+            />
+          ) : (
+            <EditorView
+              canvasRef={canvasRef}
+              tables={tables}
+              selectedId={selectedTableId}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onAddOpen={() => setShowAddTable(true)}
+              showAddTable={showAddTable}
+              newTable={newTable}
+              setNewTable={setNewTable}
+              onSubmitNew={createTable}
+              zones={zones}
+              setShowAddTable={setShowAddTable}
+            />
+          )}
 
-      {/* Tabs ocultos: la navegación se hace desde el sidebar */}
-      <div className="hidden">
-        {([
-          { v: 'agenda' as const, label: '📅 Agenda', count: stats.count },
-          { v: 'plano' as const, label: '🪑 Plano', count: tables.length },
-          { v: 'metricas' as const, label: '📊 Métricas', count: null as number | null },
-        ]).map((tb) => {
-          const active = tab === tb.v;
-          return (
-            <button
-              key={tb.v}
-              onClick={() => setTab(tb.v)}
-              className={`${active ? '' : ''}`}
-            >
-              {tb.label}
-            </button>
-          );
-        })}
+          {/* Legend bottom */}
+          {mode === 'operacion' && (
+            <div className="mt-4 pt-3 border-t border-line2 flex items-center justify-between text-xs flex-wrap gap-3">
+              <div className="flex gap-3 flex-wrap">
+                <Legend dot={STATE_STYLES.libre.bg} border={STATE_STYLES.libre.border} label={`Libre · ${counts.libre}`} />
+                <Legend dot={STATE_STYLES.reservada.bg} border={STATE_STYLES.reservada.border} label={`Reservada · ${counts.reservada}`} />
+                <Legend dot={STATE_STYLES.sentada.bg} border={STATE_STYLES.sentada.border} label={`Sentada · ${counts.sentada}`} />
+                <Legend dot="#f3f4f6" border={STATE_STYLES.bloqueada.border} label={`Bloqueada · ${counts.bloqueada}`} stripes />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Sidebar derecho */}
+        <div className="space-y-3">
+          {mode === 'operacion' ? (
+            <OperationSidebar
+              table={selectedTable}
+              state={selectedState}
+              zone={selectedZone}
+              onSentar={(rid) => setReservationStatus(rid, 'SEATED')}
+              onLiberar={(rid) => setReservationStatus(rid, 'COMPLETED')}
+              onBloquear={() => selectedTable && toggleBlock(selectedTable)}
+            />
+          ) : (
+            <EditorSidebar
+              table={selectedTable}
+              zones={zones}
+              onPatch={(patch) => selectedTable && patchTable(selectedTable.id, patch)}
+              onToggleBlock={() => selectedTable && toggleBlock(selectedTable)}
+              onDelete={() => selectedTable && deleteTable(selectedTable)}
+            />
+          )}
+        </div>
       </div>
-
-      {tab === 'agenda' && (
-        <div className="grid lg:grid-cols-[1fr_320px] gap-4">
-          <div className="card card-pad">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-base font-semibold m-0">Reservas del día</h2>
-              <div className="flex gap-3 text-xs text-mute">
-                <span><strong className="text-ink">{stats.count}</strong> reservas</span>
-                <span><strong className="text-ink">{stats.pax}</strong> pax</span>
-                <span><strong className="text-bad">{stats.cancelled}</strong> ausencias</span>
-              </div>
-            </div>
-            {reservations.length === 0 ? (
-              <p className="text-sm text-mute py-6 text-center">
-                Sin reservas para este día. Las nuevas reservas del flujo público aparecerán aquí.
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {reservations.map((r) => {
-                  const sm = STATUS_META[r.status];
-                  return (
-                    <div
-                      key={r.id}
-                      className="flex items-center gap-3 p-3 rounded-lg border border-line bg-white"
-                    >
-                      <div className="w-14 text-center shrink-0">
-                        <div className="text-sm font-bold">{r.time}</div>
-                        <div className="text-[10px] text-mute">{r.channel}</div>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold truncate">{r.customerName}</div>
-                        <div className="text-xs text-mute">
-                          {r.party} pax · {r.customerPhone}
-                          {r.table?.number && ` · Mesa ${r.table.number}`}
-                          {r.zone?.name && ` · ${r.zone.name}`}
-                        </div>
-                        {r.notes && (
-                          <div className="text-[11px] text-mute mt-1 italic line-clamp-1">{r.notes}</div>
-                        )}
-                      </div>
-                      <span
-                        className="text-[11px] font-bold px-2 py-1 rounded"
-                        style={{ background: sm.bg, color: sm.fg }}
-                      >
-                        {sm.label}
-                      </span>
-                      <select
-                        value={r.status}
-                        onChange={(e) => changeStatus(r.id, e.target.value as Reservation['status'])}
-                        className="text-[11px] border border-line rounded px-2 py-1 bg-white"
-                      >
-                        {Object.entries(STATUS_META).map(([v, m]) => (
-                          <option key={v} value={v}>{m.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <form onSubmit={submitReservation} className="card card-pad self-start">
-            <h2 className="text-base font-semibold m-0">Nueva reserva</h2>
-            <p className="text-xs text-mute mt-1">Carga manual desde el panel.</p>
-            <div className="mt-3 space-y-2">
-              <div>
-                <label className="label">Nombre</label>
-                <input
-                  className="input"
-                  value={form.customerName}
-                  onChange={(e) => setForm({ ...form, customerName: e.target.value })}
-                  required
-                />
-              </div>
-              <div>
-                <label className="label">Teléfono</label>
-                <input
-                  className="input"
-                  value={form.customerPhone}
-                  onChange={(e) => setForm({ ...form, customerPhone: e.target.value })}
-                  required
-                  placeholder="+52 55 0000 0000"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="label">Pax</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={20}
-                    className="input"
-                    value={form.party}
-                    onChange={(e) => setForm({ ...form, party: Number(e.target.value) })}
-                  />
-                </div>
-                <div>
-                  <label className="label">Hora</label>
-                  <input
-                    type="time"
-                    className="input"
-                    value={form.time}
-                    onChange={(e) => setForm({ ...form, time: e.target.value })}
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="label">Notas (opcional)</label>
-                <textarea
-                  className="input"
-                  rows={2}
-                  value={form.notes}
-                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                />
-              </div>
-            </div>
-            <button className="btn-primary mt-3 w-full justify-center" disabled={creating}>
-              {creating ? 'Creando…' : 'Crear reserva'}
-            </button>
-          </form>
-        </div>
-      )}
-
-      {tab === 'plano' && (
-        <div className="grid lg:grid-cols-[1fr_300px] gap-4">
-          <div className="card card-pad">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h2 className="text-base font-semibold m-0">Plano de mesas</h2>
-                <p className="text-[11px] text-mute mt-0.5">
-                  Arrastrá las mesas para reorganizar el plano. Los cambios se guardan al soltar.
-                </p>
-              </div>
-              <button onClick={() => setShowAddTable((v) => !v)} className="btn-primary text-sm">
-                <Icon name="plus" /> Mesa
-              </button>
-            </div>
-
-            {showAddTable && (
-              <form onSubmit={createTable} className="mb-3 p-3 bg-bg2/60 rounded-lg border border-line grid grid-cols-2 md:grid-cols-5 gap-2 items-end">
-                <div>
-                  <label className="label">Número/etiqueta</label>
-                  <input
-                    className="input"
-                    value={newTable.number}
-                    onChange={(e) => setNewTable({ ...newTable, number: e.target.value })}
-                    placeholder="1 / VIP / Barra"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="label">Capacidad</label>
-                  <input
-                    type="number"
-                    className="input"
-                    min={1}
-                    max={40}
-                    value={newTable.seats}
-                    onChange={(e) => setNewTable({ ...newTable, seats: Number(e.target.value) })}
-                  />
-                </div>
-                <div>
-                  <label className="label">Forma</label>
-                  <select
-                    className="input"
-                    value={newTable.shape}
-                    onChange={(e) => setNewTable({ ...newTable, shape: e.target.value as any })}
-                  >
-                    <option value="ROUND">Redonda</option>
-                    <option value="RECT">Rectangular</option>
-                    <option value="BAR">Barra</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="label">Zona</label>
-                  <select
-                    className="input"
-                    value={newTable.zoneId}
-                    onChange={(e) => setNewTable({ ...newTable, zoneId: e.target.value })}
-                  >
-                    <option value="">Sin zona</option>
-                    {zones.map((z) => (
-                      <option key={z.id} value={z.id}>{z.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <button className="btn-primary text-sm justify-center">Crear</button>
-              </form>
-            )}
-
-            {tables.length === 0 ? (
-              <p className="text-sm text-mute py-10 text-center">
-                Aún no hay mesas. Creá la primera con el botón de arriba.
-              </p>
-            ) : (
-              <div
-                ref={canvasRef}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerUp}
-                className="relative bg-bg2/40 border border-line rounded-lg overflow-hidden touch-none"
-                style={{
-                  height: CANVAS_H,
-                  backgroundImage: 'linear-gradient(#eef1f3 1px, transparent 1px), linear-gradient(90deg, #eef1f3 1px, transparent 1px)',
-                  backgroundSize: `${GRID}px ${GRID}px`,
-                }}
-              >
-                {tables.map((t) => {
-                  const { w, h, isRound } = tableDims(t);
-                  const sel = t.id === selectedTableId;
-                  return (
-                    <div
-                      key={t.id}
-                      onPointerDown={(e) => handlePointerDown(e, t)}
-                      style={{
-                        position: 'absolute',
-                        left: t.posX,
-                        top: t.posY,
-                        width: w,
-                        height: h,
-                        borderRadius: isRound ? '50%' : 12,
-                        background: t.isBlocked
-                          ? 'repeating-linear-gradient(45deg,#f3f4f6,#f3f4f6 6px,#e9ebee 6px,#e9ebee 12px)'
-                          : '#fff',
-                        border: sel ? '2px solid #22C55E' : '1.5px solid #cdeed9',
-                        boxShadow: sel ? '0 0 0 3px rgba(34,197,94,.2)' : '0 1px 3px rgba(0,0,0,.06)',
-                        cursor: 'grab',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: t.isBlocked ? '#9ca3af' : '#15803d',
-                        userSelect: 'none',
-                        touchAction: 'none',
-                      }}
-                    >
-                      <span style={{ fontSize: 14, fontWeight: 800 }}>{t.number}</span>
-                      <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.8 }}>{t.seats}p</span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-4 self-start">
-          <div className="card card-pad">
-            <h2 className="text-base font-semibold m-0">
-              {selectedTable ? `Mesa ${selectedTable.number}` : 'Detalles de mesa'}
-            </h2>
-            {selectedTable ? (
-              <div className="mt-3 space-y-3">
-                <div>
-                  <label className="label">Número/etiqueta</label>
-                  <input
-                    className="input"
-                    defaultValue={selectedTable.number}
-                    key={selectedTable.id}
-                    onBlur={(e) => {
-                      if (e.target.value.trim() && e.target.value !== selectedTable.number) {
-                        patchTable(selectedTable.id, { number: e.target.value.trim() });
-                      }
-                    }}
-                  />
-                </div>
-                <div>
-                  <label className="label">Capacidad (pax)</label>
-                  <input
-                    type="number"
-                    className="input"
-                    min={1}
-                    max={40}
-                    value={selectedTable.seats}
-                    onChange={(e) => patchTable(selectedTable.id, { seats: Math.max(1, Math.min(40, Number(e.target.value) || 1)) })}
-                  />
-                </div>
-                <div>
-                  <label className="label">Forma</label>
-                  <select
-                    className="input"
-                    value={selectedTable.shape}
-                    onChange={(e) => patchTable(selectedTable.id, { shape: e.target.value })}
-                  >
-                    <option value="ROUND">Redonda</option>
-                    <option value="RECT">Rectangular</option>
-                    <option value="BAR">Barra</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="label">Zona</label>
-                  <select
-                    className="input"
-                    value={selectedTable.zoneId ?? ''}
-                    onChange={(e) => patchTable(selectedTable.id, { zoneId: e.target.value || null })}
-                  >
-                    <option value="">Sin zona</option>
-                    {zones.map((z) => (
-                      <option key={z.id} value={z.id}>{z.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="text-xs">
-                  Estado:{' '}
-                  {selectedTable.isBlocked ? (
-                    <span className="text-bad font-semibold">Bloqueada</span>
-                  ) : (
-                    <span className="text-ok font-semibold">Disponible</span>
-                  )}
-                </div>
-                <button
-                  onClick={() => toggleBlock(selectedTable)}
-                  className="btn-ghost w-full justify-center text-sm"
-                >
-                  {selectedTable.isBlocked ? '▶ Desbloquear' : '⏸ Bloquear mesa'}
-                </button>
-                <button
-                  onClick={() => deleteTable(selectedTable)}
-                  className="w-full justify-center text-sm py-2 rounded-lg border border-bad text-bad hover:bg-bad-soft"
-                >
-                  🗑 Eliminar mesa
-                </button>
-              </div>
-            ) : (
-              <p className="text-sm text-mute mt-2">
-                Tocá una mesa para ver sus detalles o arrastrala para reposicionarla.
-              </p>
-            )}
-
-          </div>
-          <div className="card card-pad">
-            <h3 className="text-sm font-semibold m-0">Zonas</h3>
-            <p className="text-[11px] text-mute mt-0.5 mb-2">
-              Salón, Terraza, Barra, VIP... el cliente puede elegir al reservar.
-            </p>
-            {zones.length === 0 ? (
-              <p className="text-xs text-mute italic">Sin zonas todavía.</p>
-            ) : (
-              <ul className="space-y-1 mb-2">
-                {zones.map((z) => (
-                  <li key={z.id} className="flex items-center justify-between text-xs py-1.5 px-2 bg-bg2/60 rounded">
-                    <span className="font-semibold">{z.name}</span>
-                    <span className="text-mute text-[10px]">{z.type}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <ZoneAddForm onCreated={loadAll} locationId={activeLocationId} />
-          </div>
-          </div>
-        </div>
-      )}
-
-      {tab === 'metricas' && <MetricsTab />}
     </div>
   );
 }
 
-function MetricsTab() {
-  const [stats, setStats] = useState<any>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [range, setRange] = useState<'7d' | '30d' | '90d'>('30d');
+// ============ Operation View ============
 
-  useEffect(() => {
-    const now = new Date();
-    const daysBack = range === '7d' ? 7 : range === '30d' ? 30 : 90;
-    const from = new Date(now);
-    from.setDate(from.getDate() - daysBack);
-    const to = new Date(now);
-    to.setDate(to.getDate() + 7); // incluye próximos 7 días
-    const f = from.toISOString().slice(0, 10);
-    const t = to.toISOString().slice(0, 10);
-    api<any>(`/reservations/stats?from=${f}&to=${t}`)
-      .then(setStats)
-      .catch((e: any) => setError(e.message || 'Error'));
-  }, [range]);
-
-  if (error) {
-    return <p className="text-sm text-bad py-6 text-center">{error}</p>;
+function OperationView({
+  zones,
+  orphanTables,
+  tables,
+  mesaStates,
+  selectedId,
+  onSelect,
+}: {
+  zones: Zone[];
+  orphanTables: Table[];
+  tables: Table[];
+  mesaStates: Map<string, { state: MesaState; reservation: Reservation | null }>;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  if (zones.length === 0 && orphanTables.length === 0) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-sm text-mute">
+          Sin mesas configuradas todavía. Pasa al modo <strong>Editor</strong> para crear zonas y
+          mesas.
+        </p>
+      </div>
+    );
   }
-  if (!stats) {
-    return <p className="text-sm text-mute py-6 text-center">Cargando métricas…</p>;
-  }
-
-  const DOW_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-  const maxDow = Math.max(1, ...Object.values<number>(stats.byDow));
-  const maxZone = Math.max(1, ...stats.zoneBreakdown.map((z: any) => z.pax));
-
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="text-sm text-mute">
-          Rango: <strong className="text-ink">{stats.range.from}</strong> →{' '}
-          <strong className="text-ink">{stats.range.to}</strong> ({stats.range.days} días)
-        </div>
-        <div className="flex gap-1 bg-bg2 p-1 rounded-lg">
-          {(['7d', '30d', '90d'] as const).map((r) => (
-            <button
-              key={r}
-              onClick={() => setRange(r)}
-              className={`text-xs font-semibold px-3 py-1.5 rounded-md ${
-                range === r ? 'bg-white text-ink shadow-sm' : 'text-mute'
-              }`}
+    <div className="space-y-3">
+      {zones.map((zone) => {
+        const zoneTables = tables.filter((t) => t.zoneId === zone.id);
+        const style = ZONE_BG[zone.type] ?? ZONE_BG.INDOOR;
+        return (
+          <div
+            key={zone.id}
+            className="rounded-2xl p-4"
+            style={{ background: style.bg, border: `1px solid ${style.border}` }}
+          >
+            <div
+              className="text-[10px] font-bold tracking-[0.18em] uppercase mb-3"
+              style={{ color: style.label }}
             >
-              {r === '7d' ? '7 días' : r === '30d' ? '30 días' : '90 días'}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* KPI cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="card card-pad">
-          <div className="text-xs text-mute font-bold">RESERVAS</div>
-          <div className="text-2xl font-extrabold mt-1">{stats.totals.reservations}</div>
-          <div className="text-xs text-mute mt-1">{stats.totals.pax} pax · {stats.totals.avgParty} prom</div>
-        </div>
-        <div className="card card-pad">
-          <div className="text-xs text-mute font-bold">COMPLETION</div>
-          <div className="text-2xl font-extrabold mt-1 text-ok">{stats.rates.completionRate}%</div>
-          <div className="text-xs text-mute mt-1">{stats.totals.completed} completadas</div>
-        </div>
-        <div className="card card-pad">
-          <div className="text-xs text-mute font-bold">NO-SHOW</div>
-          <div className={`text-2xl font-extrabold mt-1 ${stats.rates.noShowRate > 15 ? 'text-bad' : ''}`}>
-            {stats.rates.noShowRate}%
-          </div>
-          <div className="text-xs text-mute mt-1">{stats.totals.noShow} ausentes</div>
-        </div>
-        <div className="card card-pad">
-          <div className="text-xs text-mute font-bold">CANCELACIONES</div>
-          <div className="text-2xl font-extrabold mt-1">{stats.rates.cancelRate}%</div>
-          <div className="text-xs text-mute mt-1">{stats.totals.cancelled} canceladas</div>
-        </div>
-      </div>
-
-      {/* Estado breakdown */}
-      <div className="card card-pad">
-        <h3 className="text-sm font-semibold m-0 mb-3">Estado de las reservas</h3>
-        <div className="space-y-2">
-          {[
-            { label: 'Pendientes', val: stats.totals.pending, color: '#b45309' },
-            { label: 'Confirmadas', val: stats.totals.confirmed, color: '#1d4ed8' },
-            { label: 'Completadas', val: stats.totals.completed, color: '#15803d' },
-            { label: 'Canceladas', val: stats.totals.cancelled, color: '#6b7280' },
-            { label: 'Ausentes', val: stats.totals.noShow, color: '#dc2626' },
-          ].map((s) => {
-            const pct = stats.totals.reservations > 0
-              ? Math.round((s.val / stats.totals.reservations) * 100)
-              : 0;
-            return (
-              <div key={s.label} className="flex items-center gap-3">
-                <div className="text-xs font-semibold w-24">{s.label}</div>
-                <div className="flex-1 h-5 bg-bg2 rounded overflow-hidden">
-                  <div
-                    className="h-full transition-all"
-                    style={{ width: `${pct}%`, background: s.color }}
-                  />
-                </div>
-                <div className="text-xs text-mute w-16 text-right">
-                  {s.val} ({pct}%)
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="grid md:grid-cols-2 gap-4">
-        {/* Top horarios */}
-        <div className="card card-pad">
-          <h3 className="text-sm font-semibold m-0 mb-3">Horarios más solicitados</h3>
-          {stats.topHours.length === 0 ? (
-            <p className="text-xs text-mute italic">Sin datos en este rango</p>
-          ) : (
-            <div className="space-y-2">
-              {stats.topHours.map((h: any) => {
-                const max = stats.topHours[0].pax;
-                const pct = Math.round((h.pax / max) * 100);
-                return (
-                  <div key={h.hour} className="flex items-center gap-3">
-                    <div className="text-sm font-semibold w-14">{h.hour}</div>
-                    <div className="flex-1 h-4 bg-bg2 rounded overflow-hidden">
-                      <div className="h-full bg-ok" style={{ width: `${pct}%` }} />
-                    </div>
-                    <div className="text-xs text-mute w-12 text-right">{h.pax} pax</div>
-                  </div>
-                );
-              })}
+              {zone.name}
+              <span className="ml-2 opacity-60">· {zoneTables.length} mesa{zoneTables.length === 1 ? '' : 's'}</span>
             </div>
-          )}
-        </div>
-
-        {/* Día de la semana */}
-        <div className="card card-pad">
-          <h3 className="text-sm font-semibold m-0 mb-3">Pax por día de la semana</h3>
-          <div className="grid grid-cols-7 gap-1 items-end h-32 mt-2">
-            {[1, 2, 3, 4, 5, 6, 0].map((dow) => {
-              const pax = stats.byDow[dow] || 0;
-              const h = Math.round((pax / maxDow) * 100);
-              return (
-                <div key={dow} className="flex flex-col items-center gap-1 h-full justify-end">
-                  <div className="text-[10px] font-bold text-mute">{pax}</div>
-                  <div
-                    className="w-full bg-ok rounded-t transition-all"
-                    style={{ height: `${Math.max(2, h)}%` }}
+            {zoneTables.length === 0 ? (
+              <p className="text-xs text-mute italic">Sin mesas en esta zona.</p>
+            ) : (
+              <div className="flex flex-wrap gap-3">
+                {zoneTables.map((t) => (
+                  <MesaCircle
+                    key={t.id}
+                    table={t}
+                    state={mesaStates.get(t.id)?.state ?? 'libre'}
+                    selected={t.id === selectedId}
+                    onClick={() => onSelect(t.id)}
                   />
-                  <div className="text-[10px] font-bold text-mute">{DOW_LABELS[dow]}</div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* Zonas y canales */}
-      <div className="grid md:grid-cols-2 gap-4">
-        <div className="card card-pad">
-          <h3 className="text-sm font-semibold m-0 mb-3">Top zonas</h3>
-          {stats.zoneBreakdown.length === 0 ? (
-            <p className="text-xs text-mute italic">Sin datos</p>
-          ) : (
-            <div className="space-y-2">
-              {stats.zoneBreakdown.map((z: any) => {
-                const pct = Math.round((z.pax / maxZone) * 100);
-                return (
-                  <div key={z.name} className="flex items-center gap-3">
-                    <div className="text-sm font-semibold w-24 truncate">{z.name}</div>
-                    <div className="flex-1 h-4 bg-bg2 rounded overflow-hidden">
-                      <div className="h-full bg-info" style={{ width: `${pct}%` }} />
-                    </div>
-                    <div className="text-xs text-mute w-16 text-right">
-                      {z.pax} pax
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        <div className="card card-pad">
-          <h3 className="text-sm font-semibold m-0 mb-3">Canal de origen</h3>
-          <div className="grid grid-cols-2 gap-2">
-            {Object.entries(stats.byChannel).map(([ch, n]) => (
-              <div key={ch} className="p-3 rounded-lg bg-bg2/60 text-center">
-                <div className="text-xs text-mute font-bold">{ch}</div>
-                <div className="text-lg font-extrabold">{n as number}</div>
+                ))}
               </div>
+            )}
+          </div>
+        );
+      })}
+      {orphanTables.length > 0 && (
+        <div className="rounded-2xl p-4 bg-bg2/40 border border-line">
+          <div className="text-[10px] font-bold tracking-[0.18em] uppercase mb-3 text-mute">
+            Sin zona · {orphanTables.length} mesa{orphanTables.length === 1 ? '' : 's'}
+          </div>
+          <div className="flex flex-wrap gap-3">
+            {orphanTables.map((t) => (
+              <MesaCircle
+                key={t.id}
+                table={t}
+                state={mesaStates.get(t.id)?.state ?? 'libre'}
+                selected={t.id === selectedId}
+                onClick={() => onSelect(t.id)}
+              />
             ))}
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+function MesaCircle({
+  table,
+  state,
+  selected,
+  onClick,
+}: {
+  table: Table;
+  state: MesaState;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  const style = STATE_STYLES[state];
+  const isRound = table.shape === 'ROUND';
+  const isBar = table.shape === 'BAR';
+  const size = isRound ? (table.seats <= 2 ? 56 : table.seats <= 4 ? 64 : 80) : 0;
+  return (
+    <button
+      onClick={onClick}
+      className="relative inline-flex flex-col items-center justify-center font-bold transition shrink-0"
+      style={{
+        width: isRound ? size : isBar ? 130 : 100,
+        height: isRound ? size : isBar ? 48 : 60,
+        borderRadius: isRound ? '50%' : 12,
+        background: style.bg,
+        border: `2px solid ${selected ? '#0f172a' : style.border}`,
+        boxShadow: selected ? '0 0 0 3px rgba(15,23,42,0.15)' : 'none',
+        color: style.text,
+      }}
+      title={`Mesa ${table.number} · ${state}`}
+    >
+      <span className="text-sm leading-none">{table.number}</span>
+      <span className="text-[10px] leading-none mt-0.5 opacity-90">{table.seats}p</span>
+    </button>
+  );
+}
+
+// ============ Operation Sidebar ============
+
+function OperationSidebar({
+  table,
+  state,
+  zone,
+  onSentar,
+  onLiberar,
+  onBloquear,
+}: {
+  table: Table | null;
+  state: { state: MesaState; reservation: Reservation | null } | null | undefined;
+  zone: Zone | null | undefined;
+  onSentar: (rid: string) => void;
+  onLiberar: (rid: string) => void;
+  onBloquear: () => void;
+}) {
+  if (!table) {
+    return (
+      <div className="card card-pad text-center py-8">
+        <div className="text-3xl mb-2 opacity-60">👆</div>
+        <p className="text-sm text-mute leading-snug">
+          Toca una mesa en el plano para ver su estado y las acciones disponibles.
+        </p>
+      </div>
+    );
+  }
+
+  const meta = state ?? { state: 'libre' as MesaState, reservation: null };
+  const stateMeta: Record<MesaState, { label: string; bg: string; fg: string }> = {
+    libre: { label: 'Libre', bg: '#f1f5f9', fg: '#475569' },
+    reservada: { label: 'Reservada', bg: '#fef3c7', fg: '#b45309' },
+    sentada: { label: 'Sentada', bg: '#dcfce7', fg: '#15803d' },
+    bloqueada: { label: 'Bloqueada', bg: '#f3f4f6', fg: '#6b7280' },
+  };
+  const sm = stateMeta[meta.state];
+
+  return (
+    <div
+      className="rounded-2xl border-2 card-pad"
+      style={{
+        background: meta.state === 'reservada' ? '#fffbeb' : '#ffffff',
+        borderColor:
+          meta.state === 'sentada'
+            ? '#22C55E'
+            : meta.state === 'reservada'
+            ? '#f59e0b'
+            : '#e2e8f0',
+      }}
+    >
+      <div className="flex items-center justify-between">
+        <span
+          className="inline-flex items-center text-[10px] font-bold tracking-[0.18em] uppercase px-2 py-0.5 rounded"
+          style={{ background: sm.bg, color: sm.fg }}
+        >
+          {sm.label}
+        </span>
+        {zone && <span className="text-[10px] text-mute">{zone.name}</span>}
+      </div>
+      <div className="mt-2">
+        <div className="text-2xl font-extrabold m-0">Mesa {table.number}</div>
+        <div className="text-xs text-mute mt-0.5">Capacidad · {table.seats} personas</div>
+      </div>
+
+      {meta.reservation && (
+        <div className="mt-4 p-3 rounded-xl bg-bg2/60">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-full bg-ink text-white flex items-center justify-center text-xs font-bold shrink-0">
+              {meta.reservation.customerName
+                .split(' ')
+                .slice(0, 2)
+                .map((p) => p[0])
+                .join('')
+                .toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0">
+              <Link
+                href={meta.reservation.customer?.id ? `/app/customers/${meta.reservation.customer.id}` : '#'}
+                className="text-sm font-semibold truncate block hover:underline"
+              >
+                {meta.reservation.customerName}
+              </Link>
+              <div className="text-[11px] text-mute">
+                {meta.reservation.time} · {meta.reservation.party} pax
+              </div>
+            </div>
+          </div>
+          {meta.reservation.labels && meta.reservation.labels.length > 0 && (
+            <div className="flex gap-1 mt-2 flex-wrap">
+              {meta.reservation.labels.map((lbl) => (
+                <span
+                  key={lbl}
+                  className="text-[10px] font-bold px-1.5 py-0.5 rounded"
+                  style={{
+                    background: LABEL_COLORS[lbl]?.bg ?? '#f3f4f6',
+                    color: LABEL_COLORS[lbl]?.fg ?? '#6b7280',
+                  }}
+                >
+                  {lbl}
+                </span>
+              ))}
+            </div>
+          )}
+          {meta.reservation.notes && (
+            <div className="text-[11px] text-mute italic mt-2 leading-snug">
+              📝 {meta.reservation.notes}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="mt-4 space-y-2">
+        {meta.state === 'reservada' && meta.reservation && (
+          <button
+            onClick={() => onSentar(meta.reservation!.id)}
+            className="w-full py-2.5 rounded-lg font-semibold text-white text-sm"
+            style={{ background: '#1d4ed8' }}
+          >
+            🪑 Sentar cliente
+          </button>
+        )}
+        {meta.state === 'sentada' && meta.reservation && (
+          <button
+            onClick={() => onLiberar(meta.reservation!.id)}
+            className="w-full py-2.5 rounded-lg font-semibold text-white text-sm"
+            style={{ background: '#15803d' }}
+          >
+            ✓ Liberar mesa
+          </button>
+        )}
+        <button
+          onClick={onBloquear}
+          className="w-full py-2.5 rounded-lg font-semibold text-sm border border-line"
+        >
+          {table.isBlocked ? '▶ Desbloquear mesa' : '⏸ Bloquear mesa'}
+        </button>
+      </div>
+
+      <div className="mt-4 pt-3 border-t border-line2">
+        <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-mute">
+          Asignación inteligente
+        </div>
+        <button
+          className="mt-2 w-full text-left px-3 py-2 rounded-lg text-xs bg-bg2/40 text-mute italic cursor-not-allowed"
+          disabled
+          title="Próximamente — sugiere automáticamente la mejor mesa para una reserva"
+        >
+          ✨ Próximamente — sugerir mesa óptima
+        </button>
       </div>
     </div>
+  );
+}
+
+// ============ Editor View ============
+
+function EditorView({
+  canvasRef,
+  tables,
+  selectedId,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onAddOpen,
+  showAddTable,
+  newTable,
+  setNewTable,
+  onSubmitNew,
+  zones,
+  setShowAddTable,
+}: {
+  canvasRef: React.RefObject<HTMLDivElement>;
+  tables: Table[];
+  selectedId: string | null;
+  onPointerDown: (e: React.PointerEvent, t: Table) => void;
+  onPointerMove: (e: React.PointerEvent) => void;
+  onPointerUp: (e: React.PointerEvent) => void;
+  onAddOpen: () => void;
+  showAddTable: boolean;
+  newTable: { number: string; seats: number; shape: 'ROUND' | 'RECT' | 'BAR'; zoneId: string };
+  setNewTable: (v: typeof newTable) => void;
+  onSubmitNew: (e: React.FormEvent) => void;
+  zones: Zone[];
+  setShowAddTable: (v: boolean) => void;
+}) {
+  return (
+    <>
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h2 className="text-base font-semibold m-0">Editor de plano</h2>
+          <p className="text-[11px] text-mute mt-0.5">
+            Arrastra mesas para reorganizar. Los cambios se guardan al soltar.
+          </p>
+        </div>
+        <button onClick={onAddOpen} className="btn-primary text-sm">
+          + Mesa
+        </button>
+      </div>
+
+      {showAddTable && (
+        <form
+          onSubmit={onSubmitNew}
+          className="mb-3 p-3 bg-bg2/60 rounded-lg border border-line grid grid-cols-2 md:grid-cols-5 gap-2 items-end"
+        >
+          <div>
+            <label className="label">Número</label>
+            <input
+              className="input"
+              value={newTable.number}
+              onChange={(e) => setNewTable({ ...newTable, number: e.target.value })}
+              placeholder="1 / VIP / Barra"
+              required
+            />
+          </div>
+          <div>
+            <label className="label">Capacidad</label>
+            <input
+              type="number"
+              className="input"
+              min={1}
+              max={40}
+              value={newTable.seats}
+              onChange={(e) => setNewTable({ ...newTable, seats: Number(e.target.value) })}
+            />
+          </div>
+          <div>
+            <label className="label">Forma</label>
+            <select
+              className="input"
+              value={newTable.shape}
+              onChange={(e) => setNewTable({ ...newTable, shape: e.target.value as any })}
+            >
+              <option value="ROUND">Redonda</option>
+              <option value="RECT">Rectangular</option>
+              <option value="BAR">Barra</option>
+            </select>
+          </div>
+          <div>
+            <label className="label">Zona</label>
+            <select
+              className="input"
+              value={newTable.zoneId}
+              onChange={(e) => setNewTable({ ...newTable, zoneId: e.target.value })}
+            >
+              <option value="">Sin zona</option>
+              {zones.map((z) => (
+                <option key={z.id} value={z.id}>{z.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex gap-1.5">
+            <button className="btn-primary text-sm justify-center flex-1">Crear</button>
+            <button
+              type="button"
+              onClick={() => setShowAddTable(false)}
+              className="btn-ghost text-sm px-3"
+            >
+              ✕
+            </button>
+          </div>
+        </form>
+      )}
+
+      <div
+        ref={canvasRef}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        className="relative bg-bg2/40 border border-line rounded-lg overflow-hidden touch-none"
+        style={{
+          height: CANVAS_H,
+          backgroundImage:
+            'linear-gradient(#eef1f3 1px, transparent 1px), linear-gradient(90deg, #eef1f3 1px, transparent 1px)',
+          backgroundSize: `${GRID}px ${GRID}px`,
+        }}
+      >
+        {tables.map((t) => {
+          const { w, h, isRound } = tableDims(t);
+          const sel = t.id === selectedId;
+          return (
+            <div
+              key={t.id}
+              onPointerDown={(e) => onPointerDown(e, t)}
+              style={{
+                position: 'absolute',
+                left: t.posX,
+                top: t.posY,
+                width: w,
+                height: h,
+                borderRadius: isRound ? '50%' : 12,
+                background: t.isBlocked
+                  ? 'repeating-linear-gradient(45deg,#f3f4f6,#f3f4f6 6px,#e9ebee 6px,#e9ebee 12px)'
+                  : '#fff',
+                border: sel ? '2px solid #22C55E' : '1.5px solid #cdeed9',
+                boxShadow: sel ? '0 0 0 3px rgba(34,197,94,.2)' : '0 1px 3px rgba(0,0,0,.06)',
+                cursor: 'grab',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: t.isBlocked ? '#9ca3af' : '#15803d',
+                userSelect: 'none',
+                touchAction: 'none',
+              }}
+            >
+              <span style={{ fontSize: 14, fontWeight: 800 }}>{t.number}</span>
+              <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.8 }}>{t.seats}p</span>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+// ============ Editor Sidebar ============
+
+function EditorSidebar({
+  table,
+  zones,
+  onPatch,
+  onToggleBlock,
+  onDelete,
+}: {
+  table: Table | null;
+  zones: Zone[];
+  onPatch: (patch: Partial<Table>) => void;
+  onToggleBlock: () => void;
+  onDelete: () => void;
+}) {
+  if (!table) {
+    return (
+      <div className="card card-pad text-center py-8">
+        <p className="text-sm text-mute leading-snug">
+          Selecciona una mesa del plano para editar sus datos o arrástrala para reposicionarla.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="card card-pad">
+      <h2 className="text-base font-semibold m-0">Mesa {table.number}</h2>
+      <div className="mt-3 space-y-3">
+        <div>
+          <label className="label">Número / etiqueta</label>
+          <input
+            className="input"
+            defaultValue={table.number}
+            key={table.id}
+            onBlur={(e) => {
+              if (e.target.value.trim() && e.target.value !== table.number) {
+                onPatch({ number: e.target.value.trim() });
+              }
+            }}
+          />
+        </div>
+        <div>
+          <label className="label">Capacidad</label>
+          <input
+            type="number"
+            className="input"
+            min={1}
+            max={40}
+            value={table.seats}
+            onChange={(e) => onPatch({ seats: Math.max(1, Math.min(40, Number(e.target.value) || 1)) })}
+          />
+        </div>
+        <div>
+          <label className="label">Forma</label>
+          <select className="input" value={table.shape} onChange={(e) => onPatch({ shape: e.target.value })}>
+            <option value="ROUND">Redonda</option>
+            <option value="RECT">Rectangular</option>
+            <option value="BAR">Barra</option>
+          </select>
+        </div>
+        <div>
+          <label className="label">Zona</label>
+          <select
+            className="input"
+            value={table.zoneId ?? ''}
+            onChange={(e) => onPatch({ zoneId: e.target.value || null })}
+          >
+            <option value="">Sin zona</option>
+            {zones.map((z) => (
+              <option key={z.id} value={z.id}>{z.name}</option>
+            ))}
+          </select>
+        </div>
+        <button
+          onClick={onToggleBlock}
+          className="w-full py-2 rounded-lg text-sm border border-line"
+        >
+          {table.isBlocked ? '▶ Desbloquear' : '⏸ Bloquear'}
+        </button>
+        <button
+          onClick={onDelete}
+          className="w-full py-2 rounded-lg text-sm border border-bad text-bad"
+        >
+          🗑 Eliminar mesa
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ============ Small helpers ============
+
+function FilterChip({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3 py-1.5 rounded-full font-semibold transition ${
+        active ? 'bg-ink text-white' : 'bg-white border border-line text-mute hover:text-ink'
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+function Legend({
+  dot,
+  border,
+  label,
+  stripes,
+}: {
+  dot: string;
+  border: string;
+  label: string;
+  stripes?: boolean;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[11px] text-mute">
+      <span
+        className="inline-block w-3 h-3 rounded"
+        style={{
+          background: stripes
+            ? 'repeating-linear-gradient(45deg,#f3f4f6,#f3f4f6 3px,#e9ebee 3px,#e9ebee 6px)'
+            : dot,
+          border: `1.5px solid ${border}`,
+        }}
+      />
+      {label}
+    </span>
   );
 }
