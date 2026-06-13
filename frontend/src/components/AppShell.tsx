@@ -89,6 +89,8 @@ export default function AppShell({
     // externos de Tutoriales / Academia Clubify desde admin.
     tutorialsEnabled?: boolean;
     academyEnabled?: boolean;
+    // Reservations module 2026-06-12. SUPER_ADMIN lo activa per-tenant.
+    reservationsEnabled?: boolean;
   } | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
     new Set(),
@@ -224,6 +226,7 @@ export default function AppShell({
           status: t?.status ?? null,
           tutorialsEnabled: t?.tutorialsEnabled ?? true,
           academyEnabled: t?.academyEnabled ?? true,
+          reservationsEnabled: t?.reservationsEnabled ?? false,
         });
       })
       .catch(() => null);
@@ -342,6 +345,18 @@ export default function AppShell({
                 { href: '/app/reviews', label: 'Reseña de Google', icon: 'spark' },
               ],
             },
+            // Reservas: solo aparece si el SUPER_ADMIN activó el módulo
+            // para el tenant via Tenant.reservationsEnabled.
+            ...(tenantInfo?.reservationsEnabled
+              ? [
+                  {
+                    section: 'Reservas',
+                    items: [
+                      { href: '/app/reservations', label: 'Agenda', icon: 'calendar' as const },
+                    ],
+                  },
+                ]
+              : []),
             {
               section: 'Marketing',
               items: [

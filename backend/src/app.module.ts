@@ -58,6 +58,7 @@ import { AdminUsersModule } from './admin-users/admin-users.module';
 import { AdminReportsModule } from './admin-reports/admin-reports.module';
 import { LabModule } from './lab/lab.module';
 import { BroadcastsModule } from './broadcasts/broadcasts.module';
+import { ReservationsModule } from './reservations/reservations.module';
 
 @Module({
   imports: [
@@ -124,6 +125,7 @@ import { BroadcastsModule } from './broadcasts/broadcasts.module';
     AdminReportsModule,
     LabModule,
     BroadcastsModule,
+    ReservationsModule,
   ],
   providers: [
     // Sin esto, `ThrottlerModule.forRoot()` y los `@Throttle({...})` por

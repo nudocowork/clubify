@@ -3,7 +3,7 @@ type IconName =
   | 'trend-up' | 'check' | 'clock' | 'cash' | 'plus' | 'edit' | 'out'
   | 'search' | 'send' | 'history' | 'spark' | 'trash' | 'arrow-right'
   | 'apple' | 'google' | 'menu' | 'shopping-bag' | 'gear'
-  | 'clipboard' | 'truck' | 'book';
+  | 'clipboard' | 'truck' | 'book' | 'calendar';
 
 const PATHS: Record<IconName, JSX.Element> = {
   'grid': (<g><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></g>),
@@ -35,6 +35,7 @@ const PATHS: Record<IconName, JSX.Element> = {
   'clipboard': (<g><path d="M9 4h6a1 1 0 0 1 1 1v2H8V5a1 1 0 0 1 1-1z"/><rect x="4" y="6" width="16" height="16" rx="2"/></g>),
   'truck': (<g><rect x="1" y="6" width="13" height="11" rx="1"/><path d="M14 9h4l3 3v5h-7"/><circle cx="6" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></g>),
   'book': (<g><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></g>),
+  'calendar': (<g><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></g>),
 };
 
 export function Icon({

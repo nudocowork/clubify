@@ -400,6 +400,10 @@ model Tenant {
   // SUPER_ADMIN lo apague desde /admin/tenants/[id].
   tutorialsEnabled            Boolean              @default(true)
   academyEnabled              Boolean              @default(true)
+  /// Reservations module 2026-06-12. Default OFF — el SUPER_ADMIN lo
+  /// activa por tenant. Cuando false el sidebar oculta el módulo y el
+  /// endpoint público /reserva/:slug devuelve 404.
+  reservationsEnabled         Boolean              @default(false)
   // Bloque 5 (2026-06-12): soft-delete con "conservar historial".
   // Si está seteado, el tenant queda inaccesible (no aparece en list/
   // login) pero las relaciones (Order/Commission/ReferralUse) se
@@ -542,6 +546,9 @@ model Tenant {
   stamps              Stamp[]
   walletNotifications Notification[]
   recurringNotifications RecurringNotification[]
+  reservationZones    ReservationZone[]
+  reservationTables   ReservationTable[]
+  reservations        Reservation[]
   automations         AutomationRule[]
   referralUses        ReferralUse[]
   categories          Category[]
@@ -775,10 +782,128 @@ model Customer {
   orders   Order[]
   messages Message[]
   badges   CustomerBadge[]
+  reservations Reservation[]
 
   @@unique([tenantId, email])
   @@unique([tenantId, phone])
   @@index([tenantId])
+}
+
+// ============================================================
+//                       RESERVAS (2026-06-12)
+// ============================================================
+
+/// Zona del salón (Salón principal, Terraza, Barra, Privado, etc).
+/// Las mesas se agrupan por zona en el plano y en los filtros del
+/// flujo público de reserva. type sirve para iconos/UX, no para lógica.
+model ReservationZone {
+  id        String                @id @default(uuid())
+  tenantId  String
+  tenant    Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  slug      String
+  /// INDOOR | OUTDOOR | BAR | PRIVATE — para UX en el flujo público.
+  type      String                @default("INDOOR")
+  position  Int                   @default(0)
+  isActive  Boolean               @default(true)
+  tables    ReservationTable[]
+  reservations Reservation[]
+  createdAt DateTime              @default(now())
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, isActive])
+}
+
+/// Mesa física del salón. Tiene posición/forma para el plano interactivo.
+/// shape: ROUND (default) | RECT | BAR. Si shape != ROUND, width/height
+/// vienen del editor; en ROUND se calculan desde seats.
+model ReservationTable {
+  id        String                @id @default(uuid())
+  tenantId  String
+  tenant    Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  zoneId    String?
+  zone      ReservationZone?      @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  /// Etiqueta visible al cliente y al admin. Puede ser número "1", "12" o texto "Barra", "VIP".
+  number    String
+  seats     Int                   @default(4)
+  shape     String                @default("ROUND")
+  posX      Int                   @default(0)
+  posY      Int                   @default(0)
+  width     Int?
+  height    Int?
+  /// Bloqueada fuera de servicio (mantenimiento, reservada por evento).
+  /// No aparece como disponible para clientes ni para la auto-asignación.
+  isBlocked Boolean               @default(false)
+  isActive  Boolean               @default(true)
+  reservations Reservation[]
+  createdAt DateTime              @default(now())
+
+  @@index([tenantId, isActive])
+  @@index([zoneId])
+}
+
+/// Reserva del cliente. Se crea desde el flujo público (sin auth, throttled)
+/// o desde el admin. customerId se enlaza si existe Customer con el mismo
+/// phone (findOrCreate), sino queda null y los datos viven en
+/// customerName/customerPhone/customerEmail. Cuando el admin confirma se
+/// puede asignar tableId/zoneId opcionalmente.
+model Reservation {
+  id            String              @id @default(uuid())
+  tenantId      String
+  tenant        Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  zoneId        String?
+  zone          ReservationZone?    @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  tableId       String?
+  table         ReservationTable?   @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  customerId    String?
+  customer      Customer?           @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  customerName  String
+  customerPhone String
+  customerEmail String?
+  party         Int
+  /// Día de la reserva en UTC mediodía (12:00) para evitar drift de TZ.
+  date          DateTime
+  /// Hora local en formato HH:MM 24h (combinada con tenant.timezone si existe).
+  time          String
+  notes         String?             @db.Text
+
+  status        ReservationStatus   @default(PENDING)
+  channel       ReservationChannel  @default(WEB)
+
+  /// Marca cuando el equipo confirmó manualmente con el cliente.
+  confirmedAt   DateTime?
+  seatedAt      DateTime?
+  completedAt   DateTime?
+  cancelledAt   DateTime?
+
+  /// Idempotency del WhatsApp al negocio — si llegan 2 webhooks del mismo
+  /// botón "Crear reserva" del flujo público no avisamos 2 veces.
+  notifiedAt    DateTime?
+
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@index([tenantId, date, status])
+  @@index([tableId])
+  @@index([customerId])
+}
+
+enum ReservationStatus {
+  PENDING
+  CONFIRMED
+  SEATED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum ReservationChannel {
+  WEB
+  WHATSAPP
+  PHONE
+  QR
+  IN_PERSON
 }
 
 // ============================================================
