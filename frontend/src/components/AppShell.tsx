@@ -700,7 +700,8 @@ export default function AppShell({
 
       {/* Contenido */}
       <div className="lg:ml-[240px] min-w-0">
-        {variant === 'app' && impersonation && (
+        {/* Banner cuando un admin (SUPER_ADMIN) impersona un tenant — variant=app */}
+        {variant === 'app' && impersonation && impersonation.user?.role !== 'PLATFORM_OWNER' && (
           <div className="bg-amber-500 text-amber-950 px-4 py-2 text-[13px] flex items-center gap-2 flex-wrap">
             <span className="font-semibold">🛡 Modo admin</span>
             <span className="opacity-80">
@@ -716,6 +717,25 @@ export default function AppShell({
               title="Volver al admin (desde ahí puedes cambiar de subcuenta con el switcher del sidebar)"
             >
               ← Volver al admin
+            </button>
+          </div>
+        )}
+        {/* Banner cuando un PLATFORM_OWNER impersona una marca — visible en admin y app */}
+        {impersonation && impersonation.user?.role === 'PLATFORM_OWNER' && (
+          <div className="bg-emerald-700 text-emerald-50 px-4 py-2 text-[13px] flex items-center gap-2 flex-wrap">
+            <span className="font-semibold">🏛 Modo plataforma · Fidelia</span>
+            <span className="opacity-90">
+              Estás dentro de <b>{impersonation.tenant?.brandName ?? 'esta marca'}</b> como super admin.
+            </span>
+            <button
+              onClick={() => {
+                stopImpersonation();
+                router.push('/superadmin');
+              }}
+              className="ml-auto bg-emerald-900 text-emerald-100 px-3 py-1 rounded-md text-xs font-semibold hover:bg-emerald-950 transition"
+              title="Volver al panel de Fidelia"
+            >
+              ← Volver a Fidelia
             </button>
           </div>
         )}

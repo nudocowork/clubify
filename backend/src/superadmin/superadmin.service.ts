@@ -1,6 +1,8 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { Prisma, WhiteLabelStatus, CreditTransactionType, ModuleKey } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 
 export type WhiteLabelDto = {
   name: string;
@@ -38,7 +40,88 @@ export type CreditAdjustDto = {
  */
 @Injectable()
 export class SuperAdminService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private jwt: JwtService,
+    private audit: AuditService,
+  ) {}
+
+  /** PLATFORM_OWNER entra al panel de una marca blanca como su SUPER_ADMIN.
+   *  Estrategia: buscar el primer User SUPER_ADMIN cuyo tenant esté
+   *  vinculado a la marca; si no hay, intentar por adminEmail; si
+   *  tampoco, error. */
+  async impersonateWhiteLabel(whiteLabelId: string, platformOwnerId: string) {
+    const wl = await this.prisma.whiteLabel.findUnique({ where: { id: whiteLabelId } });
+    if (!wl) throw new NotFoundException('Marca no encontrada');
+    if (wl.status === 'SUSPENDED') {
+      throw new BadRequestException('La marca está suspendida. Reactivá antes de entrar.');
+    }
+
+    // 1) Primer SUPER_ADMIN ligado a un tenant de la marca
+    let admin = await this.prisma.user.findFirst({
+      where: {
+        role: 'SUPER_ADMIN',
+        isActive: true,
+        tenant: { whiteLabelId },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    // 2) Fallback: User cuyo email matchee adminEmail de la marca, con rol
+    //    SUPER_ADMIN o TENANT_OWNER.
+    if (!admin && wl.adminEmail) {
+      admin = await this.prisma.user.findFirst({
+        where: {
+          email: { equals: wl.adminEmail, mode: 'insensitive' },
+          isActive: true,
+          role: { in: ['SUPER_ADMIN', 'TENANT_OWNER'] },
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+    }
+
+    if (!admin) {
+      throw new BadRequestException(
+        `Esta marca no tiene un SUPER_ADMIN activo para entrar. Crea uno antes.`,
+      );
+    }
+
+    const payload = {
+      sub: admin.id,
+      email: admin.email,
+      role: admin.role,
+      tenantId: admin.tenantId,
+      impersonatedBy: platformOwnerId,
+    };
+    const accessToken = this.jwt.sign(payload);
+
+    this.audit.log({
+      actorId: platformOwnerId,
+      tenantId: admin.tenantId ?? undefined,
+      action: 'superadmin.impersonate_white_label',
+      resource: `whiteLabel:${wl.id}`,
+      metadata: {
+        whiteLabelName: wl.name,
+        userImpersonated: admin.id,
+      },
+    });
+
+    return {
+      accessToken,
+      user: {
+        id: admin.id,
+        email: admin.email,
+        fullName: admin.fullName,
+        role: admin.role,
+        tenantId: admin.tenantId,
+      },
+      whiteLabel: {
+        id: wl.id,
+        name: wl.name,
+        primaryColor: wl.primaryColor,
+      },
+    };
+  }
 
   /** Panorama global para el dashboard. Totales + alertas. */
   async dashboard() {
