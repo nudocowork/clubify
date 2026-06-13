@@ -527,4 +527,117 @@ export class SuperAdminService {
       renewals: rows,
     };
   }
+
+  /** Contadores para los badges del sidebar (sin payload pesado). */
+  async sidebarBadges() {
+    const now = new Date();
+    const minus5d = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
+    const [whiteLabels, billingNeedsAttention] = await Promise.all([
+      this.prisma.whiteLabel.count(),
+      this.prisma.tenant.count({
+        where: {
+          OR: [
+            { status: 'ACTIVE', currentPeriodEnd: { lt: now, gte: minus5d } },
+            { status: 'ACTIVE', currentPeriodEnd: { lt: minus5d } },
+          ],
+        },
+      }),
+    ]);
+    return { whiteLabels, billing: billingNeedsAttention };
+  }
+
+  // ============================================================
+  //                       INTEGRACIONES
+  // ============================================================
+
+  /** Default catalog: si no existen filas en DB para una integración
+   *  conocida, las pre-creamos al hacer list. Permite que el dueño
+   *  configure desde el panel sin un seed inicial. */
+  private static readonly DEFAULT_INTEGRATIONS = [
+    {
+      key: 'grow_business',
+      name: 'GrowBusiness',
+      description:
+        'Envío de SMS, notificaciones y recordatorios. No es una marca blanca — es una integración global activada desde MasterAdmin.',
+    },
+  ];
+
+  async listIntegrations() {
+    const existing = await this.prisma.platformIntegration.findMany({
+      orderBy: { name: 'asc' },
+    });
+    const existingKeys = new Set(existing.map((i) => i.key));
+    for (const def of SuperAdminService.DEFAULT_INTEGRATIONS) {
+      if (!existingKeys.has(def.key)) {
+        await this.prisma.platformIntegration.create({
+          data: { ...def, status: 'DISCONNECTED', config: {} },
+        });
+      }
+    }
+    const all = await this.prisma.platformIntegration.findMany({
+      orderBy: { name: 'asc' },
+    });
+    return all.map((i) => ({
+      ...i,
+      config: maskSensitiveConfig(i.config as any),
+    }));
+  }
+
+  async updateIntegration(key: string, patch: { config?: any; status?: string }) {
+    const existing = await this.prisma.platformIntegration.findUnique({ where: { key } });
+    if (!existing) throw new NotFoundException();
+    const data: any = {};
+    if (patch.status) data.status = patch.status;
+    if (patch.config) {
+      // Merge config con el existente para no perder valores que no
+      // se mandaron en el patch.
+      data.config = {
+        ...((existing.config as any) || {}),
+        ...(patch.config || {}),
+      };
+    }
+    const updated = await this.prisma.platformIntegration.update({
+      where: { key },
+      data,
+    });
+    return { ...updated, config: maskSensitiveConfig(updated.config as any) };
+  }
+
+  /** "Probar conexión" — por ahora marca como CONNECTED si tiene apiKey
+   *  configurada, sin pegarle al endpoint real. En PR posterior se
+   *  puede conectar al servicio real. */
+  async testIntegration(key: string) {
+    const existing = await this.prisma.platformIntegration.findUnique({ where: { key } });
+    if (!existing) throw new NotFoundException();
+    const cfg = (existing.config as any) || {};
+    const ok = !!cfg.apiKey;
+    await this.prisma.platformIntegration.update({
+      where: { key },
+      data: { status: ok ? 'CONNECTED' : 'DISCONNECTED' },
+    });
+    return {
+      ok,
+      message: ok
+        ? 'Conexión simulada exitosa. Falta wire al endpoint real.'
+        : 'Falta API Key — completá el campo y vuelve a probar.',
+    };
+  }
+}
+
+/** Enmascara campos sensibles en config (apiKey, secret, token). */
+function maskSensitiveConfig(config: any): any {
+  if (!config || typeof config !== 'object') return config;
+  const out: any = { ...config };
+  for (const k of Object.keys(out)) {
+    const lk = k.toLowerCase();
+    if (
+      typeof out[k] === 'string' &&
+      out[k].length > 8 &&
+      (lk.includes('key') || lk.includes('secret') || lk.includes('token') || lk.includes('password'))
+    ) {
+      out[k] = `${out[k].slice(0, 6)}${'•'.repeat(12)}${out[k].slice(-4)}`;
+      out[`${k}_masked`] = true;
+    }
+  }
+  return out;
 }

@@ -2,38 +2,46 @@
 import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { clearSession, getUser } from '@/lib/api';
+import { api, clearSession, getUser } from '@/lib/api';
 
-const NAV_GROUPS: { label: string; items: { href: string; label: string; icon: string; badge?: number }[] }[] = [
-  {
-    label: 'GENERAL',
-    items: [
-      { href: '/superadmin', label: 'Dashboard', icon: '▦' },
-      { href: '/superadmin/marcas', label: 'Marcas Blancas', icon: '🏛' },
-    ],
-  },
-  {
-    label: 'OPERACIÓN',
-    items: [
-      { href: '/superadmin/creditos', label: 'Centro de Créditos', icon: '💳' },
-      { href: '/superadmin/cobros', label: 'Centro de Cobros', icon: '🧾' },
-      { href: '/superadmin/modulos', label: 'Módulos', icon: '⊞' },
-    ],
-  },
-  {
-    label: 'PLATAFORMA',
-    items: [
-      { href: '/superadmin/integraciones', label: 'Integraciones', icon: '🔌' },
-      { href: '/superadmin/historial', label: 'Historial', icon: '🕒' },
-      { href: '/superadmin/configuracion', label: 'Configuración', icon: '⚙' },
-    ],
-  },
-];
+type Badges = { whiteLabels?: number; billing?: number };
+
+type NavItem = { href: string; label: string; icon: string; badge?: number };
+type NavGroup = { label: string; items: NavItem[] };
+
+function buildNavGroups(badges: Badges): NavGroup[] {
+  return [
+    {
+      label: 'GENERAL',
+      items: [
+        { href: '/superadmin', label: 'Dashboard', icon: '▦' },
+        { href: '/superadmin/marcas', label: 'Marcas Blancas', icon: '🏛', badge: badges.whiteLabels },
+      ],
+    },
+    {
+      label: 'OPERACIÓN',
+      items: [
+        { href: '/superadmin/creditos', label: 'Centro de Créditos', icon: '💳' },
+        { href: '/superadmin/cobros', label: 'Centro de Cobros', icon: '🧾', badge: badges.billing },
+        { href: '/superadmin/modulos', label: 'Módulos', icon: '⊞' },
+      ],
+    },
+    {
+      label: 'PLATAFORMA',
+      items: [
+        { href: '/superadmin/integraciones', label: 'Integraciones', icon: '🔌' },
+        { href: '/superadmin/historial', label: 'Historial', icon: '🕒' },
+        { href: '/superadmin/configuracion', label: 'Configuración', icon: '⚙' },
+      ],
+    },
+  ];
+}
 
 export default function SuperAdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [user, setUser] = useState<any>(null);
+  const [badges, setBadges] = useState<Badges>({});
 
   useEffect(() => {
     const u = getUser();
@@ -42,9 +50,13 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
       return;
     }
     setUser(u);
+    api<Badges>('/superadmin/sidebar-badges')
+      .then(setBadges)
+      .catch(() => null);
   }, [router]);
 
   if (!user) return null;
+  const NAV_GROUPS = buildNavGroups(badges);
 
   function isActive(href: string) {
     if (href === '/superadmin') return pathname === '/superadmin';
