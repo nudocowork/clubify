@@ -968,13 +968,23 @@ export class ReservationsService {
   //                  REMINDER CRON (24h antes)
   // ============================================================
 
-  /** Cada 30 min busca reservas confirmadas para "mañana" (en UTC) que
-   *  todavía no recibieron recordatorio y manda SMS al cliente.
+  /** Cada 30 min busca reservas próximas que no recibieron recordatorio
+   *  y manda SMS al cliente.
+   *
+   *  Fix 2026-06-12: antes matcheaba exactamente `date == tomorrow_UTC`,
+   *  lo que perdía reservas creadas tarde en el día para el día siguiente
+   *  (la ventana 14-22 UTC ya había pasado y al día siguiente el "tomorrow"
+   *  era otro). Ahora el query agarra cualquier reserva en [today,
+   *  day-after-tomorrow] y filtra por timestamp real combinando date+time
+   *  con un offset asumido de UTC-5 para LATAM.
    *
    *  Gate horario: solo dispara entre 14:00-22:00 UTC para evitar mandar
    *  recordatorios de madrugada en LATAM (≈ 08:00-16:00 hora local en
-   *  CDMX/Bogota/Lima). Si más tenants se suman fuera de LATAM hay que
-   *  agregar tenant.timezone y ajustar por zona.
+   *  CDMX/Bogota/Lima).
+   *
+   *  Ventana de envío: el recordatorio sale entre 6h y 28h antes del
+   *  momento real de la reserva. Eso da cobertura completa para reservas
+   *  creadas con cualquier antelación.
    *
    *  Claim atómico: updateMany WHERE reminderSentAt IS NULL → si count=1
    *  somos los dueños del envío. Si el SMS falla, lo des-claimeamos para
@@ -985,43 +995,55 @@ export class ReservationsService {
     const hourUtc = now.getUTCHours();
     if (hourUtc < 14 || hourUtc >= 22) return;
 
-    // "Mañana" en UTC: date = now + 1 día a las 12:00 UTC (mismo formato
-    // de storage que createForTenant).
-    const tomorrow = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 12, 0, 0),
+    const todayStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0),
+    );
+    const dayAfterTomorrowEnd = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 2, 23, 59, 59),
     );
 
     const candidates = await this.prisma.reservation.findMany({
       where: {
         reminderSentAt: null,
         status: { in: ['CONFIRMED', 'PENDING'] },
-        date: tomorrow,
+        date: { gte: todayStart, lte: dayAfterTomorrowEnd },
       },
       include: {
         tenant: {
           select: { id: true, brandName: true },
         },
       },
-      take: 200,
+      take: 500,
     });
 
     if (candidates.length === 0) return;
-    this.logger.log(`Reminder cron: ${candidates.length} candidatos para mañana`);
 
     let sent = 0;
     let failed = 0;
+    let skipped = 0;
     for (const r of candidates) {
+      const moment = ReservationsService.reservationMomentUtc(r.date, r.time);
+      const hoursUntil = (moment.getTime() - now.getTime()) / (1000 * 60 * 60);
+      // Ventana: entre 6h y 28h antes del momento real de la reserva.
+      if (hoursUntil < 6 || hoursUntil > 28) {
+        skipped++;
+        continue;
+      }
+
       const claim = await this.prisma.reservation.updateMany({
         where: { id: r.id, reminderSentAt: null },
         data: { reminderSentAt: now },
       });
-      if (claim.count === 0) continue; // otro worker se lo llevó
+      if (claim.count === 0) continue;
 
       const token = this.signCancelToken(r.id);
       const cancelUrl = `https://soyclubify.com/r/cancelar/${token}`;
+      const dateStr = r.date.toISOString().slice(0, 10);
+      // Si la reserva es en menos de 18h decimos "hoy", sino "el {fecha}"
+      const whenStr = hoursUntil < 18 ? 'hoy' : `el ${dateStr}`;
       const body =
         `Hola ${r.customerName}! Te recordamos tu reserva en ${r.tenant.brandName} ` +
-        `mañana a las ${r.time} para ${r.party} ${r.party === 1 ? 'persona' : 'personas'}. ` +
+        `${whenStr} a las ${r.time} para ${r.party} ${r.party === 1 ? 'persona' : 'personas'}. ` +
         `¡Te esperamos!\n\n` +
         `Si no podés asistir, cancelá aquí: ${cancelUrl}`;
 
@@ -1029,7 +1051,6 @@ export class ReservationsService {
         await this.growBusiness.sendSms(r.tenantId, r.customerPhone, body);
         sent++;
       } catch (e) {
-        // Des-claim para reintento en la próxima vuelta del cron.
         await this.prisma.reservation.updateMany({
           where: { id: r.id },
           data: { reminderSentAt: null },
@@ -1038,6 +1059,22 @@ export class ReservationsService {
         this.logger.warn(`Reminder failed for ${r.id}: ${(e as Error).message}`);
       }
     }
-    this.logger.log(`Reminder cron: ${sent} enviados, ${failed} fallidos`);
+    if (sent + failed > 0 || skipped > 0) {
+      this.logger.log(
+        `Reminder cron: ${sent} enviados, ${failed} fallidos, ${skipped} fuera de ventana`,
+      );
+    }
+  }
+
+  /** Combina date (UTC noon) + time (HH:MM en TZ local del tenant)
+   *  asumiendo offset UTC-5 (Bogotá/Lima/CDMX win promedio LATAM).
+   *  Cuando tenant.timezone exista, sustituir por la zona real. */
+  private static reservationMomentUtc(date: Date, time: string): Date {
+    const [h, m] = time.split(':').map(Number);
+    const y = date.getUTCFullYear();
+    const mo = date.getUTCMonth();
+    const d = date.getUTCDate();
+    // Asume UTC-5: el momento local h:m es h+5 UTC del mismo día.
+    return new Date(Date.UTC(y, mo, d, h + 5, m, 0));
   }
 }
