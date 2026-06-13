@@ -114,6 +114,18 @@ export class ReservationsController {
     return this.svc.list(user, { date, status }, tenantId);
   }
 
+  /** Métricas agregadas para el dashboard de /app/reservations. Default:
+   *  últimos 30 días + próximos 7. */
+  @Get('stats')
+  stats(
+    @CurrentUser() user: AuthUser,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.svc.stats(user, { from, to, tenantId });
+  }
+
   /** Disponibilidad por slot — útil para el admin antes de crear una
    *  reserva manual. zoneId opcional. force=true permite ignorar el check
    *  al crear (POST). */

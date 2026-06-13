@@ -612,6 +612,124 @@ export class ReservationsService {
   }
 
   // ============================================================
+  //                          STATS / METRICS
+  // ============================================================
+
+  /** Métricas agregadas por rango de fechas para el dashboard de
+   *  `/app/reservations`. Devuelve totales, tasas y breakdowns por
+   *  hora, zona, canal y día de la semana. */
+  async stats(user: AuthUser, params: { from?: string; to?: string; tenantId?: string } = {}) {
+    const tid = this.tid(user, params.tenantId);
+    const now = new Date();
+    const defaultFrom = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 29, 0, 0, 0));
+    const defaultTo = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 7, 23, 59, 59));
+    const from = params.from ? this.parseDate(params.from) : defaultFrom;
+    const to = params.to ? this.parseDate(params.to, true) : defaultTo;
+
+    const reservations = await this.prisma.reservation.findMany({
+      where: {
+        tenantId: tid,
+        date: { gte: from, lte: to },
+      },
+      select: {
+        id: true,
+        party: true,
+        time: true,
+        date: true,
+        status: true,
+        channel: true,
+        zoneId: true,
+        zone: { select: { name: true } },
+      },
+    });
+
+    const total = reservations.length;
+    const totalPax = reservations.reduce((s, r) => s + r.party, 0);
+    const cancelled = reservations.filter((r) => r.status === 'CANCELLED').length;
+    const noShow = reservations.filter((r) => r.status === 'NO_SHOW').length;
+    const completed = reservations.filter((r) => ['SEATED', 'COMPLETED'].includes(r.status)).length;
+    const confirmed = reservations.filter((r) => r.status === 'CONFIRMED').length;
+    const pending = reservations.filter((r) => r.status === 'PENDING').length;
+
+    // Tasa = % sobre lo que NO está PENDING (las pendientes no cuentan
+    // como caso resuelto todavía).
+    const resolved = total - pending;
+    const noShowRate = resolved > 0 ? Math.round((noShow / resolved) * 100) : 0;
+    const cancelRate = resolved > 0 ? Math.round((cancelled / resolved) * 100) : 0;
+    const completionRate = resolved > 0 ? Math.round((completed / resolved) * 100) : 0;
+    const avgParty = total > 0 ? Math.round((totalPax / total) * 10) / 10 : 0;
+
+    // Breakdown por hora (HH:00)
+    const byHour: Record<string, number> = {};
+    reservations.forEach((r) => {
+      const hour = r.time.slice(0, 2) + ':00';
+      byHour[hour] = (byHour[hour] || 0) + r.party;
+    });
+    const topHours = Object.entries(byHour)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([hour, pax]) => ({ hour, pax }));
+
+    // Breakdown por zona
+    const byZone: Record<string, { name: string; count: number; pax: number }> = {};
+    reservations.forEach((r) => {
+      const key = r.zone?.name ?? 'Sin zona';
+      if (!byZone[key]) byZone[key] = { name: key, count: 0, pax: 0 };
+      byZone[key].count++;
+      byZone[key].pax += r.party;
+    });
+    const zoneBreakdown = Object.values(byZone).sort((a, b) => b.pax - a.pax);
+
+    // Breakdown por canal
+    const byChannel: Record<string, number> = {};
+    reservations.forEach((r) => {
+      byChannel[r.channel] = (byChannel[r.channel] || 0) + 1;
+    });
+
+    // Breakdown por día de la semana (0=Dom, 6=Sáb)
+    const byDow: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+    reservations.forEach((r) => {
+      const dow = r.date.getUTCDay();
+      byDow[dow] += r.party;
+    });
+
+    return {
+      range: {
+        from: from.toISOString().slice(0, 10),
+        to: to.toISOString().slice(0, 10),
+        days: Math.ceil((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24)),
+      },
+      totals: {
+        reservations: total,
+        pax: totalPax,
+        avgParty,
+        pending,
+        confirmed,
+        completed,
+        cancelled,
+        noShow,
+      },
+      rates: {
+        completionRate,
+        noShowRate,
+        cancelRate,
+      },
+      topHours,
+      zoneBreakdown,
+      byChannel,
+      byDow,
+    };
+  }
+
+  private parseDate(s: string, isEnd = false): Date {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) throw new BadRequestException('Fecha YYYY-MM-DD');
+    const [y, m, d] = s.split('-').map(Number);
+    return isEnd
+      ? new Date(Date.UTC(y, m - 1, d, 23, 59, 59))
+      : new Date(Date.UTC(y, m - 1, d, 0, 0, 0));
+  }
+
+  // ============================================================
   //               NOTIFICACIONES AL CLIENTE
   // ============================================================
 

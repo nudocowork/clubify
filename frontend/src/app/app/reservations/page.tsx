@@ -107,7 +107,7 @@ function todayISO() {
 }
 
 export default function ReservationsPage() {
-  const [tab, setTab] = useState<'agenda' | 'plano'>('agenda');
+  const [tab, setTab] = useState<'agenda' | 'plano' | 'metricas'>('agenda');
   const [date, setDate] = useState(todayISO());
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [zones, setZones] = useState<Zone[]>([]);
@@ -306,6 +306,7 @@ export default function ReservationsPage() {
         {([
           { v: 'agenda' as const, label: '📅 Agenda', count: stats.count },
           { v: 'plano' as const, label: '🪑 Plano', count: tables.length },
+          { v: 'metricas' as const, label: '📊 Métricas', count: null as number | null },
         ]).map((tb) => {
           const active = tab === tb.v;
           return (
@@ -317,9 +318,11 @@ export default function ReservationsPage() {
               }`}
             >
               {tb.label}
-              <span className="text-[10px] font-bold bg-bg2 text-mute px-1.5 py-0.5 rounded">
-                {tb.count}
-              </span>
+              {tb.count !== null && (
+                <span className="text-[10px] font-bold bg-bg2 text-mute px-1.5 py-0.5 rounded">
+                  {tb.count}
+                </span>
+              )}
             </button>
           );
         })}
@@ -675,6 +678,207 @@ export default function ReservationsPage() {
           </div>
         </div>
       )}
+
+      {tab === 'metricas' && <MetricsTab />}
+    </div>
+  );
+}
+
+function MetricsTab() {
+  const [stats, setStats] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [range, setRange] = useState<'7d' | '30d' | '90d'>('30d');
+
+  useEffect(() => {
+    const now = new Date();
+    const daysBack = range === '7d' ? 7 : range === '30d' ? 30 : 90;
+    const from = new Date(now);
+    from.setDate(from.getDate() - daysBack);
+    const to = new Date(now);
+    to.setDate(to.getDate() + 7); // incluye próximos 7 días
+    const f = from.toISOString().slice(0, 10);
+    const t = to.toISOString().slice(0, 10);
+    api<any>(`/reservations/stats?from=${f}&to=${t}`)
+      .then(setStats)
+      .catch((e: any) => setError(e.message || 'Error'));
+  }, [range]);
+
+  if (error) {
+    return <p className="text-sm text-bad py-6 text-center">{error}</p>;
+  }
+  if (!stats) {
+    return <p className="text-sm text-mute py-6 text-center">Cargando métricas…</p>;
+  }
+
+  const DOW_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+  const maxDow = Math.max(1, ...Object.values<number>(stats.byDow));
+  const maxZone = Math.max(1, ...stats.zoneBreakdown.map((z: any) => z.pax));
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="text-sm text-mute">
+          Rango: <strong className="text-ink">{stats.range.from}</strong> →{' '}
+          <strong className="text-ink">{stats.range.to}</strong> ({stats.range.days} días)
+        </div>
+        <div className="flex gap-1 bg-bg2 p-1 rounded-lg">
+          {(['7d', '30d', '90d'] as const).map((r) => (
+            <button
+              key={r}
+              onClick={() => setRange(r)}
+              className={`text-xs font-semibold px-3 py-1.5 rounded-md ${
+                range === r ? 'bg-white text-ink shadow-sm' : 'text-mute'
+              }`}
+            >
+              {r === '7d' ? '7 días' : r === '30d' ? '30 días' : '90 días'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* KPI cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="card card-pad">
+          <div className="text-xs text-mute font-bold">RESERVAS</div>
+          <div className="text-2xl font-extrabold mt-1">{stats.totals.reservations}</div>
+          <div className="text-xs text-mute mt-1">{stats.totals.pax} pax · {stats.totals.avgParty} prom</div>
+        </div>
+        <div className="card card-pad">
+          <div className="text-xs text-mute font-bold">COMPLETION</div>
+          <div className="text-2xl font-extrabold mt-1 text-ok">{stats.rates.completionRate}%</div>
+          <div className="text-xs text-mute mt-1">{stats.totals.completed} completadas</div>
+        </div>
+        <div className="card card-pad">
+          <div className="text-xs text-mute font-bold">NO-SHOW</div>
+          <div className={`text-2xl font-extrabold mt-1 ${stats.rates.noShowRate > 15 ? 'text-bad' : ''}`}>
+            {stats.rates.noShowRate}%
+          </div>
+          <div className="text-xs text-mute mt-1">{stats.totals.noShow} ausentes</div>
+        </div>
+        <div className="card card-pad">
+          <div className="text-xs text-mute font-bold">CANCELACIONES</div>
+          <div className="text-2xl font-extrabold mt-1">{stats.rates.cancelRate}%</div>
+          <div className="text-xs text-mute mt-1">{stats.totals.cancelled} canceladas</div>
+        </div>
+      </div>
+
+      {/* Estado breakdown */}
+      <div className="card card-pad">
+        <h3 className="text-sm font-semibold m-0 mb-3">Estado de las reservas</h3>
+        <div className="space-y-2">
+          {[
+            { label: 'Pendientes', val: stats.totals.pending, color: '#b45309' },
+            { label: 'Confirmadas', val: stats.totals.confirmed, color: '#1d4ed8' },
+            { label: 'Completadas', val: stats.totals.completed, color: '#15803d' },
+            { label: 'Canceladas', val: stats.totals.cancelled, color: '#6b7280' },
+            { label: 'Ausentes', val: stats.totals.noShow, color: '#dc2626' },
+          ].map((s) => {
+            const pct = stats.totals.reservations > 0
+              ? Math.round((s.val / stats.totals.reservations) * 100)
+              : 0;
+            return (
+              <div key={s.label} className="flex items-center gap-3">
+                <div className="text-xs font-semibold w-24">{s.label}</div>
+                <div className="flex-1 h-5 bg-bg2 rounded overflow-hidden">
+                  <div
+                    className="h-full transition-all"
+                    style={{ width: `${pct}%`, background: s.color }}
+                  />
+                </div>
+                <div className="text-xs text-mute w-16 text-right">
+                  {s.val} ({pct}%)
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-4">
+        {/* Top horarios */}
+        <div className="card card-pad">
+          <h3 className="text-sm font-semibold m-0 mb-3">Horarios más solicitados</h3>
+          {stats.topHours.length === 0 ? (
+            <p className="text-xs text-mute italic">Sin datos en este rango</p>
+          ) : (
+            <div className="space-y-2">
+              {stats.topHours.map((h: any) => {
+                const max = stats.topHours[0].pax;
+                const pct = Math.round((h.pax / max) * 100);
+                return (
+                  <div key={h.hour} className="flex items-center gap-3">
+                    <div className="text-sm font-semibold w-14">{h.hour}</div>
+                    <div className="flex-1 h-4 bg-bg2 rounded overflow-hidden">
+                      <div className="h-full bg-ok" style={{ width: `${pct}%` }} />
+                    </div>
+                    <div className="text-xs text-mute w-12 text-right">{h.pax} pax</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Día de la semana */}
+        <div className="card card-pad">
+          <h3 className="text-sm font-semibold m-0 mb-3">Pax por día de la semana</h3>
+          <div className="grid grid-cols-7 gap-1 items-end h-32 mt-2">
+            {[1, 2, 3, 4, 5, 6, 0].map((dow) => {
+              const pax = stats.byDow[dow] || 0;
+              const h = Math.round((pax / maxDow) * 100);
+              return (
+                <div key={dow} className="flex flex-col items-center gap-1 h-full justify-end">
+                  <div className="text-[10px] font-bold text-mute">{pax}</div>
+                  <div
+                    className="w-full bg-ok rounded-t transition-all"
+                    style={{ height: `${Math.max(2, h)}%` }}
+                  />
+                  <div className="text-[10px] font-bold text-mute">{DOW_LABELS[dow]}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Zonas y canales */}
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="card card-pad">
+          <h3 className="text-sm font-semibold m-0 mb-3">Top zonas</h3>
+          {stats.zoneBreakdown.length === 0 ? (
+            <p className="text-xs text-mute italic">Sin datos</p>
+          ) : (
+            <div className="space-y-2">
+              {stats.zoneBreakdown.map((z: any) => {
+                const pct = Math.round((z.pax / maxZone) * 100);
+                return (
+                  <div key={z.name} className="flex items-center gap-3">
+                    <div className="text-sm font-semibold w-24 truncate">{z.name}</div>
+                    <div className="flex-1 h-4 bg-bg2 rounded overflow-hidden">
+                      <div className="h-full bg-info" style={{ width: `${pct}%` }} />
+                    </div>
+                    <div className="text-xs text-mute w-16 text-right">
+                      {z.pax} pax
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="card card-pad">
+          <h3 className="text-sm font-semibold m-0 mb-3">Canal de origen</h3>
+          <div className="grid grid-cols-2 gap-2">
+            {Object.entries(stats.byChannel).map(([ch, n]) => (
+              <div key={ch} className="p-3 rounded-lg bg-bg2/60 text-center">
+                <div className="text-xs text-mute font-bold">{ch}</div>
+                <div className="text-lg font-extrabold">{n as number}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
