@@ -124,7 +124,13 @@ export default function NotificationsPage() {
   const [pushLogoUrl, setPushLogoUrl] = useState<string | null>(null);
   const [walletLogoFallback, setWalletLogoFallback] = useState<string | null>(null);
   const [savingPushLogo, setSavingPushLogo] = useState(false);
-  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  // 'now' = envío inmediato (default), 'once' = fecha específica,
+  // 'recurring' = patrón semanal (días + hora) que el cron despacha.
+  const [scheduleMode, setScheduleMode] = useState<'now' | 'once' | 'recurring'>('now');
+  const scheduleEnabled = scheduleMode === 'once';
+  const [recDays, setRecDays] = useState<number[]>([1, 2, 3, 4, 5]); // L-V default
+  const [recTime, setRecTime] = useState<string>('10:00');
+  const [recurring, setRecurring] = useState<any[]>([]);
   // Default: 1h en el futuro, redondeado al próximo cuarto de hora
   const [scheduledAt, setScheduledAt] = useState<string>(() => {
     const d = new Date(Date.now() + 60 * 60 * 1000);
@@ -138,13 +144,15 @@ export default function NotificationsPage() {
 
   async function load() {
     try {
-      const [h, c, me] = await Promise.all([
+      const [h, c, me, rec] = await Promise.all([
         api('/notifications'),
         api('/cards'),
         api('/tenants/me').catch(() => null),
+        api('/notifications/recurring').catch(() => []),
       ]);
       setHistory(h as any[]);
       setCards(c as any[]);
+      setRecurring(rec as any[]);
       if ((me as any)?.brandName) setBrandName((me as any).brandName);
       if ((me as any)?.primaryColor) setBrandColor((me as any).primaryColor);
       const pushLogo = (me as any)?.pushLogoUrl ?? null;
@@ -166,6 +174,34 @@ export default function NotificationsPage() {
     e.preventDefault();
     setSending(true);
     try {
+      if (scheduleMode === 'recurring') {
+        if (recDays.length === 0) {
+          toast('Elegí al menos un día de la semana', 'error');
+          setSending(false);
+          return;
+        }
+        if (!/^\d{2}:\d{2}$/.test(recTime)) {
+          toast('Hora inválida', 'error');
+          setSending(false);
+          return;
+        }
+        await api('/notifications/recurring', {
+          method: 'POST',
+          body: JSON.stringify({
+            cardId: form.cardId || undefined,
+            title: form.title,
+            body: form.body,
+            daysOfWeek: recDays,
+            timeOfDay: recTime,
+          }),
+        });
+        setForm({ cardId: '', title: '', body: '' });
+        load();
+        toast('Recurrencia creada · el cron la disparará en los días configurados', 'success');
+        setSending(false);
+        return;
+      }
+
       const payload: any = {
         ...form,
         cardId: form.cardId || undefined,
@@ -200,6 +236,30 @@ export default function NotificationsPage() {
       toast(e.message || 'No se pudo enviar', 'error');
     } finally {
       setSending(false);
+    }
+  }
+
+  async function toggleRecurring(id: string, next: boolean) {
+    try {
+      await api(`/notifications/recurring/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive: next }),
+      });
+      load();
+      toast(next ? 'Recurrencia activada' : 'Recurrencia pausada', 'success');
+    } catch (e: any) {
+      toast(e.message || 'No se pudo cambiar', 'error');
+    }
+  }
+
+  async function deleteRecurring(id: string) {
+    if (!confirm('¿Eliminar esta recurrencia? Los envíos pasados quedan en el historial.')) return;
+    try {
+      await api(`/notifications/recurring/${id}`, { method: 'DELETE' });
+      load();
+      toast('Recurrencia eliminada', 'success');
+    } catch (e: any) {
+      toast(e.message || 'No se pudo eliminar', 'error');
     }
   }
 
@@ -316,18 +376,33 @@ export default function NotificationsPage() {
             </div>
           </div>
 
-          {/* Calendario / programación */}
+          {/* Selector de modo: inmediato / fecha / recurrente */}
           <div className="mt-4 border-t border-line pt-3">
-            <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
-              <input
-                type="checkbox"
-                className="w-4 h-4"
-                checked={scheduleEnabled}
-                onChange={(e) => setScheduleEnabled(e.target.checked)}
-              />
-              📅 Programar para una fecha específica
-            </label>
-            {scheduleEnabled && (
+            <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
+              Cuándo enviar
+            </div>
+            <div className="grid grid-cols-3 gap-1 bg-bg2 rounded-lg p-1">
+              {([
+                { v: 'now' as const, label: '📤 Ahora' },
+                { v: 'once' as const, label: '📅 Fecha' },
+                { v: 'recurring' as const, label: '🔁 Recurrente' },
+              ]).map((opt) => {
+                const active = scheduleMode === opt.v;
+                return (
+                  <button
+                    key={opt.v}
+                    type="button"
+                    onClick={() => setScheduleMode(opt.v)}
+                    className={`text-xs font-semibold py-2 px-2 rounded-md transition ${
+                      active ? 'bg-white text-ink shadow-sm' : 'text-mute hover:text-ink'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+            {scheduleMode === 'once' && (
               <div className="mt-2.5">
                 <input
                   type="datetime-local"
@@ -338,8 +413,61 @@ export default function NotificationsPage() {
                 />
                 <p className="text-[11px] text-mute mt-1.5 leading-relaxed">
                   Se enviará automáticamente en la fecha y hora elegidas
-                  (zona horaria del navegador). Mientras tanto se puede
-                  editar desde el historial — TODO.
+                  (zona horaria del navegador).
+                </p>
+              </div>
+            )}
+            {scheduleMode === 'recurring' && (
+              <div className="mt-2.5 space-y-3">
+                <div>
+                  <label className="label">Días de la semana</label>
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    {([
+                      { v: 1, label: 'L' },
+                      { v: 2, label: 'M' },
+                      { v: 3, label: 'X' },
+                      { v: 4, label: 'J' },
+                      { v: 5, label: 'V' },
+                      { v: 6, label: 'S' },
+                      { v: 0, label: 'D' },
+                    ]).map((d) => {
+                      const active = recDays.includes(d.v);
+                      return (
+                        <button
+                          key={d.v}
+                          type="button"
+                          onClick={() =>
+                            setRecDays((cur) =>
+                              cur.includes(d.v)
+                                ? cur.filter((x) => x !== d.v)
+                                : [...cur, d.v].sort((a, b) => a - b),
+                            )
+                          }
+                          className={`w-9 h-9 rounded-full text-sm font-semibold transition ${
+                            active
+                              ? 'bg-brand text-white'
+                              : 'bg-bg2 text-mute hover:bg-line'
+                          }`}
+                          aria-pressed={active}
+                          title={['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'][d.v]}
+                        >
+                          {d.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div>
+                  <label className="label">Hora (24h)</label>
+                  <input
+                    type="time"
+                    className="input"
+                    value={recTime}
+                    onChange={(e) => setRecTime(e.target.value)}
+                  />
+                </div>
+                <p className="text-[11px] text-mute leading-relaxed">
+                  Se enviará cada semana en los días + hora configurados (zona horaria America/Bogota). Podés pausarla cuando quieras desde la lista de abajo.
                 </p>
               </div>
             )}
@@ -352,7 +480,9 @@ export default function NotificationsPage() {
             <Icon name="send" />{' '}
             {sending
               ? 'Enviando…'
-              : scheduleEnabled
+              : scheduleMode === 'recurring'
+              ? 'Crear recurrencia'
+              : scheduleMode === 'once'
               ? 'Programar'
               : 'Enviar'}
           </button>
@@ -476,6 +606,79 @@ export default function NotificationsPage() {
             </>
           )}
         </div>
+      </div>
+
+      {/* Recurrencias activas (PUSH recurrentes #1 spec 2026-06-12).
+          Lista cards con días + hora + status + toggle/delete. */}
+      <div className="mt-5 card card-pad">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold m-0">🔁 Recurrencias programadas</h2>
+          <span className="text-xs text-mute">
+            {recurring.length} {recurring.length === 1 ? 'configurada' : 'configuradas'}
+          </span>
+        </div>
+        {recurring.length === 0 ? (
+          <p className="text-xs text-mute mt-2">
+            Aún no tenés recurrencias. Creá una con el modo "🔁 Recurrente" del formulario de arriba.
+          </p>
+        ) : (
+          <div className="mt-3 space-y-2">
+            {recurring.map((r: any) => {
+              const dayLabels = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+              const days = (r.daysOfWeek as number[]).slice().sort((a, b) => a - b).map((d) => dayLabels[d]).join(', ');
+              return (
+                <div
+                  key={r.id}
+                  className={`flex items-start justify-between gap-3 p-3 rounded-lg border ${
+                    r.isActive ? 'border-line bg-white' : 'border-line2 bg-bg2/40'
+                  }`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-sm truncate">{r.title}</span>
+                      <span
+                        className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
+                          r.isActive ? 'bg-ok-soft text-ok' : 'bg-bad-soft text-bad-ink'
+                        }`}
+                      >
+                        {r.isActive ? 'Activa' : 'Pausada'}
+                      </span>
+                    </div>
+                    <div className="text-xs text-mute mt-1 line-clamp-2">{r.body}</div>
+                    <div className="text-[11px] text-mute mt-1.5 flex flex-wrap gap-x-3">
+                      <span>📅 {days}</span>
+                      <span>🕐 {r.timeOfDay}</span>
+                      {r.lastDispatchedAt && (
+                        <span>
+                          · Último envío:{' '}
+                          {new Date(r.lastDispatchedAt).toLocaleDateString('es-CO', {
+                            day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+                          })}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1 shrink-0">
+                    <button
+                      type="button"
+                      className="btn-ghost text-xs"
+                      onClick={() => toggleRecurring(r.id, !r.isActive)}
+                    >
+                      {r.isActive ? '⏸ Pausar' : '▶ Reactivar'}
+                    </button>
+                    <button
+                      type="button"
+                      className="text-xs text-bad hover:underline"
+                      onClick={() => deleteRecurring(r.id)}
+                    >
+                      Eliminar
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Historial colapsado */}
