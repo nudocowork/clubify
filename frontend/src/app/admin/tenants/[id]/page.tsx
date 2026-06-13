@@ -779,6 +779,9 @@ function AcademyTogglesCard({
   const [academy, setAcademy] = useState<boolean>(
     tenant.academyEnabled ?? true,
   );
+  const [reservations, setReservations] = useState<boolean>(
+    tenant.reservationsEnabled ?? false,
+  );
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -791,6 +794,7 @@ function AcademyTogglesCard({
         body: JSON.stringify({
           tutorialsEnabled: tutorials,
           academyEnabled: academy,
+          reservationsEnabled: reservations,
         }),
       });
       setMsg({ ok: true, text: 'Cambios guardados' });
@@ -805,11 +809,11 @@ function AcademyTogglesCard({
   return (
     <div className="card card-pad">
       <h2 className="text-base font-semibold m-0 flex items-center gap-2">
-        🎓 Tutoriales / Academia
+        🎛️ Módulos del tenant
       </h2>
       <p className="text-xs text-mute mt-1 leading-relaxed">
-        Controla si este negocio ve los links externos a la academia desde
-        su sidebar / panel.
+        Tutoriales, academia y módulo de reservas. Cambios se reflejan en el
+        sidebar del cliente al refrescar.
       </p>
 
       <div className="mt-4 space-y-3">
@@ -841,6 +845,23 @@ function AcademyTogglesCard({
             <div className="text-xs text-mute leading-snug">
               Reservado (campo per-tenant para uso futuro — la Academia para
               afiliados se muestra siempre por ahora).
+            </div>
+          </div>
+        </label>
+
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={reservations}
+            onChange={(e) => setReservations(e.target.checked)}
+            className="mt-1"
+          />
+          <div>
+            <div className="text-sm font-semibold">📅 Activar Reservas</div>
+            <div className="text-xs text-mute leading-snug">
+              Habilita el módulo de reservas (zonas + mesas + agenda) y el
+              flujo público <code>/reserva/&lt;slug&gt;</code>. Cuando se activa
+              aparece la sección "Reservas" en el sidebar del cliente.
             </div>
           </div>
         </label>
