@@ -237,30 +237,81 @@ export default function PublicReservation() {
 
           {step === 2 && (
             <>
-              <h2 className="text-sm font-semibold mb-3">Elige zona (opcional)</h2>
+              <h2 className="text-sm font-semibold mb-3">Elige tu lugar</h2>
               <button
                 onClick={() => setZoneSlug(null)}
-                className={`w-full text-left p-3 rounded-lg mb-2 border ${
-                  zoneSlug === null ? 'border-2' : 'border-line'
+                className={`w-full text-left p-3 rounded-2xl mb-3 border-2 transition flex items-center gap-3 ${
+                  zoneSlug === null ? 'shadow-md' : ''
                 }`}
-                style={zoneSlug === null ? { borderColor: primary, background: `${primary}15` } : {}}
+                style={
+                  zoneSlug === null
+                    ? { borderColor: primary, background: `${primary}10` }
+                    : { borderColor: '#e2e8f0', background: 'white' }
+                }
               >
-                <div className="font-semibold text-sm">Sin preferencia</div>
-                <div className="text-xs text-mute">El negocio asigna la mejor mesa disponible</div>
-              </button>
-              {info.zones.map((z) => (
-                <button
-                  key={z.id}
-                  onClick={() => setZoneSlug(z.slug)}
-                  className={`w-full text-left p-3 rounded-lg mb-2 border ${
-                    zoneSlug === z.slug ? 'border-2' : 'border-line'
-                  }`}
-                  style={zoneSlug === z.slug ? { borderColor: primary, background: `${primary}15` } : {}}
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center text-white text-base shrink-0"
+                  style={{ background: primary }}
                 >
-                  <div className="font-semibold text-sm">{z.name}</div>
-                  <div className="text-xs text-mute">{z.type}</div>
-                </button>
-              ))}
+                  ✨
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-sm">Asignación automática</div>
+                  <div className="text-xs text-mute">Te damos la mejor mesa disponible</div>
+                </div>
+                {zoneSlug === null && (
+                  <div
+                    className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs shrink-0"
+                    style={{ background: primary }}
+                  >
+                    ✓
+                  </div>
+                )}
+              </button>
+
+              {info.zones.length > 0 && (
+                <>
+                  <div className="text-[10px] uppercase tracking-wider text-mute font-bold mb-2 mt-4">
+                    O elige zona
+                  </div>
+                  {info.zones.map((z) => {
+                    const zoneIcons: Record<string, string> = {
+                      OUTDOOR: '☀️',
+                      INDOOR: '🏠',
+                      BAR: '🍸',
+                      PRIVATE: '👑',
+                    };
+                    const zoneLabel: Record<string, string> = {
+                      OUTDOOR: 'Mesas al aire libre',
+                      INDOOR: 'Mesas interiores',
+                      BAR: 'En la barra',
+                      PRIVATE: 'Bajo solicitud',
+                    };
+                    return (
+                      <button
+                        key={z.id}
+                        onClick={() => setZoneSlug(z.slug)}
+                        className={`w-full text-left p-3 rounded-2xl mb-2 border-2 transition flex items-center gap-3`}
+                        style={
+                          zoneSlug === z.slug
+                            ? { borderColor: primary, background: `${primary}10` }
+                            : { borderColor: '#e2e8f0', background: 'white' }
+                        }
+                      >
+                        <div className="w-10 h-10 rounded-xl bg-bg2 flex items-center justify-center text-base shrink-0">
+                          {zoneIcons[z.type] ?? '·'}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-sm">{z.name}</div>
+                          <div className="text-xs text-mute">
+                            {zoneLabel[z.type] ?? z.type}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </>
+              )}
             </>
           )}
 
@@ -275,19 +326,26 @@ export default function PublicReservation() {
               />
               <input
                 className="input mb-2"
-                placeholder="Teléfono · +52 55 0000 0000"
+                placeholder="Teléfono de contacto · +52"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
               />
               <textarea
                 className="input mb-2"
-                rows={2}
-                placeholder="Notas (alergias, cumpleaños, etc)"
+                rows={3}
+                placeholder="Notas (alergias, cumpleaños, silla bebé...)"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
               />
-              <div className="text-xs text-mute mt-2 leading-relaxed">
-                El restaurante recibirá tu solicitud y <b>te contactará para confirmar</b> tu mesa.
+              <div
+                className="mt-2 rounded-xl p-3 flex items-start gap-2.5 text-left text-xs"
+                style={{ background: `${primary}10`, border: `1px solid ${primary}40` }}
+              >
+                <span className="text-base shrink-0">📞</span>
+                <div className="leading-snug">
+                  El restaurante recibirá tu solicitud y{' '}
+                  <strong>te contactará para confirmar</strong> tu mesa. No necesitas instalar nada.
+                </div>
               </div>
             </>
           )}
@@ -300,12 +358,33 @@ export default function PublicReservation() {
               >
                 ✓
               </div>
-              <h2 className="text-lg font-bold">¡Solicitud enviada!</h2>
-              <p className="text-sm text-mute mt-1">
-                El restaurante te contactará para confirmar.
+              <h2 className="text-lg font-bold">¡Reserva enviada!</h2>
+              <p className="text-sm text-mute mt-1 leading-snug">
+                {info.brandName} te contactará para confirmar.
               </p>
-              <div className="card card-pad mt-4 text-left">
-                <div className="grid grid-cols-3 gap-2 text-center">
+
+              {/* Ticket */}
+              <div className="bg-white border border-line rounded-2xl mt-4 overflow-hidden text-left">
+                <div className="p-4 flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[10px] uppercase tracking-wider text-mute font-bold">
+                      Tu reserva
+                    </div>
+                    <div className="text-sm font-semibold truncate">{info.brandName}</div>
+                  </div>
+                  {confirmation.passUrl && (
+                    <a
+                      href={confirmation.passUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="w-12 h-12 rounded-xl bg-ink text-white flex items-center justify-center text-xl shrink-0"
+                      title="Ver pase digital con QR"
+                    >
+                      🔳
+                    </a>
+                  )}
+                </div>
+                <div className="border-t border-dashed border-line px-4 py-3 grid grid-cols-3 gap-2 text-center">
                   <div>
                     <div className="text-[10px] text-mute font-bold">FECHA</div>
                     <div className="text-sm font-bold">{date}</div>
@@ -318,6 +397,40 @@ export default function PublicReservation() {
                     <div className="text-[10px] text-mute font-bold">PAX</div>
                     <div className="text-sm font-bold">{party}</div>
                   </div>
+                </div>
+                <div className="border-t border-dashed border-line px-4 py-3">
+                  <div className="text-[10px] text-mute font-bold">MESA</div>
+                  <div className="text-sm font-bold">
+                    {zoneSlug
+                      ? info.zones.find((z) => z.slug === zoneSlug)?.name ?? 'Por asignar'
+                      : 'Asignación automática'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Pase digital CTA */}
+              {confirmation.passUrl && (
+                <a
+                  href={confirmation.passUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-3 w-full block py-3 rounded-xl font-bold text-white text-sm"
+                  style={{ background: '#0f172a' }}
+                >
+                  📱 Ver pase digital
+                </a>
+              )}
+
+              {/* Sello conversion teaser */}
+              <div
+                className="mt-3 rounded-2xl p-3 flex items-start gap-2.5 text-left"
+                style={{ background: '#f5f3ff', border: '1px solid #ddd6fe' }}
+              >
+                <span className="text-base shrink-0">🎁</span>
+                <div className="text-xs leading-snug text-purple-900">
+                  Cuando llegues, tu reserva se convierte en{' '}
+                  <strong>+1 sello</strong> en la tarjeta de fidelización de{' '}
+                  <strong>{info.brandName}</strong>.
                 </div>
               </div>
             </div>
