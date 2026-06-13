@@ -3,6 +3,7 @@ import { IsBoolean, IsEmail, IsHexColor, IsIn, IsInt, IsNumber, IsOptional, IsSt
 import { ModuleKey, WhiteLabelStatus } from '@prisma/client';
 import { Roles } from '../common/decorators/roles.decorator';
 import { SuperAdminService } from './superadmin.service';
+import { RenewalsService } from './renewals.service';
 
 class WhiteLabelBody {
   @IsString() @MaxLength(80) name!: string;
@@ -49,7 +50,10 @@ class ToggleModuleBody {
 @Controller('superadmin')
 @Roles('PLATFORM_OWNER')
 export class SuperAdminController {
-  constructor(private svc: SuperAdminService) {}
+  constructor(
+    private svc: SuperAdminService,
+    private renewals: RenewalsService,
+  ) {}
 
   @Get('dashboard')
   dashboard() {
@@ -141,6 +145,20 @@ export class SuperAdminController {
   @Get('billing')
   billingCenter() {
     return this.svc.billingCenter();
+  }
+
+  /** Dry-run del cron de renovaciones — sin escribir. Útil para previsualizar
+   *  qué pasará cuando corra el cron. */
+  @Get('renewals/preview')
+  previewRenewals() {
+    return this.renewals.run({ dryRun: true });
+  }
+
+  /** Trigger manual del cron — corre la lógica real. Para uso del
+   *  PLATFORM_OWNER cuando quiere forzar el barrido. */
+  @Post('renewals/run')
+  runRenewals() {
+    return this.renewals.run({ dryRun: false });
   }
 
   // -------- Integraciones --------
