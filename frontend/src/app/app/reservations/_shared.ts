@@ -44,6 +44,8 @@ export type Reservation = {
   notes?: string | null;
   status: ReservationStatus;
   channel: string;
+  tableId?: string | null;
+  zoneId?: string | null;
   table?: { number: string } | null;
   zone?: { name: string } | null;
   customer?: {
