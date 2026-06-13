@@ -11,6 +11,8 @@ import { ReservationStatus, ReservationChannel } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { GrowBusinessService } from '../integrations/grow-business.service';
+import { WalletService } from '../wallet/wallet.service';
+import { PassesService } from '../passes/passes.service';
 
 export type ZoneDto = {
   name: string;
@@ -58,6 +60,8 @@ export class ReservationsService {
   constructor(
     private prisma: PrismaService,
     private growBusiness: GrowBusinessService,
+    private wallet: WalletService,
+    private passes: PassesService,
   ) {}
 
   private tid(user: AuthUser, override?: string) {
@@ -282,14 +286,31 @@ export class ReservationsService {
       zoneId: patch.zoneId === null ? null : patch.zoneId,
       tableId: patch.tableId === null ? null : patch.tableId,
     };
+    let grantStamp = false;
     if (patch.status && patch.status !== r.status) {
       data.status = patch.status;
       if (patch.status === 'CONFIRMED' && !r.confirmedAt) data.confirmedAt = now;
-      if (patch.status === 'SEATED' && !r.seatedAt) data.seatedAt = now;
+      if (patch.status === 'SEATED' && !r.seatedAt) {
+        data.seatedAt = now;
+        if (!r.stampGrantedAt) grantStamp = true;
+      }
       if (patch.status === 'COMPLETED' && !r.completedAt) data.completedAt = now;
       if (patch.status === 'CANCELLED' && !r.cancelledAt) data.cancelledAt = now;
     }
-    return this.prisma.reservation.update({ where: { id }, data, include: { table: true, zone: true } });
+    const updated = await this.prisma.reservation.update({
+      where: { id },
+      data,
+      include: { table: true, zone: true },
+    });
+
+    if (grantStamp) {
+      this.grantReservationStamp(updated.id).catch((e) =>
+        this.logger.warn(
+          `grantReservationStamp falló (reservationId=${updated.id}): ${(e as Error).message}`,
+        ),
+      );
+    }
+    return updated;
   }
 
   async remove(user: AuthUser, id: string) {
@@ -317,9 +338,9 @@ export class ReservationsService {
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(dto.time)) throw new BadRequestException('time HH:MM 24h');
   }
 
-  /** Busca un Customer por (tenant, phone); si no existe lo crea con el
-   *  fullName/email dados. Sin tags ni notas — eso lo agrega el admin
-   *  después si quiere segmentar. */
+  /** Busca un Customer por (tenant, phone). Si existe, le agrega el tag
+   *  "reserva" si no lo tenía ya (auto-segmentación). Si no existe lo
+   *  crea con el tag desde el inicio. */
   private async findOrCreateCustomer(
     tenantId: string,
     phone: string,
@@ -329,7 +350,15 @@ export class ReservationsService {
     const existing = await this.prisma.customer.findUnique({
       where: { tenantId_phone: { tenantId, phone } },
     });
-    if (existing) return existing;
+    if (existing) {
+      if (!existing.tags?.includes('reserva')) {
+        await this.prisma.customer.update({
+          where: { id: existing.id },
+          data: { tags: { push: 'reserva' } },
+        });
+      }
+      return existing;
+    }
     try {
       return await this.prisma.customer.create({
         data: {
@@ -337,6 +366,7 @@ export class ReservationsService {
           phone,
           fullName,
           email: email?.trim() || null,
+          tags: ['reserva'],
         },
       });
     } catch (e: any) {
@@ -533,6 +563,107 @@ export class ReservationsService {
     } catch (e) {
       this.logger.warn(`SMS notif falló: ${(e as Error).message}`);
     }
+  }
+
+  // ============================================================
+  //                  LOYALTY: sello por reserva
+  // ============================================================
+
+  /** Otorga 1 sello al cliente cuando su reserva pasa a SEATED.
+   *
+   *  Encadena: claim atómico (Reservation.stampGrantedAt) → busca o crea
+   *  el pass del cliente en la STAMPS card "principal" del tenant →
+   *  inserta Stamp + actualiza pass.stampsCount → push wallet.
+   *
+   *  NO usamos StampsService.record() porque esa ruta es para scanner
+   *  (PIN, anti-fraud rate limit, monto compra obligatorio). Esto es un
+   *  flujo interno automatizado: skip-all-guards directo a DB.
+   *
+   *  Idempotent: el claim atómico (updateMany WHERE stampGrantedAt IS
+   *  NULL) garantiza que solo el primer SEATED dispara el sello. Si el
+   *  staff hace SEATED → PENDING → SEATED, el segundo no genera duplicado. */
+  private async grantReservationStamp(reservationId: string) {
+    const now = new Date();
+    // Claim atómico
+    const claim = await this.prisma.reservation.updateMany({
+      where: { id: reservationId, stampGrantedAt: null, status: 'SEATED' },
+      data: { stampGrantedAt: now },
+    });
+    if (claim.count === 0) return;
+
+    const r = await this.prisma.reservation.findUnique({
+      where: { id: reservationId },
+      select: {
+        id: true,
+        tenantId: true,
+        customerId: true,
+        customerName: true,
+      },
+    });
+    if (!r || !r.customerId) {
+      this.logger.warn(`Reservation ${reservationId} sin customerId — skip stamp`);
+      return;
+    }
+
+    // Resolver STAMPS card "principal" del tenant. Si no hay, skip
+    // silenciosamente — el negocio no está usando fidelización todavía.
+    const stampsCard = await this.prisma.card.findFirst({
+      where: { tenantId: r.tenantId, type: 'STAMPS', isActive: true },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, stampsRequired: true },
+    });
+    if (!stampsCard) {
+      this.logger.log(
+        `Tenant ${r.tenantId} sin STAMPS card activa — skip sello para reserva ${reservationId}`,
+      );
+      return;
+    }
+
+    // Busca o crea el pass del customer en esa card. issueInternal hace
+    // el findUnique + create con serial/qrToken/authToken correctamente
+    // firmados (no podemos crear el pass crudo desde acá porque rompe
+    // el HMAC signature del QR).
+    const pass = await this.passes.issueInternal(stampsCard.id, r.customerId);
+    if (!pass) return;
+
+    if (pass.status === 'REVOKED') {
+      this.logger.warn(`Pass ${pass.id} revoked — skip sello para reserva ${reservationId}`);
+      return;
+    }
+
+    const newStamps = pass.stampsCount + 1;
+    const required = stampsCard.stampsRequired ?? Number.MAX_SAFE_INTEGER;
+    const completed = newStamps >= required;
+
+    await this.prisma.$transaction([
+      this.prisma.stamp.create({
+        data: {
+          tenantId: r.tenantId,
+          passId: pass.id,
+          customerId: r.customerId,
+          action: 'STAMP',
+          amount: 1,
+          note: `Sello por reserva (${reservationId.slice(0, 8)})`,
+        },
+      }),
+      this.prisma.pass.update({
+        where: { id: pass.id },
+        data: {
+          stampsCount: newStamps,
+          status: completed ? 'COMPLETED' : pass.status,
+          lastActivityAt: now,
+        },
+      }),
+    ]);
+
+    // Push wallet fire-and-forget
+    this.wallet.pushPassUpdate(pass.id).catch((e) =>
+      this.logger.warn(`Wallet push fail tras sello-reserva: ${(e as Error).message}`),
+    );
+
+    this.logger.log(
+      `Sello otorgado a ${r.customerName} (reserva ${reservationId}, pass ${pass.id}, ${newStamps}/${required === Number.MAX_SAFE_INTEGER ? '?' : required})`,
+    );
   }
 
   // ============================================================

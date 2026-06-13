@@ -29,6 +29,15 @@ export class PassesService {
     const card = await this.prisma.card.findUnique({ where: { id: cardId } });
     if (!card) throw new NotFoundException('Card');
     this.guardTenant(user, card.tenantId);
+    return this.issueInternal(cardId, customerId);
+  }
+
+  /** Emite un pass sin auth check — uso interno desde otros módulos
+   *  (Reservations, automations, backfills). Misma lógica que issue()
+   *  pero saltea guardTenant porque el caller ya validó el contexto. */
+  async issueInternal(cardId: string, customerId: string) {
+    const card = await this.prisma.card.findUnique({ where: { id: cardId } });
+    if (!card) throw new NotFoundException('Card');
 
     const customer = await this.prisma.customer.findUnique({ where: { id: customerId } });
     if (!customer || customer.tenantId !== card.tenantId) {
@@ -48,16 +57,28 @@ export class PassesService {
       { algorithm: 'HS256' },
     );
 
-    const pass = await this.prisma.pass.create({
-      data: {
-        tenantId: card.tenantId,
-        cardId,
-        customerId,
-        serialNumber: serial,
-        qrToken,
-        authToken,
-      },
-    });
+    let pass;
+    try {
+      pass = await this.prisma.pass.create({
+        data: {
+          tenantId: card.tenantId,
+          cardId,
+          customerId,
+          serialNumber: serial,
+          qrToken,
+          authToken,
+        },
+      });
+    } catch (e: any) {
+      if (e?.code === 'P2002') {
+        // Race con otro caller que creó el mismo pass — devolvemos el suyo.
+        const winner = await this.prisma.pass.findUnique({
+          where: { cardId_customerId: { cardId, customerId } },
+        });
+        if (winner) return winner;
+      }
+      throw e;
+    }
 
     const finalQr = sign(
       { pid: pass.id, tid: card.tenantId },
