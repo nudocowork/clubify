@@ -398,13 +398,20 @@ export default function PlanoPage() {
               onBloquear={() => selectedTable && toggleBlock(selectedTable)}
             />
           ) : (
-            <EditorSidebar
-              table={selectedTable}
-              zones={zones}
-              onPatch={(patch) => selectedTable && patchTable(selectedTable.id, patch)}
-              onToggleBlock={() => selectedTable && toggleBlock(selectedTable)}
-              onDelete={() => selectedTable && deleteTable(selectedTable)}
-            />
+            <>
+              <EditorSidebar
+                table={selectedTable}
+                zones={zones}
+                onPatch={(patch) => selectedTable && patchTable(selectedTable.id, patch)}
+                onToggleBlock={() => selectedTable && toggleBlock(selectedTable)}
+                onDelete={() => selectedTable && deleteTable(selectedTable)}
+              />
+              <ZoneManagerCard
+                zones={zones}
+                locationId={activeLocationId}
+                onChanged={loadAll}
+              />
+            </>
           )}
         </div>
       </div>
@@ -984,5 +991,130 @@ function Legend({
       />
       {label}
     </span>
+  );
+}
+
+// ============ Zone Manager (Editor mode only) ============
+
+const ZONE_TYPES = [
+  { value: 'INDOOR', label: 'Indoor' },
+  { value: 'OUTDOOR', label: 'Terraza' },
+  { value: 'BAR', label: 'Barra' },
+  { value: 'PRIVATE', label: 'Privado' },
+] as const;
+
+function ZoneManagerCard({
+  zones,
+  locationId,
+  onChanged,
+}: {
+  zones: Zone[];
+  locationId: string | null;
+  onChanged: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [type, setType] = useState<'INDOOR' | 'OUTDOOR' | 'BAR' | 'PRIVATE'>('INDOOR');
+  const [busy, setBusy] = useState(false);
+
+  async function createZone(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setBusy(true);
+    try {
+      await api('/reservations/zones', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: name.trim(),
+          type,
+          locationId: locationId || null,
+        }),
+      });
+      setName('');
+      onChanged();
+      toast('Zona creada', 'success');
+    } catch (e: any) {
+      toast(e.message || 'No se pudo crear', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeZone(zoneId: string) {
+    if (!confirm('¿Eliminar esta zona? Las mesas en ella quedarán sin zona.')) return;
+    try {
+      await api(`/reservations/zones/${zoneId}`, { method: 'DELETE' });
+      onChanged();
+      toast('Zona eliminada', 'success');
+    } catch (e: any) {
+      toast(e.message || 'No se pudo eliminar', 'error');
+    }
+  }
+
+  return (
+    <div className="card card-pad">
+      <h3 className="text-sm font-semibold m-0">Zonas</h3>
+      <p className="text-[11px] text-mute mt-0.5 mb-2 leading-snug">
+        Agrupa mesas por área (Salón, Terraza, Barra, Privado). El cliente puede elegirlas al
+        reservar online.
+      </p>
+
+      {zones.length === 0 ? (
+        <p className="text-xs text-mute italic mb-2">Sin zonas todavía.</p>
+      ) : (
+        <ul className="space-y-1 mb-3">
+          {zones.map((z) => {
+            const tStyle = ZONE_BG[z.type] ?? ZONE_BG.INDOOR;
+            return (
+              <li
+                key={z.id}
+                className="flex items-center justify-between text-xs py-1.5 px-2 rounded"
+                style={{ background: tStyle.bg, border: `1px solid ${tStyle.border}` }}
+              >
+                <span className="flex items-center gap-2 min-w-0">
+                  <span
+                    className="text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider"
+                    style={{ background: tStyle.label, color: 'white' }}
+                  >
+                    {ZONE_TYPES.find((t) => t.value === z.type)?.label ?? z.type}
+                  </span>
+                  <span className="font-semibold truncate">{z.name}</span>
+                </span>
+                <button
+                  onClick={() => removeZone(z.id)}
+                  className="text-mute hover:text-bad text-base leading-none px-1"
+                  title="Eliminar zona"
+                >
+                  ×
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      <form onSubmit={createZone} className="flex gap-1">
+        <input
+          className="input text-xs flex-1"
+          placeholder="Nueva zona (Salón, Terraza...)"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <select
+          className="input text-xs"
+          value={type}
+          onChange={(e) => setType(e.target.value as any)}
+          style={{ width: 100 }}
+        >
+          {ZONE_TYPES.map((t) => (
+            <option key={t.value} value={t.value}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+        <button className="btn-primary text-xs px-3" disabled={busy || !name.trim()}>
+          +
+        </button>
+      </form>
+    </div>
   );
 }
