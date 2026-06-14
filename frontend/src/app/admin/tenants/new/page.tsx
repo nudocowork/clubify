@@ -98,6 +98,13 @@ export default function NewTenant() {
   }
 
   if (result) {
+    // La contraseña a mostrar: si la generó el backend → result.ownerTempPassword;
+    // si el admin la entró manualmente → form.ownerPassword (la guardamos en
+    // memoria al submit, no se pierde al cambiar el state).
+    const password = result.ownerTempPassword || form.ownerPassword || '';
+    const email = result.tenant.email;
+    const brand = result.tenant.brandName;
+    const phone = form.phone;
     return (
       <div className="max-w-xl">
         <div className="page-head">
@@ -106,26 +113,40 @@ export default function NewTenant() {
         <div className="card card-pad">
           <div className="flex items-center gap-2 text-ok">
             <Icon name="check" size={22} />
-            <h3 className="m-0 text-lg font-semibold">Listo</h3>
+            <h3 className="m-0 text-lg font-semibold">{brand} listo</h3>
           </div>
-          <div className="mt-4 text-sm space-y-1">
-            <div>
-              <span className="text-mute">Marca:</span>{' '}
-              <strong>{result.tenant.brandName}</strong>
-            </div>
-            <div>
-              <span className="text-mute">Email del dueño:</span> {result.tenant.email}
-            </div>
-            {result.ownerTempPassword && (
-              <div className="mt-3 rounded-lg bg-warn-soft px-3 py-3">
-                <div className="text-[11px] uppercase tracking-wider text-warn-ink font-semibold">
-                  Contraseña temporal
-                </div>
-                <code className="text-base text-warn-ink">{result.ownerTempPassword}</code>
-              </div>
+          <p className="text-sm text-mute mt-1.5 mb-4">
+            Comparte estas credenciales con el dueño. La contraseña no se vuelve
+            a mostrar después de salir de esta pantalla.
+          </p>
+
+          <div className="space-y-2.5">
+            <CredentialRow label="Usuario / Email" value={email} />
+            {password && (
+              <CredentialRow label="Contraseña" value={password} mono highlight />
             )}
+            {phone && <CredentialRow label="Teléfono" value={phone} />}
           </div>
-          <div className="mt-6 flex gap-2.5">
+
+          <div className="mt-5 grid grid-cols-2 gap-2">
+            <SendButton
+              kind="email"
+              email={email}
+              brand={brand}
+              password={password}
+              loginUrl="https://soyclubify.com/login"
+            />
+            <SendButton
+              kind="whatsapp"
+              phone={phone}
+              email={email}
+              brand={brand}
+              password={password}
+              loginUrl="https://soyclubify.com/login"
+            />
+          </div>
+
+          <div className="mt-6 flex gap-2.5 pt-4 border-t border-line">
             <button className="btn-ghost" onClick={() => setResult(null)}>
               Crear otro
             </button>
@@ -431,5 +452,116 @@ export default function NewTenant() {
         </div>
       </form>
     </div>
+  );
+}
+
+function CredentialRow({
+  label,
+  value,
+  mono,
+  highlight,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  highlight?: boolean;
+}) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
+  }
+  return (
+    <div
+      className={`flex items-center gap-2 rounded-lg px-3 py-2.5 ${
+        highlight ? 'bg-warn-soft' : 'bg-bg2/50'
+      }`}
+    >
+      <div className="flex-1 min-w-0">
+        <div
+          className={`text-[10px] uppercase tracking-wider font-semibold ${
+            highlight ? 'text-warn-ink' : 'text-mute'
+          }`}
+        >
+          {label}
+        </div>
+        <div
+          className={`text-sm truncate ${mono ? 'font-mono' : ''} ${
+            highlight ? 'text-warn-ink font-semibold' : 'text-ink'
+          }`}
+        >
+          {value}
+        </div>
+      </div>
+      <button
+        onClick={copy}
+        className="shrink-0 text-xs font-semibold px-2.5 py-1.5 rounded-md bg-white border border-line hover:bg-bg2"
+        type="button"
+      >
+        {copied ? '✓ Copiado' : 'Copiar'}
+      </button>
+    </div>
+  );
+}
+
+function SendButton({
+  kind,
+  email,
+  phone,
+  brand,
+  password,
+  loginUrl,
+}: {
+  kind: 'email' | 'whatsapp';
+  email?: string;
+  phone?: string;
+  brand: string;
+  password: string;
+  loginUrl: string;
+}) {
+  const body =
+    `Hola, te creamos el panel de ${brand}.\n\n` +
+    `Usuario: ${email}\n` +
+    `Contraseña: ${password}\n\n` +
+    `Entra acá: ${loginUrl}\n\n` +
+    `Te recomendamos cambiar la contraseña al primer login.`;
+  if (kind === 'email') {
+    const href = `mailto:${encodeURIComponent(email ?? '')}?subject=${encodeURIComponent(
+      `Credenciales de ${brand}`,
+    )}&body=${encodeURIComponent(body)}`;
+    return (
+      <a
+        href={href}
+        className="text-center text-sm font-semibold py-2.5 rounded-lg bg-white border border-line hover:bg-bg2"
+      >
+        ✉ Enviar por email
+      </a>
+    );
+  }
+  // WhatsApp: requiere teléfono. Si no hay, deshabilitamos.
+  if (!phone) {
+    return (
+      <button
+        disabled
+        className="text-sm font-semibold py-2.5 rounded-lg bg-bg2/50 text-mute cursor-not-allowed"
+      >
+        WhatsApp · sin teléfono
+      </button>
+    );
+  }
+  const cleanPhone = phone.replace(/\D/g, '');
+  const href = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(body)}`;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="text-center text-sm font-semibold py-2.5 rounded-lg bg-[#25D366] text-white hover:opacity-95"
+    >
+      💬 Enviar por WhatsApp
+    </a>
   );
 }
