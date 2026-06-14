@@ -144,6 +144,14 @@ export class SuperAdminController {
     return this.svc.adjustCredits(body, user.id);
   }
 
+  /** Recalcula `creditsCommitted` por marca en base a los tenants ACTIVE
+   *  que vencen dentro de 30 días. Se corre solo en el cron diario; este
+   *  endpoint permite forzar el refresh desde el panel. */
+  @Post('credits/refresh-committed')
+  refreshCommitted() {
+    return this.renewals.refreshCommittedCredits();
+  }
+
   // -------- Hotmart Links --------
 
   @Get('hotmart-links')

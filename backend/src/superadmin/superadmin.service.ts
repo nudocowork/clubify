@@ -678,6 +678,10 @@ export class SuperAdminService {
       }),
     ]);
 
+    const committedRefreshedAt = await this.prisma.setting.findUnique({
+      where: { key: 'platform.creditsCommittedRefreshedAt' },
+    });
+
     return {
       summary: {
         available: agg._sum.creditsAvailable ?? 0,
@@ -685,6 +689,7 @@ export class SuperAdminService {
         usedMonth: Math.abs(monthAgg._sum.amount ?? 0),
         usedYear: Math.abs(yearAgg._sum.amount ?? 0),
         pendingTenants,
+        committedRefreshedAt: committedRefreshedAt?.value ?? null,
       },
       whiteLabels,
     };
