@@ -138,6 +138,19 @@ export class HotmartService {
       return { ok: true, action: 'duplicate_event' };
     }
 
+    // Master Admin: si el productId del payload matchea un HotmartCreditLink,
+    // es un pack de créditos (no una suscripción de negocio). Lo manejamos
+    // ACÁ, antes de findTenant, porque las marcas blancas no tienen tenant.
+    if (event === 'PURCHASE_APPROVED' || event === 'PURCHASE_COMPLETE') {
+      const creditHandled = await this.tryHandleCreditPurchase(payload).catch((e) => {
+        this.logger.error(`tryHandleCreditPurchase falló: ${(e as Error)?.message}`);
+        return null;
+      });
+      if (creditHandled) {
+        return { ok: true, action: creditHandled };
+      }
+    }
+
     // Localizar tenant por email del buyer (caso primer pago) o por subscriberCode (renovaciones).
     const tenant = await this.findTenant({ buyerEmail, subscriberCode });
     if (!tenant) {
@@ -224,6 +237,114 @@ export class HotmartService {
       );
       return true;
     }
+  }
+
+  /**
+   * Master Admin (2026-06-14): si el productId del payload matchea un
+   * HotmartCreditLink registrado, acreditamos automáticamente los créditos
+   * a la marca blanca correspondiente.
+   *
+   * Estrategia de matching de marca: por orden de precedencia
+   *   1) buyer.email coincide (insensitive) con `WhiteLabel.adminEmail`
+   *   2) buyer.email coincide con un User PLATFORM_OWNER (compra hecha
+   *      por el operador de la plataforma → asignar a alguna marca via
+   *      reasignación manual; por ahora queda UNASSIGNED)
+   *   3) Sin match → guarda UNASSIGNED para reasignación desde
+   *      /superadmin/creditos.
+   *
+   * Idempotency: transactionId UNIQUE en HotmartCreditPurchase. Si ya
+   * existe → devuelve 'credit_purchase_duplicate' (no duplica créditos).
+   *
+   * Devuelve string con la acción si la compra fue tratada como pack de
+   * créditos, o null si NO matchea ningún productId (sigue al flujo
+   * normal de suscripción de tenant).
+   */
+  async tryHandleCreditPurchase(payload: HotmartWebhookPayload): Promise<string | null> {
+    const productIdRaw = payload.data?.product?.id;
+    if (productIdRaw === undefined || productIdRaw === null) return null;
+    const productId = String(productIdRaw);
+
+    const creditLink = await this.prisma.hotmartCreditLink.findFirst({
+      where: { hotmartProductId: productId, isActive: true },
+    });
+    if (!creditLink) return null; // no es pack de créditos
+
+    const buyerEmail = payload.data?.buyer?.email?.toLowerCase();
+    const transactionId =
+      payload.data?.purchase?.transaction ?? `derived:${productId}:${buyerEmail ?? '?'}`;
+
+    // Idempotency vía transactionId UNIQUE.
+    const existing = await this.prisma.hotmartCreditPurchase.findUnique({
+      where: { transactionId },
+    });
+    if (existing) {
+      this.logger.log(
+        `Hotmart credit purchase ${transactionId} ya procesada — skip duplicate`,
+      );
+      return 'credit_purchase_duplicate';
+    }
+
+    // Match con marca por adminEmail.
+    let whiteLabelId: string | null = null;
+    if (buyerEmail) {
+      const wl = await this.prisma.whiteLabel.findFirst({
+        where: { adminEmail: { equals: buyerEmail, mode: 'insensitive' } },
+      });
+      if (wl) whiteLabelId = wl.id;
+    }
+
+    if (!whiteLabelId) {
+      // Sin match — guardamos UNASSIGNED para reasignación manual.
+      await this.prisma.hotmartCreditPurchase.create({
+        data: {
+          transactionId,
+          hotmartProductId: productId,
+          creditLinkId: creditLink.id,
+          credits: creditLink.credits,
+          buyerEmail: buyerEmail ?? '',
+          status: 'UNASSIGNED',
+          rawPayload: payload as any,
+        },
+      });
+      this.logger.warn(
+        `Hotmart credit purchase ${transactionId} sin marca — UNASSIGNED (buyer=${buyerEmail})`,
+      );
+      return 'credit_purchase_unassigned';
+    }
+
+    // Match: acredita los créditos a la marca + audit row.
+    await this.prisma.$transaction([
+      this.prisma.hotmartCreditPurchase.create({
+        data: {
+          transactionId,
+          hotmartProductId: productId,
+          creditLinkId: creditLink.id,
+          credits: creditLink.credits,
+          buyerEmail: buyerEmail ?? '',
+          whiteLabelId,
+          status: 'ASSIGNED',
+          assignedAt: new Date(),
+          rawPayload: payload as any,
+        },
+      }),
+      this.prisma.whiteLabel.update({
+        where: { id: whiteLabelId },
+        data: { creditsAvailable: { increment: creditLink.credits } },
+      }),
+      this.prisma.creditTransaction.create({
+        data: {
+          whiteLabelId,
+          type: 'PURCHASE',
+          amount: creditLink.credits,
+          note: `Compra Hotmart · ${creditLink.label} · tx=${transactionId}`,
+        },
+      }),
+    ]);
+
+    this.logger.log(
+      `Hotmart credit purchase ${transactionId}: ${creditLink.credits} créditos → marca ${whiteLabelId}`,
+    );
+    return 'credit_purchase_assigned';
   }
 
   /** Switch principal — extraído para que handleEvent pueda

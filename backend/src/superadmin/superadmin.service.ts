@@ -25,6 +25,7 @@ export type HotmartLinkDto = {
   currency?: string;
   position?: number;
   isActive?: boolean;
+  hotmartProductId?: string | null;
 };
 
 export type CreditAdjustDto = {
@@ -769,6 +770,71 @@ export class SuperAdminService {
     });
   }
 
+  // ============================================================
+  //                  HOTMART CREDIT PURCHASES
+  // ============================================================
+
+  /** Lista las compras Hotmart UNASSIGNED para reasignación manual. */
+  async listUnassignedCreditPurchases() {
+    return this.prisma.hotmartCreditPurchase.findMany({
+      where: { status: 'UNASSIGNED' },
+      include: { creditLink: { select: { label: true, credits: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+  }
+
+  /** Lista todas las compras (assigned + unassigned) — paginado simple. */
+  async listAllCreditPurchases(limit = 50) {
+    return this.prisma.hotmartCreditPurchase.findMany({
+      include: {
+        creditLink: { select: { label: true, credits: true } },
+        whiteLabel: { select: { name: true, slug: true, primaryColor: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(200, limit),
+    });
+  }
+
+  /** Asigna una compra UNASSIGNED a una marca: acredita los créditos
+   *  + crea CreditTransaction + marca la compra como ASSIGNED. */
+  async assignCreditPurchase(purchaseId: string, whiteLabelId: string, actorId?: string) {
+    const purchase = await this.prisma.hotmartCreditPurchase.findUnique({
+      where: { id: purchaseId },
+    });
+    if (!purchase) throw new NotFoundException('Compra no encontrada');
+    if (purchase.status === 'ASSIGNED') {
+      throw new BadRequestException('Esta compra ya fue asignada');
+    }
+    const wl = await this.prisma.whiteLabel.findUnique({ where: { id: whiteLabelId } });
+    if (!wl) throw new NotFoundException('Marca no encontrada');
+
+    await this.prisma.$transaction([
+      this.prisma.hotmartCreditPurchase.update({
+        where: { id: purchaseId },
+        data: { whiteLabelId, status: 'ASSIGNED', assignedAt: new Date() },
+      }),
+      this.prisma.whiteLabel.update({
+        where: { id: whiteLabelId },
+        data: { creditsAvailable: { increment: purchase.credits } },
+      }),
+      this.prisma.creditTransaction.create({
+        data: {
+          whiteLabelId,
+          type: 'PURCHASE',
+          amount: purchase.credits,
+          note: `Compra Hotmart reasignada · tx=${purchase.transactionId}`,
+        },
+      }),
+    ]);
+    await this.logAction(actorId, 'superadmin.hotmart_purchase.assign', `hotmartPurchase:${purchaseId}`, {
+      transactionId: purchase.transactionId,
+      whiteLabelName: wl.name,
+      credits: purchase.credits,
+    });
+    return { ok: true };
+  }
+
   async createHotmartLink(dto: HotmartLinkDto, actorId?: string) {
     if (!dto.credits || dto.credits < 1) throw new BadRequestException('credits >= 1');
     if (!dto.label?.trim()) throw new BadRequestException('label requerido');
@@ -782,6 +848,7 @@ export class SuperAdminService {
         currency: dto.currency ?? 'MXN',
         position: dto.position ?? 0,
         isActive: dto.isActive ?? true,
+        hotmartProductId: dto.hotmartProductId?.trim() || null,
       },
     });
     await this.logAction(actorId, 'superadmin.hotmart_link.create', `hotmartLink:${created.id}`, {
@@ -804,6 +871,9 @@ export class SuperAdminService {
     };
     if (patch.price !== undefined) {
       data.price = patch.price === null ? null : new Prisma.Decimal(patch.price);
+    }
+    if (patch.hotmartProductId !== undefined) {
+      data.hotmartProductId = patch.hotmartProductId?.trim() || null;
     }
     const updated = await this.prisma.hotmartCreditLink.update({ where: { id }, data });
     await this.logAction(actorId, 'superadmin.hotmart_link.update', `hotmartLink:${id}`, {

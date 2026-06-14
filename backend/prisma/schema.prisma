@@ -3767,6 +3767,7 @@ model WhiteLabel {
   /// marca, gestionan branding, etc. Es la cuenta admin "de la marca".
   admins          User[]               @relation("WhiteLabelAdmin")
   adminInvites    WhiteLabelAdminInvite[]
+  hotmartCreditPurchases HotmartCreditPurchase[]
 
   @@index([status])
 }
@@ -3840,9 +3841,44 @@ model HotmartCreditLink {
   /// Orden de despliegue.
   position  Int      @default(0)
   isActive  Boolean  @default(true)
+  /// productId de Hotmart (`payload.data.product.id`). Cuando el webhook
+  /// recibe un PURCHASE_APPROVED y este matchea, acreditamos automáticamente
+  /// los créditos a la marca cuyo adminEmail = buyer.email.
+  hotmartProductId String?
   updatedAt DateTime @updatedAt
 
+  purchases HotmartCreditPurchase[]
+
   @@index([isActive, position])
+  @@index([hotmartProductId])
+}
+
+/// Registro de cada compra de pack de créditos hecha en Hotmart. Persistente
+/// para idempotency (`transactionId UNIQUE`) y auditoría. Si el buyer.email
+/// no matchea ninguna marca al momento de recibir el webhook, queda
+/// UNASSIGNED y el PLATFORM_OWNER la reasigna manualmente desde
+/// /superadmin/creditos.
+model HotmartCreditPurchase {
+  id              String     @id @default(uuid())
+  transactionId   String     @unique
+  hotmartProductId String
+  creditLinkId    String?
+  creditLink      HotmartCreditLink? @relation(fields: [creditLinkId], references: [id], onDelete: SetNull)
+  credits         Int
+  buyerEmail      String
+  whiteLabelId    String?
+  whiteLabel      WhiteLabel? @relation(fields: [whiteLabelId], references: [id], onDelete: SetNull)
+  /// ASSIGNED = créditos acreditados a una marca · UNASSIGNED = pendiente de
+  /// reasignación manual · REFUNDED = pendiente cuando llegue evento de refund.
+  status          String     @default("UNASSIGNED")
+  /// Payload original del webhook (para debugging).
+  rawPayload      Json?
+  createdAt       DateTime   @default(now())
+  assignedAt      DateTime?
+
+  @@index([status])
+  @@index([whiteLabelId])
+  @@index([buyerEmail])
 }
 
 /// Integraciones globales de la plataforma (NO marcas blancas). Ejemplo:
