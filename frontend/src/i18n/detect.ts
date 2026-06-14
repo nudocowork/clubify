@@ -28,18 +28,28 @@ export function detectLocaleSync(): Locale {
 
   const acceptLang = hdrs.get('accept-language');
   if (acceptLang) {
-    const langs = acceptLang
-      .split(',')
-      .map((s) => s.split(';')[0].trim().toLowerCase().slice(0, 2));
-    for (const l of langs) {
-      if (isValidLocale(l)) return l;
+    const langs = acceptLang.split(',').map((s) => s.split(';')[0].trim());
+    // Tries exact match first (en-GB, en-US, pt-BR), then 2-letter base.
+    for (const raw of langs) {
+      // Normalize "en-gb" → "en-GB" para el match con isValidLocale.
+      const parts = raw.split('-');
+      if (parts.length >= 2) {
+        const normalized = `${parts[0].toLowerCase()}-${parts[1].toUpperCase()}`;
+        if (isValidLocale(normalized)) return normalized;
+      }
+      const base = raw.toLowerCase().slice(0, 2);
+      if (isValidLocale(base)) return base;
     }
   }
 
   const country = hdrs.get('x-vercel-ip-country');
   if (country) {
+    if (country === 'BR') return 'pt-BR';
+    if (country === 'PT') return 'pt';
     if (PT_COUNTRIES.has(country)) return 'pt';
     if (HISPANIC_COUNTRIES.has(country)) return 'es';
+    if (country === 'GB') return 'en-GB';
+    if (country === 'US') return 'en-US';
     return 'en';
   }
 
