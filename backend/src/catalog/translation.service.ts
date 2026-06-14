@@ -20,8 +20,20 @@ import { PrismaService } from '../common/prisma/prisma.service';
 export const SUPPORTED_PUBLIC_LOCALES = ['es', 'en', 'pt'] as const;
 export type PublicLocale = (typeof SUPPORTED_PUBLIC_LOCALES)[number];
 
+/** Mapeo de variantes regionales al locale base que el sistema de
+ *  traducción Claude Haiku usa como source-of-truth. en-GB/en-US → en;
+ *  pt-BR → pt. Diferencias UK-vs-US English en menús no justifican
+ *  duplicar el cache MenuTranslation. */
+const VARIANT_TO_BASE: Record<string, PublicLocale> = {
+  'en-GB': 'en',
+  'en-US': 'en',
+  'pt-BR': 'pt',
+};
+
 export function normalizeLocale(raw?: string | null): PublicLocale {
-  return raw && (SUPPORTED_PUBLIC_LOCALES as readonly string[]).includes(raw)
+  if (!raw) return 'es';
+  if (VARIANT_TO_BASE[raw]) return VARIANT_TO_BASE[raw];
+  return (SUPPORTED_PUBLIC_LOCALES as readonly string[]).includes(raw)
     ? (raw as PublicLocale)
     : 'es';
 }

@@ -54,7 +54,8 @@ class ResetPasswordDto {
 }
 
 class SetLocaleDto {
-  @IsString() @IsIn(['es', 'en', 'pt']) locale!: 'es' | 'en' | 'pt';
+  @IsString() @IsIn(['es', 'en', 'pt', 'en-GB', 'en-US', 'pt-BR'])
+  locale!: 'es' | 'en' | 'pt' | 'en-GB' | 'en-US' | 'pt-BR';
 }
 
 class SignupAttributionDto {

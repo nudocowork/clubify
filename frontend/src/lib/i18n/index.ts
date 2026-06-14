@@ -11,20 +11,37 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { messages, MessageKey } from './messages';
 
-export type Locale = 'es' | 'en' | 'pt';
+export type Locale = 'es' | 'en' | 'pt' | 'en-GB' | 'en-US' | 'pt-BR';
+type BaseLocale = 'es' | 'en' | 'pt';
 
-export const LOCALES: Locale[] = ['es', 'en', 'pt'];
+export const LOCALES: Locale[] = ['es', 'en', 'pt', 'en-GB', 'en-US', 'pt-BR'];
+
+/** Variantes regionales que comparten dictionary con un locale base. */
+const BASE_LOCALE: Record<Locale, BaseLocale> = {
+  es: 'es',
+  en: 'en',
+  pt: 'pt',
+  'en-GB': 'en',
+  'en-US': 'en',
+  'pt-BR': 'pt',
+};
 
 export const LOCALE_NAMES: Record<Locale, string> = {
   es: 'Español',
   en: 'English',
   pt: 'Português',
+  'en-GB': 'English (UK)',
+  'en-US': 'English (US)',
+  'pt-BR': 'Português (BR)',
 };
 
 export const LOCALE_FLAGS: Record<Locale, string> = {
   es: '🇪🇸',
   en: '🇺🇸',
   pt: '🇧🇷',
+  'en-GB': '🇬🇧',
+  'en-US': '🇺🇸',
+  'pt-BR': '🇧🇷',
 };
 
 const STORAGE_KEY = 'clubify:locale';
@@ -36,9 +53,16 @@ function detectInitial(): Locale {
     if (stored && LOCALES.includes(stored)) return stored;
   } catch {}
   const nav =
-    typeof navigator !== 'undefined' ? navigator.language.toLowerCase() : 'es';
-  if (nav.startsWith('en')) return 'en';
-  if (nav.startsWith('pt')) return 'pt';
+    typeof navigator !== 'undefined' ? navigator.language : 'es';
+  // Detect specific variants first (en-GB, en-US, pt-BR), fall back to
+  // base. navigator.language returns "en-GB", "es-MX", etc.
+  const normalized = nav.includes('-')
+    ? `${nav.split('-')[0].toLowerCase()}-${nav.split('-')[1].toUpperCase()}`
+    : nav.toLowerCase();
+  if ((LOCALES as string[]).includes(normalized)) return normalized as Locale;
+  const lower = nav.toLowerCase();
+  if (lower.startsWith('en')) return 'en';
+  if (lower.startsWith('pt')) return 'pt';
   return 'es';
 }
 
@@ -112,7 +136,11 @@ function translateAt(
   key: MessageKey,
   vars?: Record<string, string | number>,
 ): string {
-  const dict = messages[l] ?? messages.es;
+  // Variantes regionales (en-GB, pt-BR, etc) resuelven al dictionary del
+  // locale base. Si en el futuro se agregan overrides por variante, esto
+  // cambiará por un merge {base, override}.
+  const base = BASE_LOCALE[l];
+  const dict = messages[base] ?? messages.es;
   let str: string = dict[key] ?? messages.es[key] ?? (key as string);
   if (vars) {
     for (const [k, v] of Object.entries(vars)) {

@@ -767,7 +767,10 @@ export class AuthService {
    * ('es' | 'en' | 'pt') a nivel controller. Idempotente — actualizar
    * con el mismo valor no rompe nada.
    */
-  async updatePreferredLocale(userId: string, locale: 'es' | 'en' | 'pt') {
+  async updatePreferredLocale(
+    userId: string,
+    locale: 'es' | 'en' | 'pt' | 'en-GB' | 'en-US' | 'pt-BR',
+  ) {
     await this.prisma.user.update({
       where: { id: userId },
       data: { preferredLocale: locale },
