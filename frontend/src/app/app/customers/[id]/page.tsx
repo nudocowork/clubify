@@ -21,6 +21,9 @@ type Stamp = {
   action: string;
   amount: number;
   note: string | null;
+  /** Monto de la compra que motivó el sello. Informativo (no afecta sellos).
+   *  Se usa para calcular ticket promedio y total gastado por cliente. */
+  purchaseAmount: number | string | null;
   createdAt: string;
 };
 
@@ -594,32 +597,68 @@ export default function CustomerDetail() {
           {/* Sellos */}
           {c.stamps.length > 0 && (
             <div className="card card-pad">
-              <h3 className="font-semibold mb-3">
-                Actividad de sellos ({c.stamps.length})
-              </h3>
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <h3 className="font-semibold m-0">
+                  Actividad de sellos ({c.stamps.length})
+                </h3>
+                {(() => {
+                  const stampsWithAmt = c.stamps.filter(
+                    (s) => s.purchaseAmount != null && Number(s.purchaseAmount) > 0,
+                  );
+                  if (stampsWithAmt.length === 0) return null;
+                  const total = stampsWithAmt.reduce(
+                    (sum, s) => sum + Number(s.purchaseAmount),
+                    0,
+                  );
+                  const avg = total / stampsWithAmt.length;
+                  return (
+                    <div className="text-right shrink-0">
+                      <div className="text-[10px] uppercase tracking-wider text-mute font-bold">
+                        Gastado en {stampsWithAmt.length} compra{stampsWithAmt.length === 1 ? '' : 's'}
+                      </div>
+                      <div className="text-base font-bold text-brand">
+                        {COP(total)}
+                      </div>
+                      <div className="text-[11px] text-mute">
+                        Ticket promedio · {COP(avg)}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
               <div className="space-y-1.5 text-sm">
-                {c.stamps.slice(0, 15).map((s) => (
-                  <div
-                    key={s.id}
-                    className="flex items-center justify-between py-1.5 border-b border-line2 last:border-0"
-                  >
-                    <div>
-                      <span className="font-medium">{s.action}</span>
-                      {s.note && (
-                        <span className="text-xs text-mute ml-2">
-                          {s.note}
+                {c.stamps.slice(0, 15).map((s) => {
+                  const amt = s.purchaseAmount != null ? Number(s.purchaseAmount) : null;
+                  return (
+                    <div
+                      key={s.id}
+                      className="flex items-center justify-between py-1.5 border-b border-line2 last:border-0"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{s.action}</span>
+                          {amt && amt > 0 && (
+                            <span className="text-xs font-semibold text-brand">
+                              {COP(amt)}
+                            </span>
+                          )}
+                        </div>
+                        {s.note && (
+                          <div className="text-[11px] text-mute mt-0.5 truncate">
+                            {s.note}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-mute shrink-0">
+                        <span className="font-medium text-ink">
+                          {Number(s.amount) > 0 ? '+' : ''}
+                          {Number(s.amount)}
                         </span>
-                      )}
+                        <span>{fmtDate(s.createdAt)}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3 text-xs text-mute">
-                      <span className="font-medium text-ink">
-                        {Number(s.amount) > 0 ? '+' : ''}
-                        {Number(s.amount)}
-                      </span>
-                      <span>{fmtDate(s.createdAt)}</span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
