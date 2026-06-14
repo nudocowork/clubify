@@ -2696,6 +2696,11 @@ export class ReferralsService {
       },
     });
 
+    // inviteAffiliate puede fallar (email pertenece a otro role, error
+    // transitorio, etc). Si falla, eliminamos la ReferralCode recién
+    // creada para no dejarla huérfana — sino el próximo intento del
+    // mismo email choca con `assertUniqueAffiliateEmail` y bloquea
+    // permanentemente al usuario público.
     const inviteResult = await this.auth
       .inviteAffiliate({
         email: dto.email,
@@ -2712,6 +2717,13 @@ export class ReferralsService {
         return null;
       });
     if (!inviteResult) {
+      await this.prisma.referralCode
+        .delete({ where: { id: created.id } })
+        .catch((e) =>
+          this.logger.error(
+            `Cleanup de ReferralCode ${created.id} falló: ${(e as Error).message}`,
+          ),
+        );
       throw new BadRequestException(
         'No se pudo crear la cuenta. Intenta de nuevo en unos minutos.',
       );

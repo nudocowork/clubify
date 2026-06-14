@@ -157,14 +157,16 @@ function fmt(n: number, currency = 'COP', symbolOverride: string | null = null) 
 function fmtProductPrice(
   p: Pick<Product, 'basePrice' | 'priceMode' | 'priceMax'>,
   currency = 'COP',
+  symbolOverride: string | null = null,
 ): string {
   if (p.priceMode === 'RANGE' && p.priceMax != null && p.priceMax > p.basePrice) {
-    return `${fmt(Number(p.basePrice), currency)} — ${fmt(
+    return `${fmt(Number(p.basePrice), currency, symbolOverride)} — ${fmt(
       Number(p.priceMax),
       currency,
+      symbolOverride,
     )}`;
   }
-  return fmt(Number(p.basePrice), currency);
+  return fmt(Number(p.basePrice), currency, symbolOverride);
 }
 
 /** Aplana una categoría en blocks de productos: el primer block son
@@ -775,6 +777,7 @@ function StorefrontPublicInner() {
             menu={localizedMenu}
             primary={primary}
             currency={s.currency}
+            currencySymbol={currencySymbol}
             onPick={setOpenProduct}
             backButtonConfig={s.backButtonConfig}
             mode={mode}
@@ -1964,6 +1967,9 @@ type RenderProps = {
   menu: Category[];
   primary: string;
   currency: string;
+  /** Símbolo monetario override (Bs, Ref., etc) del tenant. Null = símbolo
+   *  automático de Intl según `currency`. */
+  currencySymbol: string | null;
   onPick: (p: Product) => void;
   /** Solo SECTIONS lo usa por ahora — estilo del botón Volver. */
   backButtonConfig?: BackButtonConfig | null;
@@ -1972,29 +1978,30 @@ type RenderProps = {
   mode: StorefrontMode;
 };
 
-function MenuRenderer({ layout, menu, primary, currency, onPick, backButtonConfig, mode }: RenderProps) {
+function MenuRenderer({ layout, menu, primary, currency, currencySymbol, onPick, backButtonConfig, mode }: RenderProps) {
   if (layout === 'GRID')
-    return <LayoutGrid menu={menu} primary={primary} currency={currency} onPick={onPick} mode={mode} />;
+    return <LayoutGrid menu={menu} primary={primary} currency={currency} currencySymbol={currencySymbol} onPick={onPick} mode={mode} />;
   if (layout === 'CAROUSELS')
-    return <LayoutCarousels menu={menu} primary={primary} currency={currency} onPick={onPick} mode={mode} />;
+    return <LayoutCarousels menu={menu} primary={primary} currency={currency} currencySymbol={currencySymbol} onPick={onPick} mode={mode} />;
   if (layout === 'CLEAN')
-    return <LayoutClean menu={menu} primary={primary} currency={currency} onPick={onPick} mode={mode} />;
+    return <LayoutClean menu={menu} primary={primary} currency={currency} currencySymbol={currencySymbol} onPick={onPick} mode={mode} />;
   if (layout === 'COMPACT')
-    return <LayoutCompact menu={menu} primary={primary} currency={currency} onPick={onPick} mode={mode} />;
+    return <LayoutCompact menu={menu} primary={primary} currency={currency} currencySymbol={currencySymbol} onPick={onPick} mode={mode} />;
   if (layout === 'CLUVI')
-    return <LayoutCluvi menu={menu} primary={primary} currency={currency} onPick={onPick} mode={mode} />;
+    return <LayoutCluvi menu={menu} primary={primary} currency={currency} currencySymbol={currencySymbol} onPick={onPick} mode={mode} />;
   if (layout === 'SECTIONS')
     return (
       <LayoutSections
         menu={menu}
         primary={primary}
         currency={currency}
+        currencySymbol={currencySymbol}
         onPick={onPick}
         backButtonConfig={backButtonConfig}
         mode={mode}
       />
     );
-  return <LayoutClassic menu={menu} primary={primary} currency={currency} onPick={onPick} mode={mode} />;
+  return <LayoutClassic menu={menu} primary={primary} currency={currency} currencySymbol={currencySymbol} onPick={onPick} mode={mode} />;
 }
 
 type LP = Omit<RenderProps, 'layout'>;
@@ -2073,7 +2080,7 @@ function AccordionSection({
 }
 
 // 1️⃣ CLASSIC — foto izq + info der (estilo Rappi/UberEats)
-function LayoutClassic({ menu, primary, currency, onPick }: LP) {
+function LayoutClassic({ menu, primary, currency, currencySymbol, onPick }: LP) {
   return (
     <>
       {menu.map((cat) => (
@@ -2123,7 +2130,7 @@ function LayoutClassic({ menu, primary, currency, onPick }: LP) {
                   <div className="font-semibold text-sm">{p.name}</div>
                   <div className="text-xs text-mute mt-0.5 line-clamp-2">{p.description}</div>
                   <div className="flex items-center justify-between mt-2">
-                    <div className="font-bold text-sm">{fmtProductPrice(p, currency)}</div>
+                    <div className="font-bold text-sm">{fmtProductPrice(p, currency, currencySymbol)}</div>
                     <div className="flex gap-1 flex-wrap">
                       {p.tags.map((t) => (
                         <ProductBadge key={t} tag={t} variant="inline" />
@@ -2149,7 +2156,7 @@ function LayoutClassic({ menu, primary, currency, onPick }: LP) {
 }
 
 // 2️⃣ GRID — 2 columnas con foto cuadrada grande (Instagram)
-function LayoutGrid({ menu, primary, currency, onPick }: LP) {
+function LayoutGrid({ menu, primary, currency, currencySymbol, onPick }: LP) {
   return (
     <>
       {menu.map((cat) => (
@@ -2208,7 +2215,7 @@ function LayoutGrid({ menu, primary, currency, onPick }: LP) {
                 <div className="mt-1.5 px-1">
                   <div className="text-sm font-semibold leading-tight line-clamp-1">{p.name}</div>
                   <div className="text-sm font-bold mt-0.5" style={{ color: primary }}>
-                    {fmtProductPrice(p, currency)}
+                    {fmtProductPrice(p, currency, currencySymbol)}
                   </div>
                 </div>
               </button>
@@ -2223,7 +2230,7 @@ function LayoutGrid({ menu, primary, currency, onPick }: LP) {
 }
 
 // 3️⃣ CAROUSELS — scroll horizontal por categoría (Netflix)
-function LayoutCarousels({ menu, primary, currency, onPick }: LP) {
+function LayoutCarousels({ menu, primary, currency, currencySymbol, onPick }: LP) {
   // Cada categoría se vuelve N carruseles: 1 por productos directos +
   // 1 por subsección con productos. Cada carrusel mantiene su scroll
   // independiente — más legible que mezclar todo en uno solo.
@@ -2279,7 +2286,7 @@ function LayoutCarousels({ menu, primary, currency, onPick }: LP) {
                         {p.name}
                       </div>
                       <div className="text-sm font-bold mt-0.5" style={{ color: primary }}>
-                        {fmtProductPrice(p, currency)}
+                        {fmtProductPrice(p, currency, currencySymbol)}
                       </div>
                     </div>
                   </button>
@@ -2294,7 +2301,7 @@ function LayoutCarousels({ menu, primary, currency, onPick }: LP) {
 }
 
 // 4️⃣ CLEAN — sin fotos, serif elegante (boutique)
-function LayoutClean({ menu, primary, currency, onPick }: LP) {
+function LayoutClean({ menu, primary, currency, currencySymbol, onPick }: LP) {
   return (
     <div className="font-serif">
       {menu.map((cat) => (
@@ -2333,7 +2340,7 @@ function LayoutClean({ menu, primary, currency, onPick }: LP) {
                 <div className="flex items-baseline justify-between gap-3">
                   <div className="text-[15px] font-semibold">{p.name}</div>
                   <div className="text-sm tracking-tight">
-                    {fmtProductPrice(p, currency)}
+                    {fmtProductPrice(p, currency, currencySymbol)}
                   </div>
                 </div>
                 {p.description && (
@@ -2356,7 +2363,7 @@ function LayoutClean({ menu, primary, currency, onPick }: LP) {
 }
 
 // 5️⃣ COMPACT — lista compacta + tabs sticky por categoría (DoorDash)
-function LayoutCompact({ menu, primary, currency, onPick }: LP) {
+function LayoutCompact({ menu, primary, currency, currencySymbol, onPick }: LP) {
   return (
     <>
       {menu.length > 1 && (
@@ -2418,7 +2425,7 @@ function LayoutCompact({ menu, primary, currency, onPick }: LP) {
                     <PrimaryProductBadge tags={p.tags} variant="inline" />
                   </div>
                   <div className="font-bold text-sm whitespace-nowrap">
-                    {fmtProductPrice(p, currency)}
+                    {fmtProductPrice(p, currency, currencySymbol)}
                   </div>
                 </div>
                 {p.description && (
@@ -2437,7 +2444,7 @@ function LayoutCompact({ menu, primary, currency, onPick }: LP) {
 
 // 6️⃣ CLUVI — fondo oscuro + cards blancas + secciones título amarillo + VER pill
 //      (estilo bananas-grill-bar.cluvi.co)
-function LayoutCluvi({ menu, primary, currency, onPick }: LP) {
+function LayoutCluvi({ menu, primary, currency, currencySymbol, onPick }: LP) {
   return (
     <>
       {menu.map((cat) => (
@@ -2496,7 +2503,7 @@ function LayoutCluvi({ menu, primary, currency, onPick }: LP) {
                   )}
                   <div className="flex items-end justify-between mt-2 gap-2">
                     <div className="font-bold text-sm">
-                      {fmtProductPrice(p, currency)}
+                      {fmtProductPrice(p, currency, currencySymbol)}
                     </div>
                     <span
                       className="px-3 py-1 rounded-full text-xs font-semibold text-ink shrink-0"
@@ -2534,6 +2541,7 @@ function LayoutSections({
   menu,
   primary,
   currency,
+  currencySymbol,
   onPick,
   backButtonConfig,
   mode,
@@ -2763,6 +2771,7 @@ function LayoutSections({
               <SectionProductCard
                 product={p}
                 currency={currency}
+                currencySymbol={currencySymbol}
                 onPick={() => onPick(p)}
                 priority={idx < 4}
               />
@@ -2874,11 +2883,13 @@ function SubChip({
 function SectionProductCard({
   product,
   currency,
+  currencySymbol,
   onPick,
   priority = false,
 }: {
   product: Product;
   currency: string;
+  currencySymbol: string | null;
   onPick: () => void;
   /** Marcar las primeras 2-3 imágenes visibles como priority — Next.js
    *  inyecta <link rel="preload"> para que carguen ASAP, no esperando
@@ -2910,7 +2921,7 @@ function SectionProductCard({
           {product.name}
         </div>
         <div className="font-bold text-sm mt-1.5 text-ink">
-          {fmtProductPrice(product, currency)}
+          {fmtProductPrice(product, currency, currencySymbol)}
         </div>
       </div>
     </button>

@@ -1251,13 +1251,10 @@ export class ReservationsService {
    *  staff hace SEATED → PENDING → SEATED, el segundo no genera duplicado. */
   private async grantReservationStamp(reservationId: string) {
     const now = new Date();
-    // Claim atómico
-    const claim = await this.prisma.reservation.updateMany({
-      where: { id: reservationId, stampGrantedAt: null, status: 'SEATED' },
-      data: { stampGrantedAt: now },
-    });
-    if (claim.count === 0) return;
-
+    // Pre-check: necesitamos customerId antes de claimear stampGrantedAt.
+    // Si la reserva no tiene customer asociado, NO hacemos el claim — sino
+    // dejamos `stampGrantedAt=now` y un futuro vínculo (PATCH customerId)
+    // ya no podrá otorgar el sello (claim WHERE stampGrantedAt:null falla).
     const r = await this.prisma.reservation.findUnique({
       where: { id: reservationId },
       select: {
@@ -1267,10 +1264,20 @@ export class ReservationsService {
         customerName: true,
       },
     });
-    if (!r || !r.customerId) {
-      this.logger.warn(`Reservation ${reservationId} sin customerId — skip stamp`);
+    if (!r) return;
+    if (!r.customerId) {
+      this.logger.log(
+        `Reservation ${reservationId} sin customerId — skip stamp (no se claimea)`,
+      );
       return;
     }
+
+    // Claim atómico (idempotent contra dobles llamadas concurrentes).
+    const claim = await this.prisma.reservation.updateMany({
+      where: { id: reservationId, stampGrantedAt: null, status: 'SEATED' },
+      data: { stampGrantedAt: now },
+    });
+    if (claim.count === 0) return;
 
     // Resolver STAMPS card "principal" del tenant. Si no hay, skip
     // silenciosamente — el negocio no está usando fidelización todavía.
@@ -1357,11 +1364,22 @@ export class ReservationsService {
       throw new ForbiddenException('Reserva de otro negocio');
     }
 
+    // Guard explícito: reservas canceladas o no-show no pueden ser
+    // marcadas SEATED. El scanner debe devolver error claro al staff,
+    // no "ok" silencioso (que generaba confusión: parecía exitoso pero
+    // el updateMany no aplicaba nada).
+    if (r.status === 'CANCELLED') {
+      throw new BadRequestException('Esta reserva fue cancelada');
+    }
+    if (r.status === 'NO_SHOW') {
+      throw new BadRequestException('Esta reserva fue marcada como no asistió');
+    }
+
     // Transición a SEATED si todavía no lo está (idempotent).
     if (r.status !== 'SEATED' && r.status !== 'COMPLETED') {
       const now = new Date();
       await this.prisma.reservation.updateMany({
-        where: { id: reservationId, status: { notIn: ['SEATED', 'COMPLETED', 'CANCELLED'] } },
+        where: { id: reservationId, status: { in: ['PENDING', 'CONFIRMED'] } },
         data: { status: 'SEATED', seatedAt: now },
       });
     }
@@ -1462,18 +1480,19 @@ export class ReservationsService {
     const cutoffMs = 60 * 60 * 1000; // 60 minutos
 
     // Candidatos: PENDING/CONFIRMED cuyo momento real (date+time) está
-    // más de 60 min en el pasado. Ventana de 24h hacia atrás para no
-    // procesar reservas viejas históricas que ya estén "perdidas".
-    const todayStart = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0),
-    );
-    const yesterdayStart = new Date(todayStart.getTime() - 24 * 60 * 60 * 1000);
+    // más de 60 min en el pasado. Ventana ESTRICTA: solo reservas
+    // creadas en las últimas 6h. Esto bloquea el caso "admin importa
+    // reservas históricas y el cron las marca SEATED otorgando 200
+    // sellos espurios". Las reservas que llevan más de 6h sin ser
+    // marcadas por el staff (y sin scanner) son mejor dejarlas en
+    // su estado original — el staff puede marcarlas manualmente.
+    const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000);
     const candidates = await this.prisma.reservation.findMany({
       where: {
         status: { in: ['PENDING', 'CONFIRMED'] },
-        date: { gte: yesterdayStart, lte: now },
+        createdAt: { gte: sixHoursAgo },
       },
-      select: { id: true, date: true, time: true, tenantId: true },
+      select: { id: true, date: true, time: true, tenantId: true, createdAt: true },
       take: 200,
     });
 

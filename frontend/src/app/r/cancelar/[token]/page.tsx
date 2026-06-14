@@ -59,7 +59,7 @@ export default function CancelReservation() {
           <h1 className="text-lg font-semibold">Link no válido</h1>
           <p className="text-sm text-mute mt-2">{error}</p>
           <p className="text-xs text-mute mt-3">
-            Si la reserva todavía no pasó, contactá al negocio directamente.
+            Si la reserva todavía no pasó, contacta al negocio directamente.
           </p>
         </div>
       </main>
@@ -141,7 +141,7 @@ export default function CancelReservation() {
               </div>
 
               <p className="text-sm text-mute mt-4 leading-relaxed">
-                ¿Confirmás que querés cancelar? El negocio será notificado y el slot
+                ¿Confirmas que quieres cancelar? El negocio será notificado y el slot
                 quedará disponible para otros clientes.
               </p>
 
@@ -154,7 +154,7 @@ export default function CancelReservation() {
                 {cancelling ? 'Cancelando…' : 'Cancelar mi reserva'}
               </button>
               <p className="text-[11px] text-mute mt-3 text-center">
-                Si fue un error, cerrá esta página y no pasará nada.
+                Si fue un error, cierra esta página y no pasará nada.
               </p>
             </>
           )}
