@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
-import { IsBoolean, IsEmail, IsHexColor, IsIn, IsInt, IsNumber, IsOptional, IsString, Length, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsEmail, IsHexColor, IsIn, IsInt, IsObject, IsNumber, IsOptional, IsString, Length, Max, MaxLength, Min } from 'class-validator';
 import { ModuleKey, WhiteLabelStatus } from '@prisma/client';
 import { Public } from '../common/decorators/public.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -32,10 +32,15 @@ class HotmartLinkBody {
   @IsInt() @Min(1) credits!: number;
   @IsString() @MaxLength(120) label!: string;
   @IsString() @MaxLength(500) url!: string;
-  @IsOptional() @IsNumber() price?: number | null;
-  @IsOptional() @IsString() @MaxLength(8) currency?: string;
-  @IsOptional() @IsInt() position?: number;
+  @IsOptional() @IsNumber() @Min(0) price?: number | null;
+  @IsOptional() @IsString() @IsIn(['USD', 'MXN', 'COP', 'BRL', 'ARS', 'CLP', 'PEN']) currency?: string;
+  @IsOptional() @IsInt() @Min(0) position?: number;
   @IsOptional() @IsBoolean() isActive?: boolean;
+}
+
+class IntegrationUpdateBody {
+  @IsOptional() @IsObject() config?: Record<string, any>;
+  @IsOptional() @IsIn(['CONNECTED', 'DISCONNECTED']) status?: 'CONNECTED' | 'DISCONNECTED';
 }
 
 class ToggleModuleBody {
@@ -160,18 +165,22 @@ export class SuperAdminController {
   }
 
   @Post('hotmart-links')
-  createHotmartLink(@Body() body: HotmartLinkBody) {
-    return this.svc.createHotmartLink(body);
+  createHotmartLink(@Body() body: HotmartLinkBody, @CurrentUser() user: AuthUser) {
+    return this.svc.createHotmartLink(body, user.id);
   }
 
   @Patch('hotmart-links/:id')
-  updateHotmartLink(@Param('id') id: string, @Body() body: Partial<HotmartLinkBody>) {
-    return this.svc.updateHotmartLink(id, body);
+  updateHotmartLink(
+    @Param('id') id: string,
+    @Body() body: Partial<HotmartLinkBody>,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.updateHotmartLink(id, body, user.id);
   }
 
   @Delete('hotmart-links/:id')
-  removeHotmartLink(@Param('id') id: string) {
-    return this.svc.removeHotmartLink(id);
+  removeHotmartLink(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.svc.removeHotmartLink(id, user.id);
   }
 
   // -------- Módulos --------
@@ -220,13 +229,17 @@ export class SuperAdminController {
   }
 
   @Patch('integrations/:key')
-  updateIntegration(@Param('key') key: string, @Body() body: { config?: any; status?: string }) {
-    return this.svc.updateIntegration(key, body);
+  updateIntegration(
+    @Param('key') key: string,
+    @Body() body: IntegrationUpdateBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.updateIntegration(key, body, user.id);
   }
 
   @Post('integrations/:key/test')
-  testIntegration(@Param('key') key: string) {
-    return this.svc.testIntegration(key);
+  testIntegration(@Param('key') key: string, @CurrentUser() user: AuthUser) {
+    return this.svc.testIntegration(key, user.id);
   }
 
   // -------- Configuración de plataforma --------

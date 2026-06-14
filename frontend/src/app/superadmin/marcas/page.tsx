@@ -595,7 +595,7 @@ function Drawer({
                 </div>
                 {w.admins.length === 0 && invites.length === 0 ? (
                   <p className="text-sm italic" style={{ color: '#9aa4af' }}>
-                    Sin admins registrados todavía. Invitá al primero.
+                    Sin admins registrados todavía. Invita al primero.
                   </p>
                 ) : (
                   <div className="space-y-2">
@@ -719,7 +719,7 @@ function Drawer({
                   background: 'linear-gradient(180deg, #28c95f, #16a34a)',
                   boxShadow: '0 2px 6px rgba(22,163,74,.35)',
                 }}
-                title={w.status === 'SUSPENDED' ? 'Reactivá la marca primero' : 'Iniciar sesión como super admin de esta marca'}
+                title={w.status === 'SUSPENDED' ? 'Reactiva la marca primero' : 'Iniciar sesión como super admin de esta marca'}
               >
                 {entering ? 'Entrando…' : 'Entrar como empresa'}
               </button>

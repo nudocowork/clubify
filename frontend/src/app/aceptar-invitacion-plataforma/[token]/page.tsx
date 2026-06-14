@@ -149,7 +149,7 @@ export default function AcceptInvitePage() {
           {(state === 'ready' || state === 'saving') && info && (
             <form onSubmit={submit}>
               <p className="text-sm mb-4" style={{ color: '#16241c' }}>
-                Hola <strong>{info.fullName}</strong>, definí tu contraseña para activar tu cuenta de
+                Hola <strong>{info.fullName}</strong>, define tu contraseña para activar tu cuenta de
                 administrador en <strong>{info.email}</strong>.
               </p>
 
@@ -189,7 +189,7 @@ export default function AcceptInvitePage() {
                   type="password"
                   value={confirm}
                   onChange={(e) => setConfirm(e.target.value)}
-                  placeholder="Repetí tu contraseña"
+                  placeholder="Repite tu contraseña"
                   required
                   minLength={8}
                   className="w-full"
