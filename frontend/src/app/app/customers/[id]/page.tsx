@@ -78,12 +78,34 @@ const PASS_STATUS_LABEL: Record<string, string> = {
   REVOKED: 'Revocada',
 };
 
-const COP = (n: number) =>
-  new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    maximumFractionDigits: 0,
-  }).format(n);
+/** Formato monetario tenant-aware. Si `currencySymbol` está set, override
+ *  el símbolo automático de Intl (Bs, Ref., etc). Si no, símbolo natural. */
+function formatMoney(
+  n: number,
+  currency = 'COP',
+  symbolOverride: string | null = null,
+): string {
+  try {
+    const parts = new Intl.NumberFormat('es-CO', {
+      style: 'currency',
+      currency,
+      maximumFractionDigits: 0,
+    }).formatToParts(n);
+    const sym = symbolOverride?.trim();
+    if (sym) {
+      return parts.map((p) => (p.type === 'currency' ? sym : p.value)).join('');
+    }
+    return parts.map((p) => p.value).join('');
+  } catch {
+    return `${symbolOverride?.trim() || '$'}${n.toFixed(0)}`;
+  }
+}
+
+/** Backwards-compat: COP() seguía siendo COP hardcoded — esto cambia
+ *  el default por tenant currency. Componentes que llaman fuera del
+ *  contexto del tenant pueden seguir pasando solo el monto. */
+const COP = (n: number, currency = 'COP', symbol: string | null = null) =>
+  formatMoney(n, currency, symbol);
 
 function avatarClass(seed: string) {
   const sum = seed.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
@@ -349,11 +371,24 @@ export default function CustomerDetail() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const [c, setC] = useState<Customer | null>(null);
+  const [tenantMoney, setTenantMoney] = useState<{ currency: string; currencySymbol: string | null }>({
+    currency: 'COP',
+    currencySymbol: null,
+  });
   const [deleting, setDeleting] = useState(false);
 
   async function load() {
     try {
       setC(await api<Customer>(`/customers/${id}`));
+      // Cargar moneda del tenant en paralelo (no bloquea si falla).
+      api<{ currency?: string; currencySymbol?: string | null }>('/tenants/me')
+        .then((t) =>
+          setTenantMoney({
+            currency: t.currency ?? 'COP',
+            currencySymbol: t.currencySymbol ?? null,
+          }),
+        )
+        .catch(() => null);
     } catch (e: any) {
       toast(e.message || 'Error cargando cliente', 'error');
     }
@@ -450,12 +485,14 @@ export default function CustomerDetail() {
               </div>
               <div>
                 <div className="text-2xl font-bold">
-                  {COP(Number(c.totalOrdersAmount))}
+                  {COP(Number(c.totalOrdersAmount), tenantMoney.currency, tenantMoney.currencySymbol)}
                 </div>
                 <div className="text-xs text-mute">facturado</div>
               </div>
               <div>
-                <div className="text-base font-semibold">{COP(lifetimeAvg)}</div>
+                <div className="text-base font-semibold">
+                  {COP(lifetimeAvg, tenantMoney.currency, tenantMoney.currencySymbol)}
+                </div>
                 <div className="text-xs text-mute">ticket promedio</div>
               </div>
               <div>
@@ -582,7 +619,7 @@ export default function CustomerDetail() {
                         </span>
                       </td>
                       <td className="px-4 py-2.5 font-medium">
-                        {COP(Number(o.total))}
+                        {COP(Number(o.total), tenantMoney.currency, tenantMoney.currencySymbol)}
                       </td>
                     </tr>
                   ))}
@@ -617,10 +654,10 @@ export default function CustomerDetail() {
                         Gastado en {stampsWithAmt.length} compra{stampsWithAmt.length === 1 ? '' : 's'}
                       </div>
                       <div className="text-base font-bold text-brand">
-                        {COP(total)}
+                        {COP(total, tenantMoney.currency, tenantMoney.currencySymbol)}
                       </div>
                       <div className="text-[11px] text-mute">
-                        Ticket promedio · {COP(avg)}
+                        Ticket promedio · {COP(avg, tenantMoney.currency, tenantMoney.currencySymbol)}
                       </div>
                     </div>
                   );
@@ -639,7 +676,7 @@ export default function CustomerDetail() {
                           <span className="font-medium">{s.action}</span>
                           {amt && amt > 0 && (
                             <span className="text-xs font-semibold text-brand">
-                              {COP(amt)}
+                              {COP(amt, tenantMoney.currency, tenantMoney.currencySymbol)}
                             </span>
                           )}
                         </div>

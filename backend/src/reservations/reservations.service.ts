@@ -1225,7 +1225,7 @@ export class ReservationsService {
     if (!r) return;
     const dateStr = r.date.toISOString().slice(0, 10);
     const contact = r.tenant.whatsappPhone || r.tenant.phone || '';
-    const contactStr = contact ? `\nContactá a ${r.tenant.brandName}: ${contact}` : '';
+    const contactStr = contact ? `\nContacta a ${r.tenant.brandName}: ${contact}` : '';
     const body =
       `Hola ${r.customerName}, tu reserva en ${r.tenant.brandName} para el ${dateStr} a las ${r.time} fue cancelada.${contactStr}\n` +
       `Lamentamos las molestias.`;
@@ -1599,7 +1599,7 @@ export class ReservationsService {
         `${r.customerName} · ${r.party} ${r.party === 1 ? 'persona' : 'personas'}\n` +
         `📅 ${whenStr} a las ${r.time}${tableStr}\n` +
         `📞 ${r.customerPhone}\n\n` +
-        `Contactá al cliente para confirmar asistencia.`;
+        `Contacta al cliente para confirmar asistencia.`;
 
       try {
         await this.growBusiness.sendSms(r.tenantId, dest, body);
