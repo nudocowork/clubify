@@ -67,8 +67,9 @@ export class SuperAdminService {
       orderBy: { createdAt: 'asc' },
     });
 
-    // 2) Fallback: User cuyo email matchee adminEmail de la marca, con rol
-    //    SUPER_ADMIN o TENANT_OWNER.
+    // 2) Fallback: User cuyo email matchee adminEmail de la marca con
+    //    rol SUPER_ADMIN o TENANT_OWNER (no PLATFORM_OWNER porque éste
+    //    es el propio operador del Master Admin).
     if (!admin && wl.adminEmail) {
       admin = await this.prisma.user.findFirst({
         where: {
@@ -80,9 +81,24 @@ export class SuperAdminService {
       });
     }
 
+    // 3) Fallback final: cualquier TENANT_OWNER de cualquier tenant
+    //    de la marca. Útil cuando el adminEmail original fue promovido
+    //    a PLATFORM_OWNER (como en el caso de Clubify después de la
+    //    migración inicial) y no quedó ningún SUPER_ADMIN de respaldo.
+    if (!admin) {
+      admin = await this.prisma.user.findFirst({
+        where: {
+          role: 'TENANT_OWNER',
+          isActive: true,
+          tenant: { whiteLabelId },
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+    }
+
     if (!admin) {
       throw new BadRequestException(
-        `Esta marca no tiene un SUPER_ADMIN activo para entrar. Crea uno antes.`,
+        `Esta marca no tiene ningún SUPER_ADMIN ni TENANT_OWNER activo para entrar. Crea uno antes.`,
       );
     }
 
