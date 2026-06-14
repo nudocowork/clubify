@@ -16,6 +16,7 @@ type WhiteLabel = {
   creditsAvailable: number;
   creditsCommitted: number;
   creditsUsed: number;
+  creditsUnlimited: boolean;
   createdAt: string;
   tenantsActive: number;
   tenantsSuspended: number;
@@ -254,14 +255,18 @@ export default function MarcasBlancasPage() {
                     style={{
                       padding: '14px 16px',
                       textAlign: 'center',
-                      color: w.creditsAvailable < w.creditsCommitted ? '#b45309' : '#16a34a',
+                      color: w.creditsUnlimited
+                        ? '#15803d'
+                        : w.creditsAvailable < w.creditsCommitted
+                        ? '#b45309'
+                        : '#16a34a',
                       fontWeight: 700,
                     }}
                   >
-                    {w.creditsAvailable}
+                    {w.creditsUnlimited ? '∞' : w.creditsAvailable}
                   </td>
                   <td style={{ padding: '14px 16px', textAlign: 'center', color: '#2563eb', fontWeight: 600 }}>
-                    {w.creditsCommitted}
+                    {w.creditsUnlimited ? '—' : w.creditsCommitted}
                   </td>
                   <td style={{ padding: '14px 16px', textAlign: 'center', color: '#16241c' }}>
                     {w.tenantsActive}
@@ -521,11 +526,62 @@ function Drawer({
 
               <div>
                 <SectionTitle>Créditos</SectionTitle>
-                <div className="grid grid-cols-3 gap-2 mt-2">
-                  <CreditCard label="Disponibles" value={w.creditsAvailable} color="#16a34a" bg="#f0fdf4" />
-                  <CreditCard label="Comprometidos" value={w.creditsCommitted} color="#2563eb" bg="#eff6ff" />
-                  <CreditCard label="Usados" value={w.creditsUsed} color="#6b7785" bg="#f7fbf8" />
-                </div>
+                {w.creditsUnlimited ? (
+                  <div
+                    className="mt-2 p-4 rounded-[12px] flex items-center gap-3"
+                    style={{ background: '#f0fdf4', border: '1px solid #bbf7d0' }}
+                  >
+                    <div
+                      className="w-12 h-12 rounded-[10px] flex items-center justify-center text-xl font-black"
+                      style={{ background: '#dcfce7', color: '#15803d' }}
+                    >
+                      ∞
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-bold" style={{ color: '#15803d' }}>
+                        Créditos ilimitados
+                      </div>
+                      <div className="text-xs mt-0.5" style={{ color: '#16241c' }}>
+                        Sin descuento en renovaciones · {w.creditsUsed} usados históricos
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 gap-2 mt-2">
+                    <CreditCard label="Disponibles" value={w.creditsAvailable} color="#16a34a" bg="#f0fdf4" />
+                    <CreditCard label="Comprometidos" value={w.creditsCommitted} color="#2563eb" bg="#eff6ff" />
+                    <CreditCard label="Usados" value={w.creditsUsed} color="#6b7785" bg="#f7fbf8" />
+                  </div>
+                )}
+                <button
+                  onClick={async () => {
+                    const next = !w.creditsUnlimited;
+                    const verb = next ? 'activar' : 'desactivar';
+                    if (!confirm(`¿${verb[0].toUpperCase() + verb.slice(1)} créditos ilimitados para ${w.name}?`)) return;
+                    try {
+                      await api(`/superadmin/white-labels/${w.id}`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ creditsUnlimited: next }),
+                      });
+                      onChanged(`Créditos ilimitados ${next ? 'activados' : 'desactivados'}`);
+                      // refresca drawer
+                      const fresh = await api<WhiteLabelDetail>(`/superadmin/white-labels/${id}`);
+                      setW(fresh);
+                    } catch (e: any) {
+                      onChanged(e.message ?? 'Error');
+                    }
+                  }}
+                  className="text-xs font-semibold mt-2"
+                  style={{
+                    padding: '5px 11px',
+                    borderRadius: 7,
+                    background: 'white',
+                    color: w.creditsUnlimited ? '#b91c1c' : '#15803d',
+                    border: '1px solid #d7dbe0',
+                  }}
+                >
+                  {w.creditsUnlimited ? 'Desactivar ilimitados' : 'Activar ilimitados'}
+                </button>
               </div>
 
               <div>
@@ -879,6 +935,7 @@ function CreateModal({
     appDomain: '',
     primaryColor: '#16a34a',
     adminEmail: '',
+    creditsUnlimited: false,
   });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -998,6 +1055,30 @@ function CreateModal({
               placeholder="admin@loyalmx.app"
             />
           </Field>
+
+          <label
+            className="flex items-start gap-3 p-3 rounded-[10px] cursor-pointer"
+            style={{
+              background: form.creditsUnlimited ? '#f0fdf4' : '#f7fbf8',
+              border: `1px solid ${form.creditsUnlimited ? '#bbf7d0' : '#e7e9ec'}`,
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={form.creditsUnlimited}
+              onChange={(e) => setForm({ ...form, creditsUnlimited: e.target.checked })}
+              className="mt-0.5"
+              style={{ width: 16, height: 16 }}
+            />
+            <div className="flex-1">
+              <div className="text-sm font-bold" style={{ color: '#16241c' }}>
+                Créditos ilimitados ∞
+              </div>
+              <div className="text-xs mt-0.5" style={{ color: '#6b7785' }}>
+                La marca nunca se queda sin créditos: el cron de renovaciones extiende los negocios sin descontar y los packs Hotmart no incrementan.
+              </div>
+            </div>
+          </label>
 
           {err && (
             <div className="text-sm" style={{ color: '#b91c1c' }}>

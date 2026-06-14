@@ -15,6 +15,7 @@ class WhiteLabelBody {
   @IsOptional() @IsHexColor() primaryColor?: string;
   @IsOptional() @IsString() @MaxLength(2) initial?: string;
   @IsOptional() @IsEmail() adminEmail?: string;
+  @IsOptional() @IsBoolean() creditsUnlimited?: boolean;
 }
 
 class StatusBody {

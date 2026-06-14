@@ -21,6 +21,7 @@ type WhiteLabelRow = {
   creditsAvailable: number;
   creditsCommitted: number;
   creditsUsed: number;
+  creditsUnlimited: boolean;
 };
 
 type HotmartLink = {
@@ -210,7 +211,7 @@ export default function CreditsCenterPage() {
           </div>
           <div className="p-2">
             {data.whiteLabels.map((w) => {
-              const low = w.creditsAvailable < w.creditsCommitted;
+              const low = !w.creditsUnlimited && w.creditsAvailable < w.creditsCommitted;
               return (
                 <button
                   key={w.id}
@@ -227,8 +228,16 @@ export default function CreditsCenterPage() {
                     {w.initial ?? w.name[0]?.toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-sm truncate" style={{ color: '#16241c' }}>
+                    <div className="font-semibold text-sm truncate flex items-center gap-1.5" style={{ color: '#16241c' }}>
                       {w.name}
+                      {w.creditsUnlimited && (
+                        <span
+                          className="text-[9px] font-bold uppercase px-1 py-0.5 rounded"
+                          style={{ background: '#dcfce7', color: '#15803d', letterSpacing: 0.4 }}
+                        >
+                          Ilimitada
+                        </span>
+                      )}
                     </div>
                     {low && (
                       <div className="text-[11px] font-semibold" style={{ color: '#b45309' }}>
@@ -237,12 +246,20 @@ export default function CreditsCenterPage() {
                     )}
                   </div>
                   <div className="text-right text-sm shrink-0">
-                    <div className="font-bold" style={{ color: low ? '#b45309' : '#16a34a' }}>
-                      {w.creditsAvailable} <span style={{ color: '#6b7785', fontWeight: 500 }}>disp</span>
-                    </div>
-                    <div className="text-xs" style={{ color: '#6b7785' }}>
-                      {w.creditsCommitted} comp
-                    </div>
+                    {w.creditsUnlimited ? (
+                      <div className="font-black text-lg" style={{ color: '#15803d' }}>
+                        ∞
+                      </div>
+                    ) : (
+                      <>
+                        <div className="font-bold" style={{ color: low ? '#b45309' : '#16a34a' }}>
+                          {w.creditsAvailable} <span style={{ color: '#6b7785', fontWeight: 500 }}>disp</span>
+                        </div>
+                        <div className="text-xs" style={{ color: '#6b7785' }}>
+                          {w.creditsCommitted} comp
+                        </div>
+                      </>
+                    )}
                   </div>
                 </button>
               );

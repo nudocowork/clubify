@@ -144,7 +144,7 @@ export class RenewalsService {
       // de iteraciones previas del mismo run.
       const wl = await this.prisma.whiteLabel.findUnique({
         where: { id: t.whiteLabelId },
-        select: { id: true, name: true, creditsAvailable: true, creditsUsed: true, status: true },
+        select: { id: true, name: true, creditsAvailable: true, creditsUsed: true, status: true, creditsUnlimited: true },
       });
       if (!wl || wl.status === 'SUSPENDED') {
         // Si la marca está suspendida, no consumimos sus créditos —
@@ -173,6 +173,25 @@ export class RenewalsService {
             reason: 'Marca suspendida, esperando reactivación',
           });
         }
+        continue;
+      }
+
+      // Marcas con créditos ilimitados: siempre renovamos, sin consumir.
+      if (wl.creditsUnlimited) {
+        if (!opts.dryRun) {
+          const newPeriodEnd = new Date(periodEnd.getTime() + RenewalsService.CYCLE_DAYS * RenewalsService.DAY_MS);
+          await this.prisma.tenant.updateMany({
+            where: { id: t.id, currentPeriodEnd: periodEnd },
+            data: { currentPeriodEnd: newPeriodEnd },
+          });
+        }
+        summary.renewed++;
+        summary.details.push({
+          tenantId: t.id,
+          brandName: t.brandName,
+          action: 'RENEWED',
+          reason: `Marca ${wl.name} con créditos ilimitados`,
+        });
         continue;
       }
 
