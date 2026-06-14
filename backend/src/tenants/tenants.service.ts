@@ -840,11 +840,17 @@ export class TenantsService {
       where: { id: tenantId },
       include: {
         plan: true,
+        whiteLabel: { select: { creditsUnlimited: true } },
         _count: { select: { cards: true, customers: true, products: true, locations: true } },
       },
     });
     if (!t) throw new NotFoundException();
-    return t;
+    // Exponemos un flag plano para el frontend; el lockscreen de Hotmart
+    // se salta para tenants bajo marcas blancas con créditos ilimitados.
+    return {
+      ...t,
+      whiteLabelCreditsUnlimited: t.whiteLabel?.creditsUnlimited ?? false,
+    };
   }
 
   async updateMine(tenantId: string, dto: UpdateMyTenantDto) {
