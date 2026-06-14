@@ -8,6 +8,7 @@ type Summary = {
   usedMonth: number;
   usedYear: number;
   pendingTenants: number;
+  committedRefreshedAt: string | null;
 };
 
 type WhiteLabelRow = {
@@ -37,16 +38,46 @@ function fmt(n: number) {
   return n.toLocaleString('es-MX');
 }
 
+function fmtRelative(iso: string) {
+  const d = new Date(iso);
+  const diff = Date.now() - d.getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'ahora';
+  if (mins < 60) return `hace ${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `hace ${hrs}h`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `hace ${days}d`;
+  return `el ${d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}`;
+}
+
 export default function CreditsCenterPage() {
   const [data, setData] = useState<{ summary: Summary; whiteLabels: WhiteLabelRow[] } | null>(null);
   const [links, setLinks] = useState<HotmartLink[]>([]);
   const [editLinksOpen, setEditLinksOpen] = useState(false);
   const [adjustTarget, setAdjustTarget] = useState<WhiteLabelRow | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   function flashToast(msg: string) {
     setToast(msg);
     setTimeout(() => setToast(null), 2400);
+  }
+
+  async function refreshCommitted() {
+    setRefreshing(true);
+    try {
+      const r = await api<{ whiteLabels: number; total: number }>(
+        '/superadmin/credits/refresh-committed',
+        { method: 'POST' },
+      );
+      await load();
+      flashToast(`Recalculado: ${r.total} comprometidos en ${r.whiteLabels} marcas`);
+    } catch (e: any) {
+      flashToast(e?.message ?? 'Error al recalcular');
+    } finally {
+      setRefreshing(false);
+    }
   }
 
   async function load() {
@@ -77,11 +108,30 @@ export default function CreditsCenterPage() {
         1 crédito = 30 días de servicio · los créditos no vencen y son acumulativos
       </p>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-3">
         <Stat label="Créditos Disponibles" value={fmt(s.available)} color="#16a34a" sub="en toda la red" />
-        <Stat label="Comprometidos" value={fmt(s.committed)} color="#2563eb" sub="renovaciones próximas" />
+        <Stat label="Comprometidos" value={fmt(s.committed)} color="#2563eb" sub="renovaciones próximas 30d" />
         <Stat label="Consumidos (mes)" value={fmt(s.usedMonth)} color="#16241c" sub={`${fmt(s.usedYear)} en el año`} />
         <Stat label="Pendientes" value={fmt(s.pendingTenants)} color="#b45309" sub="sin créditos suficientes" />
+      </div>
+
+      <div className="flex items-center justify-end gap-2 mb-6 text-xs" style={{ color: '#9aa4af' }}>
+        <span>
+          {s.committedRefreshedAt
+            ? `Comprometidos actualizado ${fmtRelative(s.committedRefreshedAt)}`
+            : 'Comprometidos sin calcular aún'}
+        </span>
+        <button
+          onClick={refreshCommitted}
+          disabled={refreshing}
+          className="text-xs font-semibold"
+          style={{
+            padding: '5px 11px', borderRadius: 8, background: 'white', color: '#16241c',
+            border: '1px solid #d7dbe0', cursor: refreshing ? 'wait' : 'pointer',
+          }}
+        >
+          {refreshing ? 'Recalculando…' : 'Recalcular'}
+        </button>
       </div>
 
       <div className="grid lg:grid-cols-[1.3fr_1fr] gap-4">

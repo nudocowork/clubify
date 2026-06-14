@@ -39,9 +39,56 @@ export class RenewalsService {
       this.logger.log(
         `Renewals cron: renewed=${result.renewed} grace=${result.grace} suspended=${result.suspended} skipped=${result.skipped}`,
       );
+      const committed = await this.refreshCommittedCredits();
+      this.logger.log(`Committed credits refreshed: ${committed.total} en ${committed.whiteLabels} marcas`);
     } catch (e) {
       this.logger.error(`Renewals cron falló: ${(e as Error).message}`);
     }
+  }
+
+  /** Recalcula `creditsCommitted` por marca: cuántos créditos van a
+   *  necesitarse en los próximos 30 días para renovar a los tenants
+   *  ACTIVE. 1 tenant = 1 crédito por ciclo. Idempotente. */
+  async refreshCommittedCredits() {
+    const now = new Date();
+    const horizon = new Date(now.getTime() + RenewalsService.CYCLE_DAYS * RenewalsService.DAY_MS);
+
+    const grouped = await this.prisma.tenant.groupBy({
+      by: ['whiteLabelId'],
+      where: {
+        status: 'ACTIVE',
+        whiteLabelId: { not: null },
+        currentPeriodEnd: { not: null, lte: horizon },
+      },
+      _count: { _all: true },
+    });
+
+    const byWl = new Map<string, number>();
+    for (const g of grouped) {
+      if (g.whiteLabelId) byWl.set(g.whiteLabelId, g._count._all);
+    }
+
+    const allWhiteLabels = await this.prisma.whiteLabel.findMany({
+      select: { id: true },
+    });
+
+    let totalCommitted = 0;
+    for (const wl of allWhiteLabels) {
+      const count = byWl.get(wl.id) ?? 0;
+      totalCommitted += count;
+      await this.prisma.whiteLabel.update({
+        where: { id: wl.id },
+        data: { creditsCommitted: count },
+      });
+    }
+
+    await this.prisma.setting.upsert({
+      where: { key: 'platform.creditsCommittedRefreshedAt' },
+      create: { key: 'platform.creditsCommittedRefreshedAt', value: now.toISOString() },
+      update: { value: now.toISOString() },
+    });
+
+    return { whiteLabels: allWhiteLabels.length, total: totalCommitted, refreshedAt: now };
   }
 
   /** Ejecuta el barrido de renovaciones. `dryRun` no aplica cambios. */
