@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Headers, Ip, Param, Patch, Post, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { IsBoolean, IsEmail, IsNumber, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsIn, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { CommissionStatus } from '@prisma/client';
 import { ReferralsService } from './referrals.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
@@ -69,6 +69,24 @@ class SelfRegisterVendorBody {
   @IsEmail() email!: string;
   @IsString() @MinLength(6) @MaxLength(20) phone!: string;
   @IsString() @MinLength(8) @MaxLength(64) password!: string;
+}
+
+// Autorregistro de afiliados top-level (Influencer / Embajador).
+// Habilitado vía Settings desde /admin/affiliate-registration.
+class SelfRegisterAffiliateBody {
+  @IsIn(['INFLUENCER', 'AMBASSADOR']) role!: 'INFLUENCER' | 'AMBASSADOR';
+  @IsString() @MinLength(2) @MaxLength(80) fullName!: string;
+  @IsEmail() email!: string;
+  @IsString() @MinLength(6) @MaxLength(20) phone!: string;
+  @IsString() @MinLength(8) @MaxLength(64) password!: string;
+}
+
+class UpdatePublicAffiliateRegConfigBody {
+  @IsOptional() @IsBoolean() enabled?: boolean;
+  @IsOptional() @IsBoolean() allowInfluencer?: boolean;
+  @IsOptional() @IsBoolean() allowAmbassador?: boolean;
+  @IsOptional() @IsNumber() @Min(0) @Max(100) influencerCommissionPct?: number;
+  @IsOptional() @IsNumber() @Min(0) @Max(100) ambassadorCommissionPct?: number;
 }
 
 // FASE B2: marcado de pago en /admin/commissions. Mismo razón de
@@ -608,5 +626,54 @@ export class SellerRegistrationController {
     @Ip() ip: string,
   ) {
     return this.svc.selfRegisterVendor(body, ip);
+  }
+}
+
+/**
+ * Endpoints públicos para autorregistro de afiliados top-level
+ * (Influencer / Embajador). Habilitado vía Settings desde el panel admin.
+ * Distinto al flujo de vendedor (que requiere ambassadorCode).
+ */
+@Controller('public/affiliate-signup')
+export class PublicAffiliateSignupController {
+  constructor(private svc: ReferralsService) {}
+
+  /** Config pública: feature on/off + qué roles están habilitados +
+   *  % de comisión. La página de registro lo consume para mostrar el
+   *  picker de rol y el % al usuario. */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  @Get('config')
+  config() {
+    return this.svc.getPublicAffiliateRegistrationConfig();
+  }
+
+  /** Crea User AFFILIATE_INFLUENCER o AFFILIATE_AMBASSADOR + ReferralCode
+   *  top-level + auto-login. Throttled estricto 5/min por IP. */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @Post('register')
+  register(@Body() body: SelfRegisterAffiliateBody, @Ip() ip: string) {
+    return this.svc.selfRegisterAffiliate(body, ip);
+  }
+}
+
+/**
+ * Configuración admin del registro público de afiliados. Solo
+ * SUPER_ADMIN / MARKETING editan.
+ */
+@Controller('admin/affiliate-registration')
+@Roles('SUPER_ADMIN', 'MARKETING')
+export class AdminAffiliateRegistrationController {
+  constructor(private svc: ReferralsService) {}
+
+  @Get()
+  get() {
+    return this.svc.getPublicAffiliateRegistrationConfig();
+  }
+
+  @Post()
+  update(@Body() body: UpdatePublicAffiliateRegConfigBody) {
+    return this.svc.updatePublicAffiliateRegistrationConfig(body);
   }
 }

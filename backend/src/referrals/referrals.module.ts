@@ -4,6 +4,8 @@ import {
   ReferralsController,
   AdminCommissionsController,
   SellerRegistrationController,
+  PublicAffiliateSignupController,
+  AdminAffiliateRegistrationController,
 } from './referrals.controller';
 import { AuthModule } from '../auth/auth.module';
 import { AdminModule } from '../admin/admin.module';
@@ -17,6 +19,8 @@ import { CommissionRecalcModule } from './commission-recalc.module';
     ReferralsController,
     AdminCommissionsController,
     SellerRegistrationController,
+    PublicAffiliateSignupController,
+    AdminAffiliateRegistrationController,
   ],
   exports: [ReferralsService, AuditService],
 })

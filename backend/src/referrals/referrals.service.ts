@@ -2559,6 +2559,181 @@ export class ReferralsService {
     };
   }
 
+  // ============================================================
+  //         AUTORREGISTRO PÚBLICO INFLUENCER / EMBAJADOR
+  // ============================================================
+  //
+  // Permite que cualquier persona se registre como afiliado top-level
+  // (sin padre) si el SUPER_ADMIN habilitó la feature desde Settings.
+  // Diferente de selfRegisterVendor (que requiere ambassadorCode).
+  //
+  // Settings:
+  //  - affiliate.publicRegistration.enabled                — master toggle
+  //  - affiliate.publicRegistration.allowInfluencer        — solo INF
+  //  - affiliate.publicRegistration.allowAmbassador        — solo AMB
+  //  - affiliate.publicRegistration.influencerCommissionPct
+  //  - affiliate.publicRegistration.ambassadorCommissionPct
+
+  private static readonly PUBLIC_REG_SETTING_KEYS = [
+    'affiliate.publicRegistration.enabled',
+    'affiliate.publicRegistration.allowInfluencer',
+    'affiliate.publicRegistration.allowAmbassador',
+    'affiliate.publicRegistration.influencerCommissionPct',
+    'affiliate.publicRegistration.ambassadorCommissionPct',
+  ];
+
+  async getPublicAffiliateRegistrationConfig() {
+    const settings = await this.prisma.setting.findMany({
+      where: { key: { in: ReferralsService.PUBLIC_REG_SETTING_KEYS } },
+    });
+    const map = new Map(settings.map((s) => [s.key, s.value]));
+    const enabled = map.get('affiliate.publicRegistration.enabled') === 'true';
+    const allowInfluencer =
+      map.get('affiliate.publicRegistration.allowInfluencer') !== 'false';
+    const allowAmbassador =
+      map.get('affiliate.publicRegistration.allowAmbassador') !== 'false';
+    const influencerCommissionPct = Number(
+      map.get('affiliate.publicRegistration.influencerCommissionPct') ?? '10',
+    );
+    const ambassadorCommissionPct = Number(
+      map.get('affiliate.publicRegistration.ambassadorCommissionPct') ?? '15',
+    );
+    return {
+      enabled,
+      allowInfluencer: enabled && allowInfluencer,
+      allowAmbassador: enabled && allowAmbassador,
+      influencerCommissionPct,
+      ambassadorCommissionPct,
+    };
+  }
+
+  async updatePublicAffiliateRegistrationConfig(patch: {
+    enabled?: boolean;
+    allowInfluencer?: boolean;
+    allowAmbassador?: boolean;
+    influencerCommissionPct?: number;
+    ambassadorCommissionPct?: number;
+  }) {
+    const writes: Array<[string, string]> = [];
+    if (patch.enabled !== undefined) {
+      writes.push(['affiliate.publicRegistration.enabled', String(patch.enabled)]);
+    }
+    if (patch.allowInfluencer !== undefined) {
+      writes.push(['affiliate.publicRegistration.allowInfluencer', String(patch.allowInfluencer)]);
+    }
+    if (patch.allowAmbassador !== undefined) {
+      writes.push(['affiliate.publicRegistration.allowAmbassador', String(patch.allowAmbassador)]);
+    }
+    if (patch.influencerCommissionPct !== undefined) {
+      writes.push([
+        'affiliate.publicRegistration.influencerCommissionPct',
+        String(Math.max(0, Math.min(100, patch.influencerCommissionPct))),
+      ]);
+    }
+    if (patch.ambassadorCommissionPct !== undefined) {
+      writes.push([
+        'affiliate.publicRegistration.ambassadorCommissionPct',
+        String(Math.max(0, Math.min(100, patch.ambassadorCommissionPct))),
+      ]);
+    }
+    for (const [key, value] of writes) {
+      await this.prisma.setting.upsert({
+        where: { key },
+        create: { key, value },
+        update: { value },
+      });
+    }
+    return this.getPublicAffiliateRegistrationConfig();
+  }
+
+  async selfRegisterAffiliate(
+    dto: {
+      role: 'INFLUENCER' | 'AMBASSADOR';
+      fullName: string;
+      email: string;
+      phone: string;
+      password: string;
+    },
+    ip?: string,
+  ) {
+    const config = await this.getPublicAffiliateRegistrationConfig();
+    if (!config.enabled) {
+      throw new BadRequestException('El registro público de afiliados no está habilitado.');
+    }
+    if (dto.role === 'INFLUENCER' && !config.allowInfluencer) {
+      throw new BadRequestException('El registro de influencers no está habilitado.');
+    }
+    if (dto.role === 'AMBASSADOR' && !config.allowAmbassador) {
+      throw new BadRequestException('El registro de embajadores no está habilitado.');
+    }
+
+    await this.assertUniqueAffiliateEmail(dto.email);
+
+    const commissionPercent =
+      dto.role === 'INFLUENCER'
+        ? config.influencerCommissionPct
+        : config.ambassadorCommissionPct;
+    if (commissionPercent <= 0) {
+      throw new BadRequestException('Comisión no configurada para este rol.');
+    }
+
+    let code = codeGen();
+    while (await this.prisma.referralCode.findUnique({ where: { code } })) {
+      code = codeGen();
+    }
+    const slug = await this.allocateSlug(dto.fullName, code);
+
+    const created = await this.prisma.referralCode.create({
+      data: {
+        code,
+        slug,
+        ownerName: dto.fullName,
+        ownerEmail: dto.email,
+        ownerWhatsapp: dto.phone,
+        role: dto.role,
+        commissionPercent,
+        isActive: true,
+      },
+    });
+
+    const inviteResult = await this.auth
+      .inviteAffiliate({
+        email: dto.email,
+        fullName: dto.fullName,
+        role: dto.role === 'INFLUENCER' ? 'AFFILIATE_INFLUENCER' : 'AFFILIATE_AMBASSADOR',
+        referralCodeId: created.id,
+        phone: dto.phone,
+        presetPassword: dto.password,
+      })
+      .catch((err) => {
+        this.logger.warn(
+          `inviteAffiliate falló para self-register ${dto.email}: ${(err as Error).message}`,
+        );
+        return null;
+      });
+    if (!inviteResult) {
+      throw new BadRequestException(
+        'No se pudo crear la cuenta. Intenta de nuevo en unos minutos.',
+      );
+    }
+
+    const tokens = await this.auth.issueAuthTokensForUserId(
+      inviteResult.userId,
+      ip ?? null,
+    );
+
+    return {
+      ...tokens,
+      affiliate: {
+        codeId: created.id,
+        code: created.code,
+        slug: created.slug,
+        role: dto.role,
+        commissionPercent,
+      },
+    };
+  }
+
   /**
    * Crea un vendedor bajo un embajador. Sólo el SUPER_ADMIN o el dueño
    * del embajador (acting como AFFILIATE con referralCodeId = embajador)
