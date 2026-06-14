@@ -3861,7 +3861,9 @@ model HotmartCreditLink {
 model HotmartCreditPurchase {
   id              String     @id @default(uuid())
   transactionId   String     @unique
-  hotmartProductId String
+  /// productId de Hotmart (`payload.data.product.id`). Nullable porque
+  /// las rows legacy (pre-2026-06-14) podían tener este valor en NULL.
+  hotmartProductId String?
   creditLinkId    String?
   creditLink      HotmartCreditLink? @relation(fields: [creditLinkId], references: [id], onDelete: SetNull)
   credits         Int
@@ -3871,8 +3873,8 @@ model HotmartCreditPurchase {
   /// ASSIGNED = créditos acreditados a una marca · UNASSIGNED = pendiente de
   /// reasignación manual · REFUNDED = pendiente cuando llegue evento de refund.
   status          String     @default("UNASSIGNED")
-  /// Payload original del webhook (para debugging).
-  rawPayload      Json?
+  /// Payload original del webhook (para debugging). Required en DB.
+  rawPayload      Json
   createdAt       DateTime   @default(now())
   assignedAt      DateTime?
 
