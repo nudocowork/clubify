@@ -10,6 +10,7 @@ type Pass = {
   date: string;
   time: string;
   zone: string | null;
+  tableNumber: string | null;
   status: string;
   brandName: string;
   primaryColor: string | null;
@@ -131,9 +132,13 @@ export default function ReservationPass() {
               </div>
               <div>
                 <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">
-                  Zona
+                  {pass.tableNumber ? 'Mesa' : 'Zona'}
                 </div>
-                <div className="text-sm font-bold mt-2">{pass.zone ?? 'Asignada'}</div>
+                <div className="text-sm font-bold mt-2">
+                  {pass.tableNumber
+                    ? pass.tableNumber
+                    : pass.zone ?? 'Asignada'}
+                </div>
               </div>
             </div>
 

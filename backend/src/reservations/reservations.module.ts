@@ -12,5 +12,6 @@ import { PassesModule } from '../passes/passes.module';
   imports: [IntegrationsModule, WalletModule, PassesModule],
   providers: [ReservationsService, EventsService],
   controllers: [ReservationsController, PublicReservationsController, EventsController],
+  exports: [ReservationsService],
 })
 export class ReservationsModule {}

@@ -1157,6 +1157,7 @@ export class ReservationsService {
       where: { id: rid },
       include: {
         zone: { select: { name: true } },
+        table: { select: { number: true } },
         tenant: {
           select: {
             brandName: true,
@@ -1172,6 +1173,7 @@ export class ReservationsService {
     const summary = this.publicReservationSummary(r);
     return {
       ...summary,
+      tableNumber: r.table?.number ?? null,
       whatsappPhone: r.tenant?.whatsappPhone ?? r.tenant?.phone ?? null,
       qrPayload: `${QR_RESERVATION_PROTOCOL}${r.id}`,
     };
@@ -1329,6 +1331,175 @@ export class ReservationsService {
     this.logger.log(
       `Sello otorgado a ${r.customerName} (reserva ${reservationId}, pass ${pass.id}, ${newStamps}/${required === Number.MAX_SAFE_INTEGER ? '?' : required})`,
     );
+  }
+
+  /**
+   * Scan público del QR del pase de reserva. El scanner del staff llama a
+   * verifyQr → detecta el prefijo `clubify-reservation:` → delega acá.
+   *
+   * Flow:
+   *  1. Valida que la reserva existe y pertenece al tenant del operario
+   *  2. Si todavía no está SEATED, transición → SEATED (idempotent)
+   *  3. Dispara grantReservationStamp síncrono (no fire-and-forget) para
+   *     que la response incluya el Pass de sellos resultante.
+   *  4. Si el customer ya tenía un Pass en la STAMPS card, NO se duplica
+   *     (issueInternal usa el cardId_customerId UNIQUE como findOrCreate).
+   *
+   * Retorna el mismo shape que el scan normal de stamps: `{ pass, recent }`.
+   */
+  async handleScannedReservation(user: AuthUser, reservationId: string) {
+    const r = await this.prisma.reservation.findUnique({
+      where: { id: reservationId },
+      include: { table: true, zone: true },
+    });
+    if (!r) throw new NotFoundException('Reserva no encontrada');
+    if (user.role !== 'SUPER_ADMIN' && user.tenantId !== r.tenantId) {
+      throw new ForbiddenException('Reserva de otro negocio');
+    }
+
+    // Transición a SEATED si todavía no lo está (idempotent).
+    if (r.status !== 'SEATED' && r.status !== 'COMPLETED') {
+      const now = new Date();
+      await this.prisma.reservation.updateMany({
+        where: { id: reservationId, status: { notIn: ['SEATED', 'COMPLETED', 'CANCELLED'] } },
+        data: { status: 'SEATED', seatedAt: now },
+      });
+    }
+
+    // Disparamos el grant SÍNCRONO (no fire-and-forget) para que la
+    // response al scanner incluya el Pass de sellos resultante.
+    await this.grantReservationStamp(reservationId).catch((e) => {
+      this.logger.warn(
+        `grantReservationStamp falló (scan reserva ${reservationId}): ${(e as Error).message}`,
+      );
+    });
+
+    // Buscar el Pass que quedó (puede no existir si el tenant no tiene
+    // STAMPS card configurada — devolvemos respuesta especial).
+    if (!r.customerId) {
+      return {
+        reservation: {
+          id: r.id,
+          customerName: r.customerName,
+          party: r.party,
+          date: r.date,
+          time: r.time,
+          tableNumber: r.table?.number ?? null,
+          zoneName: r.zone?.name ?? null,
+        },
+        pass: null,
+        recent: [],
+        message: 'Reserva confirmada — el cliente no tiene Customer asociado.',
+      };
+    }
+
+    const stampsCard = await this.prisma.card.findFirst({
+      where: { tenantId: r.tenantId, type: 'STAMPS', isActive: true },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+    if (!stampsCard) {
+      return {
+        reservation: {
+          id: r.id,
+          customerName: r.customerName,
+          party: r.party,
+          date: r.date,
+          time: r.time,
+          tableNumber: r.table?.number ?? null,
+          zoneName: r.zone?.name ?? null,
+        },
+        pass: null,
+        recent: [],
+        message: 'Reserva confirmada — el negocio aún no tiene tarjeta de fidelización.',
+      };
+    }
+
+    const pass = await this.prisma.pass.findUnique({
+      where: { cardId_customerId: { cardId: stampsCard.id, customerId: r.customerId } },
+      include: {
+        card: true,
+        customer: true,
+        tenant: { select: { brandName: true, primaryColor: true, logoUrl: true } },
+      },
+    });
+    if (!pass) {
+      return {
+        reservation: {
+          id: r.id,
+          customerName: r.customerName,
+          party: r.party,
+          date: r.date,
+          time: r.time,
+          tableNumber: r.table?.number ?? null,
+          zoneName: r.zone?.name ?? null,
+        },
+        pass: null,
+        recent: [],
+      };
+    }
+
+    const recent = await this.prisma.stamp.findMany({
+      where: { passId: pass.id },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+    });
+
+    return { pass, recent };
+  }
+
+  /**
+   * Cron de auto check-in: si una reserva pasa de 60 minutos de su hora
+   * sin haber sido SEATED manualmente, la marcamos como SEATED y otorgamos
+   * el sello automáticamente. Cubre el caso "el cliente llegó pero el staff
+   * no escaneó el pase". También cubre "el cliente nunca llegó" — el
+   * sello se otorga igual (decisión del negocio: el cumplimiento de la
+   * reserva es lo que valida la visita).
+   */
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  async autoSeatOverdueReservations() {
+    const now = new Date();
+    const cutoffMs = 60 * 60 * 1000; // 60 minutos
+
+    // Candidatos: PENDING/CONFIRMED cuyo momento real (date+time) está
+    // más de 60 min en el pasado. Ventana de 24h hacia atrás para no
+    // procesar reservas viejas históricas que ya estén "perdidas".
+    const todayStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0),
+    );
+    const yesterdayStart = new Date(todayStart.getTime() - 24 * 60 * 60 * 1000);
+    const candidates = await this.prisma.reservation.findMany({
+      where: {
+        status: { in: ['PENDING', 'CONFIRMED'] },
+        date: { gte: yesterdayStart, lte: now },
+      },
+      select: { id: true, date: true, time: true, tenantId: true },
+      take: 200,
+    });
+
+    let processed = 0;
+    for (const r of candidates) {
+      const moment = ReservationsService.reservationMomentUtc(r.date, r.time);
+      const ageMs = now.getTime() - moment.getTime();
+      if (ageMs < cutoffMs) continue;
+
+      // Transición atómica: solo si todavía es PENDING/CONFIRMED.
+      const claim = await this.prisma.reservation.updateMany({
+        where: { id: r.id, status: { in: ['PENDING', 'CONFIRMED'] } },
+        data: { status: 'SEATED', seatedAt: now },
+      });
+      if (claim.count === 0) continue;
+      processed++;
+
+      await this.grantReservationStamp(r.id).catch((e) => {
+        this.logger.warn(
+          `auto-seat grant fail (${r.id}): ${(e as Error).message}`,
+        );
+      });
+    }
+    if (processed > 0) {
+      this.logger.log(`Auto-seat cron: ${processed} reservas marcadas SEATED automáticamente`);
+    }
   }
 
   // ============================================================
