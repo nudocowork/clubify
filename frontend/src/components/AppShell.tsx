@@ -104,6 +104,9 @@ export default function AppShell({
     academyEnabled?: boolean;
     // Reservations module 2026-06-12. SUPER_ADMIN lo activa per-tenant.
     reservationsEnabled?: boolean;
+    // Master Admin 2026-06-14: si la marca blanca tiene créditos ilimitados,
+    // este tenant nunca necesita pasar por Hotmart. Salta el lockscreen.
+    whiteLabelCreditsUnlimited?: boolean;
   } | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
     new Set(),
@@ -243,6 +246,7 @@ export default function AppShell({
           tutorialsEnabled: t?.tutorialsEnabled ?? true,
           academyEnabled: t?.academyEnabled ?? true,
           reservationsEnabled: t?.reservationsEnabled ?? false,
+          whiteLabelCreditsUnlimited: t?.whiteLabelCreditsUnlimited ?? false,
         });
       })
       .catch(() => null);
@@ -464,6 +468,7 @@ export default function AppShell({
     user.role === 'TENANT_OWNER' &&
     tenantInfo &&
     !tenantInfo.hotmartSubscriberCode &&
+    !tenantInfo.whiteLabelCreditsUnlimited &&
     planName === 'Elite'
   ) {
     const trialEnd = tenantInfo.trialEndsAt
