@@ -265,8 +265,23 @@ export default function PublicInfoLink() {
         b.type === 'INSTAGRAM' ||
         b.type === 'MAPS' ||
         b.type === 'WHATSAPP';
+      // Botón ubicación: si el dueño eligió una sede específica, mostramos
+      // el nombre del local y la dirección como tagline para que el visitante
+      // sepa exactamente a dónde va.
+      let buttonLabel = b.label;
+      let buttonTagline = b.tagline ?? null;
+      if (b.type === 'MAPS' && tenant.locations && tenant.locations.length > 0) {
+        const loc = b.locationId
+          ? tenant.locations.find((l) => l.id === b.locationId)
+          : tenant.locations[0];
+        if (loc) {
+          if (!buttonTagline && loc.address) {
+            buttonTagline = `${loc.name} · ${loc.address}`;
+          }
+        }
+      }
       return {
-        label: b.label,
+        label: buttonLabel,
         href,
         newTab,
         isPrimary: b.style !== 'secondary',
@@ -298,7 +313,10 @@ export default function PublicInfoLink() {
           }
         },
         cover: useCover ? b.cover : null,
-        tagline: (useCover ? b.tagline ?? null : null) as string | null,
+        tagline: (useCover ? buttonTagline : null) as string | null,
+        /** Sub-label visible bajo el botón regular (no-cover). Hoy lo
+         *  usamos para mostrar la sede del botón MAPS. */
+        subLabel: !useCover && b.type === 'MAPS' ? buttonTagline : null,
       };
     })
     .filter((x): x is ResolvedButton => !!x);
