@@ -58,7 +58,7 @@ export class SuperAdminService {
     const wl = await this.prisma.whiteLabel.findUnique({ where: { id: whiteLabelId } });
     if (!wl) throw new NotFoundException('Marca no encontrada');
     if (wl.status === 'SUSPENDED') {
-      throw new BadRequestException('La marca está suspendida. Reactivá antes de entrar.');
+      throw new BadRequestException('La marca está suspendida. Reactívala antes de entrar.');
     }
 
     // 0) Mejor opción: SUPER_ADMIN dedicado de la marca (User.whiteLabelId
@@ -398,7 +398,7 @@ export class SuperAdminService {
         acceptUrl,
         expiresAt,
       }),
-      text: `Hola ${fullName}, te invitaron a administrar ${wl.name}. Aceptá tu invitación acá: ${acceptUrl}. El enlace vence el ${expiresAt.toLocaleDateString('es-MX')}.`,
+      text: `Hola ${fullName}, te invitaron a administrar ${wl.name}. Acepta tu invitación aquí: ${acceptUrl}. El enlace vence el ${expiresAt.toLocaleDateString('es-MX')}.`,
     });
 
     await this.logAction(actorId, 'superadmin.white_label_admin_invite.create', `whiteLabel:${whiteLabelId}`, {
@@ -481,6 +481,32 @@ export class SuperAdminService {
       if (existing && existing.role === 'PLATFORM_OWNER') {
         throw new ConflictException('Este email ya pertenece a un PLATFORM_OWNER');
       }
+      // Defensa: no convertir silenciosamente a un TENANT_OWNER/SUPER_ADMIN
+      // de OTRO tenant en admin de marca — perdería acceso a su negocio.
+      if (existing && existing.tenantId) {
+        throw new ConflictException(
+          'Este email ya está asociado a un negocio existente. Usa otro email para administrar la marca.',
+        );
+      }
+      // Si ya es admin de OTRA marca, también bloqueamos.
+      if (
+        existing &&
+        existing.role === 'SUPER_ADMIN' &&
+        existing.whiteLabelId &&
+        existing.whiteLabelId !== invite.whiteLabelId
+      ) {
+        throw new ConflictException(
+          'Este email ya administra otra marca blanca. Usa un email distinto.',
+        );
+      }
+      // Atomic accept: si dos POSTs llegan a la vez, sólo uno gana.
+      const claim = await tx.whiteLabelAdminInvite.updateMany({
+        where: { id: invite.id, acceptedAt: null, revokedAt: null },
+        data: { acceptedAt: new Date() },
+      });
+      if (claim.count === 0) {
+        throw new ConflictException('Invitación ya aceptada o revocada');
+      }
       const u = existing
         ? await tx.user.update({
             where: { id: existing.id },
@@ -506,7 +532,7 @@ export class SuperAdminService {
           });
       await tx.whiteLabelAdminInvite.update({
         where: { id: invite.id },
-        data: { acceptedAt: new Date(), acceptedById: u.id },
+        data: { acceptedById: u.id },
       });
       return u;
     });
@@ -743,11 +769,11 @@ export class SuperAdminService {
     });
   }
 
-  async createHotmartLink(dto: HotmartLinkDto) {
+  async createHotmartLink(dto: HotmartLinkDto, actorId?: string) {
     if (!dto.credits || dto.credits < 1) throw new BadRequestException('credits >= 1');
     if (!dto.label?.trim()) throw new BadRequestException('label requerido');
     if (!dto.url?.trim()) throw new BadRequestException('url requerida');
-    return this.prisma.hotmartCreditLink.create({
+    const created = await this.prisma.hotmartCreditLink.create({
       data: {
         credits: dto.credits,
         label: dto.label.trim(),
@@ -758,9 +784,14 @@ export class SuperAdminService {
         isActive: dto.isActive ?? true,
       },
     });
+    await this.logAction(actorId, 'superadmin.hotmart_link.create', `hotmartLink:${created.id}`, {
+      label: created.label,
+      credits: created.credits,
+    });
+    return created;
   }
 
-  async updateHotmartLink(id: string, patch: Partial<HotmartLinkDto>) {
+  async updateHotmartLink(id: string, patch: Partial<HotmartLinkDto>, actorId?: string) {
     const existing = await this.prisma.hotmartCreditLink.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException();
     const data: any = {
@@ -774,11 +805,22 @@ export class SuperAdminService {
     if (patch.price !== undefined) {
       data.price = patch.price === null ? null : new Prisma.Decimal(patch.price);
     }
-    return this.prisma.hotmartCreditLink.update({ where: { id }, data });
+    const updated = await this.prisma.hotmartCreditLink.update({ where: { id }, data });
+    await this.logAction(actorId, 'superadmin.hotmart_link.update', `hotmartLink:${id}`, {
+      label: updated.label,
+      changed: Object.keys(patch),
+    });
+    return updated;
   }
 
-  async removeHotmartLink(id: string) {
+  async removeHotmartLink(id: string, actorId?: string) {
+    const existing = await this.prisma.hotmartCreditLink.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException();
     await this.prisma.hotmartCreditLink.delete({ where: { id } });
+    await this.logAction(actorId, 'superadmin.hotmart_link.delete', `hotmartLink:${id}`, {
+      label: existing.label,
+      credits: existing.credits,
+    });
     return { ok: true };
   }
 
@@ -966,7 +1008,11 @@ export class SuperAdminService {
     }));
   }
 
-  async updateIntegration(key: string, patch: { config?: any; status?: string }) {
+  async updateIntegration(
+    key: string,
+    patch: { config?: Record<string, any>; status?: string },
+    actorId?: string,
+  ) {
     const existing = await this.prisma.platformIntegration.findUnique({ where: { key } });
     if (!existing) throw new NotFoundException();
     const data: any = {};
@@ -983,13 +1029,21 @@ export class SuperAdminService {
       where: { key },
       data,
     });
+    // Audit log con las KEYS del patch (NO los valores — pueden ser
+    // secrets) y el status final. Nunca persistir el apiKey en log.
+    await this.logAction(actorId, 'superadmin.integration.update', `integration:${key}`, {
+      integrationKey: key,
+      configKeys: patch.config ? Object.keys(patch.config) : [],
+      statusFrom: existing.status,
+      statusTo: updated.status,
+    });
     return { ...updated, config: maskSensitiveConfig(updated.config as any) };
   }
 
   /** "Probar conexión" — por ahora marca como CONNECTED si tiene apiKey
    *  configurada, sin pegarle al endpoint real. En PR posterior se
    *  puede conectar al servicio real. */
-  async testIntegration(key: string) {
+  async testIntegration(key: string, actorId?: string) {
     const existing = await this.prisma.platformIntegration.findUnique({ where: { key } });
     if (!existing) throw new NotFoundException();
     const cfg = (existing.config as any) || {};
@@ -998,11 +1052,15 @@ export class SuperAdminService {
       where: { key },
       data: { status: ok ? 'CONNECTED' : 'DISCONNECTED' },
     });
+    await this.logAction(actorId, 'superadmin.integration.test', `integration:${key}`, {
+      integrationKey: key,
+      result: ok ? 'CONNECTED' : 'DISCONNECTED',
+    });
     return {
       ok,
       message: ok
         ? 'Conexión simulada exitosa. Falta wire al endpoint real.'
-        : 'Falta API Key — completá el campo y vuelve a probar.',
+        : 'Falta API Key — completa el campo e inténtalo de nuevo.',
     };
   }
 
@@ -1144,7 +1202,7 @@ export class SuperAdminService {
       to: email,
       subject: `Te invitaron a administrar ${platformName}`,
       html: ownerInviteEmailHtml({ fullName, platformName, acceptUrl, expiresAt }),
-      text: `Hola ${fullName}, te invitaron a administrar ${platformName}. Aceptá tu invitación acá: ${acceptUrl}. El enlace vence el ${expiresAt.toLocaleDateString('es-MX')}.`,
+      text: `Hola ${fullName}, te invitaron a administrar ${platformName}. Acepta tu invitación aquí: ${acceptUrl}. El enlace vence el ${expiresAt.toLocaleDateString('es-MX')}.`,
     });
 
     await this.logAction(actorId, 'superadmin.owner_invite.create', `invite:${invite.id}`, {
@@ -1171,7 +1229,7 @@ export class SuperAdminService {
 
   async toggleOwnerActive(userId: string, isActive: boolean, actorId: string) {
     if (userId === actorId && !isActive) {
-      throw new BadRequestException('No podés desactivarte a vos mismo');
+      throw new BadRequestException('No puedes desactivarte a ti mismo');
     }
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -1234,6 +1292,21 @@ export class SuperAdminService {
 
     const user = await this.prisma.$transaction(async (tx) => {
       const existing = await tx.user.findUnique({ where: { email: invite.email } });
+      // Defensa: no degradar silenciosamente a un user con tenant — perdería
+      // acceso a su negocio. PLATFORM_OWNER no tiene tenantId.
+      if (existing && existing.tenantId) {
+        throw new ConflictException(
+          'Este email ya está asociado a un negocio. Usa otro email para administrar la plataforma.',
+        );
+      }
+      // Atomic accept: si dos POSTs llegan a la vez, sólo uno gana.
+      const claim = await tx.platformOwnerInvite.updateMany({
+        where: { id: invite.id, acceptedAt: null, revokedAt: null },
+        data: { acceptedAt: new Date() },
+      });
+      if (claim.count === 0) {
+        throw new ConflictException('Invitación ya aceptada o revocada');
+      }
       const u = existing
         ? await tx.user.update({
             where: { id: existing.id },
@@ -1257,7 +1330,7 @@ export class SuperAdminService {
           });
       await tx.platformOwnerInvite.update({
         where: { id: invite.id },
-        data: { acceptedAt: new Date(), acceptedById: u.id },
+        data: { acceptedById: u.id },
       });
       return u;
     });
@@ -1282,16 +1355,16 @@ function ownerInviteEmailHtml(opts: {
   <div style="max-width:520px;margin:40px auto;background:white;border-radius:18px;overflow:hidden;border:1px solid #d1fae5">
     <div style="background:linear-gradient(135deg,#15803d,#10b981);padding:32px 28px;color:white">
       <div style="font-size:13px;font-weight:700;letter-spacing:1px;opacity:.9;text-transform:uppercase">${escapeHtml(platformName)}</div>
-      <h1 style="margin:8px 0 0;font-size:24px;font-weight:800;letter-spacing:-.4px">Sos administrador de la plataforma</h1>
+      <h1 style="margin:8px 0 0;font-size:24px;font-weight:800;letter-spacing:-.4px">Eres administrador de la plataforma</h1>
     </div>
     <div style="padding:28px">
       <p style="margin:0 0 14px;font-size:15px;line-height:1.55">Hola <strong>${escapeHtml(fullName)}</strong>,</p>
       <p style="margin:0 0 18px;font-size:15px;line-height:1.55">Te invitaron a administrar <strong>${escapeHtml(platformName)}</strong>. Vas a tener acceso completo al Master Admin: marcas blancas, créditos, módulos y cobros.</p>
-      <p style="margin:0 0 22px;font-size:15px;line-height:1.55">Para activar tu cuenta, hacé clic acá y definí tu contraseña:</p>
+      <p style="margin:0 0 22px;font-size:15px;line-height:1.55">Para activar tu cuenta, haz clic aquí y define tu contraseña:</p>
       <p style="text-align:center;margin:24px 0 28px">
         <a href="${escapeHtml(acceptUrl)}" style="display:inline-block;padding:14px 26px;background:#15803d;color:white;text-decoration:none;border-radius:10px;font-weight:700;font-size:15px">Activar mi cuenta</a>
       </p>
-      <p style="margin:0;font-size:12.5px;color:#6b7785">El enlace vence el ${expiresAt.toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}. Si no esperabas esta invitación, ignorá este correo.</p>
+      <p style="margin:0;font-size:12.5px;color:#6b7785">El enlace vence el ${expiresAt.toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}. Si no esperabas esta invitación, ignora este correo.</p>
     </div>
   </div>
 </body></html>`;
@@ -1311,16 +1384,16 @@ function whiteLabelInviteEmailHtml(opts: {
   <div style="max-width:520px;margin:40px auto;background:white;border-radius:18px;overflow:hidden;border:1px solid #e7e9ec">
     <div style="background:linear-gradient(135deg, ${escapeHtml(primaryColor)} 0%, ${escapeHtml(primaryColor)}cc 100%);padding:32px 28px;color:white">
       <div style="font-size:12.5px;font-weight:700;letter-spacing:1px;opacity:.9;text-transform:uppercase">${escapeHtml(whiteLabelName)}</div>
-      <h1 style="margin:8px 0 0;font-size:24px;font-weight:800;letter-spacing:-.4px">Sos administrador de la marca</h1>
+      <h1 style="margin:8px 0 0;font-size:24px;font-weight:800;letter-spacing:-.4px">Eres administrador de la marca</h1>
     </div>
     <div style="padding:28px">
       <p style="margin:0 0 14px;font-size:15px;line-height:1.55">Hola <strong>${escapeHtml(fullName)}</strong>,</p>
       <p style="margin:0 0 18px;font-size:15px;line-height:1.55">Te invitaron a administrar <strong>${escapeHtml(whiteLabelName)}</strong>. Vas a tener acceso completo al panel: negocios, clientes, branding y todos los datos de la marca.</p>
-      <p style="margin:0 0 22px;font-size:15px;line-height:1.55">Para activar tu cuenta, hacé clic acá y definí tu contraseña:</p>
+      <p style="margin:0 0 22px;font-size:15px;line-height:1.55">Para activar tu cuenta, haz clic aquí y define tu contraseña:</p>
       <p style="text-align:center;margin:24px 0 28px">
         <a href="${escapeHtml(acceptUrl)}" style="display:inline-block;padding:14px 26px;background:${escapeHtml(primaryColor)};color:white;text-decoration:none;border-radius:10px;font-weight:700;font-size:15px">Activar mi cuenta</a>
       </p>
-      <p style="margin:0;font-size:12.5px;color:#6b7785">El enlace vence el ${expiresAt.toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}. Si no esperabas esta invitación, ignorá este correo.</p>
+      <p style="margin:0;font-size:12.5px;color:#6b7785">El enlace vence el ${expiresAt.toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}. Si no esperabas esta invitación, ignora este correo.</p>
       <p style="margin:18px 0 0;font-size:11px;color:#9aa4af;text-align:center">Operado en ${escapeHtml(platformName)}.</p>
     </div>
   </div>

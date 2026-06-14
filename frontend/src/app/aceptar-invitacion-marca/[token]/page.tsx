@@ -151,7 +151,7 @@ export default function AcceptWhiteLabelInvitePage() {
           {(state === 'ready' || state === 'saving') && info && (
             <form onSubmit={submit}>
               <p className="text-sm mb-4" style={{ color: '#16241c' }}>
-                Hola <strong>{info.fullName}</strong>, definí tu contraseña para activar tu cuenta de
+                Hola <strong>{info.fullName}</strong>, define tu contraseña para activar tu cuenta de
                 administrador de <strong>{info.whiteLabel.name}</strong> ({info.email}).
               </p>
 
@@ -185,7 +185,7 @@ export default function AcceptWhiteLabelInvitePage() {
                   type="password"
                   value={confirm}
                   onChange={(e) => setConfirm(e.target.value)}
-                  placeholder="Repetí tu contraseña"
+                  placeholder="Repite tu contraseña"
                   required
                   minLength={8}
                   className="w-full"

@@ -177,34 +177,50 @@ export class RenewalsService {
       }
 
       if (wl.creditsAvailable >= 1) {
-        // Renovar: consume 1 crédito + extiende currentPeriodEnd 30d
+        // Renovar: consume 1 crédito + extiende currentPeriodEnd 30d.
+        // Race-safe en dos niveles:
+        //  1) Crédito: updateMany con guard `creditsAvailable >= 1` —
+        //     si un adjustCredits concurrente bajó a 0, no decrementa.
+        //  2) Tenant: updateMany con guard `currentPeriodEnd = periodEnd`
+        //     — si otro worker ya renovó, no extiende.
+        // Si el tenant ya estaba renovado, rollback del crédito.
         if (!opts.dryRun) {
           const newPeriodEnd = new Date(periodEnd.getTime() + RenewalsService.CYCLE_DAYS * RenewalsService.DAY_MS);
-          // Race-safe: extender solo si nadie más lo modificó
-          const updateTenant = await this.prisma.tenant.updateMany({
-            where: { id: t.id, currentPeriodEnd: periodEnd },
-            data: { currentPeriodEnd: newPeriodEnd },
+          const debit = await this.prisma.whiteLabel.updateMany({
+            where: { id: wl.id, creditsAvailable: { gte: 1 } },
+            data: {
+              creditsAvailable: { decrement: 1 },
+              creditsUsed: { increment: 1 },
+            },
           });
-          if (updateTenant.count === 0) {
-            // Otro worker ya lo renovó
-            summary.skipped++;
-            summary.details.push({
-              tenantId: t.id,
-              brandName: t.brandName,
-              action: 'SKIPPED',
-              reason: 'Race — otro worker ya lo renovó',
+          if (debit.count === 0) {
+            // Race: otra operación bajó los créditos a 0. Caemos a la
+            // rama "sin créditos" abajo, simulando que nunca tuvimos.
+            wl.creditsAvailable = 0;
+          } else {
+            const updateTenant = await this.prisma.tenant.updateMany({
+              where: { id: t.id, currentPeriodEnd: periodEnd },
+              data: { currentPeriodEnd: newPeriodEnd },
             });
-            continue;
-          }
-          await this.prisma.$transaction([
-            this.prisma.whiteLabel.update({
-              where: { id: wl.id },
-              data: {
-                creditsAvailable: wl.creditsAvailable - 1,
-                creditsUsed: wl.creditsUsed + 1,
-              },
-            }),
-            this.prisma.creditTransaction.create({
+            if (updateTenant.count === 0) {
+              // Otro worker ya lo renovó — rollback del crédito
+              await this.prisma.whiteLabel.update({
+                where: { id: wl.id },
+                data: {
+                  creditsAvailable: { increment: 1 },
+                  creditsUsed: { decrement: 1 },
+                },
+              });
+              summary.skipped++;
+              summary.details.push({
+                tenantId: t.id,
+                brandName: t.brandName,
+                action: 'SKIPPED',
+                reason: 'Race — otro worker ya lo renovó',
+              });
+              continue;
+            }
+            await this.prisma.creditTransaction.create({
               data: {
                 whiteLabelId: wl.id,
                 type: 'CONSUME',
@@ -212,16 +228,24 @@ export class RenewalsService {
                 tenantId: t.id,
                 note: `Auto-renovación · ${t.brandName} · +30d`,
               },
-            }),
-          ]);
+            });
+            summary.renewed++;
+            summary.details.push({
+              tenantId: t.id,
+              brandName: t.brandName,
+              action: 'RENEWED',
+            });
+            continue;
+          }
+        } else {
+          summary.renewed++;
+          summary.details.push({
+            tenantId: t.id,
+            brandName: t.brandName,
+            action: 'RENEWED',
+          });
+          continue;
         }
-        summary.renewed++;
-        summary.details.push({
-          tenantId: t.id,
-          brandName: t.brandName,
-          action: 'RENEWED',
-        });
-        continue;
       }
 
       // Sin créditos
