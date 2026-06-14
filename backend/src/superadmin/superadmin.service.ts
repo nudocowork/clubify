@@ -3,6 +3,9 @@ import { JwtService } from '@nestjs/jwt';
 import { Prisma, WhiteLabelStatus, CreditTransactionType, ModuleKey } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { EmailService } from '../email/email.service';
+import * as argon2 from 'argon2';
+import { randomBytes, createHash } from 'crypto';
 
 export type WhiteLabelDto = {
   name: string;
@@ -44,6 +47,7 @@ export class SuperAdminService {
     private prisma: PrismaService,
     private jwt: JwtService,
     private audit: AuditService,
+    private email: EmailService,
   ) {}
 
   /** PLATFORM_OWNER entra al panel de una marca blanca como su SUPER_ADMIN.
@@ -780,6 +784,302 @@ export class SuperAdminService {
         : 'Falta API Key — completá el campo y vuelve a probar.',
     };
   }
+
+  // ============================================================
+  //                  CONFIGURACIÓN DE PLATAFORMA
+  // ============================================================
+  //
+  // Branding global de Fidelia (nombre/logo/color) editable desde
+  // /superadmin/configuracion. Vive en la tabla Setting como key/value
+  // bajo el prefijo `platform.`. El frontend lo expone vía un endpoint
+  // público mínimo (solo lectura).
+
+  private static readonly PLATFORM_KEYS = [
+    'platform.name',
+    'platform.tagline',
+    'platform.logoUrl',
+    'platform.primaryColor',
+    'platform.consoleDomain',
+    'platform.supportEmail',
+  ];
+
+  private static readonly PLATFORM_DEFAULTS: Record<string, string> = {
+    'platform.name': 'Fidelia',
+    'platform.tagline': 'Software de Fidelización',
+    'platform.logoUrl': '',
+    'platform.primaryColor': '#16a34a',
+    'platform.consoleDomain': '',
+    'platform.supportEmail': '',
+  };
+
+  async getPlatformConfig() {
+    const settings = await this.prisma.setting.findMany({
+      where: { key: { in: SuperAdminService.PLATFORM_KEYS } },
+    });
+    const map = new Map(settings.map((s) => [s.key, s.value]));
+    const out: Record<string, string> = {};
+    for (const k of SuperAdminService.PLATFORM_KEYS) {
+      const short = k.replace('platform.', '');
+      out[short] = map.get(k) ?? SuperAdminService.PLATFORM_DEFAULTS[k] ?? '';
+    }
+    return out;
+  }
+
+  async updatePlatformConfig(
+    body: Partial<Record<'name' | 'tagline' | 'logoUrl' | 'primaryColor' | 'consoleDomain' | 'supportEmail', string>>,
+    actorId?: string,
+  ) {
+    const changed: string[] = [];
+    for (const [short, val] of Object.entries(body)) {
+      const key = `platform.${short}`;
+      if (!SuperAdminService.PLATFORM_KEYS.includes(key)) continue;
+      const value = (val ?? '').toString().trim();
+      await this.prisma.setting.upsert({
+        where: { key },
+        create: { key, value },
+        update: { value },
+      });
+      changed.push(short);
+    }
+    await this.logAction(actorId, 'superadmin.platform_config.update', 'platform_config', {
+      changed,
+    });
+    return this.getPlatformConfig();
+  }
+
+  // ============================================================
+  //                  PLATFORM_OWNERS + INVITACIONES
+  // ============================================================
+
+  async listPlatformOwners() {
+    const owners = await this.prisma.user.findMany({
+      where: { role: 'PLATFORM_OWNER' },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        isActive: true,
+        lastLoginAt: true,
+        createdAt: true,
+      },
+    });
+    return owners;
+  }
+
+  async listOwnerInvites() {
+    const invites = await this.prisma.platformOwnerInvite.findMany({
+      where: { acceptedAt: null, revokedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+      include: { invitedBy: { select: { id: true, email: true, fullName: true } } },
+    });
+    return invites.map((i) => ({
+      id: i.id,
+      email: i.email,
+      fullName: i.fullName,
+      invitedBy: i.invitedBy ? { email: i.invitedBy.email, fullName: i.invitedBy.fullName } : null,
+      expiresAt: i.expiresAt,
+      createdAt: i.createdAt,
+    }));
+  }
+
+  async createOwnerInvite(
+    dto: { email: string; fullName: string },
+    actorId: string,
+  ) {
+    const email = dto.email.trim().toLowerCase();
+    const fullName = dto.fullName.trim();
+    if (!email || !fullName) throw new BadRequestException('Email y nombre son requeridos');
+
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing && existing.role === 'PLATFORM_OWNER') {
+      throw new ConflictException('Ya existe un PLATFORM_OWNER con ese email');
+    }
+
+    const pending = await this.prisma.platformOwnerInvite.findFirst({
+      where: { email, acceptedAt: null, revokedAt: null, expiresAt: { gt: new Date() } },
+    });
+    if (pending) {
+      throw new ConflictException('Ya hay una invitación pendiente para ese email');
+    }
+
+    const token = randomBytes(32).toString('hex');
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    const invite = await this.prisma.platformOwnerInvite.create({
+      data: { email, fullName, tokenHash, invitedById: actorId, expiresAt },
+    });
+
+    const cfg = await this.getPlatformConfig();
+    const platformName = cfg.name || 'Fidelia';
+    const consoleDomain = cfg.consoleDomain || '';
+    const baseUrl = consoleDomain
+      ? `https://${consoleDomain.replace(/^https?:\/\//, '').replace(/\/$/, '')}`
+      : (process.env.PUBLIC_APP_URL || 'https://app.soyclubify.com');
+    const acceptUrl = `${baseUrl}/aceptar-invitacion-plataforma/${token}`;
+
+    await this.email.send({
+      to: email,
+      subject: `Te invitaron a administrar ${platformName}`,
+      html: ownerInviteEmailHtml({ fullName, platformName, acceptUrl, expiresAt }),
+      text: `Hola ${fullName}, te invitaron a administrar ${platformName}. Aceptá tu invitación acá: ${acceptUrl}. El enlace vence el ${expiresAt.toLocaleDateString('es-MX')}.`,
+    });
+
+    await this.logAction(actorId, 'superadmin.owner_invite.create', `invite:${invite.id}`, {
+      email, fullName,
+    });
+
+    return { id: invite.id, email, fullName, expiresAt };
+  }
+
+  async revokeOwnerInvite(id: string, actorId: string) {
+    const invite = await this.prisma.platformOwnerInvite.findUnique({ where: { id } });
+    if (!invite) throw new NotFoundException('Invitación no encontrada');
+    if (invite.acceptedAt) throw new BadRequestException('La invitación ya fue aceptada');
+    if (invite.revokedAt) return { ok: true, alreadyRevoked: true };
+    await this.prisma.platformOwnerInvite.update({
+      where: { id },
+      data: { revokedAt: new Date() },
+    });
+    await this.logAction(actorId, 'superadmin.owner_invite.revoke', `invite:${id}`, {
+      email: invite.email,
+    });
+    return { ok: true };
+  }
+
+  async toggleOwnerActive(userId: string, isActive: boolean, actorId: string) {
+    if (userId === actorId && !isActive) {
+      throw new BadRequestException('No podés desactivarte a vos mismo');
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, role: true, isActive: true },
+    });
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+    if (user.role !== 'PLATFORM_OWNER') {
+      throw new BadRequestException('Solo se puede toggle PLATFORM_OWNERs');
+    }
+    if (user.isActive === isActive) return { ok: true, noop: true };
+
+    if (!isActive) {
+      // Defensa: nunca dejar la plataforma sin un único owner activo.
+      const activeCount = await this.prisma.user.count({
+        where: { role: 'PLATFORM_OWNER', isActive: true },
+      });
+      if (activeCount <= 1) {
+        throw new BadRequestException('Tiene que quedar al menos un PLATFORM_OWNER activo');
+      }
+    }
+
+    await this.prisma.user.update({ where: { id: userId }, data: { isActive } });
+    await this.logAction(actorId, 'superadmin.owner.toggle', `user:${userId}`, {
+      email: user.email,
+      to: isActive ? 'active' : 'inactive',
+    });
+    return { ok: true };
+  }
+
+  // ============================================================
+  //                  ACEPTACIÓN PÚBLICA DE INVITACIÓN
+  // ============================================================
+
+  async lookupOwnerInvite(token: string) {
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const invite = await this.prisma.platformOwnerInvite.findUnique({
+      where: { tokenHash },
+    });
+    if (!invite) throw new NotFoundException('Invitación inválida o ya usada');
+    if (invite.acceptedAt) throw new BadRequestException('Invitación ya aceptada');
+    if (invite.revokedAt) throw new BadRequestException('Invitación revocada');
+    if (invite.expiresAt < new Date()) throw new BadRequestException('Invitación vencida');
+    return { email: invite.email, fullName: invite.fullName, expiresAt: invite.expiresAt };
+  }
+
+  async acceptOwnerInvite(token: string, password: string) {
+    if (!password || password.length < 8) {
+      throw new BadRequestException('La contraseña debe tener al menos 8 caracteres');
+    }
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const invite = await this.prisma.platformOwnerInvite.findUnique({
+      where: { tokenHash },
+    });
+    if (!invite) throw new NotFoundException('Invitación inválida');
+    if (invite.acceptedAt) throw new BadRequestException('Invitación ya aceptada');
+    if (invite.revokedAt) throw new BadRequestException('Invitación revocada');
+    if (invite.expiresAt < new Date()) throw new BadRequestException('Invitación vencida');
+
+    const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
+
+    const user = await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.user.findUnique({ where: { email: invite.email } });
+      const u = existing
+        ? await tx.user.update({
+            where: { id: existing.id },
+            data: {
+              role: 'PLATFORM_OWNER',
+              tenantId: null,
+              isActive: true,
+              passwordHash,
+              passwordChangedAt: new Date(),
+              fullName: existing.fullName || invite.fullName,
+            },
+          })
+        : await tx.user.create({
+            data: {
+              email: invite.email,
+              fullName: invite.fullName,
+              role: 'PLATFORM_OWNER',
+              passwordHash,
+              isActive: true,
+            },
+          });
+      await tx.platformOwnerInvite.update({
+        where: { id: invite.id },
+        data: { acceptedAt: new Date(), acceptedById: u.id },
+      });
+      return u;
+    });
+
+    await this.logAction(invite.invitedById, 'superadmin.owner_invite.accept', `user:${user.id}`, {
+      email: invite.email,
+    });
+
+    return { ok: true, email: user.email };
+  }
+}
+
+function ownerInviteEmailHtml(opts: {
+  fullName: string;
+  platformName: string;
+  acceptUrl: string;
+  expiresAt: Date;
+}) {
+  const { fullName, platformName, acceptUrl, expiresAt } = opts;
+  return `<!doctype html>
+<html><body style="margin:0;padding:0;background:#f0fdf4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#16241c">
+  <div style="max-width:520px;margin:40px auto;background:white;border-radius:18px;overflow:hidden;border:1px solid #d1fae5">
+    <div style="background:linear-gradient(135deg,#15803d,#10b981);padding:32px 28px;color:white">
+      <div style="font-size:13px;font-weight:700;letter-spacing:1px;opacity:.9;text-transform:uppercase">${escapeHtml(platformName)}</div>
+      <h1 style="margin:8px 0 0;font-size:24px;font-weight:800;letter-spacing:-.4px">Sos administrador de la plataforma</h1>
+    </div>
+    <div style="padding:28px">
+      <p style="margin:0 0 14px;font-size:15px;line-height:1.55">Hola <strong>${escapeHtml(fullName)}</strong>,</p>
+      <p style="margin:0 0 18px;font-size:15px;line-height:1.55">Te invitaron a administrar <strong>${escapeHtml(platformName)}</strong>. Vas a tener acceso completo al Master Admin: marcas blancas, créditos, módulos y cobros.</p>
+      <p style="margin:0 0 22px;font-size:15px;line-height:1.55">Para activar tu cuenta, hacé clic acá y definí tu contraseña:</p>
+      <p style="text-align:center;margin:24px 0 28px">
+        <a href="${escapeHtml(acceptUrl)}" style="display:inline-block;padding:14px 26px;background:#15803d;color:white;text-decoration:none;border-radius:10px;font-weight:700;font-size:15px">Activar mi cuenta</a>
+      </p>
+      <p style="margin:0;font-size:12.5px;color:#6b7785">El enlace vence el ${expiresAt.toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}. Si no esperabas esta invitación, ignorá este correo.</p>
+    </div>
+  </div>
+</body></html>`;
+}
+
+function escapeHtml(s: string): string {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  } as any)[c]);
 }
 
 /** Enmascara campos sensibles en config (apiKey, secret, token). */

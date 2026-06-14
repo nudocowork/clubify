@@ -754,6 +754,11 @@ model User {
   locationId String?
   location   Location? @relation("UserLocation", fields: [locationId], references: [id], onDelete: SetNull)
 
+  // Master Admin (2026-06-13): invitaciones a otros PLATFORM_OWNERs que
+  // creó este user, y la (única) invitación que aceptó si fue invitado.
+  platformOwnerInvitesSent     PlatformOwnerInvite[] @relation("PlatformOwnerInviteInviter")
+  platformOwnerInviteAccepted  PlatformOwnerInvite[] @relation("PlatformOwnerInviteAcceptor")
+
   @@index([tenantId])
   @@index([role])
   @@index([locationId])
@@ -3840,4 +3845,28 @@ model PlatformIntegration {
   /// expone enmascarada al frontend.
   config    Json     @default("{}")
   updatedAt DateTime @updatedAt
+}
+
+/// Invitaciones para sumar nuevos PLATFORM_OWNERs a la consola Master Admin.
+/// Flujo: el owner actual crea la invitación → mandamos email con link
+/// `/aceptar-invitacion-plataforma/<token>` → el invitado define contraseña
+/// y queda creado como User con role=PLATFORM_OWNER. Una invitación se
+/// puede revocar mientras siga pendiente.
+model PlatformOwnerInvite {
+  id          String    @id @default(uuid())
+  email       String
+  fullName    String
+  /// Hash SHA-256 del token. El token plano sólo se envía en el email.
+  tokenHash   String    @unique
+  invitedById String
+  invitedBy   User      @relation("PlatformOwnerInviteInviter", fields: [invitedById], references: [id])
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  acceptedById String?
+  acceptedBy  User?     @relation("PlatformOwnerInviteAcceptor", fields: [acceptedById], references: [id])
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([email])
+  @@index([acceptedAt, revokedAt])
 }
