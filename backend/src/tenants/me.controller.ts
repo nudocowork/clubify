@@ -158,7 +158,7 @@ export class TenantMeController {
     }
     if (!creds) {
       throw new BadRequestException(
-        'Sin credenciales — asigná una subcuenta o conecta Grow Business para el negocio.',
+        'Sin credenciales — asigna una subcuenta o conecta Grow Business para el negocio.',
       );
     }
 
@@ -200,7 +200,7 @@ export class TenantMeController {
     const body =
       '🧪 Test de alertas de pago\n\n' +
       `Negocio: ${t?.brandName ?? '—'}\n` +
-      'Si recibís este SMS, los recordatorios de pago de Clubify están listos.';
+      'Si recibes este SMS, los recordatorios de pago de Clubify están listos.';
     const result = await this.growBusiness.sendSmsWithCreds(
       target.creds,
       target.phone,
@@ -291,7 +291,7 @@ export class TenantMeController {
     const body =
       '🧪 Test de alerta de reseñas\n\n' +
       `Negocio: ${tenant.brandName}\n` +
-      'Si recibís este SMS, la conexión está lista. Activala con el toggle.';
+      'Si recibes este SMS, la conexión está lista. Actívala con el toggle.';
     const result = await this.growBusiness.sendSmsWithCreds(
       creds,
       toPhone,
