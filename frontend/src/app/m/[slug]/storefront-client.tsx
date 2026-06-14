@@ -581,7 +581,7 @@ function StorefrontPublicInner() {
                 const isTransparent = logoBg === 'transparent';
                 return (
                   <div
-                    className={`rounded-2xl px-5 py-4 flex items-center justify-center max-w-[180px] w-fit overflow-visible ${
+                    className={`rounded-2xl px-5 py-4 flex items-center justify-center max-w-[300px] w-fit overflow-visible ${
                       isTransparent ? '' : 'shadow-sm ring-1 ring-black/5'
                     }`}
                     style={{ background: logoBg }}
@@ -589,7 +589,7 @@ function StorefrontPublicInner() {
                     <img
                       src={s.logoUrl}
                       alt={s.brandName}
-                      className="max-w-[140px] w-auto h-auto max-h-[110px] object-contain block"
+                      className="max-w-[260px] w-auto h-auto max-h-[140px] object-contain block"
                     />
                   </div>
                 );

@@ -97,10 +97,14 @@ function initials(name: string) {
 }
 function fmtDate(s: string | null) {
   if (!s) return '—';
-  return new Date(s).toLocaleDateString('es-CO', {
+  const d = new Date(s);
+  // Si el año es <= 2000, asumimos placeholder (cliente sin fecha real
+  // de nacimiento) y mostramos solo día/mes.
+  const showYear = d.getUTCFullYear() > 2000;
+  return d.toLocaleDateString('es-CO', {
     day: '2-digit',
     month: 'short',
-    year: 'numeric',
+    ...(showYear ? { year: 'numeric' } : {}),
   });
 }
 

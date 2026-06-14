@@ -386,23 +386,18 @@ export class PassesController {
     if (passes.length === 0) {
       return { tenantId, total: 0, enqueued: 0 };
     }
-    // Bump lastActivityAt en batch para forzar If-Modified-Since.
+    // Bump lastActivityAt en batch para forzar If-Modified-Since cuando
+    // el cliente abra Wallet. NO encolamos wallet.push porque el refresh
+    // global no debe disparar notificaciones a los clientes — la idea es
+    // solo actualizar los datos, no molestar con un push masivo.
     const now = new Date();
     await this.prisma.pass.updateMany({
       where: { id: { in: passes.map((p) => p.id) } },
       data: { lastActivityAt: now },
     });
-    // Encolar en background — sin bloquear la response.
-    let enqueued = 0;
-    for (const p of passes) {
-      const ok = await this.jobs
-        .enqueue('wallet.push', { passId: p.id, reason: 'admin_refresh_all' })
-        .catch(() => false);
-      if (ok !== false) enqueued += 1;
-    }
     this.logger.log(
-      `Admin refresh-all by ${user.id} for tenant ${tenantId}: ${enqueued}/${passes.length} encolados`,
+      `Admin refresh-all by ${user.id} for tenant ${tenantId}: ${passes.length} pases marcados sin push`,
     );
-    return { tenantId, total: passes.length, enqueued };
+    return { tenantId, total: passes.length, enqueued: 0, silent: true };
   }
 }
