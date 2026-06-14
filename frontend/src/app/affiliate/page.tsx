@@ -375,6 +375,12 @@ export default function AffiliatePanel() {
           >
             🎓 Academia Clubify
           </a>
+          {/* Clubify Lab — panel global de propuestas comunitarias.
+              Visible para INFLUENCER / AMBASSADOR / VENDOR / SOCIO. La
+              página /lab acepta todos los roles AFFILIATE_*. */}
+          <Link href="/lab" className="tab">
+            🧪 Clubify Lab
+          </Link>
           <button
             className={`tab ${tab === 'settings' ? 'tab-active' : ''}`}
             onClick={() => setTab('settings')}
