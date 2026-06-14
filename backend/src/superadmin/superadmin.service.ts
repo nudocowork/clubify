@@ -15,6 +15,7 @@ export type WhiteLabelDto = {
   primaryColor?: string;
   initial?: string;
   adminEmail?: string;
+  creditsUnlimited?: boolean;
 };
 
 export type HotmartLinkDto = {
@@ -592,6 +593,7 @@ export class SuperAdminService {
           primaryColor: dto.primaryColor || '#16a34a',
           initial: (dto.initial || dto.name.trim()[0] || 'M').toUpperCase().slice(0, 1),
           adminEmail: dto.adminEmail?.trim().toLowerCase() || null,
+          creditsUnlimited: dto.creditsUnlimited ?? false,
           modules: {
             create: [
               { module: 'REFERRALS', enabled: true },
@@ -627,6 +629,7 @@ export class SuperAdminService {
         primaryColor: patch.primaryColor ?? undefined,
         initial: patch.initial ? patch.initial.toUpperCase().slice(0, 1) : undefined,
         adminEmail: patch.adminEmail === undefined ? undefined : patch.adminEmail?.trim().toLowerCase() || null,
+        creditsUnlimited: patch.creditsUnlimited === undefined ? undefined : patch.creditsUnlimited,
       },
     });
     await this.logAction(actorId, 'superadmin.white_label.update', `whiteLabel:${id}`, {
@@ -679,6 +682,7 @@ export class SuperAdminService {
           creditsAvailable: true,
           creditsCommitted: true,
           creditsUsed: true,
+          creditsUnlimited: true,
         },
       }),
       this.prisma.creditTransaction.aggregate({
@@ -809,24 +813,39 @@ export class SuperAdminService {
     const wl = await this.prisma.whiteLabel.findUnique({ where: { id: whiteLabelId } });
     if (!wl) throw new NotFoundException('Marca no encontrada');
 
-    await this.prisma.$transaction([
-      this.prisma.hotmartCreditPurchase.update({
-        where: { id: purchaseId },
-        data: { whiteLabelId, status: 'ASSIGNED', assignedAt: new Date() },
-      }),
-      this.prisma.whiteLabel.update({
-        where: { id: whiteLabelId },
-        data: { creditsAvailable: { increment: purchase.credits } },
-      }),
-      this.prisma.creditTransaction.create({
-        data: {
-          whiteLabelId,
-          type: 'PURCHASE',
-          amount: purchase.credits,
-          note: `Compra Hotmart reasignada · tx=${purchase.transactionId}`,
-        },
-      }),
-    ]);
+    if (wl.status === 'SUSPENDED') {
+      throw new BadRequestException('No se puede asignar créditos a una marca suspendida. Reactívala primero.');
+    }
+
+    // Atomic claim: solo un PLATFORM_OWNER puede asignar esta compra.
+    // updateMany WHERE status != 'ASSIGNED' devuelve count=0 si otro ya
+    // la asignó entre el findUnique y este update.
+    const claim = await this.prisma.hotmartCreditPurchase.updateMany({
+      where: { id: purchaseId, status: { not: 'ASSIGNED' } },
+      data: { whiteLabelId, status: 'ASSIGNED', assignedAt: new Date() },
+    });
+    if (claim.count === 0) {
+      throw new ConflictException('Otra operación ya asignó esta compra');
+    }
+    // Marcas con créditos ilimitados: registramos la compra como ASSIGNED
+    // (para auditoría) pero NO incrementamos creditsAvailable ni creamos
+    // CreditTransaction. La marca sigue ilimitada.
+    if (!wl.creditsUnlimited) {
+      await this.prisma.$transaction([
+        this.prisma.whiteLabel.update({
+          where: { id: whiteLabelId },
+          data: { creditsAvailable: { increment: purchase.credits } },
+        }),
+        this.prisma.creditTransaction.create({
+          data: {
+            whiteLabelId,
+            type: 'PURCHASE',
+            amount: purchase.credits,
+            note: `Compra Hotmart reasignada · tx=${purchase.transactionId}`,
+          },
+        }),
+      ]);
+    }
     await this.logAction(actorId, 'superadmin.hotmart_purchase.assign', `hotmartPurchase:${purchaseId}`, {
       transactionId: purchase.transactionId,
       whiteLabelName: wl.name,

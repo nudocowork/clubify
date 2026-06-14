@@ -3754,6 +3754,11 @@ model WhiteLabel {
   creditsCommitted Int            @default(0)
   /// Créditos usados acumulados (auditoría).
   creditsUsed      Int            @default(0)
+  /// Si está en true, la marca tiene créditos ilimitados — el cron de
+  /// renovaciones no le descuenta y los packs Hotmart que matchean su
+  /// adminEmail se ignoran (la compra queda como ASSIGNED igual, pero
+  /// no incrementa creditsAvailable). Para partners especiales o demos.
+  creditsUnlimited Boolean        @default(false)
 
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt

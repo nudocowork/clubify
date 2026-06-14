@@ -286,11 +286,15 @@ export class HotmartService {
 
     // Match con marca por adminEmail.
     let whiteLabelId: string | null = null;
+    let creditsUnlimited = false;
     if (buyerEmail) {
       const wl = await this.prisma.whiteLabel.findFirst({
         where: { adminEmail: { equals: buyerEmail, mode: 'insensitive' } },
       });
-      if (wl) whiteLabelId = wl.id;
+      if (wl) {
+        whiteLabelId = wl.id;
+        creditsUnlimited = wl.creditsUnlimited;
+      }
     }
 
     if (!whiteLabelId) {
@@ -312,7 +316,28 @@ export class HotmartService {
       return 'credit_purchase_unassigned';
     }
 
-    // Match: acredita los créditos a la marca + audit row.
+    // Match: registra la compra como ASSIGNED. Si la marca tiene
+    // créditos ilimitados, NO incrementamos creditsAvailable ni creamos
+    // CreditTransaction — la marca sigue sin caducar.
+    if (creditsUnlimited) {
+      await this.prisma.hotmartCreditPurchase.create({
+        data: {
+          transactionId,
+          hotmartProductId: productId,
+          creditLinkId: creditLink.id,
+          credits: creditLink.credits,
+          buyerEmail: buyerEmail ?? '',
+          whiteLabelId,
+          status: 'ASSIGNED',
+          assignedAt: new Date(),
+          rawPayload: payload as any,
+        },
+      });
+      this.logger.log(
+        `Hotmart credit purchase ${transactionId}: marca ${whiteLabelId} es ilimitada, compra registrada sin incrementar`,
+      );
+      return 'credit_purchase_unlimited';
+    }
     await this.prisma.$transaction([
       this.prisma.hotmartCreditPurchase.create({
         data: {
