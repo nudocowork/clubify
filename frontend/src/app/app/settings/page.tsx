@@ -500,11 +500,17 @@ export default function SettingsPage() {
         </div>
       </form>
 
-      {/* Alertas SMS de pago */}
-      <BillingAlertsCard tenant={tenant} onSaved={(t) => setTenant(t)} />
+      {/* Alertas SMS de pago — solo TENANT_OWNER. Staff no debe ver
+          esta configuración: contiene teléfonos administrativos y toggles
+          de cobranza que no le competen. */}
+      {me?.role === 'TENANT_OWNER' && (
+        <BillingAlertsCard tenant={tenant} onSaved={(t) => setTenant(t)} />
+      )}
 
-      {/* Alertas SMS a empresas de domicilio */}
-      <DeliveryAlertsCard tenant={tenant} onSaved={(t) => setTenant(t)} />
+      {/* Alertas SMS a empresas de domicilio — solo TENANT_OWNER. */}
+      {me?.role === 'TENANT_OWNER' && (
+        <DeliveryAlertsCard tenant={tenant} onSaved={(t) => setTenant(t)} />
+      )}
 
       {/* Moneda del menú público */}
       <form onSubmit={saveCurrency} className="card card-pad mb-4">

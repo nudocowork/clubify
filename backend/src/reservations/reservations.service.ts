@@ -1377,8 +1377,10 @@ export class ReservationsService {
       },
       include: {
         tenant: {
-          select: { id: true, brandName: true },
+          select: { id: true, brandName: true, whatsappPhone: true, phone: true },
         },
+        zone: { select: { name: true } },
+        table: { select: { number: true } },
       },
       take: 500,
     });
@@ -1397,25 +1399,39 @@ export class ReservationsService {
         continue;
       }
 
+      // El recordatorio va al NEGOCIO (no al cliente). El negocio decide
+      // si contacta al cliente. Mensaje incluye nombre/fecha/hora/mesa/tel.
+      const dest = r.tenant.whatsappPhone || r.tenant.phone;
+      if (!dest) {
+        skipped++;
+        this.logger.warn(
+          `Reminder reservation ${r.id}: tenant sin whatsappPhone/phone, skip`,
+        );
+        continue;
+      }
+
       const claim = await this.prisma.reservation.updateMany({
         where: { id: r.id, reminderSentAt: null },
         data: { reminderSentAt: now },
       });
       if (claim.count === 0) continue;
 
-      const token = this.signCancelToken(r.id);
-      const cancelUrl = `https://soyclubify.com/r/cancelar/${token}`;
       const dateStr = r.date.toISOString().slice(0, 10);
-      // Si la reserva es en menos de 18h decimos "hoy", sino "el {fecha}"
       const whenStr = hoursUntil < 18 ? 'hoy' : `el ${dateStr}`;
+      const tableStr = r.table?.number
+        ? ` · Mesa ${r.table.number}`
+        : r.zone?.name
+        ? ` · ${r.zone.name}`
+        : '';
       const body =
-        `Hola ${r.customerName}! Te recordamos tu reserva en ${r.tenant.brandName} ` +
-        `${whenStr} a las ${r.time} para ${r.party} ${r.party === 1 ? 'persona' : 'personas'}. ` +
-        `¡Te esperamos!\n\n` +
-        `Si no podés asistir, cancelá aquí: ${cancelUrl}`;
+        `🔔 RECORDATORIO RESERVA · ${r.tenant.brandName}\n` +
+        `${r.customerName} · ${r.party} ${r.party === 1 ? 'persona' : 'personas'}\n` +
+        `📅 ${whenStr} a las ${r.time}${tableStr}\n` +
+        `📞 ${r.customerPhone}\n\n` +
+        `Contactá al cliente para confirmar asistencia.`;
 
       try {
-        await this.growBusiness.sendSms(r.tenantId, r.customerPhone, body);
+        await this.growBusiness.sendSms(r.tenantId, dest, body);
         sent++;
       } catch (e) {
         await this.prisma.reservation.updateMany({
