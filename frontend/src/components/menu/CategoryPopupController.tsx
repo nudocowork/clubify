@@ -32,6 +32,15 @@ export type PopupConfig = {
   buttonColor?: string | null;
   trigger?: 'auto' | 'click';
   oncePerSession?: boolean;
+  /** Segundos de espera después que la sección se vuelve visible antes
+   *  de mostrar el popup. Default 0 = instantáneo. Solo aplica si
+   *  trigger='auto'. */
+  delaySeconds?: number;
+  /** Si true, el popup fire al instante que CUALQUIER parte de la
+   *  sección entra al viewport (threshold 5%), no espera al 35%. Útil
+   *  para layouts donde la sección es alta y el usuario tarda en
+   *  llegar al threshold default. Solo aplica si trigger='auto'. */
+  triggerImmediate?: boolean;
 };
 
 type CategoryLike = {
@@ -79,6 +88,9 @@ export function CategoryPopupController({
 
   // Auto trigger via IntersectionObserver. Se re-instala cuando cambia
   // el set de categorías con popup.
+  //
+  // Usamos 2 thresholds — 5% (para popups con triggerImmediate=true) y
+  // 35% (default). Cada entry decide su rama según el cfg de la categoría.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (byId.size === 0) return;
@@ -91,15 +103,26 @@ export function CategoryPopupController({
           const cfg = byId.get(id);
           if (!cfg || cfg.trigger === 'click') continue;
           if (firedRef.current.has(id)) continue;
+          // Threshold real: si triggerImmediate, basta con 5%; default 35%.
+          const minRatio = cfg.triggerImmediate ? 0.05 : 0.35;
+          if (entry.intersectionRatio < minRatio) continue;
           if (cfg.oncePerSession !== false && wasSeen(id)) {
             firedRef.current.add(id);
             continue;
           }
           firedRef.current.add(id);
-          setOpenCatId(id);
+          // Delay configurable: si delaySeconds > 0, espera antes de abrir.
+          const delayMs = Math.max(0, (cfg.delaySeconds ?? 0) * 1000);
+          if (delayMs === 0) {
+            setOpenCatId(id);
+          } else {
+            window.setTimeout(() => setOpenCatId(id), delayMs);
+          }
         }
       },
-      { threshold: 0.35 },
+      // Múltiples thresholds — el callback decide cuál es el mínimo aceptable
+      // por categoría según `triggerImmediate`.
+      { threshold: [0.05, 0.35] },
     );
 
     for (const catId of byId.keys()) {

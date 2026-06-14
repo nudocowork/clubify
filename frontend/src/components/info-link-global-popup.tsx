@@ -7,7 +7,7 @@
  * vez por sesión si `oncePerSession=true`.
  */
 import { useEffect, useState } from 'react';
-import type { InfoLinkPopup } from '@/lib/info-link-extras';
+import { popupScheduleMatches, type InfoLinkPopup } from '@/lib/info-link-extras';
 
 const SESSION_KEY_PREFIX = 'info_link_popup_seen_';
 
@@ -43,13 +43,16 @@ export function InfoLinkGlobalPopup({
   useEffect(() => {
     if (!config?.enabled) return;
     if (config.oncePerSession && wasSeen(linkId)) return;
+    // Programación: solo mostrar si el momento actual matchea el schedule
+    // (días/fechas/horas configurados). Sin schedule = siempre activo.
+    if (!popupScheduleMatches(config.schedule, new Date())) return;
     const delay = Math.max(0, config.delaySeconds ?? 3) * 1000;
     const t = setTimeout(() => {
       setOpen(true);
       if (config.oncePerSession) markSeen(linkId);
     }, delay);
     return () => clearTimeout(t);
-  }, [linkId, config?.enabled, config?.delaySeconds, config?.oncePerSession]);
+  }, [linkId, config?.enabled, config?.delaySeconds, config?.oncePerSession, config?.schedule]);
 
   if (!config?.enabled || !open) return null;
 

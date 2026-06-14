@@ -16,6 +16,7 @@ import { uploadCoverImage } from '@/lib/menu/upload-cover-image';
 import {
   type InfoLinkBackground,
   type InfoLinkPopup,
+  type PopupSchedule,
 } from '@/lib/info-link-extras';
 import type { SectionCoverConfig } from '@/lib/menu/section-cover-config';
 import { SortableList, DragHandle } from '@/components/Sortable';
@@ -167,7 +168,7 @@ export default function InfoLinkEditor() {
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [busy, setBusy] = useState(false);
   const [stats, setStats] = useState<any>(null);
-  const [locations, setLocations] = useState<Array<{ id: string; name: string }>>([]);
+  const [locations, setLocations] = useState<Array<{ id: string; name: string; address?: string | null }>>([]);
   // Tarjetas de fidelización del tenant — pobladas async para el
   // selector wallet del PopupEditor (G3).
   const [cards, setCards] = useState<Array<{ id: string; name: string }>>([]);
@@ -182,7 +183,7 @@ export default function InfoLinkEditor() {
     setTenant(await api('/tenants/me'));
     setStats(await api(`/info-links/${id}/stats`).catch(() => null));
     setLocations(
-      await api<Array<{ id: string; name: string }>>('/locations').catch(() => []),
+      await api<Array<{ id: string; name: string; address?: string | null }>>('/locations').catch(() => []),
     );
     setCards(
       await api<Array<{ id: string; name: string }>>('/cards').catch(() => []),
@@ -899,22 +900,37 @@ export default function InfoLinkEditor() {
                           </a>
                         </div>
                       ) : (
-                        <select
-                          className="input"
-                          value={b.locationId ?? ''}
-                          onChange={(e) =>
-                            updateButton(i, {
-                              locationId: e.target.value || null,
-                            })
-                          }
-                        >
-                          <option value="">Primera ubicación (default)</option>
-                          {locations.map((loc) => (
-                            <option key={loc.id} value={loc.id}>
-                              {loc.name}
-                            </option>
-                          ))}
-                        </select>
+                        <>
+                          <select
+                            className="input"
+                            value={b.locationId ?? ''}
+                            onChange={(e) =>
+                              updateButton(i, {
+                                locationId: e.target.value || null,
+                              })
+                            }
+                          >
+                            <option value="">Primera ubicación (default)</option>
+                            {locations.map((loc) => (
+                              <option key={loc.id} value={loc.id}>
+                                {loc.name}
+                                {loc.address ? ` · ${loc.address}` : ''}
+                              </option>
+                            ))}
+                          </select>
+                          {(() => {
+                            const sel = b.locationId
+                              ? locations.find((l) => l.id === b.locationId)
+                              : locations[0];
+                            if (!sel?.address) return null;
+                            return (
+                              <div className="text-[11px] text-mute mt-1.5 flex items-center gap-1">
+                                📍 {sel.name} · {sel.address}
+                              </div>
+                            );
+                          })()}
+                        </>
+
                       )}
                     </div>
                   )}
@@ -1702,15 +1718,13 @@ function BackgroundPanel({
       {value?.type === 'IMAGE' && (
         <div className="space-y-3">
           <div>
-            <label className="label">URL de la imagen de fondo</label>
-            <input
-              type="url"
-              className="input"
-              placeholder="https://..."
-              value={value.imageUrl ?? ''}
-              onChange={(e) =>
-                onChange({ ...value, imageUrl: e.target.value })
+            <label className="label">Imagen de fondo</label>
+            <ImageUploader
+              value={value.imageUrl || null}
+              onChange={(url) =>
+                onChange({ ...value, imageUrl: url || '' })
               }
+              folder="info-links"
             />
           </div>
           <div>
@@ -1866,13 +1880,11 @@ function PopupPanel({
             />
           </div>
           <div>
-            <label className="label">URL de la imagen (opcional)</label>
-            <input
-              type="url"
-              className="input"
-              placeholder="https://..."
-              value={value?.imageUrl ?? ''}
-              onChange={(e) => patch({ imageUrl: e.target.value })}
+            <label className="label">Imagen (opcional)</label>
+            <ImageUploader
+              value={value?.imageUrl ?? null}
+              onChange={(url) => patch({ imageUrl: url ?? undefined })}
+              folder="info-links"
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -1935,6 +1947,143 @@ function PopupPanel({
             />
             Mostrar solo 1 vez por sesión
           </label>
+
+          <PopupScheduleEditor
+            schedule={value?.schedule ?? null}
+            onChange={(next) => patch({ schedule: next })}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// =====================================================
+// PopupScheduleEditor — días/fechas/horas
+// =====================================================
+const DAY_LABELS = [
+  { num: 1, label: 'L' },
+  { num: 2, label: 'M' },
+  { num: 3, label: 'X' },
+  { num: 4, label: 'J' },
+  { num: 5, label: 'V' },
+  { num: 6, label: 'S' },
+  { num: 0, label: 'D' },
+];
+function PopupScheduleEditor({
+  schedule,
+  onChange,
+}: {
+  schedule: PopupSchedule | null;
+  onChange: (next: PopupSchedule | null) => void;
+}) {
+  const enabled = !!schedule;
+  const days = schedule?.daysOfWeek ?? [];
+  function toggleDay(num: number) {
+    const set = new Set(days);
+    if (set.has(num)) set.delete(num);
+    else set.add(num);
+    const arr = Array.from(set).sort();
+    onChange({ ...(schedule ?? {}), daysOfWeek: arr.length === 7 ? null : arr });
+  }
+  return (
+    <div className="border-t border-line2 pt-3 mt-2">
+      <label className="inline-flex items-center gap-2 cursor-pointer text-xs">
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(e) =>
+            e.target.checked
+              ? onChange({ daysOfWeek: null, startDate: null, endDate: null, startTime: null, endTime: null })
+              : onChange(null)
+          }
+        />
+        <span className="font-semibold">📅 Programar</span>
+        <span className="text-mute">
+          (días / rango de fechas / horas)
+        </span>
+      </label>
+
+      {enabled && (
+        <div className="space-y-3 mt-3">
+          <div>
+            <label className="label">Días de la semana</label>
+            <div className="flex gap-1.5">
+              {DAY_LABELS.map((d) => {
+                const active = days.includes(d.num);
+                return (
+                  <button
+                    key={d.num}
+                    type="button"
+                    onClick={() => toggleDay(d.num)}
+                    className="w-9 h-9 rounded-lg text-xs font-bold"
+                    style={{
+                      background: active ? '#16a34a' : 'white',
+                      color: active ? 'white' : '#16241c',
+                      border: '1px solid #d7dbe0',
+                    }}
+                  >
+                    {d.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="text-[11px] text-mute mt-1">
+              {!days || days.length === 0 || days.length === 7
+                ? 'Todos los días'
+                : `${days.length} día${days.length === 1 ? '' : 's'} seleccionado${days.length === 1 ? '' : 's'}`}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Desde fecha</label>
+              <input
+                type="date"
+                className="input"
+                value={schedule?.startDate ?? ''}
+                onChange={(e) =>
+                  onChange({ ...(schedule ?? {}), startDate: e.target.value || null })
+                }
+              />
+            </div>
+            <div>
+              <label className="label">Hasta fecha</label>
+              <input
+                type="date"
+                className="input"
+                value={schedule?.endDate ?? ''}
+                onChange={(e) =>
+                  onChange({ ...(schedule ?? {}), endDate: e.target.value || null })
+                }
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Desde hora</label>
+              <input
+                type="time"
+                className="input"
+                value={schedule?.startTime ?? ''}
+                onChange={(e) =>
+                  onChange({ ...(schedule ?? {}), startTime: e.target.value || null })
+                }
+              />
+            </div>
+            <div>
+              <label className="label">Hasta hora</label>
+              <input
+                type="time"
+                className="input"
+                value={schedule?.endTime ?? ''}
+                onChange={(e) =>
+                  onChange({ ...(schedule ?? {}), endTime: e.target.value || null })
+                }
+              />
+            </div>
+          </div>
         </div>
       )}
     </div>

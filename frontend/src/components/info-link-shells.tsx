@@ -101,6 +101,9 @@ export type ResolvedButton = {
   cover: unknown;
   /** Subtítulo opcional debajo del título en la portada visual. */
   tagline: string | null;
+  /** Texto pequeño que aparece DEBAJO del botón regular (no-cover).
+   *  Usado para mostrar la dirección de la sede en botones MAPS. */
+  subLabel: string | null;
 };
 
 /** Resuelve clases + style inline para un botón según su bgStyle. Pensado
@@ -166,6 +169,22 @@ function ShellLogoCard({
         style={getLogoImgStyle(config)}
       />
     </div>
+  );
+}
+
+/** Render del label del botón regular (no-cover). Si el botón tiene
+ *  `subLabel` (típicamente la dirección de la sede en botones MAPS), lo
+ *  pinta abajo en texto pequeño y normalizado (sin uppercase / tracking
+ *  exagerado del padre). */
+export function ButtonLabel({ b }: { b: ResolvedButton }) {
+  if (!b.subLabel) return <>{b.label}</>;
+  return (
+    <>
+      {b.label}
+      <div className="text-[10px] opacity-70 mt-0.5 font-normal normal-case tracking-normal leading-tight">
+        {b.subLabel}
+      </div>
+    </>
   );
 }
 
@@ -276,7 +295,7 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode, cust
                   }`}
                   style={auroraSolid ? undefined : sp.style}
                 >
-                  {b.label}
+                  <ButtonLabel b={b} />
                 </a>
               );
             })}
@@ -385,7 +404,7 @@ export function MinimalShell({ tenant, link, primary, buttons, sectionsNode, cus
                   className={`block w-full px-4 py-3 rounded-xl text-sm text-center font-medium ${TAP_FX} ${sp.className}`}
                   style={sp.style}
                 >
-                  {b.label}
+                  <ButtonLabel b={b} />
                 </a>
               );
             })}
@@ -803,7 +822,7 @@ export function NeonShell({ tenant, link, primary, buttons, sectionsNode, custom
                   className={`block w-full px-4 py-3 text-sm text-center font-bold uppercase tracking-wider ${TAP_FX} ${cls}`}
                   style={style}
                 >
-                  {b.label}
+                  <ButtonLabel b={b} />
                 </a>
               );
             })}

@@ -40,6 +40,11 @@ export type PopupConfig = {
   trigger?: 'auto' | 'click';
   /** Si true, sessionStorage flag evita reabrirlo en la misma visita. */
   oncePerSession?: boolean;
+  /** Segundos a esperar tras activarse antes de mostrar (auto trigger). */
+  delaySeconds?: number;
+  /** Si true (auto trigger), fire en cuanto cualquier parte entra al
+   *  viewport — no espera a que esté centrada. */
+  triggerImmediate?: boolean;
 };
 type Variant = { id?: string; name: string; priceDelta: number; isDefault?: boolean; groupName?: string };
 type Extra = { id?: string; name: string; price: number };
@@ -1505,6 +1510,43 @@ function PopupEditorModal({
                 />
                 <span>Mostrar solo una vez por sesión</span>
               </label>
+
+              {(cfg.trigger ?? 'auto') === 'auto' && (
+                <>
+                  <label className="flex items-start gap-2 cursor-pointer text-sm pt-2">
+                    <input
+                      type="checkbox"
+                      checked={cfg.triggerImmediate ?? false}
+                      onChange={(e) => patch('triggerImmediate', e.target.checked)}
+                      className="mt-1 w-4 h-4 accent-brand"
+                    />
+                    <div>
+                      <div className="font-medium">Aparecer inmediatamente al abrir la categoría</div>
+                      <div className="text-[11px] text-mute">
+                        Sin esperar a que la sección esté centrada en pantalla — fire en cuanto entra al viewport.
+                      </div>
+                    </div>
+                  </label>
+
+                  <div className="pt-2">
+                    <label className="label text-xs">
+                      Retraso ({cfg.delaySeconds ?? 0}s)
+                    </label>
+                    <input
+                      type="range"
+                      min={0}
+                      max={20}
+                      step={1}
+                      value={cfg.delaySeconds ?? 0}
+                      onChange={(e) => patch('delaySeconds', Number(e.target.value))}
+                      className="w-full"
+                    />
+                    <div className="text-[11px] text-mute">
+                      Segundos a esperar después que se activa antes de mostrar el popup.
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
