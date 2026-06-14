@@ -38,6 +38,16 @@ class ForgotPasswordDto {
   @IsEmail() email!: string;
 }
 
+class ForgotPasswordSmsDto {
+  @IsString() phone!: string;
+}
+
+class ResetPasswordSmsDto {
+  @IsString() phone!: string;
+  @IsString() code!: string;
+  @IsString() @MinLength(8) newPassword!: string;
+}
+
 class ResetPasswordDto {
   @IsString() token!: string;
   @IsString() @MinLength(8) newPassword!: string;
@@ -209,6 +219,25 @@ export class AuthController {
   @Post('reset-password')
   reset(@Body() dto: ResetPasswordDto) {
     return this.auth.resetPassword(dto.token, dto.newPassword);
+  }
+
+  /** Forgot via SMS: mismo rate limit que email para no abrir vector de
+   *  spam de SMS (costoso para nosotros). 3 por hora por IP. */
+  @Public()
+  @Throttle({ default: { ttl: 3_600_000, limit: 3 } })
+  @Post('forgot-password-sms')
+  forgotSms(@Body() dto: ForgotPasswordSmsDto) {
+    return this.auth.requestPasswordResetSms(dto.phone);
+  }
+
+  /** Verificación del código SMS + cambio de contraseña. Stricter rate
+   *  limit que reset-email porque el código es solo 6 dígitos (10^6
+   *  combinaciones); 3 intentos cada 10 min protege contra brute force. */
+  @Public()
+  @Throttle({ default: { ttl: 600_000, limit: 3 } })
+  @Post('reset-password-sms')
+  resetSms(@Body() dto: ResetPasswordSmsDto) {
+    return this.auth.resetPasswordWithSmsCode(dto.phone, dto.code, dto.newPassword);
   }
 
   @Get('me')

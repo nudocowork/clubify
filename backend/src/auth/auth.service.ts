@@ -11,6 +11,7 @@ import { AppConfigService } from '../common/config/app-config.service';
 import { RefreshTokenService } from './refresh-token.service';
 import { TwoFactorService } from './two-factor.service';
 import { PreregAlertsService } from './prereg-alerts.service';
+import { GrowBusinessService } from '../integrations/grow-business.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import {
   welcomeOwnerTemplate,
@@ -71,6 +72,7 @@ export class AuthService {
     private refreshTokens: RefreshTokenService,
     private twoFactor: TwoFactorService,
     private preregAlerts: PreregAlertsService,
+    private growBusiness: GrowBusinessService,
     private moduleRef: ModuleRef,
   ) {
     const clientId = appConfig.get('GOOGLE_CLIENT_ID');
@@ -333,6 +335,131 @@ export class AuthService {
 
   async hashPassword(plain: string) {
     return argon2.hash(plain, { type: argon2.argon2id });
+  }
+
+  /**
+   * Resuelve la GrowBusinessAccount default para SMS automatizados de la
+   * plataforma (password reset SMS, etc). Mismo Setting que prereg-alerts.
+   * Devuelve null si no hay account configurada — el caller decide qué hacer.
+   */
+  private async resolveDefaultSmsAccount() {
+    const setting = await this.prisma.setting.findUnique({
+      where: { key: 'prereg.alertAccountId' },
+    });
+    if (setting?.value) {
+      const acc = await this.prisma.growBusinessAccount.findFirst({
+        where: { id: setting.value, deletedAt: null },
+        select: { id: true, locationId: true, apiKey: true, switchNumber: true },
+      });
+      if (acc) return acc;
+    }
+    return this.prisma.growBusinessAccount.findFirst({
+      where: { deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, locationId: true, apiKey: true, switchNumber: true },
+    });
+  }
+
+  /**
+   * Inicia el flow de password reset POR SMS. Mismo principio que el email:
+   * SIEMPRE responde igual aunque el teléfono no exista (anti-enumeration).
+   * Genera un código numérico de 6 dígitos, hashea con SHA-256 y lo guarda
+   * en PasswordResetToken con TTL 10 min. Envía el código por SMS vía la
+   * subcuenta default de GrowBusiness.
+   */
+  async requestPasswordResetSms(phone: string) {
+    const normalized = phone.replace(/\D/g, '').trim();
+    if (normalized.length < 7) return { ok: true };
+
+    // Buscamos por los últimos 10 dígitos para tolerar formatos diferentes
+    // (+57 300 vs 57300 vs 300...). El user.phone puede traer espacios.
+    const last10 = normalized.slice(-10);
+    const user = await this.prisma.user.findFirst({
+      where: { phone: { contains: last10 }, isActive: true },
+    });
+
+    if (user && user.phone) {
+      const code = String(Math.floor(100000 + Math.random() * 900000));
+      const codeHash = createHash('sha256').update(code).digest('hex');
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+      await this.prisma.passwordResetToken.create({
+        data: { userId: user.id, tokenHash: codeHash, expiresAt },
+      });
+
+      const account = await this.resolveDefaultSmsAccount();
+      if (account) {
+        const body =
+          `Tu código para restablecer la contraseña en Clubify es: ${code}\n\n` +
+          `Vence en 10 minutos. Si no fuiste tú, ignora este mensaje.`;
+        try {
+          await this.growBusiness.sendSmsWithCreds(
+            {
+              locationId: account.locationId,
+              apiKey: account.apiKey,
+              switchNumber: account.switchNumber,
+            },
+            user.phone,
+            body,
+          );
+        } catch (e) {
+          this.logger.warn(
+            `SMS de password reset falló para ${user.id}: ${(e as Error).message}`,
+          );
+        }
+      } else {
+        this.logger.warn(
+          `Sin GrowBusinessAccount configurada — no se envió SMS de password reset`,
+        );
+      }
+    }
+
+    return { ok: true };
+  }
+
+  /**
+   * Verifica el código SMS + cambia la contraseña. El input es phone +
+   * code (6 dígitos) + newPassword. Hashea el código y busca un token
+   * vigente no usado para el user matching phone.
+   */
+  async resetPasswordWithSmsCode(phone: string, code: string, newPassword: string) {
+    if (!newPassword || newPassword.length < 8) {
+      throw new BadRequestException('La contraseña debe tener al menos 8 caracteres');
+    }
+    const normalized = phone.replace(/\D/g, '').trim();
+    if (normalized.length < 7) {
+      throw new BadRequestException('Código inválido o vencido');
+    }
+    const last10 = normalized.slice(-10);
+    const user = await this.prisma.user.findFirst({
+      where: { phone: { contains: last10 }, isActive: true },
+    });
+    if (!user) throw new BadRequestException('Código inválido o vencido');
+
+    const codeHash = createHash('sha256').update(code.trim()).digest('hex');
+    const token = await this.prisma.passwordResetToken.findFirst({
+      where: {
+        userId: user.id,
+        tokenHash: codeHash,
+        usedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!token) throw new BadRequestException('Código inválido o vencido');
+
+    const passwordHash = await this.hashPassword(newPassword);
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash, passwordChangedAt: new Date() },
+      }),
+      this.prisma.passwordResetToken.update({
+        where: { id: token.id },
+        data: { usedAt: new Date() },
+      }),
+    ]);
+    return { ok: true };
   }
 
   /**
