@@ -24,6 +24,8 @@ type TenantMe = {
   mainSectionLabelOverride: string | null;
   businessCategorySlug: string | null;
   currency?: string;
+  currencySymbol?: string | null;
+  country?: string;
   maxStampsPerDay?: number | null;
   billingAlertsEnabled?: boolean;
   billingAlertsPhone?: string | null;
@@ -99,6 +101,8 @@ export default function SettingsPage() {
   const [sectionMsg, setSectionMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const [currency, setCurrency] = useState<string>('COP');
+  const [currencySymbol, setCurrencySymbol] = useState<string>('');
+  const [country, setCountry] = useState<string>('CO');
   const [savingCurrency, setSavingCurrency] = useState(false);
   const [currencyMsg, setCurrencyMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -123,6 +127,8 @@ export default function SettingsPage() {
         setSectionMode(mode);
         setSectionCustom(custom);
         setCurrency(t.currency ?? 'COP');
+        setCurrencySymbol(t.currencySymbol ?? '');
+        setCountry(t.country ?? 'CO');
         setMaxStampsPerDay(Math.max(1, t.maxStampsPerDay ?? 1));
       })
       .catch(() => null);
@@ -213,12 +219,16 @@ export default function SettingsPage() {
     try {
       const updated = await api<TenantMe>('/tenants/me', {
         method: 'PATCH',
-        body: JSON.stringify({ currency }),
+        body: JSON.stringify({
+          currency,
+          currencySymbol: currencySymbol.trim() || null,
+          country,
+        }),
       });
       setTenant(updated);
       setCurrencyMsg({
         ok: true,
-        text: 'Moneda actualizada. Los precios del menú público se mostrarán en esta moneda.',
+        text: 'Configuración guardada. Los precios y ubicaciones se actualizarán.',
       });
     } catch (e: any) {
       setCurrencyMsg({ ok: false, text: e.message || 'No se pudo guardar' });
@@ -512,18 +522,48 @@ export default function SettingsPage() {
         <DeliveryAlertsCard tenant={tenant} onSaved={(t) => setTenant(t)} />
       )}
 
-      {/* Moneda del menú público */}
+      {/* País + Moneda del menú público */}
       <form onSubmit={saveCurrency} className="card card-pad mb-4">
         <h2 className="text-base font-semibold m-0 flex items-center gap-2">
-          💱 Moneda del menú
+          🌎 País y moneda
         </h2>
         <p className="text-xs text-mute mt-1 leading-relaxed">
-          La moneda en la que se muestran los precios del menú público (mesa
-          y delivery). Cambia el símbolo, separadores y formato automático
-          según el código ISO elegido.
+          El país define los dropdowns de estado/provincia/municipio en el
+          checkout. La moneda define los precios del menú público.
         </p>
+
         <div className="mt-4">
-          <label className="label">País / Moneda</label>
+          <label className="label">País del negocio</label>
+          <select
+            className="input"
+            value={country}
+            onChange={(e) => setCountry(e.target.value)}
+          >
+            <option value="CO">🇨🇴 Colombia</option>
+            <option value="MX">🇲🇽 México</option>
+            <option value="AR">🇦🇷 Argentina</option>
+            <option value="CL">🇨🇱 Chile</option>
+            <option value="PE">🇵🇪 Perú</option>
+            <option value="EC">🇪🇨 Ecuador</option>
+            <option value="VE">🇻🇪 Venezuela</option>
+            <option value="UY">🇺🇾 Uruguay</option>
+            <option value="PY">🇵🇾 Paraguay</option>
+            <option value="BO">🇧🇴 Bolivia</option>
+            <option value="CR">🇨🇷 Costa Rica</option>
+            <option value="PA">🇵🇦 Panamá</option>
+            <option value="GT">🇬🇹 Guatemala</option>
+            <option value="HN">🇭🇳 Honduras</option>
+            <option value="SV">🇸🇻 El Salvador</option>
+            <option value="NI">🇳🇮 Nicaragua</option>
+            <option value="DO">🇩🇴 R. Dominicana</option>
+            <option value="ES">🇪🇸 España</option>
+            <option value="US">🇺🇸 Estados Unidos</option>
+            <option value="BR">🇧🇷 Brasil</option>
+          </select>
+        </div>
+
+        <div className="mt-4">
+          <label className="label">Moneda</label>
           <select
             className="input"
             value={currency}
@@ -535,18 +575,40 @@ export default function SettingsPage() {
               </option>
             ))}
           </select>
+        </div>
+
+        <div className="mt-4">
+          <label className="label">
+            Símbolo personalizado{' '}
+            <span className="text-mute font-normal">— opcional, sobrescribe el automático</span>
+          </label>
+          <input
+            type="text"
+            className="input max-w-[160px]"
+            value={currencySymbol}
+            onChange={(e) => setCurrencySymbol(e.target.value.slice(0, 8))}
+            placeholder="$, €, Bs, Ref., Pts…"
+            maxLength={8}
+          />
           <p className="text-[11px] text-mute mt-1.5">
             Vista previa:{' '}
             <span className="font-mono text-ink">
               {(() => {
                 try {
-                  return new Intl.NumberFormat('es-CO', {
+                  const parts = new Intl.NumberFormat('es-CO', {
                     style: 'currency',
                     currency,
                     maximumFractionDigits: 0,
-                  }).format(15000);
+                  }).formatToParts(15000);
+                  const symbol = currencySymbol.trim();
+                  if (symbol) {
+                    return parts
+                      .map((p) => (p.type === 'currency' ? symbol : p.value))
+                      .join('');
+                  }
+                  return parts.map((p) => p.value).join('');
                 } catch {
-                  return `${currency} 15000`;
+                  return `${currencySymbol.trim() || currency} 15000`;
                 }
               })()}
             </span>
@@ -565,7 +627,12 @@ export default function SettingsPage() {
           <button
             type="submit"
             className="btn-primary"
-            disabled={savingCurrency || currency === (tenant?.currency ?? 'COP')}
+            disabled={
+              savingCurrency ||
+              (currency === (tenant?.currency ?? 'COP') &&
+                currencySymbol === (tenant?.currencySymbol ?? '') &&
+                country === (tenant?.country ?? 'CO'))
+            }
           >
             {savingCurrency ? 'Guardando…' : 'Guardar moneda'}
           </button>

@@ -182,6 +182,8 @@ export class PublicMenuController {
       instagramUrl: t.instagramUrl,
       mapsUrl: t.mapsUrl,
       currency: t.currency,
+      currencySymbol: t.currencySymbol ?? null,
+      country: t.country ?? 'CO',
       description,
       heroImageUrl: t.storefront?.heroImageUrl ?? null,
       blocks: t.storefront?.blocks ?? [],

@@ -26,6 +26,7 @@ import { ClubifyBadge } from '@/components/ClubifyBadge';
 import { isDarkBackground } from '@/lib/contrast';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { CO_LOCATIONS, OTRO_MUNICIPIO } from '@/lib/co-locations';
+import { regionsForCountry } from '@/lib/regions';
 import { useLocale, useT } from '@/lib/i18n';
 import { SectionCoverPreview } from '@/components/menu/SectionCoverPreview';
 import { MenuBookViewer } from '@/components/menu/MenuBookViewer';
@@ -69,6 +70,12 @@ type Storefront = {
   instagramUrl: string | null;
   mapsUrl: string | null;
   currency: string;
+  /** Símbolo override opcional. Si está, reemplaza el símbolo automático
+   *  de Intl en todos los precios mostrados. */
+  currencySymbol?: string | null;
+  /** País ISO 3166-1 alpha-2 (CO, MX, AR, ...). Resuelve los dropdowns
+   *  dinámicos de estado/provincia/etc del checkout. */
+  country?: string;
   description: string;
   heroImageUrl: string | null;
   menuLayout?: MenuLayout;
@@ -119,15 +126,25 @@ type Category = {
   subsections?: Category[];
 };
 
+/** Variable global del símbolo override. Se setea desde el render principal
+ *  con el valor del Storefront (s.currencySymbol) — así NO necesitamos
+ *  modificar cada uno de los ~20 callsites de fmt() en este archivo. */
+let CURRENT_SYMBOL_OVERRIDE: string | null = null;
 function fmt(n: number, currency = 'COP') {
   try {
-    return new Intl.NumberFormat('es-CO', {
+    const parts = new Intl.NumberFormat('es-CO', {
       style: 'currency',
       currency,
       maximumFractionDigits: 0,
-    }).format(n);
+    }).formatToParts(n);
+    const sym = CURRENT_SYMBOL_OVERRIDE?.trim();
+    if (sym) {
+      return parts.map((p) => (p.type === 'currency' ? sym : p.value)).join('');
+    }
+    return parts.map((p) => p.value).join('');
   } catch {
-    return `$${n.toFixed(0)}`;
+    const sym = CURRENT_SYMBOL_OVERRIDE?.trim();
+    return `${sym || '$'}${n.toFixed(0)}`;
   }
 }
 
@@ -474,6 +491,10 @@ function StorefrontPublicInner() {
   }
 
   const totals = cartTotals(cart);
+  // Activamos el override de símbolo monetario del tenant antes de cualquier
+  // fmt() en este render (closure global del módulo). Se setea aquí en
+  // cada render — null si no hay override (uso normal del símbolo Intl).
+  CURRENT_SYMBOL_OVERRIDE = s.currencySymbol ?? null;
   const primary = s.primaryColor;
 
   // Vista MESA = siempre informativa, sin carrito. El cliente sentado
@@ -986,6 +1007,7 @@ function StorefrontPublicInner() {
           slug={slug}
           primary={primary}
           currency={s.currency}
+          country={s.country ?? 'CO'}
           planName={s.planName ?? null}
           mode={mode}
           onClose={() => setShowCheckout(false)}
@@ -1326,6 +1348,7 @@ function CheckoutSheet({
   slug,
   primary,
   currency,
+  country,
   planName,
   mode,
   onClose,
@@ -1334,6 +1357,7 @@ function CheckoutSheet({
   slug: string;
   primary: string;
   currency: string;
+  country: string;
   planName: string | null;
   mode: StorefrontMode;
   onClose: () => void;
@@ -1369,9 +1393,11 @@ function CheckoutSheet({
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // Dataset de regiones según el país del tenant. Si el país no tiene
+  // regiones curadas (cae al fallback genérico), se usa input libre.
+  const regionsData = regionsForCountry(country);
   const munList =
-    CO_LOCATIONS.find((d) => d.departamento === form.departamento)?.municipios ??
-    [];
+    regionsData.regions.find((r) => r.name === form.departamento)?.cities ?? [];
   const municipioFinal =
     form.municipio === OTRO_MUNICIPIO
       ? form.municipioOtro.trim()
@@ -1576,51 +1602,75 @@ function CheckoutSheet({
                   el pedido — no se cobra aquí.
                 </div>
                 <div>
-                  <label className="label">{tt('checkout.dept')} *</label>
-                  <select
-                    className="input"
-                    value={form.departamento}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        departamento: e.target.value,
-                        municipio: '',
-                        municipioOtro: '',
-                      })
-                    }
-                    required
-                  >
-                    <option value="">{tt('checkout.dept')}</option>
-                    {CO_LOCATIONS.map((d) => (
-                      <option key={d.departamento} value={d.departamento}>
-                        {d.departamento}
-                      </option>
-                    ))}
-                  </select>
+                  <label className="label">{regionsData.regionLabel} *</label>
+                  {regionsData.regions.length > 0 ? (
+                    <select
+                      className="input"
+                      value={form.departamento}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          departamento: e.target.value,
+                          municipio: '',
+                          municipioOtro: '',
+                        })
+                      }
+                      required
+                    >
+                      <option value="">{regionsData.regionLabel}</option>
+                      {regionsData.regions.map((r) => (
+                        <option key={r.name} value={r.name}>
+                          {r.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      className="input"
+                      value={form.departamento}
+                      onChange={(e) =>
+                        setForm({ ...form, departamento: e.target.value })
+                      }
+                      placeholder={regionsData.regionLabel}
+                      required
+                    />
+                  )}
                 </div>
                 <div>
-                  <label className="label">{tt('checkout.muni')} *</label>
-                  <select
-                    className="input"
-                    value={form.municipio}
-                    onChange={(e) =>
-                      setForm({ ...form, municipio: e.target.value })
-                    }
-                    disabled={!form.departamento}
-                    required
-                  >
-                    <option value="">
-                      {form.departamento ? tt('checkout.muni') : tt('checkout.dept')}
-                    </option>
-                    {munList.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
+                  <label className="label">{regionsData.cityLabel} *</label>
+                  {regionsData.regions.length > 0 && munList.length > 0 ? (
+                    <select
+                      className="input"
+                      value={form.municipio}
+                      onChange={(e) =>
+                        setForm({ ...form, municipio: e.target.value })
+                      }
+                      disabled={!form.departamento}
+                      required
+                    >
+                      <option value="">
+                        {form.departamento ? regionsData.cityLabel : regionsData.regionLabel}
                       </option>
-                    ))}
-                    {form.departamento && (
-                      <option value={OTRO_MUNICIPIO}>{OTRO_MUNICIPIO}…</option>
-                    )}
-                  </select>
+                      {munList.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                      {form.departamento && (
+                        <option value={OTRO_MUNICIPIO}>Otra…</option>
+                      )}
+                    </select>
+                  ) : (
+                    <input
+                      className="input"
+                      value={form.municipio}
+                      onChange={(e) =>
+                        setForm({ ...form, municipio: e.target.value })
+                      }
+                      placeholder={regionsData.cityLabel}
+                      required
+                    />
+                  )}
                 </div>
                 {form.municipio === OTRO_MUNICIPIO && (
                   <div>
