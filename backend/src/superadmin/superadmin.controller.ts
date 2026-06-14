@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
-import { IsBoolean, IsEmail, IsHexColor, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsEmail, IsHexColor, IsIn, IsInt, IsNumber, IsOptional, IsString, Length, Max, MaxLength, Min } from 'class-validator';
 import { ModuleKey, WhiteLabelStatus } from '@prisma/client';
+import { Public } from '../common/decorators/public.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { SuperAdminService } from './superadmin.service';
@@ -39,6 +40,28 @@ class HotmartLinkBody {
 
 class ToggleModuleBody {
   @IsBoolean() enabled!: boolean;
+}
+
+class PlatformConfigBody {
+  @IsOptional() @IsString() @MaxLength(60) name?: string;
+  @IsOptional() @IsString() @MaxLength(120) tagline?: string;
+  @IsOptional() @IsString() @MaxLength(500) logoUrl?: string;
+  @IsOptional() @IsHexColor() primaryColor?: string;
+  @IsOptional() @IsString() @MaxLength(140) consoleDomain?: string;
+  @IsOptional() @IsEmail() supportEmail?: string;
+}
+
+class InviteOwnerBody {
+  @IsEmail() email!: string;
+  @IsString() @MaxLength(120) fullName!: string;
+}
+
+class ToggleOwnerBody {
+  @IsBoolean() isActive!: boolean;
+}
+
+class AcceptInviteBody {
+  @IsString() @Length(8, 200) password!: string;
 }
 
 /**
@@ -191,5 +214,65 @@ export class SuperAdminController {
   @Post('integrations/:key/test')
   testIntegration(@Param('key') key: string) {
     return this.svc.testIntegration(key);
+  }
+
+  // -------- Configuración de plataforma --------
+
+  @Get('config')
+  getConfig() {
+    return this.svc.getPlatformConfig();
+  }
+
+  @Patch('config')
+  updateConfig(@Body() body: PlatformConfigBody, @CurrentUser() user: AuthUser) {
+    return this.svc.updatePlatformConfig(body, user.id);
+  }
+
+  // -------- Platform Owners --------
+
+  @Get('owners')
+  listOwners() {
+    return this.svc.listPlatformOwners();
+  }
+
+  @Get('owner-invites')
+  listInvites() {
+    return this.svc.listOwnerInvites();
+  }
+
+  @Post('owner-invites')
+  createInvite(@Body() body: InviteOwnerBody, @CurrentUser() user: AuthUser) {
+    return this.svc.createOwnerInvite(body, user.id);
+  }
+
+  @Delete('owner-invites/:id')
+  revokeInvite(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.svc.revokeOwnerInvite(id, user.id);
+  }
+
+  @Patch('owners/:id')
+  toggleOwner(@Param('id') id: string, @Body() body: ToggleOwnerBody, @CurrentUser() user: AuthUser) {
+    return this.svc.toggleOwnerActive(id, body.isActive, user.id);
+  }
+}
+
+/**
+ * Endpoints públicos para que un invitado active su cuenta. Quedan
+ * fuera del controller @Roles('PLATFORM_OWNER') para no requerir auth.
+ */
+@Controller('superadmin-public')
+export class SuperAdminPublicController {
+  constructor(private svc: SuperAdminService) {}
+
+  @Public()
+  @Get('owner-invites/:token')
+  lookup(@Param('token') token: string) {
+    return this.svc.lookupOwnerInvite(token);
+  }
+
+  @Public()
+  @Post('owner-invites/:token/accept')
+  accept(@Param('token') token: string, @Body() body: AcceptInviteBody) {
+    return this.svc.acceptOwnerInvite(token, body.password);
   }
 }
