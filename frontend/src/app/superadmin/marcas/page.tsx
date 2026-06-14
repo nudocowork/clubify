@@ -26,7 +26,23 @@ type WhiteLabel = {
 type WhiteLabelDetail = WhiteLabel & {
   modules: { module: string; enabled: boolean }[];
   tenants: { id: string; brandName: string; slug: string; status: string }[];
-  admins: { id: string; email: string; fullName: string | null; role: string }[];
+  admins: {
+    id: string;
+    email: string;
+    fullName: string | null;
+    role: string;
+    isActive: boolean;
+    whiteLabelId: string | null;
+  }[];
+};
+
+type AdminInvite = {
+  id: string;
+  email: string;
+  fullName: string;
+  invitedBy: { email: string; fullName: string | null } | null;
+  expiresAt: string;
+  createdAt: string;
 };
 
 const MODULE_LABELS: Record<string, string> = {
@@ -365,7 +381,45 @@ function Drawer({
 }) {
   const router = useRouter();
   const [w, setW] = useState<WhiteLabelDetail | null>(null);
+  const [invites, setInvites] = useState<AdminInvite[]>([]);
   const [entering, setEntering] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
+
+  async function reloadAdmins() {
+    try {
+      const [detail, inv] = await Promise.all([
+        api<WhiteLabelDetail>(`/superadmin/white-labels/${id}`),
+        api<AdminInvite[]>(`/superadmin/white-labels/${id}/admin-invites`),
+      ]);
+      setW(detail);
+      setInvites(inv);
+    } catch (e: any) {
+      console.error(e);
+    }
+  }
+
+  async function toggleAdminActive(userId: string, next: boolean) {
+    if (!confirm(`¿${next ? 'Reactivar' : 'Desactivar'} este admin?`)) return;
+    try {
+      await api(`/superadmin/white-label-admins/${userId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive: next }),
+      });
+      reloadAdmins();
+    } catch (e: any) {
+      onChanged(e.message ?? 'Error');
+    }
+  }
+
+  async function revokeInvite(inviteId: string) {
+    if (!confirm('¿Revocar invitación?')) return;
+    try {
+      await api(`/superadmin/white-label-admin-invites/${inviteId}`, { method: 'DELETE' });
+      reloadAdmins();
+    } catch (e: any) {
+      onChanged(e.message ?? 'Error');
+    }
+  }
 
   async function enterAs() {
     if (!w) return;
@@ -389,9 +443,8 @@ function Drawer({
     }
   }
   useEffect(() => {
-    api<WhiteLabelDetail>(`/superadmin/white-labels/${id}`)
-      .then(setW)
-      .catch((e: any) => console.error(e));
+    reloadAdmins();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   async function toggleStatus() {
@@ -524,32 +577,132 @@ function Drawer({
               </div>
 
               <div>
-                <SectionTitle>Administradores ({w.admins.length})</SectionTitle>
-                {w.admins.length === 0 ? (
-                  <p className="text-sm italic mt-2" style={{ color: '#9aa4af' }}>
-                    Sin admins registrados todavía.
+                <div className="flex items-center justify-between mb-2">
+                  <SectionTitle>Administradores ({w.admins.length})</SectionTitle>
+                  <button
+                    onClick={() => setInviteOpen(true)}
+                    className="text-xs font-semibold"
+                    style={{
+                      padding: '6px 11px',
+                      borderRadius: 8,
+                      background: w.primaryColor,
+                      color: 'white',
+                      border: 'none',
+                    }}
+                  >
+                    + Invitar
+                  </button>
+                </div>
+                {w.admins.length === 0 && invites.length === 0 ? (
+                  <p className="text-sm italic" style={{ color: '#9aa4af' }}>
+                    Sin admins registrados todavía. Invitá al primero.
                   </p>
                 ) : (
-                  <div className="mt-2 space-y-2">
-                    {w.admins.map((a) => (
-                      <div key={a.id} className="flex items-center gap-2.5">
-                        <div
-                          className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
-                          style={{ background: '#f0fdf4', color: '#15803d' }}
-                        >
-                          {(a.fullName || a.email)[0]?.toUpperCase()}
-                        </div>
-                        <div className="flex-1 min-w-0 text-sm">
-                          <div className="font-semibold truncate" style={{ color: '#16241c' }}>
-                            {a.fullName ?? a.email}
+                  <div className="space-y-2">
+                    {w.admins.map((a) => {
+                      const isDedicated = a.whiteLabelId === w.id;
+                      return (
+                        <div key={a.id} className="flex items-center gap-2.5">
+                          <div
+                            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
+                            style={{
+                              background: a.isActive ? '#f0fdf4' : '#f3f4f6',
+                              color: a.isActive ? '#15803d' : '#9aa4af',
+                            }}
+                          >
+                            {(a.fullName || a.email)[0]?.toUpperCase()}
                           </div>
-                          <div className="text-xs" style={{ color: '#6b7785' }}>
-                            {a.email} · {a.role.replace('_', ' ').toLowerCase()}
+                          <div className="flex-1 min-w-0 text-sm">
+                            <div className="font-semibold truncate flex items-center gap-1.5" style={{ color: '#16241c' }}>
+                              {a.fullName ?? a.email}
+                              {isDedicated && (
+                                <span
+                                  className="text-[9px] font-bold uppercase px-1 py-0.5 rounded"
+                                  style={{ background: '#dcfce7', color: '#15803d', letterSpacing: 0.4 }}
+                                >
+                                  De la marca
+                                </span>
+                              )}
+                              {!a.isActive && (
+                                <span
+                                  className="text-[9px] font-bold uppercase px-1 py-0.5 rounded"
+                                  style={{ background: '#fee2e2', color: '#991b1b', letterSpacing: 0.4 }}
+                                >
+                                  Inactivo
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs truncate" style={{ color: '#6b7785' }}>
+                              {a.email} · {a.role.replace('_', ' ').toLowerCase()}
+                            </div>
                           </div>
+                          {isDedicated && (
+                            <button
+                              onClick={() => toggleAdminActive(a.id, !a.isActive)}
+                              className="text-[11px] font-semibold shrink-0"
+                              style={{
+                                padding: '5px 9px',
+                                borderRadius: 7,
+                                background: 'white',
+                                color: a.isActive ? '#b91c1c' : '#15803d',
+                                border: '1px solid #d7dbe0',
+                              }}
+                            >
+                              {a.isActive ? 'Desactivar' : 'Reactivar'}
+                            </button>
+                          )}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
+                )}
+
+                {invites.length > 0 && (
+                  <>
+                    <div
+                      className="text-[10px] font-bold uppercase mt-3 mb-1.5"
+                      style={{ letterSpacing: 0.7, color: '#9aa4af' }}
+                    >
+                      Invitaciones pendientes
+                    </div>
+                    <div className="space-y-1.5">
+                      {invites.map((inv) => {
+                        const days = Math.max(
+                          0,
+                          Math.ceil((new Date(inv.expiresAt).getTime() - Date.now()) / 86400000),
+                        );
+                        return (
+                          <div
+                            key={inv.id}
+                            className="flex items-center justify-between text-xs px-2.5 py-2 rounded-[8px]"
+                            style={{ background: '#fefce8', border: '1px solid #fde68a' }}
+                          >
+                            <div className="min-w-0">
+                              <div className="font-semibold truncate" style={{ color: '#854d0e' }}>
+                                {inv.fullName}
+                              </div>
+                              <div className="truncate" style={{ color: '#a16207' }}>
+                                {inv.email} · vence en {days}d
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => revokeInvite(inv.id)}
+                              className="text-[11px] font-semibold shrink-0 ml-2"
+                              style={{
+                                padding: '5px 9px',
+                                borderRadius: 7,
+                                background: 'white',
+                                color: '#b91c1c',
+                                border: '1px solid #fde68a',
+                              }}
+                            >
+                              Revocar
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
                 )}
               </div>
             </div>
@@ -582,10 +735,133 @@ function Drawer({
                 {w.status === 'ACTIVE' ? 'Suspender' : 'Activar'}
               </button>
             </div>
+            {inviteOpen && (
+              <InviteWhiteLabelAdminModal
+                whiteLabelId={w.id}
+                whiteLabelName={w.name}
+                primaryColor={w.primaryColor}
+                onClose={() => setInviteOpen(false)}
+                onCreated={() => {
+                  setInviteOpen(false);
+                  reloadAdmins();
+                  onChanged('Invitación enviada');
+                }}
+              />
+            )}
           </>
         )}
       </div>
     </>
+  );
+}
+
+function InviteWhiteLabelAdminModal({
+  whiteLabelId,
+  whiteLabelName,
+  primaryColor,
+  onClose,
+  onCreated,
+}: {
+  whiteLabelId: string;
+  whiteLabelName: string;
+  primaryColor: string;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [email, setEmail] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function submit() {
+    if (!email.trim() || !fullName.trim()) return;
+    setSaving(true);
+    try {
+      await api(`/superadmin/white-labels/${whiteLabelId}/admin-invites`, {
+        method: 'POST',
+        body: JSON.stringify({ email: email.trim().toLowerCase(), fullName: fullName.trim() }),
+      });
+      onCreated();
+    } catch (e: any) {
+      alert('Error: ' + (e?.message ?? e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+      style={{ background: 'rgba(15,30,22,.55)', backdropFilter: 'blur(4px)' }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-[16px] p-6"
+        style={{ background: 'white', boxShadow: '0 20px 50px rgba(0,0,0,.25)' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="m-0" style={{ fontSize: 18, fontWeight: 800, color: '#16241c' }}>
+          Invitar admin de {whiteLabelName}
+        </h3>
+        <p className="text-sm mt-1.5 mb-5" style={{ color: '#6b7785' }}>
+          Le va a llegar un email con un link para definir su contraseña. Una vez aceptado,
+          va a poder administrar los negocios de la marca. El link vence en 7 días.
+        </p>
+
+        <div className="space-y-3">
+          <label className="block">
+            <div className="text-[11px] font-bold uppercase mb-1.5" style={{ letterSpacing: 0.6, color: '#6b7785' }}>
+              Nombre completo
+            </div>
+            <input
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="María Pérez"
+              autoFocus
+              className="w-full"
+              style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #d7dbe0', fontSize: 13.5, outline: 'none', background: 'white' }}
+            />
+          </label>
+          <label className="block">
+            <div className="text-[11px] font-bold uppercase mb-1.5" style={{ letterSpacing: 0.6, color: '#6b7785' }}>
+              Email
+            </div>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="maria@empresa.com"
+              className="w-full"
+              style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #d7dbe0', fontSize: 13.5, outline: 'none', background: 'white' }}
+            />
+          </label>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 mt-6">
+          <button
+            onClick={onClose}
+            disabled={saving}
+            className="text-sm font-semibold"
+            style={{ padding: '9px 14px', borderRadius: 9, background: 'white', color: '#6b7785', border: '1px solid #d7dbe0' }}
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={submit}
+            disabled={!email.trim() || !fullName.trim() || saving}
+            className="text-sm font-semibold"
+            style={{
+              padding: '9px 18px',
+              borderRadius: 9,
+              background: !email.trim() || !fullName.trim() ? '#cbd5d2' : primaryColor,
+              color: 'white',
+              border: 'none',
+            }}
+          >
+            {saving ? 'Enviando…' : 'Enviar invitación'}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
