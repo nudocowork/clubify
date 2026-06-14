@@ -126,24 +126,25 @@ type Category = {
   subsections?: Category[];
 };
 
-/** Variable global del símbolo override. Se setea desde el render principal
- *  con el valor del Storefront (s.currencySymbol) — así NO necesitamos
- *  modificar cada uno de los ~20 callsites de fmt() en este archivo. */
-let CURRENT_SYMBOL_OVERRIDE: string | null = null;
-function fmt(n: number, currency = 'COP') {
+/** Formato monetario con soporte de símbolo override per-tenant.
+ *  `symbolOverride` debe pasarse explícitamente — antes existía un módulo
+ *  global mutable, pero eso es race-prone en SSR (dos requests concurrentes
+ *  en el mismo proceso Node se pisaban el símbolo, causando leak cross-tenant).
+ *  Ahora cada callsite recibe el override como argumento. */
+function fmt(n: number, currency = 'COP', symbolOverride: string | null = null) {
   try {
     const parts = new Intl.NumberFormat('es-CO', {
       style: 'currency',
       currency,
       maximumFractionDigits: 0,
     }).formatToParts(n);
-    const sym = CURRENT_SYMBOL_OVERRIDE?.trim();
+    const sym = symbolOverride?.trim();
     if (sym) {
       return parts.map((p) => (p.type === 'currency' ? sym : p.value)).join('');
     }
     return parts.map((p) => p.value).join('');
   } catch {
-    const sym = CURRENT_SYMBOL_OVERRIDE?.trim();
+    const sym = symbolOverride?.trim();
     return `${sym || '$'}${n.toFixed(0)}`;
   }
 }
@@ -491,10 +492,10 @@ function StorefrontPublicInner() {
   }
 
   const totals = cartTotals(cart);
-  // Activamos el override de símbolo monetario del tenant antes de cualquier
-  // fmt() en este render (closure global del módulo). Se setea aquí en
-  // cada render — null si no hay override (uso normal del símbolo Intl).
-  CURRENT_SYMBOL_OVERRIDE = s.currencySymbol ?? null;
+  // Símbolo monetario override del tenant (puede ser null si no hay).
+  // Se pasa explícitamente a cada llamada de fmt() para evitar el race
+  // de SSR con state global mutable.
+  const currencySymbol = s.currencySymbol ?? null;
   const primary = s.primaryColor;
 
   // Vista MESA = siempre informativa, sin carrito. El cliente sentado
@@ -897,12 +898,12 @@ function StorefrontPublicInner() {
                         <div className="mt-2.5 flex items-baseline gap-2 flex-wrap">
                           {orig && (
                             <span className="text-mute line-through text-sm shrink-0">
-                              {fmt(orig, s.currency)}
+                              {fmt(orig, s.currency, currencySymbol)}
                             </span>
                           )}
                           {finalPrice !== null && (
                             <span className="text-xl font-bold text-bad shrink-0">
-                              {fmt(finalPrice, s.currency)}
+                              {fmt(finalPrice, s.currency, currencySymbol)}
                             </span>
                           )}
                           {badge && (
@@ -913,7 +914,7 @@ function StorefrontPublicInner() {
                         </div>
                         {saved !== null && (
                           <div className="text-[11px] text-bad font-semibold mt-1">
-                            Ahorrás {fmt(saved, s.currency)}
+                            Ahorrás {fmt(saved, s.currency, currencySymbol)}
                           </div>
                         )}
                       </>
@@ -965,7 +966,7 @@ function StorefrontPublicInner() {
             style={{ background: primary }}
           >
             <span>{tt('storefront.cart_items', { count: totals.count })}</span>
-            <span>{fmt(totals.subtotal, s.currency)}</span>
+            <span>{fmt(totals.subtotal, s.currency, currencySymbol)}</span>
             <span>{tt('storefront.cart_order')}</span>
           </button>
         </div>
@@ -978,6 +979,7 @@ function StorefrontPublicInner() {
           slug={slug}
           primary={primary}
           currency={s.currency}
+          currencySymbol={currencySymbol}
           ordersEnabled={ordersAllowed}
           onClose={() => setOpenProduct(null)}
           mode={mode}
@@ -991,6 +993,7 @@ function StorefrontPublicInner() {
           slug={slug}
           primary={primary}
           currency={s.currency}
+          currencySymbol={currencySymbol}
           mode={mode}
           onClose={() => setShowCart(false)}
           onCheckout={() => {
@@ -1033,6 +1036,7 @@ function ProductModal({
   slug,
   primary,
   currency,
+  currencySymbol,
   ordersEnabled,
   onClose,
   mode,
@@ -1041,6 +1045,7 @@ function ProductModal({
   slug: string;
   primary: string;
   currency: string;
+  currencySymbol: string | null;
   ordersEnabled: boolean;
   onClose: () => void;
   mode: StorefrontMode;
@@ -1150,9 +1155,9 @@ function ProductModal({
                     </div>
                     <span className="text-sm text-mute">
                       {Number(v.priceDelta) > 0
-                        ? `+${fmt(Number(v.priceDelta), currency)}`
+                        ? `+${fmt(Number(v.priceDelta), currency, currencySymbol)}`
                         : Number(v.priceDelta) < 0
-                        ? fmt(Number(v.priceDelta), currency)
+                        ? fmt(Number(v.priceDelta), currency, currencySymbol)
                         : ''}
                     </span>
                   </label>
@@ -1187,7 +1192,7 @@ function ProductModal({
                       <span className="text-sm">{e.name}</span>
                     </div>
                     <span className="text-sm text-mute">
-                      +{fmt(Number(e.price), currency)}
+                      +{fmt(Number(e.price), currency, currencySymbol)}
                     </span>
                   </label>
                 ))}
@@ -1230,12 +1235,12 @@ function ProductModal({
                 className="rounded-pill text-white font-semibold py-3 px-6 hover:opacity-95 active:scale-[0.97] transition shadow-md"
                 style={{ background: primary }}
               >
-                {tt('product.add_to_cart', { total: fmt(total, currency) })}
+                {tt('product.add_to_cart', { total: fmt(total, currency, currencySymbol) })}
               </button>
             </div>
           ) : (
             <div className="mt-5 text-center text-2xl font-bold" style={{ color: primary }}>
-              {fmt(unit, currency)}
+              {fmt(unit, currency, currencySymbol)}
             </div>
           )}
         </div>
@@ -1252,6 +1257,7 @@ function CartSheet({
   slug,
   primary,
   currency,
+  currencySymbol,
   onClose,
   onCheckout,
   mode,
@@ -1260,6 +1266,7 @@ function CartSheet({
   slug: string;
   primary: string;
   currency: string;
+  currencySymbol: string | null;
   onClose: () => void;
   onCheckout: () => void;
   mode: StorefrontMode;
@@ -1297,7 +1304,7 @@ function CartSheet({
                     <div className="text-xs text-mute italic">{it.note}</div>
                   )}
                   <div className="text-sm font-semibold mt-1">
-                    {fmt(it.unitPrice * it.qty, currency)}
+                    {fmt(it.unitPrice * it.qty, currency, currencySymbol)}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -1323,7 +1330,7 @@ function CartSheet({
             <>
               <div className="mt-4 flex items-center justify-between font-semibold">
                 <span>{tt('common.total')}</span>
-                <span className="text-lg">{fmt(totals.subtotal, currency)}</span>
+                <span className="text-lg">{fmt(totals.subtotal, currency, currencySymbol)}</span>
               </div>
               <button
                 onClick={onCheckout}
