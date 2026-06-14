@@ -36,6 +36,11 @@ class HotmartLinkBody {
   @IsOptional() @IsString() @IsIn(['USD', 'MXN', 'COP', 'BRL', 'ARS', 'CLP', 'PEN']) currency?: string;
   @IsOptional() @IsInt() @Min(0) position?: number;
   @IsOptional() @IsBoolean() isActive?: boolean;
+  @IsOptional() @IsString() @MaxLength(60) hotmartProductId?: string | null;
+}
+
+class AssignPurchaseBody {
+  @IsString() whiteLabelId!: string;
 }
 
 class IntegrationUpdateBody {
@@ -181,6 +186,27 @@ export class SuperAdminController {
   @Delete('hotmart-links/:id')
   removeHotmartLink(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.svc.removeHotmartLink(id, user.id);
+  }
+
+  // -------- Hotmart Credit Purchases --------
+
+  @Get('hotmart-purchases')
+  listAllPurchases() {
+    return this.svc.listAllCreditPurchases();
+  }
+
+  @Get('hotmart-purchases/unassigned')
+  listUnassignedPurchases() {
+    return this.svc.listUnassignedCreditPurchases();
+  }
+
+  @Post('hotmart-purchases/:id/assign')
+  assignPurchase(
+    @Param('id') id: string,
+    @Body() body: AssignPurchaseBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.assignCreditPurchase(id, body.whiteLabelId, user.id);
   }
 
   // -------- Módulos --------

@@ -32,6 +32,20 @@ type HotmartLink = {
   currency: string;
   position: number;
   isActive: boolean;
+  hotmartProductId: string | null;
+};
+
+type Purchase = {
+  id: string;
+  transactionId: string;
+  hotmartProductId: string;
+  credits: number;
+  buyerEmail: string;
+  whiteLabelId: string | null;
+  status: 'ASSIGNED' | 'UNASSIGNED' | 'REFUNDED';
+  createdAt: string;
+  assignedAt: string | null;
+  creditLink: { label: string; credits: number } | null;
 };
 
 function fmt(n: number) {
@@ -54,8 +68,10 @@ function fmtRelative(iso: string) {
 export default function CreditsCenterPage() {
   const [data, setData] = useState<{ summary: Summary; whiteLabels: WhiteLabelRow[] } | null>(null);
   const [links, setLinks] = useState<HotmartLink[]>([]);
+  const [unassigned, setUnassigned] = useState<Purchase[]>([]);
   const [editLinksOpen, setEditLinksOpen] = useState(false);
   const [adjustTarget, setAdjustTarget] = useState<WhiteLabelRow | null>(null);
+  const [assignTarget, setAssignTarget] = useState<Purchase | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -82,12 +98,14 @@ export default function CreditsCenterPage() {
 
   async function load() {
     try {
-      const [center, lk] = await Promise.all([
+      const [center, lk, un] = await Promise.all([
         api<typeof data>('/superadmin/credits'),
         api<HotmartLink[]>('/superadmin/hotmart-links'),
+        api<Purchase[]>('/superadmin/hotmart-purchases/unassigned'),
       ]);
       setData(center);
       setLinks(lk);
+      setUnassigned(un);
     } catch (e: any) {
       console.error(e);
     }
@@ -114,6 +132,55 @@ export default function CreditsCenterPage() {
         <Stat label="Consumidos (mes)" value={fmt(s.usedMonth)} color="#16241c" sub={`${fmt(s.usedYear)} en el año`} />
         <Stat label="Pendientes" value={fmt(s.pendingTenants)} color="#b45309" sub="sin créditos suficientes" />
       </div>
+
+      {unassigned.length > 0 && (
+        <div
+          className="rounded-[14px] p-4 mb-4 flex items-start gap-3"
+          style={{ background: '#fefce8', border: '1px solid #fde68a' }}
+        >
+          <div
+            className="w-10 h-10 rounded-[10px] flex items-center justify-center text-base shrink-0"
+            style={{ background: '#fde68a', color: '#854d0e' }}
+          >
+            ⚠
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-bold" style={{ color: '#854d0e' }}>
+              {unassigned.length} {unassigned.length === 1 ? 'compra' : 'compras'} Hotmart sin asignar
+            </div>
+            <div className="text-xs mt-0.5" style={{ color: '#a16207' }}>
+              Llegaron por webhook pero el email del comprador no coincide con el adminEmail de ninguna marca. Asígnalas manualmente.
+            </div>
+            <div className="mt-3 space-y-1.5">
+              {unassigned.map((p) => (
+                <div
+                  key={p.id}
+                  className="flex items-center justify-between text-xs px-3 py-2 rounded-[8px]"
+                  style={{ background: 'white', border: '1px solid #fde68a' }}
+                >
+                  <div className="min-w-0">
+                    <div className="font-semibold" style={{ color: '#16241c' }}>
+                      {p.creditLink?.label ?? `Pack ${p.credits} créditos`} · {p.credits} créditos
+                    </div>
+                    <div className="truncate" style={{ color: '#6b7785' }}>
+                      {p.buyerEmail} · tx={p.transactionId.slice(0, 16)}… · {fmtRelative(p.createdAt)}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setAssignTarget(p)}
+                    className="text-[11px] font-semibold shrink-0 ml-2"
+                    style={{
+                      padding: '6px 12px', borderRadius: 8, background: '#15803d', color: 'white', border: 'none',
+                    }}
+                  >
+                    Asignar
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex items-center justify-end gap-2 mb-6 text-xs" style={{ color: '#9aa4af' }}>
         <span>
@@ -262,6 +329,19 @@ export default function CreditsCenterPage() {
           links={links}
           onClose={() => setEditLinksOpen(false)}
           onChanged={() => {
+            load();
+          }}
+        />
+      )}
+
+      {assignTarget && data && (
+        <AssignPurchaseModal
+          purchase={assignTarget}
+          whiteLabels={data.whiteLabels}
+          onClose={() => setAssignTarget(null)}
+          onSaved={(msg) => {
+            setAssignTarget(null);
+            flashToast(msg);
             load();
           }}
         />
@@ -463,6 +543,104 @@ function AdjustCreditsModal({
   );
 }
 
+function AssignPurchaseModal({
+  purchase,
+  whiteLabels,
+  onClose,
+  onSaved,
+}: {
+  purchase: Purchase;
+  whiteLabels: WhiteLabelRow[];
+  onClose: () => void;
+  onSaved: (msg: string) => void;
+}) {
+  const [whiteLabelId, setWhiteLabelId] = useState<string>('');
+  const [saving, setSaving] = useState(false);
+
+  async function submit() {
+    if (!whiteLabelId) return;
+    setSaving(true);
+    try {
+      await api(`/superadmin/hotmart-purchases/${purchase.id}/assign`, {
+        method: 'POST',
+        body: JSON.stringify({ whiteLabelId }),
+      });
+      const wl = whiteLabels.find((w) => w.id === whiteLabelId);
+      onSaved(`${purchase.credits} créditos asignados a ${wl?.name ?? 'la marca'}`);
+    } catch (e: any) {
+      alert('Error: ' + (e?.message ?? e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(15,30,22,.55)', backdropFilter: 'blur(4px)' }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-[16px] p-6"
+        style={{ background: 'white', boxShadow: '0 20px 50px rgba(0,0,0,.25)' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="m-0" style={{ fontSize: 18, fontWeight: 800, color: '#16241c' }}>
+          Asignar compra Hotmart
+        </h3>
+        <p className="text-sm mt-1.5 mb-4" style={{ color: '#6b7785' }}>
+          {purchase.credits} créditos · comprador {purchase.buyerEmail}
+        </p>
+
+        <label className="block mb-5">
+          <div className="text-[11px] font-bold uppercase mb-1.5" style={{ letterSpacing: 0.6, color: '#6b7785' }}>
+            Acreditar a la marca
+          </div>
+          <select
+            value={whiteLabelId}
+            onChange={(e) => setWhiteLabelId(e.target.value)}
+            className="w-full"
+            style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #d7dbe0', fontSize: 13.5, outline: 'none', background: 'white' }}
+            autoFocus
+          >
+            <option value="">— Elige una marca —</option>
+            {whiteLabels.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name} ({w.creditsAvailable} disp.)
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <div className="flex items-center justify-end gap-2">
+          <button
+            onClick={onClose}
+            disabled={saving}
+            className="text-sm font-semibold"
+            style={{ padding: '9px 14px', borderRadius: 9, background: 'white', color: '#6b7785', border: '1px solid #d7dbe0' }}
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={submit}
+            disabled={!whiteLabelId || saving}
+            className="text-sm font-semibold"
+            style={{
+              padding: '9px 18px',
+              borderRadius: 9,
+              background: !whiteLabelId ? '#cbd5d2' : '#15803d',
+              color: 'white',
+              border: 'none',
+            }}
+          >
+            {saving ? 'Asignando…' : `Asignar +${purchase.credits}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function EditLinksModal({
   links,
   onClose,
@@ -473,7 +651,7 @@ function EditLinksModal({
   onChanged: () => void;
 }) {
   const [rows, setRows] = useState<HotmartLink[]>(links);
-  const [draft, setDraft] = useState({ credits: 1, label: '', url: '', price: '', currency: 'MXN' });
+  const [draft, setDraft] = useState({ credits: 1, label: '', url: '', price: '', currency: 'MXN', hotmartProductId: '' });
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -493,13 +671,22 @@ function EditLinksModal({
           url: draft.url,
           price: draft.price ? Number(draft.price) : null,
           currency: draft.currency,
+          hotmartProductId: draft.hotmartProductId.trim() || null,
         }),
       });
-      setDraft({ credits: 1, label: '', url: '', price: '', currency: 'MXN' });
+      setDraft({ credits: 1, label: '', url: '', price: '', currency: 'MXN', hotmartProductId: '' });
       onChanged();
     } finally {
       setBusy(false);
     }
+  }
+
+  async function updateProductId(id: string, value: string) {
+    await api(`/superadmin/hotmart-links/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ hotmartProductId: value.trim() || null }),
+    });
+    onChanged();
   }
 
   async function remove(id: string) {
@@ -559,6 +746,20 @@ function EditLinksModal({
                 </div>
                 <div className="text-[11px] font-mono truncate" style={{ color: '#6b7785' }}>
                   {l.url}
+                </div>
+                <div className="text-[10px] mt-1 flex items-center gap-1.5" style={{ color: '#6b7785' }}>
+                  <span style={{ color: '#9aa4af' }}>productId Hotmart:</span>
+                  <input
+                    defaultValue={l.hotmartProductId ?? ''}
+                    onBlur={(e) => {
+                      if ((e.target.value.trim() || null) !== (l.hotmartProductId ?? null)) {
+                        updateProductId(l.id, e.target.value);
+                      }
+                    }}
+                    placeholder="vacío = no auto-acredita"
+                    className="text-[11px] font-mono"
+                    style={{ padding: '2px 6px', borderRadius: 5, border: '1px solid #d7dbe0', width: 130 }}
+                  />
                 </div>
               </div>
               {l.price && (
@@ -639,6 +840,18 @@ function EditLinksModal({
               onChange={(e) => setDraft({ ...draft, price: e.target.value })}
               placeholder="$"
               className="w-full text-sm"
+              style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #d7dbe0' }}
+            />
+          </div>
+          <div className="col-span-12">
+            <label className="block text-[10px] font-bold uppercase mb-1" style={{ color: '#6b7785' }}>
+              productId Hotmart (opcional · habilita auto-acreditar)
+            </label>
+            <input
+              value={draft.hotmartProductId}
+              onChange={(e) => setDraft({ ...draft, hotmartProductId: e.target.value })}
+              placeholder="ej: 1234567 — lo encontrás en el dashboard de Hotmart"
+              className="w-full text-sm font-mono"
               style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #d7dbe0' }}
             />
           </div>
