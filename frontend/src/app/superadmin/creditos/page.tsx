@@ -604,11 +604,13 @@ function AssignPurchaseModal({
             autoFocus
           >
             <option value="">— Elige una marca —</option>
-            {whiteLabels.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.name} ({w.creditsAvailable} disp.)
-              </option>
-            ))}
+            {whiteLabels
+              .filter((w) => w.status === 'ACTIVE')
+              .map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name} ({w.creditsAvailable} disp.)
+                </option>
+              ))}
           </select>
         </label>
 
@@ -850,7 +852,7 @@ function EditLinksModal({
             <input
               value={draft.hotmartProductId}
               onChange={(e) => setDraft({ ...draft, hotmartProductId: e.target.value })}
-              placeholder="ej: 1234567 — lo encontrás en el dashboard de Hotmart"
+              placeholder="ej: 1234567 — lo encuentras en el dashboard de Hotmart"
               className="w-full text-sm font-mono"
               style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #d7dbe0' }}
             />

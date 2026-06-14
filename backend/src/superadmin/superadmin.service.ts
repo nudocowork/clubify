@@ -797,7 +797,8 @@ export class SuperAdminService {
   }
 
   /** Asigna una compra UNASSIGNED a una marca: acredita los créditos
-   *  + crea CreditTransaction + marca la compra como ASSIGNED. */
+   *  + crea CreditTransaction + marca la compra como ASSIGNED.
+   *  Atomic claim contra dobles asignaciones concurrentes. */
   async assignCreditPurchase(purchaseId: string, whiteLabelId: string, actorId?: string) {
     const purchase = await this.prisma.hotmartCreditPurchase.findUnique({
       where: { id: purchaseId },
@@ -808,12 +809,21 @@ export class SuperAdminService {
     }
     const wl = await this.prisma.whiteLabel.findUnique({ where: { id: whiteLabelId } });
     if (!wl) throw new NotFoundException('Marca no encontrada');
+    if (wl.status === 'SUSPENDED') {
+      throw new BadRequestException('No se puede asignar créditos a una marca suspendida. Reactívala primero.');
+    }
 
+    // Atomic claim: solo un PLATFORM_OWNER puede asignar esta compra.
+    // updateMany WHERE status='UNASSIGNED' devuelve count=0 si otro ya
+    // la asignó entre el findUnique y este update.
+    const claim = await this.prisma.hotmartCreditPurchase.updateMany({
+      where: { id: purchaseId, status: { not: 'ASSIGNED' } },
+      data: { whiteLabelId, status: 'ASSIGNED', assignedAt: new Date() },
+    });
+    if (claim.count === 0) {
+      throw new ConflictException('Otra operación ya asignó esta compra');
+    }
     await this.prisma.$transaction([
-      this.prisma.hotmartCreditPurchase.update({
-        where: { id: purchaseId },
-        data: { whiteLabelId, status: 'ASSIGNED', assignedAt: new Date() },
-      }),
       this.prisma.whiteLabel.update({
         where: { id: whiteLabelId },
         data: { creditsAvailable: { increment: purchase.credits } },

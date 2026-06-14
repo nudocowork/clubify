@@ -262,7 +262,10 @@ export class HotmartService {
   async tryHandleCreditPurchase(payload: HotmartWebhookPayload): Promise<string | null> {
     const productIdRaw = payload.data?.product?.id;
     if (productIdRaw === undefined || productIdRaw === null) return null;
-    const productId = String(productIdRaw);
+    // Trim defensivo — Hotmart puede mandar number o string; el user pega el
+    // value en un input, posible whitespace alrededor.
+    const productId = String(productIdRaw).trim();
+    if (!productId) return null;
 
     const creditLink = await this.prisma.hotmartCreditLink.findFirst({
       where: { hotmartProductId: productId, isActive: true },
