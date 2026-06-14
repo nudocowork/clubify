@@ -61,15 +61,29 @@ export class SuperAdminService {
       throw new BadRequestException('La marca está suspendida. Reactivá antes de entrar.');
     }
 
-    // 1) Primer SUPER_ADMIN ligado a un tenant de la marca
+    // 0) Mejor opción: SUPER_ADMIN dedicado de la marca (User.whiteLabelId
+    //    apuntando directo a la marca, sin tenant). Es el patrón
+    //    canónico introducido en 2026-06-13.
     let admin = await this.prisma.user.findFirst({
       where: {
         role: 'SUPER_ADMIN',
         isActive: true,
-        tenant: { whiteLabelId },
+        whiteLabelId,
       },
       orderBy: { createdAt: 'asc' },
     });
+
+    // 1) Fallback histórico: SUPER_ADMIN ligado a un tenant de la marca.
+    if (!admin) {
+      admin = await this.prisma.user.findFirst({
+        where: {
+          role: 'SUPER_ADMIN',
+          isActive: true,
+          tenant: { whiteLabelId },
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+    }
 
     // 2) Fallback: User cuyo email matchee adminEmail de la marca con
     //    rol SUPER_ADMIN o TENANT_OWNER (no PLATFORM_OWNER porque éste
@@ -293,13 +307,215 @@ export class SuperAdminService {
     if (!wl) throw new NotFoundException();
     const admins = await this.prisma.user.findMany({
       where: {
-        role: { in: ['SUPER_ADMIN', 'TENANT_OWNER'] },
-        tenant: { whiteLabelId: wl.id },
+        OR: [
+          { whiteLabelId: wl.id, role: 'SUPER_ADMIN' },
+          { role: { in: ['SUPER_ADMIN', 'TENANT_OWNER'] }, tenant: { whiteLabelId: wl.id } },
+        ],
       },
-      select: { id: true, email: true, fullName: true, role: true },
-      take: 20,
+      select: { id: true, email: true, fullName: true, role: true, isActive: true, whiteLabelId: true },
+      orderBy: [{ whiteLabelId: 'desc' }, { createdAt: 'asc' }],
+      take: 30,
     });
     return { ...wl, admins };
+  }
+
+  // ============================================================
+  //               ADMINS DEDICADOS DE UNA MARCA
+  // ============================================================
+
+  async listWhiteLabelAdminInvites(whiteLabelId: string) {
+    const wl = await this.prisma.whiteLabel.findUnique({ where: { id: whiteLabelId } });
+    if (!wl) throw new NotFoundException('Marca no encontrada');
+    const invites = await this.prisma.whiteLabelAdminInvite.findMany({
+      where: { whiteLabelId, acceptedAt: null, revokedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+      include: { invitedBy: { select: { id: true, email: true, fullName: true } } },
+    });
+    return invites.map((i) => ({
+      id: i.id,
+      email: i.email,
+      fullName: i.fullName,
+      invitedBy: i.invitedBy ? { email: i.invitedBy.email, fullName: i.invitedBy.fullName } : null,
+      expiresAt: i.expiresAt,
+      createdAt: i.createdAt,
+    }));
+  }
+
+  async inviteWhiteLabelAdmin(
+    whiteLabelId: string,
+    dto: { email: string; fullName: string },
+    actorId: string,
+  ) {
+    const wl = await this.prisma.whiteLabel.findUnique({ where: { id: whiteLabelId } });
+    if (!wl) throw new NotFoundException('Marca no encontrada');
+    const email = dto.email.trim().toLowerCase();
+    const fullName = dto.fullName.trim();
+    if (!email || !fullName) throw new BadRequestException('Email y nombre son requeridos');
+
+    const existing = await this.prisma.user.findUnique({
+      where: { email },
+      select: { id: true, role: true, whiteLabelId: true, isActive: true },
+    });
+    if (existing && existing.role === 'SUPER_ADMIN' && existing.whiteLabelId === whiteLabelId && existing.isActive) {
+      throw new ConflictException('Este usuario ya es admin de la marca');
+    }
+    if (existing && existing.role === 'PLATFORM_OWNER') {
+      throw new ConflictException('Este usuario es PLATFORM_OWNER, no se puede degradar a admin de marca');
+    }
+
+    const pending = await this.prisma.whiteLabelAdminInvite.findFirst({
+      where: { whiteLabelId, email, acceptedAt: null, revokedAt: null, expiresAt: { gt: new Date() } },
+    });
+    if (pending) {
+      throw new ConflictException('Ya hay una invitación pendiente para ese email en esta marca');
+    }
+
+    const token = randomBytes(32).toString('hex');
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    const invite = await this.prisma.whiteLabelAdminInvite.create({
+      data: { whiteLabelId, email, fullName, tokenHash, invitedById: actorId, expiresAt },
+    });
+
+    const cfg = await this.getPlatformConfig();
+    const platformName = cfg.name || 'Fidelia';
+    const baseUrl = wl.appDomain
+      ? `https://${wl.appDomain.replace(/^https?:\/\//, '').replace(/\/$/, '')}`
+      : (cfg.consoleDomain
+          ? `https://${cfg.consoleDomain.replace(/^https?:\/\//, '').replace(/\/$/, '')}`
+          : (process.env.PUBLIC_APP_URL || 'https://app.soyclubify.com'));
+    const acceptUrl = `${baseUrl}/aceptar-invitacion-marca/${token}`;
+
+    await this.email.send({
+      to: email,
+      subject: `Te invitaron a administrar ${wl.name}`,
+      html: whiteLabelInviteEmailHtml({
+        fullName,
+        whiteLabelName: wl.name,
+        primaryColor: wl.primaryColor,
+        platformName,
+        acceptUrl,
+        expiresAt,
+      }),
+      text: `Hola ${fullName}, te invitaron a administrar ${wl.name}. Aceptá tu invitación acá: ${acceptUrl}. El enlace vence el ${expiresAt.toLocaleDateString('es-MX')}.`,
+    });
+
+    await this.logAction(actorId, 'superadmin.white_label_admin_invite.create', `whiteLabel:${whiteLabelId}`, {
+      whiteLabelName: wl.name, email, fullName,
+    });
+
+    return { id: invite.id, email, fullName, expiresAt };
+  }
+
+  async revokeWhiteLabelAdminInvite(inviteId: string, actorId: string) {
+    const invite = await this.prisma.whiteLabelAdminInvite.findUnique({ where: { id: inviteId } });
+    if (!invite) throw new NotFoundException('Invitación no encontrada');
+    if (invite.acceptedAt) throw new BadRequestException('La invitación ya fue aceptada');
+    if (invite.revokedAt) return { ok: true, alreadyRevoked: true };
+    await this.prisma.whiteLabelAdminInvite.update({
+      where: { id: inviteId },
+      data: { revokedAt: new Date() },
+    });
+    await this.logAction(actorId, 'superadmin.white_label_admin_invite.revoke', `whiteLabel:${invite.whiteLabelId}`, {
+      email: invite.email,
+    });
+    return { ok: true };
+  }
+
+  async toggleWhiteLabelAdminActive(userId: string, isActive: boolean, actorId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, role: true, isActive: true, whiteLabelId: true },
+    });
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+    if (user.role !== 'SUPER_ADMIN' || !user.whiteLabelId) {
+      throw new BadRequestException('Solo se puede toggle SUPER_ADMINs dedicados de una marca');
+    }
+    if (user.isActive === isActive) return { ok: true, noop: true };
+
+    await this.prisma.user.update({ where: { id: userId }, data: { isActive } });
+    await this.logAction(actorId, 'superadmin.white_label_admin.toggle', `user:${userId}`, {
+      email: user.email,
+      whiteLabelId: user.whiteLabelId,
+      to: isActive ? 'active' : 'inactive',
+    });
+    return { ok: true };
+  }
+
+  async lookupWhiteLabelAdminInvite(token: string) {
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const invite = await this.prisma.whiteLabelAdminInvite.findUnique({
+      where: { tokenHash },
+      include: { whiteLabel: { select: { name: true, primaryColor: true } } },
+    });
+    if (!invite) throw new NotFoundException('Invitación inválida o ya usada');
+    if (invite.acceptedAt) throw new BadRequestException('Invitación ya aceptada');
+    if (invite.revokedAt) throw new BadRequestException('Invitación revocada');
+    if (invite.expiresAt < new Date()) throw new BadRequestException('Invitación vencida');
+    return {
+      email: invite.email,
+      fullName: invite.fullName,
+      expiresAt: invite.expiresAt,
+      whiteLabel: invite.whiteLabel,
+    };
+  }
+
+  async acceptWhiteLabelAdminInvite(token: string, password: string) {
+    if (!password || password.length < 8) {
+      throw new BadRequestException('La contraseña debe tener al menos 8 caracteres');
+    }
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const invite = await this.prisma.whiteLabelAdminInvite.findUnique({
+      where: { tokenHash },
+    });
+    if (!invite) throw new NotFoundException('Invitación inválida');
+    if (invite.acceptedAt) throw new BadRequestException('Invitación ya aceptada');
+    if (invite.revokedAt) throw new BadRequestException('Invitación revocada');
+    if (invite.expiresAt < new Date()) throw new BadRequestException('Invitación vencida');
+
+    const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
+
+    const user = await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.user.findUnique({ where: { email: invite.email } });
+      if (existing && existing.role === 'PLATFORM_OWNER') {
+        throw new ConflictException('Este email ya pertenece a un PLATFORM_OWNER');
+      }
+      const u = existing
+        ? await tx.user.update({
+            where: { id: existing.id },
+            data: {
+              role: 'SUPER_ADMIN',
+              whiteLabelId: invite.whiteLabelId,
+              tenantId: null,
+              isActive: true,
+              passwordHash,
+              passwordChangedAt: new Date(),
+              fullName: existing.fullName || invite.fullName,
+            },
+          })
+        : await tx.user.create({
+            data: {
+              email: invite.email,
+              fullName: invite.fullName,
+              role: 'SUPER_ADMIN',
+              whiteLabelId: invite.whiteLabelId,
+              passwordHash,
+              isActive: true,
+            },
+          });
+      await tx.whiteLabelAdminInvite.update({
+        where: { id: invite.id },
+        data: { acceptedAt: new Date(), acceptedById: u.id },
+      });
+      return u;
+    });
+
+    await this.logAction(invite.invitedById, 'superadmin.white_label_admin_invite.accept', `whiteLabel:${invite.whiteLabelId}`, {
+      email: invite.email, userId: user.id,
+    });
+
+    return { ok: true, email: user.email };
   }
 
   /** Historial de eventos del Master Admin. Filtra el AuditLog global
@@ -1071,6 +1287,36 @@ function ownerInviteEmailHtml(opts: {
         <a href="${escapeHtml(acceptUrl)}" style="display:inline-block;padding:14px 26px;background:#15803d;color:white;text-decoration:none;border-radius:10px;font-weight:700;font-size:15px">Activar mi cuenta</a>
       </p>
       <p style="margin:0;font-size:12.5px;color:#6b7785">El enlace vence el ${expiresAt.toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}. Si no esperabas esta invitación, ignorá este correo.</p>
+    </div>
+  </div>
+</body></html>`;
+}
+
+function whiteLabelInviteEmailHtml(opts: {
+  fullName: string;
+  whiteLabelName: string;
+  primaryColor: string;
+  platformName: string;
+  acceptUrl: string;
+  expiresAt: Date;
+}) {
+  const { fullName, whiteLabelName, primaryColor, platformName, acceptUrl, expiresAt } = opts;
+  return `<!doctype html>
+<html><body style="margin:0;padding:0;background:#f6f8f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#16241c">
+  <div style="max-width:520px;margin:40px auto;background:white;border-radius:18px;overflow:hidden;border:1px solid #e7e9ec">
+    <div style="background:linear-gradient(135deg, ${escapeHtml(primaryColor)} 0%, ${escapeHtml(primaryColor)}cc 100%);padding:32px 28px;color:white">
+      <div style="font-size:12.5px;font-weight:700;letter-spacing:1px;opacity:.9;text-transform:uppercase">${escapeHtml(whiteLabelName)}</div>
+      <h1 style="margin:8px 0 0;font-size:24px;font-weight:800;letter-spacing:-.4px">Sos administrador de la marca</h1>
+    </div>
+    <div style="padding:28px">
+      <p style="margin:0 0 14px;font-size:15px;line-height:1.55">Hola <strong>${escapeHtml(fullName)}</strong>,</p>
+      <p style="margin:0 0 18px;font-size:15px;line-height:1.55">Te invitaron a administrar <strong>${escapeHtml(whiteLabelName)}</strong>. Vas a tener acceso completo al panel: negocios, clientes, branding y todos los datos de la marca.</p>
+      <p style="margin:0 0 22px;font-size:15px;line-height:1.55">Para activar tu cuenta, hacé clic acá y definí tu contraseña:</p>
+      <p style="text-align:center;margin:24px 0 28px">
+        <a href="${escapeHtml(acceptUrl)}" style="display:inline-block;padding:14px 26px;background:${escapeHtml(primaryColor)};color:white;text-decoration:none;border-radius:10px;font-weight:700;font-size:15px">Activar mi cuenta</a>
+      </p>
+      <p style="margin:0;font-size:12.5px;color:#6b7785">El enlace vence el ${expiresAt.toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}. Si no esperabas esta invitación, ignorá este correo.</p>
+      <p style="margin:18px 0 0;font-size:11px;color:#9aa4af;text-align:center">Operado en ${escapeHtml(platformName)}.</p>
     </div>
   </div>
 </body></html>`;

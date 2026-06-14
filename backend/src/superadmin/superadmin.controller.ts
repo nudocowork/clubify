@@ -64,6 +64,11 @@ class AcceptInviteBody {
   @IsString() @Length(8, 200) password!: string;
 }
 
+class InviteWhiteLabelAdminBody {
+  @IsEmail() email!: string;
+  @IsString() @MaxLength(120) fullName!: string;
+}
+
 /**
  * Endpoints del MasterAdmin (Nivel 1 / Plataforma).
  *
@@ -254,6 +259,36 @@ export class SuperAdminController {
   toggleOwner(@Param('id') id: string, @Body() body: ToggleOwnerBody, @CurrentUser() user: AuthUser) {
     return this.svc.toggleOwnerActive(id, body.isActive, user.id);
   }
+
+  // -------- Admins dedicados de una marca --------
+
+  @Get('white-labels/:id/admin-invites')
+  listWhiteLabelAdminInvites(@Param('id') id: string) {
+    return this.svc.listWhiteLabelAdminInvites(id);
+  }
+
+  @Post('white-labels/:id/admin-invites')
+  inviteWhiteLabelAdmin(
+    @Param('id') id: string,
+    @Body() body: InviteWhiteLabelAdminBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.inviteWhiteLabelAdmin(id, body, user.id);
+  }
+
+  @Delete('white-label-admin-invites/:inviteId')
+  revokeWhiteLabelAdminInvite(@Param('inviteId') inviteId: string, @CurrentUser() user: AuthUser) {
+    return this.svc.revokeWhiteLabelAdminInvite(inviteId, user.id);
+  }
+
+  @Patch('white-label-admins/:userId')
+  toggleWhiteLabelAdmin(
+    @Param('userId') userId: string,
+    @Body() body: ToggleOwnerBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.toggleWhiteLabelAdminActive(userId, body.isActive, user.id);
+  }
 }
 
 /**
@@ -274,5 +309,17 @@ export class SuperAdminPublicController {
   @Post('owner-invites/:token/accept')
   accept(@Param('token') token: string, @Body() body: AcceptInviteBody) {
     return this.svc.acceptOwnerInvite(token, body.password);
+  }
+
+  @Public()
+  @Get('white-label-admin-invites/:token')
+  lookupWhiteLabel(@Param('token') token: string) {
+    return this.svc.lookupWhiteLabelAdminInvite(token);
+  }
+
+  @Public()
+  @Post('white-label-admin-invites/:token/accept')
+  acceptWhiteLabel(@Param('token') token: string, @Body() body: AcceptInviteBody) {
+    return this.svc.acceptWhiteLabelAdminInvite(token, body.password);
   }
 }

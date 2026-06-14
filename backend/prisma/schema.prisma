@@ -759,9 +759,19 @@ model User {
   platformOwnerInvitesSent     PlatformOwnerInvite[] @relation("PlatformOwnerInviteInviter")
   platformOwnerInviteAccepted  PlatformOwnerInvite[] @relation("PlatformOwnerInviteAcceptor")
 
+  // Master Admin (2026-06-13): admins SUPER_ADMIN dedicados de una
+  // marca blanca. NULL = no es admin de una marca (usuario normal).
+  // Cuando un SUPER_ADMIN tiene whiteLabelId, sólo ve datos de los
+  // tenants de esa marca; no necesita tenantId propio.
+  whiteLabelId    String?
+  whiteLabel      WhiteLabel? @relation("WhiteLabelAdmin", fields: [whiteLabelId], references: [id], onDelete: SetNull)
+  whiteLabelAdminInvitesSent     WhiteLabelAdminInvite[] @relation("WhiteLabelAdminInviteInviter")
+  whiteLabelAdminInviteAccepted  WhiteLabelAdminInvite[] @relation("WhiteLabelAdminInviteAcceptor")
+
   @@index([tenantId])
   @@index([role])
   @@index([locationId])
+  @@index([whiteLabelId])
 }
 
 model Customer {
@@ -3752,6 +3762,11 @@ model WhiteLabel {
   tenants         Tenant[]
   modules         WhiteLabelModule[]
   creditTransactions CreditTransaction[]
+  /// Users con role SUPER_ADMIN vinculados directamente a esta marca
+  /// (no atados a un tenant específico). Ven todos los tenants de la
+  /// marca, gestionan branding, etc. Es la cuenta admin "de la marca".
+  admins          User[]               @relation("WhiteLabelAdmin")
+  adminInvites    WhiteLabelAdminInvite[]
 
   @@index([status])
 }
@@ -3845,6 +3860,32 @@ model PlatformIntegration {
   /// expone enmascarada al frontend.
   config    Json     @default("{}")
   updatedAt DateTime @updatedAt
+}
+
+/// Invitaciones para sumar SUPER_ADMINs a una marca blanca específica.
+/// Mismo patrón que PlatformOwnerInvite pero scoped a una marca: el
+/// invitado queda como User role=SUPER_ADMIN, whiteLabelId=<marca>,
+/// tenantId=null. Sólo ve los tenants de su marca.
+model WhiteLabelAdminInvite {
+  id            String     @id @default(uuid())
+  whiteLabelId  String
+  whiteLabel    WhiteLabel @relation(fields: [whiteLabelId], references: [id], onDelete: Cascade)
+  email         String
+  fullName      String
+  /// Hash SHA-256 del token. El token plano sólo se envía en el email.
+  tokenHash     String     @unique
+  invitedById   String
+  invitedBy     User       @relation("WhiteLabelAdminInviteInviter", fields: [invitedById], references: [id])
+  expiresAt     DateTime
+  acceptedAt    DateTime?
+  acceptedById  String?
+  acceptedBy    User?      @relation("WhiteLabelAdminInviteAcceptor", fields: [acceptedById], references: [id])
+  revokedAt     DateTime?
+  createdAt     DateTime   @default(now())
+
+  @@index([whiteLabelId])
+  @@index([email])
+  @@index([acceptedAt, revokedAt])
 }
 
 /// Invitaciones para sumar nuevos PLATFORM_OWNERs a la consola Master Admin.
