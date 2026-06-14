@@ -151,6 +151,19 @@ export class HotmartService {
       }
     }
 
+    // Master Admin: refund/chargeback de pack de créditos. Si el
+    // transactionId matchea una HotmartCreditPurchase ASSIGNED, revertimos
+    // los créditos a la marca y marcamos la compra como REFUNDED.
+    if (event === 'PURCHASE_REFUNDED' || event === 'PURCHASE_CHARGEBACK') {
+      const refundHandled = await this.tryHandleCreditRefund(payload).catch((e) => {
+        this.logger.error(`tryHandleCreditRefund falló: ${(e as Error)?.message}`);
+        return null;
+      });
+      if (refundHandled) {
+        return { ok: true, action: refundHandled };
+      }
+    }
+
     // Localizar tenant por email del buyer (caso primer pago) o por subscriberCode (renovaciones).
     const tenant = await this.findTenant({ buyerEmail, subscriberCode });
     if (!tenant) {
@@ -370,6 +383,85 @@ export class HotmartService {
       `Hotmart credit purchase ${transactionId}: ${creditLink.credits} créditos → marca ${whiteLabelId}`,
     );
     return 'credit_purchase_assigned';
+  }
+
+  /**
+   * Master Admin (2026-06-14): refund/chargeback de pack de créditos.
+   * Si el transactionId del payload matchea una HotmartCreditPurchase
+   * previamente registrada, revertimos los créditos a la marca y marcamos
+   * la compra como REFUNDED.
+   *
+   * Devuelve string con la acción, o null si:
+   *  - La transacción no corresponde a un pack de créditos
+   *  - La compra ya estaba REFUNDED (idempotency)
+   */
+  async tryHandleCreditRefund(payload: HotmartWebhookPayload): Promise<string | null> {
+    const transactionId = payload.data?.purchase?.transaction;
+    if (!transactionId) return null;
+
+    const purchase = await this.prisma.hotmartCreditPurchase.findUnique({
+      where: { transactionId },
+      include: { whiteLabel: { select: { creditsUnlimited: true, name: true } } },
+    });
+    if (!purchase) return null; // no es un pack de créditos
+    if (purchase.status === 'REFUNDED') {
+      this.logger.log(
+        `Hotmart credit refund ${transactionId} ya procesado — skip duplicate`,
+      );
+      return 'credit_refund_duplicate';
+    }
+
+    // Si nunca llegó a estar ASSIGNED (UNASSIGNED legacy o que nunca se
+    // matcheó), solo marcamos como REFUNDED sin reversar nada.
+    if (purchase.status !== 'ASSIGNED' || !purchase.whiteLabelId) {
+      await this.prisma.hotmartCreditPurchase.update({
+        where: { id: purchase.id },
+        data: { status: 'REFUNDED' },
+      });
+      this.logger.log(
+        `Hotmart credit refund ${transactionId}: compra estaba ${purchase.status}, sin reversar créditos`,
+      );
+      return 'credit_refund_no_op';
+    }
+
+    // Marcas ilimitadas: solo marcamos REFUNDED. No hubo incremento original.
+    if (purchase.whiteLabel?.creditsUnlimited) {
+      await this.prisma.hotmartCreditPurchase.update({
+        where: { id: purchase.id },
+        data: { status: 'REFUNDED' },
+      });
+      this.logger.log(
+        `Hotmart credit refund ${transactionId}: marca ${purchase.whiteLabel.name} es ilimitada, solo marcamos REFUNDED`,
+      );
+      return 'credit_refund_unlimited';
+    }
+
+    // Reverso real: decremento creditsAvailable + creditsUsed -= credits + CreditTransaction REFUND.
+    await this.prisma.$transaction([
+      this.prisma.hotmartCreditPurchase.update({
+        where: { id: purchase.id },
+        data: { status: 'REFUNDED' },
+      }),
+      this.prisma.whiteLabel.update({
+        where: { id: purchase.whiteLabelId },
+        data: {
+          creditsAvailable: { decrement: purchase.credits },
+        },
+      }),
+      this.prisma.creditTransaction.create({
+        data: {
+          whiteLabelId: purchase.whiteLabelId,
+          type: 'REFUND',
+          amount: -purchase.credits,
+          note: `Refund/chargeback Hotmart · tx=${transactionId}`,
+        },
+      }),
+    ]);
+
+    this.logger.log(
+      `Hotmart credit refund ${transactionId}: -${purchase.credits} créditos a marca ${purchase.whiteLabelId}`,
+    );
+    return 'credit_refund_processed';
   }
 
   /** Switch principal — extraído para que handleEvent pueda
