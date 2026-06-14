@@ -426,6 +426,14 @@ model Tenant {
   deletedAt                   DateTime?
   referredByCode              String?
   currency                    String               @default("COP")
+  /// Override opcional del símbolo monetario. Si está null, se usa el
+  /// símbolo automático de Intl según la moneda (COP → "$", EUR → "€").
+  /// Útil para Bs, Ref., Pts o símbolos custom. Max 8 caracteres.
+  currencySymbol              String?
+  /// País del negocio (ISO 3166-1 alpha-2, ej: "CO", "MX", "AR"). Usado
+  /// para resolver el dropdown dinámico de estados/provincias y para
+  /// defaults locale-aware.
+  country                     String               @default("CO")
   timezone                    String               @default("America/Bogota")
   instagramUrl                String?
   facebookUrl                 String?

@@ -20,6 +20,7 @@ import {
   Length,
   Matches,
   Max,
+  MaxLength,
   Min,
 } from 'class-validator';
 import { TenantsService } from './tenants.service';
@@ -72,6 +73,13 @@ class UpdateMyBody {
   // ("", "asdf", "USDOLLAR") no rompan el formateo en storefront público.
   @IsOptional() @IsString() @Length(3, 3) @Matches(/^[A-Z]{3}$/)
   currency?: string;
+  // Override opcional del símbolo monetario. null o "" → símbolo automático
+  // de Intl según `currency`. Útil para Bs, Ref., Pts, símbolos custom.
+  @IsOptional() @IsString() @MaxLength(8)
+  currencySymbol?: string | null;
+  // País del negocio (ISO 3166-1 alpha-2, 2 letras). Default "CO".
+  @IsOptional() @IsString() @Length(2, 2) @Matches(/^[A-Z]{2}$/)
+  country?: string;
   // M4: máximo de sellos/visitas que un mismo pass puede recibir en 24h.
   // null = 1 (default histórico). Rango razonable 1-10 para evitar abuso.
   @IsOptional() @IsInt() @Min(1) @Max(20) maxStampsPerDay?: number;

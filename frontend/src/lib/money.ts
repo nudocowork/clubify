@@ -44,7 +44,7 @@ export type CurrencyCode = string; // ISO 4217 — keep flexible
 export function formatPrice(
   value: number | string | null | undefined,
   currency: CurrencyCode = 'COP',
-  opts?: { withSymbol?: boolean },
+  opts?: { withSymbol?: boolean; symbolOverride?: string | null },
 ): string {
   const n = typeof value === 'string' ? Number(value) : (value ?? 0);
   if (!Number.isFinite(n)) return '';
@@ -58,19 +58,32 @@ export function formatPrice(
   const maxFrac = isZeroDecimal && !hasFractional ? 0 : 2;
 
   const withSymbol = opts?.withSymbol !== false;
+  const symbolOverride = opts?.symbolOverride?.trim();
   try {
-    return new Intl.NumberFormat(locale, {
+    const formatter = new Intl.NumberFormat(locale, {
       style: withSymbol ? 'currency' : 'decimal',
       currency: withSymbol ? ccy : undefined,
       minimumFractionDigits: minFrac,
       maximumFractionDigits: maxFrac,
-    }).format(n);
+    });
+
+    // Override del símbolo: usamos formatToParts para reemplazar SOLO la
+    // parte "currency" sin tocar separadores ni el orden (varía por locale).
+    if (withSymbol && symbolOverride) {
+      const parts = formatter.formatToParts(n);
+      return parts
+        .map((p) => (p.type === 'currency' ? symbolOverride : p.value))
+        .join('');
+    }
+    return formatter.format(n);
   } catch {
     // Fallback si el currency code es inválido (Intl tira RangeError).
-    return new Intl.NumberFormat('es-CO', {
+    const base = new Intl.NumberFormat('es-CO', {
       minimumFractionDigits: minFrac,
       maximumFractionDigits: maxFrac,
     }).format(n);
+    if (withSymbol && symbolOverride) return `${symbolOverride} ${base}`;
+    return base;
   }
 }
 
