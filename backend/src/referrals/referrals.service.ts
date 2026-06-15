@@ -340,9 +340,13 @@ export class ReferralsService {
       const cpeDate = use.tenant?.currentPeriodEnd;
       if (!cpeDate) continue;
       if (!use.tenantId) continue;
-      const priceMonthly = Number(use.tenant?.plan?.priceMonthly ?? 0);
-      if (priceMonthly <= 0) continue;
       const months = bundleMonths(use.tenant?.planPeriodicity ?? null);
+      // Base = precio CANÓNICO del bundle según periodicidad (68/150/278/500),
+      // NO priceMonthly × meses. Fuente única: getBundlePrice (Settings).
+      const price = await this.recalc.getBundlePrice(
+        use.tenant?.planPeriodicity ?? null,
+      );
+      if (price <= 0) continue;
 
       // FIX 2026-06-15 (bug comisiones diarias): el guard viejo comparaba
       // currentPeriodEnd (una fecha FUTURA) contra last.createdAt (reciente).
@@ -358,7 +362,6 @@ export class ReferralsService {
       // y no depende del UNIQUE constraint.
       const periodStart = new Date(cpeDate);
       periodStart.setMonth(periodStart.getMonth() - months);
-      const price = priceMonthly * months;
 
       // Helper: crea una comisión para `recipientCodeId` en este ciclo si no
       // existe ya (dedup por ciclo de facturación + UNIQUE constraint).
@@ -2044,6 +2047,7 @@ export class ReferralsService {
       select: {
         currentPeriodEnd: true,
         suspendedAt: true,
+        planPeriodicity: true,
         plan: { select: { priceMonthly: true } },
       },
     });
@@ -2055,7 +2059,9 @@ export class ReferralsService {
       if (!tenant.currentPeriodEnd) return;
       if (new Date(tenant.currentPeriodEnd) <= new Date()) return;
     }
-    const price = Number(tenant.plan?.priceMonthly ?? 0);
+    // Base = precio CANÓNICO del bundle (68/150/278/500) según periodicidad,
+    // NO priceMonthly. Fuente única: getBundlePrice (Settings).
+    const price = await this.recalc.getBundlePrice(tenant.planPeriodicity);
     if (!price || price <= 0) return;
 
     const code = await this.prisma.referralCode.findUnique({

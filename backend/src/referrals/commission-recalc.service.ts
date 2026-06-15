@@ -31,6 +31,25 @@ export class CommissionRecalcService {
   ) {}
 
   /**
+   * FUENTE ÚNICA del precio base del bundle (lo que el cliente paga en
+   * Hotmart por el período): Mensual 68 / Trimestral 150 / Semestral 278 /
+   * Anual 500 (editables en /admin/branding via Settings). TODA comisión se
+   * calcula sobre este monto — NO sobre `priceMonthly × meses` (que daba bases
+   * incorrectas: Semestral $300 en vez de $278, Anual $600 en vez de $500).
+   * Devuelve 0 si la periodicidad es desconocida.
+   */
+  async getBundlePrice(periodicity: string | null): Promise<number> {
+    const landingPlans = await this.settings.getLandingPlans();
+    const map: Record<string, number> = {
+      MENSUAL: landingPlans.mensual.price,
+      TRIMESTRAL: landingPlans.trimestral.price,
+      SEMESTRAL: landingPlans.semestral.price,
+      ANUAL: landingPlans.anual.price,
+    };
+    return map[(periodicity ?? 'MENSUAL').toUpperCase()] ?? 0;
+  }
+
+  /**
    * Helper inline (antes vivía en CommissionExceptionsService — lo
    * extrajimos para romper ciclo Admin ↔ Referrals 2026-06-07).
    * Si hay excepción activa para (tenant, recipientCode), usa ese %;
