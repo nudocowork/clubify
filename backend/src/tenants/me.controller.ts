@@ -80,6 +80,11 @@ class UpdateMyBody {
   // País del negocio (ISO 3166-1 alpha-2, 2 letras). Default "CO".
   @IsOptional() @IsString() @Length(2, 2) @Matches(/^[A-Z]{2}$/)
   country?: string;
+  // IANA timezone (ej "America/Bogota", "America/Mexico_City"). Sirve para
+  // recordatorios + auto-seat de reservas. Default "America/Bogota" en el
+  // schema. Validación regex laxa: "Region/City" o "Region/City_Sub".
+  @IsOptional() @IsString() @Length(3, 64) @Matches(/^[A-Za-z]+\/[A-Za-z_]+(\/[A-Za-z_]+)?$/)
+  timezone?: string;
   // M4: máximo de sellos/visitas que un mismo pass puede recibir en 24h.
   // null = 1 (default histórico). Rango razonable 1-10 para evitar abuso.
   @IsOptional() @IsInt() @Min(1) @Max(20) maxStampsPerDay?: number;

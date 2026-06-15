@@ -26,6 +26,7 @@ type TenantMe = {
   currency?: string;
   currencySymbol?: string | null;
   country?: string;
+  timezone?: string;
   maxStampsPerDay?: number | null;
   billingAlertsEnabled?: boolean;
   billingAlertsPhone?: string | null;
@@ -61,6 +62,33 @@ const LATAM_CURRENCIES: { code: string; label: string; flag: string }[] = [
   { code: 'CRC', label: 'Colón costarricense', flag: '🇨🇷' },
   { code: 'PAB', label: 'Balboa panameño', flag: '🇵🇦' },
   { code: 'EUR', label: 'Euro', flag: '🇪🇺' },
+];
+
+/** Timezones IANA más comunes en LATAM + ES/US/BR para el dropdown.
+ *  Si el tenant tiene una TZ fuera de esta lista, el form muestra un
+ *  input libre para editarla. */
+const COMMON_TIMEZONES: { value: string; label: string }[] = [
+  { value: 'America/Bogota', label: '🇨🇴 Bogotá / Quito / Lima (UTC-5)' },
+  { value: 'America/Mexico_City', label: '🇲🇽 Ciudad de México (UTC-6)' },
+  { value: 'America/Argentina/Buenos_Aires', label: '🇦🇷 Buenos Aires (UTC-3)' },
+  { value: 'America/Santiago', label: '🇨🇱 Santiago (UTC-4/-3 DST)' },
+  { value: 'America/Lima', label: '🇵🇪 Lima (UTC-5)' },
+  { value: 'America/Caracas', label: '🇻🇪 Caracas (UTC-4)' },
+  { value: 'America/Sao_Paulo', label: '🇧🇷 São Paulo (UTC-3)' },
+  { value: 'America/Montevideo', label: '🇺🇾 Montevideo (UTC-3)' },
+  { value: 'America/Asuncion', label: '🇵🇾 Asunción (UTC-4/-3 DST)' },
+  { value: 'America/La_Paz', label: '🇧🇴 La Paz (UTC-4)' },
+  { value: 'America/Costa_Rica', label: '🇨🇷 Costa Rica (UTC-6)' },
+  { value: 'America/Panama', label: '🇵🇦 Panamá (UTC-5)' },
+  { value: 'America/Guatemala', label: '🇬🇹 Guatemala (UTC-6)' },
+  { value: 'America/Tegucigalpa', label: '🇭🇳 Tegucigalpa (UTC-6)' },
+  { value: 'America/El_Salvador', label: '🇸🇻 El Salvador (UTC-6)' },
+  { value: 'America/Managua', label: '🇳🇮 Managua (UTC-6)' },
+  { value: 'America/Santo_Domingo', label: '🇩🇴 Santo Domingo (UTC-4)' },
+  { value: 'Europe/Madrid', label: '🇪🇸 Madrid (UTC+1/+2 DST)' },
+  { value: 'America/New_York', label: '🇺🇸 New York (UTC-5/-4 DST)' },
+  { value: 'America/Chicago', label: '🇺🇸 Chicago (UTC-6/-5 DST)' },
+  { value: 'America/Los_Angeles', label: '🇺🇸 Los Ángeles (UTC-8/-7 DST)' },
 ];
 
 function detectMainMode(override: string | null): {
@@ -103,6 +131,7 @@ export default function SettingsPage() {
   const [currency, setCurrency] = useState<string>('COP');
   const [currencySymbol, setCurrencySymbol] = useState<string>('');
   const [country, setCountry] = useState<string>('CO');
+  const [timezone, setTimezone] = useState<string>('America/Bogota');
   const [savingCurrency, setSavingCurrency] = useState(false);
   const [currencyMsg, setCurrencyMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -129,6 +158,7 @@ export default function SettingsPage() {
         setCurrency(t.currency ?? 'COP');
         setCurrencySymbol(t.currencySymbol ?? '');
         setCountry(t.country ?? 'CO');
+        setTimezone(t.timezone ?? 'America/Bogota');
         setMaxStampsPerDay(Math.max(1, t.maxStampsPerDay ?? 1));
       })
       .catch(() => null);
@@ -223,6 +253,7 @@ export default function SettingsPage() {
           currency,
           currencySymbol: currencySymbol.trim() || null,
           country,
+          timezone: timezone.trim() || 'America/Bogota',
         }),
       });
       setTenant(updated);
@@ -529,7 +560,8 @@ export default function SettingsPage() {
         </h2>
         <p className="text-xs text-mute mt-1 leading-relaxed">
           El país define los dropdowns de estado/provincia/municipio en el
-          checkout. La moneda define los precios del menú público.
+          checkout. La moneda define los precios del menú público. La zona
+          horaria se usa para recordatorios de reservas.
         </p>
 
         <div className="mt-4">
@@ -560,6 +592,41 @@ export default function SettingsPage() {
             <option value="US">🇺🇸 Estados Unidos</option>
             <option value="BR">🇧🇷 Brasil</option>
           </select>
+        </div>
+
+        <div className="mt-4">
+          <label className="label">Zona horaria</label>
+          <select
+            className="input"
+            value={COMMON_TIMEZONES.some((t) => t.value === timezone) ? timezone : '__other__'}
+            onChange={(e) => {
+              if (e.target.value === '__other__') {
+                // mantenemos el valor actual; el input libre debajo permite editarlo
+                return;
+              }
+              setTimezone(e.target.value);
+            }}
+          >
+            {COMMON_TIMEZONES.map((tz) => (
+              <option key={tz.value} value={tz.value}>
+                {tz.label}
+              </option>
+            ))}
+            <option value="__other__">Otra (escribir IANA)…</option>
+          </select>
+          {!COMMON_TIMEZONES.some((t) => t.value === timezone) && (
+            <input
+              type="text"
+              className="input mt-2"
+              value={timezone}
+              onChange={(e) => setTimezone(e.target.value.slice(0, 64))}
+              placeholder="ej: America/Mexico_City"
+            />
+          )}
+          <p className="text-[11px] text-mute mt-1.5">
+            Los recordatorios de reserva se mandan al negocio en su hora local.
+            Si no estás seguro, deja la opción por defecto.
+          </p>
         </div>
 
         <div className="mt-4">
@@ -631,7 +698,8 @@ export default function SettingsPage() {
               savingCurrency ||
               (currency === (tenant?.currency ?? 'COP') &&
                 currencySymbol === (tenant?.currencySymbol ?? '') &&
-                country === (tenant?.country ?? 'CO'))
+                country === (tenant?.country ?? 'CO') &&
+                timezone === (tenant?.timezone ?? 'America/Bogota'))
             }
           >
             {savingCurrency ? 'Guardando…' : 'Guardar moneda'}

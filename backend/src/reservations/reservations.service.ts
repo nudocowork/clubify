@@ -1492,13 +1492,24 @@ export class ReservationsService {
         status: { in: ['PENDING', 'CONFIRMED'] },
         createdAt: { gte: sixHoursAgo },
       },
-      select: { id: true, date: true, time: true, tenantId: true, createdAt: true },
+      select: {
+        id: true,
+        date: true,
+        time: true,
+        tenantId: true,
+        createdAt: true,
+        tenant: { select: { timezone: true } },
+      },
       take: 200,
     });
 
     let processed = 0;
     for (const r of candidates) {
-      const moment = ReservationsService.reservationMomentUtc(r.date, r.time);
+      const moment = ReservationsService.reservationMomentUtc(
+        r.date,
+        r.time,
+        r.tenant?.timezone || 'America/Bogota',
+      );
       const ageMs = now.getTime() - moment.getTime();
       if (ageMs < cutoffMs) continue;
 
@@ -1533,7 +1544,8 @@ export class ReservationsService {
    *  (la ventana 14-22 UTC ya había pasado y al día siguiente el "tomorrow"
    *  era otro). Ahora el query agarra cualquier reserva en [today,
    *  day-after-tomorrow] y filtra por timestamp real combinando date+time
-   *  con un offset asumido de UTC-5 para LATAM.
+   *  con la timezone IANA del tenant (`tenant.timezone`), con fallback
+   *  a `America/Bogota` para tenants legacy sin TZ explícita.
    *
    *  Gate horario: solo dispara entre 14:00-22:00 UTC para evitar mandar
    *  recordatorios de madrugada en LATAM (≈ 08:00-16:00 hora local en
@@ -1567,7 +1579,13 @@ export class ReservationsService {
       },
       include: {
         tenant: {
-          select: { id: true, brandName: true, whatsappPhone: true, phone: true },
+          select: {
+            id: true,
+            brandName: true,
+            whatsappPhone: true,
+            phone: true,
+            timezone: true,
+          },
         },
         zone: { select: { name: true } },
         table: { select: { number: true } },
@@ -1581,7 +1599,11 @@ export class ReservationsService {
     let failed = 0;
     let skipped = 0;
     for (const r of candidates) {
-      const moment = ReservationsService.reservationMomentUtc(r.date, r.time);
+      const moment = ReservationsService.reservationMomentUtc(
+        r.date,
+        r.time,
+        r.tenant?.timezone || 'America/Bogota',
+      );
       const hoursUntil = (moment.getTime() - now.getTime()) / (1000 * 60 * 60);
       // Ventana: entre 6h y 28h antes del momento real de la reserva.
       if (hoursUntil < 6 || hoursUntil > 28) {
@@ -1639,15 +1661,47 @@ export class ReservationsService {
     }
   }
 
-  /** Combina date (UTC noon) + time (HH:MM en TZ local del tenant)
-   *  asumiendo offset UTC-5 (Bogotá/Lima/CDMX win promedio LATAM).
-   *  Cuando tenant.timezone exista, sustituir por la zona real. */
-  private static reservationMomentUtc(date: Date, time: string): Date {
+  /** Combina date (UTC noon) + time (HH:MM en TZ local del tenant) y
+   *  devuelve el instante UTC que corresponde a esa fecha+hora EN la
+   *  timezone IANA del tenant. Maneja DST: cada call computa el offset
+   *  para ese instante específico, no asume offset fijo.
+   *
+   *  Algoritmo: tomamos "h:m" como si fuera UTC, vemos cómo se renderiza
+   *  esa instante en la TZ, y la diferencia es el offset que aplicamos.
+   */
+  private static reservationMomentUtc(
+    date: Date,
+    time: string,
+    timezone = 'America/Bogota',
+  ): Date {
     const [h, m] = time.split(':').map(Number);
     const y = date.getUTCFullYear();
     const mo = date.getUTCMonth();
     const d = date.getUTCDate();
-    // Asume UTC-5: el momento local h:m es h+5 UTC del mismo día.
-    return new Date(Date.UTC(y, mo, d, h + 5, m, 0));
+    const asUtc = Date.UTC(y, mo, d, h, m, 0);
+    const fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+    const parts = fmt.formatToParts(new Date(asUtc));
+    const get = (t: string) =>
+      Number(parts.find((p) => p.type === t)?.value ?? 0);
+    const tzY = get('year');
+    const tzMo = get('month') - 1;
+    const tzD = get('day');
+    let tzH = get('hour');
+    const tzM = get('minute');
+    const tzS = get('second');
+    // Intl puede devolver "24" en hour12=false a medianoche.
+    if (tzH === 24) tzH = 0;
+    const projected = Date.UTC(tzY, tzMo, tzD, tzH, tzM, tzS);
+    const offset = projected - asUtc;
+    return new Date(asUtc - offset);
   }
 }
