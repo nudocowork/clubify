@@ -276,11 +276,19 @@ export class GoogleWalletService {
       (process.env.APP_URL && !process.env.APP_URL.includes('localhost')
         ? process.env.APP_URL
         : 'https://soyclubify.com');
-    return (
+    const base =
       pass.tenant.walletLogoUrl ||
       pass.tenant.logoUrl ||
-      `${publicBase}/icons/icon-512.png`
-    );
+      `${publicBase}/icons/icon-512.png`;
+    // CACHE-BUST 2026-06-15: Google Wallet cachea las imágenes por URL. Sin
+    // esto, cambiar el logo del negocio NO se reflejaba en el pase aunque
+    // patcheáramos la clase. tenant.updatedAt cambia al editar el branding →
+    // nueva URL → Google re-descarga el logo. (R2 ignora el query param.)
+    const v = pass.tenant?.updatedAt
+      ? new Date(pass.tenant.updatedAt).getTime()
+      : null;
+    if (!v) return base;
+    return base.includes('?') ? `${base}&v=${v}` : `${base}?v=${v}`;
   }
 
   async generateSaveUrl(passId: string): Promise<string> {
@@ -429,6 +437,26 @@ export class GoogleWalletService {
         scopes: ['https://www.googleapis.com/auth/wallet_object.issuer'],
       });
       const wallet = google.walletobjects({ version: 'v1', auth });
+
+      // PATCH de la CLASE: el logo (programLogo), el color de fondo y el
+      // nombre del programa viven en el LoyaltyClass, no en el Object. Si no
+      // patcheamos la clase, cambiar el logo/branding NO se reflejaba en el
+      // pase instalado (fix 2026-06-15). El logoUri lleva cache-bust por
+      // tenant.updatedAt para que Google re-descargue la imagen.
+      try {
+        const logoUri = this.resolveLogoUri(pass);
+        const classBody = this.buildClass(pass, ids.classId, logoUri);
+        await wallet.loyaltyclass.patch({
+          resourceId: ids.classId,
+          requestBody: classBody as any,
+        });
+        this.logger.log(`Google Wallet class patched: ${ids.classId}`);
+      } catch (e: any) {
+        // No bloquea el update del objeto si el patch de clase falla.
+        this.logger.warn(
+          `Google Wallet class patch failed: ${e?.message ?? e}`,
+        );
+      }
 
       // PATCH del objeto completo para que cambios visuales (textModules,
       // imageModules con strip de sellos actual) se propaguen al pase
