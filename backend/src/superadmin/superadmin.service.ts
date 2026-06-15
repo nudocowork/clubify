@@ -63,93 +63,96 @@ export class SuperAdminService {
       throw new BadRequestException('La marca está suspendida. Reactívala antes de entrar.');
     }
 
-    // 0) Mejor opción: SUPER_ADMIN dedicado de la marca (User.whiteLabelId
-    //    apuntando directo a la marca, sin tenant). Es el patrón
-    //    canónico introducido en 2026-06-13.
-    let admin = await this.prisma.user.findFirst({
-      where: {
-        role: 'SUPER_ADMIN',
-        isActive: true,
-        whiteLabelId,
-      },
+    // ENTRAR a un white-label = sesión SUPER_ADMIN del panel /admin de esa
+    // marca (que gestiona sus tenants), NO la cuenta de un negocio suelto.
+    // Por eso la sesión emitida SIEMPRE tiene role=SUPER_ADMIN, independiente
+    // de qué usuario usemos como identidad. (Fix 2026-06-15: antes, si la
+    // marca no tenía un SUPER_ADMIN dedicado —caso Clubify, cuyo adminEmail
+    // fue promovido a PLATFORM_OWNER— caía a un TENANT_OWNER al azar y el
+    // guard de /admin lo rebotaba a /app, metiéndolo encima en un negocio
+    // random.)
+
+    // 0) Identidad preferida: SUPER_ADMIN dedicado de la marca
+    //    (User.whiteLabelId directo, patrón canónico 2026-06-13).
+    let identity = await this.prisma.user.findFirst({
+      where: { role: 'SUPER_ADMIN', isActive: true, whiteLabelId },
       orderBy: { createdAt: 'asc' },
+      select: { id: true, email: true, fullName: true, tenantId: true },
     });
 
-    // 1) Fallback histórico: SUPER_ADMIN ligado a un tenant de la marca.
-    if (!admin) {
-      admin = await this.prisma.user.findFirst({
-        where: {
-          role: 'SUPER_ADMIN',
-          isActive: true,
-          tenant: { whiteLabelId },
-        },
+    // 1) SUPER_ADMIN ligado a un tenant de la marca (histórico).
+    if (!identity) {
+      identity = await this.prisma.user.findFirst({
+        where: { role: 'SUPER_ADMIN', isActive: true, tenant: { whiteLabelId } },
         orderBy: { createdAt: 'asc' },
+        select: { id: true, email: true, fullName: true, tenantId: true },
       });
     }
 
-    // 2) Fallback: User cuyo email matchee adminEmail de la marca con
-    //    rol SUPER_ADMIN o TENANT_OWNER (no PLATFORM_OWNER porque éste
-    //    es el propio operador del Master Admin).
-    if (!admin && wl.adminEmail) {
-      admin = await this.prisma.user.findFirst({
-        where: {
-          email: { equals: wl.adminEmail, mode: 'insensitive' },
-          isActive: true,
-          role: { in: ['SUPER_ADMIN', 'TENANT_OWNER'] },
-        },
+    // 2) Sin SUPER_ADMIN dedicado: usamos como identidad al dueño de la marca
+    //    (adminEmail, cualquier rol —incl. PLATFORM_OWNER—) o, si no existe,
+    //    al propio operador del Master Admin. La sesión igual se emite con
+    //    privilegios de SUPER_ADMIN de la marca.
+    let synthesizedSuperAdmin = false;
+    if (!identity && wl.adminEmail) {
+      identity = await this.prisma.user.findFirst({
+        where: { email: { equals: wl.adminEmail, mode: 'insensitive' }, isActive: true },
         orderBy: { createdAt: 'asc' },
+        select: { id: true, email: true, fullName: true, tenantId: true },
       });
+      if (identity) synthesizedSuperAdmin = true;
+    }
+    if (!identity) {
+      identity = await this.prisma.user.findUnique({
+        where: { id: platformOwnerId },
+        select: { id: true, email: true, fullName: true, tenantId: true },
+      });
+      if (identity) synthesizedSuperAdmin = true;
     }
 
-    // 3) Fallback final: cualquier TENANT_OWNER de cualquier tenant
-    //    de la marca. Útil cuando el adminEmail original fue promovido
-    //    a PLATFORM_OWNER (como en el caso de Clubify después de la
-    //    migración inicial) y no quedó ningún SUPER_ADMIN de respaldo.
-    if (!admin) {
-      admin = await this.prisma.user.findFirst({
-        where: {
-          role: 'TENANT_OWNER',
-          isActive: true,
-          tenant: { whiteLabelId },
-        },
-        orderBy: { createdAt: 'asc' },
-      });
-    }
-
-    if (!admin) {
+    if (!identity) {
       throw new BadRequestException(
-        `Esta marca no tiene ningún SUPER_ADMIN ni TENANT_OWNER activo para entrar. Crea uno antes.`,
+        `No se pudo resolver una identidad para entrar a la marca ${wl.name}.`,
       );
     }
 
+    // tenantId: para una sesión sintetizada de marca = null (admin global de
+    // la marca, no atado a un negocio). Para un SUPER_ADMIN real, respetamos
+    // el suyo.
+    const sessionTenantId = synthesizedSuperAdmin ? null : identity.tenantId;
+
     const payload = {
-      sub: admin.id,
-      email: admin.email,
-      role: admin.role,
-      tenantId: admin.tenantId,
+      sub: identity.id,
+      email: identity.email,
+      role: 'SUPER_ADMIN' as const,
+      tenantId: sessionTenantId,
+      // Claim de contexto de marca (futuro scoping por white-label). Hoy
+      // SUPER_ADMIN es global; el claim queda disponible sin romper nada.
+      whiteLabelId: wl.id,
       impersonatedBy: platformOwnerId,
     };
     const accessToken = this.jwt.sign(payload);
 
     this.audit.log({
       actorId: platformOwnerId,
-      tenantId: admin.tenantId ?? undefined,
+      tenantId: sessionTenantId ?? undefined,
       action: 'superadmin.impersonate_white_label',
       resource: `whiteLabel:${wl.id}`,
       metadata: {
         whiteLabelName: wl.name,
-        userImpersonated: admin.id,
+        userImpersonated: identity.id,
+        synthesizedSuperAdmin,
       },
     });
 
     return {
       accessToken,
       user: {
-        id: admin.id,
-        email: admin.email,
-        fullName: admin.fullName,
-        role: admin.role,
-        tenantId: admin.tenantId,
+        id: identity.id,
+        email: identity.email,
+        fullName: identity.fullName,
+        role: 'SUPER_ADMIN' as const,
+        tenantId: sessionTenantId,
       },
       whiteLabel: {
         id: wl.id,
