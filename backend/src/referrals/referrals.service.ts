@@ -308,34 +308,46 @@ export class ReferralsService {
             plan: { select: { priceMonthly: true } },
           },
         },
-        commissions: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
     });
 
     let created = 0;
     for (const use of candidates) {
-      const last = use.commissions[0];
-      const cpe = use.tenant?.currentPeriodEnd?.getTime() ?? 0;
-      if (cpe === 0) continue;
-      // Solo generamos si currentPeriodEnd está MÁS NUEVO que la última
-      // commission — es decir, Hotmart confirmó una renovación nueva. Eso
-      // funciona para Mensual (mes a mes), Trimestral (cada 3 meses),
-      // Semestral y Anual sin necesidad de saber la periodicidad.
-      if (last && cpe <= new Date(last.createdAt).getTime()) continue;
-      // Fallback cuando el webhook directo no llegó. La base correcta
-      // (monto Hotmart real) la conoce `generateReferralCommission`. Acá
-      // aproximamos al precio del BUNDLE según periodicidad — sino para
-      // un tenant Trimestral cobramos sobre priceMonthly=68 cuando el
-      // cliente pagó 150 (el afiliado quedaba sub-cobrado). El precio
-      // exacto del bundle (con descuento) sigue siendo aproximación que
-      // el SUPER_ADMIN puede corregir vía excepción por cliente.
+      const cpeDate = use.tenant?.currentPeriodEnd;
+      if (!cpeDate) continue;
+      if (!use.tenantId) continue;
       const priceMonthly = Number(use.tenant?.plan?.priceMonthly ?? 0);
       if (priceMonthly <= 0) continue;
       const months = bundleMonths(use.tenant?.planPeriodicity ?? null);
+
+      // FIX 2026-06-15 (bug comisiones diarias): el guard viejo comparaba
+      // currentPeriodEnd (una fecha FUTURA) contra last.createdAt (reciente).
+      // La condición casi nunca se cumplía mientras la suscripción seguía
+      // activa → este cron diario creaba UNA comisión POR DÍA. El UNIQUE
+      // constraint no lo frena en prod (no aplicado / periodKey insuficiente
+      // para bundles multi-mes).
+      //
+      // Dedup correcto: por CICLO DE FACTURACIÓN. Si ya existe cualquier
+      // comisión para este (use, recipient) creada dentro del ciclo actual
+      // [currentPeriodEnd − bundleMonths, currentPeriodEnd] — incluida la del
+      // webhook — NO generamos otra. Cubre Mensual/Trimestral/Semestral/Anual
+      // y no depende del UNIQUE constraint.
+      const periodStart = new Date(cpeDate);
+      periodStart.setMonth(periodStart.getMonth() - months);
+      const existing = await this.prisma.commission.findFirst({
+        where: {
+          referralUseId: use.id,
+          recipientCodeId: use.referralCode.id,
+          createdAt: { gte: periodStart },
+        },
+        select: { id: true },
+      });
+      if (existing) continue;
+
+      // Fallback cuando el webhook directo no llegó. Aproximamos al precio
+      // del BUNDLE según periodicidad (el monto exacto lo corrige el
+      // SUPER_ADMIN vía excepción por cliente).
       const price = priceMonthly * months;
-      // Item 6 sprint: respetar excepción por (tenant, recipientCode) si
-      // existe y está activa.
-      if (!use.tenantId) continue;
       const pct = await this.resolveExceptionPercent(
         use.tenantId,
         use.referralCode.id,
