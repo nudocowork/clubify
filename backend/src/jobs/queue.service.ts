@@ -34,6 +34,13 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
   private queues = new Map<JobName, Queue>();
   private workers = new Map<JobName, Worker>();
   private connection: ConnectionOptions | null = null;
+  // Handlers registrados, también en modo stub. Sin Redis, los jobs SIN delay
+  // (wallet.push, email.send) se ejecutan inline acá en vez de descartarse —
+  // sino el wallet nunca se refrescaba al cambiar logo/branding (2026-06-15).
+  private stubHandlers = new Map<
+    JobName,
+    (data: JobPayload) => Promise<void>
+  >();
 
   onModuleInit() {
     const url = process.env.REDIS_URL;
@@ -70,7 +77,21 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
   /** Encola un job. En modo stub sólo loguea. */
   async enqueue(name: JobName, payload: JobPayload, opts: JobsOptions = {}) {
     if (!this.connection) {
-      this.logger.log(`[stub] enqueue ${name} ${JSON.stringify(payload)}`);
+      // Sin Redis: en vez de descartar, ejecutamos inline los jobs SIN delay
+      // (immediate) si hay un handler registrado. Fire-and-forget para no
+      // bloquear al caller. Los jobs con delay (secuencias programadas) NO se
+      // ejecutan inline — quedan como antes (no hay scheduler en stub).
+      const handler = this.stubHandlers.get(name);
+      if (handler && !opts.delay) {
+        this.logger.log(`[stub] ejecutando inline ${name}`);
+        handler(payload).catch((e) =>
+          this.logger.warn(
+            `[stub] ${name} inline falló: ${(e as Error).message}`,
+          ),
+        );
+      } else {
+        this.logger.log(`[stub] enqueue ${name} ${JSON.stringify(payload)}`);
+      }
       return null;
     }
     let q = this.queues.get(name);
@@ -118,7 +139,10 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     handler: (data: JobPayload) => Promise<void>,
   ) {
     if (!this.connection) {
-      this.logger.log(`[stub] worker no iniciado para ${name}`);
+      // Guardamos el handler para poder ejecutarlo inline desde enqueue()
+      // (jobs immediate sin delay). Sin esto el wallet.push se perdía.
+      this.stubHandlers.set(name, handler);
+      this.logger.log(`[stub] handler registrado inline para ${name}`);
       return;
     }
     if (this.workers.has(name)) return;

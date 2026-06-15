@@ -366,7 +366,19 @@ export class TenantsService {
 
   async update(id: string, dto: UpdateTenantDto) {
     await this.getById(id);
-    return this.prisma.tenant.update({ where: { id }, data: dto });
+    const updated = await this.prisma.tenant.update({
+      where: { id },
+      data: dto,
+    });
+    // Mismo refresh de wallet que updateMine: si el admin cambió logo/colores/
+    // nombre desde /admin/tenants/[id], re-pusheamos los passes.
+    const walletVisualChanged = TenantsService.WALLET_VISUAL_FIELDS.some(
+      (k) => k in dto,
+    );
+    if (walletVisualChanged) {
+      this.enqueueWalletPushForTenant(id).catch(() => {});
+    }
+    return updated;
   }
 
   /**
