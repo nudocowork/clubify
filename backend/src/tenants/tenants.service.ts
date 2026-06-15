@@ -71,6 +71,9 @@ export type UpdateTenantDto = Partial<{
   status: TenantStatus;
   planId: string;
   planPeriodicity: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL' | null;
+  // Precio real pagado en Hotmart — base de comisiones. null = limpiar
+  // (vuelve al precio canónico del bundle).
+  subscriptionPriceUsd: number | null;
   maxLocationsOverride: number | null;
   reviewAlertsAccountId: string | null;
   billingAlertsAccountId: string | null;

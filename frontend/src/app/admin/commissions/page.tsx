@@ -232,12 +232,20 @@ export default function AdminCommissionsPage() {
         <h1 className="page-title">
           Comisiones <span className="page-crumb">/ Panel contable</span>
         </h1>
-        <Link
-          href="/admin/commissions/payments"
-          className="text-sm px-3.5 py-2 rounded-pill bg-brand text-white font-semibold hover:opacity-90 transition"
-        >
-          Vista por persona pendientes
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/admin/commissions/report"
+            className="text-sm px-3.5 py-2 rounded-pill border border-slate-300 bg-white text-slate-700 font-semibold hover:bg-slate-50 transition"
+          >
+            📊 Reporte por empresa
+          </Link>
+          <Link
+            href="/admin/commissions/payments"
+            className="text-sm px-3.5 py-2 rounded-pill bg-brand text-white font-semibold hover:opacity-90 transition"
+          >
+            Vista por persona pendientes
+          </Link>
+        </div>
       </div>
 
       {/* Buckets del ciclo de vida — clickeables para filtrar */}

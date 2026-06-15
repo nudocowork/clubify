@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { IsBoolean, IsDateString, IsEmail, IsHexColor, IsIn, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsDateString, IsEmail, IsHexColor, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 import { TenantsService } from './tenants.service';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
@@ -63,6 +63,9 @@ class UpdateTenantBody {
   @IsOptional() @IsUUID() planId?: string;
   @IsOptional() @IsIn(['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL'])
   planPeriodicity?: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL';
+  // Precio real pagado en Hotmart (base de comisiones). null limpia el
+  // override y vuelve al precio canónico del bundle.
+  @IsOptional() @IsNumber() @Min(0) subscriptionPriceUsd?: number | null;
   @IsOptional() @IsInt() @Min(1) maxLocationsOverride?: number;
   @IsOptional() @IsInt() @Min(0) gracePeriodDays?: number;
   // Asignar subcuenta global de Grow Business para alertas SMS de

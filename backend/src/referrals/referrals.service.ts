@@ -323,6 +323,7 @@ export class ReferralsService {
           select: {
             currentPeriodEnd: true,
             planPeriodicity: true,
+            subscriptionPriceUsd: true,
             plan: { select: { priceMonthly: true } },
           },
         },
@@ -340,9 +341,15 @@ export class ReferralsService {
       const cpeDate = use.tenant?.currentPeriodEnd;
       if (!cpeDate) continue;
       if (!use.tenantId) continue;
-      const priceMonthly = Number(use.tenant?.plan?.priceMonthly ?? 0);
-      if (priceMonthly <= 0) continue;
       const months = bundleMonths(use.tenant?.planPeriodicity ?? null);
+      // Base = precio REAL pagado en Hotmart (subscriptionPriceUsd) si lo
+      // tenemos, sino el canónico del bundle (68/150/278/500). NUNCA
+      // priceMonthly × meses. Fuente única: getCommissionBase.
+      const price = await this.recalc.getCommissionBase(
+        use.tenant?.subscriptionPriceUsd ?? null,
+        use.tenant?.planPeriodicity ?? null,
+      );
+      if (price <= 0) continue;
 
       // FIX 2026-06-15 (bug comisiones diarias): el guard viejo comparaba
       // currentPeriodEnd (una fecha FUTURA) contra last.createdAt (reciente).
@@ -358,7 +365,6 @@ export class ReferralsService {
       // y no depende del UNIQUE constraint.
       const periodStart = new Date(cpeDate);
       periodStart.setMonth(periodStart.getMonth() - months);
-      const price = priceMonthly * months;
 
       // Helper: crea una comisión para `recipientCodeId` en este ciclo si no
       // existe ya (dedup por ciclo de facturación + UNIQUE constraint).
@@ -2044,6 +2050,8 @@ export class ReferralsService {
       select: {
         currentPeriodEnd: true,
         suspendedAt: true,
+        planPeriodicity: true,
+        subscriptionPriceUsd: true,
         plan: { select: { priceMonthly: true } },
       },
     });
@@ -2055,7 +2063,12 @@ export class ReferralsService {
       if (!tenant.currentPeriodEnd) return;
       if (new Date(tenant.currentPeriodEnd) <= new Date()) return;
     }
-    const price = Number(tenant.plan?.priceMonthly ?? 0);
+    // Base = precio REAL pagado en Hotmart si lo tenemos, sino canónico del
+    // bundle (68/150/278/500). NO priceMonthly. Fuente única: getCommissionBase.
+    const price = await this.recalc.getCommissionBase(
+      tenant.subscriptionPriceUsd ?? null,
+      tenant.planPeriodicity,
+    );
     if (!price || price <= 0) return;
 
     const code = await this.prisma.referralCode.findUnique({
@@ -3776,6 +3789,217 @@ export class ReferralsService {
       holdDays: COMMISSION_HOLD_DAYS,
       truncated,
       shown: items.length,
+    };
+  }
+
+  /**
+   * REPORTE CONTABLE POR EMPRESA (2026-06-15) — "el contador dentro del
+   * sistema". Para cada negocio con atribución de afiliado devuelve, sobre
+   * la base = precio canónico del bundle (lo que el cliente paga por ciclo):
+   *
+   *   pago del cliente
+   *   − comisión directa (embajador/influencer/vendor, con excepción por cliente)
+   *   − comisión indirecta (5% del influencer parent, solo si el directo es embajador)
+   *   − 10% del socio de plataforma (sobre TODA venta, venga de donde venga)
+   *   = neto a la empresa (aprox)
+   *
+   * Es un cálculo POR CICLO (económica esperada de una renovación). Además
+   * trae las comisiones REGISTRADAS reales (lifetime, no anuladas) por empresa
+   * para que el admin reconcilie esperado vs registrado y detecte descuadres.
+   *
+   * % indirecto y % socio salen de Settings (referrals.indirectPercent=5,
+   * referrals.socioPercent=10) para no hardcodear la regla de negocio.
+   */
+  async companyAccountingReport(user: AuthUser) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+
+    const [indirectRow, socioRow] = await Promise.all([
+      this.prisma.setting.findUnique({
+        where: { key: 'referrals.indirectPercent' },
+      }),
+      this.prisma.setting.findUnique({
+        where: { key: 'referrals.socioPercent' },
+      }),
+    ]);
+    const indirectPct = indirectRow?.value ? Number(indirectRow.value) : 5;
+    const socioPct = socioRow?.value ? Number(socioRow.value) : 10;
+
+    // Atribuciones DIRECTAS: un ReferralUse por tenant cuyo code es un
+    // afiliado directo (embajador/influencer/vendor). Tras el fix 1:1 cada
+    // tenant tiene una; si por legacy hubiera varias, nos quedamos con la
+    // más reciente.
+    const uses = await this.prisma.referralUse.findMany({
+      where: {
+        tenantId: { not: null },
+        referralCode: { role: { in: ['AMBASSADOR', 'INFLUENCER', 'VENDOR'] } },
+      },
+      include: {
+        referralCode: {
+          select: {
+            id: true,
+            code: true,
+            ownerName: true,
+            role: true,
+            commissionPercent: true,
+            parentCodeId: true,
+            parentCode: {
+              select: { id: true, code: true, ownerName: true, role: true },
+            },
+          },
+        },
+        tenant: {
+          select: {
+            id: true,
+            brandName: true,
+            status: true,
+            planPeriodicity: true,
+            subscriptionPriceUsd: true,
+            currentPeriodEnd: true,
+            plan: { select: { name: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Dedup: una atribución (la más reciente) por tenant.
+    const byTenant = new Map<string, (typeof uses)[number]>();
+    for (const u of uses) {
+      if (!u.tenantId || !u.tenant) continue;
+      if (!byTenant.has(u.tenantId)) byTenant.set(u.tenantId, u);
+    }
+    const tenantIds = [...byTenant.keys()];
+
+    // Comisiones REGISTRADAS reales por tenant (lifetime, sin anuladas) para
+    // reconciliar esperado vs registrado. Una sola query, reduce en JS.
+    const recordedRows = await this.prisma.commission.findMany({
+      where: {
+        status: { not: CommissionStatus.REJECTED },
+        referralUse: { tenantId: { in: tenantIds } },
+      },
+      select: {
+        amount: true,
+        referralUse: { select: { tenantId: true } },
+      },
+    });
+    const recordedByTenant = new Map<string, { sum: number; count: number }>();
+    for (const r of recordedRows) {
+      const tid = r.referralUse?.tenantId;
+      if (!tid) continue;
+      const cur = recordedByTenant.get(tid) ?? { sum: 0, count: 0 };
+      cur.sum += Number(r.amount);
+      cur.count += 1;
+      recordedByTenant.set(tid, cur);
+    }
+
+    const round = (n: number) => Math.round(n * 100) / 100;
+    const rows = [];
+    for (const tid of tenantIds) {
+      const u = byTenant.get(tid)!;
+      const t = u.tenant!;
+      const code = u.referralCode;
+      // Base real (subscriptionPriceUsd) si la tenemos, sino canónica.
+      const base = await this.recalc.getCommissionBase(
+        t.subscriptionPriceUsd ?? null,
+        t.planPeriodicity ?? null,
+      );
+      const baseIsReal =
+        Number.isFinite(Number(t.subscriptionPriceUsd)) &&
+        Number(t.subscriptionPriceUsd) > 0;
+
+      const directPct = await this.resolveExceptionPercent(
+        tid,
+        code.id,
+        Number(code.commissionPercent ?? 0),
+      );
+      const comisionDirecta = round((base * directPct) / 100);
+
+      const hasIndirect = code.role === 'AMBASSADOR' && !!code.parentCode;
+      const comisionIndirecta = hasIndirect
+        ? round((base * indirectPct) / 100)
+        : 0;
+
+      const socio = round((base * socioPct) / 100);
+      const totalComisiones = round(comisionDirecta + comisionIndirecta);
+      const neto = round(base - totalComisiones - socio);
+
+      const recorded = recordedByTenant.get(tid) ?? { sum: 0, count: 0 };
+
+      rows.push({
+        tenantId: tid,
+        brandName: t.brandName,
+        status: t.status,
+        planName: t.plan?.name ?? null,
+        planPeriodicity: t.planPeriodicity ?? null,
+        currentPeriodEnd: t.currentPeriodEnd,
+        base,
+        // true = base = precio REAL pagado en Hotmart; false = canónico
+        // del bundle (estimado, marca "aprox" en la UI).
+        baseIsReal,
+        afiliado: {
+          id: code.id,
+          code: code.code,
+          ownerName: code.ownerName,
+          role: code.role,
+          percent: directPct,
+        },
+        influencer: hasIndirect
+          ? {
+              id: code.parentCode!.id,
+              code: code.parentCode!.code,
+              ownerName: code.parentCode!.ownerName,
+              percent: indirectPct,
+            }
+          : null,
+        comisionDirecta,
+        comisionIndirecta,
+        socioPercent: socioPct,
+        socio,
+        totalComisiones,
+        neto,
+        // Reconciliación: lo realmente registrado (no anulado) lifetime.
+        registradas: round(recorded.sum),
+        registradasCount: recorded.count,
+      });
+    }
+
+    // Orden: por base desc (las que más facturan arriba).
+    rows.sort((a, b) => b.base - a.base);
+
+    const totals = rows.reduce(
+      (acc, r) => {
+        acc.base += r.base;
+        acc.comisionDirecta += r.comisionDirecta;
+        acc.comisionIndirecta += r.comisionIndirecta;
+        acc.socio += r.socio;
+        acc.neto += r.neto;
+        acc.registradas += r.registradas;
+        return acc;
+      },
+      {
+        base: 0,
+        comisionDirecta: 0,
+        comisionIndirecta: 0,
+        socio: 0,
+        neto: 0,
+        registradas: 0,
+      },
+    );
+
+    return {
+      rows,
+      totals: {
+        companies: rows.length,
+        base: round(totals.base),
+        comisionDirecta: round(totals.comisionDirecta),
+        comisionIndirecta: round(totals.comisionIndirecta),
+        comisiones: round(totals.comisionDirecta + totals.comisionIndirecta),
+        socio: round(totals.socio),
+        neto: round(totals.neto),
+        registradas: round(totals.registradas),
+      },
+      indirectPercent: indirectPct,
+      socioPercent: socioPct,
     };
   }
 

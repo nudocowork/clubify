@@ -577,6 +577,14 @@ export class AdminCommissionsController {
     });
   }
 
+  // Reporte contable por empresa: pago · comisiones devengadas · 10% socio ·
+  // neto a la empresa (aprox) + reconciliación vs comisiones registradas.
+  @Roles('SUPER_ADMIN')
+  @Get('company-report')
+  companyReport(@CurrentUser() user: AuthUser) {
+    return this.svc.companyAccountingReport(user);
+  }
+
   @Roles('SUPER_ADMIN')
   @Patch(':id/pay')
   pay(

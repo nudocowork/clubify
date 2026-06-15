@@ -624,10 +624,19 @@ export class HotmartService {
     // lastChargeAt — timestamp del pago aprobado real (no calculado).
     const approvedDate = payload.data?.purchase?.approved_date;
     const lastChargeAt = approvedDate ? new Date(approvedDate) : new Date();
+    // 2026-06-15: precio REAL pagado en Hotmart → fuente de verdad para la
+    // base de comisiones. Solo lo persistimos si vino un valor > 0 (no
+    // pisamos con 0/undefined en eventos que no traen price).
+    const paidValue = payload.data?.purchase?.price?.value;
+    const realPriceUsd =
+      typeof paidValue === 'number' && paidValue > 0 ? paidValue : null;
     await this.prisma.tenant.update({
       where: { id: tenant.id },
       data: {
         status: 'ACTIVE',
+        ...(realPriceUsd != null
+          ? { subscriptionPriceUsd: realPriceUsd }
+          : {}),
         // Solo update si Hotmart mandó la fecha O si es primer pago
         // (fallback) — en renovaciones sin date_next_charge preservamos.
         ...(nextCharge ? { currentPeriodEnd: nextCharge } : {}),
