@@ -355,6 +355,8 @@ export default function PublicInfoLink() {
                 <img
                   src={s.url}
                   alt={s.caption ?? ''}
+                  loading="lazy"
+                  decoding="async"
                   className="w-full rounded-card"
                 />
                 {s.caption && (
@@ -372,6 +374,8 @@ export default function PublicInfoLink() {
                     key={j}
                     src={url}
                     alt=""
+                    loading="lazy"
+                    decoding="async"
                     className="w-full h-24 object-cover rounded"
                   />
                 ))}

@@ -1,10 +1,20 @@
 import {
   Controller,
   Get,
+  Header,
   NotFoundException,
   Param,
   Query,
 } from '@nestjs/common';
+
+// Cache para endpoints públicos read-only (menú/storefront). El contenido es
+// el mismo para todos los visitantes (varía solo por slug + locale en la URL),
+// así que se puede cachear en el browser y en el CDN. stale-while-revalidate
+// sirve la versión cacheada al instante mientras revalida en background →
+// cargas casi instantáneas en visitas repetidas. Los cambios del menú tardan
+// hasta ~3 min en propagarse (aceptable para un menú público).
+const PUBLIC_CACHE =
+  'public, max-age=30, s-maxage=180, stale-while-revalidate=600';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { Public } from '../common/decorators/public.decorator';
@@ -55,6 +65,7 @@ export class PublicMenuController {
   ) {}
 
   @Public()
+  @Header('Cache-Control', PUBLIC_CACHE)
   @Get(':slug')
   async storefront(
     @Param('slug') slug: string,
@@ -240,6 +251,7 @@ export class PublicMenuController {
    * a un placeholder amable.
    */
   @Public()
+  @Header('Cache-Control', PUBLIC_CACHE)
   @Get(':slug/menu-book')
   async menuBook(@Param('slug') slug: string) {
     const t = await this.prisma.tenant.findUnique({
@@ -351,6 +363,7 @@ export class PublicMenuController {
   }
 
   @Public()
+  @Header('Cache-Control', PUBLIC_CACHE)
   @Get(':slug/menu')
   async menu(
     @Param('slug') slug: string,
