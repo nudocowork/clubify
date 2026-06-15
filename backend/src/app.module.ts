@@ -17,6 +17,7 @@ import { StampsModule } from './stamps/stamps.module';
 import { LocationsModule } from './locations/locations.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ReferralsModule } from './referrals/referrals.module';
+import { AccountingModule } from './accounting/accounting.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
 import { BadgesModule } from './badges/badges.module';
 import { AffiliateModule } from './affiliate/affiliate.module';
@@ -85,6 +86,7 @@ import { SuperAdminModule } from './superadmin/superadmin.module';
     LocationsModule,
     NotificationsModule,
     ReferralsModule,
+    AccountingModule,
     CampaignsModule,
     BadgesModule,
     AffiliateModule,
