@@ -66,11 +66,49 @@ export function getUser() {
   }
 }
 
+type ImpersonationBackup = {
+  token: string;
+  refreshToken?: string | null;
+  user: any;
+  tenant?: { id: string; brandName: string };
+  affiliate?: { codeId: string; code: string; ownerName: string; role: string };
+  startedAt: string;
+};
+
+// PILA de impersonación (2026-06-15): permite drill-down anidado del Master
+// Admin → admin de marca blanca → negocio, volviendo nivel por nivel. Antes
+// era un único backup que se pisaba al anidar (perdías la vuelta a Fidelia).
+// Compat: si encuentra el formato viejo (objeto único) lo envuelve como pila
+// de 1. Se persiste en la MISMA key `clubify_admin_backup`.
+function readImpersonationStack(): ImpersonationBackup[] {
+  if (typeof window === 'undefined') return [];
+  const raw = localStorage.getItem('clubify_admin_backup');
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed;
+    // Formato viejo (objeto único) → pila de 1.
+    if (parsed && parsed.token) return [parsed];
+    return [];
+  } catch {
+    localStorage.removeItem('clubify_admin_backup');
+    return [];
+  }
+}
+
+function writeImpersonationStack(stack: ImpersonationBackup[]) {
+  if (stack.length === 0) {
+    localStorage.removeItem('clubify_admin_backup');
+  } else {
+    localStorage.setItem('clubify_admin_backup', JSON.stringify(stack));
+  }
+}
+
 /**
- * Inicia una sesión "como tenant" o "como afiliado" desde la cuenta admin
- * actual. Guarda la sesión admin en backup, switchea al token nuevo, redirige
- * al panel correspondiente. Para tenant pasá `tenant`, para afiliado pasá
- * `affiliate` (uno u otro, no ambos).
+ * Inicia una sesión "como tenant" o "como afiliado" desde la cuenta actual.
+ * APILA la sesión actual (no la pisa) para soportar anidamiento: Fidelia →
+ * admin de marca → negocio. Switchea al token nuevo. Para tenant pasá
+ * `tenant`, para afiliado pasá `affiliate` (uno u otro, no ambos).
  */
 export function startImpersonation(opts: {
   accessToken: string;
@@ -82,17 +120,16 @@ export function startImpersonation(opts: {
   const currentUser = getUser();
   const currentRefresh = getRefreshToken();
   if (currentToken && currentUser) {
-    localStorage.setItem(
-      'clubify_admin_backup',
-      JSON.stringify({
-        token: currentToken,
-        refreshToken: currentRefresh,
-        user: currentUser,
-        tenant: opts.tenant,
-        affiliate: opts.affiliate,
-        startedAt: new Date().toISOString(),
-      }),
-    );
+    const stack = readImpersonationStack();
+    stack.push({
+      token: currentToken,
+      refreshToken: currentRefresh,
+      user: currentUser,
+      tenant: opts.tenant,
+      affiliate: opts.affiliate,
+      startedAt: new Date().toISOString(),
+    });
+    writeImpersonationStack(stack);
   }
   // Borrar refresh actual: el access que recibimos de impersonate NO viene
   // con un refresh propio del owner impersonado, así que dejar el del super
@@ -101,35 +138,25 @@ export function startImpersonation(opts: {
   setSession(opts.accessToken, opts.user);
 }
 
-export function getImpersonationBackup():
-  | {
-      token: string;
-      refreshToken?: string | null;
-      user: any;
-      tenant?: { id: string; brandName: string };
-      affiliate?: { codeId: string; code: string; ownerName: string; role: string };
-      startedAt: string;
-    }
-  | null {
-  if (typeof window === 'undefined') return null;
-  const raw = localStorage.getItem('clubify_admin_backup');
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    localStorage.removeItem('clubify_admin_backup');
-    return null;
-  }
+/** Devuelve el TOPE de la pila (el nivel al que se vuelve), o null. */
+export function getImpersonationBackup(): ImpersonationBackup | null {
+  const stack = readImpersonationStack();
+  return stack.length ? stack[stack.length - 1] : null;
 }
 
-/** Restaura la sesión admin guardada en startImpersonation. */
+/**
+ * Restaura UN nivel: saca el tope de la pila y vuelve a esa sesión. Devuelve
+ * true si quedó restaurada. Permite volver Fidelia ← marca ← negocio paso a
+ * paso (cada click sube un nivel).
+ */
 export function stopImpersonation() {
-  const backup = getImpersonationBackup();
+  const stack = readImpersonationStack();
+  const backup = stack.pop();
   if (!backup) return false;
+  writeImpersonationStack(stack);
   setSession(backup.token, backup.user, {
     refreshToken: backup.refreshToken ?? undefined,
   });
-  localStorage.removeItem('clubify_admin_backup');
   return true;
 }
 
