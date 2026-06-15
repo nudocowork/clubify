@@ -13,6 +13,12 @@ import { monthKey } from '../common/period-key';
 
 const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
 
+// Días de "hold" antes de que una comisión PENDING (pendiente por aprobar)
+// pase a APPROVED (disponible para pagar). Protege contra reembolsos del
+// cliente dentro de la ventana. Single source of truth: lo usa el cron de
+// promoción y el cálculo de "disponible el" en el listado admin.
+const COMMISSION_HOLD_DAYS = 30;
+
 export type CreateReferralDto = {
   fullName: string;
   email: string;
@@ -266,8 +272,9 @@ export class ReferralsService {
    */
   @Cron(CronExpression.EVERY_DAY_AT_3AM)
   async promotePendingToApproved() {
-    const HOLD_DAYS = 30;
-    const cutoff = new Date(Date.now() - HOLD_DAYS * 24 * 60 * 60 * 1000);
+    const cutoff = new Date(
+      Date.now() - COMMISSION_HOLD_DAYS * 24 * 60 * 60 * 1000,
+    );
     const res = await this.prisma.commission.updateMany({
       where: {
         status: 'PENDING',
@@ -3550,6 +3557,10 @@ export class ReferralsService {
       dateFrom?: string;
       dateTo?: string;
       status?: 'PENDING' | 'PARTIAL' | 'PAID';
+      // Bucket del CICLO DE VIDA de la comisión (≠ estado de pago):
+      //  pending_approval = en hold (PENDING) · available = disponible para
+      //  pagar a los 30d (APPROVED) · paid = PAID · rejected = anulada.
+      bucket?: 'pending_approval' | 'available' | 'paid' | 'rejected';
       role?: 'INFLUENCER' | 'AMBASSADOR' | 'VENDOR' | 'SOCIO';
       tenantId?: string;
       codeId?: string;
@@ -3557,25 +3568,37 @@ export class ReferralsService {
   ) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
 
-    const where: any = {};
-    // Las comisiones ANULADAS (REJECTED) no son comisiones reales: no deben
-    // contar en los KPIs (Total comisiones / por pagar) ni listarse en la
-    // vista activa. Para auditarlas está /admin/commissions/audit. Sin esto,
-    // los duplicados anulados seguían inflando el total (ej $1.597 en vez de
-    // los $315 legítimos), porque al anular se cambia `status` pero el
-    // `paymentStatus` puede seguir en PENDING.
-    where.status = { not: 'REJECTED' };
-    if (opts.status) where.paymentStatus = opts.status;
+    // Filtros base (fecha / rol / negocio / código), SIN estado — se
+    // reutilizan para el desglose por bucket (los KPIs muestran los 4
+    // buckets sin importar cuál esté seleccionado en el filtro).
+    const baseWhere: any = {};
     if (opts.dateFrom || opts.dateTo) {
-      where.createdAt = {};
-      if (opts.dateFrom) where.createdAt.gte = new Date(opts.dateFrom);
-      if (opts.dateTo) where.createdAt.lte = new Date(opts.dateTo);
+      baseWhere.createdAt = {};
+      if (opts.dateFrom) baseWhere.createdAt.gte = new Date(opts.dateFrom);
+      if (opts.dateTo) baseWhere.createdAt.lte = new Date(opts.dateTo);
     }
-    if (opts.codeId) where.recipientCodeId = opts.codeId;
-    if (opts.tenantId) where.referralUse = { tenantId: opts.tenantId };
-    if (opts.role) {
-      where.recipientCode = { role: opts.role };
+    if (opts.codeId) baseWhere.recipientCodeId = opts.codeId;
+    if (opts.tenantId) baseWhere.referralUse = { tenantId: opts.tenantId };
+    if (opts.role) baseWhere.recipientCode = { role: opts.role };
+
+    const BUCKET_STATUS: Record<string, CommissionStatus> = {
+      pending_approval: CommissionStatus.PENDING,
+      available: CommissionStatus.APPROVED,
+      paid: CommissionStatus.PAID,
+      rejected: CommissionStatus.REJECTED,
+    };
+
+    const where: any = { ...baseWhere };
+    if (opts.bucket && BUCKET_STATUS[opts.bucket]) {
+      // Filtro explícito por bucket (incluye ver las REJECTED si se pide).
+      where.status = BUCKET_STATUS[opts.bucket];
+    } else {
+      // Vista activa por defecto: excluye las anuladas. Para auditarlas está
+      // /admin/commissions/audit (o el bucket 'rejected'). Sin esto, los
+      // duplicados anulados inflaban el total (ej $1.597 vs $315 legítimos).
+      where.status = { not: CommissionStatus.REJECTED };
     }
+    if (opts.status) where.paymentStatus = opts.status;
 
     const rows = await this.prisma.commission.findMany({
       where,
@@ -3626,6 +3649,12 @@ export class ReferralsService {
         paymentStatus: c.paymentStatus,
         status: c.status,
         createdAt: c.createdAt,
+        // Fecha en que una comisión PENDING pasa a APPROVED (disponible para
+        // pagar). El front la muestra como "disponible el …" en las que están
+        // pendientes por aprobar.
+        availableAt: new Date(
+          c.createdAt.getTime() + COMMISSION_HOLD_DAYS * 86400000,
+        ),
         paidAt: c.paidAt,
         notes: c.notes,
         hotmartTransactionId: c.hotmartTransactionId,
@@ -3675,6 +3704,34 @@ export class ReferralsService {
     const realCount = totalAgg._count._all;
     const truncated = items.length < realCount;
 
+    // Desglose por bucket del ciclo de vida (siempre sobre los filtros base,
+    // sin el filtro de bucket, para que los 4 KPIs se vean completos).
+    const bucketAgg = await this.prisma.commission.groupBy({
+      by: ['status'],
+      where: baseWhere,
+      _count: { _all: true },
+      _sum: { amount: true },
+    });
+    const emptyBucket = () => ({ count: 0, amount: 0 });
+    const byBucket = {
+      pendingApproval: emptyBucket(), // PENDING — en hold
+      available: emptyBucket(), // APPROVED — disponible para pagar
+      paid: emptyBucket(), // PAID
+      rejected: emptyBucket(), // REJECTED — anuladas
+    };
+    const STATUS_TO_BUCKET: Record<string, keyof typeof byBucket> = {
+      PENDING: 'pendingApproval',
+      APPROVED: 'available',
+      PAID: 'paid',
+      REJECTED: 'rejected',
+    };
+    for (const g of bucketAgg) {
+      const k = STATUS_TO_BUCKET[g.status];
+      if (!k) continue; // RETAINED u otros: no se muestran como bucket
+      byBucket[k].count += g._count._all;
+      byBucket[k].amount = round(byBucket[k].amount + Number(g._sum.amount ?? 0));
+    }
+
     return {
       items,
       totals: {
@@ -3683,6 +3740,8 @@ export class ReferralsService {
         totalPaid: round(totalPaid),
         totalOutstanding: round(totalOutstanding),
       },
+      byBucket,
+      holdDays: COMMISSION_HOLD_DAYS,
       truncated,
       shown: items.length,
     };
