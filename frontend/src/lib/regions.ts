@@ -160,6 +160,15 @@ const VENEZUELA_REGIONS: Region[] = [
   { name: 'Trujillo', cities: ['Trujillo'] },
 ];
 
+const BELIZE_REGIONS: Region[] = [
+  { name: 'Belize', cities: ['Belize City', 'San Pedro', 'Caye Caulker', 'Ladyville'] },
+  { name: 'Cayo', cities: ['Belmopan', 'San Ignacio', 'Santa Elena', 'Benque Viejo'] },
+  { name: 'Corozal', cities: ['Corozal Town'] },
+  { name: 'Orange Walk', cities: ['Orange Walk Town'] },
+  { name: 'Stann Creek', cities: ['Dangriga', 'Placencia', 'Hopkins'] },
+  { name: 'Toledo', cities: ['Punta Gorda'] },
+];
+
 export const COUNTRIES: Record<string, CountryRegions> = {
   CO: {
     code: 'CO',
@@ -216,6 +225,14 @@ export const COUNTRIES: Record<string, CountryRegions> = {
     regionLabel: 'Estado',
     cityLabel: 'Ciudad',
     regions: VENEZUELA_REGIONS,
+  },
+  BZ: {
+    code: 'BZ',
+    flag: '🇧🇿',
+    name: 'Belice',
+    regionLabel: 'Distrito',
+    cityLabel: 'Ciudad',
+    regions: BELIZE_REGIONS,
   },
 };
 

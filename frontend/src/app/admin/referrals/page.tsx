@@ -2620,6 +2620,48 @@ function VendorConfigModal({
   );
   const [busy, setBusy] = useState(false);
 
+  // Lista de vendedores del embajador — para poder promover uno a influencer
+  // de la empresa (2026-06-15). Reusa el endpoint by-embajador.
+  const [vendors, setVendors] = useState<any[]>([]);
+  const [promoting, setPromoting] = useState<string | null>(null);
+
+  async function loadVendors() {
+    try {
+      const r = await api<{ vendors: any[] }>(
+        `/referrals/vendors/by-embajador/${embajador.id}`,
+      );
+      setVendors(r.vendors ?? []);
+    } catch {
+      setVendors([]);
+    }
+  }
+  useEffect(() => {
+    loadVendors();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [embajador.id]);
+
+  async function promoteVendor(v: any) {
+    if (
+      !confirm(
+        `¿Promover al vendedor "${v.ownerName}" a INFLUENCER de la empresa?\n\nDeja de depender del embajador y obtiene panel /affiliate completo (puede crear sus propios embajadores). Mantiene su historial y comisiones.`,
+      )
+    )
+      return;
+    setPromoting(v.id);
+    try {
+      await api(`/referrals/ambassadors/${v.id}/promote-to-influencer`, {
+        method: 'POST',
+      });
+      toast(`${v.ownerName} ahora es influencer de la empresa`, 'success');
+      await loadVendors();
+      onSaved();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo promover', 'error');
+    } finally {
+      setPromoting(null);
+    }
+  }
+
   const activeCount = Number(embajador.activeVendorsCount ?? 0);
 
   async function save(e: React.FormEvent) {
@@ -2713,6 +2755,44 @@ function VendorConfigModal({
               poder administrarlos desde su panel — pero los vendedores y
               sus comisiones históricas se preservan. Puedes re-activar el
               módulo cuando quieras sin perder nada.
+            </div>
+          )}
+
+          {vendors.length > 0 && (
+            <div className="border-t border-line2 pt-3">
+              <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
+                Vendedores · promover a influencer de la empresa
+              </div>
+              <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                {vendors.map((v) => (
+                  <div
+                    key={v.id}
+                    className="flex items-center justify-between gap-2 rounded-md border border-line px-2.5 py-1.5"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium truncate">
+                        {v.ownerName}{' '}
+                        <span className="text-[11px] text-mute">
+                          ({v.commissionPercent}% · {v.salesCount} ventas)
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-mute font-mono">
+                        {v.code}
+                        {!v.isActive && ' · inactivo'}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => promoteVendor(v)}
+                      disabled={promoting === v.id}
+                      className="shrink-0 text-[11px] px-2.5 py-1 rounded-md bg-amber-100 text-amber-800 font-semibold hover:bg-amber-200 transition disabled:opacity-50"
+                      title="Convertir este vendedor en influencer de la empresa (panel completo)"
+                    >
+                      {promoting === v.id ? '…' : '↑ Influencer'}
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

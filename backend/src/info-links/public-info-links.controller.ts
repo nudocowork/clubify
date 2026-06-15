@@ -1,12 +1,18 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Header, Param, Post, Query } from '@nestjs/common';
 import { InfoLinksService } from './info-links.service';
 import { Public } from '../common/decorators/public.decorator';
+
+// Mismo contenido para todos los visitantes (varía por slug + locale en la
+// URL) → cacheable en browser y CDN con revalidación en background.
+const PUBLIC_CACHE =
+  'public, max-age=30, s-maxage=180, stale-while-revalidate=600';
 
 @Controller('public/i')
 export class PublicInfoLinksController {
   constructor(private svc: InfoLinksService) {}
 
   @Public()
+  @Header('Cache-Control', PUBLIC_CACHE)
   @Get(':tenantSlug/:linkSlug')
   get(
     @Param('tenantSlug') tenantSlug: string,

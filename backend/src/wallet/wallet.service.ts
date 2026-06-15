@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GoogleWalletService } from './google-wallet.service';
-import { renderStampIconSvg } from './stamp-icons';
+import { resolveStampIconRenderer } from './stamp-icons';
 
 /**
  * Genera pases para Apple Wallet (.pkpass) y Google Wallet (save link).
@@ -611,6 +611,11 @@ export class WalletService {
       stampInactiveColor ?? (usingHero ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.13)');
     const customStroke = stampContourColor ?? null;
 
+    // Resolvemos el renderer del ícono UNA vez (todos los sellos usan el
+    // mismo). Emojis con dibujo curado → SVG gourmet; cualquier otro →
+    // Twemoji color (antes caía a un check). Bug fix 2026-06-15.
+    const iconRenderer = await resolveStampIconRenderer(icon);
+
     const rows = required > 6 ? 2 : 1;
     const perRow = Math.ceil(required / rows);
 
@@ -648,7 +653,7 @@ export class WalletService {
         // El renderer mapea emoji → SVG estilo "gourmet" con gradient.
         // Tamaño ≈55% del diámetro del círculo (radius * 1.1 = 55% de 2r).
         const iconSize = radius * 1.1;
-        circles.push(renderStampIconSvg(icon, cx, cy, iconSize, `${i}`));
+        circles.push(iconRenderer(cx, cy, iconSize, `${i}`));
       } else {
         // Vacío: glassmorphism sutil sin borde. Borde sólo si el tenant
         // configuró stampContourColor.

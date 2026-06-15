@@ -239,3 +239,79 @@ export function renderStampIconSvg(
   const renderer = ICON_MAP[emoji] ?? checkFallback;
   return renderer(cx, cy, size, id);
 }
+
+// ¿Hay un renderer SVG "gourmet" dibujado a mano para este emoji?
+export function hasCuratedStampIcon(emoji: string): boolean {
+  return !!ICON_MAP[emoji];
+}
+
+// Convierte un emoji a los codepoints de Twemoji (hex separados por '-',
+// sin el variation selector U+FE0F que Twemoji omite en sus nombres de
+// archivo). Ej: '🍕' → '1f355', '✂️' → '2702'.
+function twemojiCodepoints(emoji: string): string {
+  const cps: string[] = [];
+  for (const ch of emoji) {
+    const cp = ch.codePointAt(0);
+    if (cp == null) continue;
+    if (cp === 0xfe0f) continue; // variation selector-16: Twemoji lo omite
+    cps.push(cp.toString(16));
+  }
+  return cps.join('-');
+}
+
+// Cache en memoria emoji → PNG (o null si no existe en Twemoji). Evita
+// re-descargar el mismo emoji en cada generación de strip.
+const twemojiCache = new Map<string, Buffer | null>();
+
+/**
+ * Descarga el PNG color del emoji desde el CDN de Twemoji (jsdelivr). Devuelve
+ * el buffer o null si falla / no existe. Cacheado por emoji. Esto permite que
+ * CUALQUIER emoji del picker se vea como ícono de sello en el wallet (antes
+ * solo ~9 tenían dibujo propio y el resto caía a un check — bug 2026-06-15).
+ */
+export async function fetchTwemojiPng(emoji: string): Promise<Buffer | null> {
+  if (twemojiCache.has(emoji)) return twemojiCache.get(emoji) ?? null;
+  const code = twemojiCodepoints(emoji);
+  if (!code) {
+    twemojiCache.set(emoji, null);
+    return null;
+  }
+  const url = `https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/${code}.png`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      twemojiCache.set(emoji, null);
+      return null;
+    }
+    const buf = Buffer.from(await res.arrayBuffer());
+    twemojiCache.set(emoji, buf);
+    return buf;
+  } catch {
+    twemojiCache.set(emoji, null);
+    return null;
+  }
+}
+
+/**
+ * Resuelve el renderer del ícono de sello para un emoji:
+ *  - Si tiene dibujo "gourmet" curado → lo usa (más lindo).
+ *  - Sino, descarga el PNG de Twemoji y lo embebe como <image> (color real).
+ *  - Si Twemoji falla → check ✓ como último recurso.
+ * Se resuelve UNA vez por strip (todos los sellos comparten el mismo ícono).
+ */
+export async function resolveStampIconRenderer(
+  emoji: string,
+): Promise<IconRenderer> {
+  if (ICON_MAP[emoji]) return ICON_MAP[emoji];
+  const png = await fetchTwemojiPng(emoji);
+  if (!png) return checkFallback;
+  const dataUri = `data:image/png;base64,${png.toString('base64')}`;
+  return (cx, cy, size, _id) => {
+    // Twemoji 72×72 tiene poco padding; lo agrandamos un toque para que llene
+    // bien el círculo del sello.
+    const s = size * 1.12;
+    const x = cx - s / 2;
+    const y = cy - s / 2;
+    return `<image href="${dataUri}" x="${x}" y="${y}" width="${s}" height="${s}" />`;
+  };
+}
