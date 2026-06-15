@@ -3558,6 +3558,13 @@ export class ReferralsService {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
 
     const where: any = {};
+    // Las comisiones ANULADAS (REJECTED) no son comisiones reales: no deben
+    // contar en los KPIs (Total comisiones / por pagar) ni listarse en la
+    // vista activa. Para auditarlas está /admin/commissions/audit. Sin esto,
+    // los duplicados anulados seguían inflando el total (ej $1.597 en vez de
+    // los $315 legítimos), porque al anular se cambia `status` pero el
+    // `paymentStatus` puede seguir en PENDING.
+    where.status = { not: 'REJECTED' };
     if (opts.status) where.paymentStatus = opts.status;
     if (opts.dateFrom || opts.dateTo) {
       where.createdAt = {};
