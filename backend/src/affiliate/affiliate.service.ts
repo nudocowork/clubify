@@ -8,8 +8,34 @@ import { customAlphabet } from 'nanoid';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { AuthService } from '../auth/auth.service';
+import { CommissionRecalcService } from '../referrals/commission-recalc.service';
 
 const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
+
+// Bloqueo de comisiones: 15 días desde la compra antes de poder cobrarlas
+// (espejo de COMMISSION_HOLD_DAYS en referrals.service). Spec 2026-06-15.
+const AFFILIATE_HOLD_DAYS = 15;
+
+function affiliateDaysRemaining(createdAt: Date, status: string): number {
+  if (status !== 'PENDING') return 0;
+  const availableAt =
+    new Date(createdAt).getTime() + AFFILIATE_HOLD_DAYS * 86400000;
+  const diff = availableAt - Date.now();
+  return diff <= 0 ? 0 : Math.ceil(diff / 86400000);
+}
+
+// Próxima fecha de pago: día 15 o último día del mes, la primera >= `from`.
+function affiliateNextPayoutDate(from: Date): Date {
+  const base = new Date(from);
+  base.setHours(0, 0, 0, 0);
+  const c: Date[] = [];
+  for (let m = 0; m <= 1; m++) {
+    c.push(new Date(base.getFullYear(), base.getMonth() + m, 15));
+    c.push(new Date(base.getFullYear(), base.getMonth() + m + 1, 0));
+  }
+  c.sort((a, b) => a.getTime() - b.getTime());
+  return c.find((d) => d.getTime() >= base.getTime()) ?? c[c.length - 1];
+}
 
 /**
  * Servicio scoped al usuario autenticado: nunca expone datos de OTRO
@@ -18,7 +44,11 @@ const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
  */
 @Injectable()
 export class AffiliateService {
-  constructor(private prisma: PrismaService, private auth: AuthService) {}
+  constructor(
+    private prisma: PrismaService,
+    private auth: AuthService,
+    private recalc: CommissionRecalcService,
+  ) {}
 
   private assertAffiliate(user: AuthUser) {
     if (
@@ -620,7 +650,14 @@ export class AffiliateService {
       include: {
         referralUse: {
           include: {
-            tenant: { select: { brandName: true } },
+            tenant: {
+              select: {
+                id: true,
+                brandName: true,
+                planPeriodicity: true,
+                subscriptionPriceUsd: true,
+              },
+            },
             referralCode: { select: { code: true, ownerName: true, ownerUserId: true } },
           },
         },
@@ -628,6 +665,23 @@ export class AffiliateService {
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    // Base de comisión por tenant (precio real ?? canónico) para derivar el
+    // % aplicado a cada comisión (amount / base). Una sola resolución por
+    // tenant para no repetir lecturas de Settings.
+    const baseByTenant = new Map<string, number>();
+    for (const c of items) {
+      const t = c.referralUse?.tenant;
+      if (!t || baseByTenant.has(t.id)) continue;
+      baseByTenant.set(
+        t.id,
+        await this.recalc.getCommissionBase(
+          t.subscriptionPriceUsd ?? null,
+          t.planPeriodicity ?? null,
+        ),
+      );
+    }
+
     let pendingUsd = 0;
     let approvedUsd = 0;
     let paidUsd = 0;
@@ -663,15 +717,32 @@ export class AffiliateService {
             via = `vía ${sourceCode.ownerName ?? sourceCode.code ?? ''}`;
           }
         }
+        const amount = Number(c.amount);
+        const tenantId = c.referralUse?.tenant?.id;
+        const base = tenantId ? baseByTenant.get(tenantId) ?? 0 : 0;
+        const percent = base > 0 ? Math.round((amount / base) * 100) : null;
+        const daysRemaining = affiliateDaysRemaining(c.createdAt, c.status);
+        const availableAt = new Date(
+          new Date(c.createdAt).getTime() + AFFILIATE_HOLD_DAYS * 86400000,
+        );
         return {
           id: c.id,
-          amount: Number(c.amount),
+          amount,
           status: c.status,
+          // % aplicado de la comisión sobre el pago del cliente (25, 5, etc).
+          percent,
           createdAt: c.createdAt,
           paidAt: c.paidAt,
           tenantBrand: c.referralUse?.tenant?.brandName ?? '—',
           via,
           codeText: c.referralUse?.referralCode?.code ?? '',
+          // Bloqueo de 15 días: días que faltan para desbloquear (0 = lista).
+          daysRemaining,
+          availableAt,
+          // Próxima fecha posible de cobro (día 15 o último del mes).
+          nextPayoutDate: affiliateNextPayoutDate(
+            new Date(Math.max(Date.now(), availableAt.getTime())),
+          ),
         };
       }),
     };

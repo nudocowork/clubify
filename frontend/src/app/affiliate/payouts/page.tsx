@@ -23,10 +23,14 @@ type Summary = {
   pendingUsd: number;
   minimumPayoutUsd: number;
   reachedMinimum: boolean;
+  freeWithdrawalMinUsd: number;
+  withdrawalFeeUsd: number;
+  netUsd: number;
   profileStatus: ProfileStatus;
   profileRejectionReason: string | null;
   payoutDayOfMonth: number;
   daysUntilPayout: number;
+  nextPayoutDate: string;
   canRequestPayout: boolean;
 };
 
@@ -52,6 +56,8 @@ type PaymentProfile = {
 type PayoutRow = {
   id: string;
   amount: number;
+  feeUsd: number;
+  netUsd: number;
   currency: string;
   status: 'PROCESSING' | 'PAID' | 'REVERSED';
   proofUrl: string | null;
@@ -180,21 +186,34 @@ function SummaryCard({
           <div className="text-3xl font-bold mt-1">
             {fmtUsd(summary.availableUsd)}
           </div>
-          <div className="text-xs text-mute mt-1">
-            Mínimo de retiro: {fmtUsd(summary.minimumPayoutUsd)}
-          </div>
+          {summary.withdrawalFeeUsd > 0 ? (
+            <div className="text-xs text-amber-700 mt-1">
+              Costo de retiro: {fmtUsd(summary.withdrawalFeeUsd)} → recibes{' '}
+              <b>{fmtUsd(summary.netUsd)}</b>
+              <div className="text-mute">
+                Retira {fmtUsd(summary.freeWithdrawalMinUsd)}+ y es gratis.
+              </div>
+            </div>
+          ) : (
+            <div className="text-xs text-ok mt-1">
+              Retiro gratis (≥ {fmtUsd(summary.freeWithdrawalMinUsd)})
+            </div>
+          )}
         </div>
         <div>
           <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
             Próximo pago
           </div>
-          <div className="text-3xl font-bold mt-1 text-brand">
-            {summary.daysUntilPayout === 0
-              ? '¡Hoy!'
+          <div className="text-2xl font-bold mt-1 text-brand">
+            {summary.nextPayoutDate
+              ? new Date(summary.nextPayoutDate).toLocaleDateString('es-CO', {
+                  day: 'numeric',
+                  month: 'short',
+                })
               : `${summary.daysUntilPayout} días`}
           </div>
           <div className="text-xs text-mute mt-1">
-            Pagamos el día {summary.payoutDayOfMonth} de cada mes.
+            Pagamos los días 15 y último de cada mes.
           </div>
         </div>
         <div>
@@ -213,14 +232,15 @@ function SummaryCard({
         </div>
       </div>
 
-      <div className="mt-4 border-t border-line2 pt-4">
-        {!summary.reachedMinimum && (
-          <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-900">
-            Tu saldo disponible aún no alcanza el mínimo de{' '}
-            {fmtUsd(summary.minimumPayoutUsd)}. Sigue trayendo clientes!
-          </div>
-        )}
-        {summary.reachedMinimum && summary.profileStatus === 'NONE' && (
+      <div className="mt-4 border-t border-line2 pt-4 space-y-2">
+        <div className="rounded-md bg-indigo-50 border border-indigo-200 px-3 py-2 text-xs text-indigo-900">
+          ℹ️ Las comisiones se desbloquean <b>15 días</b> después de la compra
+          del cliente. Pagamos los días <b>15 y último de cada mes</b>. Retiros
+          de <b>{fmtUsd(summary.freeWithdrawalMinUsd)}+ son gratis</b>; por
+          debajo se descuenta un costo de retiro de{' '}
+          <b>{fmtUsd(summary.withdrawalFeeUsd > 0 ? summary.withdrawalFeeUsd : 3)}</b>.
+        </div>
+        {summary.availableUsd > 0 && summary.profileStatus === 'NONE' && (
           <button
             onClick={onEditProfile}
             className="btn-primary text-sm w-full sm:w-auto"
@@ -228,25 +248,24 @@ function SummaryCard({
             Déjanos tus datos para el pago →
           </button>
         )}
-        {summary.reachedMinimum &&
-          (summary.profileStatus === 'PENDING_REVIEW' ||
-            summary.profileStatus === 'REJECTED') && (
-            <div className="rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-900">
-              {summary.profileStatus === 'PENDING_REVIEW'
-                ? 'Tus datos están en revisión. Te avisamos apenas se aprueben.'
-                : 'Tus datos fueron rechazados. Corrige y vuelve a enviar.'}
-              <button
-                onClick={onEditProfile}
-                className="ml-2 underline font-semibold"
-              >
-                Editar datos
-              </button>
-            </div>
-          )}
+        {(summary.profileStatus === 'PENDING_REVIEW' ||
+          summary.profileStatus === 'REJECTED') && (
+          <div className="rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-900">
+            {summary.profileStatus === 'PENDING_REVIEW'
+              ? 'Tus datos están en revisión. Te avisamos apenas se aprueben.'
+              : 'Tus datos fueron rechazados. Corrige y vuelve a enviar.'}
+            <button
+              onClick={onEditProfile}
+              className="ml-2 underline font-semibold"
+            >
+              Editar datos
+            </button>
+          </div>
+        )}
         {summary.canRequestPayout && (
           <div className="rounded-md bg-emerald-50 border border-emerald-200 px-3 py-2 text-xs text-emerald-900">
-            ✅ Tu pago está listo para ser procesado el próximo día{' '}
-            {summary.payoutDayOfMonth}. No tienes que hacer nada más.
+            ✅ Tu pago está listo. Se procesa en el próximo ciclo (día 15 o
+            último del mes). No tienes que hacer nada más.
           </div>
         )}
       </div>
@@ -394,11 +413,16 @@ function HistoryCard({ rows }: { rows: PayoutRow[] }) {
           <div key={p.id} className="px-4 py-3 flex items-start gap-3 flex-wrap">
             <div className="flex-1 min-w-[200px]">
               <div className="font-bold">
-                {fmtUsd(p.amount)}{' '}
+                {fmtUsd(p.netUsd)}{' '}
                 <span className="text-mute font-normal text-xs">
                   · {p.itemsCount} comisiones
                 </span>
               </div>
+              {p.feeUsd > 0 && (
+                <div className="text-[11px] text-amber-700">
+                  Bruto {fmtUsd(p.amount)} − costo de retiro {fmtUsd(p.feeUsd)}
+                </div>
+              )}
               <div className="text-xs text-mute">
                 {p.status === 'PAID'
                   ? `Pagado el ${fmtDate(p.paidAt)}`

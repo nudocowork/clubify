@@ -3693,7 +3693,12 @@ model CommissionPayout {
   // El afiliado que recibe el pago.
   recipientUserId String
   recipientUser   User                    @relation("CommissionPayoutRecipient", fields: [recipientUserId], references: [id], onDelete: Cascade)
+  // amount = BRUTO (suma de comisiones). feeUsd = costo de retiro (3 si el
+  // bruto < 50, sino 0). netUsd = lo efectivamente transferido (bruto − fee).
+  // Spec costo de retiro 2026-06-15. Nullable/default para backwards-compat.
   amount          Decimal                 @db.Decimal(10, 2)
+  feeUsd          Decimal                 @default(0) @db.Decimal(10, 2)
+  netUsd          Decimal?                @db.Decimal(10, 2)
   currency        String                  @default("USD")
   status          CommissionPayoutStatus  @default(PROCESSING)
   // Snapshot del método al momento del pago (Binance / Bank) para que

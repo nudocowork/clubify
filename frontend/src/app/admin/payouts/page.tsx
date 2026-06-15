@@ -23,6 +23,8 @@ type ReadyRow = {
   role: string;
   method: Method;
   availableUsd: number;
+  withdrawalFeeUsd: number;
+  netUsd: number;
   codes: Array<{ id: string; code: string; role: string }>;
   profile: any;
   hasOpenPayout: boolean;
@@ -166,8 +168,8 @@ function ReadyTab() {
                       No hay nadie listo por pagar
                     </div>
                     <div className="text-xs mt-1">
-                      Hay que esperar que acumulen mínimo 50 USD y completen
-                      datos.
+                      Aparecen cuando tienen saldo disponible (desbloqueado) y
+                      datos de pago aprobados.
                     </div>
                   </td>
                 </tr>
@@ -190,6 +192,11 @@ function ReadyTab() {
                     </td>
                     <td className="px-4 py-3 text-right font-bold text-amber-700">
                       {fmtUsd(r.availableUsd)}
+                      {r.withdrawalFeeUsd > 0 && (
+                        <div className="text-[10px] font-normal text-mute">
+                          neto {fmtUsd(r.netUsd)} (−{fmtUsd(r.withdrawalFeeUsd)})
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <button
