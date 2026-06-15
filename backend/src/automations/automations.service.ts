@@ -9,6 +9,7 @@ import { AutomationRunStatus, ChannelType } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { ChannelsService } from '../channels/channels.service';
+import { WalletService } from '../wallet/wallet.service';
 
 export type AutomationEvent =
   | 'STAMP_ADDED'
@@ -49,6 +50,7 @@ export class AutomationsService {
   constructor(
     private prisma: PrismaService,
     private channels: ChannelsService,
+    private wallet: WalletService,
   ) {}
 
   // ========== CRUD ==========
@@ -202,6 +204,55 @@ export class AutomationsService {
         // verbatim — el cliente recibía el push con `{{customerName}}` literal.
         const title = await this.renderTemplate(action.title, payload);
         const body = await this.renderTemplate(action.body, payload);
+
+        // CRÍTICO (cumpleaños / inactividad / cerca-recompensa, etc.):
+        // el push de una automatización es INDIVIDUAL — debe llegar SOLO
+        // al pase del cliente que disparó el evento, NUNCA a todas las
+        // wallets del tenant. Si por algún motivo no hay customerId, NO
+        // hacemos broadcast: registramos y salimos para no felicitar a
+        // todos los clientes.
+        if (!customerId) {
+          this.logger.warn(
+            `SEND_PUSH (rule ${ruleId}) sin customerId — se omite para evitar broadcast`,
+          );
+          await this.prisma.notification.create({
+            data: {
+              tenantId,
+              title,
+              body,
+              triggerType: 'AUTOMATION',
+              sentAt: new Date(),
+              stats: { targeted: 0, skipped: 'no-customer' },
+            },
+          });
+          break;
+        }
+
+        // Pases ACTIVOS de ESTE cliente. El push se hace pase por pase:
+        // nunca toca los pases de otros clientes.
+        const passes = await this.prisma.pass.findMany({
+          where: {
+            tenantId,
+            customerId,
+            status: 'ACTIVE',
+          },
+          select: { id: true },
+        });
+        let delivered = 0;
+        for (const p of passes) {
+          try {
+            await this.prisma.pass.update({
+              where: { id: p.id },
+              data: { lastActivityAt: new Date() },
+            });
+            const r = await this.wallet.pushPassUpdate(p.id);
+            delivered += r?.sent ?? 0;
+          } catch (e) {
+            this.logger.warn(
+              `SEND_PUSH pass ${p.id} (rule ${ruleId}) falló: ${(e as Error).message}`,
+            );
+          }
+        }
         await this.prisma.notification.create({
           data: {
             tenantId,
@@ -209,7 +260,7 @@ export class AutomationsService {
             body,
             triggerType: 'AUTOMATION',
             sentAt: new Date(),
-            stats: { targeted: customerId ? 1 : 0 },
+            stats: { targeted: passes.length, delivered, customerId },
           },
         });
         break;

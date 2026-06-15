@@ -2,9 +2,10 @@ import { Module, forwardRef } from '@nestjs/common';
 import { AutomationsService } from './automations.service';
 import { AutomationsController } from './automations.controller';
 import { ChannelsModule } from '../channels/channels.module';
+import { WalletModule } from '../wallet/wallet.module';
 
 @Module({
-  imports: [forwardRef(() => ChannelsModule)],
+  imports: [forwardRef(() => ChannelsModule), WalletModule],
   providers: [AutomationsService],
   controllers: [AutomationsController],
   exports: [AutomationsService],

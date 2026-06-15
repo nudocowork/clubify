@@ -132,6 +132,19 @@ function fmtDate(s: string | null) {
     ...(showYear ? { year: 'numeric' } : {}),
   });
 }
+// El cliente solo elige día y mes al registrar su wallet — el año (2000)
+// es un centinela. NUNCA mostramos el año del cumpleaños, sin importar
+// qué quedó guardado en la fecha.
+function fmtBirthday(s: string | null) {
+  if (!s) return '—';
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('es-CO', {
+    day: '2-digit',
+    month: 'short',
+    timeZone: 'UTC',
+  });
+}
 
 function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
   const [busy, setBusy] = useState(false);
@@ -524,7 +537,7 @@ export default function CustomerDetail() {
             </div>
             <div className="flex justify-between py-1">
               <span className="text-mute">Cumpleaños</span>
-              <span>{fmtDate(c.birthday)}</span>
+              <span>{fmtBirthday(c.birthday)}</span>
             </div>
           </div>
 

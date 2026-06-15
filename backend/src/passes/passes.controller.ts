@@ -87,6 +87,9 @@ export class PassesController {
             primaryColor: true,
             slug: true,
             status: true,
+            // País del negocio → el formulario de registro prefija el
+            // código telefónico del país correcto (no siempre +57).
+            country: true,
           },
         },
       },

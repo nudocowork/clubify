@@ -2019,6 +2019,7 @@ function InfluencersTab() {
   const [enteringId, setEnteringId] = useState<string | null>(null);
   const [demoteTarget, setDemoteTarget] = useState<any | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
+  const [voidComm, setVoidComm] = useState(false);
   const [query, setQuery] = useState('');
 
   function reload() {
@@ -2157,27 +2158,49 @@ function InfluencersTab() {
               no tiene historial, se borra por completo; si tenía clientes
               cancelados o embajadores inactivos, queda desactivado para
               preservar atribución histórica.
+              <label className="mt-4 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[13px] text-amber-900 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={voidComm}
+                  onChange={(e) => setVoidComm(e.target.checked)}
+                />
+                <span>
+                  <strong>Anular comisiones y eliminar</strong> (cuenta creada
+                  o atribuida por error). Marca como rechazadas las comisiones{' '}
+                  <strong>no pagadas</strong> para que no sumen, y desactiva la
+                  cuenta aunque tenga tenants activos. Las comisiones ya pagadas
+                  se conservan para no romper la caja.
+                </span>
+              </label>
             </>
           }
+          confirmLabel={voidComm ? 'Anular y eliminar' : 'Eliminar'}
           onConfirm={async () => {
             try {
               const res = await api<any>(
-                `/referrals/codes/${deleteTarget.id}`,
+                `/referrals/codes/${deleteTarget.id}${voidComm ? '?voidCommissions=true' : ''}`,
                 { method: 'DELETE' },
               );
               toast(
-                res?.mode === 'hard'
-                  ? `Influencer "${deleteTarget.ownerName}" eliminado`
-                  : `Influencer "${deleteTarget.ownerName}" desactivado (tenía historial)`,
+                res?.voided != null
+                  ? `Influencer "${deleteTarget.ownerName}" eliminado · ${res.voided} comisión(es) anulada(s)${res.preservedPaid ? `, ${res.preservedPaid} pagada(s) conservada(s)` : ''}`
+                  : res?.mode === 'hard'
+                    ? `Influencer "${deleteTarget.ownerName}" eliminado`
+                    : `Influencer "${deleteTarget.ownerName}" desactivado (tenía historial)`,
                 'success',
               );
               setDeleteTarget(null);
+              setVoidComm(false);
               reload();
             } catch (e: any) {
               toast(e.message || 'No se pudo eliminar', 'error');
             }
           }}
-          onClose={() => setDeleteTarget(null)}
+          onClose={() => {
+            setDeleteTarget(null);
+            setVoidComm(false);
+          }}
         />
       )}
       {demoteTarget && (
@@ -2228,6 +2251,7 @@ function AmbassadorsTab() {
   const [enteringId, setEnteringId] = useState<string | null>(null);
   const [reassignTarget, setReassignTarget] = useState<any | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
+  const [voidComm, setVoidComm] = useState(false);
   // FASE B1: modal de config "Permitir vendedores" + max %.
   const [vendorConfigTarget, setVendorConfigTarget] = useState<any | null>(null);
   const [query, setQuery] = useState('');
@@ -2473,27 +2497,49 @@ function AmbassadorsTab() {
               <strong>no se podrá eliminar</strong> — recibirás un aviso con
               la cantidad. Si tenía clientes cancelados queda desactivado
               para preservar atribución histórica.
+              <label className="mt-4 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[13px] text-amber-900 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={voidComm}
+                  onChange={(e) => setVoidComm(e.target.checked)}
+                />
+                <span>
+                  <strong>Anular comisiones y eliminar</strong> (cuenta creada
+                  o atribuida por error). Marca como rechazadas las comisiones{' '}
+                  <strong>no pagadas</strong> para que no sumen, y desactiva la
+                  cuenta aunque tenga tenants activos. Las comisiones ya pagadas
+                  se conservan para no romper la caja.
+                </span>
+              </label>
             </>
           }
+          confirmLabel={voidComm ? 'Anular y eliminar' : 'Eliminar'}
           onConfirm={async () => {
             try {
               const res = await api<any>(
-                `/referrals/codes/${deleteTarget.id}`,
+                `/referrals/codes/${deleteTarget.id}${voidComm ? '?voidCommissions=true' : ''}`,
                 { method: 'DELETE' },
               );
               toast(
-                res?.mode === 'hard'
-                  ? `Embajador "${deleteTarget.ownerName}" eliminado`
-                  : `Embajador "${deleteTarget.ownerName}" desactivado (tenía historial)`,
+                res?.voided != null
+                  ? `Embajador "${deleteTarget.ownerName}" eliminado · ${res.voided} comisión(es) anulada(s)${res.preservedPaid ? `, ${res.preservedPaid} pagada(s) conservada(s)` : ''}`
+                  : res?.mode === 'hard'
+                    ? `Embajador "${deleteTarget.ownerName}" eliminado`
+                    : `Embajador "${deleteTarget.ownerName}" desactivado (tenía historial)`,
                 'success',
               );
               setDeleteTarget(null);
+              setVoidComm(false);
               reload();
             } catch (e: any) {
               toast(e.message || 'No se pudo eliminar', 'error');
             }
           }}
-          onClose={() => setDeleteTarget(null)}
+          onClose={() => {
+            setDeleteTarget(null);
+            setVoidComm(false);
+          }}
         />
       )}
       {reassignTarget && (
