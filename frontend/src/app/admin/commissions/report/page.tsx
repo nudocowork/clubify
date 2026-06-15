@@ -20,6 +20,7 @@ type ReportRow = {
   planPeriodicity: string | null;
   currentPeriodEnd: string | null;
   base: number;
+  baseIsReal: boolean;
   afiliado: Afiliado;
   influencer: {
     id: string;
@@ -117,6 +118,7 @@ export default function CompanyReportPage() {
       'Plan',
       'Periodicidad',
       'Pago del cliente',
+      'Base',
       'Afiliado',
       'Rol',
       'Código',
@@ -137,6 +139,7 @@ export default function CompanyReportPage() {
       r.planName ?? '',
       r.planPeriodicity ?? '',
       r.base.toFixed(2),
+      r.baseIsReal ? 'real' : 'aprox',
       r.afiliado.ownerName,
       ROLE_LABEL[r.afiliado.role] ?? r.afiliado.role,
       r.afiliado.code,
@@ -301,6 +304,14 @@ export default function CompanyReportPage() {
                   </td>
                   <td className="px-3 py-2.5 text-right font-semibold text-slate-800">
                     {usd(r.base)}
+                    {!r.baseIsReal && (
+                      <span
+                        className="block text-[10px] font-normal text-amber-500"
+                        title="Precio canónico del plan (no tenemos el monto real pagado). Setealo en /admin/tenants para exactitud."
+                      >
+                        aprox
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2.5">
                     <div className="text-slate-800">

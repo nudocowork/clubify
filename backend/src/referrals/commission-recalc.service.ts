@@ -50,6 +50,25 @@ export class CommissionRecalcService {
   }
 
   /**
+   * BASE DE COMISIÓN definitiva de un tenant (2026-06-15). Prioriza el
+   * precio REAL que el cliente pagó en Hotmart (`Tenant.subscriptionPriceUsd`,
+   * persistido por el webhook) y solo cae al precio canónico del bundle si
+   * no lo tenemos. Esto corrige el legacy del link de $50: esos negocios
+   * pagaron 50 (no 68) y ahora su comisión se calcula sobre 50.
+   *
+   * Acepta el valor crudo (Decimal de Prisma, number o string) para no
+   * acoplar a un tipo concreto en cada callsite.
+   */
+  async getCommissionBase(
+    subscriptionPriceUsd: unknown,
+    periodicity: string | null,
+  ): Promise<number> {
+    const real = Number(subscriptionPriceUsd);
+    if (Number.isFinite(real) && real > 0) return real;
+    return this.getBundlePrice(periodicity);
+  }
+
+  /**
    * Helper inline (antes vivía en CommissionExceptionsService — lo
    * extrajimos para romper ciclo Admin ↔ Referrals 2026-06-07).
    * Si hay excepción activa para (tenant, recipientCode), usa ese %;

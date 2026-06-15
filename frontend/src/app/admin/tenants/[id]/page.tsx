@@ -1764,6 +1764,42 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
   );
   const [saving, setSaving] = useState(false);
 
+  // Precio REAL pagado en Hotmart — base de comisiones. Editable a mano
+  // para corregir legacy (ej: negocios que pagaron con el link viejo de $50).
+  const [subPrice, setSubPrice] = useState<string>(
+    tenant.subscriptionPriceUsd != null
+      ? String(Number(tenant.subscriptionPriceUsd))
+      : '',
+  );
+  const [savingPrice, setSavingPrice] = useState(false);
+
+  async function saveSubPrice() {
+    const trimmed = subPrice.trim();
+    const value = trimmed === '' ? null : Number(trimmed);
+    if (value != null && (!Number.isFinite(value) || value < 0)) {
+      toast('Precio inválido', 'error');
+      return;
+    }
+    setSavingPrice(true);
+    try {
+      await api(`/tenants/${tenant.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ subscriptionPriceUsd: value }),
+      });
+      toast(
+        value == null
+          ? 'Precio limpiado — vuelve al canónico del bundle'
+          : 'Precio real de comisión guardado',
+        'success',
+      );
+      onChange();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo guardar', 'error');
+    } finally {
+      setSavingPrice(false);
+    }
+  }
+
   async function apply() {
     const graceChanged = gracePeriodDays !== (tenant.gracePeriodDays ?? 0);
     const modeChanged = mode !== currentMode;
@@ -1946,6 +1982,48 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
           Cuenta queda activa de cortesía indefinidamente.
         </div>
       )}
+
+      {/* Precio real de comisión — base sobre la que se calculan las
+          comisiones (directa, 5% indirecto, 10% socio). Se autollena desde
+          el webhook Hotmart; editable para corregir legacy ($50 viejo). */}
+      <div className="mt-5 pt-4 border-t border-line">
+        <label className="label">Precio real pagado en Hotmart (base de comisiones)</label>
+        <div className="flex items-end gap-2 mt-1">
+          <div className="relative flex-1 max-w-[180px]">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-mute text-sm">
+              $
+            </span>
+            <input
+              className="input pl-6"
+              type="number"
+              min={0}
+              step="0.01"
+              placeholder="auto"
+              value={subPrice}
+              onChange={(e) => setSubPrice(e.target.value)}
+            />
+          </div>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={saveSubPrice}
+            disabled={
+              savingPrice ||
+              subPrice.trim() ===
+                (tenant.subscriptionPriceUsd != null
+                  ? String(Number(tenant.subscriptionPriceUsd))
+                  : '')
+            }
+          >
+            {savingPrice ? 'Guardando…' : 'Guardar precio'}
+          </button>
+        </div>
+        <div className="text-[11px] text-mute mt-1.5">
+          Vacío = usa el precio canónico del plan (68/150/278/500). Setealo si
+          el negocio pagó un monto distinto (ej. link viejo de $50) para que
+          las comisiones no se sobre-estimen.
+        </div>
+      </div>
 
       <div className="mt-5 flex justify-end">
         <button

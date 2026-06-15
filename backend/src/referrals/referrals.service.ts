@@ -323,6 +323,7 @@ export class ReferralsService {
           select: {
             currentPeriodEnd: true,
             planPeriodicity: true,
+            subscriptionPriceUsd: true,
             plan: { select: { priceMonthly: true } },
           },
         },
@@ -341,9 +342,11 @@ export class ReferralsService {
       if (!cpeDate) continue;
       if (!use.tenantId) continue;
       const months = bundleMonths(use.tenant?.planPeriodicity ?? null);
-      // Base = precio CANÓNICO del bundle según periodicidad (68/150/278/500),
-      // NO priceMonthly × meses. Fuente única: getBundlePrice (Settings).
-      const price = await this.recalc.getBundlePrice(
+      // Base = precio REAL pagado en Hotmart (subscriptionPriceUsd) si lo
+      // tenemos, sino el canónico del bundle (68/150/278/500). NUNCA
+      // priceMonthly × meses. Fuente única: getCommissionBase.
+      const price = await this.recalc.getCommissionBase(
+        use.tenant?.subscriptionPriceUsd ?? null,
         use.tenant?.planPeriodicity ?? null,
       );
       if (price <= 0) continue;
@@ -2048,6 +2051,7 @@ export class ReferralsService {
         currentPeriodEnd: true,
         suspendedAt: true,
         planPeriodicity: true,
+        subscriptionPriceUsd: true,
         plan: { select: { priceMonthly: true } },
       },
     });
@@ -2059,9 +2063,12 @@ export class ReferralsService {
       if (!tenant.currentPeriodEnd) return;
       if (new Date(tenant.currentPeriodEnd) <= new Date()) return;
     }
-    // Base = precio CANÓNICO del bundle (68/150/278/500) según periodicidad,
-    // NO priceMonthly. Fuente única: getBundlePrice (Settings).
-    const price = await this.recalc.getBundlePrice(tenant.planPeriodicity);
+    // Base = precio REAL pagado en Hotmart si lo tenemos, sino canónico del
+    // bundle (68/150/278/500). NO priceMonthly. Fuente única: getCommissionBase.
+    const price = await this.recalc.getCommissionBase(
+      tenant.subscriptionPriceUsd ?? null,
+      tenant.planPeriodicity,
+    );
     if (!price || price <= 0) return;
 
     const code = await this.prisma.referralCode.findUnique({
@@ -3846,6 +3853,7 @@ export class ReferralsService {
             brandName: true,
             status: true,
             planPeriodicity: true,
+            subscriptionPriceUsd: true,
             currentPeriodEnd: true,
             plan: { select: { name: true } },
           },
@@ -3890,7 +3898,14 @@ export class ReferralsService {
       const u = byTenant.get(tid)!;
       const t = u.tenant!;
       const code = u.referralCode;
-      const base = await this.recalc.getBundlePrice(t.planPeriodicity ?? null);
+      // Base real (subscriptionPriceUsd) si la tenemos, sino canónica.
+      const base = await this.recalc.getCommissionBase(
+        t.subscriptionPriceUsd ?? null,
+        t.planPeriodicity ?? null,
+      );
+      const baseIsReal =
+        Number.isFinite(Number(t.subscriptionPriceUsd)) &&
+        Number(t.subscriptionPriceUsd) > 0;
 
       const directPct = await this.resolveExceptionPercent(
         tid,
@@ -3918,6 +3933,9 @@ export class ReferralsService {
         planPeriodicity: t.planPeriodicity ?? null,
         currentPeriodEnd: t.currentPeriodEnd,
         base,
+        // true = base = precio REAL pagado en Hotmart; false = canónico
+        // del bundle (estimado, marca "aprox" en la UI).
+        baseIsReal,
         afiliado: {
           id: code.id,
           code: code.code,
