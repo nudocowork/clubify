@@ -1436,21 +1436,29 @@ export class ReferralsService {
       where: { id: codeId },
       select: { id: true, role: true, ownerUserId: true, ownerName: true },
     });
-    if (!code) throw new NotFoundException('Embajador no encontrado');
+    if (!code) throw new NotFoundException('Afiliado no encontrado');
     if (code.role === 'INFLUENCER') {
       return { ok: true, alreadyInfluencer: true, code };
     }
-    if (code.role !== 'AMBASSADOR') {
+    // Se puede promover un EMBAJADOR o un VENDEDOR a INFLUENCER de la empresa
+    // (influencer titular: panel completo, puede crear sus propios embajadores).
+    // 2026-06-15: antes solo AMBASSADOR — ahora también VENDOR (a pedido).
+    if (code.role !== 'AMBASSADOR' && code.role !== 'VENDOR') {
       throw new BadRequestException(
-        `Solo se pueden promover códigos AMBASSADOR (este es ${code.role})`,
+        `Solo se pueden promover códigos EMBAJADOR o VENDEDOR (este es ${code.role})`,
       );
     }
-    // Transacción: cambiar role del code + desvincular parentCode + actualizar
-    // role del User (si tiene uno asociado).
+    // Transacción: cambiar role del code + desvincular de TODO padre
+    // (parentCode del influencer y parentEmbajador del vendedor) + actualizar
+    // role del User. Queda como INFLUENCER independiente (de la empresa).
     const updated = await this.prisma.$transaction(async (tx) => {
       const newCode = await tx.referralCode.update({
         where: { id: codeId },
-        data: { role: 'INFLUENCER', parentCodeId: null },
+        data: {
+          role: 'INFLUENCER',
+          parentCodeId: null,
+          parentEmbajadorCodeId: null,
+        },
       });
       if (code.ownerUserId) {
         await tx.user.update({
@@ -1461,7 +1469,7 @@ export class ReferralsService {
       return newCode;
     });
     this.logger.log(
-      `Ambassador promoted to INFLUENCER: codeId=${codeId} ownerName="${code.ownerName}" by ${user.email}`,
+      `${code.role} promoted to INFLUENCER: codeId=${codeId} ownerName="${code.ownerName}" by ${user.email}`,
     );
     return { ok: true, alreadyInfluencer: false, code: updated };
   }

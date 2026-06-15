@@ -12,6 +12,7 @@ import { AuthService } from '../auth/auth.service';
 import { AuditService } from '../audit/audit.service';
 import { invalidateTenantStatusCache } from '../common/guards/tenant-status.guard';
 import { ReferralsService } from '../referrals/referrals.service';
+import { QueueService } from '../jobs/queue.service';
 import { nanoid } from 'nanoid';
 import {
   isValidCategorySlug,
@@ -126,7 +127,38 @@ export class TenantsService {
     private audit: AuditService,
     @Inject(forwardRef(() => ReferralsService))
     private referrals: ReferralsService,
+    private queue: QueueService,
   ) {}
+
+  // Campos del tenant que afectan la APARIENCIA del wallet pass (logo,
+  // colores, nombre). Si cambian, hay que re-pushear los passes activos.
+  private static WALLET_VISUAL_FIELDS = [
+    'logoUrl',
+    'walletLogoUrl',
+    'pushLogoUrl',
+    'primaryColor',
+    'secondaryColor',
+    'brandName',
+  ];
+
+  /**
+   * Encola wallet.push para TODOS los passes activos del tenant. Se usa
+   * cuando cambia el logo/branding del negocio — antes (bug 2026-06-15) el
+   * cambio se guardaba pero el wallet del cliente nunca se refrescaba.
+   */
+  private async enqueueWalletPushForTenant(tenantId: string) {
+    const passes = await this.prisma.pass.findMany({
+      where: { tenantId, status: 'ACTIVE' },
+      select: { id: true },
+    });
+    if (passes.length === 0) return;
+    for (const p of passes) {
+      await this.queue.enqueue('wallet.push', {
+        passId: p.id,
+        reason: 'tenant_branding_update',
+      } as any);
+    }
+  }
 
   /**
    * SUPER_ADMIN o MARKETING entran al panel de un tenant como si fueran
@@ -866,10 +898,23 @@ export class TenantsService {
           ? raw.trim().slice(0, 24)
           : null;
     }
-    return this.prisma.tenant.update({
+    const updated = await this.prisma.tenant.update({
       where: { id: tenantId },
       data,
     });
+
+    // Si cambió el logo / colores / nombre, re-pusheamos los passes para que
+    // el wallet del cliente refleje el cambio (Apple APNs + Google PATCH).
+    const walletVisualChanged = TenantsService.WALLET_VISUAL_FIELDS.some(
+      (k) => k in dto,
+    );
+    if (walletVisualChanged) {
+      this.enqueueWalletPushForTenant(tenantId).catch(() => {
+        /* el push es best-effort; no rompe el guardado del branding */
+      });
+    }
+
+    return updated;
   }
 
   /**

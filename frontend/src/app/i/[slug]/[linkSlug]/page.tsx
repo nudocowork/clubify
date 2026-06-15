@@ -197,17 +197,25 @@ export default function PublicInfoLink() {
         return tenant.instagramUrl ?? undefined;
       }
       case 'MAPS': {
-        // Prioridad: location específico del botón > mapsUrl del tenant > primera location
+        // Abre Google Maps buscando por NOMBRE (+ dirección) de la ubicación
+        // en vez de las coordenadas crudas — así el usuario ve el lugar por su
+        // nombre. Fallback a coords solo si no hay nombre. Prioridad:
+        // location del botón > mapsUrl del tenant > primera location.
+        const mapsForLoc = (l: Location) => {
+          const query =
+            [l.name, l.address].filter(Boolean).join(', ').trim() ||
+            `${l.latitude},${l.longitude}`;
+          return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+            query,
+          )}`;
+        };
         if (b.locationId && tenant.locations) {
           const loc = tenant.locations.find((l) => l.id === b.locationId);
-          if (loc) {
-            return `https://maps.google.com/?q=${loc.latitude},${loc.longitude}`;
-          }
+          if (loc) return mapsForLoc(loc);
         }
         if (tenant.mapsUrl) return tenant.mapsUrl;
         if (tenant.locations && tenant.locations.length > 0) {
-          const l = tenant.locations[0];
-          return `https://maps.google.com/?q=${l.latitude},${l.longitude}`;
+          return mapsForLoc(tenant.locations[0]);
         }
         return undefined;
       }

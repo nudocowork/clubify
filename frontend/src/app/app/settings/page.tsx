@@ -85,6 +85,7 @@ const COUNTRY_DEFAULT_CURRENCY: Record<string, string> = {
   HN: 'HNL',
   SV: 'USD',
   NI: 'NIO',
+  BZ: 'BZD',
   DO: 'DOP',
   ES: 'EUR',
   US: 'USD',
@@ -621,6 +622,7 @@ export default function SettingsPage() {
             <option value="HN">🇭🇳 Honduras</option>
             <option value="SV">🇸🇻 El Salvador</option>
             <option value="NI">🇳🇮 Nicaragua</option>
+            <option value="BZ">🇧🇿 Belice</option>
             <option value="DO">🇩🇴 R. Dominicana</option>
             <option value="ES">🇪🇸 España</option>
             <option value="US">🇺🇸 Estados Unidos</option>
