@@ -326,6 +326,9 @@ function StorefrontPublicInner() {
   const [menu, setMenu] = useState<Category[]>([]);
   const [tab, setTab] = useState<'menu' | 'promos'>('menu');
   const [openProduct, setOpenProduct] = useState<Product | null>(null);
+  /** Promo abierta en PromoModal — muestra imagen/descripción/precio.
+   *  En MESA mode es solo viewer; en DELIVERY tiene botón "Agregar al carrito". */
+  const [openPromo, setOpenPromo] = useState<any | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showCart, setShowCart] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
@@ -928,25 +931,16 @@ function StorefrontPublicInner() {
                       ⏰ {tt('storefront.promo_until', { date: new Date(p.validUntil).toLocaleDateString(undefined, { day: 'numeric', month: 'long' }) })}
                     </div>
                   )}
-                  {orderHref ? (
-                    <a
-                      href={orderHref}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-4 block w-full text-center text-white font-semibold py-2.5 rounded-pill hover:opacity-90 active:scale-[0.98] transition"
-                      style={{ background: '#25D366' }}
-                    >
-                      {tt('storefront.promo_order_wa')}
-                    </a>
-                  ) : (
-                    <button
-                      onClick={() => setTab('menu')}
-                      className="mt-4 block w-full text-center text-white font-semibold py-2.5 rounded-pill hover:opacity-90 active:scale-[0.98] transition"
-                      style={{ background: primary }}
-                    >
-                      {tt('storefront.promo_see_menu')}
-                    </button>
-                  )}
+                  {/* Botón único: Seleccionar (delivery, agrega al carrito vía
+                      modal) o Ver más (mesa, viewer informativo). El modal abre
+                      con el detalle completo + acción según modo. */}
+                  <button
+                    onClick={() => setOpenPromo(p)}
+                    className="mt-4 block w-full text-center text-white font-semibold py-2.5 rounded-pill hover:opacity-90 active:scale-[0.98] transition"
+                    style={{ background: primary }}
+                  >
+                    {ordersAllowed ? 'Seleccionar' : 'Ver más'}
+                  </button>
                 </div>
               </div>
             );
@@ -986,6 +980,19 @@ function StorefrontPublicInner() {
           ordersEnabled={ordersAllowed}
           onClose={() => setOpenProduct(null)}
           mode={mode}
+        />
+      )}
+
+      {/* Modal de promoción — viewer (mesa) o agregar al carrito (delivery) */}
+      {openPromo && (
+        <PromoModal
+          promo={openPromo}
+          slug={slug}
+          primary={primary}
+          currency={s.currency}
+          currencySymbol={currencySymbol}
+          ordersEnabled={ordersAllowed}
+          onClose={() => setOpenPromo(null)}
         />
       )}
 
@@ -1246,6 +1253,166 @@ function ProductModal({
               {fmt(unit, currency, currencySymbol)}
             </div>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =====================================================
+// PromoModal — viewer informativo (mesa) o agregar al carrito (delivery)
+// =====================================================
+function PromoModal({
+  promo,
+  slug,
+  primary,
+  currency,
+  currencySymbol,
+  ordersEnabled,
+  onClose,
+}: {
+  promo: any;
+  slug: string;
+  primary: string;
+  currency: string;
+  currencySymbol: string | null;
+  ordersEnabled: boolean;
+  onClose: () => void;
+}) {
+  // Lock body scroll mientras está abierto + ESC para cerrar.
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose();
+    }
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [onClose]);
+
+  // Resolución del precio final igual que en la card.
+  const orig = promo.originalPrice ? Number(promo.originalPrice) : null;
+  const val = promo.value ? Number(promo.value) : 0;
+  let finalPrice: number | null = null;
+  let badge: string | null = null;
+  if (promo.type === 'DISCOUNT_AMOUNT' && val > 0) {
+    finalPrice = val;
+    if (orig && orig > val) {
+      const off = Math.round(((orig - val) / orig) * 100);
+      if (off > 0) badge = `-${off}%`;
+    }
+  } else if (promo.type === 'DISCOUNT_PCT' && val > 0) {
+    badge = `-${val}%`;
+    if (orig) finalPrice = Math.round(orig * (1 - val / 100));
+  } else if (promo.type === 'BUY_X_GET_Y') {
+    badge = 'Lleva más';
+  } else if (promo.type === 'FREE_ITEM') {
+    badge = 'Gratis';
+  } else if (promo.type === 'COMBO') {
+    badge = 'Combo';
+  }
+
+  // Add-to-cart: necesita unit price. Si no hay finalPrice ni orig,
+  // deshabilitamos el botón (caso BUY_X_GET_Y sin precio referencial).
+  const cartUnitPrice = finalPrice ?? orig ?? 0;
+  const canAddToCart = ordersEnabled && cartUnitPrice > 0;
+
+  function addPromoToCart() {
+    addToCart(
+      slug,
+      {
+        // Convención para promos: productId = "promo:<id>".
+        productId: `promo:${promo.id}`,
+        extraIds: [],
+        extras: [],
+        qty: 1,
+        name: `🎁 ${promo.name}`,
+        unitPrice: cartUnitPrice,
+      },
+      'delivery',
+    );
+    onClose();
+  }
+
+  return (
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-t-3xl sm:rounded-3xl w-full sm:max-w-md overflow-hidden max-h-[90vh] flex flex-col animate-in slide-in-from-bottom-8 duration-300"
+      >
+        {promo.imageUrl && (
+          <div className="relative aspect-[16/9] bg-bg2 shrink-0">
+            <ProductImage
+              src={promo.imageUrl}
+              alt={promo.name}
+              sizes="(max-width: 640px) 100vw, 448px"
+            />
+            <span
+              className="absolute top-3 left-3 text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded text-white shadow"
+              style={{ background: primary }}
+            >
+              Promo
+            </span>
+          </div>
+        )}
+        <div className="p-5 overflow-y-auto flex-1">
+          <h3 className="text-xl font-bold m-0 leading-tight">{promo.name}</h3>
+          {promo.description && (
+            <p className="text-sm text-mute mt-2 whitespace-pre-line leading-relaxed">
+              {promo.description}
+            </p>
+          )}
+          {(orig !== null || finalPrice !== null || badge) && (
+            <div className="mt-4 flex items-baseline gap-2 flex-wrap">
+              {orig && (
+                <span className="text-mute line-through text-sm shrink-0">
+                  {fmt(orig, currency, currencySymbol)}
+                </span>
+              )}
+              {finalPrice !== null && (
+                <span className="text-2xl font-bold text-bad shrink-0">
+                  {fmt(finalPrice, currency, currencySymbol)}
+                </span>
+              )}
+              {badge && (
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-bad/10 text-bad shrink-0">
+                  {badge}
+                </span>
+              )}
+            </div>
+          )}
+          {promo.validUntil && (
+            <div className="text-xs text-mute mt-3 flex items-center gap-1">
+              ⏰ Válido hasta{' '}
+              {new Date(promo.validUntil).toLocaleDateString(undefined, {
+                day: 'numeric',
+                month: 'long',
+              })}
+            </div>
+          )}
+        </div>
+        <div className="px-5 py-4 border-t border-line space-y-2 shrink-0">
+          {canAddToCart && (
+            <button
+              onClick={addPromoToCart}
+              className="w-full py-3 rounded-pill text-white font-semibold shadow-md active:scale-[0.97] transition-transform"
+              style={{ background: primary }}
+            >
+              Agregar al carrito · {fmt(cartUnitPrice, currency, currencySymbol)}
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="w-full py-2 text-sm text-mute hover:text-ink"
+          >
+            Cerrar
+          </button>
         </div>
       </div>
     </div>
