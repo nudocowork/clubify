@@ -74,11 +74,13 @@ type Product = {
 // + maximumFractionDigits=0 → redondeaba 13.50 USD a 14 USD
 // silenciosamente. El currency se lee de /tenants/me y se inyecta en
 // el componente via state (`tenantCurrency`).
-function fmt(n: number, currency = 'COP') {
+function fmt(n: number, currency = 'COP', symbolOverride?: string | null) {
   // Wrapper liviano para compat con los ~15 callsites locales que
   // llaman `fmt(x)` directo. Para usar moneda dinámica, pasarle
   // currency explícito o usar `fmtT` definido dentro del componente.
-  return formatPrice(n, currency);
+  // `symbolOverride` permite mostrar una palabra (ej "Ref.") en lugar
+  // del signo de moneda — mismo override que usa el storefront público.
+  return formatPrice(n, currency, { symbolOverride });
 }
 
 export default function MenuEditor() {
@@ -101,6 +103,11 @@ export default function MenuEditor() {
   // Fix 2026-06-10: moneda del tenant para mostrar precios correctos.
   // Default COP para fallback histórico mientras /tenants/me carga.
   const [tenantCurrency, setTenantCurrency] = useState<string>('COP');
+  // Override opcional del símbolo (ej "Ref." para Venezuela). null = usar
+  // el símbolo automático de la moneda.
+  const [tenantCurrencySymbol, setTenantCurrencySymbol] = useState<
+    string | null
+  >(null);
   const [mainLabel, setMainLabel] = useState<string>('Menú');
 
   // Columnas redimensionables estilo Excel para que nombres largos de
@@ -152,10 +159,12 @@ export default function MenuEditor() {
       mainSectionLabelOverride?: string | null;
       businessCategorySlug?: string | null;
       currency?: string;
+      currencySymbol?: string | null;
     }>('/tenants/me')
       .then((me) => {
         setTenantSlug(me?.slug ?? null);
         if (me?.currency) setTenantCurrency(me.currency.toUpperCase());
+        setTenantCurrencySymbol(me?.currencySymbol ?? null);
         setMainLabel(
           resolveMainSectionLabel(
             me?.mainSectionLabelOverride,
@@ -945,7 +954,7 @@ export default function MenuEditor() {
                     style={{ width: w.price, maxWidth: w.price }}
                     className="font-medium truncate"
                   >
-                    {fmt(Number(p.basePrice), tenantCurrency)}
+                    {fmt(Number(p.basePrice), tenantCurrency, tenantCurrencySymbol)}
                   </div>
                   <div
                     style={{ width: w.variants, maxWidth: w.variants }}
@@ -1015,6 +1024,7 @@ export default function MenuEditor() {
           adicionales={adicionales}
           mainLabel={mainLabel}
           tenantCurrency={tenantCurrency}
+          tenantCurrencySymbol={tenantCurrencySymbol}
           onCancel={() => setEditing(null)}
           onSave={saveProduct}
         />
@@ -1026,6 +1036,7 @@ export default function MenuEditor() {
           onClose={() => setShowAdicionales(false)}
           onChange={loadAdicionales}
           tenantCurrency={tenantCurrency}
+          tenantCurrencySymbol={tenantCurrencySymbol}
         />
       )}
 
@@ -1649,11 +1660,13 @@ function AdicionalesModal({
   onClose,
   onChange,
   tenantCurrency,
+  tenantCurrencySymbol,
 }: {
   items: Adicional[];
   onClose: () => void;
   onChange: () => void;
   tenantCurrency: string;
+  tenantCurrencySymbol: string | null;
 }) {
   // editingId === null → form de creación; con id → form de edición
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1770,7 +1783,7 @@ function AdicionalesModal({
               >
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium truncate">{a.name}</div>
-                  <div className="text-xs text-mute">{fmt(Number(a.price), tenantCurrency)}</div>
+                  <div className="text-xs text-mute">{fmt(Number(a.price), tenantCurrency, tenantCurrencySymbol)}</div>
                 </div>
                 <button
                   className="text-mute hover:text-brand p-1"
@@ -1801,6 +1814,7 @@ function ProductDrawer({
   adicionales,
   mainLabel,
   tenantCurrency,
+  tenantCurrencySymbol,
   onCancel,
   onSave,
 }: {
@@ -1809,6 +1823,7 @@ function ProductDrawer({
   adicionales: Adicional[];
   mainLabel: string;
   tenantCurrency: string;
+  tenantCurrencySymbol: string | null;
   onCancel: () => void;
   onSave: (p: Partial<Product>) => void;
 }) {
@@ -1947,9 +1962,9 @@ function ProductDrawer({
                 <div className="col-span-2 text-[11px] text-mute">
                   Se muestra como{' '}
                   <strong>
-                    {fmt(Number(form.basePrice ?? 0), tenantCurrency)} —{' '}
+                    {fmt(Number(form.basePrice ?? 0), tenantCurrency, tenantCurrencySymbol)} —{' '}
                     {form.priceMax != null
-                      ? fmt(Number(form.priceMax), tenantCurrency)
+                      ? fmt(Number(form.priceMax), tenantCurrency, tenantCurrencySymbol)
                       : '?'}
                   </strong>
                   . El carrito usa el mínimo como referencia.
@@ -2229,7 +2244,7 @@ function ProductDrawer({
                         {checked ? '✓ ' : '+ '}
                         {a.name}{' '}
                         <span className={checked ? 'opacity-80' : 'text-mute'}>
-                          {fmt(Number(a.price), tenantCurrency)}
+                          {fmt(Number(a.price), tenantCurrency, tenantCurrencySymbol)}
                         </span>
                       </button>
                     );

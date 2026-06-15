@@ -294,6 +294,10 @@ export class ReferralsService {
           status: 'ACTIVE',
           currentPeriodEnd: { gt: now },
         },
+        // Un código de afiliado DESACTIVADO no debe seguir devengando
+        // comisiones nuevas. Esto sostiene el borrado-con-anulación: al
+        // desactivar el código, el cron deja de generarle comisiones.
+        referralCode: { isActive: true },
       },
       include: {
         referralCode: { select: { id: true, commissionPercent: true } },
@@ -2151,7 +2155,13 @@ export class ReferralsService {
   async deleteCode(
     user: AuthUser,
     codeId: string,
-  ): Promise<{ ok: true; mode: 'soft' | 'hard' }> {
+    opts: { voidCommissions?: boolean } = {},
+  ): Promise<{
+    ok: true;
+    mode: 'soft' | 'hard';
+    voided?: number;
+    preservedPaid?: number;
+  }> {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     const code = await this.prisma.referralCode.findUnique({
       where: { id: codeId },
@@ -2163,15 +2173,82 @@ export class ReferralsService {
     });
     if (!code) throw new NotFoundException('Código no encontrado');
 
+    // Modo "anular y eliminar": para cuentas creadas/atribuidas por error.
+    // Salta el bloqueo por tenants activos, anula las comisiones NO pagadas
+    // (las marca REJECTED para que no sumen a nada) y desactiva el código
+    // (queda la fila como registro histórico de que existió).
+    const force = opts.voidCommissions === true;
+
     const activeUses = code.uses.filter(
       (u) =>
         u.tenantId &&
         (u.status === 'ACTIVE' || u.status === 'PAYING'),
     );
-    if (activeUses.length > 0) {
+    if (activeUses.length > 0 && !force) {
       throw new ConflictException(
-        `No se puede eliminar: tiene ${activeUses.length} tenant${activeUses.length === 1 ? '' : 's'} asociado${activeUses.length === 1 ? '' : 's'}.`,
+        `No se puede eliminar: tiene ${activeUses.length} tenant${activeUses.length === 1 ? '' : 's'} asociado${activeUses.length === 1 ? '' : 's'} activo${activeUses.length === 1 ? '' : 's'}. Si fue una atribución por error, usá "Anular comisiones y eliminar".`,
       );
+    }
+
+    if (force) {
+      // Comisiones que RECIBE este código (incluye filas legacy sin
+      // recipientCodeId que cuelgan del use atribuido a este código).
+      const comms = await this.prisma.commission.findMany({
+        where: {
+          OR: [
+            { recipientCodeId: codeId },
+            { recipientCodeId: null, referralUse: { referralCodeId: codeId } },
+          ],
+        },
+        select: {
+          id: true,
+          status: true,
+          paymentStatus: true,
+          payoutItem: { select: { id: true } },
+        },
+      });
+      let preservedPaid = 0;
+      const voidableIds: string[] = [];
+      for (const c of comms) {
+        // No tocamos plata ya desembolsada: si está pagada, parcialmente
+        // pagada o enganchada a un payout, se preserva para no romper la caja.
+        const alreadyPaid =
+          c.status === 'PAID' ||
+          c.paymentStatus === 'PAID' ||
+          c.paymentStatus === 'PARTIAL' ||
+          !!c.payoutItem;
+        if (alreadyPaid) {
+          preservedPaid += 1;
+          continue;
+        }
+        if (c.status === 'REJECTED') continue; // ya anulada
+        voidableIds.push(c.id);
+      }
+      if (voidableIds.length > 0) {
+        await this.prisma.commission.updateMany({
+          where: { id: { in: voidableIds } },
+          data: {
+            status: 'REJECTED' as CommissionStatus,
+            notes: `Anulada al eliminar afiliado por error (${user.email})`,
+          },
+        });
+      }
+      // Desactivar (soft) — preserva la fila como registro de que existió y,
+      // gracias al filtro isActive en reconcileRecurringCommissions, deja de
+      // generar comisiones nuevas.
+      await this.prisma.referralCode.update({
+        where: { id: codeId },
+        data: { isActive: false },
+      });
+      this.logger.log(
+        `Force-delete(void) ReferralCode id=${codeId} role=${code.role} voided=${voidableIds.length} preservedPaid=${preservedPaid} by ${user.email}`,
+      );
+      return {
+        ok: true,
+        mode: 'soft',
+        voided: voidableIds.length,
+        preservedPaid,
+      };
     }
 
     if (code.role === 'INFLUENCER') {
@@ -3044,7 +3121,11 @@ export class ReferralsService {
    * Elimina vendedor. Hard delete sólo si NO tiene commissions pendientes.
    * Si tiene, devuelve 409 con mensaje claro y sugerencia de desactivar.
    */
-  async deleteVendor(user: AuthUser, vendorCodeId: string) {
+  async deleteVendor(
+    user: AuthUser,
+    vendorCodeId: string,
+    opts: { voidCommissions?: boolean } = {},
+  ) {
     const vendor = await this.prisma.referralCode.findUnique({
       where: { id: vendorCodeId },
       include: {
@@ -3063,6 +3144,57 @@ export class ReferralsService {
       user.role === 'SUPER_ADMIN' ||
       (await this.isUserOwnerOfCode(user, vendor.parentEmbajadorCode.id));
     if (!isAuthorized) throw new ForbiddenException();
+
+    // Modo "anular y eliminar" (vendedor creado por error): anula las
+    // comisiones NO pagadas y desactiva el vendedor. Las pagadas se preservan.
+    if (opts.voidCommissions === true) {
+      const comms = await this.prisma.commission.findMany({
+        where: { recipientCodeId: vendorCodeId },
+        select: {
+          id: true,
+          status: true,
+          paymentStatus: true,
+          payoutItem: { select: { id: true } },
+        },
+      });
+      let preservedPaid = 0;
+      const voidableIds: string[] = [];
+      for (const c of comms) {
+        const alreadyPaid =
+          c.status === 'PAID' ||
+          c.paymentStatus === 'PAID' ||
+          c.paymentStatus === 'PARTIAL' ||
+          !!c.payoutItem;
+        if (alreadyPaid) {
+          preservedPaid += 1;
+          continue;
+        }
+        if (c.status === 'REJECTED') continue;
+        voidableIds.push(c.id);
+      }
+      if (voidableIds.length > 0) {
+        await this.prisma.commission.updateMany({
+          where: { id: { in: voidableIds } },
+          data: {
+            status: 'REJECTED' as CommissionStatus,
+            notes: `Anulada al eliminar vendedor por error (${user.email})`,
+          },
+        });
+      }
+      await this.prisma.referralCode.update({
+        where: { id: vendorCodeId },
+        data: { isActive: false },
+      });
+      this.logger.log(
+        `Force-delete(void) Vendor id=${vendorCodeId} voided=${voidableIds.length} preservedPaid=${preservedPaid} by ${user.email}`,
+      );
+      return {
+        ok: true,
+        mode: 'soft' as const,
+        voided: voidableIds.length,
+        preservedPaid,
+      };
+    }
 
     if (vendor.receivedCommissions.length > 0) {
       throw new ConflictException(

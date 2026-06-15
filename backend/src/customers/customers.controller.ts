@@ -84,7 +84,10 @@ export class CustomersController {
       {
         key: 'birthday',
         label: 'Cumpleaños',
-        format: (v) => (v ? new Date(v).toISOString().slice(0, 10) : ''),
+        // El cliente solo registra día y mes (el año 2000 es centinela).
+        // Exportamos DD/MM para no filtrar un año de nacimiento ficticio.
+        format: (v) =>
+          v ? new Date(v).toISOString().slice(5, 10).split('-').reverse().join('/') : '',
       },
       { key: 'totalOrdersCount', label: 'Pedidos' },
       {

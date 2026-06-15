@@ -276,8 +276,16 @@ export class ReferralsController {
    */
   @Roles('SUPER_ADMIN')
   @Delete('codes/:id')
-  deleteCode(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.svc.deleteCode(user, id);
+  deleteCode(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    // ?voidCommissions=true → para cuentas atribuidas por error: anula las
+    // comisiones no pagadas y desactiva el código aunque tenga tenants activos.
+    @Query('voidCommissions') voidCommissions?: string,
+  ) {
+    return this.svc.deleteCode(user, id, {
+      voidCommissions: voidCommissions === 'true',
+    });
   }
 
   // SUPER_ADMIN entra al panel /affiliate del influencer/embajador como si
@@ -528,8 +536,11 @@ export class ReferralsController {
   deleteVendor(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
+    @Query('voidCommissions') voidCommissions?: string,
   ) {
-    return this.svc.deleteVendor(user, id);
+    return this.svc.deleteVendor(user, id, {
+      voidCommissions: voidCommissions === 'true',
+    });
   }
 }
 

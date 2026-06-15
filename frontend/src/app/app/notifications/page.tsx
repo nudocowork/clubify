@@ -289,6 +289,15 @@ export default function NotificationsPage() {
     setForm((f) => ({ ...f, title: t.title, body: t.body }));
     if (typeof window !== 'undefined')
       window.scrollTo({ top: 0, behavior: 'smooth' });
+    // El cumpleaños es el único caso per-persona: aquí se enviaría a TODOS.
+    // Avisamos para que use Automatizaciones en su lugar.
+    if (t.id === 'birthday') {
+      toast(
+        'Ojo: esto se envía a TODOS. Para que llegue solo al cumpleañero, usá una automatización 🎂',
+        'info',
+      );
+      return;
+    }
     toast('Plantilla cargada · edita lo que quieras antes de enviar', 'info');
   }
 
@@ -473,8 +482,19 @@ export default function NotificationsPage() {
             )}
           </div>
 
+          <div className="mt-4 text-[11px] leading-relaxed rounded-lg border border-amber-300 bg-amber-50 text-amber-800 px-3 py-2">
+            ⚠️ Esta notificación se envía a <b>TODOS</b> los clientes
+            {form.cardId ? ' de la tarjeta seleccionada' : ' de todas tus tarjetas'}.
+            No es individual. Para saludos de cumpleaños que lleguen <b>solo a
+            la persona que cumple ese día</b>, usá una{' '}
+            <Link href="/app/automations" className="underline font-semibold">
+              automatización
+            </Link>
+            .
+          </div>
+
           <button
-            className="btn-primary mt-4 w-full justify-center"
+            className="btn-primary mt-3 w-full justify-center"
             disabled={sending}
           >
             <Icon name="send" />{' '}

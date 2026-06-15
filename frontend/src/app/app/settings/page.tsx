@@ -64,6 +64,33 @@ const LATAM_CURRENCIES: { code: string; label: string; flag: string }[] = [
   { code: 'EUR', label: 'Euro', flag: '🇪🇺' },
 ];
 
+/** Moneda por defecto sugerida al elegir un país. Es solo un default de
+ *  conveniencia — el negocio puede cambiarla. Venezuela apunta a USD
+ *  porque muchos locales fijan precios en dólares (y luego rotulan "Ref."
+ *  por requisito legal); Panamá usa USD en la práctica diaria. */
+const COUNTRY_DEFAULT_CURRENCY: Record<string, string> = {
+  CO: 'COP',
+  MX: 'MXN',
+  AR: 'ARS',
+  CL: 'CLP',
+  PE: 'PEN',
+  EC: 'USD',
+  VE: 'USD',
+  UY: 'UYU',
+  PY: 'PYG',
+  BO: 'BOB',
+  CR: 'CRC',
+  PA: 'USD',
+  GT: 'GTQ',
+  HN: 'HNL',
+  SV: 'USD',
+  NI: 'NIO',
+  DO: 'DOP',
+  ES: 'EUR',
+  US: 'USD',
+  BR: 'BRL',
+};
+
 /** Timezones IANA más comunes en LATAM + ES/US/BR para el dropdown.
  *  Si el tenant tiene una TZ fuera de esta lista, el form muestra un
  *  input libre para editarla. */
@@ -569,7 +596,14 @@ export default function SettingsPage() {
           <select
             className="input"
             value={country}
-            onChange={(e) => setCountry(e.target.value)}
+            onChange={(e) => {
+              const c = e.target.value;
+              setCountry(c);
+              // Sugerimos la moneda del país elegido (el negocio puede
+              // cambiarla después). No tocamos el símbolo personalizado.
+              const suggested = COUNTRY_DEFAULT_CURRENCY[c];
+              if (suggested) setCurrency(suggested);
+            }}
           >
             <option value="CO">🇨🇴 Colombia</option>
             <option value="MX">🇲🇽 México</option>

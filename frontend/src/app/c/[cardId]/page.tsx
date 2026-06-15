@@ -29,6 +29,9 @@ type Card = {
     logoUrl: string | null;
     primaryColor: string;
     slug: string;
+    // País ISO del negocio (ej "CO", "VE"). Define el prefijo telefónico
+    // por defecto del formulario. Puede faltar en caches viejos.
+    country?: string | null;
   };
 };
 
@@ -254,16 +257,27 @@ type SubmitPayload = {
 const FormFields = memo(function FormFields({
   primary,
   ready,
+  defaultCountry,
   onFirstInput,
   onSubmit,
 }: {
   primary: string;
   ready: boolean;
+  defaultCountry: string;
   onFirstInput: () => void;
   onSubmit: (data: SubmitPayload) => Promise<void>;
 }) {
   const tt = useT();
-  const [country, setCountry] = useState('CO');
+  // El prefijo telefónico arranca en el país del negocio. El cliente puede
+  // cambiarlo, pero el default refleja la ubicación de la subcuenta.
+  const [country, setCountry] = useState(defaultCountry);
+  // Cuando el card carga async, defaultCountry pasa del fallback 'CO' al
+  // país real del negocio. Sincronizamos SOLO si el cliente no eligió país
+  // todavía — nunca pisamos una selección manual.
+  const countryTouched = useRef(false);
+  useEffect(() => {
+    if (!countryTouched.current) setCountry(defaultCountry);
+  }, [defaultCountry]);
   const [phone, setPhone] = useState('');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -347,7 +361,10 @@ const FormFields = memo(function FormFields({
             <select
               className="input w-24 sm:w-32 flex-none"
               value={country}
-              onChange={(e) => setCountry(e.target.value)}
+              onChange={(e) => {
+                countryTouched.current = true;
+                setCountry(e.target.value);
+              }}
             >
               {COUNTRY_OPTIONS}
             </select>
@@ -683,6 +700,12 @@ export default function EnrollPage() {
   // el header se renderiza neutro y se anima al llegar datos.
   const primary = card?.primaryColor || card?.tenant.primaryColor || '#22C55E';
   const ready = !!card;
+  // País del negocio → default del prefijo telefónico. Si el país no está
+  // en la lista soportada o aún no cargó el card, caemos a 'CO'.
+  const tenantCountry = (card?.tenant.country || 'CO').toUpperCase();
+  const defaultCountry = COUNTRIES.some((c) => c.code === tenantCountry)
+    ? tenantCountry
+    : 'CO';
 
   return (
     <main className="min-h-screen bg-bg pb-8 sm:pb-12">
@@ -692,6 +715,7 @@ export default function EnrollPage() {
         <FormFields
           primary={primary}
           ready={ready}
+          defaultCountry={defaultCountry}
           onFirstInput={onFirstInput}
           onSubmit={onSubmitForm}
         />
