@@ -1,7 +1,21 @@
 # 17 — Módulo Contable + Auditoría de Comisiones (diseño)
 
-**Estado:** propuesta de diseño (sin implementar). Acordado con el dueño el
-2026-06-15: primero el documento, luego se construye en una sesión dedicada.
+**Estado:** ✅ IMPLEMENTADO como PROYECCIÓN read-only (2026-06-15) en
+`/admin/accounting` — `backend/src/accounting/*` + `GET /admin/accounting/report`.
+En vez de materializar tablas (F1-F2 abajo), los asientos de doble partida se
+DERIVAN en tiempo de lectura desde `Commission` (+ pagos) y la base del tenant
+(`getCommissionBase` = real ?? canónico). Ventajas: cero migración, no toca el
+flujo de pagos en vivo, siempre consistente con las comisiones reales, cubre
+todo el histórico. Cada asiento está balanceado → balance de comprobación = 0
+(validado y mostrado en UI). Incluye resumen P&L, selector de período, libro de
+asientos y export CSV. **Pendiente (follow-up):** F5 — cierre mensual inmutable
+con asientos MATERIALIZADos (snapshot + bloqueo) y asientos ADJUSTMENT manuales;
+recién ahí hacen falta las tablas `RevenueEntry`/`JournalEntry`/`JournalLine` de
+abajo. La auditoría online (§3) sigue en `/admin/commissions/audit`.
+
+---
+
+**Diseño original (materializado) — referencia para F5:**
 
 **Objetivo del dueño (textual):**
 
