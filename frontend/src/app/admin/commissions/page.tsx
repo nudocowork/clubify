@@ -16,6 +16,7 @@ type CommissionRow = {
   paymentStatus: PaymentStatus;
   status: string;
   createdAt: string;
+  availableAt: string;
   paidAt: string | null;
   notes: string | null;
   hotmartTransactionId: string | null;
@@ -40,6 +41,10 @@ type CommissionRow = {
   } | null;
 };
 
+type Bucket = 'pending_approval' | 'available' | 'paid' | 'rejected';
+
+type BucketTotal = { count: number; amount: number };
+
 type CommissionsResp = {
   items: CommissionRow[];
   totals: {
@@ -48,12 +53,38 @@ type CommissionsResp = {
     totalPaid: number;
     totalOutstanding: number;
   };
+  byBucket: {
+    pendingApproval: BucketTotal;
+    available: BucketTotal;
+    paid: BucketTotal;
+    rejected: BucketTotal;
+  };
+  holdDays: number;
 };
 
-const STATUS_BADGE: Record<PaymentStatus, { label: string; cls: string }> = {
-  PENDING: { label: 'Pendiente', cls: 'bg-amber-100 text-amber-700' },
-  PARTIAL: { label: 'Parcial', cls: 'bg-blue-100 text-blue-700' },
-  PAID: { label: 'Pagado', cls: 'bg-emerald-100 text-emerald-700' },
+// Badge del CICLO DE VIDA de la comisión (derivado de status + paymentStatus).
+// status: PENDING (en hold) → APPROVED (disponible) → PAID. REJECTED = anulada.
+function lifecycleBadge(
+  status: string,
+  paymentStatus: PaymentStatus,
+): { label: string; cls: string } {
+  if (status === 'REJECTED')
+    return { label: 'Rechazada', cls: 'bg-red-100 text-red-700' };
+  if (status === 'PAID' || paymentStatus === 'PAID')
+    return { label: 'Pagada', cls: 'bg-emerald-100 text-emerald-700' };
+  if (paymentStatus === 'PARTIAL')
+    return { label: 'Pago parcial', cls: 'bg-blue-100 text-blue-700' };
+  if (status === 'APPROVED')
+    return { label: 'Disponible para pagar', cls: 'bg-indigo-100 text-indigo-700' };
+  // PENDING (o RETAINED): todavía en período de hold.
+  return { label: 'Pendiente por aprobar', cls: 'bg-amber-100 text-amber-700' };
+}
+
+const BUCKET_LABEL: Record<Bucket, string> = {
+  pending_approval: 'Pendiente por aprobar',
+  available: 'Disponible para pagar',
+  paid: 'Pagadas',
+  rejected: 'Rechazadas',
 };
 
 const ROLE_LABEL: Record<RecipientRole, string> = {
@@ -88,7 +119,7 @@ export default function AdminCommissionsPage() {
   const [loading, setLoading] = useState(true);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const [status, setStatus] = useState<'' | PaymentStatus>('');
+  const [bucket, setBucket] = useState<'' | Bucket>('');
   const [role, setRole] = useState<'' | RecipientRole>('');
   const [tenantId, setTenantId] = useState('');
   const [codeId, setCodeId] = useState('');
@@ -100,7 +131,7 @@ export default function AdminCommissionsPage() {
       const params = new URLSearchParams();
       if (dateFrom) params.set('dateFrom', dateFrom);
       if (dateTo) params.set('dateTo', dateTo);
-      if (status) params.set('status', status);
+      if (bucket) params.set('bucket', bucket);
       if (role) params.set('role', role);
       if (tenantId) params.set('tenantId', tenantId);
       if (codeId) params.set('codeId', codeId);
@@ -116,7 +147,7 @@ export default function AdminCommissionsPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateFrom, dateTo, status, role, tenantId, codeId]);
+  }, [dateFrom, dateTo, bucket, role, tenantId, codeId]);
 
   // Opciones únicas para dropdowns derivadas del dataset actual.
   const tenantOptions = useMemo(() => {
@@ -171,7 +202,7 @@ export default function AdminCommissionsPage() {
       c.amount.toFixed(2),
       c.amountPaid.toFixed(2),
       c.outstanding.toFixed(2),
-      STATUS_BADGE[c.paymentStatus].label,
+      lifecycleBadge(c.status, c.paymentStatus).label,
       c.hotmartTransactionId ?? '',
     ]);
     const csv = [headers, ...rows]
@@ -209,34 +240,82 @@ export default function AdminCommissionsPage() {
         </Link>
       </div>
 
-      {/* KPIs */}
+      {/* Buckets del ciclo de vida — clickeables para filtrar */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-        <KpiCard
-          label="Total comisiones"
-          value={fmtUsd(data?.totals.totalAmount ?? 0)}
-          accent="brand"
-          hint={`${data?.totals.count ?? 0} filas`}
-        />
-        <KpiCard
-          label="Pagado"
-          value={fmtUsd(data?.totals.totalPaid ?? 0)}
-          accent="ok"
-        />
-        <KpiCard
-          label="Pendiente"
-          value={fmtUsd(data?.totals.totalOutstanding ?? 0)}
-          accent="warn"
-        />
-        <KpiCard
-          label="% Pagado"
-          value={
-            data && data.totals.totalAmount > 0
-              ? `${Math.round((data.totals.totalPaid / data.totals.totalAmount) * 100)}%`
-              : '0%'
-          }
-          accent="brand"
-        />
+        {(
+          [
+            {
+              key: 'pending_approval' as Bucket,
+              label: `Pendiente por aprobar`,
+              hint: `en hold ${data?.holdDays ?? 30} días`,
+              total: data?.byBucket.pendingApproval,
+              ring: 'ring-amber-400',
+              dot: 'bg-amber-400',
+            },
+            {
+              key: 'available' as Bucket,
+              label: 'Disponible para pagar',
+              hint: 'aprobadas, listas',
+              total: data?.byBucket.available,
+              ring: 'ring-indigo-400',
+              dot: 'bg-indigo-500',
+            },
+            {
+              key: 'paid' as Bucket,
+              label: 'Pagadas',
+              hint: 'liquidadas',
+              total: data?.byBucket.paid,
+              ring: 'ring-emerald-400',
+              dot: 'bg-emerald-500',
+            },
+            {
+              key: 'rejected' as Bucket,
+              label: 'Rechazadas',
+              hint: 'anuladas',
+              total: data?.byBucket.rejected,
+              ring: 'ring-red-400',
+              dot: 'bg-red-400',
+            },
+          ] as const
+        ).map((b) => {
+          const active = bucket === b.key;
+          return (
+            <button
+              key={b.key}
+              type="button"
+              onClick={() => setBucket(active ? '' : b.key)}
+              className={`card card-pad text-left transition select-none active:scale-[0.98] [-webkit-tap-highlight-color:transparent] ${
+                active ? `ring-2 ${b.ring}` : 'hover:bg-bg2/50'
+              }`}
+            >
+              <div className="flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${b.dot}`} />
+                <span className="text-[11px] uppercase tracking-wide text-mute font-semibold">
+                  {b.label}
+                </span>
+              </div>
+              <div className="text-xl font-bold mt-1">
+                {fmtUsd(b.total?.amount ?? 0)}
+              </div>
+              <div className="text-[11px] text-mute mt-0.5">
+                {b.total?.count ?? 0} {(b.total?.count ?? 0) === 1 ? 'comisión' : 'comisiones'} · {b.hint}
+              </div>
+            </button>
+          );
+        })}
       </div>
+      {bucket && (
+        <div className="text-xs text-mute mb-3 -mt-2">
+          Filtrando por <b>{BUCKET_LABEL[bucket]}</b> ·{' '}
+          <button
+            type="button"
+            onClick={() => setBucket('')}
+            className="text-brand font-semibold underline"
+          >
+            ver todas las activas
+          </button>
+        </div>
+      )}
 
       {/* Filtros */}
       <div className="card card-pad mb-3 flex flex-wrap items-end gap-3">
@@ -259,16 +338,17 @@ export default function AdminCommissionsPage() {
           />
         </div>
         <div>
-          <label className="label">Estado pago</label>
+          <label className="label">Estado</label>
           <select
             className="input"
-            value={status}
-            onChange={(e) => setStatus(e.target.value as any)}
+            value={bucket}
+            onChange={(e) => setBucket(e.target.value as any)}
           >
-            <option value="">Todos</option>
-            <option value="PENDING">Pendiente</option>
-            <option value="PARTIAL">Parcial</option>
-            <option value="PAID">Pagado</option>
+            <option value="">Todas las activas</option>
+            <option value="pending_approval">Pendiente por aprobar</option>
+            <option value="available">Disponible para pagar</option>
+            <option value="paid">Pagadas</option>
+            <option value="rejected">Rechazadas</option>
           </select>
         </div>
         <div>
@@ -320,7 +400,7 @@ export default function AdminCommissionsPage() {
             onClick={() => {
               setDateFrom('');
               setDateTo('');
-              setStatus('');
+              setBucket('');
               setRole('');
               setTenantId('');
               setCodeId('');
@@ -374,7 +454,8 @@ export default function AdminCommissionsPage() {
               )}
               {!loading &&
                 (data?.items ?? []).map((c) => {
-                  const badge = STATUS_BADGE[c.paymentStatus];
+                  const badge = lifecycleBadge(c.status, c.paymentStatus);
+                  const inHold = c.status === 'PENDING';
                   return (
                     <tr
                       key={c.id}
@@ -435,6 +516,11 @@ export default function AdminCommissionsPage() {
                         >
                           {badge.label}
                         </span>
+                        {inHold && (
+                          <div className="text-[10px] text-mute mt-1 whitespace-nowrap">
+                            disponible el {fmtDate(c.availableAt)}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-xs text-mute whitespace-nowrap">
                         {fmtDate(c.tenant?.currentPeriodEnd ?? null)}
