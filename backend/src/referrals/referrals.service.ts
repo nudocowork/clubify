@@ -19,6 +19,10 @@ const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
 // promoción y el cálculo de "disponible el" en el listado admin.
 const COMMISSION_HOLD_DAYS = 30;
 
+// Redondeo a 2 decimales para montos monetarios (nivel módulo: lo usa el
+// cron recurrente; algunas funciones definen su propio `round2` local).
+const round2mod = (n: number) => Math.round(n * 100) / 100;
+
 export type CreateReferralDto = {
   fullName: string;
   email: string;
@@ -307,7 +311,14 @@ export class ReferralsService {
         referralCode: { isActive: true },
       },
       include: {
-        referralCode: { select: { id: true, commissionPercent: true } },
+        referralCode: {
+          select: {
+            id: true,
+            commissionPercent: true,
+            role: true,
+            parentCodeId: true,
+          },
+        },
         tenant: {
           select: {
             currentPeriodEnd: true,
@@ -317,6 +328,12 @@ export class ReferralsService {
         },
       },
     });
+
+    // % indirecto del influencer parent (Setting, default 5). Se lee una vez.
+    const indirectRow = await this.prisma.setting.findUnique({
+      where: { key: 'referrals.indirectPercent' },
+    });
+    const indirectPct = indirectRow?.value ? Number(indirectRow.value) : 5;
 
     let created = 0;
     for (const use of candidates) {
@@ -341,48 +358,64 @@ export class ReferralsService {
       // y no depende del UNIQUE constraint.
       const periodStart = new Date(cpeDate);
       periodStart.setMonth(periodStart.getMonth() - months);
-      const existing = await this.prisma.commission.findFirst({
-        where: {
-          referralUseId: use.id,
-          recipientCodeId: use.referralCode.id,
-          createdAt: { gte: periodStart },
-        },
-        select: { id: true },
-      });
-      if (existing) continue;
-
-      // Fallback cuando el webhook directo no llegó. Aproximamos al precio
-      // del BUNDLE según periodicidad (el monto exacto lo corrige el
-      // SUPER_ADMIN vía excepción por cliente).
       const price = priceMonthly * months;
+
+      // Helper: crea una comisión para `recipientCodeId` en este ciclo si no
+      // existe ya (dedup por ciclo de facturación + UNIQUE constraint).
+      const ensureCommission = async (recipientCodeId: string, amount: number) => {
+        if (amount <= 0) return;
+        const existing = await this.prisma.commission.findFirst({
+          where: {
+            referralUseId: use.id,
+            recipientCodeId,
+            createdAt: { gte: periodStart },
+          },
+          select: { id: true },
+        });
+        if (existing) return;
+        try {
+          await this.prisma.commission.create({
+            data: {
+              referralUseId: use.id,
+              amount,
+              status: 'PENDING',
+              recipientCodeId,
+              periodKey: monthKey(),
+            },
+          });
+          created += 1;
+        } catch (e: any) {
+          if (e?.code === 'P2002') {
+            this.logger.warn(
+              `reconcileRecurringCommissions: skip dup (useId=${use.id}, recipientCodeId=${recipientCodeId}, periodKey=${monthKey()})`,
+            );
+            return;
+          }
+          throw e;
+        }
+      };
+
+      // DIRECTA: el % del embajador/influencer (con excepción por cliente si
+      // existe). Base = precio del BUNDLE según periodicidad.
       const pct = await this.resolveExceptionPercent(
         use.tenantId,
         use.referralCode.id,
         Number(use.referralCode.commissionPercent ?? 25),
       );
-      const amount = Math.round((price * pct) / 100 * 100) / 100;
-      // FIX 2026-06-12: periodKey + recipientCodeId para activar el
-      // UNIQUE constraint. Si el cron corre dos veces el mismo mes,
-      // la segunda escritura cae con P2002 y la atrapamos.
-      try {
-        await this.prisma.commission.create({
-          data: {
-            referralUseId: use.id,
-            amount,
-            status: 'PENDING',
-            recipientCodeId: use.referralCode.id,
-            periodKey: monthKey(),
-          },
-        });
-        created += 1;
-      } catch (e: any) {
-        if (e?.code === 'P2002') {
-          this.logger.warn(
-            `reconcileRecurringCommissions: skip dup (useId=${use.id}, recipientCodeId=${use.referralCode.id}, periodKey=${monthKey()})`,
-          );
-          continue;
-        }
-        throw e;
+      await ensureCommission(use.referralCode.id, round2mod((price * pct) / 100));
+
+      // INDIRECTA: si el code es AMBASSADOR con un influencer parent, ese
+      // influencer cobra el % indirecto (5%) sobre el MISMO referido — NO su
+      // % propio. Antes el cron procesaba un "parent-use" del influencer y le
+      // pagaba su 25% completo en cada renovación (bug Birria León 2026-06-15).
+      if (
+        use.referralCode.role === 'AMBASSADOR' &&
+        use.referralCode.parentCodeId
+      ) {
+        await ensureCommission(
+          use.referralCode.parentCodeId,
+          round2mod((price * indirectPct) / 100),
+        );
       }
     }
 
@@ -1844,7 +1877,12 @@ export class ReferralsService {
    * Las Commissions históricas viven aparte — no las tocamos.
    */
   async setTenantAssignment(tenantId: string, codeId: string | null) {
-    const existing = await this.prisma.referralUse.findFirst({
+    // FIX 2026-06-15: antes tomaba solo la asignación MÁS RECIENTE (findFirst)
+    // y borraba esa. Si quedaban varias atribuciones colgadas (ej por
+    // parent-uses viejos o reasignaciones previas), las demás sobrevivían →
+    // "aparece asignado a ambos y no se actualiza". Ahora limpiamos TODAS las
+    // atribuciones directas que no sean el código objetivo.
+    const existingAll = await this.prisma.referralUse.findMany({
       where: {
         tenantId,
         referralCode: { role: { in: ['INFLUENCER', 'AMBASSADOR'] } },
@@ -1852,10 +1890,25 @@ export class ReferralsService {
       orderBy: { createdAt: 'desc' },
     });
 
-    if (codeId === null) {
-      if (existing) {
-        await this.prisma.referralUse.delete({ where: { id: existing.id } });
+    // Borra los uses indicados (cascade comisiones) SALVO los que tengan
+    // comisiones PAID — esos se preservan para no romper el historial contable.
+    const deleteUses = async (ids: string[]) => {
+      for (const id of ids) {
+        const paid = await this.prisma.commission.count({
+          where: { referralUseId: id, status: 'PAID' },
+        });
+        if (paid > 0) {
+          this.logger.warn(
+            `setTenantAssignment: use ${id} tiene comisiones PAID — no se borra (se preserva historial)`,
+          );
+          continue;
+        }
+        await this.prisma.referralUse.delete({ where: { id } });
       }
+    };
+
+    if (codeId === null) {
+      await deleteUses(existingAll.map((u) => u.id));
       return { ok: true, assigned: null };
     }
 
@@ -1870,23 +1923,22 @@ export class ReferralsService {
       );
     }
 
-    if (existing) {
-      if (existing.referralCodeId === codeId) {
-        // Mismo código: idempotente, pero igual disparamos el backfill
-        // por si la asignación se hizo antes del fix de comisión
-        // retroactiva (caso del user que asignó sin commission y vuelve
-        // a apretar Asignar). El backfill es no-op si ya hay commission
-        // reciente.
-        await this.backfillCommissionForAssignment(
-          existing.id,
-          tenantId,
-          codeId,
-        ).catch(() => null);
-        return { ok: true, assigned: existing.id };
-      }
-      // Reemplazo: borramos el viejo y creamos uno nuevo (más limpio que
-      // update porque resetea status/convertedAt).
-      await this.prisma.referralUse.delete({ where: { id: existing.id } });
+    // Limpiar TODAS las atribuciones que NO sean el código objetivo.
+    await deleteUses(
+      existingAll.filter((u) => u.referralCodeId !== codeId).map((u) => u.id),
+    );
+
+    const sameCode = existingAll.find((u) => u.referralCodeId === codeId);
+    if (sameCode) {
+      // Ya estaba asignado a este código: idempotente. Disparamos backfill por
+      // si la asignación se hizo antes del fix de comisión retroactiva (no-op
+      // si ya hay commission reciente).
+      await this.backfillCommissionForAssignment(
+        sameCode.id,
+        tenantId,
+        codeId,
+      ).catch(() => null);
+      return { ok: true, assigned: sameCode.id };
     }
     const created = await this.prisma.referralUse.create({
       data: {
@@ -2047,7 +2099,13 @@ export class ReferralsService {
         throw e;
       });
 
-    // Indirecta: AMBASSADOR con parent INFLUENCER → 5% al influencer.
+    // Indirecta: AMBASSADOR con parent INFLUENCER → el influencer cobra el %
+    // indirecto (5%) sobre el MISMO referido. Se registra en el use del
+    // embajador (recipient = influencer), NO en un "parent-use" aparte. Así
+    // la atribución del tenant queda 1:1 (un solo use) y el cron recurrente
+    // no sobre-paga al influencer su % propio en cada renovación
+    // (bug Birria León 2026-06-15). El UNIQUE (referralUseId, recipientCodeId,
+    // periodKey) dedupea: misma use, distinto recipient → fila aparte.
     if (code.role === 'AMBASSADOR' && code.parentCode) {
       const indirectPctRow = await this.prisma.setting.findUnique({
         where: { key: 'referrals.indirectPercent' },
@@ -2056,38 +2114,12 @@ export class ReferralsService {
         ? Number(indirectPctRow.value)
         : 5;
       const indirect = round2((price * indirectPct) / 100);
-
-      // Upsert ReferralUse del parent influencer (uno por tenant+code).
-      let parentUse = await this.prisma.referralUse.findFirst({
-        where: {
-          referralCodeId: code.parentCode.id,
-          tenantId,
-        },
-      });
-      if (!parentUse) {
-        parentUse = await this.prisma.referralUse.create({
-          data: {
-            referralCodeId: code.parentCode.id,
-            tenantId,
-            status: 'PAYING',
-            convertedAt: new Date(),
-          },
-        });
-      }
-      // Mismo guard 25-días para el parent.
-      const lastParent = await this.prisma.commission.findFirst({
-        where: { referralUseId: parentUse.id },
-        orderBy: { createdAt: 'desc' },
-      });
-      const recentParent =
-        lastParent &&
-        (Date.now() - new Date(lastParent.createdAt).getTime()) / 86400_000 < 25;
-      if (!recentParent) {
+      if (indirect > 0) {
         const parentCodeId = code.parentCode.id;
         await this.prisma.commission
           .create({
             data: {
-              referralUseId: parentUse.id,
+              referralUseId: useId,
               amount: indirect,
               status: 'PENDING',
               recipientCodeId: parentCodeId,
@@ -2097,7 +2129,7 @@ export class ReferralsService {
           .catch((e: any) => {
             if (e?.code === 'P2002') {
               this.logger.warn(
-                `awardCommissionForReferral: skip dup indirect (useId=${parentUse.id}, code=${parentCodeId}, periodKey=${monthKey()})`,
+                `awardCommissionForReferral: skip dup indirect (useId=${useId}, code=${parentCodeId}, periodKey=${monthKey()})`,
               );
               return null;
             }
