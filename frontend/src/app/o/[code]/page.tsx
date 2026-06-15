@@ -25,6 +25,8 @@ type Order = {
     logoUrl: string | null;
     primaryColor: string;
     slug: string;
+    currency?: string | null;
+    currencySymbol?: string | null;
   };
   customer: { fullName: string; phone: string };
 };
@@ -38,12 +40,29 @@ const STATUS_LABEL: Record<string, string> = {
   CANCELLED: 'Cancelado',
 };
 
-function fmt(n: number) {
-  return new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    maximumFractionDigits: 0,
-  }).format(n);
+// Respeta la moneda del negocio y el símbolo custom (ej "Ref." en lugar
+// de "$"). Mismo enfoque que el storefront: formatToParts + reemplazo de
+// la parte "currency".
+function fmt(
+  n: number,
+  currency: string = 'COP',
+  symbolOverride: string | null = null,
+) {
+  try {
+    const parts = new Intl.NumberFormat('es-CO', {
+      style: 'currency',
+      currency: currency || 'COP',
+      maximumFractionDigits: 0,
+    }).formatToParts(n);
+    const sym = symbolOverride?.trim();
+    if (sym) {
+      return parts.map((p) => (p.type === 'currency' ? sym : p.value)).join('');
+    }
+    return parts.map((p) => p.value).join('');
+  } catch {
+    const sym = symbolOverride?.trim();
+    return `${sym || '$'}${n.toFixed(0)}`;
+  }
 }
 
 export default function OrderStatus() {
@@ -176,13 +195,25 @@ export default function OrderStatus() {
                 <span>
                   {it.qty}x {it.name}
                 </span>
-                <span>{fmt(it.lineTotal)}</span>
+                <span>
+                  {fmt(
+                    it.lineTotal,
+                    order.tenant.currency ?? 'COP',
+                    order.tenant.currencySymbol ?? null,
+                  )}
+                </span>
               </div>
             ))}
           </div>
           <div className="border-t border-line2 mt-3 pt-3 flex justify-between font-semibold">
             <span>Total</span>
-            <span>{fmt(Number(order.total))}</span>
+            <span>
+              {fmt(
+                Number(order.total),
+                order.tenant.currency ?? 'COP',
+                order.tenant.currencySymbol ?? null,
+              )}
+            </span>
           </div>
           {order.customerNote && (
             <div className="text-xs text-mute mt-3 italic">

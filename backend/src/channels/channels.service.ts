@@ -30,7 +30,7 @@ export class ChannelsService {
     const items = (order.items as any[])
       .map(
         (i) =>
-          `• ${i.qty}x ${i.name} — ${formatMoney(i.lineTotal, tenant.currency)}` +
+          `• ${i.qty}x ${i.name} — ${formatMoney(i.lineTotal, tenant.currency, tenant.currencySymbol)}` +
           (i.note ? `\n   ↳ ${i.note}` : ''),
       )
       .join('\n');
@@ -73,11 +73,11 @@ export class ChannelsService {
       '',
       items,
       '',
-      `Subtotal: ${formatMoney(Number(order.subtotal), tenant.currency)}`,
+      `Subtotal: ${formatMoney(Number(order.subtotal), tenant.currency, tenant.currencySymbol)}`,
       Number(order.discount) > 0
-        ? `Descuento: -${formatMoney(Number(order.discount), tenant.currency)}`
+        ? `Descuento: -${formatMoney(Number(order.discount), tenant.currency, tenant.currencySymbol)}`
         : '',
-      `*Total: ${formatMoney(Number(order.total), tenant.currency)}*`,
+      `*Total: ${formatMoney(Number(order.total), tenant.currency, tenant.currencySymbol)}*`,
       '',
       fulfillment,
       ...addressBlock,
@@ -125,7 +125,7 @@ export class ChannelsService {
       '',
       items,
       '',
-      `*Total: ${formatMoney(Number(order.total), tenant.currency)}*`,
+      `*Total: ${formatMoney(Number(order.total), tenant.currency, tenant.currencySymbol)}*`,
       `Pago: ${order.paymentStatus === 'PAID' ? '✅ Cobrado' : '💵 Cobrar al cliente'}`,
       '',
       '*📍 Dirección:*',
@@ -227,14 +227,23 @@ export class ChannelsService {
   }
 }
 
-function formatMoney(n: number, currency: string) {
+function formatMoney(
+  n: number,
+  currency: string,
+  symbolOverride?: string | null,
+) {
+  const sym = symbolOverride?.trim();
   try {
-    return new Intl.NumberFormat('es-CO', {
+    const parts = new Intl.NumberFormat('es-CO', {
       style: 'currency',
       currency,
       maximumFractionDigits: 0,
-    }).format(n);
+    }).formatToParts(n);
+    if (sym) {
+      return parts.map((p) => (p.type === 'currency' ? sym : p.value)).join('');
+    }
+    return parts.map((p) => p.value).join('');
   } catch {
-    return `${currency} ${n.toFixed(0)}`;
+    return `${sym || currency} ${n.toFixed(0)}`;
   }
 }
