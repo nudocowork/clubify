@@ -2,7 +2,7 @@
 import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { api, setSession } from '@/lib/api';
+import { api, setSession, clearSession } from '@/lib/api';
 import { Logo } from '@/components/Logo';
 import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 
@@ -37,6 +37,11 @@ function LoginInner() {
           body: JSON.stringify({ email, password }),
         },
       );
+      // Limpiamos cualquier sesión/impersonación previa ANTES de escribir la
+      // nueva. Sin esto, un `clubify_admin_backup` viejo dejaba el banner de
+      // impersonación colgado y, si la sesión activa era un tenant, el guard
+      // de AppShell te tiraba a /app (una subcuenta) tras loguear.
+      clearSession();
       setSession(data.accessToken, data.user, { refreshToken: data.refreshToken });
       router.push(
         data.user.role === 'PLATFORM_OWNER'
@@ -62,6 +67,11 @@ function LoginInner() {
         '/auth/google',
         { method: 'POST', body: JSON.stringify({ idToken }) },
       );
+      // Limpiamos cualquier sesión/impersonación previa ANTES de escribir la
+      // nueva. Sin esto, un `clubify_admin_backup` viejo dejaba el banner de
+      // impersonación colgado y, si la sesión activa era un tenant, el guard
+      // de AppShell te tiraba a /app (una subcuenta) tras loguear.
+      clearSession();
       setSession(data.accessToken, data.user, { refreshToken: data.refreshToken });
       router.push(
         data.user.role === 'PLATFORM_OWNER'
