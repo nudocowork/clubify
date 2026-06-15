@@ -18,7 +18,31 @@ import { AuthUser } from '../common/decorators/current-user.decorator';
 export const MIN_PAYOUT_USD = 50;
 export const PAYOUT_DAY_OF_MONTH = 15; // día oficial de pago
 
+// Costo de retiro (spec 2026-06-15): si el retiro es >= 50 USD es gratis; si
+// es menor, se descuenta una comisión fija de 3 USD del monto a pagar.
+export const FREE_WITHDRAWAL_MIN_USD = 50;
+export const WITHDRAWAL_FEE_USD = 3;
+
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+// Costo de retiro aplicable a un monto bruto: 0 si >= 50, sino 3.
+function withdrawalFeeFor(grossUsd: number): number {
+  return grossUsd >= FREE_WITHDRAWAL_MIN_USD ? 0 : WITHDRAWAL_FEE_USD;
+}
+
+// Próxima fecha de pago: día 15 o último día del mes, la primera >= hoy.
+// Los pagos solo se liquidan en esas dos fechas (spec 2026-06-15).
+function nextPayoutDate(from: Date = new Date()): Date {
+  const base = new Date(from);
+  base.setHours(0, 0, 0, 0);
+  const c: Date[] = [];
+  for (let m = 0; m <= 1; m++) {
+    c.push(new Date(base.getFullYear(), base.getMonth() + m, 15));
+    c.push(new Date(base.getFullYear(), base.getMonth() + m + 1, 0));
+  }
+  c.sort((a, b) => a.getTime() - b.getTime());
+  return c.find((d) => d.getTime() >= base.getTime()) ?? c[c.length - 1];
+}
 
 type PaymentMethodSnapshot = {
   method: PaymentMethodKind;
@@ -82,17 +106,24 @@ export class PayoutsService {
     });
     const profileStatus: PaymentProfileStatus = profile?.status ?? 'NONE';
 
+    const fee = withdrawalFeeFor(availableUsd);
+    const next = nextPayoutDate();
     return {
       availableUsd: round2(availableUsd),
       pendingUsd: round2(pendingUsd),
       minimumPayoutUsd: MIN_PAYOUT_USD,
       reachedMinimum: availableUsd >= MIN_PAYOUT_USD,
+      // Costo de retiro: gratis si >= 50, sino 3 USD. netUsd = lo que recibe.
+      freeWithdrawalMinUsd: FREE_WITHDRAWAL_MIN_USD,
+      withdrawalFeeUsd: round2(fee),
+      netUsd: round2(Math.max(0, availableUsd - fee)),
       profileStatus,
       profileRejectionReason: profile?.rejectionReason ?? null,
       payoutDayOfMonth: PAYOUT_DAY_OF_MONTH,
       daysUntilPayout: daysUntilNext(PAYOUT_DAY_OF_MONTH),
-      canRequestPayout:
-        availableUsd >= MIN_PAYOUT_USD && profileStatus === 'APPROVED',
+      // Próxima fecha posible de pago (día 15 o último del mes).
+      nextPayoutDate: next,
+      canRequestPayout: availableUsd > 0 && profileStatus === 'APPROVED',
     };
   }
 
@@ -199,6 +230,9 @@ export class PayoutsService {
     return rows.map((p) => ({
       id: p.id,
       amount: Number(p.amount),
+      feeUsd: Number(p.feeUsd ?? 0),
+      // Fallback a amount para payouts viejos sin netUsd.
+      netUsd: p.netUsd != null ? Number(p.netUsd) : Number(p.amount),
       currency: p.currency,
       status: p.status,
       methodSnapshot: p.methodSnapshot,
@@ -255,6 +289,8 @@ export class PayoutsService {
       role: string;
       method: PaymentMethodKind;
       availableUsd: number;
+      withdrawalFeeUsd: number;
+      netUsd: number;
       codes: Array<{ id: string; code: string; role: string }>;
       profile: any;
       hasOpenPayout: boolean;
@@ -272,7 +308,10 @@ export class PayoutsService {
         select: { amount: true },
       });
       const available = sumRows.reduce((s, r) => s + Number(r.amount), 0);
-      if (available < MIN_PAYOUT_USD) continue;
+      // Spec 2026-06-15: ya no se bloquea < 50; esos se pagan con costo de
+      // retiro de 3 USD. Solo se omiten los que no tienen nada disponible.
+      if (available <= 0) continue;
+      const fee = withdrawalFeeFor(available);
       const openPayout = await this.prisma.commissionPayout.findFirst({
         where: { recipientUserId: p.userId, status: 'PROCESSING' },
         select: { id: true },
@@ -284,6 +323,8 @@ export class PayoutsService {
         role: p.user.role,
         method: p.method,
         availableUsd: round2(available),
+        withdrawalFeeUsd: round2(fee),
+        netUsd: round2(Math.max(0, available - fee)),
         codes: p.user.referralCodes,
         profile: this.maskProfile(p),
         hasOpenPayout: !!openPayout,
@@ -295,6 +336,7 @@ export class PayoutsService {
       items: rows,
       total: rows.length,
       grandTotalUsd: round2(rows.reduce((s, r) => s + r.availableUsd, 0)),
+      grandTotalNetUsd: round2(rows.reduce((s, r) => s + r.netUsd, 0)),
     };
   }
 
@@ -383,11 +425,13 @@ export class PayoutsService {
       select: { id: true, amount: true },
     });
     const total = commissions.reduce((s, c) => s + Number(c.amount), 0);
-    if (total < MIN_PAYOUT_USD) {
-      throw new BadRequestException(
-        `El monto disponible (${round2(total)} USD) es menor al mínimo de ${MIN_PAYOUT_USD} USD`,
-      );
+    if (total <= 0) {
+      throw new BadRequestException('El afiliado no tiene comisiones disponibles');
     }
+    // Costo de retiro: gratis si >= 50, sino 3 USD. amount = bruto, netUsd =
+    // lo que efectivamente se transfiere (bruto − fee).
+    const fee = withdrawalFeeFor(total);
+    const net = round2(total - fee);
 
     const snapshot: PaymentMethodSnapshot = {
       method: profile.method,
@@ -422,8 +466,13 @@ export class PayoutsService {
         data: {
           recipientUserId,
           amount: total,
+          feeUsd: fee,
+          netUsd: net,
           methodSnapshot: snapshot as unknown as Prisma.InputJsonValue,
-          notes: null,
+          notes:
+            fee > 0
+              ? `Costo de retiro ${WITHDRAWAL_FEE_USD} USD (monto < ${FREE_WITHDRAWAL_MIN_USD}). Neto: ${net} USD.`
+              : null,
         },
       });
       await tx.commissionPayoutItem.createMany({
@@ -439,6 +488,8 @@ export class PayoutsService {
     return {
       id: payout.id,
       amount: Number(payout.amount),
+      feeUsd: fee,
+      netUsd: net,
       itemsCount: commissions.length,
     };
   }

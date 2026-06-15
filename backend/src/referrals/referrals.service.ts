@@ -17,11 +17,45 @@ const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
 // pase a APPROVED (disponible para pagar). Protege contra reembolsos del
 // cliente dentro de la ventana. Single source of truth: lo usa el cron de
 // promoción y el cálculo de "disponible el" en el listado admin.
-const COMMISSION_HOLD_DAYS = 30;
+// 2026-06-15: 30 → 15 días (spec bloqueo/desbloqueo de comisiones).
+const COMMISSION_HOLD_DAYS = 15;
 
 // Redondeo a 2 decimales para montos monetarios (nivel módulo: lo usa el
 // cron recurrente; algunas funciones definen su propio `round2` local).
 const round2mod = (n: number) => Math.round(n * 100) / 100;
+
+// Días restantes hasta que una comisión se desbloquee (0 si ya está
+// disponible). Para status APPROVED/PAID = 0; para PENDING = lo que falte
+// para createdAt + COMMISSION_HOLD_DAYS.
+function daysRemainingUntilAvailable(
+  createdAt: Date,
+  status: string,
+): number {
+  if (status !== 'PENDING') return 0;
+  const availableAt =
+    new Date(createdAt).getTime() + COMMISSION_HOLD_DAYS * 86400000;
+  const diffMs = availableAt - Date.now();
+  if (diffMs <= 0) return 0;
+  return Math.ceil(diffMs / 86400000);
+}
+
+// Próxima fecha de pago: los pagos se liquidan el día 15 y el último día de
+// cada mes. Devuelve la primera de esas fechas >= `from`. Si una comisión
+// recién se desbloquea, su próxima fecha posible de cobro es esta.
+function nextPayoutDate(from: Date = new Date()): Date {
+  const base = new Date(from);
+  base.setHours(0, 0, 0, 0);
+  const candidates: Date[] = [];
+  for (let m = 0; m <= 1; m++) {
+    const y = base.getFullYear();
+    const mo = base.getMonth() + m;
+    candidates.push(new Date(y, mo, 15));
+    candidates.push(new Date(y, mo + 1, 0)); // último día del mes mo
+  }
+  candidates.sort((a, b) => a.getTime() - b.getTime());
+  const next = candidates.find((d) => d.getTime() >= base.getTime());
+  return next ?? candidates[candidates.length - 1];
+}
 
 export type CreateReferralDto = {
   fullName: string;
@@ -1223,7 +1257,7 @@ export class ReferralsService {
       defaultAmbassadorPercent: Number(
         map.get('referrals.defaultAmbassadorPercent') ?? 25,
       ),
-      holdDays: Number(map.get('referrals.holdDays') ?? 30),
+      holdDays: Number(map.get('referrals.holdDays') ?? COMMISSION_HOLD_DAYS),
       minPayoutUsd: Number(map.get('referrals.minPayoutUsd') ?? 0),
       notifyPaymentFailed: map.get('referrals.notifyPaymentFailed') !== 'false',
       notifyChurn: map.get('referrals.notifyChurn') !== 'false',
@@ -1273,7 +1307,7 @@ export class ReferralsService {
       writeKey('referrals.defaultInfluencerPercent', String(patch.defaultInfluencerPercent ?? 30));
     if ('defaultAmbassadorPercent' in patch)
       writeKey('referrals.defaultAmbassadorPercent', String(patch.defaultAmbassadorPercent ?? 25));
-    if ('holdDays' in patch) writeKey('referrals.holdDays', String(patch.holdDays ?? 30));
+    if ('holdDays' in patch) writeKey('referrals.holdDays', String(patch.holdDays ?? COMMISSION_HOLD_DAYS));
     if ('minPayoutUsd' in patch)
       writeKey('referrals.minPayoutUsd', String(patch.minPayoutUsd ?? 0));
     if ('notifyPaymentFailed' in patch)
@@ -1738,7 +1772,7 @@ export class ReferralsService {
   ) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
 
-    const HOLD_DAYS = 30;
+    const HOLD_DAYS = COMMISSION_HOLD_DAYS;
     const cutoff = new Date(Date.now() - HOLD_DAYS * 24 * 60 * 60 * 1000);
 
     // Auto-promover PENDING → APPROVED si cumplió 30 días
@@ -3700,6 +3734,18 @@ export class ReferralsService {
         availableAt: new Date(
           c.createdAt.getTime() + COMMISSION_HOLD_DAYS * 86400000,
         ),
+        // Días que faltan para desbloquear (0 si ya disponible/pagada).
+        daysRemaining: daysRemainingUntilAvailable(c.createdAt, c.status),
+        // Próxima fecha posible de cobro (día 15 o último del mes), contada
+        // desde que la comisión esté disponible.
+        nextPayoutDate: nextPayoutDate(
+          new Date(
+            Math.max(
+              Date.now(),
+              c.createdAt.getTime() + COMMISSION_HOLD_DAYS * 86400000,
+            ),
+          ),
+        ),
         paidAt: c.paidAt,
         notes: c.notes,
         hotmartTransactionId: c.hotmartTransactionId,
@@ -3789,6 +3835,64 @@ export class ReferralsService {
       holdDays: COMMISSION_HOLD_DAYS,
       truncated,
       shown: items.length,
+    };
+  }
+
+  /**
+   * HABILITAR manual (SUPER_ADMIN): adelanta el desbloqueo de una comisión
+   * PENDING (en hold de 15 días) → APPROVED (disponible para pagar). Elimina
+   * los "días restantes" y la deja lista para el próximo ciclo de pago.
+   * Queda auditado: quién, cuándo, días restantes eliminados y motivo
+   * opcional. (Spec bloqueo/desbloqueo 2026-06-15.)
+   */
+  async enableCommission(
+    user: AuthUser,
+    commissionId: string,
+    reason?: string,
+  ) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+
+    const c = await this.prisma.commission.findUnique({
+      where: { id: commissionId },
+      select: { id: true, status: true, createdAt: true, amount: true },
+    });
+    if (!c) throw new NotFoundException('Comisión no encontrada');
+
+    if (c.status !== 'PENDING') {
+      // Solo tiene sentido habilitar lo que está en hold. Si ya está
+      // APPROVED/PAID/REJECTED/RETAINED, devolvemos sin cambios (idempotente).
+      return {
+        ok: true,
+        alreadyAvailable: c.status === 'APPROVED' || c.status === 'PAID',
+        status: c.status,
+      };
+    }
+
+    const daysEliminated = daysRemainingUntilAvailable(c.createdAt, c.status);
+
+    const updated = await this.prisma.commission.update({
+      where: { id: commissionId },
+      data: { status: 'APPROVED' as CommissionStatus },
+      select: { id: true, status: true },
+    });
+
+    await this.audit.log({
+      actorId: user.id,
+      action: 'commission.manually_enabled',
+      resource: `Commission:${commissionId}`,
+      metadata: {
+        previousStatus: 'PENDING',
+        newStatus: 'APPROVED',
+        daysRemainingEliminated: daysEliminated,
+        amount: Number(c.amount),
+        reason: reason?.trim() || null,
+      },
+    });
+
+    return {
+      ok: true,
+      status: updated.status,
+      daysRemainingEliminated: daysEliminated,
     };
   }
 
@@ -4240,6 +4344,10 @@ export class ReferralsService {
       where: {
         recipientCodeId: codeId,
         paymentStatus: { in: ['PENDING', 'PARTIAL'] },
+        // Respeta el bloqueo de 15 días: solo se pagan las DESBLOQUEADAS
+        // (APPROVED — por cron a los 15d o por "Habilitar" manual). Las que
+        // siguen en hold (PENDING) no entran al pago. Spec 2026-06-15.
+        status: CommissionStatus.APPROVED,
       },
       select: {
         id: true,

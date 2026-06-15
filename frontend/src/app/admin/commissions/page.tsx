@@ -17,6 +17,8 @@ type CommissionRow = {
   status: string;
   createdAt: string;
   availableAt: string;
+  daysRemaining: number;
+  nextPayoutDate: string;
   paidAt: string | null;
   notes: string | null;
   hotmartTransactionId: string | null;
@@ -64,20 +66,24 @@ type CommissionsResp = {
 
 // Badge del CICLO DE VIDA de la comisión (derivado de status + paymentStatus).
 // status: PENDING (en hold) → APPROVED (disponible) → PAID. REJECTED = anulada.
+// Estados del spec 2026-06-15: Bloqueada · Disponible · Lista para pagar ·
+// Pagada · Retenida · Cancelada (derivados de status + paymentStatus).
 function lifecycleBadge(
   status: string,
   paymentStatus: PaymentStatus,
 ): { label: string; cls: string } {
   if (status === 'REJECTED')
-    return { label: 'Rechazada', cls: 'bg-red-100 text-red-700' };
+    return { label: 'Cancelada', cls: 'bg-red-100 text-red-700' };
+  if (status === 'RETAINED')
+    return { label: 'Retenida', cls: 'bg-slate-200 text-slate-700' };
   if (status === 'PAID' || paymentStatus === 'PAID')
     return { label: 'Pagada', cls: 'bg-emerald-100 text-emerald-700' };
   if (paymentStatus === 'PARTIAL')
     return { label: 'Pago parcial', cls: 'bg-blue-100 text-blue-700' };
   if (status === 'APPROVED')
-    return { label: 'Disponible para pagar', cls: 'bg-indigo-100 text-indigo-700' };
-  // PENDING (o RETAINED): todavía en período de hold.
-  return { label: 'Pendiente por aprobar', cls: 'bg-amber-100 text-amber-700' };
+    return { label: 'Disponible', cls: 'bg-indigo-100 text-indigo-700' };
+  // PENDING: todavía dentro del bloqueo de 15 días.
+  return { label: 'Bloqueada', cls: 'bg-amber-100 text-amber-700' };
 }
 
 const BUCKET_LABEL: Record<Bucket, string> = {
@@ -148,6 +154,31 @@ export default function AdminCommissionsPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateFrom, dateTo, bucket, role, tenantId, codeId]);
+
+  // Habilitar manual: adelanta el desbloqueo de una comisión en hold.
+  const [enabling, setEnabling] = useState<string | null>(null);
+  async function enableCommission(c: CommissionRow) {
+    if (
+      !confirm(
+        `¿Habilitar esta comisión de ${fmtUsd(c.amount)}? Se eliminan los ${c.daysRemaining} día(s) restantes y queda disponible para el próximo ciclo de pago.`,
+      )
+    )
+      return;
+    const reason = window.prompt('Motivo (opcional):') ?? undefined;
+    setEnabling(c.id);
+    try {
+      await api(`/admin/commissions/${c.id}/enable`, {
+        method: 'PATCH',
+        body: JSON.stringify({ reason }),
+      });
+      toast('Comisión habilitada — disponible para pagar', 'success');
+      load();
+    } catch (e: any) {
+      toast(e?.message ?? 'No se pudo habilitar', 'error');
+    } finally {
+      setEnabling(null);
+    }
+  }
 
   // Opciones únicas para dropdowns derivadas del dataset actual.
   const tenantOptions = useMemo(() => {
@@ -446,21 +477,22 @@ export default function AdminCommissionsPage() {
                 <th className="px-4 py-3 font-semibold text-right">Pagado</th>
                 <th className="px-4 py-3 font-semibold text-right">Pendiente</th>
                 <th className="px-4 py-3 font-semibold">Estado</th>
-                <th className="px-4 py-3 font-semibold">Próx. renovación</th>
+                <th className="px-4 py-3 font-semibold text-center">Días rest.</th>
+                <th className="px-4 py-3 font-semibold">Próx. pago</th>
                 <th className="px-4 py-3 font-semibold"></th>
               </tr>
             </thead>
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-10 text-center text-mute">
+                  <td colSpan={11} className="px-4 py-10 text-center text-mute">
                     Cargando…
                   </td>
                 </tr>
               )}
               {!loading && (data?.items.length ?? 0) === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-12 text-center text-mute">
+                  <td colSpan={11} className="px-4 py-12 text-center text-mute">
                     <div className="text-3xl mb-2">💸</div>
                     Sin comisiones con estos filtros.
                   </td>
@@ -536,22 +568,47 @@ export default function AdminCommissionsPage() {
                           </div>
                         )}
                       </td>
+                      <td className="px-4 py-3 text-center whitespace-nowrap">
+                        {inHold ? (
+                          <span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700">
+                            {c.daysRemaining}d
+                          </span>
+                        ) : c.status === 'APPROVED' ? (
+                          <span className="text-[11px] text-emerald-600 font-semibold">
+                            🔓 0
+                          </span>
+                        ) : (
+                          <span className="text-mute text-xs">—</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-xs text-mute whitespace-nowrap">
-                        {fmtDate(c.tenant?.currentPeriodEnd ?? null)}
+                        {c.status === 'PAID'
+                          ? '—'
+                          : fmtDate(c.nextPayoutDate)}
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
-                        {c.paymentStatus !== 'PAID' ? (
+                        {inHold && (
+                          <button
+                            onClick={() => enableCommission(c)}
+                            disabled={enabling === c.id}
+                            className="text-xs px-2.5 py-1 mr-1 rounded-md bg-indigo-100 text-indigo-700 font-semibold hover:bg-indigo-200 transition select-none active:scale-[0.97] [-webkit-tap-highlight-color:transparent] disabled:opacity-50"
+                            title="Adelantar el desbloqueo de esta comisión"
+                          >
+                            {enabling === c.id ? '…' : '🔓 Habilitar'}
+                          </button>
+                        )}
+                        {c.paymentStatus !== 'PAID' && c.status !== 'REJECTED' ? (
                           <button
                             onClick={() => setPaying(c)}
                             className="text-xs px-2.5 py-1 rounded-md bg-brand/10 text-brand font-semibold hover:bg-brand/20 transition select-none active:scale-[0.97] [-webkit-tap-highlight-color:transparent]"
                           >
                             Marcar pagado
                           </button>
-                        ) : (
+                        ) : c.paymentStatus === 'PAID' ? (
                           <span className="text-xs text-ok">
                             ✓ {fmtDate(c.paidAt)}
                           </span>
-                        )}
+                        ) : null}
                       </td>
                     </tr>
                   );
@@ -572,7 +629,7 @@ export default function AdminCommissionsPage() {
                   <td className="px-4 py-3 text-right text-amber-700">
                     {fmtUsd(data.totals.totalOutstanding)}
                   </td>
-                  <td colSpan={3}></td>
+                  <td colSpan={4}></td>
                 </tr>
               </tfoot>
             )}

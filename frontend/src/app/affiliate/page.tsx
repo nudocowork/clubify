@@ -81,12 +81,16 @@ type CommissionResp = {
   items: Array<{
     id: string;
     amount: number;
-    status: 'PENDING' | 'APPROVED' | 'PAID' | 'REJECTED';
+    percent: number | null;
+    status: 'PENDING' | 'APPROVED' | 'PAID' | 'REJECTED' | 'RETAINED';
     createdAt: string;
     paidAt: string | null;
     tenantBrand: string;
     via: string;
     codeText: string;
+    daysRemaining: number;
+    availableAt: string;
+    nextPayoutDate: string;
   }>;
 };
 
@@ -95,6 +99,7 @@ const STATUS_CLS: Record<string, string> = {
   APPROVED: 'bg-ok-soft text-ok',
   PAID: 'bg-bg2 text-mute',
   REJECTED: 'bg-red-100 text-red-800',
+  RETAINED: 'bg-slate-200 text-slate-700',
   SIGNED_UP: 'bg-bg2 text-mute',
   ACTIVE: 'bg-ok-soft text-ok',
   PAYING: 'bg-ok-soft text-ok',
@@ -105,10 +110,11 @@ const STATUS_CLS: Record<string, string> = {
 // SIGNED_UP, etc.) es confuso para el afiliado — confundía PAYING
 // con "pago pendiente" cuando en realidad significa "activo/al día".
 const STATUS_LABEL: Record<string, string> = {
-  PENDING: 'Pendiente',
-  APPROVED: 'Aprobada',
+  PENDING: 'Bloqueada',
+  APPROVED: 'Disponible',
   PAID: 'Pagada',
-  REJECTED: 'Rechazada',
+  REJECTED: 'Cancelada',
+  RETAINED: 'Retenida',
   SIGNED_UP: 'Registrado',
   ACTIVE: 'Activo',
   PAYING: 'Activo',
@@ -1417,8 +1423,9 @@ function CommissionsList() {
 
   return (
     <div className="space-y-4">
+      <CommissionPolicyNote />
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Stat label="Pendiente" value={fmtUsd(data.totals.pendingUsd)} />
+        <Stat label="Bloqueado (hold 15d)" value={fmtUsd(data.totals.pendingUsd)} />
         <Stat label="Disponible" value={fmtUsd(data.totals.approvedUsd)} tone="ok" />
         <Stat label="Pagado" value={fmtUsd(data.totals.paidUsd)} tone="brand" />
         <Stat label="Registros" value={String(data.totals.count)} />
@@ -1429,15 +1436,19 @@ function CommissionsList() {
         </div>
       ) : (
         <>
-          {/* Mobile: cards verticales con info clave (cliente, monto,
-              estado prominentes; vía + fechas como meta). */}
+          {/* Mobile: cards verticales con info clave. */}
           <div className="sm:hidden space-y-2.5">
             {data.items.map((c) => (
               <div key={c.id} className="card card-pad space-y-1.5">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="font-semibold truncate">{c.tenantBrand}</div>
-                    <div className="text-[11px] text-mute">{c.via}</div>
+                    <div className="text-[11px] text-mute">
+                      {c.via}
+                      {c.percent != null && (
+                        <span className="ml-1 font-semibold text-ink">· {c.percent}%</span>
+                      )}
+                    </div>
                   </div>
                   <div className="text-right flex-none">
                     <div className="font-bold text-base">{fmtUsd(c.amount)}</div>
@@ -1450,9 +1461,21 @@ function CommissionsList() {
                     </span>
                   </div>
                 </div>
-                <div className="text-[11px] text-mute pt-1 border-t border-line2 flex justify-between gap-2">
-                  <span>Creada: <span className="text-ink">{fmtDate(c.createdAt)}</span></span>
-                  <span>Pagada: <span className="text-ink">{fmtDate(c.paidAt)}</span></span>
+                <div className="text-[11px] text-mute pt-1 border-t border-line2 flex flex-wrap justify-between gap-x-3 gap-y-1">
+                  <span>Compra: <span className="text-ink">{fmtDate(c.createdAt)}</span></span>
+                  {c.status === 'PENDING' ? (
+                    <span className="text-amber-700 font-semibold">
+                      🔒 Faltan {c.daysRemaining}d
+                    </span>
+                  ) : c.status === 'APPROVED' ? (
+                    <span className="text-ok font-semibold">🔓 Disponible</span>
+                  ) : null}
+                  {c.status !== 'PAID' && c.status !== 'REJECTED' && (
+                    <span>Próx. pago: <span className="text-ink">{fmtDate(c.nextPayoutDate)}</span></span>
+                  )}
+                  {c.status === 'PAID' && (
+                    <span>Pagada: <span className="text-ink">{fmtDate(c.paidAt)}</span></span>
+                  )}
                 </div>
               </div>
             ))}
@@ -1461,10 +1484,10 @@ function CommissionsList() {
           {/* Desktop: tabla. */}
           <div className="hidden sm:block card overflow-hidden p-0">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm min-w-[820px]">
                 <thead className="bg-bg2">
                   <tr>
-                    {['Cliente', 'Vía', 'Monto', 'Estado', 'Creada', 'Pagada'].map((h) => (
+                    {['Negocio', 'Vía', '%', 'Monto', 'Fecha compra', 'Días rest.', 'Estado', 'Próx. pago'].map((h) => (
                       <th
                         key={h}
                         className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
@@ -1479,7 +1502,22 @@ function CommissionsList() {
                     <tr key={c.id} className="border-t border-line2 hover:bg-[#FAFAFB]">
                       <td className="px-4 py-3 font-medium">{c.tenantBrand}</td>
                       <td className="px-4 py-3 text-xs text-mute">{c.via}</td>
+                      <td className="px-4 py-3 text-xs font-semibold">
+                        {c.percent != null ? `${c.percent}%` : '—'}
+                      </td>
                       <td className="px-4 py-3 font-bold">{fmtUsd(c.amount)}</td>
+                      <td className="px-4 py-3 text-xs text-mute">{fmtDate(c.createdAt)}</td>
+                      <td className="px-4 py-3 text-center">
+                        {c.status === 'PENDING' ? (
+                          <span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700">
+                            {c.daysRemaining}d
+                          </span>
+                        ) : c.status === 'APPROVED' ? (
+                          <span className="text-[11px] text-ok font-semibold">🔓 0</span>
+                        ) : (
+                          <span className="text-mute text-xs">—</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3">
                         <span
                           className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
@@ -1489,8 +1527,13 @@ function CommissionsList() {
                           {STATUS_LABEL[c.status] ?? c.status}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-xs text-mute">{fmtDate(c.createdAt)}</td>
-                      <td className="px-4 py-3 text-xs text-mute">{fmtDate(c.paidAt)}</td>
+                      <td className="px-4 py-3 text-xs text-mute">
+                        {c.status === 'PAID'
+                          ? `✓ ${fmtDate(c.paidAt)}`
+                          : c.status === 'REJECTED'
+                          ? '—'
+                          : fmtDate(c.nextPayoutDate)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1499,6 +1542,20 @@ function CommissionsList() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// Texto informativo de la política de comisiones, visible en el panel de
+// todo afiliado (influencer / embajador / vendedor). Spec 2026-06-15.
+function CommissionPolicyNote() {
+  return (
+    <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-[13px] text-indigo-900 leading-relaxed">
+      <span className="font-semibold">ℹ️ Cómo funcionan tus comisiones: </span>
+      Las comisiones se desbloquean <b>15 días después</b> de la compra del
+      cliente. Los pagos se realizan los días <b>15 y último día de cada
+      mes</b>. Si retiras <b>50 USD o más</b>, el retiro es gratis; si retiras
+      <b> menos de 50 USD</b>, se descuenta un costo de retiro de <b>3 USD</b>.
     </div>
   );
 }

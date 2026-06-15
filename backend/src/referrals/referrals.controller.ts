@@ -585,6 +585,18 @@ export class AdminCommissionsController {
     return this.svc.companyAccountingReport(user);
   }
 
+  // Habilitar manual: adelanta el desbloqueo de una comisión en hold
+  // (PENDING → APPROVED). Body opcional { reason }.
+  @Roles('SUPER_ADMIN')
+  @Patch(':id/enable')
+  enable(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+  ) {
+    return this.svc.enableCommission(user, id, body?.reason);
+  }
+
   @Roles('SUPER_ADMIN')
   @Patch(':id/pay')
   pay(
