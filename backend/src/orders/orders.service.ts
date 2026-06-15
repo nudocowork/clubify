@@ -145,6 +145,7 @@ export class OrdersService {
         select: {
           id: true,
           brandName: true,
+          currencySymbol: true,
           whatsappDeliveryPhone: true,
           deliveryAlertsEnabled: true,
           deliveryAlertsPhones: true,
@@ -231,7 +232,7 @@ export class OrdersService {
         `${eventLabel[eventKey]}\n\n` +
         `Negocio: ${tenant.brandName}\n` +
         `Pedido: #${order.code}\n` +
-        `Total: $${Number(order.total).toLocaleString('es-CO')}\n` +
+        `Total: ${tenant.currencySymbol?.trim() || '$'}${Number(order.total).toLocaleString('es-CO')}\n` +
         `Cliente: ${order.customer?.fullName ?? 'Anónimo'}\n` +
         (order.customer?.phone ? `Tel: ${order.customer.phone}\n` : '') +
         (addr ? `Dirección: ${addr}\n` : '') +
@@ -778,7 +779,16 @@ export class OrdersService {
       where: { code },
       include: {
         tenant: {
-          select: { brandName: true, primaryColor: true, logoUrl: true, slug: true },
+          select: {
+            brandName: true,
+            primaryColor: true,
+            logoUrl: true,
+            slug: true,
+            // Para que la confirmación del pedido muestre el símbolo correcto
+            // (ej "Ref." en lugar de "$") según la config del negocio.
+            currency: true,
+            currencySymbol: true,
+          },
         },
         customer: { select: { fullName: true, phone: true } },
       },
