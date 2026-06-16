@@ -2977,6 +2977,88 @@ function SelfRegisterLinkButton({
   );
 }
 
+// #37 (2026-06-16): genera una contraseña segura (12 chars, letras+números+
+// símbolos) para que el admin la fije al crear el afiliado.
+function genAffiliatePassword(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  const symbols = '!@#$%&*?';
+  const arr = new Uint32Array(11);
+  crypto.getRandomValues(arr);
+  let out = '';
+  for (let i = 0; i < 11; i++) out += chars[arr[i] % chars.length];
+  const symArr = new Uint32Array(1);
+  crypto.getRandomValues(symArr);
+  // intercalar un símbolo en el medio para cumplir variedad
+  const pos = 5;
+  return out.slice(0, pos) + symbols[symArr[0] % symbols.length] + out.slice(pos);
+}
+
+// #37 (2026-06-16): bloque reutilizable de contraseña para los modales de
+// creación de afiliado. Si se deja vacío, el backend manda email de invite;
+// si se llena, el afiliado entra de inmediato y se muestran las credenciales.
+function AffiliatePasswordFields({
+  password,
+  confirmPassword,
+  onPasswordChange,
+  onConfirmChange,
+}: {
+  password: string;
+  confirmPassword: string;
+  onPasswordChange: (v: string) => void;
+  onConfirmChange: (v: string) => void;
+}) {
+  const mismatch = confirmPassword.length > 0 && confirmPassword !== password;
+  return (
+    <div className="mt-3 rounded-lg border border-line p-3 bg-bg2/40">
+      <div className="flex items-center justify-between">
+        <label className="label mb-0">Contraseña de acceso</label>
+        <button
+          type="button"
+          className="text-xs font-semibold text-brand hover:underline"
+          onClick={() => {
+            const p = genAffiliatePassword();
+            onPasswordChange(p);
+            onConfirmChange(p);
+          }}
+        >
+          Generar automática
+        </button>
+      </div>
+      <p className="text-[11px] text-mute leading-relaxed mt-0.5 mb-2">
+        Mínimo 8 caracteres. Si la dejas vacía, se enviará una invitación por
+        email para que el afiliado cree su propia contraseña.
+      </p>
+      <input
+        className="input font-mono"
+        type="text"
+        value={password}
+        onChange={(e) => onPasswordChange(e.target.value)}
+        minLength={8}
+        maxLength={64}
+        placeholder="Dejar vacío = invitación por email"
+        autoComplete="new-password"
+      />
+      {password.length > 0 && (
+        <>
+          <input
+            className="input font-mono mt-2"
+            type="text"
+            value={confirmPassword}
+            onChange={(e) => onConfirmChange(e.target.value)}
+            minLength={8}
+            maxLength={64}
+            placeholder="Confirmar contraseña"
+            autoComplete="new-password"
+          />
+          {mismatch && (
+            <p className="text-[11px] text-bad-ink mt-1">Las contraseñas no coinciden</p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // #36 (2026-06-16): crear influencer directo desde la empresa.
 function CreateInfluencerModal({
   onClose,
@@ -2991,11 +3073,29 @@ function CreateInfluencerModal({
     whatsapp: '',
     commissionPercent: 30,
     customCode: '',
+    password: '',
+    confirmPassword: '',
   });
   const [busy, setBusy] = useState(false);
+  const [credentials, setCredentials] = useState<{
+    email: string;
+    password: string;
+    loginUrl: string;
+  } | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    const pwd = form.password.trim();
+    if (pwd) {
+      if (pwd.length < 8) {
+        toast('La contraseña debe tener al menos 8 caracteres', 'error');
+        return;
+      }
+      if (pwd !== form.confirmPassword.trim()) {
+        toast('Las contraseñas no coinciden', 'error');
+        return;
+      }
+    }
     setBusy(true);
     try {
       const payload: any = {
@@ -3005,16 +3105,37 @@ function CreateInfluencerModal({
         commissionPercent: Number(form.commissionPercent),
       };
       if (form.customCode.trim()) payload.customCode = form.customCode.trim().toUpperCase();
-      await api('/referrals/influencers', {
+      if (pwd) payload.password = pwd;
+      const res = await api<any>('/referrals/influencers', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
-      toast('Influencer creado · invitación enviada por email', 'success');
-      onCreated();
+      if (res?.credentials) {
+        // No cerramos: mostramos las credenciales una sola vez.
+        setCredentials(res.credentials);
+        toast('Influencer creado · credenciales listas para compartir', 'success');
+      } else {
+        toast('Influencer creado · invitación enviada por email', 'success');
+        onCreated();
+      }
     } catch (e: any) {
       toast(e.message || 'No se pudo crear', 'error');
       setBusy(false);
     }
+  }
+
+  if (credentials) {
+    return (
+      <AffiliateCredentialsModal
+        credentials={credentials}
+        whoLabel={`influencer ${form.fullName.trim()}`}
+        whatsapp={form.whatsapp.trim()}
+        onClose={() => {
+          setCredentials(null);
+          onCreated();
+        }}
+      />
+    );
   }
 
   return (
@@ -3025,7 +3146,7 @@ function CreateInfluencerModal({
       <form
         onSubmit={submit}
         onClick={(e) => e.stopPropagation()}
-        className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl"
+        className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl max-h-[90vh] overflow-y-auto"
       >
         <div className="flex items-start justify-between mb-1">
           <h3 className="text-lg font-bold">🌟 Crear Influencer</h3>
@@ -3039,8 +3160,7 @@ function CreateInfluencerModal({
         </div>
         <p className="text-xs text-mute leading-relaxed mb-4">
           El influencer puede traer negocios directo y tener embajadores/
-          vendedores debajo. Recibe invitación por email y panel propio en{' '}
-          <code>/affiliate</code>.
+          vendedores debajo. Panel propio en <code>/affiliate</code>.
         </p>
 
         <label className="label">Nombre completo</label>
@@ -3099,6 +3219,13 @@ function CreateInfluencerModal({
           </div>
         </div>
 
+        <AffiliatePasswordFields
+          password={form.password}
+          confirmPassword={form.confirmPassword}
+          onPasswordChange={(v) => setForm({ ...form, password: v })}
+          onConfirmChange={(v) => setForm({ ...form, confirmPassword: v })}
+        />
+
         <div className="flex justify-end gap-2 mt-5">
           <button
             type="button"
@@ -3113,7 +3240,7 @@ function CreateInfluencerModal({
             disabled={busy}
             className="btn-primary text-sm disabled:opacity-50"
           >
-            {busy ? 'Creando…' : 'Crear y enviar invitación'}
+            {busy ? 'Creando…' : form.password.trim() ? 'Crear influencer' : 'Crear y enviar invitación'}
           </button>
         </div>
       </form>
@@ -3134,11 +3261,29 @@ function CompanyDirectAmbassadorModal({
     whatsapp: '',
     commissionPercent: 25,
     customCode: '',
+    password: '',
+    confirmPassword: '',
   });
   const [busy, setBusy] = useState(false);
+  const [credentials, setCredentials] = useState<{
+    email: string;
+    password: string;
+    loginUrl: string;
+  } | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    const pwd = form.password.trim();
+    if (pwd) {
+      if (pwd.length < 8) {
+        toast('La contraseña debe tener al menos 8 caracteres', 'error');
+        return;
+      }
+      if (pwd !== form.confirmPassword.trim()) {
+        toast('Las contraseñas no coinciden', 'error');
+        return;
+      }
+    }
     setBusy(true);
     try {
       const payload: any = {
@@ -3148,19 +3293,39 @@ function CompanyDirectAmbassadorModal({
         commissionPercent: Number(form.commissionPercent),
       };
       if (form.customCode.trim()) payload.customCode = form.customCode.trim().toUpperCase();
-      await api('/referrals/ambassadors/company-direct', {
+      if (pwd) payload.password = pwd;
+      const res = await api<any>('/referrals/ambassadors/company-direct', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
-      toast(
-        'Embajador Directo Empresa creado · invitación enviada por email',
-        'success',
-      );
-      onCreated();
+      if (res?.credentials) {
+        setCredentials(res.credentials);
+        toast('Embajador creado · credenciales listas para compartir', 'success');
+      } else {
+        toast(
+          'Embajador Directo Empresa creado · invitación enviada por email',
+          'success',
+        );
+        onCreated();
+      }
     } catch (e: any) {
       toast(e.message || 'No se pudo crear', 'error');
       setBusy(false);
     }
+  }
+
+  if (credentials) {
+    return (
+      <AffiliateCredentialsModal
+        credentials={credentials}
+        whoLabel={`embajador ${form.fullName.trim()}`}
+        whatsapp={form.whatsapp.trim()}
+        onClose={() => {
+          setCredentials(null);
+          onCreated();
+        }}
+      />
+    );
   }
 
   return (
@@ -3171,7 +3336,7 @@ function CompanyDirectAmbassadorModal({
       <form
         onSubmit={submit}
         onClick={(e) => e.stopPropagation()}
-        className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl"
+        className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl max-h-[90vh] overflow-y-auto"
       >
         <div className="flex items-start justify-between mb-1">
           <h3 className="text-lg font-bold">🏢 Embajador Directo Empresa</h3>
@@ -3186,7 +3351,7 @@ function CompanyDirectAmbassadorModal({
         <p className="text-xs text-mute leading-relaxed mb-4">
           Reporta directo a Clubify (sin influencer parent). Mismo % de comisión
           que un embajador normal; el 5% indirecto se queda con la empresa.
-          Recibe invitación por email y panel propio en <code>/affiliate</code>.
+          Panel propio en <code>/affiliate</code>.
         </p>
 
         <label className="label">Nombre completo</label>
@@ -3245,6 +3410,13 @@ function CompanyDirectAmbassadorModal({
           </div>
         </div>
 
+        <AffiliatePasswordFields
+          password={form.password}
+          confirmPassword={form.confirmPassword}
+          onPasswordChange={(v) => setForm({ ...form, password: v })}
+          onConfirmChange={(v) => setForm({ ...form, confirmPassword: v })}
+        />
+
         <div className="flex justify-end gap-2 mt-5">
           <button
             type="button"
@@ -3259,7 +3431,7 @@ function CompanyDirectAmbassadorModal({
             disabled={busy}
             className="btn-primary text-sm disabled:opacity-50"
           >
-            {busy ? 'Creando…' : 'Crear y enviar invitación'}
+            {busy ? 'Creando…' : form.password.trim() ? 'Crear embajador' : 'Crear y enviar invitación'}
           </button>
         </div>
       </form>
@@ -3389,9 +3561,12 @@ function ClientsTab() {
                     </td>
                     <td className="px-4 py-3 text-xs">{r.plan}</td>
                     <td className="px-4 py-3 text-xs">
-                      <div className="font-medium">{r.attribution.ownerName}</div>
-                      <div className="text-mute font-mono">{r.attribution.code}</div>
-                      {r.attribution.parentCode && (
+                      {/* FIX 2026-06-16 (review): attribution puede ser null
+                          (cliente cuyo afiliado se anuló/eliminó) → crasheaba
+                          toda la tab. Guardas con ?. */}
+                      <div className="font-medium">{r.attribution?.ownerName ?? '—'}</div>
+                      <div className="text-mute font-mono">{r.attribution?.code ?? ''}</div>
+                      {r.attribution?.parentCode && (
                         <div className="text-mute text-[10px] mt-0.5">
                           via {r.attribution.parentName}
                         </div>
@@ -3399,7 +3574,7 @@ function ClientsTab() {
                     </td>
                     <td className="px-4 py-3 text-xs">
                       <span className="px-1.5 py-0.5 rounded bg-bg2 text-[10px] uppercase font-bold">
-                        {r.attribution.role}
+                        {r.attribution?.role ?? '—'}
                       </span>
                     </td>
                     <td className="px-4 py-3">

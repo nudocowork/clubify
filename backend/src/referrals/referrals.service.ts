@@ -1200,11 +1200,18 @@ export class ReferralsService {
       whatsapp: string;
       commissionPercent?: number;
       customCode?: string;
+      // #37 (2026-06-16): password directo opcional (ver createInfluencer).
+      password?: string;
+      country?: string;
     },
   ) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     if (!dto.fullName?.trim() || !dto.email?.trim() || !dto.whatsapp?.trim()) {
       throw new BadRequestException('fullName, email y whatsapp son requeridos');
+    }
+    const presetPassword = dto.password?.trim() || undefined;
+    if (presetPassword && presetPassword.length < 8) {
+      throw new BadRequestException('La contraseña debe tener al menos 8 caracteres');
     }
     const email = dto.email.trim().toLowerCase();
 
@@ -1239,6 +1246,7 @@ export class ReferralsService {
         ownerName: dto.fullName.trim(),
         ownerEmail: email,
         ownerWhatsapp: dto.whatsapp.trim(),
+        country: dto.country?.trim() || null,
         commissionPercent: dto.commissionPercent ?? COMMISSION_DEFAULTS.ambassadorPct,
         role: 'AMBASSADOR',
         parentCodeId: null,
@@ -1250,25 +1258,31 @@ export class ReferralsService {
 
     // Invitar al embajador con su panel propio (mismo flujo que un embajador
     // normal, pero scoped a sus propios datos sin parent influencer).
-    await this.auth
+    const invite = await this.auth
       .inviteAffiliate({
         email,
         fullName: dto.fullName.trim(),
         role: 'AFFILIATE_AMBASSADOR',
         referralCodeId: created.id,
         phone: dto.whatsapp.trim(),
+        presetPassword,
       })
       .catch((err) => {
         this.logger.warn(
           `inviteAffiliate falló para ${email}: ${(err as Error).message}`,
         );
+        return null;
       });
 
     const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
+    const credentials = invite?.password
+      ? { email, password: invite.password, loginUrl: '/login' }
+      : null;
     return {
       ...created,
       shareLink: `${appUrl}/ref/${slug}`,
       isCompanyDirect: true,
+      credentials,
     };
   }
 
@@ -1287,11 +1301,20 @@ export class ReferralsService {
       whatsapp: string;
       commissionPercent?: number;
       customCode?: string;
+      // #37 (2026-06-16): el admin puede fijar la contraseña al crear, así
+      // el influencer entra de inmediato sin esperar el email de invitación.
+      // Si viene vacía, se cae al flow tradicional (email de reset).
+      password?: string;
+      country?: string;
     },
   ) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     if (!dto.fullName?.trim() || !dto.email?.trim() || !dto.whatsapp?.trim()) {
       throw new BadRequestException('fullName, email y whatsapp son requeridos');
+    }
+    const presetPassword = dto.password?.trim() || undefined;
+    if (presetPassword && presetPassword.length < 8) {
+      throw new BadRequestException('La contraseña debe tener al menos 8 caracteres');
     }
     const email = dto.email.trim().toLowerCase();
     await this.assertUniqueAffiliateEmail(email);
@@ -1322,6 +1345,7 @@ export class ReferralsService {
         ownerName: dto.fullName.trim(),
         ownerEmail: email,
         ownerWhatsapp: dto.whatsapp.trim(),
+        country: dto.country?.trim() || null,
         commissionPercent: dto.commissionPercent ?? COMMISSION_DEFAULTS.influencerPct,
         role: 'INFLUENCER',
         parentCodeId: null,
@@ -1331,22 +1355,29 @@ export class ReferralsService {
       },
     });
 
-    await this.auth
+    const invite = await this.auth
       .inviteAffiliate({
         email,
         fullName: dto.fullName.trim(),
         role: 'AFFILIATE_INFLUENCER',
         referralCodeId: created.id,
         phone: dto.whatsapp.trim(),
+        presetPassword,
       })
       .catch((err) => {
         this.logger.warn(
           `inviteAffiliate (influencer) falló para ${email}: ${(err as Error).message}`,
         );
+        return null;
       });
 
     const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
-    return { ...created, shareLink: `${appUrl}/ref/${slug}` };
+    // Si el admin fijó password, devolvemos las credenciales para que las
+    // copie/comparta una sola vez (no se guardan en plain text).
+    const credentials = invite?.password
+      ? { email, password: invite.password, loginUrl: '/login' }
+      : null;
+    return { ...created, shareLink: `${appUrl}/ref/${slug}`, credentials };
   }
 
   async listClients(user: AuthUser) {
@@ -3184,6 +3215,7 @@ export class ReferralsService {
       email: string;
       phone: string;
       password: string;
+      country?: string;
     },
     ip?: string,
   ) {
@@ -3221,6 +3253,7 @@ export class ReferralsService {
         ownerName: dto.fullName,
         ownerEmail: dto.email,
         ownerWhatsapp: dto.phone,
+        country: dto.country?.trim() || null,
         role: dto.role,
         commissionPercent,
         isActive: true,
