@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
+import { ImageUploader } from '@/components/ImageUploader';
 
 type Kind = 'BANNER' | 'LOGIN_POPUP';
 type Audience = 'ALL' | 'INFLUENCERS' | 'AMBASSADORS' | 'VENDORS';
@@ -629,9 +630,23 @@ function EditorModal({
                     ))}
                   </select>
                 </Field>
+                {/* #21 (2026-06-16): para IMAGE, permitir SUBIR la imagen
+                    directamente (además de pegar URL). */}
+                {form.mediaKind === 'IMAGE' && (
+                  <Field label="Subir imagen">
+                    <ImageUploader
+                      value={form.mediaUrl ?? null}
+                      onChange={(url) => patch({ mediaUrl: url ?? '' })}
+                    />
+                  </Field>
+                )}
                 {form.mediaKind && form.mediaKind !== 'TEXT' && (
                   <Field
-                    label={`URL del ${MEDIA_LABEL[form.mediaKind].toLowerCase()}`}
+                    label={
+                      form.mediaKind === 'IMAGE'
+                        ? '…o pegar URL de la imagen'
+                        : `URL del ${MEDIA_LABEL[form.mediaKind].toLowerCase()}`
+                    }
                   >
                     <input
                       className="input"

@@ -131,9 +131,16 @@ export default function AffiliateTeamPage() {
   async function enableVendors() {
     if (!me?.myCode?.id) return;
     try {
+      // CORRECCIÓN LÓGICA 2026-06-16: el tope no puede superar tu propia
+      // comisión — el vendedor cobra de tu tajada. Arrancamos en min(25, %
+      // propio) en vez de un flat 25 que el backend ahora rechaza.
+      const initialMax = Math.min(25, me.myCode.commissionPercent);
       await api(`/referrals/codes/${me.myCode.id}/vendor-config`, {
         method: 'PATCH',
-        body: JSON.stringify({ allowVendors: true, maxCommissionPercent: 25 }),
+        body: JSON.stringify({
+          allowVendors: true,
+          maxCommissionPercent: initialMax,
+        }),
       });
       toast('Módulo de vendedores activado', 'success');
       setMe((prev) =>
@@ -143,7 +150,8 @@ export default function AffiliateTeamPage() {
               myCode: {
                 ...prev.myCode,
                 allowVendors: true,
-                maxCommissionPercent: prev.myCode.maxCommissionPercent ?? 25,
+                maxCommissionPercent:
+                  prev.myCode.maxCommissionPercent ?? initialMax,
               },
             }
           : prev,
@@ -220,7 +228,10 @@ export default function AffiliateTeamPage() {
               defaultVendorCommissionPercent={
                 me.myCode.defaultVendorCommissionPercent ?? null
               }
-              maxCommissionPercent={me.myCode.maxCommissionPercent ?? 25}
+              maxCommissionPercent={
+                me.myCode.maxCommissionPercent ??
+                Math.min(25, me.myCode.commissionPercent)
+              }
               onSaved={(next) => {
                 // Patch in place — sin reload completo.
                 setMe((prev) =>

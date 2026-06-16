@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Post, Query } from '@nestjs/common';
-import { IsArray, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsArray, IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { CommissionsAuditService } from './commissions-audit.service';
@@ -7,6 +7,13 @@ import { CommissionsAuditService } from './commissions-audit.service';
 class MarkRejectedBody {
   @IsArray() @IsString({ each: true }) ids!: string[];
   @IsOptional() @IsString() @MaxLength(300) reason?: string;
+  // #4 (2026-06-16): cascada OPT-IN. Si true, al rechazar una comisión se
+  // rechazan también las hermanas de la MISMA venta (mismo referralUse +
+  // periodKey → influencer/embajador/vendedor del mismo cobro). Default
+  // FALSE: la UI de duplicados rechaza exactamente las ids pasadas (sus
+  // hermanas son comisiones legítimas de otros actores, NO duplicados). Se
+  // usa true sólo desde la acción "anular venta completa".
+  @IsOptional() @IsBoolean() cascade?: boolean;
 }
 
 /**
@@ -40,6 +47,7 @@ export class CommissionsAuditController {
       actorId: user.id,
       ids: body.ids,
       reason: body.reason,
+      cascade: body.cascade === true,
     });
   }
 }

@@ -159,11 +159,14 @@ export class CommissionsAuditService {
     actorId: string;
     ids: string[];
     reason?: string;
+    cascade?: boolean;
   }): Promise<{
     updated: number;
     skippedPaid: number;
     skippedNotFound: number;
+    cascaded: number;
   }> {
+    const cascade = opts.cascade === true;
     const ids = Array.from(new Set(opts.ids ?? [])).filter(
       (x): x is string => typeof x === 'string' && x.length > 0,
     );
@@ -174,29 +177,70 @@ export class CommissionsAuditService {
       throw new BadRequestException('Máximo 50 ids por request');
     }
 
-    const found = await this.prisma.commission.findMany({
-      where: { id: { in: ids } },
-      select: {
-        id: true,
-        status: true,
-        amount: true,
-        referralUseId: true,
-        recipientCodeId: true,
-        referralUse: {
-          select: {
-            tenantId: true,
-            tenant: { select: { brandName: true } },
-          },
+    const selectShape = {
+      id: true,
+      status: true,
+      amount: true,
+      referralUseId: true,
+      recipientCodeId: true,
+      periodKey: true,
+      referralUse: {
+        select: {
+          tenantId: true,
+          tenant: { select: { brandName: true } },
         },
       },
+    } as const;
+
+    const found = await this.prisma.commission.findMany({
+      where: { id: { in: ids } },
+      select: selectShape,
     });
 
     const foundIds = new Set(found.map((c) => c.id));
     const skippedNotFound = ids.length - foundIds.size;
 
+    // #4 (2026-06-16) CASCADA POR VENTA: una venta genera varias Commission
+    // rows (influencer + embajador + 5% indirecto + vendedor) compartiendo
+    // (referralUseId, periodKey) pero distinto recipientCodeId. Al rechazar
+    // una, anulamos las hermanas del MISMO cobro para no dejar comisiones
+    // colgadas de una venta cancelada. Solo cuando periodKey != null (las
+    // legacy con periodKey null se rechazan individualmente para no barrer
+    // ciclos distintos del mismo use).
+    const cascadedIds = new Set<string>();
+    if (cascade) {
+      const saleKeys = found
+        .filter((c) => c.periodKey != null)
+        .map((c) => ({ referralUseId: c.referralUseId, periodKey: c.periodKey as string }));
+      // Dedup de las combinaciones (use, periodo).
+      const uniqueKeys = Array.from(
+        new Map(saleKeys.map((k) => [`${k.referralUseId}|${k.periodKey}`, k])).values(),
+      );
+      if (uniqueKeys.length > 0) {
+        const siblings = await this.prisma.commission.findMany({
+          where: {
+            OR: uniqueKeys,
+            status: { in: ['PENDING', 'APPROVED'] },
+            id: { notIn: ids },
+          },
+          select: selectShape,
+        });
+        for (const s of siblings) {
+          if (!foundIds.has(s.id)) {
+            found.push(s);
+            cascadedIds.add(s.id);
+          }
+        }
+      }
+    }
+
     const safeToMark = found.filter(
       (c) => c.status === 'PENDING' || c.status === 'APPROVED',
     );
+    // skippedPaid cuenta las no elegibles (PAID/REJECTED). Las cascadeadas
+    // ya vienen filtradas por status en la query de siblings → están todas
+    // en safeToMark y se cancelan en esta resta, así que el resultado es el
+    // nº de ids EXPLÍCITAS no elegibles.
     const skippedPaid = found.length - safeToMark.length;
 
     if (safeToMark.length === 0) {
@@ -227,6 +271,7 @@ export class CommissionsAuditService {
 
     // Audit log por cada commission tocada — granular para trazabilidad.
     for (const c of safeToMark) {
+      const wasCascaded = cascadedIds.has(c.id);
       this.audit.log({
         actorId: opts.actorId,
         tenantId: c.referralUse?.tenantId ?? null,
@@ -238,20 +283,25 @@ export class CommissionsAuditService {
           amount: Number(c.amount),
           recipientCodeId: c.recipientCodeId,
           referralUseId: c.referralUseId,
+          periodKey: c.periodKey ?? null,
           reason: opts.reason?.trim() || null,
-          source: 'audit_duplicates_ui',
+          // #4: distingue las rechazadas por cascada (misma venta) de las
+          // seleccionadas explícitamente por el admin.
+          cascaded: wasCascaded,
+          source: wasCascaded ? 'audit_cascade_sale' : 'audit_duplicates_ui',
         },
       });
     }
 
     this.logger.log(
-      `markRejected: ${result.count} updated, ${skippedPaid} skipped (PAID), ${skippedNotFound} not found, ${skippedRaced} raced, actor=${opts.actorId}`,
+      `markRejected: ${result.count} updated (${cascadedIds.size} por cascada), ${skippedPaid} skipped (PAID), ${skippedNotFound} not found, ${skippedRaced} raced, actor=${opts.actorId}`,
     );
 
     return {
       updated: result.count,
       skippedPaid: skippedPaid + skippedRaced,
       skippedNotFound,
+      cascaded: cascadedIds.size,
     };
   }
 }

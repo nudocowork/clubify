@@ -49,6 +49,7 @@ export type StorefrontDto = {
   menuLayout?: MenuLayout;
   digitalMenuEnabled?: boolean;
   bookMenuEnabled?: boolean;
+  bookMenuDirection?: string;
   customDomain?: string | null;
 };
 
@@ -233,6 +234,7 @@ export class StorefrontService {
         menuLayout: dto.menuLayout ?? undefined,
         digitalMenuEnabled: dto.digitalMenuEnabled ?? undefined,
         bookMenuEnabled: dto.bookMenuEnabled ?? undefined,
+        bookMenuDirection: dto.bookMenuDirection ?? undefined,
         customDomain: dto.customDomain === undefined ? undefined : customDomain,
       },
     });

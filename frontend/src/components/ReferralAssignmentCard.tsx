@@ -47,6 +47,10 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
   // para que el nuevo afiliado las reciba desde el próximo ciclo.
   const [deleteFuture, setDeleteFuture] = useState(false);
   const [reason, setReason] = useState('');
+  // #6/#34 (2026-06-16): buscador + filtro por rol en vez de un <select>
+  // plano largo.
+  const [query, setQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState<'ALL' | 'INFLUENCER' | 'AMBASSADOR'>('ALL');
 
   async function load() {
     setLoading(true);
@@ -204,24 +208,18 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2 items-end">
-        <div>
-          <label className="label">Seleccionar afiliado</label>
-          <select
-            className="input"
-            value={selected}
-            onChange={(e) => setSelected(e.target.value)}
-            disabled={saving}
-          >
-            <option value="">— Sin asignar —</option>
-            {options.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.ownerName} · {o.role} · {o.code}
-                {o.campaignName ? ` · ${o.campaignName}` : ''}
-              </option>
-            ))}
-          </select>
-        </div>
+      <AffiliatePicker
+        options={options}
+        selected={selected}
+        onSelect={setSelected}
+        query={query}
+        onQuery={setQuery}
+        roleFilter={roleFilter}
+        onRoleFilter={setRoleFilter}
+        disabled={saving}
+      />
+
+      <div className="flex gap-2 mt-3">
         <button
           className="btn-primary"
           disabled={saving || selected === (current?.code.id ?? '')}
@@ -286,6 +284,220 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
               disabled={saving}
             />
           </div>
+        </div>
+      )}
+
+      {/* #5 (2026-06-16): implementación pagada — solo si hay afiliado
+          asignado (necesita la cadena de atribución). */}
+      {current && <ImplementationFeeSection tenantId={tenantId} />}
+    </div>
+  );
+}
+
+/**
+ * #5: Implementación pagada. Cobro ÚNICO (no recurrente) que el negocio
+ * pagó por la implementación. Genera comisiones para el influencer/
+ * embajador/vendedor asignado usando el MISMO split que una venta normal.
+ */
+function ImplementationFeeSection({ tenantId }: { tenantId: string }) {
+  const [amount, setAmount] = useState<string>('');
+  const [busy, setBusy] = useState(false);
+  const PRESETS = [100, 200, 500, 1000];
+
+  async function generate() {
+    const value = Number(amount);
+    if (!Number.isFinite(value) || value <= 0) {
+      toast('Ingresá un valor de implementación > 0', 'error');
+      return;
+    }
+    if (
+      !confirm(
+        `¿Generar comisiones de implementación sobre $${value.toFixed(2)}? ` +
+          'Se reparte entre el influencer/embajador/vendedor asignado con el mismo % que una venta.',
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      const res = await api<{ generated: number; total: number }>(
+        `/referrals/tenants/${tenantId}/implementation-commission`,
+        { method: 'POST', body: JSON.stringify({ amountUsd: value }) },
+      );
+      toast(
+        `Implementación generada · ${res.generated} comisión(es) · $${res.total.toFixed(2)} total`,
+        'success',
+      );
+      setAmount('');
+    } catch (e: any) {
+      toast(e?.message || 'No se pudo generar', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-lg border border-line bg-bg2/40 px-3 py-3">
+      <div className="text-sm font-semibold flex items-center gap-1.5">
+        🛠️ Implementación pagada
+      </div>
+      <p className="text-[11px] text-mute mt-0.5 leading-snug">
+        Cobro único por implementación. Genera comisiones para el afiliado
+        asignado con el mismo % que una venta normal (no es recurrente).
+      </p>
+      <div className="flex gap-1.5 mt-2 flex-wrap">
+        {PRESETS.map((p) => (
+          <button
+            key={p}
+            type="button"
+            disabled={busy}
+            onClick={() => setAmount(String(p))}
+            className={`text-xs font-semibold px-2.5 py-1 rounded-pill border transition ${
+              amount === String(p)
+                ? 'bg-brand text-white border-brand'
+                : 'bg-white text-mute border-line hover:bg-bg2'
+            }`}
+          >
+            ${p}
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-2 mt-2 items-end">
+        <div className="flex-1">
+          <label className="text-[10px] uppercase tracking-wider text-mute font-semibold">
+            Valor implementación (USD)
+          </label>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            className="input mt-1"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="Monto libre"
+            disabled={busy}
+          />
+        </div>
+        <button
+          className="btn-primary whitespace-nowrap"
+          disabled={busy || !amount}
+          onClick={generate}
+        >
+          {busy ? 'Generando…' : 'Generar comisión'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * #6/#34: Picker de afiliado con buscador integrado + filtro por rol.
+ * Reemplaza el <select> plano. Filtra client-side (la lista de afiliados
+ * activos es chica). Muestra rol + código de cada uno.
+ */
+function AffiliatePicker({
+  options,
+  selected,
+  onSelect,
+  query,
+  onQuery,
+  roleFilter,
+  onRoleFilter,
+  disabled,
+}: {
+  options: CodeOption[];
+  selected: string;
+  onSelect: (id: string) => void;
+  query: string;
+  onQuery: (q: string) => void;
+  roleFilter: 'ALL' | 'INFLUENCER' | 'AMBASSADOR';
+  onRoleFilter: (r: 'ALL' | 'INFLUENCER' | 'AMBASSADOR') => void;
+  disabled?: boolean;
+}) {
+  const q = query.trim().toLowerCase();
+  const filtered = options.filter(
+    (o) =>
+      (roleFilter === 'ALL' || o.role === roleFilter) &&
+      (q === '' ||
+        `${o.ownerName} ${o.code} ${o.role} ${o.campaignName ?? ''}`
+          .toLowerCase()
+          .includes(q)),
+  );
+  const selectedOpt = options.find((o) => o.id === selected);
+  const ROLE_TABS: { value: 'ALL' | 'INFLUENCER' | 'AMBASSADOR'; label: string }[] = [
+    { value: 'ALL', label: 'Todos' },
+    { value: 'INFLUENCER', label: '🌟 Influencers' },
+    { value: 'AMBASSADOR', label: '👥 Embajadores' },
+  ];
+
+  return (
+    <div>
+      <label className="label">Seleccionar afiliado</label>
+      <div className="flex gap-1.5 mb-2 flex-wrap">
+        {ROLE_TABS.map((t) => (
+          <button
+            key={t.value}
+            type="button"
+            disabled={disabled}
+            onClick={() => onRoleFilter(t.value)}
+            className={`text-xs font-semibold px-2.5 py-1 rounded-pill border transition ${
+              roleFilter === t.value
+                ? 'bg-brand text-white border-brand'
+                : 'bg-bg2 text-mute border-line hover:bg-line'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <input
+        type="text"
+        className="input"
+        placeholder="Buscar por nombre, código…"
+        value={query}
+        onChange={(e) => onQuery(e.target.value)}
+        disabled={disabled}
+      />
+      <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-line divide-y divide-line">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onSelect('')}
+          className={`w-full text-left px-3 py-2 text-sm hover:bg-bg2 ${
+            selected === '' ? 'bg-bg2 font-semibold' : ''
+          }`}
+        >
+          — Sin asignar —
+        </button>
+        {filtered.length === 0 && (
+          <div className="px-3 py-3 text-xs text-mute">Sin resultados.</div>
+        )}
+        {filtered.map((o) => (
+          <button
+            key={o.id}
+            type="button"
+            disabled={disabled}
+            onClick={() => onSelect(o.id)}
+            className={`w-full text-left px-3 py-2 text-sm hover:bg-bg2 flex items-center gap-2 ${
+              selected === o.id ? 'bg-brand/10 font-semibold' : ''
+            }`}
+          >
+            <span className="shrink-0">
+              {o.role === 'INFLUENCER' ? '🌟' : '👥'}
+            </span>
+            <span className="flex-1 min-w-0 truncate">
+              {o.ownerName}
+              <span className="text-mute font-normal">
+                {' '}· {o.code}
+                {o.campaignName ? ` · ${o.campaignName}` : ''}
+              </span>
+            </span>
+            {selected === o.id && <span className="text-brand">✓</span>}
+          </button>
+        ))}
+      </div>
+      {selectedOpt && (
+        <div className="text-xs text-mute mt-1.5">
+          Seleccionado: <strong>{selectedOpt.ownerName}</strong> ({selectedOpt.role})
         </div>
       )}
     </div>

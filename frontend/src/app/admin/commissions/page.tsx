@@ -587,28 +587,13 @@ export default function AdminCommissionsPage() {
                           : fmtDate(c.nextPayoutDate)}
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
-                        {inHold && (
-                          <button
-                            onClick={() => enableCommission(c)}
-                            disabled={enabling === c.id}
-                            className="text-xs px-2.5 py-1 mr-1 rounded-md bg-indigo-100 text-indigo-700 font-semibold hover:bg-indigo-200 transition select-none active:scale-[0.97] [-webkit-tap-highlight-color:transparent] disabled:opacity-50"
-                            title="Adelantar el desbloqueo de esta comisión"
-                          >
-                            {enabling === c.id ? '…' : '🔓 Habilitar'}
-                          </button>
-                        )}
-                        {c.paymentStatus !== 'PAID' && c.status !== 'REJECTED' ? (
-                          <button
-                            onClick={() => setPaying(c)}
-                            className="text-xs px-2.5 py-1 rounded-md bg-brand/10 text-brand font-semibold hover:bg-brand/20 transition select-none active:scale-[0.97] [-webkit-tap-highlight-color:transparent]"
-                          >
-                            Marcar pagado
-                          </button>
-                        ) : c.paymentStatus === 'PAID' ? (
-                          <span className="text-xs text-ok">
-                            ✓ {fmtDate(c.paidAt)}
-                          </span>
-                        ) : null}
+                        <RowActions
+                          c={c}
+                          inHold={inHold}
+                          enabling={enabling === c.id}
+                          onEnable={() => enableCommission(c)}
+                          onPay={() => setPaying(c)}
+                        />
                       </td>
                     </tr>
                   );
@@ -808,6 +793,81 @@ function KpiCard({
       </div>
       <div className={`text-2xl font-bold mt-1 ${color}`}>{value}</div>
       {hint && <div className="text-[10px] text-mute mt-1">{hint}</div>}
+    </div>
+  );
+}
+
+/**
+ * #8 (2026-06-16): menú desplegable de acciones por fila (reemplaza los
+ * botones inline "🔓 Habilitar" + "Marcar pagado"). Botón ⋯ que abre un
+ * dropdown con las acciones disponibles según el estado de la comisión.
+ */
+function RowActions({
+  c,
+  inHold,
+  enabling,
+  onEnable,
+  onPay,
+}: {
+  c: CommissionRow;
+  inHold: boolean;
+  enabling: boolean;
+  onEnable: () => void;
+  onPay: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const canPay = c.paymentStatus !== 'PAID' && c.status !== 'REJECTED';
+  const hasActions = inHold || canPay;
+
+  if (!hasActions) {
+    return c.paymentStatus === 'PAID' ? (
+      <span className="text-xs text-ok">✓ {fmtDate(c.paidAt)}</span>
+    ) : (
+      <span className="text-mute text-xs">—</span>
+    );
+  }
+
+  return (
+    <div className="relative inline-block text-left">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        disabled={enabling}
+        className="text-base px-2.5 py-1 rounded-md bg-bg2 text-ink font-semibold hover:bg-line transition select-none active:scale-[0.97] [-webkit-tap-highlight-color:transparent] disabled:opacity-50"
+        title="Acciones"
+        aria-label="Acciones"
+      >
+        {enabling ? '…' : '⋯'}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 z-20 mt-1 w-48 rounded-lg border border-line bg-white shadow-lg py-1 text-left">
+            {inHold && (
+              <button
+                onClick={() => {
+                  setOpen(false);
+                  onEnable();
+                }}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-bg2 flex items-center gap-2"
+                title="Adelantar el desbloqueo de esta comisión"
+              >
+                🔓 Habilitar ahora
+              </button>
+            )}
+            {canPay && (
+              <button
+                onClick={() => {
+                  setOpen(false);
+                  onPay();
+                }}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-bg2 flex items-center gap-2 text-brand"
+              >
+                💵 Marcar pagado
+              </button>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

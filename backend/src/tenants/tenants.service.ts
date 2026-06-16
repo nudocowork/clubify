@@ -232,6 +232,33 @@ export class TenantsService {
     };
   }
 
+  /**
+   * #11 (2026-06-16): ranking de negocios por cantidad de pases emitidos.
+   * Mayor a menor por default; `order='asc'` invierte. Incluye negocios con
+   * 0 pases. Excluye borrados.
+   */
+  async rankingByPasses(order: 'asc' | 'desc' = 'desc') {
+    const tenants = await this.prisma.tenant.findMany({
+      where: { deletedAt: null },
+      select: { id: true, brandName: true, name: true, status: true },
+    });
+    const grouped = await this.prisma.pass.groupBy({
+      by: ['tenantId'],
+      _count: { _all: true },
+    });
+    const countMap = new Map(grouped.map((g) => [g.tenantId, g._count._all]));
+    const rows = tenants.map((t) => ({
+      id: t.id,
+      brandName: t.brandName || t.name,
+      status: t.status,
+      passCount: countMap.get(t.id) ?? 0,
+    }));
+    rows.sort((a, b) =>
+      order === 'asc' ? a.passCount - b.passCount : b.passCount - a.passCount,
+    );
+    return rows;
+  }
+
   async list() {
     const tenants = await this.prisma.tenant.findMany({
       // Bloque 5 (2026-06-12): excluir soft-deleted del listado admin.
@@ -444,6 +471,11 @@ export class TenantsService {
           hotmartSubscriberCode:
             dto.hotmartSubscriberCode?.trim() || `manual-${nanoid(10)}`,
           suspendedAt: null,
+          // #12 (2026-06-16): activar un negocio elimina el estado Trial.
+          // No debe quedar Trial + Activo a la vez. Antes el modo "paid" del
+          // simulador dejaba trialEndsAt seteado → banner de trial sobre un
+          // negocio ya pago.
+          trialEndsAt: null,
         };
         if (dto.nextChargeDate) {
           const parsed = new Date(dto.nextChargeDate);

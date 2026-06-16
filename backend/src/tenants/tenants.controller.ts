@@ -103,6 +103,13 @@ export class TenantsController {
     return this.svc.list();
   }
 
+  // #11 (2026-06-16): ranking de negocios por pases emitidos. Debe ir ANTES
+  // de @Get(':id') sino el router matchea "ranking" como :id.
+  @Get('ranking')
+  ranking(@Query('order') order?: string) {
+    return this.svc.rankingByPasses(order === 'asc' ? 'asc' : 'desc');
+  }
+
   /** Historial de modificaciones de trial — audit log filtrado.
    *  IMPORTANTE: tiene que declararse antes que @Get(':id') sino el
    *  router de NestJS matchea `:id` primero con "trial-history" como

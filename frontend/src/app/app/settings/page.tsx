@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { LanguageSwitcherIntl } from '@/components/LanguageSwitcherIntl';
+import { PhoneInput } from '@/components/PhoneInput';
 
 type Profile = {
   id: string;
@@ -436,11 +437,10 @@ export default function SettingsPage() {
           </div>
           <div className="sm:col-span-2">
             <label className="label">Teléfono (opcional)</label>
-            <input
-              className="input"
+            {/* #25 (2026-06-16): selector internacional con banderas. */}
+            <PhoneInput
               value={profile.phone}
-              onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
-              placeholder="+57 300 000 0000"
+              onChange={(combined) => setProfile({ ...profile, phone: combined })}
             />
           </div>
         </div>

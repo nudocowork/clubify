@@ -8,6 +8,9 @@ import { Roles } from '../common/decorators/roles.decorator';
 class CardBody {
   @IsEnum(CardType) type!: CardType;
   @IsString() name!: string;
+  // #24 (2026-06-16): nombre de marca por tarjeta para el pase wallet. null/''
+  // → usa el Tenant.brandName.
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() walletBrandName?: string | null;
   @IsOptional() @IsString() description?: string;
   @IsOptional() @IsString() terms?: string;
   @IsOptional() @IsBoolean() termsEnabled?: boolean;

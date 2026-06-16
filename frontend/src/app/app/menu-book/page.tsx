@@ -96,6 +96,8 @@ export default function MenuBookAdminPage() {
   const [storefrontId, setStorefrontId] = useState<string | null>(null);
   const [togglingBook, setTogglingBook] = useState(false);
   const [bookPopup, setBookPopup] = useState<BookGlobalPopup | null>(null);
+  // #29 (2026-06-16): orientación del swipe del menú libro.
+  const [bookDirection, setBookDirection] = useState<'HORIZONTAL' | 'VERTICAL'>('HORIZONTAL');
 
   useEffect(() => {
     api<any>('/tenants/me')
@@ -104,6 +106,7 @@ export default function MenuBookAdminPage() {
     api<any>('/storefront')
       .then((sf) => {
         setBookMenuEnabled(sf?.bookMenuEnabled ?? false);
+        setBookDirection(sf?.bookMenuDirection === 'VERTICAL' ? 'VERTICAL' : 'HORIZONTAL');
         setStorefrontId(sf?.id ?? null);
         setBookPopup({
           bookPopupEnabled: sf?.bookPopupEnabled ?? false,
@@ -146,6 +149,26 @@ export default function MenuBookAdminPage() {
       toast('Popup global guardado', 'success');
     } catch (e: any) {
       toast(e.message || 'No se pudo guardar', 'error');
+    }
+  }
+
+  async function saveDirection(next: 'HORIZONTAL' | 'VERTICAL') {
+    const prev = bookDirection;
+    setBookDirection(next);
+    try {
+      await api('/storefront', {
+        method: 'PATCH',
+        body: JSON.stringify({ bookMenuDirection: next }),
+      });
+      toast(
+        next === 'VERTICAL'
+          ? 'Menú libro: deslizar arriba/abajo'
+          : 'Menú libro: deslizar izquierda/derecha',
+        'success',
+      );
+    } catch (e: any) {
+      setBookDirection(prev);
+      toast(e.message || 'No se pudo actualizar', 'error');
     }
   }
 
@@ -246,6 +269,38 @@ export default function MenuBookAdminPage() {
                   Cuando esté apagado, <code>/book/{tenantSlug ?? '...'}</code> no abre.
                 </span>
               )}
+            </div>
+          )}
+          {/* #29 (2026-06-16): orientación del swipe. */}
+          {bookMenuEnabled && (
+            <div className="mt-3">
+              <div className="text-xs font-semibold text-mute mb-1.5">
+                Dirección del deslizamiento
+              </div>
+              <div className="inline-flex rounded-lg border border-line overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => saveDirection('HORIZONTAL')}
+                  className={`px-3 py-1.5 text-sm font-medium transition ${
+                    bookDirection === 'HORIZONTAL'
+                      ? 'bg-brand text-white'
+                      : 'bg-white text-mute hover:bg-bg2'
+                  }`}
+                >
+                  ↔ Horizontal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => saveDirection('VERTICAL')}
+                  className={`px-3 py-1.5 text-sm font-medium transition border-l border-line ${
+                    bookDirection === 'VERTICAL'
+                      ? 'bg-brand text-white'
+                      : 'bg-white text-mute hover:bg-bg2'
+                  }`}
+                >
+                  ↕ Vertical
+                </button>
+              </div>
             </div>
           )}
         </div>

@@ -21,6 +21,12 @@ class CreateReferralBody {
 
 class CommissionBody {
   @IsString() status!: CommissionStatus;
+  // #4 (2026-06-16): al rechazar (REJECTED) una comisión, cascada a las
+  // hermanas de la MISMA venta (mismo referralUse + periodKey →
+  // influencer/embajador/vendedor del mismo cobro). Default true porque en
+  // el panel principal rechazar = "esta venta se cae" (reembolso/atribución
+  // errónea). Solo aplica cuando status === REJECTED.
+  @IsOptional() @IsBoolean() cascade?: boolean;
 }
 
 // HOTFIX 2026-06-05: estas clases tienen que estar declaradas ANTES de
@@ -253,6 +259,17 @@ export class ReferralsController {
     return this.svc.createCompanyDirectAmbassador(user, body);
   }
 
+  // #36 (2026-06-16): crear un INFLUENCER directo desde la empresa (reemplaza
+  // la creación vía Campaña, ahora eliminada).
+  @Roles('SUPER_ADMIN')
+  @Post('influencers')
+  createInfluencer(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { fullName: string; email: string; whatsapp: string; commissionPercent?: number; customCode?: string },
+  ) {
+    return this.svc.createInfluencer(user, body);
+  }
+
   @Roles('SUPER_ADMIN')
   @Get('leaderboard')
   leaderboard(@CurrentUser() user: AuthUser) {
@@ -394,7 +411,9 @@ export class ReferralsController {
   @Roles('SUPER_ADMIN')
   @Patch('commissions/:id')
   setStatus(@Param('id') id: string, @Body() body: CommissionBody) {
-    return this.svc.setCommissionStatus(id, body.status);
+    return this.svc.setCommissionStatus(id, body.status, {
+      cascade: body.cascade !== false,
+    });
   }
 
   @Roles('SUPER_ADMIN')
@@ -453,6 +472,18 @@ export class ReferralsController {
       tenantId,
       force === 'true' || force === '1',
     );
+  }
+
+  // #5 (2026-06-16): implementación pagada — genera comisiones sobre un monto
+  // libre usando el mismo split (influencer/embajador/vendedor) que una venta.
+  @Roles('SUPER_ADMIN')
+  @Post('tenants/:tenantId/implementation-commission')
+  implementationCommission(
+    @CurrentUser() user: AuthUser,
+    @Param('tenantId') tenantId: string,
+    @Body() body: { amountUsd: number },
+  ) {
+    return this.svc.generateImplementationCommission(user, tenantId, body.amountUsd);
   }
 
   // ============================================================

@@ -695,12 +695,13 @@ export class AdminReportsService {
         where: { createdAt: { gte: startOfMonth } },
         _sum: { amount: true, amountPaid: true },
       }),
-      // Pending = todas las commissions no canceladas con outstanding>0.
-      // HOTFIX 2026-06-05: usamos aggregate para no traer N rows a
-      // memoria. Calculamos pending = sum(amount) - sum(amountPaid)
-      // de todas las no rechazadas.
+      // Pending = (PENDING + APPROVED) con outstanding (amount − amountPaid).
+      // HOTFIX 2026-06-05: usamos aggregate para no traer N rows a memoria.
+      // FIX 2026-06-16 (#14/#37): antes { not: REJECTED } metía RETAINED
+      // (congelada) y PAID en el pool → divergía de Referidos/Comisiones.
+      // Definición canónica única.
       this.prisma.commission.aggregate({
-        where: { status: { not: 'REJECTED' } },
+        where: { status: { in: ['PENDING', 'APPROVED'] } },
         _sum: { amount: true, amountPaid: true },
       }),
       this.prisma.commission.aggregate({
@@ -876,6 +877,23 @@ export class AdminReportsService {
     // subestimación de métricas. Helper compartido en common/plan-period.
     const normalizePeriod = normalizePlanPeriod;
 
+    // FIX 2026-06-16 (#18): facturación REAL, no canónica. El monto que un
+    // tenant aporta a facturado/MRR es lo que REALMENTE pagó en Hotmart
+    // (Tenant.subscriptionPriceUsd, persistido por el webhook) y SOLO cae al
+    // precio canónico del bundle cuando no hay precio real registrado.
+    // Antes sumábamos siempre el canónico (68/150/278/500) → sobre-reportaba
+    // a los negocios con descuento o precio legacy (ej: Semestral real $250
+    // contado como $278, Mensual legacy $50 contado como $68). Misma fuente
+    // de verdad que CommissionRecalcService.getCommissionBase.
+    const billedAmountFor = (t: {
+      planPeriodicity: string | null;
+      subscriptionPriceUsd: unknown;
+    }): number => {
+      const real = Number(t.subscriptionPriceUsd);
+      if (Number.isFinite(real) && real > 0) return real;
+      return PERIODS[normalizePeriod(t.planPeriodicity)].bundlePrice;
+    };
+
     const [
       activeTenantsForPricing,
       newCustomersCurrent,
@@ -885,7 +903,6 @@ export class AdminReportsService {
       activeTenants,
       trialTenants,
       churnedLast30,
-      conversionRows,
       lastTenants,
       lastCommissions,
       mapLocations,
@@ -905,6 +922,7 @@ export class AdminReportsService {
           planPeriodicity: true,
           currentPeriodEnd: true,
           createdAt: true,
+          subscriptionPriceUsd: true,
         },
       }),
       // FIX 2026-06-07: clientes nuevos = solo ACTIVE creados en el
@@ -921,12 +939,19 @@ export class AdminReportsService {
           createdAt: { gte: startLastMonth, lte: endLastMonth },
         },
       }),
+      // FIX 2026-06-16 (#14/#37): "pendiente por pagar a afiliados" =
+      // (PENDING + APPROVED) con amount − amountPaid. Antes { not: REJECTED }
+      // metía RETAINED (congelada, fuera de totales) y PAID en el pool →
+      // divergía de Referidos/Comisiones. Definición canónica única.
       this.prisma.commission.aggregate({
-        where: { status: { not: 'REJECTED' } },
+        where: { status: { in: ['PENDING', 'APPROVED'] } },
         _sum: { amount: true, amountPaid: true },
       }),
       this.prisma.tenant.groupBy({
         by: ['status'],
+        // #13: excluye borrados para que los buckets de "Estado de clientes"
+        // no se solapen con "Cancelados" (deletedAt != null).
+        where: { deletedAt: null },
         _count: { _all: true },
       }),
       this.prisma.tenant.count({
@@ -943,14 +968,6 @@ export class AdminReportsService {
       // aproximamos a "actualmente cancelados" sobre activos).
       this.prisma.tenant.count({
         where: { status: 'SUSPENDED' },
-      }),
-      // FIX 2026-06-07: conversión escopada AL RANGO (no hardcoded 60d).
-      this.prisma.tenant.findMany({
-        where: {
-          createdAt: { gte: from, lte: to },
-          OR: [{ trialStartedAt: { not: null } }, { status: 'TRIAL' }],
-        },
-        select: { status: true, trialStartedAt: true },
       }),
       // Últimos 10 tenants para "Últimos ingresos".
       this.prisma.tenant.findMany({
@@ -1003,20 +1020,6 @@ export class AdminReportsService {
       }),
     ]);
 
-    // FIX 2026-06-07: billedByPlan usa precios canónicos del bundle.
-    // Cuenta tenants ACTIVE por periodicidad × bundlePrice.
-    const billedByPlan = Object.entries(PERIODS).map(([key, meta]) => {
-      const count = activeTenantsForPricing.filter(
-        (t) => t.planPeriodicity === key,
-      ).length;
-      return {
-        periodicity: key,
-        label: meta.label,
-        count,
-        billingUsd: round2(count * meta.bundlePrice),
-      };
-    });
-
     // FIX 2026-06-07: MRR = suma de equivalencia mensual real del bundle
     // por tenant ACTIVE. Mensual aporta 68; Trimestral 150/3=50;
     // Semestral 278/6=46.33; Anual 500/12=41.67. Antes sumábamos
@@ -1026,18 +1029,12 @@ export class AdminReportsService {
     const mrrUsd = round2(
       activeTenantsForPricing.reduce((s, t) => {
         const period = PERIODS[normalizePeriod(t.planPeriodicity)];
-        return s + period.bundlePrice / period.months;
+        // FIX 2026-06-16 (#18): normaliza el pago REAL del ciclo a mensual.
+        return s + billedAmountFor(t) / period.months;
       }, 0),
     );
 
-    // Conversión: trials del RANGO que ya están ACTIVE.
-    const trialsTotal = conversionRows.length;
-    const trialsConverted = conversionRows.filter(
-      (t) => t.trialStartedAt && t.status === 'ACTIVE',
-    ).length;
-    const conversionRate = trialsTotal
-      ? Math.round((trialsConverted / trialsTotal) * 1000) / 10
-      : null;
+    // #16 (2026-06-16): se eliminó la métrica "Conversión Trial → Cliente".
 
     const cancellationRate = activeTenants
       ? Math.round((churnedLast30 / activeTenants) * 1000) / 10
@@ -1051,9 +1048,23 @@ export class AdminReportsService {
     // usan createdAt como aproximación (asumiendo que el pago inicial
     // = createdAt). Antes se excluían silenciosamente → métricas
     // sub-estimadas. planPeriodicity null → MENSUAL.
+    //
+    // FIX 2026-06-16: billedByPlan se calcula EN ESTA MISMA PASADA, con el
+    // MISMO filtro de rango y el MISMO normalizePeriod (null→MENSUAL). Antes
+    // billedByPlan contaba TODOS los tenants ACTIVE sin filtrar por rango y
+    // con `=== key` crudo (dropeaba planPeriodicity=null), así que el total
+    // (date-filtered) no cuadraba con la suma de los buckets. Ahora el
+    // total es, por construcción, la suma exacta de los 4 buckets.
+    const billedAcc: Record<string, { count: number; amount: number }> = {
+      MENSUAL: { count: 0, amount: 0 },
+      TRIMESTRAL: { count: 0, amount: 0 },
+      SEMESTRAL: { count: 0, amount: 0 },
+      ANUAL: { count: 0, amount: 0 },
+    };
     let billedUsd = 0;
     for (const t of activeTenantsForPricing) {
-      const period = PERIODS[normalizePeriod(t.planPeriodicity)];
+      const key = normalizePeriod(t.planPeriodicity);
+      const period = PERIODS[key];
       const cpe = t.currentPeriodEnd ?? null;
       // Si no hay currentPeriodEnd, aproximamos: el pago inicial ocurrió
       // en createdAt. Para tenants viejos sin Hotmart wire-up esto da
@@ -1071,10 +1082,124 @@ export class AdminReportsService {
         lastPaymentApprox.getTime() >= from.getTime() &&
         lastPaymentApprox.getTime() <= to.getTime()
       ) {
-        billedUsd += period.bundlePrice;
+        // FIX 2026-06-16 (#18): suma el pago REAL (subscriptionPriceUsd) y
+        // sólo cae al canónico cuando no hay precio real registrado.
+        const amount = billedAmountFor(t);
+        billedUsd += amount;
+        billedAcc[key].count += 1;
+        billedAcc[key].amount += amount;
       }
     }
     billedUsd = round2(billedUsd);
+
+    const billedByPlan = Object.entries(PERIODS).map(([key, meta]) => ({
+      periodicity: key,
+      label: meta.label,
+      count: billedAcc[key].count,
+      billingUsd: round2(billedAcc[key].amount),
+    }));
+
+    // ============================================================
+    // SERIE MENSUAL REAL (#13/#19, 2026-06-16) — reemplaza los charts
+    // simulados del front. Últimos 6 meses con datos REALES:
+    //  - mrrUsd: MRR estimado al cierre de cada mes = Σ equivalencia
+    //    mensual (precio real ?? canónico / meses) de los tenants ACTIVE
+    //    creados on/before ese mes. Es una aproximación (no hay snapshots
+    //    históricos de status → no descuenta churn pasado) pero deriva de
+    //    datos reales, no de una simulación.
+    //  - commPaidUsd: Σ amountPaid de comisiones con paidAt en el mes.
+    //  - commPendingUsd: Σ (amount − amountPaid) de comisiones creadas en
+    //    el mes que siguen PENDING/APPROVED.
+    // ============================================================
+    const monthsBack = 6;
+    const firstMonthStart = new Date(
+      now.getFullYear(),
+      now.getMonth() - (monthsBack - 1),
+      1,
+    );
+    const [allTenantsForMrr, commForSeries, pastDueCount, cancelledCount] = await Promise.all([
+      this.prisma.tenant.findMany({
+        where: { deletedAt: null, status: 'ACTIVE' },
+        select: {
+          createdAt: true,
+          planPeriodicity: true,
+          subscriptionPriceUsd: true,
+        },
+      }),
+      this.prisma.commission.findMany({
+        where: {
+          status: { not: 'REJECTED' },
+          OR: [
+            { createdAt: { gte: firstMonthStart } },
+            { paidAt: { gte: firstMonthStart } },
+          ],
+        },
+        select: {
+          amount: true,
+          amountPaid: true,
+          status: true,
+          createdAt: true,
+          paidAt: true,
+        },
+      }),
+      // #13 (2026-06-16): "Esperando pago" REAL = ACTIVE con pagos fallidos
+      // (past-due derivado, igual que billing.service.getStatus). Antes el
+      // dashboard buscaba status 'PAYING' que NO existe en el enum → 0 fijo.
+      this.prisma.tenant.count({
+        where: { deletedAt: null, status: 'ACTIVE', failedPaymentCount: { gt: 0 } },
+      }),
+      // #13: "Cancelados" REAL = negocios borrados (soft-delete). Antes
+      // buscaba status 'CANCELLED' que tampoco existe → 0 fijo.
+      this.prisma.tenant.count({ where: { deletedAt: { not: null } } }),
+    ]);
+
+    const monthLabels = [
+      'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
+      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic',
+    ];
+    const monthlySeries: Array<{
+      label: string;
+      mrrUsd: number;
+      commPaidUsd: number;
+      commPendingUsd: number;
+    }> = [];
+    for (let i = monthsBack - 1; i >= 0; i--) {
+      const mStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const mEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
+      // MRR al cierre del mes: tenants ACTIVE creados antes del fin de mes.
+      let mrr = 0;
+      for (const t of allTenantsForMrr) {
+        if (new Date(t.createdAt).getTime() >= mEnd.getTime()) continue;
+        const period = PERIODS[normalizePeriod(t.planPeriodicity)];
+        mrr += billedAmountFor(t) / period.months;
+      }
+      // Comisiones del mes (reales).
+      let paid = 0;
+      let pending = 0;
+      for (const c of commForSeries) {
+        if (
+          c.paidAt &&
+          new Date(c.paidAt).getTime() >= mStart.getTime() &&
+          new Date(c.paidAt).getTime() < mEnd.getTime()
+        ) {
+          paid += Number(c.amountPaid ?? 0);
+        }
+        const created = new Date(c.createdAt).getTime();
+        if (
+          created >= mStart.getTime() &&
+          created < mEnd.getTime() &&
+          (c.status === 'PENDING' || c.status === 'APPROVED')
+        ) {
+          pending += Math.max(0, Number(c.amount ?? 0) - Number(c.amountPaid ?? 0));
+        }
+      }
+      monthlySeries.push({
+        label: monthLabels[mStart.getMonth()],
+        mrrUsd: round2(mrr),
+        commPaidUsd: round2(paid),
+        commPendingUsd: round2(pending),
+      });
+    }
 
     const pendingCommissionsUsd = round2(
       Math.max(
@@ -1087,12 +1212,17 @@ export class AdminReportsService {
     const statusMap = Object.fromEntries(
       tenantsByStatus.map((r) => [r.status, r._count._all]),
     );
+    // #13 (2026-06-16): buckets REALES y no solapados (suman el total de
+    // tenants). "active" excluye los past-due (que van a awaitingPayment);
+    // "cancelled" = borrados. Antes awaitingPayment/cancelled buscaban
+    // status inexistentes (PAYING/CANCELLED) → siempre 0.
+    const activeNotDeleted = Number(statusMap['ACTIVE'] ?? 0);
     const clientStatus = {
-      active: activeTenants,
-      trial: trialTenants,
-      awaitingPayment: Number(statusMap['PAYING'] ?? 0),
+      active: Math.max(0, activeNotDeleted - pastDueCount),
+      trial: Number(statusMap['TRIAL'] ?? 0),
+      awaitingPayment: pastDueCount,
       suspended: Number(statusMap['SUSPENDED'] ?? 0),
-      cancelled: Number(statusMap['CANCELLED'] ?? 0),
+      cancelled: cancelledCount,
     };
 
     // Variación clientes nuevos mes a mes.
@@ -1171,10 +1301,10 @@ export class AdminReportsService {
       },
       kpis: {
         mrrUsd,
-        conversionRate,
         cancellationRate,
         pendingCommissionsUsd,
       },
+      monthlySeries,
       clientStatus,
       recentIncome,
       mapPoints: mapLocations

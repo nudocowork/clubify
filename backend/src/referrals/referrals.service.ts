@@ -10,6 +10,7 @@ import { CommissionExceptionsService } from '../admin/commission-exceptions.serv
 import { CommissionRecalcService } from './commission-recalc.service';
 import { AuditService } from '../audit/audit.service';
 import { monthKey } from '../common/period-key';
+import { COMMISSION_DEFAULTS } from '../common/commission-defaults';
 
 const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
 
@@ -440,7 +441,7 @@ export class ReferralsService {
       const pct = await this.resolveExceptionPercent(
         use.tenantId,
         use.referralCode.id,
-        Number(use.referralCode.commissionPercent ?? 25),
+        Number(use.referralCode.commissionPercent ?? COMMISSION_DEFAULTS.ambassadorPct),
       );
       await ensureCommission(use.referralCode.id, round2mod((price * pct) / 100));
 
@@ -506,7 +507,7 @@ export class ReferralsService {
         ownerName: dto.fullName,
         ownerEmail: dto.email,
         ownerWhatsapp: dto.whatsapp,
-        commissionPercent: dto.commissionPercent ?? 25,
+        commissionPercent: dto.commissionPercent ?? COMMISSION_DEFAULTS.ambassadorPct,
         source: cleanSource,
       },
     });
@@ -588,9 +589,17 @@ export class ReferralsService {
       converted += uses.filter((u) => u.status === 'PAYING' || u.status === 'ACTIVE').length;
       for (const u of uses) {
         for (const com of u.commissions ?? []) {
+          // FIX 2026-06-16 (#14/#37): definición canónica única —
+          // pending = (PENDING+APPROVED) con amount − amountPaid;
+          // paid = amountPaid real (cubre pagos parciales). RETAINED y
+          // REJECTED quedan fuera de ambos totales.
+          if (com.status === 'REJECTED' || com.status === 'RETAINED') continue;
           const amount = Number(com.amount);
-          if (com.status === 'PAID') paidUsd += amount;
-          else if (com.status === 'PENDING' || com.status === 'APPROVED') pendingUsd += amount;
+          const paid = Number(com.amountPaid);
+          paidUsd += paid;
+          if (com.status === 'PENDING' || com.status === 'APPROVED') {
+            pendingUsd += Math.max(0, amount - paid);
+          }
         }
       }
       return {
@@ -660,14 +669,45 @@ export class ReferralsService {
     });
   }
 
-  async setCommissionStatus(id: string, status: CommissionStatus) {
-    return this.prisma.commission.update({
+  async setCommissionStatus(
+    id: string,
+    status: CommissionStatus,
+    opts: { cascade?: boolean } = {},
+  ) {
+    const updated = await this.prisma.commission.update({
       where: { id },
       data: {
         status,
         paidAt: status === 'PAID' ? new Date() : null,
       },
+      select: { id: true, status: true, referralUseId: true, periodKey: true },
     });
+
+    // #4 (2026-06-16) CASCADA POR VENTA: al rechazar, anulamos también las
+    // comisiones hermanas del MISMO cobro (mismo referralUse + periodKey →
+    // influencer/embajador/5% indirecto/vendedor). Una venta cancelada no
+    // debe dejar comisiones colgadas de los otros actores. Solo cuando
+    // periodKey != null (las legacy se rechazan individualmente para no
+    // barrer ciclos distintos del mismo use). PAID nunca se toca.
+    let cascaded = 0;
+    if (
+      opts.cascade !== false &&
+      status === 'REJECTED' &&
+      updated.periodKey != null
+    ) {
+      const res = await this.prisma.commission.updateMany({
+        where: {
+          referralUseId: updated.referralUseId,
+          periodKey: updated.periodKey,
+          id: { not: updated.id },
+          status: { in: ['PENDING', 'APPROVED'] },
+        },
+        data: { status: 'REJECTED' },
+      });
+      cascaded = res.count;
+    }
+
+    return { ...updated, cascaded };
   }
 
   async setCommissionNotes(
@@ -693,6 +733,10 @@ export class ReferralsService {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
 
     const codes = await this.prisma.referralCode.findMany({
+      // #7/#38 (2026-06-16): excluir afiliados eliminados (soft-delete
+      // isActive=false) del ranking. Antes el leaderboard los seguía
+      // mostrando y los seguía rankeando.
+      where: { isActive: true },
       include: {
         uses: {
           include: { commissions: true },
@@ -936,7 +980,8 @@ export class ReferralsService {
   async listInfluencers(user: AuthUser) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     const codes = await this.prisma.referralCode.findMany({
-      where: { role: 'INFLUENCER' },
+      // #7 (2026-06-16): no listar influencers eliminados (isActive=false).
+      where: { role: 'INFLUENCER', isActive: true },
       include: {
         ownerOfCampaign: true,
         ambassadors: { select: { id: true, isActive: true } },
@@ -950,10 +995,14 @@ export class ReferralsService {
         (u) => u.status === 'PAYING' || u.status === 'ACTIVE',
       ).length;
       const allComm = directUses.flatMap((u) => u.commissions);
-      const paid = allComm.filter((x) => x.status === 'PAID').reduce((s, x) => s + Number(x.amount), 0);
+      // FIX 2026-06-16 (#14/#37): definición canónica — paid = amountPaid
+      // real; pending = (PENDING+APPROVED) con amount − amountPaid.
+      const paid = allComm
+        .filter((x) => x.status !== 'REJECTED')
+        .reduce((s, x) => s + Number(x.amountPaid), 0);
       const pending = allComm
         .filter((x) => x.status === 'PENDING' || x.status === 'APPROVED')
-        .reduce((s, x) => s + Number(x.amount), 0);
+        .reduce((s, x) => s + Math.max(0, Number(x.amount) - Number(x.amountPaid)), 0);
       return {
         id: c.id,
         code: c.code,
@@ -1049,7 +1098,8 @@ export class ReferralsService {
   async listAmbassadors(user: AuthUser) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     const codes = await this.prisma.referralCode.findMany({
-      where: { role: 'AMBASSADOR' },
+      // #7 (2026-06-16): no listar embajadores eliminados (isActive=false).
+      where: { role: 'AMBASSADOR', isActive: true },
       include: {
         parentCode: { select: { code: true, ownerName: true } },
         campaign: { select: { name: true } },
@@ -1062,10 +1112,14 @@ export class ReferralsService {
     });
     return codes.map((c) => {
       const allComm = c.uses.flatMap((u) => u.commissions);
-      const paid = allComm.filter((x) => x.status === 'PAID').reduce((s, x) => s + Number(x.amount), 0);
+      // FIX 2026-06-16 (#14/#37): definición canónica — paid = amountPaid
+      // real; pending = (PENDING+APPROVED) con amount − amountPaid.
+      const paid = allComm
+        .filter((x) => x.status !== 'REJECTED')
+        .reduce((s, x) => s + Number(x.amountPaid), 0);
       const pending = allComm
         .filter((x) => x.status === 'PENDING' || x.status === 'APPROVED')
-        .reduce((s, x) => s + Number(x.amount), 0);
+        .reduce((s, x) => s + Math.max(0, Number(x.amount) - Number(x.amountPaid)), 0);
       // Si AMBASSADOR no tiene parentCode (parentCodeId=null) → es un
       // "Embajador Directo Empresa" — reporta a la empresa, no a un
       // influencer. Mismo % de comisión que un embajador normal pero el
@@ -1160,7 +1214,7 @@ export class ReferralsService {
         ownerName: dto.fullName.trim(),
         ownerEmail: email,
         ownerWhatsapp: dto.whatsapp.trim(),
-        commissionPercent: dto.commissionPercent ?? 25,
+        commissionPercent: dto.commissionPercent ?? COMMISSION_DEFAULTS.ambassadorPct,
         role: 'AMBASSADOR',
         parentCodeId: null,
         campaignId: null,
@@ -1191,6 +1245,83 @@ export class ReferralsService {
       shareLink: `${appUrl}/ref/${slug}`,
       isCompanyDirect: true,
     };
+  }
+
+  /**
+   * #36 (2026-06-16): crear un INFLUENCER directamente desde la empresa.
+   * Antes los influencers se creaban como titulares de una Campaña; ahora
+   * que se eliminó esa sección (#10), el super admin los crea directo acá.
+   * Mismo patrón que createCompanyDirectAmbassador pero role=INFLUENCER y
+   * usuario AFFILIATE_INFLUENCER. Sin campaña.
+   */
+  async createInfluencer(
+    user: AuthUser,
+    dto: {
+      fullName: string;
+      email: string;
+      whatsapp: string;
+      commissionPercent?: number;
+      customCode?: string;
+    },
+  ) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    if (!dto.fullName?.trim() || !dto.email?.trim() || !dto.whatsapp?.trim()) {
+      throw new BadRequestException('fullName, email y whatsapp son requeridos');
+    }
+    const email = dto.email.trim().toLowerCase();
+    await this.assertUniqueAffiliateEmail(email);
+
+    let code = dto.customCode?.trim().toUpperCase();
+    if (code) {
+      if (!/^[A-Z0-9]{4,16}$/.test(code)) {
+        throw new BadRequestException(
+          'customCode debe tener 4-16 caracteres A-Z 0-9',
+        );
+      }
+      const codeDup = await this.prisma.referralCode.findUnique({
+        where: { code },
+      });
+      if (codeDup) throw new BadRequestException(`Código "${code}" ya está en uso`);
+    } else {
+      code = codeGen();
+      while (await this.prisma.referralCode.findUnique({ where: { code } })) {
+        code = codeGen();
+      }
+    }
+
+    const slug = await this.allocateSlug(dto.fullName, code);
+    const created = await this.prisma.referralCode.create({
+      data: {
+        code,
+        slug,
+        ownerName: dto.fullName.trim(),
+        ownerEmail: email,
+        ownerWhatsapp: dto.whatsapp.trim(),
+        commissionPercent: dto.commissionPercent ?? COMMISSION_DEFAULTS.influencerPct,
+        role: 'INFLUENCER',
+        parentCodeId: null,
+        campaignId: null,
+        approvedAt: new Date(),
+        source: 'company_direct',
+      },
+    });
+
+    await this.auth
+      .inviteAffiliate({
+        email,
+        fullName: dto.fullName.trim(),
+        role: 'AFFILIATE_INFLUENCER',
+        referralCodeId: created.id,
+        phone: dto.whatsapp.trim(),
+      })
+      .catch((err) => {
+        this.logger.warn(
+          `inviteAffiliate (influencer) falló para ${email}: ${(err as Error).message}`,
+        );
+      });
+
+    const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
+    return { ...created, shareLink: `${appUrl}/ref/${slug}` };
   }
 
   async listClients(user: AuthUser) {
@@ -1270,12 +1401,14 @@ export class ReferralsService {
     return {
       socioCodeId: socioId,
       socio,
-      indirectPercent: Number(map.get('referrals.indirectPercent') ?? 5),
+      indirectPercent: Number(
+        map.get('referrals.indirectPercent') ?? COMMISSION_DEFAULTS.indirectPct,
+      ),
       defaultInfluencerPercent: Number(
-        map.get('referrals.defaultInfluencerPercent') ?? 30,
+        map.get('referrals.defaultInfluencerPercent') ?? COMMISSION_DEFAULTS.influencerPct,
       ),
       defaultAmbassadorPercent: Number(
-        map.get('referrals.defaultAmbassadorPercent') ?? 25,
+        map.get('referrals.defaultAmbassadorPercent') ?? COMMISSION_DEFAULTS.ambassadorPct,
       ),
       holdDays: Number(map.get('referrals.holdDays') ?? COMMISSION_HOLD_DAYS),
       minPayoutUsd: Number(map.get('referrals.minPayoutUsd') ?? 0),
@@ -1322,11 +1455,11 @@ export class ReferralsService {
     };
     if ('socioCodeId' in patch) writeKey('referrals.socioCodeId', patch.socioCodeId ?? null);
     if ('indirectPercent' in patch)
-      writeKey('referrals.indirectPercent', String(patch.indirectPercent ?? 5));
+      writeKey('referrals.indirectPercent', String(patch.indirectPercent ?? COMMISSION_DEFAULTS.indirectPct));
     if ('defaultInfluencerPercent' in patch)
-      writeKey('referrals.defaultInfluencerPercent', String(patch.defaultInfluencerPercent ?? 30));
+      writeKey('referrals.defaultInfluencerPercent', String(patch.defaultInfluencerPercent ?? COMMISSION_DEFAULTS.influencerPct));
     if ('defaultAmbassadorPercent' in patch)
-      writeKey('referrals.defaultAmbassadorPercent', String(patch.defaultAmbassadorPercent ?? 25));
+      writeKey('referrals.defaultAmbassadorPercent', String(patch.defaultAmbassadorPercent ?? COMMISSION_DEFAULTS.ambassadorPct));
     if ('holdDays' in patch) writeKey('referrals.holdDays', String(patch.holdDays ?? COMMISSION_HOLD_DAYS));
     if ('minPayoutUsd' in patch)
       writeKey('referrals.minPayoutUsd', String(patch.minPayoutUsd ?? 0));
@@ -1379,7 +1512,7 @@ export class ReferralsService {
           ownerName: dto.fullName,
           ownerEmail: email,
           ownerWhatsapp: dto.whatsapp,
-          commissionPercent: dto.commissionPercent ?? 10,
+          commissionPercent: dto.commissionPercent ?? COMMISSION_DEFAULTS.socioPct,
           role: 'SOCIO',
           approvedAt: new Date(),
         },
@@ -1879,14 +2012,21 @@ export class ReferralsService {
     // cargabamos TODA la tabla a memoria para sumar 3 estados.
     const totalsByStatus = await this.prisma.commission.groupBy({
       by: ['status'],
-      _sum: { amount: true },
+      _sum: { amount: true, amountPaid: true },
     });
     const round = (n: number) => Math.round(n * 100) / 100;
-    const sumByStatus = (s: string) =>
-      Number(totalsByStatus.find((r) => r.status === s)?._sum.amount ?? 0);
-    const availableUsd = sumByStatus('APPROVED');
-    const pendingUsd = sumByStatus('PENDING');
-    const paidUsd = sumByStatus('PAID');
+    // FIX 2026-06-16 (#14/#37): definición canónica — available/pending =
+    // outstanding (amount − amountPaid) del estado; paid = amountPaid real
+    // de todo lo no rechazado (cubre pagos parciales).
+    const outstandingByStatus = (s: string) => {
+      const row = totalsByStatus.find((r) => r.status === s);
+      return Math.max(0, Number(row?._sum.amount ?? 0) - Number(row?._sum.amountPaid ?? 0));
+    };
+    const availableUsd = outstandingByStatus('APPROVED');
+    const pendingUsd = outstandingByStatus('PENDING');
+    const paidUsd = totalsByStatus
+      .filter((r) => r.status !== 'REJECTED')
+      .reduce((s, r) => s + Number(r._sum.amountPaid ?? 0), 0);
 
     return {
       items,
@@ -2151,7 +2291,7 @@ export class ReferralsService {
     if (recent) return;
 
     const round2 = (n: number) => Math.round(n * 100) / 100;
-    const pct = Number(code.commissionPercent ?? 25);
+    const pct = Number(code.commissionPercent ?? COMMISSION_DEFAULTS.ambassadorPct);
     const direct = round2((price * pct) / 100);
 
     await this.prisma.commission
@@ -2484,6 +2624,30 @@ export class ReferralsService {
    *    pasa pero NO los desactiva (el admin puede re-habilitar sin
    *    perder data). La UI muestra warning.
    */
+  /**
+   * Tope REAL que un embajador/influencer le puede asignar a un vendedor.
+   *
+   * El vendedor cobra de la PROPIA tajada del padre: en el 3-way split
+   * (ver `buildSplitRows`) el embajador recibe `commissionPercent -
+   * vendorPercent`. Por eso el vendedor jamás puede exceder lo que el
+   * padre mismo gana — si lo hiciera, el `Math.max(0, …)` del split deja
+   * al embajador en 0% pero el vendedor igual cobra de más y la EMPRESA
+   * sobrepaga la rama. El tope correcto es `min(% propio, maxConfig)`:
+   * el `% propio` es el techo duro y `maxCommissionPercent` solo puede
+   * bajarlo más, nunca subirlo por encima del propio.
+   */
+  private effectiveVendorCap(parent: {
+    commissionPercent: unknown;
+    maxCommissionPercent: unknown;
+  }): number {
+    const ownPct = Number(parent.commissionPercent ?? 0);
+    const configuredMax =
+      parent.maxCommissionPercent != null
+        ? Number(parent.maxCommissionPercent)
+        : ownPct;
+    return Math.min(ownPct, configuredMax);
+  }
+
   async setEmbajadorVendorConfig(
     user: AuthUser,
     embajadorCodeId: string,
@@ -2511,17 +2675,27 @@ export class ReferralsService {
     }
     if (typeof patch.maxCommissionPercent === 'number') {
       const m = patch.maxCommissionPercent;
+      const ownPct = Number(code.commissionPercent ?? 0);
       if (m <= 0 || m > 100) {
         throw new BadRequestException(
           'La comisión máxima debe ser > 0 y <= 100.',
         );
       }
-      const used = code.childVendors
-        .filter((v) => v.isActive)
-        .reduce((s, v) => s + Number(v.commissionPercent ?? 0), 0);
-      if (m < used) {
+      // CORRECCIÓN LÓGICA 2026-06-16: el tope no puede superar el % propio
+      // del embajador/influencer — los vendedores cobran de su tajada.
+      if (m > ownPct) {
         throw new BadRequestException(
-          `No se puede bajar la comisión máxima a ${m}% — los vendedores activos ya tienen ${used}% repartido.`,
+          `La comisión máxima para vendedores (${m}%) no puede superar tu propia comisión (${ownPct}%), porque los vendedores cobran de ahí.`,
+        );
+      }
+      // La comisión es INDIVIDUAL por vendedor (no acumulada): ningún
+      // vendedor activo puede quedar por encima del nuevo tope.
+      const maxActive = code.childVendors
+        .filter((v) => v.isActive)
+        .reduce((s, v) => Math.max(s, Number(v.commissionPercent ?? 0)), 0);
+      if (m < maxActive) {
+        throw new BadRequestException(
+          `No se puede bajar la comisión máxima a ${m}% — ya tenés un vendedor activo con ${maxActive}%.`,
         );
       }
       data.maxCommissionPercent = m;
@@ -2572,21 +2746,13 @@ export class ReferralsService {
       if (typeof pct !== 'number' || isNaN(pct) || pct <= 0) {
         throw new BadRequestException('El % debe ser mayor a 0.');
       }
-      const max = code.maxCommissionPercent
-        ? Number(code.maxCommissionPercent)
-        : 25;
-      const used = code.childVendors
-        .filter((v) => v.isActive)
-        .reduce((s, v) => s + Number(v.commissionPercent ?? 0), 0);
-      const available = max - used;
-      if (pct > available) {
-        throw new BadRequestException(
-          `El % por defecto (${pct}%) excede tu disponible (${available}% restante de ${max}% máx).`,
-        );
-      }
+      // CORRECCIÓN LÓGICA 2026-06-16: la comisión es INDIVIDUAL por venta,
+      // no un pool acumulado. El % por defecto solo tiene que caber dentro
+      // del tope real (% propio del padre, acotado por maxCommissionPercent).
+      const max = this.effectiveVendorCap(code);
       if (pct > max) {
         throw new BadRequestException(
-          `El % por defecto no puede superar tu comisión máxima (${max}%).`,
+          `El % por defecto (${pct}%) no puede superar tu comisión (${max}%), porque los vendedores cobran de ella.`,
         );
       }
     }
@@ -2636,9 +2802,9 @@ export class ReferralsService {
     // NO acumulada entre vendedores. Cada vendedor cobra SU % en SUS
     // ventas. Por eso `hasAvailableCommission` depende sólo de `max > 0`
     // y `effectivePct` se capa al máximo absoluto (no a un "disponible").
-    const max = amb.maxCommissionPercent
-      ? Number(amb.maxCommissionPercent)
-      : 25;
+    // CORRECCIÓN LÓGICA 2026-06-16: tope real = % propio del padre (acotado
+    // por maxCommissionPercent), no un flat 25. Ver effectiveVendorCap.
+    const max = this.effectiveVendorCap(amb);
     const defaultPct = amb.defaultVendorCommissionPercent
       ? Number(amb.defaultVendorCommissionPercent)
       : 10;
@@ -2693,11 +2859,11 @@ export class ReferralsService {
     await this.assertUniqueAffiliateEmail(dto.email);
 
     // CORRECCIÓN LÓGICA 2026-06-05: % final = default del embajador
-    // (??10) capado al máximo absoluto. La comisión es INDIVIDUAL por
-    // venta — cada vendedor cobra SU % en SUS ventas, no se acumula.
-    const max = amb.maxCommissionPercent
-      ? Number(amb.maxCommissionPercent)
-      : 25;
+    // (??10) capado al tope. La comisión es INDIVIDUAL por venta — cada
+    // vendedor cobra SU % en SUS ventas, no se acumula.
+    // CORRECCIÓN LÓGICA 2026-06-16: tope = % propio del padre (acotado por
+    // maxCommissionPercent), no un flat 25. Ver effectiveVendorCap.
+    const max = this.effectiveVendorCap(amb);
     const defaultPct = amb.defaultVendorCommissionPercent
       ? Number(amb.defaultVendorCommissionPercent)
       : 10;
@@ -2792,7 +2958,7 @@ export class ReferralsService {
     const row = await this.prisma.setting.findUnique({
       where: { key: 'referrals.defaultAmbassadorPercent' },
     });
-    const defaultPct = row?.value ? Number(row.value) : 25;
+    const defaultPct = row?.value ? Number(row.value) : COMMISSION_DEFAULTS.ambassadorPct;
     return {
       valid: true as const,
       influencer: {
@@ -3136,22 +3302,21 @@ export class ReferralsService {
 
     await this.assertUniqueAffiliateEmail(dto.email);
 
-    // CORRECCIÓN LÓGICA 2026-06-05: la validación correcta es
-    // INDIVIDUAL — cada vendedor tiene su propia comisión que se aplica
-    // SOLO en sus propias ventas. NO se suma entre vendedores. El
-    // embajador puede tener 10 vendedores todos al 18% — cada venta de
-    // un vendedor le saca 18% al embajador (que recibe 25-18=7%). El
-    // único requisito es que ningún vendedor individual exceda el max
-    // del embajador.
-    const max = embajador.maxCommissionPercent
-      ? Number(embajador.maxCommissionPercent)
-      : 25;
+    // CORRECCIÓN LÓGICA 2026-06-05: la validación es INDIVIDUAL — cada
+    // vendedor tiene su propia comisión que se aplica SOLO en sus propias
+    // ventas, NO se suma entre vendedores.
+    // CORRECCIÓN LÓGICA 2026-06-16: el tope NO es un flat 25%, es el % que
+    // el embajador/influencer gana él mismo (acotado por maxCommissionPercent
+    // si lo seteó más bajo). El vendedor cobra de la tajada del padre — si
+    // recibe más de lo que el padre gana, la empresa sobrepaga. Ver
+    // effectiveVendorCap.
+    const max = this.effectiveVendorCap(embajador);
     if (dto.commissionPercent <= 0) {
       throw new BadRequestException('La comisión debe ser mayor a 0.');
     }
     if (dto.commissionPercent > max) {
       throw new BadRequestException(
-        `La comisión del vendedor (${dto.commissionPercent}%) no puede superar la comisión máxima del embajador (${max}%).`,
+        `La comisión del vendedor (${dto.commissionPercent}%) no puede superar la comisión del embajador/influencer (${max}%), porque sale de su propia comisión.`,
       );
     }
 
@@ -3210,7 +3375,12 @@ export class ReferralsService {
   async listVendorsForEmbajador(user: AuthUser, embajadorCodeId: string) {
     const embajador = await this.prisma.referralCode.findUnique({
       where: { id: embajadorCodeId },
-      select: { id: true, role: true, maxCommissionPercent: true },
+      select: {
+        id: true,
+        role: true,
+        maxCommissionPercent: true,
+        commissionPercent: true,
+      },
     });
     if (!embajador) throw new NotFoundException();
     if (embajador.role !== 'AMBASSADOR' && embajador.role !== 'INFLUENCER') {
@@ -3230,9 +3400,9 @@ export class ReferralsService {
       },
       orderBy: [{ isActive: 'desc' }, { ownerName: 'asc' }],
     });
-    const max = embajador.maxCommissionPercent
-      ? Number(embajador.maxCommissionPercent)
-      : 25;
+    // CORRECCIÓN LÓGICA 2026-06-16: el tope real es el % propio del padre
+    // (acotado por maxCommissionPercent), no un flat 25. Ver effectiveVendorCap.
+    const max = this.effectiveVendorCap(embajador);
     // CORRECCIÓN LÓGICA 2026-06-05: ya NO retornamos "available" porque
     // ese concepto era erróneo. Cada vendor tiene su comisión individual
     // que sale del % del embajador en SU venta. No hay "pool" compartido.
@@ -3289,12 +3459,12 @@ export class ReferralsService {
     // no suma acumulada. Cada vendedor tiene su propia comisión y se
     // aplica solo en sus propias ventas. Ver createVendor.
     if (typeof patch.commissionPercent === 'number') {
-      const max = vendor.parentEmbajadorCode.maxCommissionPercent
-        ? Number(vendor.parentEmbajadorCode.maxCommissionPercent)
-        : 25;
+      // CORRECCIÓN LÓGICA 2026-06-16: tope = % propio del padre (acotado
+      // por maxCommissionPercent), no un flat 25. Ver effectiveVendorCap.
+      const max = this.effectiveVendorCap(vendor.parentEmbajadorCode);
       if (patch.commissionPercent <= 0 || patch.commissionPercent > max) {
         throw new BadRequestException(
-          `Comisión inválida. La comisión del vendedor (1-${max}%) no puede superar la comisión máxima del embajador (${max}%).`,
+          `Comisión inválida. La comisión del vendedor (1-${max}%) no puede superar la comisión del embajador/influencer (${max}%), porque sale de su propia comisión.`,
         );
       }
     }
@@ -3800,6 +3970,128 @@ export class ReferralsService {
     return { generated, skipped };
   }
 
+  /**
+   * #5 (2026-06-16): IMPLEMENTACIÓN PAGADA. Genera comisiones sobre un monto
+   * libre (lo que el negocio pagó por la implementación, ej $100/$200/$500/
+   * $1000) usando EXACTAMENTE el mismo split que una venta normal
+   * (influencer / embajador − vendedor / vendedor, con excepciones por
+   * tenant). NO es recurrente: es un cargo único. Usa un periodKey único
+   * `IMPL-...` para no colisionar con la comisión de suscripción del mes ni
+   * deduplicarse contra ella, y para permitir varias implementaciones.
+   */
+  async generateImplementationCommission(
+    user: AuthUser,
+    tenantId: string,
+    amountUsd: number,
+  ): Promise<{ generated: number; total: number }> {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    const amount = Number(amountUsd);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException('El valor de implementación debe ser > 0');
+    }
+
+    const chain = await this.getAttributionChain(tenantId);
+    if (!chain.sourceCodeId) {
+      throw new BadRequestException(
+        'Este negocio no tiene un afiliado asignado — asigná influencer/embajador antes de generar la implementación.',
+      );
+    }
+    const use = await this.prisma.referralUse.findFirst({
+      where: { tenantId, referralCodeId: chain.sourceCodeId },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+    if (!use) {
+      throw new BadRequestException('No se encontró el referralUse del negocio.');
+    }
+
+    // Mismo cálculo de % efectivo (con excepciones) que el split de ventas.
+    const influencerPct = chain.influencer
+      ? await this.resolveExceptionPercent(
+          tenantId,
+          chain.influencer.id,
+          chain.influencer.commissionPercent,
+        )
+      : 0;
+    const embajadorPct = chain.embajador
+      ? await this.resolveExceptionPercent(
+          tenantId,
+          chain.embajador.id,
+          chain.embajador.commissionPercent,
+        )
+      : 0;
+    const vendorPct = chain.vendor
+      ? await this.resolveExceptionPercent(
+          tenantId,
+          chain.vendor.id,
+          chain.vendor.commissionPercent,
+        )
+      : 0;
+
+    const rows: Array<{ recipientCodeId: string; vendorCodeId: string | null; amount: number }> = [];
+    if (chain.influencer && influencerPct > 0) {
+      rows.push({
+        recipientCodeId: chain.influencer.id,
+        vendorCodeId: null,
+        amount: Math.round(amount * influencerPct) / 100,
+      });
+    }
+    if (chain.embajador) {
+      const embajadorEffectivePct = Math.max(0, embajadorPct - vendorPct);
+      if (embajadorEffectivePct > 0) {
+        rows.push({
+          recipientCodeId: chain.embajador.id,
+          vendorCodeId: null,
+          amount: Math.round(amount * embajadorEffectivePct) / 100,
+        });
+      }
+    }
+    if (chain.vendor && vendorPct > 0) {
+      rows.push({
+        recipientCodeId: chain.vendor.id,
+        vendorCodeId: chain.vendor.id,
+        amount: Math.round(amount * vendorPct) / 100,
+      });
+    }
+
+    // periodKey único por implementación (no se deduplica con la suscripción
+    // ni entre implementaciones distintas).
+    const periodKey = `IMPL-${monthKey()}-${Date.now().toString(36)}`;
+    const externalTxId = `impl:${tenantId}:${Date.now()}`;
+    let generated = 0;
+    let total = 0;
+    await this.prisma.$transaction(async (tx) => {
+      for (const row of rows) {
+        await tx.commission.create({
+          data: {
+            referralUseId: use.id,
+            amount: row.amount,
+            status: 'PENDING',
+            paymentStatus: 'PENDING',
+            amountPaid: 0,
+            recipientCodeId: row.recipientCodeId,
+            vendorCodeId: row.vendorCodeId,
+            externalTxId,
+            periodKey,
+            notes: `Implementación pagada · base $${amount.toFixed(2)}`,
+          },
+        });
+        generated++;
+        total += row.amount;
+      }
+    });
+
+    this.audit.log({
+      actorId: user.id,
+      tenantId,
+      action: 'commission.implementation_generated',
+      resource: `tenant:${tenantId}`,
+      metadata: { amountUsd: amount, rows: generated, totalCommissionUsd: total },
+    });
+
+    return { generated, total: Math.round(total * 100) / 100 };
+  }
+
   // ============================================================
   // ADMIN COMMISSIONS PANEL — FASE B2
   // ============================================================
@@ -4116,7 +4408,7 @@ export class ReferralsService {
       }),
     ]);
     const indirectPct = indirectRow?.value ? Number(indirectRow.value) : 5;
-    const socioPct = socioRow?.value ? Number(socioRow.value) : 10;
+    const socioPct = socioRow?.value ? Number(socioRow.value) : COMMISSION_DEFAULTS.socioPct;
 
     // Atribuciones DIRECTAS: un ReferralUse por tenant cuyo code es un
     // afiliado directo (embajador/influencer/vendor). Tras el fix 1:1 cada

@@ -545,26 +545,71 @@ export default function TenantDetail() {
 
         {isSuperAdmin && <ReferralAssignmentCard tenantId={t.id} />}
 
-        {isSuperAdmin && <ReviewAlertsAccountCard tenant={t} onSaved={load} />}
+        {/* #23 (2026-06-16): las secciones avanzadas se agrupan en acordeones
+            colapsados para reducir el scroll. Info/Plan/Referidos quedan
+            visibles arriba; el resto se despliega bajo demanda. */}
+        {isSuperAdmin && (
+          <CollapsibleSection title="🔔 Alertas y notificaciones" className="md:col-span-2">
+            <ReviewAlertsAccountCard tenant={t} onSaved={load} />
+            <BillingAlertsAccountCard tenant={t} onSaved={load} />
+            <DeliveryAlertsAccountCard tenant={t} onSaved={load} />
+            <ReviewAlertsLogsCard tenantId={t.id} />
+            <BillingNotificationsCard tenant={t} />
+            <WhatsappMessagingCard tenant={t} onSaved={load} />
+          </CollapsibleSection>
+        )}
 
-        {isSuperAdmin && <BillingAlertsAccountCard tenant={t} onSaved={load} />}
+        {isSuperAdmin && (
+          <CollapsibleSection title="💳 Facturación avanzada" className="md:col-span-2">
+            <BillingCard tenant={t} onChange={load} />
+            <HotmartSimulatorCard tenant={t} onChange={load} />
+          </CollapsibleSection>
+        )}
 
-        {isSuperAdmin && <DeliveryAlertsAccountCard tenant={t} onSaved={load} />}
-
-        {isSuperAdmin && <ReviewAlertsLogsCard tenantId={t.id} />}
-
-        {isSuperAdmin && <BillingNotificationsCard tenant={t} />}
-
-        {isSuperAdmin && <BillingCard tenant={t} onChange={load} />}
-
-        {isSuperAdmin && <WhatsappMessagingCard tenant={t} onSaved={load} />}
-
-        {isSuperAdmin && <AcademyTogglesCard tenant={t} onSaved={load} />}
-
-        {isSuperAdmin && <WalletsGlobalRefreshCard tenantId={t.id} />}
-
-        {isSuperAdmin && <HotmartSimulatorCard tenant={t} onChange={load} />}
+        {isSuperAdmin && (
+          <CollapsibleSection title="🧩 Integraciones y extras" className="md:col-span-2">
+            <AcademyTogglesCard tenant={t} onSaved={load} />
+            <WalletsGlobalRefreshCard tenantId={t.id} />
+          </CollapsibleSection>
+        )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * #23 (2026-06-16): sección colapsable (acordeón) para reducir el scroll en
+ * el detalle del negocio. Header clickeable + contenido desplegable.
+ * Colapsada por default. Los cards hijos conservan su chrome.
+ */
+function CollapsibleSection({
+  title,
+  children,
+  defaultOpen = false,
+  className = '',
+}: {
+  title: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className={className}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between gap-2 px-4 py-3 rounded-lg bg-bg2 hover:bg-line transition font-semibold text-sm select-none"
+        aria-expanded={open}
+      >
+        <span>{title}</span>
+        <span
+          className={`text-mute transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+        >
+          ▾
+        </span>
+      </button>
+      {open && <div className="mt-3 space-y-4">{children}</div>}
     </div>
   );
 }
