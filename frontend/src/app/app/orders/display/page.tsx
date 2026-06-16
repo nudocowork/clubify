@@ -331,9 +331,19 @@ function DisplayCard({
 
       <div className="space-y-0.5 text-sm border-t border-line2 pt-2">
         {(o.items ?? []).slice(0, 5).map((it: any, i: number) => (
-          <div key={i} className="flex items-baseline gap-2">
-            <span className="font-bold text-ink">{it.qty}×</span>
-            <span className="flex-1 truncate">{it.name}</span>
+          <div key={i}>
+            <div className="flex items-baseline gap-2">
+              <span className="font-bold text-ink">{it.qty}×</span>
+              <span className="flex-1 truncate">{it.name}</span>
+            </div>
+            {Array.isArray(it.extras) && it.extras.length > 0 && (
+              <div className="pl-6 text-[11px] text-amber-300">
+                + {it.extras.map((e: any) => e.name).join(' · ')}
+              </div>
+            )}
+            {it.note && (
+              <div className="pl-6 text-[11px] text-mute2 italic">↳ {it.note}</div>
+            )}
           </div>
         ))}
         {(o.items?.length ?? 0) > 5 && (
