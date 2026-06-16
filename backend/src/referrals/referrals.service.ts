@@ -4074,6 +4074,44 @@ export class ReferralsService {
     const externalTxId = `impl:${tenantId}:${Date.now()}`;
     let generated = 0;
     let total = 0;
+    // Socio de plataforma: 10% sobre TODA venta (modelo contable), incluida
+    // la implementación pagada. Resolvemos el code SOCIO (Setting
+    // referrals.socioCodeId) y le creamos su comisión con el MISMO periodKey
+    // IMPL-... (sin el dedup de 25d del webhook → cada implementación lo
+    // genera). Sobre su propio ReferralUse del tenant (lo creamos si falta).
+    const socioRow = await this.prisma.setting.findUnique({
+      where: { key: 'referrals.socioCodeId' },
+    });
+    let socioCode: { id: string; commissionPercent: unknown } | null = null;
+    if (socioRow?.value) {
+      const s = await this.prisma.referralCode.findUnique({
+        where: { id: socioRow.value },
+        select: { id: true, role: true, isActive: true, commissionPercent: true },
+      });
+      if (s && s.role === 'SOCIO' && s.isActive) {
+        socioCode = { id: s.id, commissionPercent: s.commissionPercent };
+      }
+    }
+    let socioUseId: string | null = null;
+    if (socioCode) {
+      const socioUse =
+        (await this.prisma.referralUse.findFirst({
+          where: { referralCodeId: socioCode.id, tenantId },
+          select: { id: true },
+        })) ??
+        (await this.prisma.referralUse.create({
+          data: {
+            referralCodeId: socioCode.id,
+            tenantId,
+            status: 'PAYING',
+            convertedAt: new Date(),
+          },
+          select: { id: true },
+        }));
+      socioUseId = socioUse.id;
+    }
+
+    let socioGenerated = 0;
     await this.prisma.$transaction(async (tx) => {
       for (const row of rows) {
         await tx.commission.create({
@@ -4093,7 +4131,29 @@ export class ReferralsService {
         generated++;
         total += row.amount;
       }
+      if (socioCode && socioUseId) {
+        const socioPct = Number(socioCode.commissionPercent ?? COMMISSION_DEFAULTS.socioPct);
+        const socioAmount = Math.round(amount * socioPct) / 100;
+        if (socioAmount > 0) {
+          await tx.commission.create({
+            data: {
+              referralUseId: socioUseId,
+              amount: socioAmount,
+              status: 'PENDING',
+              paymentStatus: 'PENDING',
+              amountPaid: 0,
+              recipientCodeId: socioCode.id,
+              externalTxId,
+              periodKey,
+              notes: `Implementación pagada (socio) · base $${amount.toFixed(2)}`,
+            },
+          });
+          socioGenerated = 1;
+          total += socioAmount;
+        }
+      }
     });
+    generated += socioGenerated;
 
     this.audit.log({
       actorId: user.id,
