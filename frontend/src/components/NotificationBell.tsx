@@ -21,7 +21,24 @@ function loadStored(): Notif[] {
   if (typeof window === 'undefined') return [];
   try {
     const raw = localStorage.getItem(STORE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    // #26 (2026-06-16): saneamos las notifs guardadas. Las de formatos
+    // viejos podían no tener `href` → <Link href={undefined}> crasheaba el
+    // dropdown al abrir. Normalizamos los campos requeridos y descartamos
+    // las irrecuperables.
+    return parsed
+      .filter((n: any) => n && typeof n === 'object')
+      .map((n: any) => ({
+        id: typeof n.id === 'string' && n.id ? n.id : rid(),
+        type: n.type ?? 'order_status',
+        title: typeof n.title === 'string' ? n.title : 'Novedad',
+        body: typeof n.body === 'string' ? n.body : '',
+        href: typeof n.href === 'string' && n.href ? n.href : '/app/orders',
+        ts: typeof n.ts === 'number' && Number.isFinite(n.ts) ? n.ts : Date.now(),
+        read: !!n.read,
+      }))
+      .slice(0, MAX);
   } catch {
     return [];
   }
