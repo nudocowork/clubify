@@ -3893,13 +3893,20 @@ export class ReferralsService {
           chain.embajador.commissionPercent,
         )
       : 0;
-    const vendorPct = chain.vendor
+    const vendorPctRaw = chain.vendor
       ? await this.resolveExceptionPercent(
           args.tenantId,
           chain.vendor.id,
           chain.vendor.commissionPercent,
         )
       : 0;
+    // FIX 2026-06-16 (review #8): el % del vendedor sale de la tajada del
+    // embajador → NUNCA puede excederla. Una excepción de comisión sobre el
+    // vendor (validada solo 0-100) podía darle p.ej. 100% y dejar al
+    // embajador en 0 pero pagando de más a la empresa. Clampeamos al slice.
+    const vendorPct = chain.embajador
+      ? Math.min(vendorPctRaw, embajadorPct)
+      : vendorPctRaw;
 
     const rows: Array<{
       recipientCodeId: string;
@@ -4045,13 +4052,17 @@ export class ReferralsService {
           chain.embajador.commissionPercent,
         )
       : 0;
-    const vendorPct = chain.vendor
+    const vendorPctRaw = chain.vendor
       ? await this.resolveExceptionPercent(
           tenantId,
           chain.vendor.id,
           chain.vendor.commissionPercent,
         )
       : 0;
+    // #8 (review): el vendor no puede exceder el slice del embajador.
+    const vendorPct = chain.embajador
+      ? Math.min(vendorPctRaw, embajadorPct)
+      : vendorPctRaw;
 
     const rows: Array<{ recipientCodeId: string; vendorCodeId: string | null; amount: number }> = [];
     if (chain.influencer && influencerPct > 0) {
