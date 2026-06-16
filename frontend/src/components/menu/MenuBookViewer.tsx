@@ -69,6 +69,8 @@ type BookData = {
   sections: Section[];
   /** Popup global del libro (dispara al cargar el viewer). M3 2026-06-04. */
   bookPopup: BookPopup | null;
+  /** #29 (2026-06-16): orientación del swipe. Default HORIZONTAL. */
+  direction?: 'HORIZONTAL' | 'VERTICAL';
 };
 
 /** Slugify simple (ASCII, lowercase, guiones). Espejo del backend slugify. */
@@ -113,6 +115,8 @@ export function MenuBookViewer({
   // se trackea con bookPopupShownRef.
   const sectionsShownRef = useRef<Set<string>>(new Set());
   const bookPopupShownRef = useRef(false);
+  // #29 (2026-06-16): orientación del swipe (vertical = arriba↕abajo).
+  const vertical = data?.direction === 'VERTICAL';
 
   // ── Fetch
   useEffect(() => {
@@ -185,8 +189,11 @@ export function MenuBookViewer({
     setTimeout(() => {
       const el = scrollerRef.current;
       if (!el) return;
-      const pageWidth = el.clientWidth;
-      el.scrollTo({ left: targetIdx * pageWidth, behavior: 'auto' });
+      if (vertical) {
+        el.scrollTo({ top: targetIdx * el.clientHeight, behavior: 'auto' });
+      } else {
+        el.scrollTo({ left: targetIdx * el.clientWidth, behavior: 'auto' });
+      }
       setPageIdx(targetIdx);
       initialUrlSetRef.current = true;
     }, 50);
@@ -199,8 +206,11 @@ export function MenuBookViewer({
     const target = Math.max(0, Math.min(total - 1, idx));
     const el = scrollerRef.current;
     if (!el) return;
-    const pageWidth = el.clientWidth;
-    el.scrollTo({ left: target * pageWidth, behavior: 'smooth' });
+    if (vertical) {
+      el.scrollTo({ top: target * el.clientHeight, behavior: 'smooth' });
+    } else {
+      el.scrollTo({ left: target * el.clientWidth, behavior: 'smooth' });
+    }
     setPageIdx(target);
   }
 
@@ -208,7 +218,9 @@ export function MenuBookViewer({
   function onScrollerScroll() {
     const el = scrollerRef.current;
     if (!el) return;
-    const idx = Math.round(el.scrollLeft / el.clientWidth);
+    const idx = vertical
+      ? Math.round(el.scrollTop / el.clientHeight)
+      : Math.round(el.scrollLeft / el.clientWidth);
     if (idx !== pageIdx) setPageIdx(idx);
   }
 
@@ -376,18 +388,24 @@ export function MenuBookViewer({
         </div>
       </div>
 
-      {/* Slider horizontal — snap mandatory, swipe nativo, padding lateral
-          mínimo para que la imagen sea protagonista. */}
+      {/* #29: slider con snap mandatory. HORIZONTAL (izq↔der, default) o
+          VERTICAL (arriba↕abajo). En vertical el scroller tiene alto fijo
+          para que el snap sea por página. */}
       <div
         ref={scrollerRef}
         onScroll={onScrollerScroll}
-        className="flex overflow-x-auto snap-x snap-mandatory scroll-smooth no-scrollbar touch-pan-x overscroll-x-contain"
+        className={
+          vertical
+            ? 'flex flex-col overflow-y-auto snap-y snap-mandatory scroll-smooth no-scrollbar touch-pan-y overscroll-y-contain h-[82vh]'
+            : 'flex overflow-x-auto snap-x snap-mandatory scroll-smooth no-scrollbar touch-pan-x overscroll-x-contain'
+        }
         style={{ WebkitOverflowScrolling: 'touch' }}
       >
         {allPages.map((p) => (
           <PageSlide
             key={p.id}
             page={p}
+            vertical={vertical}
             onClick={() => p.popup && setOpenPopup(p.popup)}
           />
         ))}
@@ -442,21 +460,28 @@ export function MenuBookViewer({
 function PageSlide({
   page,
   onClick,
+  vertical = false,
 }: {
   page: Page & { sectionId: string };
   onClick: () => void;
+  vertical?: boolean;
 }) {
   // Edge-to-edge real: sin padding lateral. La imagen toma w-full y la
   // altura del slide se adapta al aspect ratio natural (h-auto). Slide
-  // con min-h-[60vh] para que imágenes horizontales no queden minúsculas
-  // — la imagen se centra cuando no llena el alto.
+  // con min-h para que imágenes horizontales no queden minúsculas — la
+  // imagen se centra cuando no llena el alto. #29: en vertical el slide
+  // llena el alto del scroller (h-[82vh]) para snap por página.
   return (
-    <div className="flex-none w-full snap-start snap-always flex items-center justify-center min-h-[60vh]">
+    <div
+      className={`flex-none w-full snap-start snap-always flex items-center justify-center ${
+        vertical ? 'h-[82vh]' : 'min-h-[60vh]'
+      }`}
+    >
       <button
         type="button"
         onClick={onClick}
         disabled={!page.popup}
-        className="relative w-full inline-flex"
+        className={`relative inline-flex ${vertical ? 'h-full w-full justify-center' : 'w-full'}`}
         style={{ cursor: page.popup ? 'pointer' : 'default' }}
       >
         <img
@@ -464,7 +489,11 @@ function PageSlide({
           alt=""
           loading="lazy"
           decoding="async"
-          className="block w-full h-auto"
+          className={
+            vertical
+              ? 'block max-h-full w-auto max-w-full object-contain'
+              : 'block w-full h-auto'
+          }
           draggable={false}
         />
         {page.popup && (

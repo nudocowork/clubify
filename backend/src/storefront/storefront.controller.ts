@@ -94,6 +94,8 @@ class StorefrontBody {
   @IsOptional() @IsEnum(MenuLayout) menuLayout?: MenuLayout;
   @IsOptional() @IsBoolean() digitalMenuEnabled?: boolean;
   @IsOptional() @IsBoolean() bookMenuEnabled?: boolean;
+  // #29: orientación del menú libro.
+  @IsOptional() @IsIn(['HORIZONTAL', 'VERTICAL']) bookMenuDirection?: string;
   @ValidateIf((_, v) => v !== null) @IsOptional() @IsString()
   customDomain?: string | null;
 }

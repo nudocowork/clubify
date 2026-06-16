@@ -261,6 +261,8 @@ export class PublicMenuController {
         status: true,
         storefront: {
           select: {
+            // #29: orientación del swipe (HORIZONTAL|VERTICAL).
+            bookMenuDirection: true,
             // M3: popup global del libro.
             bookPopupEnabled: true,
             bookPopupTitle: true,
@@ -315,6 +317,8 @@ export class PublicMenuController {
           }
         : null;
     return {
+      // #29: el viewer usa esto para swipe horizontal o vertical.
+      direction: sf?.bookMenuDirection === 'VERTICAL' ? 'VERTICAL' : 'HORIZONTAL',
       bookPopup,
       sections: sections.map((s) => ({
         id: s.id,

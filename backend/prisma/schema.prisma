@@ -1860,6 +1860,9 @@ model Storefront {
   // semántica vieja donde `menuLayout=FLIPBOOK` excluía al digital.
   digitalMenuEnabled     Boolean    @default(true)
   bookMenuEnabled        Boolean    @default(false)
+  // #29 (2026-06-16): orientación del swipe del menú libro:
+  // HORIZONTAL (izq↔der, default) o VERTICAL (arriba↕abajo).
+  bookMenuDirection      String     @default("HORIZONTAL")
   isPublished            Boolean    @default(true)
   createdAt              DateTime   @default(now())
 }
