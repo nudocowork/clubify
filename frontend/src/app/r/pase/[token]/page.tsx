@@ -25,11 +25,19 @@ export default function ReservationPass() {
   const [error, setError] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [isAndroid, setIsAndroid] = useState(false);
+  const [isIos, setIsIos] = useState(false);
   const [addingToWallet, setAddingToWallet] = useState(false);
 
   useEffect(() => {
     if (typeof navigator !== 'undefined') {
-      setIsAndroid(/android/i.test(navigator.userAgent));
+      const ua = navigator.userAgent;
+      setIsAndroid(/android/i.test(ua));
+      // iOS detect: iPad/iPhone/iPod + iPadOS 13+ que se reporta como Mac.
+      const isIpadOs =
+        /Macintosh/.test(ua) &&
+        typeof navigator.maxTouchPoints === 'number' &&
+        navigator.maxTouchPoints > 1;
+      setIsIos(/iPhone|iPad|iPod/.test(ua) || isIpadOs);
     }
   }, []);
 
@@ -238,6 +246,16 @@ export default function ReservationPass() {
               </>
             )}
           </button>
+        )}
+
+        {isIos && (
+          <a
+            href={`${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/public/reservations/pase/${token}/apple-wallet`}
+            className="w-full mt-4 py-3 rounded-2xl bg-black text-white text-sm font-semibold shadow-md active:scale-[0.97] transition-transform flex items-center justify-center gap-2"
+          >
+            <span>🍎</span>
+            <span>Añadir a Apple Wallet</span>
+          </a>
         )}
 
         <p className="text-xs text-slate-500 text-center mt-4">

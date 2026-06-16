@@ -9,13 +9,16 @@ import {
   ParseIntPipe,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { Response } from 'express';
 import { IsEmail, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 import { ReservationsService } from './reservations.service';
 import { Public } from '../common/decorators/public.decorator';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GoogleWalletService } from '../wallet/google-wallet.service';
+import { WalletService } from '../wallet/wallet.service';
 
 class PublicReservationBody {
   @IsString() @MaxLength(120) customerName!: string;
@@ -34,6 +37,7 @@ export class PublicReservationsController {
     private svc: ReservationsService,
     private prisma: PrismaService,
     private googleWallet: GoogleWalletService,
+    private wallet: WalletService,
   ) {}
 
   /** Devuelve detalles de la reserva para mostrar antes de cancelar.
@@ -67,6 +71,30 @@ export class PublicReservationsController {
       reservationId,
     );
     return { url };
+  }
+
+  /** Genera .pkpass para Apple Wallet de la reserva. El frontend detecta
+   *  UA iOS y muestra el botón "Añadir a Apple Wallet". Throttle bajo
+   *  porque cada call genera+firma un pkpass nuevo (costoso). */
+  @Get('pase/:token/apple-wallet')
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 6 } })
+  async getApplePass(
+    @Param('token') token: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const reservationId = this.svc.verifyPassToken(token);
+    if (!reservationId) {
+      throw new BadRequestException('Link inválido o expirado');
+    }
+    const buf = await this.wallet.generateReservationPkpass(reservationId);
+    res.setHeader('Content-Type', 'application/vnd.apple.pkpass');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="reserva-${reservationId.slice(0, 8)}.pkpass"`,
+    );
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(buf);
   }
 
   /** Cancela la reserva si el token es válido. Idempotente: si ya
