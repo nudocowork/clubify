@@ -349,15 +349,9 @@ export default function AffiliatePanel() {
               en /affiliate/team (página B1 con CRUD completo). Antes había
               DOS pills "Mi equipo" — un tab inline (TeamView, sin CRUD) y
               este Link. Eliminamos el tab inline para evitar UX confuso. */}
-          {/* CRM (Bloque C) — link a /affiliate/crm. Es ruta separada
-              porque el kanban necesita su propio espacio + drag&drop
-              fluido sin la barra de tabs encima. */}
-          <Link
-            href="/affiliate/crm"
-            className="tab"
-          >
-            🎯 CRM de Ventas
-          </Link>
+          {/* #31 (2026-06-16): el CRM de Ventas se eliminó del panel de
+              afiliados (influencers/embajadores/vendedores). La ruta
+              /affiliate/crm queda en el repo pero ya no se enlaza. */}
           {/* Tab "Mi equipo": embajadores con módulo de vendedores activo, e
               influencers SIEMPRE (pueden activar vendedores + sumar
               embajadores desde ahí). 2026-06-16. */}
