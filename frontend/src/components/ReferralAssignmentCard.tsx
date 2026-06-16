@@ -286,6 +286,105 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
           </div>
         </div>
       )}
+
+      {/* #5 (2026-06-16): implementación pagada — solo si hay afiliado
+          asignado (necesita la cadena de atribución). */}
+      {current && <ImplementationFeeSection tenantId={tenantId} />}
+    </div>
+  );
+}
+
+/**
+ * #5: Implementación pagada. Cobro ÚNICO (no recurrente) que el negocio
+ * pagó por la implementación. Genera comisiones para el influencer/
+ * embajador/vendedor asignado usando el MISMO split que una venta normal.
+ */
+function ImplementationFeeSection({ tenantId }: { tenantId: string }) {
+  const [amount, setAmount] = useState<string>('');
+  const [busy, setBusy] = useState(false);
+  const PRESETS = [100, 200, 500, 1000];
+
+  async function generate() {
+    const value = Number(amount);
+    if (!Number.isFinite(value) || value <= 0) {
+      toast('Ingresá un valor de implementación > 0', 'error');
+      return;
+    }
+    if (
+      !confirm(
+        `¿Generar comisiones de implementación sobre $${value.toFixed(2)}? ` +
+          'Se reparte entre el influencer/embajador/vendedor asignado con el mismo % que una venta.',
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      const res = await api<{ generated: number; total: number }>(
+        `/referrals/tenants/${tenantId}/implementation-commission`,
+        { method: 'POST', body: JSON.stringify({ amountUsd: value }) },
+      );
+      toast(
+        `Implementación generada · ${res.generated} comisión(es) · $${res.total.toFixed(2)} total`,
+        'success',
+      );
+      setAmount('');
+    } catch (e: any) {
+      toast(e?.message || 'No se pudo generar', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-lg border border-line bg-bg2/40 px-3 py-3">
+      <div className="text-sm font-semibold flex items-center gap-1.5">
+        🛠️ Implementación pagada
+      </div>
+      <p className="text-[11px] text-mute mt-0.5 leading-snug">
+        Cobro único por implementación. Genera comisiones para el afiliado
+        asignado con el mismo % que una venta normal (no es recurrente).
+      </p>
+      <div className="flex gap-1.5 mt-2 flex-wrap">
+        {PRESETS.map((p) => (
+          <button
+            key={p}
+            type="button"
+            disabled={busy}
+            onClick={() => setAmount(String(p))}
+            className={`text-xs font-semibold px-2.5 py-1 rounded-pill border transition ${
+              amount === String(p)
+                ? 'bg-brand text-white border-brand'
+                : 'bg-white text-mute border-line hover:bg-bg2'
+            }`}
+          >
+            ${p}
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-2 mt-2 items-end">
+        <div className="flex-1">
+          <label className="text-[10px] uppercase tracking-wider text-mute font-semibold">
+            Valor implementación (USD)
+          </label>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            className="input mt-1"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="Monto libre"
+            disabled={busy}
+          />
+        </div>
+        <button
+          className="btn-primary whitespace-nowrap"
+          disabled={busy || !amount}
+          onClick={generate}
+        >
+          {busy ? 'Generando…' : 'Generar comisión'}
+        </button>
+      </div>
     </div>
   );
 }

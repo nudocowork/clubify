@@ -474,6 +474,18 @@ export class ReferralsController {
     );
   }
 
+  // #5 (2026-06-16): implementación pagada — genera comisiones sobre un monto
+  // libre usando el mismo split (influencer/embajador/vendedor) que una venta.
+  @Roles('SUPER_ADMIN')
+  @Post('tenants/:tenantId/implementation-commission')
+  implementationCommission(
+    @CurrentUser() user: AuthUser,
+    @Param('tenantId') tenantId: string,
+    @Body() body: { amountUsd: number },
+  ) {
+    return this.svc.generateImplementationCommission(user, tenantId, body.amountUsd);
+  }
+
   // ============================================================
   // VENDOR ENDPOINTS — FASE FOUNDATION
   // ============================================================

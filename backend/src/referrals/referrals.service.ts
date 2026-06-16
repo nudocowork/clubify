@@ -3970,6 +3970,128 @@ export class ReferralsService {
     return { generated, skipped };
   }
 
+  /**
+   * #5 (2026-06-16): IMPLEMENTACIÓN PAGADA. Genera comisiones sobre un monto
+   * libre (lo que el negocio pagó por la implementación, ej $100/$200/$500/
+   * $1000) usando EXACTAMENTE el mismo split que una venta normal
+   * (influencer / embajador − vendedor / vendedor, con excepciones por
+   * tenant). NO es recurrente: es un cargo único. Usa un periodKey único
+   * `IMPL-...` para no colisionar con la comisión de suscripción del mes ni
+   * deduplicarse contra ella, y para permitir varias implementaciones.
+   */
+  async generateImplementationCommission(
+    user: AuthUser,
+    tenantId: string,
+    amountUsd: number,
+  ): Promise<{ generated: number; total: number }> {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    const amount = Number(amountUsd);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException('El valor de implementación debe ser > 0');
+    }
+
+    const chain = await this.getAttributionChain(tenantId);
+    if (!chain.sourceCodeId) {
+      throw new BadRequestException(
+        'Este negocio no tiene un afiliado asignado — asigná influencer/embajador antes de generar la implementación.',
+      );
+    }
+    const use = await this.prisma.referralUse.findFirst({
+      where: { tenantId, referralCodeId: chain.sourceCodeId },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+    if (!use) {
+      throw new BadRequestException('No se encontró el referralUse del negocio.');
+    }
+
+    // Mismo cálculo de % efectivo (con excepciones) que el split de ventas.
+    const influencerPct = chain.influencer
+      ? await this.resolveExceptionPercent(
+          tenantId,
+          chain.influencer.id,
+          chain.influencer.commissionPercent,
+        )
+      : 0;
+    const embajadorPct = chain.embajador
+      ? await this.resolveExceptionPercent(
+          tenantId,
+          chain.embajador.id,
+          chain.embajador.commissionPercent,
+        )
+      : 0;
+    const vendorPct = chain.vendor
+      ? await this.resolveExceptionPercent(
+          tenantId,
+          chain.vendor.id,
+          chain.vendor.commissionPercent,
+        )
+      : 0;
+
+    const rows: Array<{ recipientCodeId: string; vendorCodeId: string | null; amount: number }> = [];
+    if (chain.influencer && influencerPct > 0) {
+      rows.push({
+        recipientCodeId: chain.influencer.id,
+        vendorCodeId: null,
+        amount: Math.round(amount * influencerPct) / 100,
+      });
+    }
+    if (chain.embajador) {
+      const embajadorEffectivePct = Math.max(0, embajadorPct - vendorPct);
+      if (embajadorEffectivePct > 0) {
+        rows.push({
+          recipientCodeId: chain.embajador.id,
+          vendorCodeId: null,
+          amount: Math.round(amount * embajadorEffectivePct) / 100,
+        });
+      }
+    }
+    if (chain.vendor && vendorPct > 0) {
+      rows.push({
+        recipientCodeId: chain.vendor.id,
+        vendorCodeId: chain.vendor.id,
+        amount: Math.round(amount * vendorPct) / 100,
+      });
+    }
+
+    // periodKey único por implementación (no se deduplica con la suscripción
+    // ni entre implementaciones distintas).
+    const periodKey = `IMPL-${monthKey()}-${Date.now().toString(36)}`;
+    const externalTxId = `impl:${tenantId}:${Date.now()}`;
+    let generated = 0;
+    let total = 0;
+    await this.prisma.$transaction(async (tx) => {
+      for (const row of rows) {
+        await tx.commission.create({
+          data: {
+            referralUseId: use.id,
+            amount: row.amount,
+            status: 'PENDING',
+            paymentStatus: 'PENDING',
+            amountPaid: 0,
+            recipientCodeId: row.recipientCodeId,
+            vendorCodeId: row.vendorCodeId,
+            externalTxId,
+            periodKey,
+            notes: `Implementación pagada · base $${amount.toFixed(2)}`,
+          },
+        });
+        generated++;
+        total += row.amount;
+      }
+    });
+
+    this.audit.log({
+      actorId: user.id,
+      tenantId,
+      action: 'commission.implementation_generated',
+      resource: `tenant:${tenantId}`,
+      metadata: { amountUsd: amount, rows: generated, totalCommissionUsd: total },
+    });
+
+    return { generated, total: Math.round(total * 100) / 100 };
+  }
+
   // ============================================================
   // ADMIN COMMISSIONS PANEL — FASE B2
   // ============================================================
