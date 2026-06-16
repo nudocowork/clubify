@@ -2054,6 +2054,10 @@ model ReferralCode {
   ownerName             String
   ownerEmail            String
   ownerWhatsapp         String
+  // #37 (2026-06-16): país del afiliado (code ISO-2, p.ej. "CO"). Capturado
+  // en el autoregistro público y en la creación manual. Nullable porque los
+  // codes legacy no lo tienen.
+  country               String?
   ownerUserId           String?
   ownerUser             User?          @relation(fields: [ownerUserId], references: [id])
   commissionPercent     Decimal        @default(20) @db.Decimal(5, 2)

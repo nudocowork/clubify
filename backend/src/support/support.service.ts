@@ -24,7 +24,10 @@ export class SupportService {
     private voyage: VoyageService,
   ) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
-    this.client = apiKey ? new Anthropic({ apiKey }) : null;
+    // review: timeout + sin reintentos automáticos colgados en el request.
+    this.client = apiKey
+      ? new Anthropic({ apiKey, timeout: 30000, maxRetries: 1 })
+      : null;
     if (!apiKey) {
       this.logger.warn(
         'ANTHROPIC_API_KEY no configurado — el widget de IA responderá con un fallback estático',

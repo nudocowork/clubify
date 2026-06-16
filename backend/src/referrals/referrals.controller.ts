@@ -93,6 +93,7 @@ class SelfRegisterAffiliateBody {
   @IsEmail() email!: string;
   @IsString() @MinLength(6) @MaxLength(20) phone!: string;
   @IsString() @MinLength(8) @MaxLength(64) password!: string;
+  @IsOptional() @IsString() @MaxLength(2) country?: string;
 }
 
 class UpdatePublicAffiliateRegConfigBody {
@@ -254,7 +255,7 @@ export class ReferralsController {
   @Post('ambassadors/company-direct')
   createCompanyDirectAmbassador(
     @CurrentUser() user: AuthUser,
-    @Body() body: { fullName: string; email: string; whatsapp: string; commissionPercent?: number; customCode?: string },
+    @Body() body: { fullName: string; email: string; whatsapp: string; commissionPercent?: number; customCode?: string; password?: string; country?: string },
   ) {
     return this.svc.createCompanyDirectAmbassador(user, body);
   }
@@ -265,7 +266,7 @@ export class ReferralsController {
   @Post('influencers')
   createInfluencer(
     @CurrentUser() user: AuthUser,
-    @Body() body: { fullName: string; email: string; whatsapp: string; commissionPercent?: number; customCode?: string },
+    @Body() body: { fullName: string; email: string; whatsapp: string; commissionPercent?: number; customCode?: string; password?: string; country?: string },
   ) {
     return this.svc.createInfluencer(user, body);
   }

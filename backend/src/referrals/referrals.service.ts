@@ -679,9 +679,20 @@ export class ReferralsService {
       data: {
         status,
         paidAt: status === 'PAID' ? new Date() : null,
+        // FIX 2026-06-16 (review #4): marcar PAID también sincroniza
+        // paymentStatus. amountPaid=amount se setea abajo (no se puede
+        // auto-referenciar la columna en un update). Sin esto, "pagado"
+        // (= Σ amountPaid) y la contabilidad mostraban $0.
+        ...(status === 'PAID' ? { paymentStatus: 'PAID' as const } : {}),
       },
       select: { id: true, status: true, referralUseId: true, periodKey: true },
     });
+    if (status === 'PAID') {
+      await this.prisma.$executeRawUnsafe(
+        `UPDATE "Commission" SET "amountPaid" = "amount" WHERE id = $1`,
+        id,
+      );
+    }
 
     // #4 (2026-06-16) CASCADA POR VENTA: al rechazar, anulamos también las
     // comisiones hermanas del MISMO cobro (mismo referralUse + periodKey →
@@ -1189,11 +1200,18 @@ export class ReferralsService {
       whatsapp: string;
       commissionPercent?: number;
       customCode?: string;
+      // #37 (2026-06-16): password directo opcional (ver createInfluencer).
+      password?: string;
+      country?: string;
     },
   ) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     if (!dto.fullName?.trim() || !dto.email?.trim() || !dto.whatsapp?.trim()) {
       throw new BadRequestException('fullName, email y whatsapp son requeridos');
+    }
+    const presetPassword = dto.password?.trim() || undefined;
+    if (presetPassword && presetPassword.length < 8) {
+      throw new BadRequestException('La contraseña debe tener al menos 8 caracteres');
     }
     const email = dto.email.trim().toLowerCase();
 
@@ -1228,6 +1246,7 @@ export class ReferralsService {
         ownerName: dto.fullName.trim(),
         ownerEmail: email,
         ownerWhatsapp: dto.whatsapp.trim(),
+        country: dto.country?.trim() || null,
         commissionPercent: dto.commissionPercent ?? COMMISSION_DEFAULTS.ambassadorPct,
         role: 'AMBASSADOR',
         parentCodeId: null,
@@ -1239,25 +1258,31 @@ export class ReferralsService {
 
     // Invitar al embajador con su panel propio (mismo flujo que un embajador
     // normal, pero scoped a sus propios datos sin parent influencer).
-    await this.auth
+    const invite = await this.auth
       .inviteAffiliate({
         email,
         fullName: dto.fullName.trim(),
         role: 'AFFILIATE_AMBASSADOR',
         referralCodeId: created.id,
         phone: dto.whatsapp.trim(),
+        presetPassword,
       })
       .catch((err) => {
         this.logger.warn(
           `inviteAffiliate falló para ${email}: ${(err as Error).message}`,
         );
+        return null;
       });
 
     const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
+    const credentials = invite?.password
+      ? { email, password: invite.password, loginUrl: '/login' }
+      : null;
     return {
       ...created,
       shareLink: `${appUrl}/ref/${slug}`,
       isCompanyDirect: true,
+      credentials,
     };
   }
 
@@ -1276,11 +1301,20 @@ export class ReferralsService {
       whatsapp: string;
       commissionPercent?: number;
       customCode?: string;
+      // #37 (2026-06-16): el admin puede fijar la contraseña al crear, así
+      // el influencer entra de inmediato sin esperar el email de invitación.
+      // Si viene vacía, se cae al flow tradicional (email de reset).
+      password?: string;
+      country?: string;
     },
   ) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     if (!dto.fullName?.trim() || !dto.email?.trim() || !dto.whatsapp?.trim()) {
       throw new BadRequestException('fullName, email y whatsapp son requeridos');
+    }
+    const presetPassword = dto.password?.trim() || undefined;
+    if (presetPassword && presetPassword.length < 8) {
+      throw new BadRequestException('La contraseña debe tener al menos 8 caracteres');
     }
     const email = dto.email.trim().toLowerCase();
     await this.assertUniqueAffiliateEmail(email);
@@ -1311,6 +1345,7 @@ export class ReferralsService {
         ownerName: dto.fullName.trim(),
         ownerEmail: email,
         ownerWhatsapp: dto.whatsapp.trim(),
+        country: dto.country?.trim() || null,
         commissionPercent: dto.commissionPercent ?? COMMISSION_DEFAULTS.influencerPct,
         role: 'INFLUENCER',
         parentCodeId: null,
@@ -1320,22 +1355,29 @@ export class ReferralsService {
       },
     });
 
-    await this.auth
+    const invite = await this.auth
       .inviteAffiliate({
         email,
         fullName: dto.fullName.trim(),
         role: 'AFFILIATE_INFLUENCER',
         referralCodeId: created.id,
         phone: dto.whatsapp.trim(),
+        presetPassword,
       })
       .catch((err) => {
         this.logger.warn(
           `inviteAffiliate (influencer) falló para ${email}: ${(err as Error).message}`,
         );
+        return null;
       });
 
     const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
-    return { ...created, shareLink: `${appUrl}/ref/${slug}` };
+    // Si el admin fijó password, devolvemos las credenciales para que las
+    // copie/comparta una sola vez (no se guardan en plain text).
+    const credentials = invite?.password
+      ? { email, password: invite.password, loginUrl: '/login' }
+      : null;
+    return { ...created, shareLink: `${appUrl}/ref/${slug}`, credentials };
   }
 
   async listClients(user: AuthUser) {
@@ -3173,6 +3215,7 @@ export class ReferralsService {
       email: string;
       phone: string;
       password: string;
+      country?: string;
     },
     ip?: string,
   ) {
@@ -3210,6 +3253,7 @@ export class ReferralsService {
         ownerName: dto.fullName,
         ownerEmail: dto.email,
         ownerWhatsapp: dto.phone,
+        country: dto.country?.trim() || null,
         role: dto.role,
         commissionPercent,
         isActive: true,
@@ -3882,13 +3926,20 @@ export class ReferralsService {
           chain.embajador.commissionPercent,
         )
       : 0;
-    const vendorPct = chain.vendor
+    const vendorPctRaw = chain.vendor
       ? await this.resolveExceptionPercent(
           args.tenantId,
           chain.vendor.id,
           chain.vendor.commissionPercent,
         )
       : 0;
+    // FIX 2026-06-16 (review #8): el % del vendedor sale de la tajada del
+    // embajador → NUNCA puede excederla. Una excepción de comisión sobre el
+    // vendor (validada solo 0-100) podía darle p.ej. 100% y dejar al
+    // embajador en 0 pero pagando de más a la empresa. Clampeamos al slice.
+    const vendorPct = chain.embajador
+      ? Math.min(vendorPctRaw, embajadorPct)
+      : vendorPctRaw;
 
     const rows: Array<{
       recipientCodeId: string;
@@ -4034,13 +4085,17 @@ export class ReferralsService {
           chain.embajador.commissionPercent,
         )
       : 0;
-    const vendorPct = chain.vendor
+    const vendorPctRaw = chain.vendor
       ? await this.resolveExceptionPercent(
           tenantId,
           chain.vendor.id,
           chain.vendor.commissionPercent,
         )
       : 0;
+    // #8 (review): el vendor no puede exceder el slice del embajador.
+    const vendorPct = chain.embajador
+      ? Math.min(vendorPctRaw, embajadorPct)
+      : vendorPctRaw;
 
     const rows: Array<{ recipientCodeId: string; vendorCodeId: string | null; amount: number }> = [];
     if (chain.influencer && influencerPct > 0) {
@@ -4696,10 +4751,29 @@ export class ReferralsService {
           amount: true,
           amountPaid: true,
           paymentStatus: true,
+          status: true,
           notes: true,
+          payoutItem: { select: { id: true } },
         },
       });
       if (!c) throw new NotFoundException('Comisión no encontrada');
+
+      // FIX 2026-06-16 (review #5): guards que faltaban.
+      // (a) Solo se puede pagar lo APPROVED (disponible). PENDING está en
+      //     hold anti-reembolso, RETAINED está congelada, REJECTED cancelada.
+      if (c.status !== 'APPROVED') {
+        throw new BadRequestException(
+          `Solo se pueden pagar comisiones APPROVED (esta está ${c.status}).`,
+        );
+      }
+      // (b) Si ya está en un payout (batch de liquidación abierto), no se
+      //     paga por acá → evita doble-pago. Reversar el payout libera la
+      //     comisión (borra el payoutItem).
+      if (c.payoutItem) {
+        throw new BadRequestException(
+          'Esta comisión ya está en un pago (payout). Reversá ese pago antes de liquidarla manualmente.',
+        );
+      }
 
       const currentPaid = Number(c.amountPaid);
       const total = Number(c.amount);

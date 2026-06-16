@@ -150,9 +150,11 @@ export default function NotificationsPage() {
         api('/tenants/me').catch(() => null),
         api('/notifications/recurring').catch(() => []),
       ]);
-      setHistory(h as any[]);
-      setCards(c as any[]);
-      setRecurring(rec as any[]);
+      // FIX 2026-06-16 (review): api() devuelve null en respuestas vacías →
+      // history.length/cards.filter/history.map crasheaban. Guarda ?? [].
+      setHistory((h as any[]) ?? []);
+      setCards((c as any[]) ?? []);
+      setRecurring((rec as any[]) ?? []);
       if ((me as any)?.brandName) setBrandName((me as any).brandName);
       if ((me as any)?.primaryColor) setBrandColor((me as any).primaryColor);
       const pushLogo = (me as any)?.pushLogoUrl ?? null;

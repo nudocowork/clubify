@@ -380,21 +380,13 @@ export class ReservationsService {
   ) {
     this.assertValidDto(dto);
 
-    // Validación de capacidad / slot. Skip si admin lo desactiva
-    // explícitamente (e.g. fuerza una reserva fuera de horario).
-    if (!opts.skipCapacityCheck) {
-      // Multi-sede: el locationId del DTO (o derivado de zone) scopea
-      // el chequeo a la sede correcta. Sin esto, multi-sede crossea
-      // capacidad entre locales y oversellearía.
-      await this.assertSlotAvailable(
-        tenantId,
-        dto.date,
-        dto.time,
-        dto.zoneId ?? null,
-        dto.party,
-        dto.locationId ?? null,
-      );
-    }
+    // FIX 2026-06-16 (review #12): la validación de capacidad + el create se
+    // hacen juntos dentro de una transacción con un advisory lock por slot
+    // (más abajo). Antes el check (assertSlotAvailable) y el create eran 2
+    // statements separados → dos requests concurrentes para los últimos
+    // lugares pasaban ambos el check y ambos insertaban (oversell /
+    // doble-booking). El lock serializa el slot; el customer/location se
+    // resuelven ANTES (no afectan capacidad).
 
     // FindOrCreate Customer por phone (CRM enrichment).
     // FIX 2026-06-12: skip si el phone es placeholder de walk-in
@@ -443,25 +435,46 @@ export class ReservationsService {
       timestamps.completedAt = now;
     }
 
-    const reservation = await this.prisma.reservation.create({
-      data: {
-        tenantId,
-        locationId,
-        customerId: customer?.id ?? null,
-        customerName: dto.customerName.trim(),
-        customerPhone: phone,
-        customerEmail: dto.customerEmail?.trim() || null,
-        party: dto.party,
-        date: dateAtNoonUtc,
-        time: dto.time,
-        notes: dto.notes?.trim() || null,
-        zoneId: dto.zoneId ?? null,
-        tableId: dto.tableId ?? null,
-        channel,
-        status: initStatus,
-        ...timestamps,
-      },
-      include: { table: true, zone: true },
+    const reservation = await this.prisma.$transaction(async (tx) => {
+      if (!opts.skipCapacityCheck) {
+        // Advisory lock por slot (tenant+fecha+hora+zona/sede): serializa las
+        // reservas concurrentes del mismo slot. Mientras una tx lo tiene, las
+        // demás esperan → el assertSlotAvailable ve el estado committed
+        // (incluidas las que acaban de confirmar) y no hay oversell.
+        const lockKey = `resv:${tenantId}:${dto.date}:${dto.time}:${dto.zoneId ?? locationId ?? 'all'}`;
+        await tx.$executeRawUnsafe(
+          `SELECT pg_advisory_xact_lock(hashtext($1))`,
+          lockKey,
+        );
+        await this.assertSlotAvailable(
+          tenantId,
+          dto.date,
+          dto.time,
+          dto.zoneId ?? null,
+          dto.party,
+          locationId,
+        );
+      }
+      return tx.reservation.create({
+        data: {
+          tenantId,
+          locationId,
+          customerId: customer?.id ?? null,
+          customerName: dto.customerName.trim(),
+          customerPhone: phone,
+          customerEmail: dto.customerEmail?.trim() || null,
+          party: dto.party,
+          date: dateAtNoonUtc,
+          time: dto.time,
+          notes: dto.notes?.trim() || null,
+          zoneId: dto.zoneId ?? null,
+          tableId: dto.tableId ?? null,
+          channel,
+          status: initStatus,
+          ...timestamps,
+        },
+        include: { table: true, zone: true },
+      });
     });
 
     if (opts.notify) {

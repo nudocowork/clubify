@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma, StampAction } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
@@ -306,11 +306,19 @@ export class StampsService {
       );
     }
 
+    // FIX 2026-06-16 (review #11): escrituras RELATIVAS (increment por delta)
+    // en vez de absolutas, para no perder sellos/puntos bajo escaneos
+    // concurrentes (dos scans leían el mismo saldo viejo y escribían el mismo
+    // absoluto → un sello perdido). El delta = nuevoSaldo − saldoLeído.
+    const stampsDelta = newStamps - pass.stampsCount;
+    const pointsDelta = Number(newPoints) - Number(pass.pointsBalance);
+    const cashbackDelta = Number(newCashback) - Number(pass.cashbackBalance);
+    const visitsDelta = newVisits - pass.visitsCount;
     const passUpdateData: any = {
-      stampsCount: newStamps,
-      pointsBalance: newPoints,
-      cashbackBalance: newCashback,
-      visitsCount: newVisits,
+      stampsCount: { increment: stampsDelta },
+      pointsBalance: { increment: pointsDelta },
+      cashbackBalance: { increment: cashbackDelta },
+      visitsCount: { increment: visitsDelta },
       currentTier: newCurrentTier,
       tierProgress: newTierProgress,
       lastActivityAt: new Date(),
@@ -332,14 +340,67 @@ export class StampsService {
     // todo es atómico: o se borra el huérfano + crea stamp + update pass,
     // o ninguna de las 3.
     const [stamp, updatedPass] = await this.prisma.$transaction(async (tx) => {
-      if (isCouponRedeem && stampsCardForTransform) {
-        await tx.pass.deleteMany({
+      // FIX 2026-06-16 (review #11): advisory lock por pass → serializa los
+      // escaneos concurrentes del mismo pase. Con el lock tomado, releemos el
+      // saldo FRESCO y, si esta operación CONSUME saldo (redención de premio,
+      // débito de puntos, redención de cashback), revalidamos contra el saldo
+      // fresco para evitar la DOBLE-REDENCIÓN (dos scans pasaban el check
+      // sobre el saldo viejo y ambos consumían).
+      await tx.$executeRawUnsafe(
+        `SELECT pg_advisory_xact_lock(hashtext($1))`,
+        pass.id,
+      );
+      const fresh = await tx.pass.findUnique({
+        where: { id: pass.id },
+        select: { stampsCount: true, pointsBalance: true, cashbackBalance: true },
+      });
+      if (fresh) {
+        const stampsConsumed = isCouponRedeem ? 0 : Math.max(0, -stampsDelta);
+        const pointsConsumed = Math.max(0, -pointsDelta);
+        const cashbackConsumed = Math.max(0, -cashbackDelta);
+        if (
+          stampsConsumed > fresh.stampsCount ||
+          pointsConsumed > Number(fresh.pointsBalance) + 0.001 ||
+          cashbackConsumed > Number(fresh.cashbackBalance) + 0.001
+        ) {
+          throw new ConflictException(
+            'El saldo cambió (otra operación lo usó). Volvé a escanear.',
+          );
+        }
+      }
+      if (isCouponRedeem && stampsCardForTransform && pass.customerId) {
+        // FIX 2026-06-16 (review): NO borrar a ciegas. El transform del cupón
+        // mueve este pase a la stamps card target; si el cliente YA tiene ahí
+        // un pase de sellos REAL (con progreso, historial o agregado al
+        // wallet) el deleteMany ciego lo destruía. Replicamos las guardas de
+        // cleanupOrphanStampsPass: solo borramos un pase HUÉRFANO (0 sellos,
+        // 0 historial, 0 devices); si no, abortamos el transform.
+        const existing = await tx.pass.findUnique({
           where: {
-            customerId: pass.customerId,
-            cardId: stampsCardForTransform.id,
-            id: { not: pass.id }, // no borrar el pass que vamos a transformar
+            cardId_customerId: {
+              cardId: stampsCardForTransform.id,
+              customerId: pass.customerId,
+            },
           },
+          select: { id: true, stampsCount: true },
         });
+        if (existing && existing.id !== pass.id) {
+          if (existing.stampsCount > 0) {
+            throw new BadRequestException(
+              'El cliente ya tiene una tarjeta de sellos con progreso. No se puede transformar el cupón sin perderlo.',
+            );
+          }
+          const [devices, history] = await Promise.all([
+            tx.walletDevice.count({ where: { passId: existing.id } }),
+            tx.stamp.count({ where: { passId: existing.id } }),
+          ]);
+          if (devices > 0 || history > 0) {
+            throw new BadRequestException(
+              'El cliente ya tiene una tarjeta de sellos activa (con historial o en el wallet). No se puede transformar el cupón.',
+            );
+          }
+          await tx.pass.delete({ where: { id: existing.id } });
+        }
       }
       const newStampRow = await tx.stamp.create({
         data: {

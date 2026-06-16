@@ -66,6 +66,11 @@ export function NotificationBell() {
   const [items, setItems] = useState<Notif[]>([]);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  // FIX 2026-06-16 (review): dedup de notifs por (code+evento). El socket
+  // emite order:upsert en CADA cambio; antes `_wasPending !== false` (campo
+  // ausente) era siempre true → "Pago recibido" espurio en cada upsert de
+  // una orden ya pagada. Ahora solo notificamos una vez por transición.
+  const seenRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     setItems(loadStored());
@@ -83,12 +88,22 @@ export function NotificationBell() {
     }
 
     function onUpsert(o: any) {
+      // Dedup: una notif por (orden, evento). Si ya la emitimos, salimos.
+      const dedupKey =
+        o.paymentStatus === 'PAID'
+          ? `paid:${o.code}`
+          : o.status === 'PENDING'
+            ? `new:${o.code}`
+            : `status:${o.code}:${o.status}`;
+      if (seenRef.current.has(dedupKey)) return;
+      seenRef.current.add(dedupKey);
+
       // Detectar tipo según el cambio
-      if (o.paymentStatus === 'PAID' && o._wasPending !== false) {
+      if (o.paymentStatus === 'PAID') {
         pushNotif({
           type: 'order_paid',
           title: `💳 Pago recibido #${o.code}`,
-          body: `${o.customer?.fullName ?? 'Cliente'} pagó $${Number(o.total).toLocaleString('es-CO')}`,
+          body: `${o.customer?.fullName ?? 'Cliente'} pagó $${(Number(o.total) || 0).toLocaleString('es-CO')}`,
           href: '/app/orders',
         });
       } else if (o.status === 'PENDING') {

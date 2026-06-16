@@ -188,6 +188,7 @@ export class GrowBusinessAccountsService {
 
     try {
       const res = await fetch(`${API}/locations/${acc.locationId}`, {
+        signal: AbortSignal.timeout(15000), // review: timeout
         headers: {
           Authorization: `Bearer ${acc.apiKey}`,
           Version: '2021-07-28',

@@ -18,6 +18,31 @@ type Config = {
 
 type Role = 'INFLUENCER' | 'AMBASSADOR';
 
+// Países principales (LATAM + España/USA). El code de 2 letras se persiste
+// en ReferralCode.country. Alineado con PhoneInput.
+const COUNTRIES: { code: string; name: string }[] = [
+  { code: 'CO', name: 'Colombia' },
+  { code: 'MX', name: 'México' },
+  { code: 'AR', name: 'Argentina' },
+  { code: 'CL', name: 'Chile' },
+  { code: 'PE', name: 'Perú' },
+  { code: 'EC', name: 'Ecuador' },
+  { code: 'VE', name: 'Venezuela' },
+  { code: 'BO', name: 'Bolivia' },
+  { code: 'PY', name: 'Paraguay' },
+  { code: 'UY', name: 'Uruguay' },
+  { code: 'CR', name: 'Costa Rica' },
+  { code: 'PA', name: 'Panamá' },
+  { code: 'GT', name: 'Guatemala' },
+  { code: 'HN', name: 'Honduras' },
+  { code: 'SV', name: 'El Salvador' },
+  { code: 'NI', name: 'Nicaragua' },
+  { code: 'DO', name: 'R. Dominicana' },
+  { code: 'PR', name: 'Puerto Rico' },
+  { code: 'ES', name: 'España' },
+  { code: 'US', name: 'Estados Unidos' },
+];
+
 export default function RegistroAfiliadoPage() {
   return (
     <Suspense
@@ -49,10 +74,13 @@ function RegistroAfiliadoInner() {
   const [config, setConfig] = useState<Config | null>(null);
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<Role | null>(null);
-  const [fullName, setFullName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
+  const [country, setCountry] = useState('CO');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -76,16 +104,22 @@ function RegistroAfiliadoInner() {
       .finally(() => setLoading(false));
   }, []);
 
+  const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!role) return;
+    if (password !== confirmPassword) {
+      setError('Las contraseñas no coinciden');
+      return;
+    }
     setError(null);
     setSubmitting(true);
     try {
       const res = await fetch(`${API}/api/public/affiliate-signup/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role, fullName, email, phone, password }),
+        body: JSON.stringify({ role, fullName, email, phone, password, country }),
       });
       if (!res.ok) {
         const txt = await res.text();
@@ -198,17 +232,31 @@ function RegistroAfiliadoInner() {
         )}
 
         <form onSubmit={submit} className="mt-5 space-y-3">
-          <div>
-            <label className="label">Nombre completo</label>
-            <input
-              className="input"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              required
-              minLength={2}
-              maxLength={80}
-              placeholder="María Pérez"
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Nombre</label>
+              <input
+                className="input"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                required
+                minLength={2}
+                maxLength={40}
+                placeholder="María"
+              />
+            </div>
+            <div>
+              <label className="label">Apellido</label>
+              <input
+                className="input"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                required
+                minLength={2}
+                maxLength={40}
+                placeholder="Pérez"
+              />
+            </div>
           </div>
           <div>
             <label className="label">Email</label>
@@ -222,7 +270,22 @@ function RegistroAfiliadoInner() {
             />
           </div>
           <div>
-            <label className="label">Teléfono</label>
+            <label className="label">País</label>
+            <select
+              className="input"
+              value={country}
+              onChange={(e) => setCountry(e.target.value)}
+              required
+            >
+              {COUNTRIES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">WhatsApp</label>
             <PhoneInput value={phone} onChange={setPhone} placeholder="3001234567" />
           </div>
           <div>
@@ -237,6 +300,21 @@ function RegistroAfiliadoInner() {
               placeholder="Mínimo 8 caracteres"
             />
           </div>
+          <div>
+            <label className="label">Confirmar contraseña</label>
+            <input
+              className="input"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              minLength={8}
+              placeholder="Repite tu contraseña"
+            />
+            {confirmPassword.length > 0 && confirmPassword !== password && (
+              <p className="text-xs text-bad-ink mt-1">Las contraseñas no coinciden</p>
+            )}
+          </div>
 
           {error && (
             <div className="text-sm text-bad-ink bg-bad-soft rounded-lg px-3 py-2">
@@ -246,7 +324,16 @@ function RegistroAfiliadoInner() {
 
           <button
             type="submit"
-            disabled={submitting || !role || !fullName || !email || !phone || password.length < 8}
+            disabled={
+              submitting ||
+              !role ||
+              !firstName.trim() ||
+              !lastName.trim() ||
+              !email ||
+              !phone ||
+              password.length < 8 ||
+              password !== confirmPassword
+            }
             className="btn-primary w-full justify-center mt-2"
           >
             {submitting ? 'Creando cuenta…' : `Registrarme · ${pct}% comisión`}

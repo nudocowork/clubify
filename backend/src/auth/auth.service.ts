@@ -367,16 +367,31 @@ export class AuthService {
    * en PasswordResetToken con TTL 10 min. Envía el código por SMS vía la
    * subcuenta default de GrowBusiness.
    */
+  /**
+   * #2 (review): localizar al ÚNICO usuario activo cuyo teléfono (solo
+   * dígitos) TERMINA EXACTAMENTE en `last10`. Antes se usaba
+   * `phone: { contains: last10 }` — match por substring en cualquier
+   * posición — y como `User.phone` NO es único, podía resolver al usuario
+   * equivocado y mandar el código de reset a otra cuenta (account takeover).
+   * Si hay 0 o 2+ coincidencias exactas devolvemos null (no revelamos, no
+   * enviamos a nadie).
+   */
+  private async findUniqueUserByPhoneLast10(last10: string) {
+    const candidates = await this.prisma.user.findMany({
+      where: { phone: { contains: last10 }, isActive: true },
+    });
+    const exact = candidates.filter(
+      (u) => (u.phone ?? '').replace(/\D/g, '').slice(-10) === last10,
+    );
+    return exact.length === 1 ? exact[0] : null;
+  }
+
   async requestPasswordResetSms(phone: string) {
     const normalized = phone.replace(/\D/g, '').trim();
     if (normalized.length < 7) return { ok: true };
 
-    // Buscamos por los últimos 10 dígitos para tolerar formatos diferentes
-    // (+57 300 vs 57300 vs 300...). El user.phone puede traer espacios.
     const last10 = normalized.slice(-10);
-    const user = await this.prisma.user.findFirst({
-      where: { phone: { contains: last10 }, isActive: true },
-    });
+    const user = await this.findUniqueUserByPhoneLast10(last10);
 
     if (user && user.phone) {
       const code = String(Math.floor(100000 + Math.random() * 900000));
@@ -431,9 +446,7 @@ export class AuthService {
       throw new BadRequestException('Código inválido o vencido');
     }
     const last10 = normalized.slice(-10);
-    const user = await this.prisma.user.findFirst({
-      where: { phone: { contains: last10 }, isActive: true },
-    });
+    const user = await this.findUniqueUserByPhoneLast10(last10);
     if (!user) throw new BadRequestException('Código inválido o vencido');
 
     const codeHash = createHash('sha256').update(code.trim()).digest('hex');

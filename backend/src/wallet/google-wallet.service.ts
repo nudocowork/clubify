@@ -251,7 +251,10 @@ export class GoogleWalletService {
       loyaltyPoints: balance,
       barcode: {
         type: 'PDF_417',
-        value: pass.serialNumber,
+        // FIX 2026-06-16 (review #1): el QR codifica el qrToken FIRMADO (JWT
+        // verificable), no el serial plano (forjable). El alternateText
+        // queda con el serial solo como referencia humana para soporte.
+        value: pass.qrToken,
         alternateText: pass.serialNumber,
       },
       hexBackgroundColor: card.primaryColor || '#5B5EEE',

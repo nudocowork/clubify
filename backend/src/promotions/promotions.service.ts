@@ -142,13 +142,23 @@ export class PromotionsService {
         if (!has) continue;
       }
 
+      // FIX 2026-06-16 (review #6): si la promo está scopeada a productIds,
+      // el descuento aplica SOLO sobre la suma de esos productos, no sobre
+      // todo el carrito. Antes "20% off cafés" descontaba 20% de cafés +
+      // hamburguesas + todo.
+      const scopedBase = cond.productIds?.length
+        ? items
+            .filter((i) => cond.productIds.includes(i.productId))
+            .reduce((s, i) => s + Number(i.unitPrice) * Number(i.qty ?? 1), 0)
+        : subtotal;
+
       let saved = 0;
       switch (p.type) {
         case 'DISCOUNT_PCT':
-          saved = subtotal * (Number(p.value) / 100);
+          saved = scopedBase * (Number(p.value) / 100);
           break;
         case 'DISCOUNT_AMOUNT':
-          saved = Math.min(Number(p.value), subtotal);
+          saved = Math.min(Number(p.value), scopedBase);
           break;
         case 'FREE_ITEM':
           // Resta el item de menor precio que cumpla
@@ -200,6 +210,11 @@ export class PromotionsService {
         });
       }
     }
+
+    // FIX 2026-06-16 (review #6): clamp del descuento total al subtotal.
+    // Sin esto, promos apilables podían sumar más que el carrito y, aunque
+    // el total se clampea a 0 en orders, dejaba "saved" inconsistente.
+    if (discount > subtotal) discount = subtotal;
 
     return { discount: Number(discount.toFixed(2)), applied };
   }

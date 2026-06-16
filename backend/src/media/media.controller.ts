@@ -72,15 +72,36 @@ export class MediaController {
   @Get('proxy')
   async proxy(@Query('url') url: string, @Res() res: Response) {
     if (!url) throw new BadRequestException('url required');
-    const base = this.svc.getPublicBase();
-    if (!url.startsWith(base)) {
+    // FIX 2026-06-16 (review #3 SSRF): comparar HOST exacto, no prefijo.
+    // `startsWith(base)` aceptaba `https://<base>.attacker.com/...`. Además
+    // exigimos https y capamos el tamaño de la respuesta (no bufferear
+    // upstreams gigantes en memoria) + timeout.
+    let parsed: URL;
+    let baseHost: string;
+    try {
+      parsed = new URL(url);
+      baseHost = new URL(this.svc.getPublicBase()).host;
+    } catch {
+      throw new BadRequestException('url inválida');
+    }
+    if (parsed.protocol !== 'https:' || parsed.host !== baseHost) {
       throw new BadRequestException('Solo URLs de nuestro bucket');
     }
-    const r = await fetch(url);
+    const r = await fetch(url, { signal: AbortSignal.timeout(15000) }).catch(() => {
+      throw new BadRequestException('Upstream inalcanzable');
+    });
     if (!r.ok) {
       throw new BadRequestException(`Upstream ${r.status}`);
     }
+    const MAX_BYTES = 15 * 1024 * 1024; // 15MB
+    const len = Number(r.headers.get('content-length') ?? 0);
+    if (len > MAX_BYTES) {
+      throw new BadRequestException('Archivo demasiado grande');
+    }
     const buf = Buffer.from(await r.arrayBuffer());
+    if (buf.length > MAX_BYTES) {
+      throw new BadRequestException('Archivo demasiado grande');
+    }
     const contentType = r.headers.get('content-type') ?? 'image/jpeg';
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'public, max-age=300');
