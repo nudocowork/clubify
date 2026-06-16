@@ -14,6 +14,7 @@ import { PhoneInput } from '@/components/PhoneInput';
 import { SupportWidget } from '@/components/SupportWidget';
 import { AffiliateBroadcastBanner } from '@/components/AffiliateBroadcastBanner';
 import { LoginPopupBroadcast } from '@/components/LoginPopupBroadcast';
+import { LabFeed } from '@/app/lab/LabFeed';
 
 type Tab =
   | 'overview'
@@ -22,6 +23,7 @@ type Tab =
   | 'team'
   | 'trial'
   | 'materials'
+  | 'lab'
   | 'settings';
 
 type Me = {
@@ -385,12 +387,16 @@ export default function AffiliatePanel() {
           >
             🎓 Academia Clubify
           </a>
-          {/* Clubify Lab — panel global de propuestas comunitarias.
-              Visible para INFLUENCER / AMBASSADOR / VENDOR / SOCIO. La
-              página /lab acepta todos los roles AFFILIATE_*. */}
-          <Link href="/lab" className="tab">
+          {/* Clubify Lab — feed comunitario embebido como tab interno
+              para que el embajador no salga del panel. La ruta /lab
+              standalone sigue funcionando, ambas montan el mismo
+              componente LabFeed. */}
+          <button
+            className={`tab ${tab === 'lab' ? 'tab-active' : ''}`}
+            onClick={() => setTab('lab')}
+          >
             🧪 Clubify Lab
-          </Link>
+          </button>
           <button
             className={`tab ${tab === 'settings' ? 'tab-active' : ''}`}
             onClick={() => setTab('settings')}
@@ -406,6 +412,7 @@ export default function AffiliatePanel() {
         {tab === 'team' && isAmbassador && <TeamView me={me} />}
         {tab === 'trial' && <TrialStatsView />}
         {tab === 'materials' && <SupportMaterialsList />}
+        {tab === 'lab' && <LabFeed />}
         {tab === 'settings' && (
           <SettingsView
             me={me}
