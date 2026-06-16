@@ -733,6 +733,10 @@ export class ReferralsService {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
 
     const codes = await this.prisma.referralCode.findMany({
+      // #7/#38 (2026-06-16): excluir afiliados eliminados (soft-delete
+      // isActive=false) del ranking. Antes el leaderboard los seguía
+      // mostrando y los seguía rankeando.
+      where: { isActive: true },
       include: {
         uses: {
           include: { commissions: true },
@@ -976,7 +980,8 @@ export class ReferralsService {
   async listInfluencers(user: AuthUser) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     const codes = await this.prisma.referralCode.findMany({
-      where: { role: 'INFLUENCER' },
+      // #7 (2026-06-16): no listar influencers eliminados (isActive=false).
+      where: { role: 'INFLUENCER', isActive: true },
       include: {
         ownerOfCampaign: true,
         ambassadors: { select: { id: true, isActive: true } },
@@ -1093,7 +1098,8 @@ export class ReferralsService {
   async listAmbassadors(user: AuthUser) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     const codes = await this.prisma.referralCode.findMany({
-      where: { role: 'AMBASSADOR' },
+      // #7 (2026-06-16): no listar embajadores eliminados (isActive=false).
+      where: { role: 'AMBASSADOR', isActive: true },
       include: {
         parentCode: { select: { code: true, ownerName: true } },
         campaign: { select: { name: true } },
