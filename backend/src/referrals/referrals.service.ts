@@ -679,9 +679,20 @@ export class ReferralsService {
       data: {
         status,
         paidAt: status === 'PAID' ? new Date() : null,
+        // FIX 2026-06-16 (review #4): marcar PAID también sincroniza
+        // paymentStatus. amountPaid=amount se setea abajo (no se puede
+        // auto-referenciar la columna en un update). Sin esto, "pagado"
+        // (= Σ amountPaid) y la contabilidad mostraban $0.
+        ...(status === 'PAID' ? { paymentStatus: 'PAID' as const } : {}),
       },
       select: { id: true, status: true, referralUseId: true, periodKey: true },
     });
+    if (status === 'PAID') {
+      await this.prisma.$executeRawUnsafe(
+        `UPDATE "Commission" SET "amountPaid" = "amount" WHERE id = $1`,
+        id,
+      );
+    }
 
     // #4 (2026-06-16) CASCADA POR VENTA: al rechazar, anulamos también las
     // comisiones hermanas del MISMO cobro (mismo referralUse + periodKey →

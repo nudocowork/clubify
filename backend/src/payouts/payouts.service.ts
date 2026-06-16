@@ -538,14 +538,15 @@ export class PayoutsService {
       });
       const ids = payout.items.map((it) => it.commissionId);
       if (ids.length) {
-        await tx.commission.updateMany({
-          where: { id: { in: ids } },
-          data: {
-            status: CommissionStatus.PAID,
-            paidAt: new Date(),
-            paymentStatus: 'PAID',
-          },
-        });
+        // FIX 2026-06-16 (review #4): además de status/paymentStatus, setear
+        // amountPaid = amount. La definición canónica "pagado = Σ amountPaid"
+        // (paneles + contabilidad) mostraba $0 para comisiones liquidadas vía
+        // payout porque este flujo nunca seteaba amountPaid. updateMany no
+        // puede referenciar la columna `amount` de la misma fila → raw UPDATE.
+        await tx.$executeRawUnsafe(
+          `UPDATE "Commission" SET "status" = 'PAID', "paymentStatus" = 'PAID', "amountPaid" = "amount", "paidAt" = now() WHERE id = ANY($1::text[])`,
+          ids,
+        );
       }
       return updated;
     });
