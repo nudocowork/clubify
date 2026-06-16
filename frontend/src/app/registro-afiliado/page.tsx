@@ -1,6 +1,6 @@
 'use client';
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Logo } from '@/components/Logo';
 import { PhoneInput } from '@/components/PhoneInput';
@@ -19,7 +19,33 @@ type Config = {
 type Role = 'INFLUENCER' | 'AMBASSADOR';
 
 export default function RegistroAfiliadoPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen flex items-center justify-center text-sm text-mute">
+          Cargando…
+        </main>
+      }
+    >
+      <RegistroAfiliadoInner />
+    </Suspense>
+  );
+}
+
+function RegistroAfiliadoInner() {
   const router = useRouter();
+  // #35 (2026-06-16): links de registro específicos por rol. Si la URL trae
+  // ?role=influencer|ambassador, se pre-selecciona ese rol y se oculta el
+  // picker — así la empresa comparte "Link de Registro Influencer" y "Link
+  // de Registro Embajador" por separado.
+  const searchParams = useSearchParams();
+  const roleParam = (searchParams.get('role') ?? '').toLowerCase();
+  const forcedRole: Role | null =
+    roleParam === 'influencer'
+      ? 'INFLUENCER'
+      : roleParam === 'ambassador' || roleParam === 'embajador'
+        ? 'AMBASSADOR'
+        : null;
   const [config, setConfig] = useState<Config | null>(null);
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<Role | null>(null);
@@ -35,8 +61,11 @@ export default function RegistroAfiliadoPage() {
       .then((r) => r.json())
       .then((c) => {
         setConfig(c);
-        if (c.allowInfluencer && c.allowAmbassador) {
+        // Si la URL fuerza un rol válido y habilitado, respetarlo.
+        if (forcedRole === 'INFLUENCER' && c.allowInfluencer) {
           setRole('INFLUENCER');
+        } else if (forcedRole === 'AMBASSADOR' && c.allowAmbassador) {
+          setRole('AMBASSADOR');
         } else if (c.allowInfluencer) {
           setRole('INFLUENCER');
         } else if (c.allowAmbassador) {
@@ -118,7 +147,10 @@ export default function RegistroAfiliadoPage() {
           automáticamente con cada venta.
         </p>
 
-        {config.allowInfluencer && config.allowAmbassador && (
+        {config.allowInfluencer &&
+          config.allowAmbassador &&
+          !(forcedRole === 'INFLUENCER' && config.allowInfluencer) &&
+          !(forcedRole === 'AMBASSADOR' && config.allowAmbassador) && (
           <div className="mt-5">
             <label className="label">Tipo de afiliado</label>
             <div className="grid grid-cols-2 gap-2">
@@ -142,6 +174,18 @@ export default function RegistroAfiliadoPage() {
           </div>
         )}
 
+        {config.allowInfluencer &&
+          config.allowAmbassador &&
+          role &&
+          ((forcedRole === 'INFLUENCER' && config.allowInfluencer) ||
+            (forcedRole === 'AMBASSADOR' && config.allowAmbassador)) && (
+            <div className="mt-4 p-3 rounded-lg bg-bg2/60 text-sm">
+              <span className="font-semibold">
+                {role === 'INFLUENCER' ? '📣 Influencer' : '🤝 Embajador'}
+              </span>{' '}
+              · Comisión {pct}%
+            </div>
+          )}
         {!config.allowInfluencer && config.allowAmbassador && (
           <div className="mt-4 p-3 rounded-lg bg-bg2/60 text-sm">
             <span className="font-semibold">🤝 Embajador</span> · Comisión {pct}%
