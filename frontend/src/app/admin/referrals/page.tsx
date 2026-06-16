@@ -2684,11 +2684,21 @@ function VendorConfigModal({
   }
 
   const activeCount = Number(embajador.activeVendorsCount ?? 0);
+  // CORRECCIÓN LÓGICA 2026-06-16: el tope no puede superar la propia
+  // comisión del embajador/influencer — el vendedor cobra de su tajada.
+  const ownPct = Number(embajador.commissionPercent ?? 0);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (maxPct <= 0 || maxPct > 100) {
       toast('La comisión máxima debe ser > 0 y <= 100', 'error');
+      return;
+    }
+    if (ownPct > 0 && maxPct > ownPct) {
+      toast(
+        `La comisión máxima para vendedores no puede superar la comisión del embajador (${ownPct}%) — el vendedor cobra de ahí.`,
+        'error',
+      );
       return;
     }
     setBusy(true);
@@ -2756,16 +2766,22 @@ function VendorConfigModal({
               className="input"
               type="number"
               min={0.5}
-              max={100}
+              max={ownPct > 0 ? ownPct : 100}
               step={0.5}
               required
               value={maxPct}
               onChange={(e) => setMaxPct(Number(e.target.value) || 0)}
             />
             <div className="text-[11px] text-mute mt-1 leading-snug">
-              Tope que el embajador puede repartir entre todos sus
-              vendedores activos. Default 25%. La suma de los % de sus
-              vendedores no puede superar este número.
+              Tope que cada vendedor puede cobrar (individual por venta).
+              {ownPct > 0 && (
+                <>
+                  {' '}
+                  No puede superar la comisión del embajador (
+                  <strong>{ownPct}%</strong>), porque el vendedor cobra de su
+                  propia tajada.
+                </>
+              )}
             </div>
           </div>
 

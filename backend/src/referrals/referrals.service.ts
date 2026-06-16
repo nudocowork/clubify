@@ -2538,6 +2538,30 @@ export class ReferralsService {
    *    pasa pero NO los desactiva (el admin puede re-habilitar sin
    *    perder data). La UI muestra warning.
    */
+  /**
+   * Tope REAL que un embajador/influencer le puede asignar a un vendedor.
+   *
+   * El vendedor cobra de la PROPIA tajada del padre: en el 3-way split
+   * (ver `buildSplitRows`) el embajador recibe `commissionPercent -
+   * vendorPercent`. Por eso el vendedor jamás puede exceder lo que el
+   * padre mismo gana — si lo hiciera, el `Math.max(0, …)` del split deja
+   * al embajador en 0% pero el vendedor igual cobra de más y la EMPRESA
+   * sobrepaga la rama. El tope correcto es `min(% propio, maxConfig)`:
+   * el `% propio` es el techo duro y `maxCommissionPercent` solo puede
+   * bajarlo más, nunca subirlo por encima del propio.
+   */
+  private effectiveVendorCap(parent: {
+    commissionPercent: unknown;
+    maxCommissionPercent: unknown;
+  }): number {
+    const ownPct = Number(parent.commissionPercent ?? 0);
+    const configuredMax =
+      parent.maxCommissionPercent != null
+        ? Number(parent.maxCommissionPercent)
+        : ownPct;
+    return Math.min(ownPct, configuredMax);
+  }
+
   async setEmbajadorVendorConfig(
     user: AuthUser,
     embajadorCodeId: string,
@@ -2565,17 +2589,27 @@ export class ReferralsService {
     }
     if (typeof patch.maxCommissionPercent === 'number') {
       const m = patch.maxCommissionPercent;
+      const ownPct = Number(code.commissionPercent ?? 0);
       if (m <= 0 || m > 100) {
         throw new BadRequestException(
           'La comisión máxima debe ser > 0 y <= 100.',
         );
       }
-      const used = code.childVendors
-        .filter((v) => v.isActive)
-        .reduce((s, v) => s + Number(v.commissionPercent ?? 0), 0);
-      if (m < used) {
+      // CORRECCIÓN LÓGICA 2026-06-16: el tope no puede superar el % propio
+      // del embajador/influencer — los vendedores cobran de su tajada.
+      if (m > ownPct) {
         throw new BadRequestException(
-          `No se puede bajar la comisión máxima a ${m}% — los vendedores activos ya tienen ${used}% repartido.`,
+          `La comisión máxima para vendedores (${m}%) no puede superar tu propia comisión (${ownPct}%), porque los vendedores cobran de ahí.`,
+        );
+      }
+      // La comisión es INDIVIDUAL por vendedor (no acumulada): ningún
+      // vendedor activo puede quedar por encima del nuevo tope.
+      const maxActive = code.childVendors
+        .filter((v) => v.isActive)
+        .reduce((s, v) => Math.max(s, Number(v.commissionPercent ?? 0)), 0);
+      if (m < maxActive) {
+        throw new BadRequestException(
+          `No se puede bajar la comisión máxima a ${m}% — ya tenés un vendedor activo con ${maxActive}%.`,
         );
       }
       data.maxCommissionPercent = m;
@@ -2626,21 +2660,13 @@ export class ReferralsService {
       if (typeof pct !== 'number' || isNaN(pct) || pct <= 0) {
         throw new BadRequestException('El % debe ser mayor a 0.');
       }
-      const max = code.maxCommissionPercent
-        ? Number(code.maxCommissionPercent)
-        : 25;
-      const used = code.childVendors
-        .filter((v) => v.isActive)
-        .reduce((s, v) => s + Number(v.commissionPercent ?? 0), 0);
-      const available = max - used;
-      if (pct > available) {
-        throw new BadRequestException(
-          `El % por defecto (${pct}%) excede tu disponible (${available}% restante de ${max}% máx).`,
-        );
-      }
+      // CORRECCIÓN LÓGICA 2026-06-16: la comisión es INDIVIDUAL por venta,
+      // no un pool acumulado. El % por defecto solo tiene que caber dentro
+      // del tope real (% propio del padre, acotado por maxCommissionPercent).
+      const max = this.effectiveVendorCap(code);
       if (pct > max) {
         throw new BadRequestException(
-          `El % por defecto no puede superar tu comisión máxima (${max}%).`,
+          `El % por defecto (${pct}%) no puede superar tu comisión (${max}%), porque los vendedores cobran de ella.`,
         );
       }
     }
@@ -2690,9 +2716,9 @@ export class ReferralsService {
     // NO acumulada entre vendedores. Cada vendedor cobra SU % en SUS
     // ventas. Por eso `hasAvailableCommission` depende sólo de `max > 0`
     // y `effectivePct` se capa al máximo absoluto (no a un "disponible").
-    const max = amb.maxCommissionPercent
-      ? Number(amb.maxCommissionPercent)
-      : 25;
+    // CORRECCIÓN LÓGICA 2026-06-16: tope real = % propio del padre (acotado
+    // por maxCommissionPercent), no un flat 25. Ver effectiveVendorCap.
+    const max = this.effectiveVendorCap(amb);
     const defaultPct = amb.defaultVendorCommissionPercent
       ? Number(amb.defaultVendorCommissionPercent)
       : 10;
@@ -2747,11 +2773,11 @@ export class ReferralsService {
     await this.assertUniqueAffiliateEmail(dto.email);
 
     // CORRECCIÓN LÓGICA 2026-06-05: % final = default del embajador
-    // (??10) capado al máximo absoluto. La comisión es INDIVIDUAL por
-    // venta — cada vendedor cobra SU % en SUS ventas, no se acumula.
-    const max = amb.maxCommissionPercent
-      ? Number(amb.maxCommissionPercent)
-      : 25;
+    // (??10) capado al tope. La comisión es INDIVIDUAL por venta — cada
+    // vendedor cobra SU % en SUS ventas, no se acumula.
+    // CORRECCIÓN LÓGICA 2026-06-16: tope = % propio del padre (acotado por
+    // maxCommissionPercent), no un flat 25. Ver effectiveVendorCap.
+    const max = this.effectiveVendorCap(amb);
     const defaultPct = amb.defaultVendorCommissionPercent
       ? Number(amb.defaultVendorCommissionPercent)
       : 10;
@@ -3190,22 +3216,21 @@ export class ReferralsService {
 
     await this.assertUniqueAffiliateEmail(dto.email);
 
-    // CORRECCIÓN LÓGICA 2026-06-05: la validación correcta es
-    // INDIVIDUAL — cada vendedor tiene su propia comisión que se aplica
-    // SOLO en sus propias ventas. NO se suma entre vendedores. El
-    // embajador puede tener 10 vendedores todos al 18% — cada venta de
-    // un vendedor le saca 18% al embajador (que recibe 25-18=7%). El
-    // único requisito es que ningún vendedor individual exceda el max
-    // del embajador.
-    const max = embajador.maxCommissionPercent
-      ? Number(embajador.maxCommissionPercent)
-      : 25;
+    // CORRECCIÓN LÓGICA 2026-06-05: la validación es INDIVIDUAL — cada
+    // vendedor tiene su propia comisión que se aplica SOLO en sus propias
+    // ventas, NO se suma entre vendedores.
+    // CORRECCIÓN LÓGICA 2026-06-16: el tope NO es un flat 25%, es el % que
+    // el embajador/influencer gana él mismo (acotado por maxCommissionPercent
+    // si lo seteó más bajo). El vendedor cobra de la tajada del padre — si
+    // recibe más de lo que el padre gana, la empresa sobrepaga. Ver
+    // effectiveVendorCap.
+    const max = this.effectiveVendorCap(embajador);
     if (dto.commissionPercent <= 0) {
       throw new BadRequestException('La comisión debe ser mayor a 0.');
     }
     if (dto.commissionPercent > max) {
       throw new BadRequestException(
-        `La comisión del vendedor (${dto.commissionPercent}%) no puede superar la comisión máxima del embajador (${max}%).`,
+        `La comisión del vendedor (${dto.commissionPercent}%) no puede superar la comisión del embajador/influencer (${max}%), porque sale de su propia comisión.`,
       );
     }
 
@@ -3264,7 +3289,12 @@ export class ReferralsService {
   async listVendorsForEmbajador(user: AuthUser, embajadorCodeId: string) {
     const embajador = await this.prisma.referralCode.findUnique({
       where: { id: embajadorCodeId },
-      select: { id: true, role: true, maxCommissionPercent: true },
+      select: {
+        id: true,
+        role: true,
+        maxCommissionPercent: true,
+        commissionPercent: true,
+      },
     });
     if (!embajador) throw new NotFoundException();
     if (embajador.role !== 'AMBASSADOR' && embajador.role !== 'INFLUENCER') {
@@ -3284,9 +3314,9 @@ export class ReferralsService {
       },
       orderBy: [{ isActive: 'desc' }, { ownerName: 'asc' }],
     });
-    const max = embajador.maxCommissionPercent
-      ? Number(embajador.maxCommissionPercent)
-      : 25;
+    // CORRECCIÓN LÓGICA 2026-06-16: el tope real es el % propio del padre
+    // (acotado por maxCommissionPercent), no un flat 25. Ver effectiveVendorCap.
+    const max = this.effectiveVendorCap(embajador);
     // CORRECCIÓN LÓGICA 2026-06-05: ya NO retornamos "available" porque
     // ese concepto era erróneo. Cada vendor tiene su comisión individual
     // que sale del % del embajador en SU venta. No hay "pool" compartido.
@@ -3343,12 +3373,12 @@ export class ReferralsService {
     // no suma acumulada. Cada vendedor tiene su propia comisión y se
     // aplica solo en sus propias ventas. Ver createVendor.
     if (typeof patch.commissionPercent === 'number') {
-      const max = vendor.parentEmbajadorCode.maxCommissionPercent
-        ? Number(vendor.parentEmbajadorCode.maxCommissionPercent)
-        : 25;
+      // CORRECCIÓN LÓGICA 2026-06-16: tope = % propio del padre (acotado
+      // por maxCommissionPercent), no un flat 25. Ver effectiveVendorCap.
+      const max = this.effectiveVendorCap(vendor.parentEmbajadorCode);
       if (patch.commissionPercent <= 0 || patch.commissionPercent > max) {
         throw new BadRequestException(
-          `Comisión inválida. La comisión del vendedor (1-${max}%) no puede superar la comisión máxima del embajador (${max}%).`,
+          `Comisión inválida. La comisión del vendedor (1-${max}%) no puede superar la comisión del embajador/influencer (${max}%), porque sale de su propia comisión.`,
         );
       }
     }
