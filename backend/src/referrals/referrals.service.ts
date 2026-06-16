@@ -588,9 +588,17 @@ export class ReferralsService {
       converted += uses.filter((u) => u.status === 'PAYING' || u.status === 'ACTIVE').length;
       for (const u of uses) {
         for (const com of u.commissions ?? []) {
+          // FIX 2026-06-16 (#14/#37): definición canónica única —
+          // pending = (PENDING+APPROVED) con amount − amountPaid;
+          // paid = amountPaid real (cubre pagos parciales). RETAINED y
+          // REJECTED quedan fuera de ambos totales.
+          if (com.status === 'REJECTED' || com.status === 'RETAINED') continue;
           const amount = Number(com.amount);
-          if (com.status === 'PAID') paidUsd += amount;
-          else if (com.status === 'PENDING' || com.status === 'APPROVED') pendingUsd += amount;
+          const paid = Number(com.amountPaid);
+          paidUsd += paid;
+          if (com.status === 'PENDING' || com.status === 'APPROVED') {
+            pendingUsd += Math.max(0, amount - paid);
+          }
         }
       }
       return {
@@ -950,10 +958,14 @@ export class ReferralsService {
         (u) => u.status === 'PAYING' || u.status === 'ACTIVE',
       ).length;
       const allComm = directUses.flatMap((u) => u.commissions);
-      const paid = allComm.filter((x) => x.status === 'PAID').reduce((s, x) => s + Number(x.amount), 0);
+      // FIX 2026-06-16 (#14/#37): definición canónica — paid = amountPaid
+      // real; pending = (PENDING+APPROVED) con amount − amountPaid.
+      const paid = allComm
+        .filter((x) => x.status !== 'REJECTED')
+        .reduce((s, x) => s + Number(x.amountPaid), 0);
       const pending = allComm
         .filter((x) => x.status === 'PENDING' || x.status === 'APPROVED')
-        .reduce((s, x) => s + Number(x.amount), 0);
+        .reduce((s, x) => s + Math.max(0, Number(x.amount) - Number(x.amountPaid)), 0);
       return {
         id: c.id,
         code: c.code,
@@ -1062,10 +1074,14 @@ export class ReferralsService {
     });
     return codes.map((c) => {
       const allComm = c.uses.flatMap((u) => u.commissions);
-      const paid = allComm.filter((x) => x.status === 'PAID').reduce((s, x) => s + Number(x.amount), 0);
+      // FIX 2026-06-16 (#14/#37): definición canónica — paid = amountPaid
+      // real; pending = (PENDING+APPROVED) con amount − amountPaid.
+      const paid = allComm
+        .filter((x) => x.status !== 'REJECTED')
+        .reduce((s, x) => s + Number(x.amountPaid), 0);
       const pending = allComm
         .filter((x) => x.status === 'PENDING' || x.status === 'APPROVED')
-        .reduce((s, x) => s + Number(x.amount), 0);
+        .reduce((s, x) => s + Math.max(0, Number(x.amount) - Number(x.amountPaid)), 0);
       // Si AMBASSADOR no tiene parentCode (parentCodeId=null) → es un
       // "Embajador Directo Empresa" — reporta a la empresa, no a un
       // influencer. Mismo % de comisión que un embajador normal pero el
@@ -1879,14 +1895,21 @@ export class ReferralsService {
     // cargabamos TODA la tabla a memoria para sumar 3 estados.
     const totalsByStatus = await this.prisma.commission.groupBy({
       by: ['status'],
-      _sum: { amount: true },
+      _sum: { amount: true, amountPaid: true },
     });
     const round = (n: number) => Math.round(n * 100) / 100;
-    const sumByStatus = (s: string) =>
-      Number(totalsByStatus.find((r) => r.status === s)?._sum.amount ?? 0);
-    const availableUsd = sumByStatus('APPROVED');
-    const pendingUsd = sumByStatus('PENDING');
-    const paidUsd = sumByStatus('PAID');
+    // FIX 2026-06-16 (#14/#37): definición canónica — available/pending =
+    // outstanding (amount − amountPaid) del estado; paid = amountPaid real
+    // de todo lo no rechazado (cubre pagos parciales).
+    const outstandingByStatus = (s: string) => {
+      const row = totalsByStatus.find((r) => r.status === s);
+      return Math.max(0, Number(row?._sum.amount ?? 0) - Number(row?._sum.amountPaid ?? 0));
+    };
+    const availableUsd = outstandingByStatus('APPROVED');
+    const pendingUsd = outstandingByStatus('PENDING');
+    const paidUsd = totalsByStatus
+      .filter((r) => r.status !== 'REJECTED')
+      .reduce((s, r) => s + Number(r._sum.amountPaid ?? 0), 0);
 
     return {
       items,

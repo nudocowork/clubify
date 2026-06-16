@@ -695,12 +695,13 @@ export class AdminReportsService {
         where: { createdAt: { gte: startOfMonth } },
         _sum: { amount: true, amountPaid: true },
       }),
-      // Pending = todas las commissions no canceladas con outstanding>0.
-      // HOTFIX 2026-06-05: usamos aggregate para no traer N rows a
-      // memoria. Calculamos pending = sum(amount) - sum(amountPaid)
-      // de todas las no rechazadas.
+      // Pending = (PENDING + APPROVED) con outstanding (amount − amountPaid).
+      // HOTFIX 2026-06-05: usamos aggregate para no traer N rows a memoria.
+      // FIX 2026-06-16 (#14/#37): antes { not: REJECTED } metía RETAINED
+      // (congelada) y PAID en el pool → divergía de Referidos/Comisiones.
+      // Definición canónica única.
       this.prisma.commission.aggregate({
-        where: { status: { not: 'REJECTED' } },
+        where: { status: { in: ['PENDING', 'APPROVED'] } },
         _sum: { amount: true, amountPaid: true },
       }),
       this.prisma.commission.aggregate({
@@ -939,8 +940,12 @@ export class AdminReportsService {
           createdAt: { gte: startLastMonth, lte: endLastMonth },
         },
       }),
+      // FIX 2026-06-16 (#14/#37): "pendiente por pagar a afiliados" =
+      // (PENDING + APPROVED) con amount − amountPaid. Antes { not: REJECTED }
+      // metía RETAINED (congelada, fuera de totales) y PAID en el pool →
+      // divergía de Referidos/Comisiones. Definición canónica única.
       this.prisma.commission.aggregate({
-        where: { status: { not: 'REJECTED' } },
+        where: { status: { in: ['PENDING', 'APPROVED'] } },
         _sum: { amount: true, amountPaid: true },
       }),
       this.prisma.tenant.groupBy({
