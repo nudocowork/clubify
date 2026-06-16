@@ -80,6 +80,22 @@ export default function VendorsReportPage() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [detail, setDetail] = useState<VendorDetail | null>(null);
   const [search, setSearch] = useState('');
+  // #20 (2026-06-16): ordenar por columna numérica (mayor↔menor).
+  type SortKey =
+    | 'ventasRealizadas'
+    | 'comisionAcumuladaUsd'
+    | 'comisionPagadaUsd'
+    | 'comisionPendienteUsd';
+  const [sortKey, setSortKey] = useState<SortKey>('comisionAcumuladaUsd');
+  const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc');
+  function toggleSort(k: SortKey) {
+    if (k === sortKey) setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
+    else {
+      setSortKey(k);
+      setSortDir('desc');
+    }
+  }
+  const arrow = (k: SortKey) => (k === sortKey ? (sortDir === 'desc' ? ' ↓' : ' ↑') : '');
 
   async function loadList() {
     try {
@@ -117,6 +133,13 @@ export default function VendorsReportPage() {
       })
     : null;
 
+  const sorted = filtered
+    ? [...filtered].sort((a, b) => {
+        const d = (a[sortKey] as number) - (b[sortKey] as number);
+        return sortDir === 'asc' ? d : -d;
+      })
+    : null;
+
   return (
     <div className="max-w-7xl">
       <div className="page-head">
@@ -141,9 +164,9 @@ export default function VendorsReportPage() {
         className="input mb-4 max-w-md"
       />
 
-      {!filtered ? (
+      {!sorted ? (
         <div className="h-64 bg-bg2 rounded animate-shimmer" />
-      ) : filtered.length === 0 ? (
+      ) : sorted.length === 0 ? (
         <div className="card card-pad text-center text-mute">
           No hay vendedores que coincidan con tu búsqueda.
         </div>
@@ -155,15 +178,15 @@ export default function VendorsReportPage() {
                 <th className="text-left p-3">Vendedor</th>
                 <th className="text-left p-3">Embajador</th>
                 <th className="text-right p-3">%</th>
-                <th className="text-right p-3">Ventas</th>
-                <th className="text-right p-3">Acumulada</th>
-                <th className="text-right p-3">Pagada</th>
-                <th className="text-right p-3">Pendiente</th>
+                <SortableTh label="Ventas" onClick={() => toggleSort('ventasRealizadas')} indicator={arrow('ventasRealizadas')} />
+                <SortableTh label="Acumulada" onClick={() => toggleSort('comisionAcumuladaUsd')} indicator={arrow('comisionAcumuladaUsd')} />
+                <SortableTh label="Pagada" onClick={() => toggleSort('comisionPagadaUsd')} indicator={arrow('comisionPagadaUsd')} />
+                <SortableTh label="Pendiente" onClick={() => toggleSort('comisionPendienteUsd')} indicator={arrow('comisionPendienteUsd')} />
                 <th className="p-3"></th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r) => (
+              {sorted.map((r) => (
                 <tr
                   key={r.id}
                   className="border-t border-line hover:bg-bg2/40 cursor-pointer select-none active:scale-[0.997] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"
@@ -365,5 +388,26 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
     <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2 mt-2">
       {children}
     </div>
+  );
+}
+
+// #20: header de columna ordenable (click alterna desc/asc).
+function SortableTh({
+  label,
+  onClick,
+  indicator,
+}: {
+  label: string;
+  onClick: () => void;
+  indicator: string;
+}) {
+  return (
+    <th
+      className="text-right p-3 cursor-pointer select-none hover:text-ink whitespace-nowrap"
+      onClick={onClick}
+    >
+      {label}
+      <span className="text-brand">{indicator}</span>
+    </th>
   );
 }
