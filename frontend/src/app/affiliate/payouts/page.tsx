@@ -131,6 +131,13 @@ export default function AffiliatePayoutsPage() {
         </div>
       </header>
       <main className="max-w-5xl mx-auto px-4 py-6 space-y-5">
+        {/* #30 (2026-06-16): botón Volver al panel del afiliado. */}
+        <Link
+          href="/affiliate"
+          className="inline-flex items-center gap-1.5 text-sm text-mute hover:text-ink font-medium select-none active:scale-[0.97] [-webkit-tap-highlight-color:transparent]"
+        >
+          ← Volver
+        </Link>
         {loading && (
           <div className="card card-pad text-mute text-sm">Cargando…</div>
         )}
