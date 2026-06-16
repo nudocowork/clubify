@@ -74,6 +74,7 @@ export class CardsService {
     'stampContourColor',
     'centerBgColor',
     'logoUrl',
+    'walletBrandName',
     'heroImageUrl',
     'iconUrl',
     'stampIcon',
@@ -255,6 +256,15 @@ export class CardsService {
       select: { id: true },
     });
     if (passes.length === 0) return;
+    // FIX 2026-06-16 (review #22): bumpeamos lastActivityAt — el cache-bust
+    // del strip/hero/logo de Google Wallet usa ?v=lastActivityAt. Sin esto,
+    // cambiar color/hero/logo se pusheaba pero Google servía la imagen
+    // cacheada (el PATCH no fuerza re-fetch). Mismo patrón que el refresh
+    // global (tenants.service / passes.controller).
+    await this.prisma.pass.updateMany({
+      where: { cardId, status: 'ACTIVE' },
+      data: { lastActivityAt: new Date() },
+    });
     this.logger.log(
       `Auto-sync: encolando wallet.push para ${passes.length} pass(es) de card ${cardId}`,
     );
