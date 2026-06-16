@@ -495,14 +495,21 @@ function PayoutsTab() {
   }
 
   async function reject(id: string) {
-    if (!confirm('¿Rechazar esta comisión? Se marcará como REJECTED.')) return;
+    if (
+      !confirm(
+        '¿Anular esta venta? Se marcará REJECTED esta comisión y TODAS las de la misma venta ' +
+          '(influencer, embajador y vendedor del mismo cobro). Las ya pagadas no se tocan.',
+      )
+    )
+      return;
     setBusyId(id);
     try {
-      await api(`/referrals/commissions/${id}`, {
+      const res = await api<{ cascaded?: number }>(`/referrals/commissions/${id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ status: 'REJECTED' }),
+        body: JSON.stringify({ status: 'REJECTED', cascade: true }),
       });
-      toast('Comisión rechazada', 'success');
+      const extra = res?.cascaded ? ` (+${res.cascaded} de la misma venta)` : '';
+      toast(`Venta anulada${extra}`, 'success');
       load();
     } catch (e: any) {
       toast(e.message || 'Error', 'error');
@@ -908,12 +915,26 @@ function CodesTab() {
   }
 
   async function setStatus(commId: string, status: string) {
+    // #4: rechazar anula toda la venta (cascada en backend). Avisar.
+    if (
+      status === 'REJECTED' &&
+      !confirm(
+        '¿Anular esta venta? Se rechazarán también las comisiones de los otros ' +
+          'actores del mismo cobro (influencer/embajador/vendedor). Las pagadas no se tocan.',
+      )
+    )
+      return;
     try {
-      await api(`/referrals/commissions/${commId}`, {
+      const res = await api<{ cascaded?: number }>(`/referrals/commissions/${commId}`, {
         method: 'PATCH',
         body: JSON.stringify({ status }),
       });
-      toast(`Comisión marcada como ${status === 'PAID' ? 'pagada' : status}`, 'success');
+      if (status === 'REJECTED') {
+        const extra = res?.cascaded ? ` (+${res.cascaded} de la misma venta)` : '';
+        toast(`Venta anulada${extra}`, 'success');
+      } else {
+        toast(`Comisión marcada como ${status === 'PAID' ? 'pagada' : status}`, 'success');
+      }
       load();
     } catch (e: any) {
       toast(e.message || 'No se pudo actualizar', 'error');

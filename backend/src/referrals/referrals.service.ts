@@ -668,14 +668,45 @@ export class ReferralsService {
     });
   }
 
-  async setCommissionStatus(id: string, status: CommissionStatus) {
-    return this.prisma.commission.update({
+  async setCommissionStatus(
+    id: string,
+    status: CommissionStatus,
+    opts: { cascade?: boolean } = {},
+  ) {
+    const updated = await this.prisma.commission.update({
       where: { id },
       data: {
         status,
         paidAt: status === 'PAID' ? new Date() : null,
       },
+      select: { id: true, status: true, referralUseId: true, periodKey: true },
     });
+
+    // #4 (2026-06-16) CASCADA POR VENTA: al rechazar, anulamos también las
+    // comisiones hermanas del MISMO cobro (mismo referralUse + periodKey →
+    // influencer/embajador/5% indirecto/vendedor). Una venta cancelada no
+    // debe dejar comisiones colgadas de los otros actores. Solo cuando
+    // periodKey != null (las legacy se rechazan individualmente para no
+    // barrer ciclos distintos del mismo use). PAID nunca se toca.
+    let cascaded = 0;
+    if (
+      opts.cascade !== false &&
+      status === 'REJECTED' &&
+      updated.periodKey != null
+    ) {
+      const res = await this.prisma.commission.updateMany({
+        where: {
+          referralUseId: updated.referralUseId,
+          periodKey: updated.periodKey,
+          id: { not: updated.id },
+          status: { in: ['PENDING', 'APPROVED'] },
+        },
+        data: { status: 'REJECTED' },
+      });
+      cascaded = res.count;
+    }
+
+    return { ...updated, cascaded };
   }
 
   async setCommissionNotes(

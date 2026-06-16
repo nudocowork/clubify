@@ -21,6 +21,12 @@ class CreateReferralBody {
 
 class CommissionBody {
   @IsString() status!: CommissionStatus;
+  // #4 (2026-06-16): al rechazar (REJECTED) una comisión, cascada a las
+  // hermanas de la MISMA venta (mismo referralUse + periodKey →
+  // influencer/embajador/vendedor del mismo cobro). Default true porque en
+  // el panel principal rechazar = "esta venta se cae" (reembolso/atribución
+  // errónea). Solo aplica cuando status === REJECTED.
+  @IsOptional() @IsBoolean() cascade?: boolean;
 }
 
 // HOTFIX 2026-06-05: estas clases tienen que estar declaradas ANTES de
@@ -394,7 +400,9 @@ export class ReferralsController {
   @Roles('SUPER_ADMIN')
   @Patch('commissions/:id')
   setStatus(@Param('id') id: string, @Body() body: CommissionBody) {
-    return this.svc.setCommissionStatus(id, body.status);
+    return this.svc.setCommissionStatus(id, body.status, {
+      cascade: body.cascade !== false,
+    });
   }
 
   @Roles('SUPER_ADMIN')
