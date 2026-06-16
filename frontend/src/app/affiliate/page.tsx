@@ -316,12 +316,12 @@ export default function AffiliatePanel() {
             ocupa espacio (return null). */}
         <AffiliateBroadcastBanner />
 
-        {/* Wrapper que permite scroll horizontal de la pill bar en TODAS las
-            resoluciones (con 8 tabs no caben en desktop estándar tampoco).
-            -mx-5 saca el padding del main, px-5 lo re-añade adentro para que
-            el primer/último tab no toquen el borde. */}
-        <div className="mb-5 -mx-5 overflow-x-auto px-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <div className="tabs">
+        {/* #32 (2026-06-16): navegación SIN scroll horizontal. Antes la pill
+            bar tenía overflow-x-auto (las 8 tabs no entraban y había que
+            scrollear de lado). Ahora envuelven en varias filas (flex-wrap),
+            más limpio y profesional en cualquier resolución. */}
+        <div className="mb-5">
+        <div className="tabs flex-wrap">
           <button
             className={`tab ${tab === 'overview' ? 'tab-active' : ''}`}
             onClick={() => setTab('overview')}
