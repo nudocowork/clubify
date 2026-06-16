@@ -128,7 +128,13 @@ export class WalletService {
       barcodes: [
         {
           format: 'PKBarcodeFormatPDF417',
-          message: pass.serialNumber,
+          // FIX 2026-06-16 (review #1): codificar el qrToken FIRMADO (JWT
+          // HMAC verificable por el scanner), no el serial plano. Antes el
+          // barcode llevaba el serialNumber y el scanner lo aceptaba pelado
+          // (findBySerial) → cualquiera con un serial podía sumar sellos /
+          // redimir. Con el JWT, findByJwt verifica la firma. Los pases
+          // viejos siguen con serial hasta refrescarse (fallback legacy).
+          message: pass.qrToken,
           altText: 'Creado por Clubify',
           messageEncoding: 'iso-8859-1',
         },
