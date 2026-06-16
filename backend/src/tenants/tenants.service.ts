@@ -152,10 +152,20 @@ export class TenantsService {
       select: { id: true },
     });
     if (passes.length === 0) return;
+    // Bump lastActivityAt ANTES del push: el cache-bust del logo de Google
+    // (resolveLogoUri ?v=lastActivityAt) lee este valor, así Android
+    // re-descarga el logo/branding nuevo. Sin esto el cambio no se reflejaba.
+    await this.prisma.pass.updateMany({
+      where: { id: { in: passes.map((p) => p.id) } },
+      data: { lastActivityAt: new Date() },
+    });
     for (const p of passes) {
       await this.queue.enqueue('wallet.push', {
         passId: p.id,
         reason: 'tenant_branding_update',
+        // Silent: un cambio de branding NO debe disparar una notificación
+        // visible a cada cliente (igual que el refresh global).
+        silent: true,
       } as any);
     }
   }

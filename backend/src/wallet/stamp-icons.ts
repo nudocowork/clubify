@@ -278,7 +278,10 @@ export async function fetchTwemojiPng(emoji: string): Promise<Buffer | null> {
   }
   const url = `https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/${code}.png`;
   try {
-    const res = await fetch(url);
+    // Timeout de 2.5s: este fetch corre DENTRO de la generación del .pkpass
+    // (request del cliente). Si el CDN cuelga, degradamos al check fallback en
+    // vez de bloquear la descarga del pase.
+    const res = await fetch(url, { signal: AbortSignal.timeout(2500) });
     if (!res.ok) {
       twemojiCache.set(emoji, null);
       return null;

@@ -61,6 +61,7 @@ const LATAM_CURRENCIES: { code: string; label: string; flag: string }[] = [
   { code: 'NIO', label: 'Córdoba nicaragüense', flag: '🇳🇮' },
   { code: 'CRC', label: 'Colón costarricense', flag: '🇨🇷' },
   { code: 'PAB', label: 'Balboa panameño', flag: '🇵🇦' },
+  { code: 'BZD', label: 'Dólar beliceño', flag: '🇧🇿' },
   { code: 'EUR', label: 'Euro', flag: '🇪🇺' },
 ];
 
