@@ -1061,6 +1061,11 @@ model Card {
   tenant              Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   type                CardType
   name                String
+  // #24 (2026-06-16): nombre de marca a mostrar EN EL PASE (Apple logoText/
+  // organizationName, Google issuerName/header). Si null, cae al
+  // Tenant.brandName. Permite que cada tarjeta muestre un nombre propio sin
+  // cambiar el nombre del negocio que ve el dashboard.
+  walletBrandName     String?
   description         String    @default("")
   terms               String    @default("")
   // Si false, el reverso de la wallet no muestra T&C (el dueño los

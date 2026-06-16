@@ -718,6 +718,9 @@ function EditCardModal({
 }) {
   const [form, setForm] = useState({
     name: card.name,
+    // #24 (2026-06-16): nombre de marca mostrado en el pase (independiente del
+    // nombre del negocio que ve el dashboard). Vacío = usa el del negocio.
+    walletBrandName: (card as any).walletBrandName ?? '',
     description: card.description ?? '',
     rewardText: card.rewardText ?? '',
     terms: card.terms ?? '',
@@ -782,6 +785,8 @@ function EditCardModal({
     try {
       const payload: any = {
         name: form.name.trim(),
+        // #24: '' → null (usa el nombre del negocio en el pase).
+        walletBrandName: form.walletBrandName.trim() || null,
         description: form.description,
         rewardText: form.rewardText,
         terms: form.terms,
@@ -878,6 +883,25 @@ function EditCardModal({
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               required
             />
+          </div>
+
+          {/* #24 (2026-06-16): nombre de marca en el pase, independiente del
+              nombre del negocio (que se mantiene para el dashboard). */}
+          <div>
+            <label className="label">
+              Nombre en la tarjeta (wallet)
+              <span className="text-mute font-normal ml-1">(opcional)</span>
+            </label>
+            <input
+              className="input"
+              value={form.walletBrandName}
+              onChange={(e) => setForm({ ...form, walletBrandName: e.target.value })}
+              placeholder="Si lo dejás vacío, usa el nombre del negocio"
+            />
+            <p className="text-[11px] text-mute mt-1">
+              Es la marca que aparece en el pase de Apple/Google Wallet. El
+              nombre del negocio del dashboard no cambia.
+            </p>
           </div>
 
           <div>

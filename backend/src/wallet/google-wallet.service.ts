@@ -102,14 +102,17 @@ export class GoogleWalletService {
   /** Construye el LoyaltyClass para inline JWT o REST API. */
   private buildClass(pass: any, classId: string, logoUri: string) {
     const card = pass.card;
+    // #24 (2026-06-16): nombre por tarjeta (walletBrandName) gana sobre el
+    // brandName del negocio para lo mostrado en el pase.
+    const brandName = card.walletBrandName?.trim() || pass.tenant.brandName;
     return {
       id: classId,
-      issuerName: pass.tenant.brandName,
+      issuerName: brandName,
       programName: card.name,
       programLogo: {
         sourceUri: { uri: logoUri },
         contentDescription: {
-          defaultValue: { language: 'es', value: pass.tenant.brandName },
+          defaultValue: { language: 'es', value: brandName },
         },
       },
       hexBackgroundColor: card.primaryColor || '#5B5EEE',
@@ -371,7 +374,11 @@ export class GoogleWalletService {
    */
   private buildNotificationText(pass: any): { header: string; body: string } {
     const t = pass.card.type;
-    const brand = pass.tenant?.brandName || pass.card.name || 'Tu tarjeta';
+    const brand =
+      pass.card.walletBrandName?.trim() ||
+      pass.tenant?.brandName ||
+      pass.card.name ||
+      'Tu tarjeta';
     if (t === 'CASHBACK') {
       const v = Math.round(Number(pass.cashbackBalance ?? 0));
       return {

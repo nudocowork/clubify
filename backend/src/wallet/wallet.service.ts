@@ -88,7 +88,11 @@ export class WalletService {
 
     // Apple Wallet rechaza pass.json si description, organizationName,
     // serialNumber están vacíos. Defensivo siempre con fallbacks.
-    const brandName = (pass.tenant.brandName || 'Clubify').trim() || 'Clubify';
+    // #24 (2026-06-16): si la tarjeta tiene walletBrandName propio, ese gana
+    // sobre el brandName del negocio (para el nombre mostrado en el pase).
+    const brandName =
+      (pass.card.walletBrandName?.trim() || pass.tenant.brandName || 'Clubify').trim() ||
+      'Clubify';
     const cardName = (pass.card.name || 'Tarjeta de fidelización').trim() || 'Tarjeta';
     const description = cardName;
 

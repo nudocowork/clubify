@@ -7,6 +7,7 @@ import { QueueService } from '../jobs/queue.service';
 export type CardDto = {
   type: CardType;
   name: string;
+  walletBrandName?: string | null; // #24
   description?: string;
   terms?: string;
   termsEnabled?: boolean;
@@ -141,6 +142,7 @@ export class CardsService {
         tenantId: tid,
         type: dto.type,
         name: dto.name,
+        walletBrandName: dto.walletBrandName ?? null,
         description: dto.description ?? '',
         terms: dto.terms ?? '',
         termsEnabled: dto.termsEnabled ?? true,
