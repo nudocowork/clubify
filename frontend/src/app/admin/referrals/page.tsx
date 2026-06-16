@@ -208,9 +208,12 @@ const PAYOUT_STATUS: Record<PayoutItem['status'], { text: string; cls: string }>
 export default function AdminReferrals() {
   const [tab, setTab] = useState<Tab>('summary');
 
+  // #10 (2026-06-16): la pestaña "Campañas" se eliminó del panel. El modelo
+  // Campaign y su data se mantienen (las campañas viejas siguen funcionando
+  // vía parentCodeId), pero ya no se gestionan desde acá: los influencers se
+  // crean directo (#36) y los embajadores se autoregistran por link (#35).
   const TABS: { id: Tab; label: string }[] = [
     { id: 'summary', label: '📊 Resumen' },
-    { id: 'campaigns', label: '🎯 Campañas' },
     { id: 'influencers', label: '🌟 Influencers' },
     { id: 'ambassadors', label: '👥 Embajadores' },
     { id: 'clients', label: '🏢 Negocios' },
@@ -238,7 +241,6 @@ export default function AdminReferrals() {
       </div>
 
       {tab === 'summary' && <SummaryTab />}
-      {tab === 'campaigns' && <CampaignsTab />}
       {tab === 'influencers' && <InfluencersTab />}
       {tab === 'ambassadors' && <AmbassadorsTab />}
       {tab === 'clients' && <ClientsTab />}
@@ -1900,7 +1902,6 @@ function SummaryTab() {
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Kpi label="Campañas activas" value={`${k.activeCampaigns}/${k.totalCampaigns}`} />
         <Kpi label="Influencers" value={k.influencerCount.toString()} />
         <Kpi label="Embajadores" value={k.ambassadorCount.toString()} />
         <Kpi label="Clientes referidos" value={k.totalReferredClients.toString()} />
@@ -1930,36 +1931,6 @@ function SummaryTab() {
             <SumRow label="Pendiente" value={fmtUsd(k.socioPendingUsd)} tone="amber" />
           </div>
         </div>
-      </div>
-
-      <div className="card card-pad">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold m-0">🔥 Top campañas (MRR 30d)</h3>
-        </div>
-        {data.topCampaigns.length === 0 ? (
-          <div className="text-center text-mute py-6 text-sm">Sin actividad reciente</div>
-        ) : (
-          <div className="space-y-2">
-            {data.topCampaigns.map((c, i) => (
-              <div
-                key={c.id}
-                className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-bg2/40"
-              >
-                <div className="font-bold text-base w-6 text-center">
-                  {['🥇', '🥈', '🥉'][i] ?? `${i + 1}`}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold truncate">{c.name}</div>
-                  <div className="text-xs text-mute truncate">
-                    {c.ownerName} · <span className="font-mono">{c.ownerCode}</span> ·{' '}
-                    {c.ambassadors} embajadores · {c.activeClients} activos
-                  </div>
-                </div>
-                <div className="font-bold text-brand whitespace-nowrap">{fmtUsd(c.mrrUsd)}</div>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2042,6 +2013,8 @@ function InfluencersTab() {
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
   const [voidComm, setVoidComm] = useState(false);
   const [query, setQuery] = useState('');
+  // #36 (2026-06-16): crear influencer directo desde la empresa.
+  const [showCreate, setShowCreate] = useState(false);
 
   function reload() {
     setLoading(true);
@@ -2072,6 +2045,22 @@ function InfluencersTab() {
 
   return (
     <div>
+      <div className="flex justify-end gap-2 mb-3">
+        {/* #35: link de autoregistro de influencer (la persona crea su cuenta). */}
+        <SelfRegisterLinkButton role="influencer" label="🔗 Link registro influencer" />
+        <button onClick={() => setShowCreate(true)} className="btn-primary text-sm">
+          + Crear Influencer
+        </button>
+      </div>
+      {showCreate && (
+        <CreateInfluencerModal
+          onClose={() => setShowCreate(false)}
+          onCreated={() => {
+            setShowCreate(false);
+            reload();
+          }}
+        />
+      )}
       {rows.length > 0 && (
         <SectionSearchBar
           value={query}
@@ -2268,7 +2257,6 @@ function AmbassadorsTab() {
   const router = useRouter();
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showCreate, setShowCreate] = useState(false);
   const [enteringId, setEnteringId] = useState<string | null>(null);
   const [reassignTarget, setReassignTarget] = useState<any | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
@@ -2319,29 +2307,12 @@ function AmbassadorsTab() {
           <div className="text-xs text-mute leading-relaxed mt-1">
             <strong>{companyDirect.length}</strong> directos de empresa ·{' '}
             <strong>{linked.length}</strong> vinculados a influencer.
-            <br />
-            Los <strong>directos de empresa</strong> no reportan a un
-            influencer — reportan directo a Clubify. Mismo % de comisión,
-            sin 5% indirecto.
           </div>
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="btn-primary text-sm whitespace-nowrap"
-        >
-          + Embajador Directo Empresa
-        </button>
+        {/* #35 (2026-06-16): se reemplazó "+ Embajador Directo Empresa" por
+            el link de autoregistro — la persona crea su cuenta sola. */}
+        <SelfRegisterLinkButton role="ambassador" label="🔗 Link registro embajador" />
       </div>
-
-      {showCreate && (
-        <CompanyDirectAmbassadorModal
-          onClose={() => setShowCreate(false)}
-          onCreated={() => {
-            setShowCreate(false);
-            reload();
-          }}
-        />
-      )}
 
       {rows.length > 0 && (
         <SectionSearchBar
@@ -2973,6 +2944,179 @@ function InfluencerPickerModal({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// #35 (2026-06-16): botón que copia el link público de autoregistro de
+// afiliado para el rol dado. La persona abre el link, elige usuario/
+// contraseña y crea su perfil sola (página /registro-afiliado?role=).
+// Requiere que el autoregistro esté habilitado en /admin/affiliate-registration.
+function SelfRegisterLinkButton({
+  role,
+  label,
+}: {
+  role: 'influencer' | 'ambassador';
+  label: string;
+}) {
+  async function copy() {
+    const origin =
+      typeof window !== 'undefined' ? window.location.origin : '';
+    const link = `${origin}/registro-afiliado?role=${role}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      toast('Link de registro copiado · compártelo', 'success');
+    } catch {
+      toast(link, 'info');
+    }
+  }
+  return (
+    <button onClick={copy} className="btn-primary text-sm whitespace-nowrap" title="Copiar link de autoregistro">
+      {label}
+    </button>
+  );
+}
+
+// #36 (2026-06-16): crear influencer directo desde la empresa.
+function CreateInfluencerModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [form, setForm] = useState({
+    fullName: '',
+    email: '',
+    whatsapp: '',
+    commissionPercent: 30,
+    customCode: '',
+  });
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const payload: any = {
+        fullName: form.fullName.trim(),
+        email: form.email.trim(),
+        whatsapp: form.whatsapp.trim(),
+        commissionPercent: Number(form.commissionPercent),
+      };
+      if (form.customCode.trim()) payload.customCode = form.customCode.trim().toUpperCase();
+      await api('/referrals/influencers', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      toast('Influencer creado · invitación enviada por email', 'success');
+      onCreated();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo crear', 'error');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <form
+        onSubmit={submit}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl"
+      >
+        <div className="flex items-start justify-between mb-1">
+          <h3 className="text-lg font-bold">🌟 Crear Influencer</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-mute hover:text-ink text-xl leading-none"
+          >
+            ×
+          </button>
+        </div>
+        <p className="text-xs text-mute leading-relaxed mb-4">
+          El influencer puede traer negocios directo y tener embajadores/
+          vendedores debajo. Recibe invitación por email y panel propio en{' '}
+          <code>/affiliate</code>.
+        </p>
+
+        <label className="label">Nombre completo</label>
+        <input
+          className="input"
+          value={form.fullName}
+          onChange={(e) => setForm({ ...form, fullName: e.target.value })}
+          required
+          minLength={2}
+        />
+
+        <label className="label mt-3">Email</label>
+        <input
+          className="input"
+          type="email"
+          value={form.email}
+          onChange={(e) => setForm({ ...form, email: e.target.value })}
+          required
+        />
+
+        <label className="label mt-3">WhatsApp (con código país)</label>
+        <input
+          className="input"
+          value={form.whatsapp}
+          onChange={(e) => setForm({ ...form, whatsapp: e.target.value })}
+          placeholder="+57 300 000 0000"
+          required
+        />
+
+        <div className="grid grid-cols-2 gap-3 mt-3">
+          <div>
+            <label className="label">Comisión %</label>
+            <input
+              className="input"
+              type="number"
+              min={0}
+              max={100}
+              step={1}
+              value={form.commissionPercent}
+              onChange={(e) =>
+                setForm({ ...form, commissionPercent: Number(e.target.value) })
+              }
+            />
+          </div>
+          <div>
+            <label className="label">Código custom (opcional)</label>
+            <input
+              className="input font-mono uppercase"
+              value={form.customCode}
+              onChange={(e) =>
+                setForm({ ...form, customCode: e.target.value.toUpperCase() })
+              }
+              placeholder="JUAN2026"
+              maxLength={16}
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 mt-5">
+          <button
+            type="button"
+            onClick={onClose}
+            className="btn-ghost text-sm"
+            disabled={busy}
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            disabled={busy}
+            className="btn-primary text-sm disabled:opacity-50"
+          >
+            {busy ? 'Creando…' : 'Crear y enviar invitación'}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
