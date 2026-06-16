@@ -413,6 +413,7 @@ export class GoogleWalletService {
 
   async pushUpdate(
     passId: string,
+    opts: { silent?: boolean } = {},
   ): Promise<{ ok: boolean; status: string; notified?: boolean; error?: string }> {
     const pass = await this.prisma.pass.findUnique({
       where: { id: passId },
@@ -475,7 +476,11 @@ export class GoogleWalletService {
       // vea un toast en la barra de notificaciones (equivalente al APNs
       // silent push que re-renderiza Apple Wallet con un haptic) hay que
       // POST `loyaltyobject/{id}/addMessage` con `messageType: TEXT_AND_NOTIFY`.
+      // En modo silent (refresh global masivo) lo OMITIMOS: la clase/objeto ya
+      // quedaron actualizados (logo/strip/branding), pero no spameamos al
+      // cliente con una notificación.
       let notified = false;
+      if (!opts.silent)
       try {
         const { header, body } = this.buildNotificationText(pass);
         const msgId = `update-${Date.now()}`;

@@ -1159,10 +1159,12 @@ export class WalletService {
    *   APNS_KEY_PATH, APNS_KEY_ID, APNS_TEAM_ID, APPLE_PASS_TYPE_ID
    * Si faltan, loggea y skipea (modo dev).
    */
-  async pushPassUpdate(passId: string) {
+  async pushPassUpdate(passId: string, opts: { silent?: boolean } = {}) {
     // Google Wallet PATCH — propaga sellos/saldo/visitas/tier a Android.
-    // En paralelo con APNs para que ambos lleguen lo antes posible.
-    const googlePromise = this.googleWallet.pushUpdate(passId).catch((e) => {
+    // En paralelo con APNs para que ambos lleguen lo antes posible. En modo
+    // silent (refresh global), Google actualiza sin notificar; Apple ya es
+    // silencioso por diseño (re-fetch del .pkpass sin alerta).
+    const googlePromise = this.googleWallet.pushUpdate(passId, opts).catch((e) => {
       this.logger.warn(`Google Wallet push failed: ${e?.message ?? e}`);
       return { ok: false, status: 'error', error: e?.message ?? String(e) };
     });
