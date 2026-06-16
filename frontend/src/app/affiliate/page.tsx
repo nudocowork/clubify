@@ -1310,7 +1310,12 @@ function ClientsList({ isVendor = false }: { isVendor?: boolean }) {
   const [rows, setRows] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    api<Client[]>('/affiliate/clients').then(setRows).finally(() => setLoading(false));
+    // FIX 2026-06-16 (review): guard null (api() devuelve null en vacío) +
+    // catch, sino rows.map/.length crashea la lista.
+    api<Client[]>('/affiliate/clients')
+      .then((r) => setRows(r ?? []))
+      .catch(() => setRows([]))
+      .finally(() => setLoading(false));
   }, []);
 
   if (loading) return <div className="card card-pad h-32 animate-shimmer" />;
