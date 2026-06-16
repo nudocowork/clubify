@@ -71,6 +71,14 @@ class SelfRegisterVendorBody {
   @IsString() @MinLength(8) @MaxLength(64) password!: string;
 }
 
+class SelfRegisterAmbassadorBody {
+  @IsString() @MinLength(3) @MaxLength(40) influencerCode!: string;
+  @IsString() @MinLength(2) @MaxLength(80) fullName!: string;
+  @IsEmail() email!: string;
+  @IsString() @MinLength(6) @MaxLength(20) phone!: string;
+  @IsString() @MinLength(8) @MaxLength(64) password!: string;
+}
+
 // Autorregistro de afiliados top-level (Influencer / Embajador).
 // Habilitado vía Settings desde /admin/affiliate-registration.
 class SelfRegisterAffiliateBody {
@@ -659,6 +667,29 @@ export class SellerRegistrationController {
     @Ip() ip: string,
   ) {
     return this.svc.selfRegisterVendor(body, ip);
+  }
+}
+
+/**
+ * Autorregistro público de EMBAJADORES bajo un influencer desde
+ * `/ambassador/register/<influencerCode>`. Espejo del de vendedores.
+ */
+@Controller('ambassador')
+export class AmbassadorRegistrationController {
+  constructor(private svc: ReferralsService) {}
+
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  @Get('register/lookup/:code')
+  lookup(@Param('code') code: string) {
+    return this.svc.lookupSelfRegisterInfluencer(code);
+  }
+
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @Post('register')
+  register(@Body() body: SelfRegisterAmbassadorBody, @Ip() ip: string) {
+    return this.svc.selfRegisterAmbassador(body, ip);
   }
 }
 
