@@ -10,6 +10,7 @@ import { CommissionExceptionsService } from '../admin/commission-exceptions.serv
 import { CommissionRecalcService } from './commission-recalc.service';
 import { AuditService } from '../audit/audit.service';
 import { monthKey } from '../common/period-key';
+import { COMMISSION_DEFAULTS } from '../common/commission-defaults';
 
 const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
 
@@ -440,7 +441,7 @@ export class ReferralsService {
       const pct = await this.resolveExceptionPercent(
         use.tenantId,
         use.referralCode.id,
-        Number(use.referralCode.commissionPercent ?? 25),
+        Number(use.referralCode.commissionPercent ?? COMMISSION_DEFAULTS.ambassadorPct),
       );
       await ensureCommission(use.referralCode.id, round2mod((price * pct) / 100));
 
@@ -506,7 +507,7 @@ export class ReferralsService {
         ownerName: dto.fullName,
         ownerEmail: dto.email,
         ownerWhatsapp: dto.whatsapp,
-        commissionPercent: dto.commissionPercent ?? 25,
+        commissionPercent: dto.commissionPercent ?? COMMISSION_DEFAULTS.ambassadorPct,
         source: cleanSource,
       },
     });
@@ -1207,7 +1208,7 @@ export class ReferralsService {
         ownerName: dto.fullName.trim(),
         ownerEmail: email,
         ownerWhatsapp: dto.whatsapp.trim(),
-        commissionPercent: dto.commissionPercent ?? 25,
+        commissionPercent: dto.commissionPercent ?? COMMISSION_DEFAULTS.ambassadorPct,
         role: 'AMBASSADOR',
         parentCodeId: null,
         campaignId: null,
@@ -1317,12 +1318,14 @@ export class ReferralsService {
     return {
       socioCodeId: socioId,
       socio,
-      indirectPercent: Number(map.get('referrals.indirectPercent') ?? 5),
+      indirectPercent: Number(
+        map.get('referrals.indirectPercent') ?? COMMISSION_DEFAULTS.indirectPct,
+      ),
       defaultInfluencerPercent: Number(
-        map.get('referrals.defaultInfluencerPercent') ?? 30,
+        map.get('referrals.defaultInfluencerPercent') ?? COMMISSION_DEFAULTS.influencerPct,
       ),
       defaultAmbassadorPercent: Number(
-        map.get('referrals.defaultAmbassadorPercent') ?? 25,
+        map.get('referrals.defaultAmbassadorPercent') ?? COMMISSION_DEFAULTS.ambassadorPct,
       ),
       holdDays: Number(map.get('referrals.holdDays') ?? COMMISSION_HOLD_DAYS),
       minPayoutUsd: Number(map.get('referrals.minPayoutUsd') ?? 0),
@@ -1369,11 +1372,11 @@ export class ReferralsService {
     };
     if ('socioCodeId' in patch) writeKey('referrals.socioCodeId', patch.socioCodeId ?? null);
     if ('indirectPercent' in patch)
-      writeKey('referrals.indirectPercent', String(patch.indirectPercent ?? 5));
+      writeKey('referrals.indirectPercent', String(patch.indirectPercent ?? COMMISSION_DEFAULTS.indirectPct));
     if ('defaultInfluencerPercent' in patch)
-      writeKey('referrals.defaultInfluencerPercent', String(patch.defaultInfluencerPercent ?? 30));
+      writeKey('referrals.defaultInfluencerPercent', String(patch.defaultInfluencerPercent ?? COMMISSION_DEFAULTS.influencerPct));
     if ('defaultAmbassadorPercent' in patch)
-      writeKey('referrals.defaultAmbassadorPercent', String(patch.defaultAmbassadorPercent ?? 25));
+      writeKey('referrals.defaultAmbassadorPercent', String(patch.defaultAmbassadorPercent ?? COMMISSION_DEFAULTS.ambassadorPct));
     if ('holdDays' in patch) writeKey('referrals.holdDays', String(patch.holdDays ?? COMMISSION_HOLD_DAYS));
     if ('minPayoutUsd' in patch)
       writeKey('referrals.minPayoutUsd', String(patch.minPayoutUsd ?? 0));
@@ -1426,7 +1429,7 @@ export class ReferralsService {
           ownerName: dto.fullName,
           ownerEmail: email,
           ownerWhatsapp: dto.whatsapp,
-          commissionPercent: dto.commissionPercent ?? 10,
+          commissionPercent: dto.commissionPercent ?? COMMISSION_DEFAULTS.socioPct,
           role: 'SOCIO',
           approvedAt: new Date(),
         },
@@ -2205,7 +2208,7 @@ export class ReferralsService {
     if (recent) return;
 
     const round2 = (n: number) => Math.round(n * 100) / 100;
-    const pct = Number(code.commissionPercent ?? 25);
+    const pct = Number(code.commissionPercent ?? COMMISSION_DEFAULTS.ambassadorPct);
     const direct = round2((price * pct) / 100);
 
     await this.prisma.commission
@@ -2872,7 +2875,7 @@ export class ReferralsService {
     const row = await this.prisma.setting.findUnique({
       where: { key: 'referrals.defaultAmbassadorPercent' },
     });
-    const defaultPct = row?.value ? Number(row.value) : 25;
+    const defaultPct = row?.value ? Number(row.value) : COMMISSION_DEFAULTS.ambassadorPct;
     return {
       valid: true as const,
       influencer: {
@@ -4200,7 +4203,7 @@ export class ReferralsService {
       }),
     ]);
     const indirectPct = indirectRow?.value ? Number(indirectRow.value) : 5;
-    const socioPct = socioRow?.value ? Number(socioRow.value) : 10;
+    const socioPct = socioRow?.value ? Number(socioRow.value) : COMMISSION_DEFAULTS.socioPct;
 
     // Atribuciones DIRECTAS: un ReferralUse por tenant cuyo code es un
     // afiliado directo (embajador/influencer/vendor). Tras el fix 1:1 cada

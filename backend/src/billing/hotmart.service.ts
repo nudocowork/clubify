@@ -8,6 +8,7 @@ import { ReferralsService } from '../referrals/referrals.service';
 import { PreregAlertsService } from '../auth/prereg-alerts.service';
 import { CommissionExceptionsService } from '../admin/commission-exceptions.service';
 import { monthKey } from '../common/period-key';
+import { COMMISSION_DEFAULTS } from '../common/commission-defaults';
 import {
   smsPaymentConfirmed,
   smsPaymentFailed,
@@ -1186,7 +1187,7 @@ export class HotmartService {
         const pct = await this.resolvePercent(
           opts.tenantId,
           use.referralCode.id,
-          Number(use.referralCode.commissionPercent ?? 25),
+          Number(use.referralCode.commissionPercent ?? COMMISSION_DEFAULTS.ambassadorPct),
         );
         const direct = round2((referralBase * pct) / 100);
 
@@ -1311,7 +1312,7 @@ export class HotmartService {
     });
     if (!socio || socio.role !== 'SOCIO' || !socio.isActive) return;
 
-    const pct = Number(socio.commissionPercent ?? 10);
+    const pct = Number(socio.commissionPercent ?? COMMISSION_DEFAULTS.socioPct);
     const amount = round2((amountPaid * pct) / 100);
 
     let use = await this.prisma.referralUse.findFirst({
