@@ -444,6 +444,11 @@ export class TenantsService {
           hotmartSubscriberCode:
             dto.hotmartSubscriberCode?.trim() || `manual-${nanoid(10)}`,
           suspendedAt: null,
+          // #12 (2026-06-16): activar un negocio elimina el estado Trial.
+          // No debe quedar Trial + Activo a la vez. Antes el modo "paid" del
+          // simulador dejaba trialEndsAt seteado → banner de trial sobre un
+          // negocio ya pago.
+          trialEndsAt: null,
         };
         if (dto.nextChargeDate) {
           const parsed = new Date(dto.nextChargeDate);
