@@ -21,6 +21,11 @@ export type InfoLinkBackground =
     };
 
 export type InfoLinkPopup = {
+  /** Identificador único dentro del array de popups. Sirve como key de
+   *  sessionStorage para `oncePerSession`. Se genera client-side al crear
+   *  el popup. Opcional por backwards-compat con `theme.popup` (singular)
+   *  pre-multi-popup, donde se usaba el linkId como key. */
+  id?: string;
   enabled: boolean;
   imageUrl?: string | null;
   title?: string | null;
@@ -40,6 +45,24 @@ export type InfoLinkPopup = {
    *  definidas. Sin schedule = siempre activo. */
   schedule?: PopupSchedule | null;
 };
+
+/** Combina el popup principal (singular legacy `theme.popup`) con el array
+ *  multi-popup (`theme.popups`). Devuelve la lista completa en orden, sin
+ *  filtrar por enabled/schedule — el filtrado lo hace el componente público
+ *  al evaluar cuál mostrar.
+ *
+ *  Backwards-compat: si solo existe `popup` (singular), devuelve [popup].
+ *  Si solo existe `popups` (array), devuelve popups. Si ambos, popup va al
+ *  final como fallback (la prioridad la define el orden del array). */
+export function combineInfoLinkPopups(
+  popup: InfoLinkPopup | null | undefined,
+  popups: InfoLinkPopup[] | null | undefined,
+): InfoLinkPopup[] {
+  const arr: InfoLinkPopup[] = [];
+  if (Array.isArray(popups)) arr.push(...popups.filter(Boolean));
+  if (popup) arr.push(popup);
+  return arr;
+}
 
 /** Programación de cuándo mostrar un popup. Todos los campos son
  *  acumulativos (AND): debe coincidir el día, el rango de fechas y la

@@ -1487,6 +1487,7 @@ function VisualSection({
     fontFamily?: string | null;
     background?: InfoLinkBackground | null;
     popup?: InfoLinkPopup | null;
+    popups?: InfoLinkPopup[] | null;
   };
   primary: string;
   tenantLogoUrl: string | null;
@@ -1497,6 +1498,7 @@ function VisualSection({
     fontFamily?: string | null;
     background?: InfoLinkBackground | null;
     popup?: InfoLinkPopup | null;
+    popups?: InfoLinkPopup[] | null;
   }) => void;
 }) {
   function applyFullLook(id: FullLookId) {
@@ -1624,7 +1626,7 @@ function VisualSection({
         />
       </div>
 
-      {/* Popup promocional global */}
+      {/* Popup promocional global — principal */}
       <div className="border-t border-line pt-5">
         <PopupPanel
           value={theme.popup ?? null}
@@ -1632,6 +1634,147 @@ function VisualSection({
           onChange={(next) => onChange({ popup: next })}
         />
       </div>
+
+      {/* Popups adicionales (multi-popup, 2026-06-15) */}
+      <div className="border-t border-line pt-5">
+        <MultiPopupPanel
+          value={theme.popups ?? []}
+          primary={primary}
+          onChange={(next) => onChange({ popups: next })}
+        />
+      </div>
+    </div>
+  );
+}
+
+// =====================================================
+// MultiPopupPanel — gestor del array theme.popups[]
+// =====================================================
+function MultiPopupPanel({
+  value,
+  primary,
+  onChange,
+}: {
+  value: InfoLinkPopup[];
+  primary: string;
+  onChange: (next: InfoLinkPopup[] | null) => void;
+}) {
+  const items = Array.isArray(value) ? value : [];
+
+  function addPopup() {
+    const id = `p_${Date.now().toString(36)}_${Math.floor(Math.random() * 10000).toString(36)}`;
+    const next: InfoLinkPopup = {
+      id,
+      enabled: true,
+      delaySeconds: 3,
+      oncePerSession: true,
+      name: `Popup ${items.length + 2}`,
+    };
+    onChange([...items, next]);
+  }
+  function updateAt(index: number, patch: InfoLinkPopup | null) {
+    if (patch === null) {
+      const copy = items.filter((_, i) => i !== index);
+      onChange(copy.length ? copy : null);
+      return;
+    }
+    const copy = [...items];
+    copy[index] = patch;
+    onChange(copy);
+  }
+  function moveUp(index: number) {
+    if (index === 0) return;
+    const copy = [...items];
+    [copy[index - 1], copy[index]] = [copy[index], copy[index - 1]];
+    onChange(copy);
+  }
+  function moveDown(index: number) {
+    if (index === items.length - 1) return;
+    const copy = [...items];
+    [copy[index + 1], copy[index]] = [copy[index], copy[index + 1]];
+    onChange(copy);
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h4 className="font-semibold text-sm m-0">Popups adicionales</h4>
+          <div className="text-[11px] text-mute mt-0.5 leading-snug">
+            Suma popups distintos con su propia programación. Si hay varios
+            elegibles a la vez, se muestra el PRIMERO de la lista (orden de
+            prioridad). El popup principal de arriba va al final.
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={addPopup}
+          className="text-xs font-semibold px-3 py-1.5 rounded-full border border-line hover:bg-bg2 shrink-0"
+        >
+          ➕ Agregar
+        </button>
+      </div>
+
+      {items.length === 0 && (
+        <div className="text-xs text-mute text-center py-4 border border-dashed border-line2 rounded-lg">
+          Sin popups adicionales. Usá el popup principal de arriba o agregá
+          uno acá si necesitás más de uno.
+        </div>
+      )}
+
+      {items.map((p, i) => (
+        <div key={p.id ?? i} className="border border-line rounded-lg p-3 bg-bg2/30">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <input
+              type="text"
+              className="input flex-1"
+              maxLength={40}
+              value={p.name ?? ''}
+              onChange={(e) => updateAt(i, { ...p, name: e.target.value })}
+              placeholder={`Popup ${i + 2}`}
+            />
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                type="button"
+                onClick={() => moveUp(i)}
+                disabled={i === 0}
+                className="text-xs px-2 py-1 text-mute hover:text-ink disabled:opacity-30"
+                title="Subir prioridad"
+              >
+                ↑
+              </button>
+              <button
+                type="button"
+                onClick={() => moveDown(i)}
+                disabled={i === items.length - 1}
+                className="text-xs px-2 py-1 text-mute hover:text-ink disabled:opacity-30"
+                title="Bajar prioridad"
+              >
+                ↓
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (
+                    confirm(`Eliminar "${p.name || 'Popup'}"? No se puede deshacer.`)
+                  ) {
+                    updateAt(i, null);
+                  }
+                }}
+                className="text-xs px-2 py-1 text-bad hover:text-bad-strong"
+                title="Eliminar"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+          <PopupPanel
+            value={p}
+            primary={primary}
+            onChange={(next) => updateAt(i, next ?? { ...p, enabled: false })}
+          />
+        </div>
+      ))}
     </div>
   );
 }

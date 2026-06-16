@@ -1,29 +1,42 @@
 'use client';
 /**
- * Popup promocional global para InfoLink (Bloque 1 — 2026-06-12).
+ * Popup promocional global para InfoLink (Bloque 1 — 2026-06-12,
+ * multi-popup — 2026-06-15).
  *
- * Se monta cuando `link.theme.popup.enabled === true`. Muestra una
- * ventana emergente con título, imagen, descripción y CTA. Una sola
- * vez por sesión si `oncePerSession=true`.
+ * Soporta tanto el popup singular legacy (`link.theme.popup`) como el
+ * array multi-popup (`link.theme.popups`). Cuando hay varios, mostramos
+ * el primero matchable (enabled + schedule + sin "visto" en sesión).
  */
 import { useEffect, useState } from 'react';
-import { popupScheduleMatches, type InfoLinkPopup } from '@/lib/info-link-extras';
+import {
+  combineInfoLinkPopups,
+  popupScheduleMatches,
+  type InfoLinkPopup,
+} from '@/lib/info-link-extras';
 
 const SESSION_KEY_PREFIX = 'info_link_popup_seen_';
 
-function wasSeen(linkId: string): boolean {
+function popupKey(linkId: string, popup: InfoLinkPopup, index: number): string {
+  // Si el popup tiene `id` explícito, lo usamos como sub-key (multi-popup
+  // nuevo). Sino caemos a linkId solo (singular legacy) o index (fallback).
+  if (popup.id) return `${SESSION_KEY_PREFIX}${linkId}_${popup.id}`;
+  if (index === 0) return `${SESSION_KEY_PREFIX}${linkId}`;
+  return `${SESSION_KEY_PREFIX}${linkId}_${index}`;
+}
+
+function wasSeen(key: string): boolean {
   if (typeof window === 'undefined') return false;
   try {
-    return window.sessionStorage.getItem(SESSION_KEY_PREFIX + linkId) === '1';
+    return window.sessionStorage.getItem(key) === '1';
   } catch {
     return false;
   }
 }
 
-function markSeen(linkId: string) {
+function markSeen(key: string) {
   if (typeof window === 'undefined') return;
   try {
-    window.sessionStorage.setItem(SESSION_KEY_PREFIX + linkId, '1');
+    window.sessionStorage.setItem(key, '1');
   } catch {
     /* sessionStorage no disponible en incognito estricto */
   }
@@ -32,86 +45,103 @@ function markSeen(linkId: string) {
 export function InfoLinkGlobalPopup({
   linkId,
   config,
+  popups,
   primary,
 }: {
   linkId: string;
   config: InfoLinkPopup | null | undefined;
+  popups?: InfoLinkPopup[] | null;
   primary: string;
 }) {
-  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+
+  const all = combineInfoLinkPopups(config, popups);
 
   useEffect(() => {
-    if (!config?.enabled) return;
-    if (config.oncePerSession && wasSeen(linkId)) return;
-    // Programación: solo mostrar si el momento actual matchea el schedule
-    // (días/fechas/horas configurados). Sin schedule = siempre activo.
-    if (!popupScheduleMatches(config.schedule, new Date())) return;
-    const delay = Math.max(0, config.delaySeconds ?? 3) * 1000;
+    if (!all.length) return;
+    const now = new Date();
+    // Encuentra el primer popup matchable: enabled + schedule + no visto.
+    let chosen: { popup: InfoLinkPopup; index: number } | null = null;
+    for (let i = 0; i < all.length; i++) {
+      const p = all[i];
+      if (!p?.enabled) continue;
+      if (!popupScheduleMatches(p.schedule, now)) continue;
+      if (p.oncePerSession && wasSeen(popupKey(linkId, p, i))) continue;
+      chosen = { popup: p, index: i };
+      break;
+    }
+    if (!chosen) return;
+    const delay = Math.max(0, chosen.popup.delaySeconds ?? 3) * 1000;
     const t = setTimeout(() => {
-      setOpen(true);
-      if (config.oncePerSession) markSeen(linkId);
+      setActiveIndex(chosen!.index);
+      if (chosen!.popup.oncePerSession) {
+        markSeen(popupKey(linkId, chosen!.popup, chosen!.index));
+      }
     }, delay);
     return () => clearTimeout(t);
-  }, [linkId, config?.enabled, config?.delaySeconds, config?.oncePerSession, config?.schedule]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkId, JSON.stringify(all.map((p) => ({ id: p.id, e: p.enabled, s: p.schedule, d: p.delaySeconds, o: p.oncePerSession })))]);
 
-  if (!config?.enabled || !open) return null;
+  if (activeIndex === null) return null;
+  const popup = all[activeIndex];
+  if (!popup?.enabled) return null;
 
   const hasContent =
-    !!config.imageUrl ||
-    !!config.title?.trim() ||
-    !!config.description?.trim() ||
-    !!config.buttonText?.trim();
+    !!popup.imageUrl ||
+    !!popup.title?.trim() ||
+    !!popup.description?.trim() ||
+    !!popup.buttonText?.trim();
   if (!hasContent) return null;
 
-  const buttonBg = config.buttonColor || primary;
+  const buttonBg = popup.buttonColor || primary;
 
   function handleButton() {
-    setOpen(false);
-    const url = config?.buttonUrl?.trim();
+    setActiveIndex(null);
+    const url = popup?.buttonUrl?.trim();
     if (url) window.open(url, '_blank', 'noopener,noreferrer');
   }
 
   return (
     <div
       className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-4 animate-in fade-in"
-      onClick={() => setOpen(false)}
+      onClick={() => setActiveIndex(null)}
     >
       <div
         className="bg-white text-ink rounded-t-3xl sm:rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-in slide-in-from-bottom-8 duration-300"
         onClick={(e) => e.stopPropagation()}
       >
-        {config.imageUrl && (
+        {popup.imageUrl && (
           <img
-            src={config.imageUrl}
-            alt={config.title ?? ''}
+            src={popup.imageUrl}
+            alt={popup.title ?? ''}
             className="w-full h-48 object-cover"
           />
         )}
         <div className="px-5 py-5">
-          {config.title && (
+          {popup.title && (
             <h3 className="text-xl font-bold m-0 leading-tight">
-              {config.title}
+              {popup.title}
             </h3>
           )}
-          {config.description && (
+          {popup.description && (
             <p className="text-sm text-mute mt-2 leading-relaxed whitespace-pre-wrap">
-              {config.description}
+              {popup.description}
             </p>
           )}
           <div className="mt-5 flex flex-col gap-2">
-            {config.buttonText && (
+            {popup.buttonText && (
               <button
                 type="button"
                 onClick={handleButton}
                 className="w-full py-3 rounded-full font-semibold text-white text-sm shadow-md active:scale-[0.97] transition-transform"
                 style={{ background: buttonBg }}
               >
-                {config.buttonText}
+                {popup.buttonText}
               </button>
             )}
             <button
               type="button"
-              onClick={() => setOpen(false)}
+              onClick={() => setActiveIndex(null)}
               className="w-full py-2 text-xs text-mute hover:text-ink"
             >
               Cerrar
