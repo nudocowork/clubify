@@ -191,17 +191,35 @@ export default function OrderStatus() {
           </div>
           <div className="space-y-1">
             {order.items.map((it: any, i: number) => (
-              <div key={i} className="flex justify-between text-sm">
-                <span>
-                  {it.qty}x {it.name}
-                </span>
-                <span>
-                  {fmt(
-                    it.lineTotal,
-                    order.tenant.currency ?? 'COP',
-                    order.tenant.currencySymbol ?? null,
-                  )}
-                </span>
+              <div key={i} className="text-sm">
+                <div className="flex justify-between">
+                  <span>
+                    {it.qty}x {it.name}
+                  </span>
+                  <span>
+                    {fmt(
+                      it.lineTotal,
+                      order.tenant.currency ?? 'COP',
+                      order.tenant.currencySymbol ?? null,
+                    )}
+                  </span>
+                </div>
+                {Array.isArray(it.extras) &&
+                  it.extras.map((e: any, j: number) => (
+                    <div key={j} className="text-xs text-mute pl-4">
+                      + {e.name}
+                      {Number(e.price) > 0
+                        ? ` (${fmt(
+                            Number(e.price),
+                            order.tenant.currency ?? 'COP',
+                            order.tenant.currencySymbol ?? null,
+                          )})`
+                        : ''}
+                    </div>
+                  ))}
+                {it.note && (
+                  <div className="text-xs text-mute pl-4 italic">↳ {it.note}</div>
+                )}
               </div>
             ))}
           </div>

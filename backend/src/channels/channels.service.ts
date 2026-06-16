@@ -31,6 +31,7 @@ export class ChannelsService {
       .map(
         (i) =>
           `• ${i.qty}x ${i.name} — ${formatMoney(i.lineTotal, tenant.currency, tenant.currencySymbol)}` +
+          renderExtras(i, tenant) +
           (i.note ? `\n   ↳ ${i.note}` : ''),
       )
       .join('\n');
@@ -104,6 +105,7 @@ export class ChannelsService {
       .map(
         (i) =>
           `• ${i.qty}x ${i.name}` +
+          renderExtras(i, tenant) +
           (i.note ? `\n   ↳ ${i.note}` : ''),
       )
       .join('\n');
@@ -225,6 +227,25 @@ export class ChannelsService {
       take: 100,
     });
   }
+}
+
+// Renderiza los adicionales/extras de un item del pedido como sub-líneas
+// bajo el producto. FIX 2026-06-15: antes los extras se sumaban al total pero
+// NO aparecían en el mensaje — el negocio no veía qué pidió el cliente (ej.
+// "adicional de papas"). Muestra "+ Nombre" con su precio si > 0.
+function renderExtras(i: any, tenant: Tenant): string {
+  const extras = Array.isArray(i?.extras) ? i.extras : [];
+  if (extras.length === 0) return '';
+  return extras
+    .map((e: any) => {
+      const price = Number(e?.price ?? 0);
+      const priceTxt =
+        price > 0
+          ? ` (+${formatMoney(price, tenant.currency, (tenant as any).currencySymbol)})`
+          : '';
+      return `\n   + ${e?.name ?? 'Adicional'}${priceTxt}`;
+    })
+    .join('');
 }
 
 function formatMoney(

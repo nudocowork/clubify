@@ -17,9 +17,15 @@ export class WalletPushWorker implements OnModuleInit {
 
   onModuleInit() {
     this.queue.registerWorker('wallet.push', async (data) => {
-      const { passId, reason } = data as { passId: string; reason: string };
-      this.logger.log(`wallet.push job: pass=${passId} reason=${reason}`);
-      await this.wallet.pushPassUpdate(passId).catch((e) => {
+      const { passId, reason, silent } = data as {
+        passId: string;
+        reason: string;
+        silent?: boolean;
+      };
+      this.logger.log(
+        `wallet.push job: pass=${passId} reason=${reason}${silent ? ' (silent)' : ''}`,
+      );
+      await this.wallet.pushPassUpdate(passId, { silent }).catch((e) => {
         this.logger.warn(
           `pushPassUpdate(${passId}) falló: ${(e as Error).message}`,
         );

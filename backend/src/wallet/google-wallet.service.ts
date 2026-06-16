@@ -276,11 +276,21 @@ export class GoogleWalletService {
       (process.env.APP_URL && !process.env.APP_URL.includes('localhost')
         ? process.env.APP_URL
         : 'https://soyclubify.com');
-    return (
+    const base =
       pass.tenant.walletLogoUrl ||
       pass.tenant.logoUrl ||
-      `${publicBase}/icons/icon-512.png`
-    );
+      `${publicBase}/icons/icon-512.png`;
+    // CACHE-BUST 2026-06-15: Google Wallet cachea las imágenes por URL. Sin
+    // esto, cambiar el logo NO se reflejaba aunque patcheáramos la clase con
+    // la misma URL. Usamos pass.lastActivityAt (igual que hero/strip): el
+    // "Refresh global de wallets" lo bumpea, forzando a Google a re-descargar
+    // el logo. (FIX: antes usaba tenant.updatedAt, campo que NO existe en el
+    // modelo → era undefined → cache-bust nunca aplicaba.) R2 ignora el ?v.
+    const v = pass?.lastActivityAt
+      ? new Date(pass.lastActivityAt).getTime()
+      : null;
+    if (!v) return base;
+    return base.includes('?') ? `${base}&v=${v}` : `${base}?v=${v}`;
   }
 
   async generateSaveUrl(passId: string): Promise<string> {
@@ -405,6 +415,7 @@ export class GoogleWalletService {
 
   async pushUpdate(
     passId: string,
+    opts: { silent?: boolean } = {},
   ): Promise<{ ok: boolean; status: string; notified?: boolean; error?: string }> {
     const pass = await this.prisma.pass.findUnique({
       where: { id: passId },
@@ -430,6 +441,26 @@ export class GoogleWalletService {
       });
       const wallet = google.walletobjects({ version: 'v1', auth });
 
+      // PATCH de la CLASE: el logo (programLogo), el color de fondo y el
+      // nombre del programa viven en el LoyaltyClass, no en el Object. Si no
+      // patcheamos la clase, cambiar el logo/branding NO se reflejaba en el
+      // pase instalado (fix 2026-06-15). El logoUri lleva cache-bust por
+      // tenant.updatedAt para que Google re-descargue la imagen.
+      try {
+        const logoUri = this.resolveLogoUri(pass);
+        const classBody = this.buildClass(pass, ids.classId, logoUri);
+        await wallet.loyaltyclass.patch({
+          resourceId: ids.classId,
+          requestBody: classBody as any,
+        });
+        this.logger.log(`Google Wallet class patched: ${ids.classId}`);
+      } catch (e: any) {
+        // No bloquea el update del objeto si el patch de clase falla.
+        this.logger.warn(
+          `Google Wallet class patch failed: ${e?.message ?? e}`,
+        );
+      }
+
       // PATCH del objeto completo para que cambios visuales (textModules,
       // imageModules con strip de sellos actual) se propaguen al pase
       // instalado, no sólo los puntos.
@@ -447,7 +478,11 @@ export class GoogleWalletService {
       // vea un toast en la barra de notificaciones (equivalente al APNs
       // silent push que re-renderiza Apple Wallet con un haptic) hay que
       // POST `loyaltyobject/{id}/addMessage` con `messageType: TEXT_AND_NOTIFY`.
+      // En modo silent (refresh global masivo) lo OMITIMOS: la clase/objeto ya
+      // quedaron actualizados (logo/strip/branding), pero no spameamos al
+      // cliente con una notificación.
       let notified = false;
+      if (!opts.silent)
       try {
         const { header, body } = this.buildNotificationText(pass);
         const msgId = `update-${Date.now()}`;

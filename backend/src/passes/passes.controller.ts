@@ -389,18 +389,31 @@ export class PassesController {
     if (passes.length === 0) {
       return { tenantId, total: 0, enqueued: 0 };
     }
-    // Bump lastActivityAt en batch para forzar If-Modified-Since cuando
-    // el cliente abra Wallet. NO encolamos wallet.push porque el refresh
-    // global no debe disparar notificaciones a los clientes — la idea es
-    // solo actualizar los datos, no molestar con un push masivo.
+    // Bump lastActivityAt para que Apple use If-Modified-Since al re-fetchear.
     const now = new Date();
     await this.prisma.pass.updateMany({
       where: { id: { in: passes.map((p) => p.id) } },
       data: { lastActivityAt: now },
     });
+
+    // FIX 2026-06-15: antes esto NO pusheaba nada (solo bumpeaba) → el refresh
+    // global "quedaba en cola" y nada se actualizaba, sobre todo en Android
+    // (Google necesita el PATCH, el bump no le sirve). Ahora encolamos un
+    // wallet.push SILENCIOSO por pass: actualiza logo/strip/branding en Apple
+    // y Google SIN disparar notificación al cliente (silent). La cola corre
+    // inline si no hay Redis.
+    let enqueued = 0;
+    for (const p of passes) {
+      await this.jobs.enqueue('wallet.push', {
+        passId: p.id,
+        reason: 'global_refresh',
+        silent: true,
+      } as any);
+      enqueued += 1;
+    }
     this.logger.log(
-      `Admin refresh-all by ${user.id} for tenant ${tenantId}: ${passes.length} pases marcados sin push`,
+      `Admin refresh-all by ${user.id} for tenant ${tenantId}: ${enqueued}/${passes.length} pases pusheados (silent)`,
     );
-    return { tenantId, total: passes.length, enqueued: 0, silent: true };
+    return { tenantId, total: passes.length, enqueued, silent: true };
   }
 }
