@@ -1296,4 +1296,235 @@ export class WalletService {
     const [r, g, b] = m.map((x) => parseInt(x, 16));
     return `rgb(${r},${g},${b})`;
   }
+
+  // ============================================================
+  //              .pkpass DE RESERVA (eventTicket)
+  // ============================================================
+
+  /**
+   * Genera un .pkpass eventTicket para una reserva de restaurante.
+   *
+   * A diferencia del pkpass de fidelización (`generateApplePass`), este
+   * es one-off:
+   *  - No persiste en BD ni linkea con `webServiceURL` para updates push.
+   *  - Si la reserva cambia (CANCELLED/SEATED), el cliente vuelve al pase
+   *    web `/r/pase/<token>` y re-descarga.
+   *  - Reusa el cert + WWDR del programa de fidelización (mismo Team ID).
+   *
+   * Si los certs no están configurados, devuelve un mock JSON del passJson
+   * para no bloquear el flujo dev.
+   */
+  async generateReservationPkpass(reservationId: string): Promise<Buffer> {
+    const r = await this.prisma.reservation.findUnique({
+      where: { id: reservationId },
+      include: {
+        tenant: {
+          select: {
+            id: true,
+            brandName: true,
+            primaryColor: true,
+            logoUrl: true,
+            walletLogoUrl: true,
+            pushLogoUrl: true,
+            timezone: true,
+            locations: {
+              where: { isActive: true },
+              select: {
+                latitude: true,
+                longitude: true,
+                walletRelevantText: true,
+                radiusMeters: true,
+              },
+            },
+          },
+        },
+        zone: { select: { name: true } },
+        table: { select: { number: true } },
+      },
+    });
+    if (!r) throw new NotFoundException('Reservation');
+
+    const brandName = (r.tenant.brandName || 'Clubify').trim() || 'Clubify';
+    const seatLabel = r.table?.number
+      ? `Mesa ${r.table.number}`
+      : r.zone?.name ?? 'Por asignar';
+    const dateStr = r.date.toISOString().slice(0, 10);
+    const primary = r.tenant.primaryColor || '#22C55E';
+
+    const passJson = {
+      formatVersion: 1,
+      passTypeIdentifier:
+        process.env.APPLE_PASS_TYPE_ID ?? 'pass.com.clubify.loyalty',
+      teamIdentifier: process.env.APPLE_TEAM_ID ?? 'XXXXXXXXXX',
+      organizationName: brandName,
+      // Apple requiere serialNumber único — usamos el ID de la reserva con
+      // prefijo para no chocar con serials de Pass (loyalty).
+      serialNumber: `res_${r.id}`,
+      description: `Reserva en ${brandName}`,
+      logoText: brandName,
+      foregroundColor: 'rgb(255,255,255)',
+      backgroundColor: this.hexToRgb(primary),
+      labelColor: 'rgb(245,241,232)',
+      barcodes: [
+        {
+          format: 'PKBarcodeFormatQR',
+          message: `clubify-reservation:${r.id}`,
+          altText: r.id.slice(0, 8).toUpperCase(),
+          messageEncoding: 'iso-8859-1',
+        },
+      ],
+      // Apple Wallet lockscreen relevance: cuando el iPhone está cerca de
+      // alguna location del tenant, muestra el pase en lockscreen.
+      locations: r.tenant.locations.map((l) => ({
+        latitude: Number(l.latitude),
+        longitude: Number(l.longitude),
+        relevantText:
+          l.walletRelevantText?.trim() || `Tu reserva en ${brandName}`,
+      })),
+      maxDistance: r.tenant.locations.reduce(
+        (max, l) => Math.max(max, l.radiusMeters || 300),
+        300,
+      ),
+      // `relevantDate` activa el pase en lockscreen unas horas antes del
+      // momento real. Usamos el instante UTC computed con timezone tenant.
+      relevantDate: this.reservationUtcInstant(
+        r.date,
+        r.time,
+        r.tenant.timezone || 'America/Bogota',
+      ).toISOString(),
+      eventTicket: {
+        headerFields: [
+          { key: 'time', label: 'HORA', value: r.time },
+        ],
+        primaryFields: [
+          { key: 'event', label: 'RESERVA', value: brandName },
+        ],
+        secondaryFields: [
+          { key: 'date', label: 'FECHA', value: dateStr },
+          { key: 'seat', label: r.table?.number ? 'MESA' : 'ZONA', value: seatLabel },
+        ],
+        auxiliaryFields: [
+          { key: 'name', label: 'TITULAR', value: r.customerName },
+          { key: 'party', label: 'PERSONAS', value: String(r.party) },
+        ],
+        backFields: [
+          { key: 'reservation', label: 'Reserva', value: r.id.slice(0, 8).toUpperCase() },
+          { key: 'phone', label: 'Teléfono', value: r.customerPhone },
+          {
+            key: 'powered',
+            label: 'Creado por Clubify',
+            value: 'https://soyclubify.com',
+            attributedValue:
+              '<a href="https://soyclubify.com">soyclubify.com</a>',
+          },
+        ],
+      },
+    };
+
+    const certPem = this.loadAppleCert();
+    const wwdrPem = this.loadAppleWwdr();
+
+    if (!certPem || !wwdrPem) {
+      this.logger.warn(
+        'Apple Wallet certs not configured; returning mock reservation pass.json',
+      );
+      return Buffer.from(JSON.stringify(passJson, null, 2));
+    }
+
+    const { PKPass } = await import('passkit-generator');
+
+    // Imágenes del tenant — icon (push notification) + logo (header del pase).
+    const normalize = (u: any): string | null =>
+      typeof u === 'string' && u.trim() ? u.trim() : null;
+    const logoCandidates = [
+      normalize(r.tenant.walletLogoUrl),
+      normalize(r.tenant.logoUrl),
+    ].filter((u): u is string => u !== null);
+    let tenantLogos: Record<string, Buffer> = {};
+    let usedLogoUrl: string | null = null;
+    for (const url of logoCandidates) {
+      const attempt = await this.generateTenantLogos(url);
+      const main = attempt['logo.png'];
+      if (main && main.length >= 500) {
+        tenantLogos = attempt;
+        usedLogoUrl = url;
+        break;
+      }
+    }
+    const pushLogoUrl =
+      normalize(r.tenant.pushLogoUrl) ?? usedLogoUrl ?? logoCandidates[0] ?? null;
+    const tenantIcons = await this.generateTenantIcons(pushLogoUrl);
+
+    const buffers: Record<string, Buffer> = {
+      'pass.json': Buffer.from(JSON.stringify(passJson)),
+      ...this.loadDefaultImages(),
+      ...tenantIcons,
+      ...tenantLogos,
+    };
+
+    const blob = certPem.toString('utf8');
+    const certOnly = this.extractPemBlock(blob, 'CERTIFICATE');
+    const keyOnly =
+      this.extractPemBlock(blob, 'RSA PRIVATE KEY') ||
+      this.extractPemBlock(blob, 'PRIVATE KEY') ||
+      this.extractPemBlock(blob, 'ENCRYPTED PRIVATE KEY');
+
+    if (!certOnly || !keyOnly) {
+      this.logger.warn(
+        `Apple cert/key no separables para reserva (cert=${!!certOnly}, key=${!!keyOnly}); mock`,
+      );
+      return Buffer.from(JSON.stringify(passJson, null, 2));
+    }
+
+    const passphrase = process.env.APPLE_PASS_CERT_PASSWORD || undefined;
+    const certOpts: any = {
+      wwdr: wwdrPem,
+      signerCert: Buffer.from(certOnly),
+      signerKey: Buffer.from(keyOnly),
+    };
+    if (passphrase) certOpts.signerKeyPassphrase = passphrase;
+
+    const pkpass = new PKPass(buffers, certOpts);
+    return pkpass.getAsBuffer();
+  }
+
+  /** Mismo round-trip Intl que ReservationsService.reservationMomentUtc.
+   *  Duplicado mínimo aquí para no romper el contrato privado del service
+   *  de reservas. Devuelve el instante UTC del momento local de la reserva. */
+  private reservationUtcInstant(
+    date: Date,
+    time: string,
+    timezone: string,
+  ): Date {
+    const [h, m] = time.split(':').map(Number);
+    const y = date.getUTCFullYear();
+    const mo = date.getUTCMonth();
+    const d = date.getUTCDate();
+    const asUtc = Date.UTC(y, mo, d, h, m, 0);
+    const fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+    const parts = fmt.formatToParts(new Date(asUtc));
+    const get = (t: string) =>
+      Number(parts.find((p) => p.type === t)?.value ?? 0);
+    let tzH = get('hour');
+    if (tzH === 24) tzH = 0;
+    const projected = Date.UTC(
+      get('year'),
+      get('month') - 1,
+      get('day'),
+      tzH,
+      get('minute'),
+      get('second'),
+    );
+    const offset = projected - asUtc;
+    return new Date(asUtc - offset);
+  }
 }
