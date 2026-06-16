@@ -1028,7 +1028,7 @@ function BillingAlertsCard({
           <div>
             <div className="font-semibold text-sm">Recibir alertas de pago</div>
             <div className="text-[11px] text-mute leading-snug">
-              Apagalas si preferís manejar la facturación sin SMS — vas a
+              Apágalas si prefieres manejar la facturación sin SMS — vas a
               ver los avisos igual en email y en el panel.
             </div>
           </div>

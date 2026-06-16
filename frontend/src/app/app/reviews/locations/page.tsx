@@ -145,11 +145,11 @@ export default function ReviewLocationsPage() {
       </div>
 
       <p className="text-sm text-mute max-w-2xl mb-5 leading-relaxed">
-        Si tu negocio tiene varias ubicaciones, configurá cada sede con su
+        Si tu negocio tiene varias ubicaciones, configura cada sede con su
         propio link de Google Reviews. Cuando un cliente deje 4-5 estrellas
         en <code className="text-xs bg-bg2 px-1.5 py-0.5 rounded">/r/{'{slug}'}</code>{' '}
         le mostraremos un selector "¿En qué sede te atendieron?" antes de
-        redirigirlo a Google. Si solo dejás 1 sede activa, redirige directo
+        redirigirlo a Google. Si solo dejas 1 sede activa, redirige directo
         sin paso intermedio.
       </p>
 
@@ -160,7 +160,7 @@ export default function ReviewLocationsPage() {
           <div className="text-4xl mb-2">🏢</div>
           <div className="font-semibold">Aún no agregaste sedes</div>
           <p className="text-xs text-mute mt-1 max-w-md mx-auto leading-relaxed">
-            Si tu negocio tiene una sola ubicación, no necesitás esta página —
+            Si tu negocio tiene una sola ubicación, no necesitas esta página —
             sigue usando el link de Google Reviews que configuraste en{' '}
             <Link href="/app/reviews" className="text-brand underline">
               Reseñas

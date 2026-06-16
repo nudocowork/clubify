@@ -475,7 +475,7 @@ function AccountForm({
             <div className="text-[10px] text-mute mt-1">
               Si esta subcuenta enruta mensajes con prefijo
               <code className="mx-1 bg-bg2 px-1 rounded">#Switch&#123;N&#125;</code>,
-              poné el número aquí.
+              pon el número aquí.
             </div>
           </div>
 

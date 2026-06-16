@@ -124,7 +124,7 @@ export function ManageTrialModal({
               <div className="font-semibold mb-1">⚠️ Cliente pagante</div>
               <div className="text-xs leading-snug">
                 Este negocio tiene una suscripción activa. Modificar el trial
-                podría romper su facturación. Si necesitás cambiar el plan o
+                podría romper su facturación. Si necesitas cambiar el plan o
                 cancelar, hacelo desde el panel del tenant (Billing card).
               </div>
             </div>

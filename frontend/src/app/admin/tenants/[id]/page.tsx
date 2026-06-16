@@ -426,7 +426,7 @@ export default function TenantDetail() {
             <strong>🔒 Modo demo activo.</strong> Cualquier usuario que entre a
             este negocio (incluyendo dueño o staff) solo puede ver y navegar —
             no puede modificar nada. Solo super admin puede editar. Desbloqueá
-            arriba si necesitás actualizar el contenido curado.
+            arriba si necesitas actualizar el contenido curado.
           </div>
         )}
       </div>

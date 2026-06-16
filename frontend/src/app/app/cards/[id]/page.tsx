@@ -896,7 +896,7 @@ function EditCardModal({
               className="input"
               value={form.walletBrandName}
               onChange={(e) => setForm({ ...form, walletBrandName: e.target.value })}
-              placeholder="Si lo dejás vacío, usa el nombre del negocio"
+              placeholder="Si lo dejas vacío, usa el nombre del negocio"
             />
             <p className="text-[11px] text-mute mt-1">
               Es la marca que aparece en el pase de Apple/Google Wallet. El

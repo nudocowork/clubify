@@ -518,7 +518,7 @@ export default function MenuEditor() {
             // categoría activa, ahora permite producto sin categoría
             // cuando el tenant todavía no creó ninguna.
             title={!activeCat && cats.length > 0
-              ? 'Elegí una categoría primero o creá una nueva'
+              ? 'Elige una categoría primero o crea una nueva'
               : 'Crear producto'}
           >
             <Icon name="plus" /> Producto
