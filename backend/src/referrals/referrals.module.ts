@@ -4,6 +4,7 @@ import {
   ReferralsController,
   AdminCommissionsController,
   SellerRegistrationController,
+  AmbassadorRegistrationController,
   PublicAffiliateSignupController,
   AdminAffiliateRegistrationController,
 } from './referrals.controller';
@@ -19,6 +20,7 @@ import { CommissionRecalcModule } from './commission-recalc.module';
     ReferralsController,
     AdminCommissionsController,
     SellerRegistrationController,
+    AmbassadorRegistrationController,
     PublicAffiliateSignupController,
     AdminAffiliateRegistrationController,
   ],

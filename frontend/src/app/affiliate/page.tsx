@@ -358,9 +358,11 @@ export default function AffiliatePanel() {
           >
             🎯 CRM de Ventas
           </Link>
-          {/* FASE B1: tab "Mi equipo" solo para embajadores con módulo
-              de vendedores habilitado por el super admin. */}
-          {me.role === 'AFFILIATE_AMBASSADOR' && me.myCode?.allowVendors && (
+          {/* Tab "Mi equipo": embajadores con módulo de vendedores activo, e
+              influencers SIEMPRE (pueden activar vendedores + sumar
+              embajadores desde ahí). 2026-06-16. */}
+          {((me.role === 'AFFILIATE_AMBASSADOR' && me.myCode?.allowVendors) ||
+            me.role === 'AFFILIATE_INFLUENCER') && (
             <Link href="/affiliate/team" className="tab">
               👥 Mi equipo
             </Link>

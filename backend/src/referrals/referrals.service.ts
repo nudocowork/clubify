@@ -2489,17 +2489,22 @@ export class ReferralsService {
     embajadorCodeId: string,
     patch: { allowVendors?: boolean; maxCommissionPercent?: number },
   ) {
-    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     const code = await this.prisma.referralCode.findUnique({
       where: { id: embajadorCodeId },
       include: { childVendors: true },
     });
-    if (!code) throw new NotFoundException('Embajador no encontrado');
-    if (code.role !== 'AMBASSADOR') {
+    if (!code) throw new NotFoundException('Afiliado no encontrado');
+    // 2026-06-16: embajadores E influencers pueden habilitar vendedores. El
+    // dueño del código puede auto-configurarlo (no solo el super admin).
+    if (code.role !== 'AMBASSADOR' && code.role !== 'INFLUENCER') {
       throw new BadRequestException(
-        'Solo embajadores pueden tener módulo de vendedores.',
+        'Solo embajadores o influencers pueden tener módulo de vendedores.',
       );
     }
+    const isAuthorized =
+      user.role === 'SUPER_ADMIN' ||
+      (await this.isUserOwnerOfCode(user, embajadorCodeId));
+    if (!isAuthorized) throw new ForbiddenException();
     const data: { allowVendors?: boolean; maxCommissionPercent?: number } = {};
     if (typeof patch.allowVendors === 'boolean') {
       data.allowVendors = patch.allowVendors;
@@ -2548,10 +2553,10 @@ export class ReferralsService {
       where: { id: embajadorCodeId },
       include: { childVendors: true },
     });
-    if (!code) throw new NotFoundException('Embajador no encontrado');
-    if (code.role !== 'AMBASSADOR') {
+    if (!code) throw new NotFoundException('Afiliado no encontrado');
+    if (code.role !== 'AMBASSADOR' && code.role !== 'INFLUENCER') {
       throw new BadRequestException(
-        'Solo embajadores pueden configurar el % por defecto.',
+        'Solo embajadores o influencers pueden configurar el % por defecto.',
       );
     }
     const isAuthorized =
@@ -2614,7 +2619,11 @@ export class ReferralsService {
       where: { code: norm },
       include: { childVendors: true },
     });
-    if (!amb || amb.role !== 'AMBASSADOR') {
+    // 2026-06-16: un VENDEDOR puede colgar de un EMBAJADOR o de un INFLUENCER
+    // directamente. Ambos roles pueden habilitar vendedores (allowVendors) y
+    // setear su % por defecto. El parent se guarda igual en
+    // parentEmbajadorCodeId (FK genérica a ReferralCode).
+    if (!amb || (amb.role !== 'AMBASSADOR' && amb.role !== 'INFLUENCER')) {
       return { valid: false, reason: 'NOT_FOUND' as const };
     }
     if (!amb.isActive) {
@@ -2758,6 +2767,134 @@ export class ReferralsService {
       ambassador: {
         code: amb.code,
         ownerName: amb.ownerName,
+      },
+    };
+  }
+
+  /**
+   * Lookup público para `/ambassador/register/<influencerCode>`: ¿existe el
+   * influencer y está activo? Devuelve el % por defecto del embajador para
+   * mostrarlo antes de registrarse. (2026-06-16: el influencer comparte este
+   * link para que la gente se autoregistre como embajador bajo él.)
+   */
+  async lookupSelfRegisterInfluencer(code: string) {
+    const norm = code.trim();
+    if (!norm) return { valid: false, reason: 'INVALID_CODE' as const };
+    const inf = await this.prisma.referralCode.findUnique({
+      where: { code: norm },
+    });
+    if (!inf || inf.role !== 'INFLUENCER') {
+      return { valid: false, reason: 'NOT_FOUND' as const };
+    }
+    if (!inf.isActive) {
+      return { valid: false, reason: 'INACTIVE' as const };
+    }
+    const row = await this.prisma.setting.findUnique({
+      where: { key: 'referrals.defaultAmbassadorPercent' },
+    });
+    const defaultPct = row?.value ? Number(row.value) : 25;
+    return {
+      valid: true as const,
+      influencer: {
+        code: inf.code,
+        ownerName: inf.ownerName,
+        slug: inf.slug ?? inf.code.toLowerCase(),
+      },
+      defaultAmbassadorPercent: defaultPct,
+    };
+  }
+
+  /**
+   * Autoregistro público de un EMBAJADOR bajo un influencer desde
+   * `/ambassador/register/<influencerCode>`. Crea ReferralCode role=AMBASSADOR
+   * (parentCodeId = influencer) + User AFFILIATE_AMBASSADOR y devuelve tokens
+   * para auto-login. Auto-aprobado (el influencer compartió el link a quien
+   * confía).
+   */
+  async selfRegisterAmbassador(
+    dto: {
+      influencerCode: string;
+      fullName: string;
+      email: string;
+      phone: string;
+      password: string;
+    },
+    ip?: string,
+  ) {
+    const lookup = await this.lookupSelfRegisterInfluencer(dto.influencerCode);
+    if (!lookup.valid) {
+      throw new BadRequestException('El link de registro no es válido o está inactivo.');
+    }
+    const inf = await this.prisma.referralCode.findUnique({
+      where: { code: dto.influencerCode.trim() },
+    });
+    if (!inf || inf.role !== 'INFLUENCER') {
+      throw new NotFoundException('Influencer no encontrado');
+    }
+
+    await this.assertUniqueAffiliateEmail(dto.email);
+
+    const commissionPercent = lookup.defaultAmbassadorPercent;
+    let code = codeGen();
+    while (await this.prisma.referralCode.findUnique({ where: { code } })) {
+      code = codeGen();
+    }
+    const slug = await this.allocateSlug(dto.fullName, code);
+
+    const created = await this.prisma.referralCode.create({
+      data: {
+        code,
+        slug,
+        ownerName: dto.fullName,
+        ownerEmail: dto.email,
+        ownerWhatsapp: dto.phone,
+        role: 'AMBASSADOR',
+        commissionPercent,
+        parentCodeId: inf.id,
+        campaignId: inf.campaignId ?? null,
+        approvedAt: new Date(),
+        source: 'influencer_self_register',
+        isActive: true,
+      },
+    });
+
+    const inviteResult = await this.auth
+      .inviteAffiliate({
+        email: dto.email,
+        fullName: dto.fullName,
+        role: 'AFFILIATE_AMBASSADOR',
+        referralCodeId: created.id,
+        phone: dto.phone,
+        presetPassword: dto.password,
+      })
+      .catch((err) => {
+        this.logger.warn(
+          `inviteAffiliate falló para ambassador self-register ${dto.email}: ${(err as Error).message}`,
+        );
+        return null;
+      });
+    if (!inviteResult) {
+      throw new BadRequestException(
+        'No se pudo crear la cuenta. Intentá de nuevo en unos minutos.',
+      );
+    }
+
+    const tokens = await this.auth.issueAuthTokensForUserId(
+      inviteResult.userId,
+      ip ?? null,
+    );
+
+    return {
+      ...tokens,
+      ambassador: {
+        codeId: created.id,
+        code: created.code,
+        ownerName: created.ownerName,
+        commissionPercent,
+      },
+      influencer: {
+        code: inf.code,
+        ownerName: inf.ownerName,
       },
     };
   }
@@ -2978,15 +3115,15 @@ export class ReferralsService {
       where: { id: dto.embajadorCodeId },
       include: { childVendors: true },
     });
-    if (!embajador) throw new NotFoundException('Embajador no encontrado');
-    if (embajador.role !== 'AMBASSADOR') {
+    if (!embajador) throw new NotFoundException('Afiliado no encontrado');
+    if (embajador.role !== 'AMBASSADOR' && embajador.role !== 'INFLUENCER') {
       throw new BadRequestException(
-        'Solo los embajadores pueden tener vendedores asociados.',
+        'Solo embajadores o influencers pueden tener vendedores asociados.',
       );
     }
     if (!embajador.allowVendors) {
       throw new BadRequestException(
-        'Este embajador no tiene activado el módulo de vendedores. Pedile al super admin que lo habilite.',
+        'No tenés activado el módulo de vendedores. Activalo desde tu panel de equipo.',
       );
     }
 
@@ -3076,8 +3213,10 @@ export class ReferralsService {
       select: { id: true, role: true, maxCommissionPercent: true },
     });
     if (!embajador) throw new NotFoundException();
-    if (embajador.role !== 'AMBASSADOR') {
-      throw new BadRequestException('Solo embajadores tienen vendedores.');
+    if (embajador.role !== 'AMBASSADOR' && embajador.role !== 'INFLUENCER') {
+      throw new BadRequestException(
+        'Solo embajadores o influencers tienen vendedores.',
+      );
     }
     const isAuthorized =
       user.role === 'SUPER_ADMIN' ||
@@ -3409,7 +3548,30 @@ export class ReferralsService {
     const sourceCodeId = code.id;
 
     if (code.role === 'VENDOR' && code.parentEmbajadorCode) {
-      const embajador = code.parentEmbajadorCode;
+      const parent = code.parentEmbajadorCode;
+      // 2026-06-16: el vendedor puede colgar de un EMBAJADOR (3 niveles) o
+      // directo de un INFLUENCER (2 niveles). En el caso directo, el
+      // influencer ocupa el slot "embajador" (el que COMPARTE su % con su
+      // vendedor) para que el split le reste el % del vendedor — mismo modelo
+      // que embajador→vendedor, sin tocar la matemática del split.
+      if (parent.role === 'INFLUENCER') {
+        return {
+          influencer: null,
+          embajador: {
+            id: parent.id,
+            commissionPercent: Number(parent.commissionPercent ?? 0),
+            maxCommissionPercent: parent.maxCommissionPercent
+              ? Number(parent.maxCommissionPercent)
+              : 25,
+          },
+          vendor: {
+            id: code.id,
+            commissionPercent: Number(code.commissionPercent ?? 0),
+          },
+          sourceCodeId,
+        };
+      }
+      const embajador = parent;
       const influencerSource = embajador.parentCode;
       return {
         influencer: influencerSource

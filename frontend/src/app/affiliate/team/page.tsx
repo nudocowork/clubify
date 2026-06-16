@@ -88,8 +88,12 @@ export default function AffiliateTeamPage() {
     api<Me>('/affiliate/me')
       .then((m) => {
         setMe(m);
-        // Solo embajadores ven esta página. Influencer/socio redirect home.
-        if (m.role !== 'AFFILIATE_AMBASSADOR') {
+        // Embajadores E influencers ven esta página (2026-06-16: los
+        // influencers también pueden tener vendedores). Otros roles → home.
+        if (
+          m.role !== 'AFFILIATE_AMBASSADOR' &&
+          m.role !== 'AFFILIATE_INFLUENCER'
+        ) {
           router.replace('/affiliate');
           return;
         }
@@ -122,6 +126,32 @@ export default function AffiliateTeamPage() {
   if (!me) return null;
 
   const allowed = me.myCode?.allowVendors === true;
+  const isInfluencer = me.role === 'AFFILIATE_INFLUENCER';
+
+  async function enableVendors() {
+    if (!me?.myCode?.id) return;
+    try {
+      await api(`/referrals/codes/${me.myCode.id}/vendor-config`, {
+        method: 'PATCH',
+        body: JSON.stringify({ allowVendors: true, maxCommissionPercent: 25 }),
+      });
+      toast('Módulo de vendedores activado', 'success');
+      setMe((prev) =>
+        prev && prev.myCode
+          ? {
+              ...prev,
+              myCode: {
+                ...prev.myCode,
+                allowVendors: true,
+                maxCommissionPercent: prev.myCode.maxCommissionPercent ?? 25,
+              },
+            }
+          : prev,
+      );
+    } catch (e: any) {
+      toast(e.message || 'No se pudo activar', 'error');
+    }
+  }
 
   return (
     <div className="min-h-screen bg-bg">
@@ -136,7 +166,9 @@ export default function AffiliateTeamPage() {
           <div className="flex items-center gap-3">
             <div className="text-xs text-mute hidden sm:block">
               {me.user?.fullName} ·{' '}
-              <span className="font-medium">👥 Embajador</span>
+              <span className="font-medium">
+                {isInfluencer ? '⭐ Influencer' : '👥 Embajador'}
+              </span>
             </div>
             <button onClick={logout} className="text-xs text-mute hover:text-ink">
               Salir
@@ -156,21 +188,28 @@ export default function AffiliateTeamPage() {
 
         {!allowed && (
           <div className="card card-pad text-center py-12 max-w-xl mx-auto">
-            <div className="text-4xl mb-3">🔒</div>
+            <div className="text-4xl mb-3">👥</div>
             <div className="font-semibold mb-2">
-              Este perfil no tiene activado el módulo de vendedores.
+              Activá tu módulo de vendedores
             </div>
             <div className="text-sm text-mute leading-relaxed">
-              Pedile al super admin que te lo habilite y te asigne una
-              comisión máxima para repartir entre tu equipo.
+              Sumá vendedores a tu equipo y compartí parte de tu comisión por
+              cada venta que ellos cierren. Vos definís el % por defecto de
+              cada vendedor (hasta tu comisión máxima).
             </div>
-            <Link
-              href="/affiliate"
-              className="inline-block mt-4 btn-ghost text-sm"
+            <button
+              onClick={enableVendors}
+              className="inline-block mt-4 btn-primary text-sm min-h-[44px]"
             >
-              ← Volver al panel
-            </Link>
+              Activar módulo de vendedores
+            </button>
           </div>
+        )}
+
+        {/* Card de autoregistro de EMBAJADORES — solo influencers. El link
+            que comparte el influencer crea embajadores bajo él. */}
+        {isInfluencer && me.myCode && (
+          <AmbassadorSelfRegisterCard influencerCode={me.myCode.code} />
         )}
 
         {allowed && data && me.myCode && (
@@ -344,6 +383,69 @@ export default function AffiliateTeamPage() {
  *
  * Persistencia: PATCH /referrals/codes/:id/default-vendor-commission.
  */
+// Card del influencer: link para que la gente se autoregistre como EMBAJADOR
+// bajo él (2026-06-16). Mostrada solo a influencers.
+function AmbassadorSelfRegisterCard({
+  influencerCode,
+}: {
+  influencerCode: string;
+}) {
+  const landingBase =
+    process.env.NEXT_PUBLIC_LANDING_URL ||
+    (typeof window !== 'undefined' ? window.location.origin : '');
+  const url = `${landingBase}/ambassador/register/${influencerCode}`;
+
+  function copy() {
+    if (!navigator.clipboard) {
+      toast('Copiá el link manualmente', 'info');
+      return;
+    }
+    navigator.clipboard.writeText(url).then(
+      () => toast('Link de embajadores copiado', 'success'),
+      () => toast('No se pudo copiar', 'error'),
+    );
+  }
+  function share() {
+    if (navigator.share) {
+      navigator
+        .share({ title: 'Sumate como embajador', url })
+        .catch(() => null);
+    } else {
+      copy();
+    }
+  }
+
+  return (
+    <div className="card card-pad mb-5">
+      <div className="flex items-start gap-2 mb-2">
+        <span className="text-xl">🤝</span>
+        <div>
+          <h3 className="font-semibold m-0">Suma embajadores a tu red</h3>
+          <div className="text-xs text-mute mt-0.5">
+            Compartí este link: quien se registre queda como{' '}
+            <strong>embajador tuyo</strong> y vos ganás el % indirecto sobre sus
+            ventas.
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center gap-2 mt-2">
+        <input
+          readOnly
+          value={url}
+          className="input text-xs flex-1 font-mono"
+          onFocus={(e) => e.currentTarget.select()}
+        />
+        <button onClick={copy} className="btn-secondary text-xs whitespace-nowrap">
+          Copiar
+        </button>
+        <button onClick={share} className="btn-primary text-xs whitespace-nowrap">
+          Compartir
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function SelfRegisterCard({
   ambassadorCode,
   codeId,
