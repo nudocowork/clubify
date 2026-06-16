@@ -66,6 +66,7 @@ export class VoyageService {
       try {
         const r = await fetch(this.endpoint, {
           method: 'POST',
+          signal: AbortSignal.timeout(30000), // review: timeout embeddings
           headers: {
             'content-type': 'application/json',
             authorization: `Bearer ${this.apiKey}`,

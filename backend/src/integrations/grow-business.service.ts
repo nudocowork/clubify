@@ -50,6 +50,9 @@ export class GrowBusinessService {
         : `+${phone.replace(/\D/g, '')}`;
       const res = await fetch(`${this.API_BASE}/contacts/upsert`, {
         method: 'POST',
+        // FIX 2026-06-16 (review): timeout en llamada externa (LeadConnector)
+        // para no colgar el request/worker si el upstream no responde.
+        signal: AbortSignal.timeout(15000),
         headers: {
           Authorization: `Bearer ${apiKey}`,
           Version: this.API_VERSION,
@@ -184,6 +187,7 @@ export class GrowBusinessService {
       const res = await fetch(
         `${this.API_BASE}/locations/${creds.growBusinessLocationId}`,
         {
+          signal: AbortSignal.timeout(15000),
           headers: {
             Authorization: `Bearer ${creds.growBusinessApiKey}`,
             Version: this.API_VERSION,
@@ -344,6 +348,9 @@ export class GrowBusinessService {
     try {
       const res = await fetch(`${this.API_BASE}/conversations/messages`, {
         method: 'POST',
+        // FIX 2026-06-16 (review): timeout en llamada externa (LeadConnector)
+        // para no colgar el request/worker si el upstream no responde.
+        signal: AbortSignal.timeout(15000),
         headers: {
           Authorization: `Bearer ${apiKey}`,
           Version: this.API_VERSION,

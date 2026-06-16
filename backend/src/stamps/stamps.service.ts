@@ -368,14 +368,39 @@ export class StampsService {
           );
         }
       }
-      if (isCouponRedeem && stampsCardForTransform) {
-        await tx.pass.deleteMany({
+      if (isCouponRedeem && stampsCardForTransform && pass.customerId) {
+        // FIX 2026-06-16 (review): NO borrar a ciegas. El transform del cupón
+        // mueve este pase a la stamps card target; si el cliente YA tiene ahí
+        // un pase de sellos REAL (con progreso, historial o agregado al
+        // wallet) el deleteMany ciego lo destruía. Replicamos las guardas de
+        // cleanupOrphanStampsPass: solo borramos un pase HUÉRFANO (0 sellos,
+        // 0 historial, 0 devices); si no, abortamos el transform.
+        const existing = await tx.pass.findUnique({
           where: {
-            customerId: pass.customerId,
-            cardId: stampsCardForTransform.id,
-            id: { not: pass.id }, // no borrar el pass que vamos a transformar
+            cardId_customerId: {
+              cardId: stampsCardForTransform.id,
+              customerId: pass.customerId,
+            },
           },
+          select: { id: true, stampsCount: true },
         });
+        if (existing && existing.id !== pass.id) {
+          if (existing.stampsCount > 0) {
+            throw new BadRequestException(
+              'El cliente ya tiene una tarjeta de sellos con progreso. No se puede transformar el cupón sin perderlo.',
+            );
+          }
+          const [devices, history] = await Promise.all([
+            tx.walletDevice.count({ where: { passId: existing.id } }),
+            tx.stamp.count({ where: { passId: existing.id } }),
+          ]);
+          if (devices > 0 || history > 0) {
+            throw new BadRequestException(
+              'El cliente ya tiene una tarjeta de sellos activa (con historial o en el wallet). No se puede transformar el cupón.',
+            );
+          }
+          await tx.pass.delete({ where: { id: existing.id } });
+        }
       }
       const newStampRow = await tx.stamp.create({
         data: {

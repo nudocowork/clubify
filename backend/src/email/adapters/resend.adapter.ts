@@ -21,6 +21,7 @@ export class ResendAdapter implements IEmailAdapter {
 
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
+      signal: AbortSignal.timeout(15000), // review: timeout envío email
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
