@@ -279,7 +279,11 @@ export class GoogleWalletService {
       (process.env.APP_URL && !process.env.APP_URL.includes('localhost')
         ? process.env.APP_URL
         : 'https://soyclubify.com');
+    // #22 (2026-06-16): el logo de LA TARJETA (card.logoUrl) tiene prioridad
+    // sobre el del tenant. Al subir un logo nuevo cambia la URL de R2 → el
+    // base cambia y Google re-descarga (además del cache-bust por ?v=).
     const base =
+      pass.card?.logoUrl ||
       pass.tenant.walletLogoUrl ||
       pass.tenant.logoUrl ||
       `${publicBase}/icons/icon-512.png`;

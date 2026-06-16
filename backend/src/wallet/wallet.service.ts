@@ -243,16 +243,21 @@ export class WalletService {
     // con null/undefined, lo que dejaba el logo transparente aunque
     // logoUrl existiera.
     // Resolución del logo del pase:
-    // 1. walletLogoUrl (logo dedicado para wallet) si existe y procesa bien.
-    // 2. logoUrl (logo general de la marca) como fallback.
+    // #22 (2026-06-16): el logo de LA TARJETA (card.logoUrl) tiene PRIORIDAD.
+    //   Antes el pase solo miraba el logo del tenant → cambiar el logo de la
+    //   tarjeta no se reflejaba (bug Valmont). card.logoUrl ya está en
+    //   VISUAL_FIELDS (dispara wallet.push al cambiar), así que la intención
+    //   siempre fue que se viera en el pase.
+    // 1. card.logoUrl (logo propio de la tarjeta).
+    // 2. walletLogoUrl (logo dedicado para wallet del tenant).
+    // 3. logoUrl (logo general de la marca) como fallback.
     // String vacío se trata como ausente (?? no cae con '').
-    // Si el primer candidato produce un logo "vacío" (todo blanco tras
-    // chroma-key, típico de uploads viejos que pasaron por el cropper que
-    // exportaba JPG con relleno blanco), automáticamente probamos el
-    // segundo candidato.
+    // Si un candidato produce un logo "vacío" (todo blanco tras chroma-key),
+    // automáticamente probamos el siguiente.
     const normalize = (u: any): string | null =>
       typeof u === 'string' && u.trim() ? u.trim() : null;
     const candidates = [
+      normalize((pass.card as any).logoUrl),
       normalize((pass.tenant as any).walletLogoUrl),
       normalize(pass.tenant.logoUrl),
     ].filter((u): u is string => u !== null);
