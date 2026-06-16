@@ -72,6 +72,7 @@ export default function TenantsPage() {
   const [enteringId, setEnteringId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
   const [duplicateTarget, setDuplicateTarget] = useState<any | null>(null);
+  const [showRanking, setShowRanking] = useState(false); // #11
   const [trialTarget, setTrialTarget] = useState<any | null>(null);
   const me = getUser();
   const isMarketing = me?.role === 'MARKETING';
@@ -224,6 +225,13 @@ export default function TenantsPage() {
           Negocios <span className="page-crumb">/ {list.length} registros</span>
         </h1>
         <div className="flex gap-2 flex-wrap">
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={() => setShowRanking(true)}
+          >
+            🏆 Ranking
+          </button>
           {!isMarketing && (
             <Link className="btn-primary" href="/admin/tenants/new">
               <Icon name="plus" /> Nuevo negocio
@@ -231,6 +239,8 @@ export default function TenantsPage() {
           )}
         </div>
       </div>
+
+      {showRanking && <PassesRankingModal onClose={() => setShowRanking(false)} />}
 
       <div className="mb-3.5 flex flex-col sm:flex-row sm:items-center gap-2">
         <div className="flex items-center gap-2 flex-1 bg-bg2 rounded-pill px-4 py-2.5">
@@ -497,6 +507,89 @@ export default function TenantsPage() {
 }
 
 /**
+ * #11 (2026-06-16): ranking de negocios por pases emitidos (mayor a menor,
+ * con botón para invertir). Modal sobre la lista de negocios.
+ */
+function PassesRankingModal({ onClose }: { onClose: () => void }) {
+  const [order, setOrder] = useState<'desc' | 'asc'>('desc');
+  const [rows, setRows] = useState<
+    { id: string; brandName: string; status: string; passCount: number }[]
+  >([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    api<typeof rows>(`/tenants/ranking?order=${order}`)
+      .then((r) => setRows(r ?? []))
+      .catch(() => setRows([]))
+      .finally(() => setLoading(false));
+  }, [order]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-4 border-b border-line">
+          <h3 className="text-lg font-bold">🏆 Ranking por pases emitidos</h3>
+          <button
+            onClick={onClose}
+            className="text-mute hover:text-ink text-xl leading-none"
+          >
+            ×
+          </button>
+        </div>
+        <div className="px-4 py-2 border-b border-line flex items-center justify-between">
+          <span className="text-xs text-mute">
+            {rows.length} negocios · orden {order === 'desc' ? 'mayor → menor' : 'menor → mayor'}
+          </span>
+          <button
+            className="btn-ghost text-xs"
+            onClick={() => setOrder((o) => (o === 'desc' ? 'asc' : 'desc'))}
+          >
+            ⇅ Invertir
+          </button>
+        </div>
+        <div className="overflow-y-auto p-2">
+          {loading ? (
+            <div className="text-center text-mute text-sm py-8">Cargando…</div>
+          ) : rows.length === 0 ? (
+            <div className="text-center text-mute text-sm py-8">Sin datos.</div>
+          ) : (
+            <div className="divide-y divide-line">
+              {rows.map((r, i) => (
+                <Link
+                  key={r.id}
+                  href={`/admin/tenants/${r.id}`}
+                  className="flex items-center gap-3 px-2 py-2.5 hover:bg-bg2 rounded-lg"
+                >
+                  <div className="w-7 text-center font-bold">
+                    {order === 'desc' && i < 3
+                      ? ['🥇', '🥈', '🥉'][i]
+                      : `${i + 1}`}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium truncate">{r.brandName}</div>
+                    <div className="text-[11px] text-mute">{r.status}</div>
+                  </div>
+                  <div className="font-bold text-brand whitespace-nowrap">
+                    {r.passCount.toLocaleString()} pases
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Menú de acciones por tenant. Reemplaza la columna de botones independientes
  * (Entrar/Ver/Suspender) por un solo botón "⋮ Acciones" que despliega un
  * dropdown estilo SaaS. Cierre por click fuera, click en item, o Escape.
@@ -550,7 +643,17 @@ function ActionsMenu({
       const menuW = 240;
       // Alinear a la derecha del botón; clamp dentro del viewport.
       const left = Math.max(8, rect.right - menuW);
-      const top = rect.bottom + 6;
+      // #9 (2026-06-16): para el ÚLTIMO negocio el menú se abría hacia abajo
+      // y se salía del viewport (se veía incompleto). Si no hay espacio
+      // abajo y sí arriba, lo abrimos hacia arriba; y siempre clampeamos
+      // dentro de la pantalla.
+      const menuH = menuRef.current?.offsetHeight ?? 320;
+      const spaceBelow = window.innerHeight - rect.bottom;
+      let top =
+        spaceBelow < menuH + 12 && rect.top > menuH + 12
+          ? rect.top - menuH - 6
+          : rect.bottom + 6;
+      top = Math.max(8, Math.min(top, window.innerHeight - menuH - 8));
       setPos({ top, left, width: menuW });
     }
     update();
@@ -592,11 +695,12 @@ function ActionsMenu({
     <div
       ref={menuRef}
       role="menu"
-      className="fixed bg-white border border-line2 rounded-lg shadow-xl py-1 text-left text-sm"
+      className="fixed bg-white border border-line2 rounded-lg shadow-xl py-1 text-left text-sm overflow-y-auto"
       style={{
         top: pos.top,
         left: pos.left,
         width: pos.width,
+        maxHeight: 'calc(100vh - 16px)',
         zIndex: 9999,
       }}
     >
