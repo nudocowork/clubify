@@ -3,11 +3,12 @@
 /**
  * Dashboard admin oficial v2 — Fase G (2026-06-07).
  *
- * Banner azul con rango de fechas + facturado + facturación por plan +
- * clientes nuevos del mes con variación. Debajo: 4 KPIs (MRR,
- * Conversión, Tasa de cancelación, Comisiones pendientes), 2 charts
- * (Tendencia de recurrencia + Comisiones pagadas vs pendientes), bloque
- * Estado de clientes con mini mapa y Últimos ingresos.
+ * Banner azul con rango de fechas + facturado (real) + facturación por
+ * plan + clientes nuevos del mes con variación. Toggle 👁 para ocultar
+ * montos (#17). Debajo: 3 KPIs (MRR, Tasa de cancelación, Comisiones
+ * pendientes), 2 charts con datos REALES de 6 meses (Tendencia de
+ * recurrencia + Comisiones pagadas vs pendientes), bloque Estado de
+ * clientes con mini mapa y Últimos ingresos.
  *
  * Endpoint: /admin/dashboard/metrics-v2?range=X[&from=&to=]
  */
@@ -27,7 +28,7 @@ import {
 import { api } from '@/lib/api';
 import { MiniLineChart } from './MiniLineChart';
 import { EmptyState } from './EmptyState';
-import { usd, fmtDate, buildSimulatedMrrSeries } from './shared';
+import { usd, fmtDate } from './shared';
 
 type RangeKind =
   | 'today'
@@ -64,10 +65,15 @@ type DashboardResp = {
   };
   kpis: {
     mrrUsd: number;
-    conversionRate: number | null;
     cancellationRate: number;
     pendingCommissionsUsd: number;
   };
+  monthlySeries: Array<{
+    label: string;
+    mrrUsd: number;
+    commPaidUsd: number;
+    commPendingUsd: number;
+  }>;
   clientStatus: {
     active: number;
     trial: number;
@@ -102,6 +108,21 @@ export function PremiumDashboard() {
   const [range, setRange] = useState<RangeKind>('this-month');
   const [data, setData] = useState<DashboardResp | null>(null);
   const [loading, setLoading] = useState(true);
+  // #17: los montos financieros se muestran OCULTOS por defecto. El 👁
+  // los revela. La preferencia se persiste en localStorage por dispositivo.
+  const [showAmounts, setShowAmounts] = useState(false);
+  useEffect(() => {
+    setShowAmounts(localStorage.getItem('dashboard.showAmounts') === '1');
+  }, []);
+  const toggleAmounts = () => {
+    setShowAmounts((v) => {
+      const next = !v;
+      localStorage.setItem('dashboard.showAmounts', next ? '1' : '0');
+      return next;
+    });
+  };
+  // Enmascara cualquier monto cuando showAmounts=false.
+  const money = (n: number) => (showAmounts ? usd(n) : '••••');
 
   useEffect(() => {
     let cancelled = false;
@@ -121,25 +142,28 @@ export function PremiumDashboard() {
     };
   }, [range]);
 
-  // Serie de tendencia de recurrencia (6 meses simulado hasta que
-  // exista endpoint histórico /admin/metrics/mrr-monthly).
+  // #13/#19 (2026-06-16): series REALES de los últimos 6 meses (backend
+  // monthlySeries). Antes eran simuladas (buildSimulatedMrrSeries).
   const mrrSeries = useMemo(
-    () => buildSimulatedMrrSeries(data?.kpis.mrrUsd ?? 0, 6),
-    [data?.kpis.mrrUsd],
+    () =>
+      (data?.monthlySeries ?? []).map((m) => ({
+        label: m.label,
+        value: m.mrrUsd,
+      })),
+    [data?.monthlySeries],
   );
 
-  // Comisiones stacked bar (6 meses simulado).
-  const commSeries = useMemo(() => {
-    const pending = data?.kpis.pendingCommissionsUsd ?? 0;
-    return mrrSeries.map((p, i) => {
-      const factor = (i + 1) / mrrSeries.length;
-      return {
-        label: p.label,
-        Pagadas: Math.round(p.value * 0.15 * factor),
-        Pendientes: Math.round(pending * factor * 0.4),
-      };
-    });
-  }, [mrrSeries, data]);
+  // Comisiones reales por mes: pagadas (paidAt) vs pendientes (generadas
+  // en el mes, aún PENDING/APPROVED).
+  const commSeries = useMemo(
+    () =>
+      (data?.monthlySeries ?? []).map((m) => ({
+        label: m.label,
+        Pagadas: m.commPaidUsd,
+        Pendientes: m.commPendingUsd,
+      })),
+    [data?.monthlySeries],
+  );
 
   if (loading && !data) {
     return <EmptyState text="Cargando dashboard…" icon="chart" />;
@@ -167,23 +191,34 @@ export function PremiumDashboard() {
               Monto facturado
             </div>
             <div className="text-4xl md:text-5xl font-bold tracking-tight mt-1">
-              {usd(data.banner.billedUsd)}
+              {money(data.banner.billedUsd)}
             </div>
             <div className="text-xs text-sky-200 mt-1">
               Rango: {RANGE_OPTIONS.find((r) => r.value === range)?.label}
             </div>
           </div>
-          <select
-            value={range}
-            onChange={(e) => setRange(e.target.value as RangeKind)}
-            className="bg-white/10 border border-white/30 text-white rounded-pill px-4 py-2 text-sm font-semibold focus:outline-none focus:bg-white/20 transition"
-          >
-            {RANGE_OPTIONS.map((r) => (
-              <option key={r.value} value={r.value} className="text-ink">
-                {r.label}
-              </option>
-            ))}
-          </select>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={toggleAmounts}
+              title={showAmounts ? 'Ocultar montos' : 'Mostrar montos'}
+              aria-label={showAmounts ? 'Ocultar montos' : 'Mostrar montos'}
+              className="bg-white/10 border border-white/30 text-white rounded-pill px-3 py-2 text-sm focus:outline-none hover:bg-white/20 transition"
+            >
+              {showAmounts ? '🙈' : '👁'}
+            </button>
+            <select
+              value={range}
+              onChange={(e) => setRange(e.target.value as RangeKind)}
+              className="bg-white/10 border border-white/30 text-white rounded-pill px-4 py-2 text-sm font-semibold focus:outline-none focus:bg-white/20 transition"
+            >
+              {RANGE_OPTIONS.map((r) => (
+                <option key={r.value} value={r.value} className="text-ink">
+                  {r.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {/* Facturación por plan */}
@@ -197,7 +232,7 @@ export function PremiumDashboard() {
                 {p.label}
               </div>
               <div className="font-bold text-base mt-0.5">
-                {usd(p.billingUsd)}
+                {money(p.billingUsd)}
               </div>
               <div className="text-[10px] text-sky-200">
                 {p.count} negocios
@@ -232,31 +267,14 @@ export function PremiumDashboard() {
         </div>
       </div>
 
-      {/* 4 KPIs glass */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+      {/* 3 KPIs glass (#16: se eliminó "Conversión Trial → Cliente") */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
         <Kpi
           label="Ingreso recurrente"
-          value={usd(data.kpis.mrrUsd)}
+          value={money(data.kpis.mrrUsd)}
           sub="MRR mensual"
           accent="brand"
           icon="💎"
-        />
-        <Kpi
-          label="Conversión"
-          value={
-            data.kpis.conversionRate != null
-              ? `${data.kpis.conversionRate}%`
-              : '—'
-          }
-          sub="Trial → Cliente"
-          accent={
-            data.kpis.conversionRate == null
-              ? 'neutral'
-              : data.kpis.conversionRate >= 50
-              ? 'ok'
-              : 'warn'
-          }
-          icon="🎯"
         />
         <Kpi
           label="Tasa de cancelación"
@@ -273,7 +291,7 @@ export function PremiumDashboard() {
         />
         <Kpi
           label="Comisiones pendientes"
-          value={usd(data.kpis.pendingCommissionsUsd)}
+          value={money(data.kpis.pendingCommissionsUsd)}
           sub="Por pagar a afiliados"
           accent="amber"
           icon="💰"
@@ -291,11 +309,14 @@ export function PremiumDashboard() {
               <div className="text-base font-bold text-ink mt-0.5">
                 Últimos 6 meses
               </div>
+              <div className="text-[10px] text-mute mt-0.5">
+                MRR estimado por antigüedad
+              </div>
             </div>
             <div className="text-right">
               <div className="text-xs text-mute">MRR</div>
               <div className="text-lg font-bold text-brand">
-                {usd(data.kpis.mrrUsd)}
+                {money(data.kpis.mrrUsd)}
               </div>
             </div>
           </div>
@@ -306,7 +327,7 @@ export function PremiumDashboard() {
             area
             showAxes
             showGrid
-            valueFormatter={(n) => usd(n)}
+            valueFormatter={(n) => money(n)}
           />
         </div>
 
@@ -336,11 +357,11 @@ export function PremiumDashboard() {
                 axisLine={false}
                 fontSize={11}
                 stroke="#9CA3AF"
-                tickFormatter={(v) => usd(Number(v))}
+                tickFormatter={(v) => money(Number(v))}
                 width={50}
               />
               <Tooltip
-                formatter={(v) => usd(Number(v))}
+                formatter={(v) => money(Number(v))}
                 contentStyle={{
                   borderRadius: 8,
                   border: '1px solid #E5E7EB',
@@ -454,7 +475,7 @@ export function PremiumDashboard() {
                 </div>
                 {typeof e.amountUsd === 'number' && (
                   <div className="text-right font-bold text-sm text-brand">
-                    {usd(e.amountUsd)}
+                    {money(e.amountUsd)}
                   </div>
                 )}
               </li>
