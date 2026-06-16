@@ -86,6 +86,7 @@ type Link = {
     primaryColor?: string;
     background?: InfoLinkBackground | null;
     popup?: InfoLinkPopup | null;
+    popups?: InfoLinkPopup[] | null;
   };
   views: number;
 };
@@ -497,6 +498,7 @@ export default function PublicInfoLink() {
       <InfoLinkGlobalPopup
         linkId={link.id}
         config={link.theme?.popup ?? null}
+        popups={link.theme?.popups ?? null}
         primary={primary}
       />
     </>
