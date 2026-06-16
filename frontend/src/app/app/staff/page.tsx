@@ -280,7 +280,7 @@ export default function StaffPage() {
                 ))}
               </select>
               <div className="text-[11px] text-mute mt-1">
-                Si elegís una sede, esta persona aparece como operadora de
+                Si eliges una sede, esta persona aparece como operadora de
                 esa ubicación en los rankings.
               </div>
             </label>

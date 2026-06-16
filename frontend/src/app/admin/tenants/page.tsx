@@ -837,7 +837,7 @@ function DeleteTenantModal({
         {mode === 'choose' && (
           <div className="px-5 py-4 space-y-3">
             <p className="text-sm text-ink">
-              Elige cómo querés eliminar este negocio:
+              Elige cómo quieres eliminar este negocio:
             </p>
 
             {/* Opción 1: Conservar historial (recomendada) */}

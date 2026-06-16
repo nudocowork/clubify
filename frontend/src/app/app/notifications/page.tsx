@@ -293,7 +293,7 @@ export default function NotificationsPage() {
     // Avisamos para que use Automatizaciones en su lugar.
     if (t.id === 'birthday') {
       toast(
-        'Ojo: esto se envía a TODOS. Para que llegue solo al cumpleañero, usá una automatización 🎂',
+        'Ojo: esto se envía a TODOS. Para que llegue solo al cumpleañero, usa una automatización 🎂',
         'info',
       );
       return;
@@ -486,7 +486,7 @@ export default function NotificationsPage() {
             ⚠️ Esta notificación se envía a <b>TODOS</b> los clientes
             {form.cardId ? ' de la tarjeta seleccionada' : ' de todas tus tarjetas'}.
             No es individual. Para saludos de cumpleaños que lleguen <b>solo a
-            la persona que cumple ese día</b>, usá una{' '}
+            la persona que cumple ese día</b>, usa una{' '}
             <Link href="/app/automations" className="underline font-semibold">
               automatización
             </Link>
@@ -639,7 +639,7 @@ export default function NotificationsPage() {
         </div>
         {recurring.length === 0 ? (
           <p className="text-xs text-mute mt-2">
-            Aún no tenés recurrencias. Creá una con el modo "🔁 Recurrente" del formulario de arriba.
+            Aún no tienes recurrencias. Crea una con el modo "🔁 Recurrente" del formulario de arriba.
           </p>
         ) : (
           <div className="mt-3 space-y-2">

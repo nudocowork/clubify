@@ -1717,8 +1717,8 @@ function MultiPopupPanel({
 
       {items.length === 0 && (
         <div className="text-xs text-mute text-center py-4 border border-dashed border-line2 rounded-lg">
-          Sin popups adicionales. Usá el popup principal de arriba o agregá
-          uno acá si necesitás más de uno.
+          Sin popups adicionales. Usa el popup principal de arriba o agrega
+          uno aquí si necesitas más de uno.
         </div>
       )}
 

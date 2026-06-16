@@ -201,7 +201,7 @@ export default function AffiliateTeamPage() {
               Activá tu módulo de vendedores
             </div>
             <div className="text-sm text-mute leading-relaxed">
-              Sumá vendedores a tu equipo y compartí parte de tu comisión por
+              Suma vendedores a tu equipo y comparte parte de tu comisión por
               cada venta que ellos cierren. Vos definís el % por defecto de
               cada vendedor (hasta tu comisión máxima).
             </div>
