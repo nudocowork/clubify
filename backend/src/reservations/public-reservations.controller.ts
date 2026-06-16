@@ -15,6 +15,7 @@ import { IsEmail, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } fr
 import { ReservationsService } from './reservations.service';
 import { Public } from '../common/decorators/public.decorator';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { GoogleWalletService } from '../wallet/google-wallet.service';
 
 class PublicReservationBody {
   @IsString() @MaxLength(120) customerName!: string;
@@ -32,6 +33,7 @@ export class PublicReservationsController {
   constructor(
     private svc: ReservationsService,
     private prisma: PrismaService,
+    private googleWallet: GoogleWalletService,
   ) {}
 
   /** Devuelve detalles de la reserva para mostrar antes de cancelar.
@@ -49,6 +51,22 @@ export class PublicReservationsController {
   @Throttle({ default: { ttl: 60_000, limit: 20 } })
   async getPass(@Param('token') token: string) {
     return this.svc.getPassData(token);
+  }
+
+  /** Devuelve el save URL de Google Wallet para una reserva. El frontend
+   *  detecta UA Android y muestra el botón "Añadir a Google Wallet". */
+  @Get('pase/:token/google-wallet')
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  async getGoogleWalletUrl(@Param('token') token: string) {
+    const reservationId = this.svc.verifyPassToken(token);
+    if (!reservationId) {
+      throw new BadRequestException('Link inválido o expirado');
+    }
+    const url = await this.googleWallet.generateReservationSaveUrl(
+      reservationId,
+    );
+    return { url };
   }
 
   /** Cancela la reserva si el token es válido. Idempotente: si ya

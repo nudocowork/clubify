@@ -533,4 +533,197 @@ export class GoogleWalletService {
       return { ok: false, status: 'error', error: `${code}: ${e?.message ?? e}` };
     }
   }
+
+  // ============================================================
+  //               EVENT TICKET — PASE DE RESERVA
+  // ============================================================
+
+  /**
+   * Genera el save URL de Google Wallet para una reserva. Usa
+   * EventTicketClass/Object (en vez de LoyaltyClass que es para
+   * fidelización) porque modela mejor un ticket con fecha+venue+seat.
+   *
+   * El cliente abre el URL desde Android Chrome → "Add to Google Wallet"
+   * one-shot install. No requiere pre-crear la class (inline JWT crea
+   * todo on-the-fly al primer save).
+   *
+   * NO persiste un objectId en BD — a diferencia del Pass de fidelización,
+   * la reserva es one-off y no necesitamos hacer PATCH posterior. Si el
+   * estado cambia (CANCELLED, SEATED), el cliente puede volver al pase
+   * web y re-instalar.
+   */
+  async generateReservationSaveUrl(reservationId: string): Promise<string> {
+    const r = await this.prisma.reservation.findUnique({
+      where: { id: reservationId },
+      include: {
+        tenant: {
+          select: {
+            id: true,
+            brandName: true,
+            primaryColor: true,
+            logoUrl: true,
+            timezone: true,
+          },
+        },
+        zone: { select: { name: true } },
+        table: { select: { number: true } },
+      },
+    });
+    if (!r) throw new NotFoundException('Reservation');
+
+    const sa = this.loadServiceAccount();
+    const issuerId = process.env.GOOGLE_WALLET_ISSUER_ID;
+    if (!sa || !issuerId) {
+      this.logger.warn(
+        'Google Wallet not configured; returning mock URL for reservation',
+      );
+      return `https://pay.google.com/gp/v/save/MOCK_RES_${reservationId}`;
+    }
+
+    const safe = (s: string) => s.replace(/[^a-zA-Z0-9._]/g, '_');
+    const classId = `${issuerId}.reservation_class_${safe(r.tenantId)}`;
+    const objectId = `${issuerId}.reservation_${safe(r.id)}`;
+
+    const tz = r.tenant.timezone || 'America/Bogota';
+    const startIso = this.formatReservationDateTimeIso(r.date, r.time, tz, 0);
+    const endIso = this.formatReservationDateTimeIso(r.date, r.time, tz, 120);
+    const seatLabel = r.table?.number
+      ? `Mesa ${r.table.number}`
+      : r.zone?.name ?? 'Por asignar';
+    const logoUri = r.tenant.logoUrl || undefined;
+    const bgColor = r.tenant.primaryColor || '#22C55E';
+
+    const eventClass: Record<string, unknown> = {
+      id: classId,
+      issuerName: r.tenant.brandName,
+      eventName: {
+        defaultValue: { language: 'es', value: `Reserva · ${r.tenant.brandName}` },
+      },
+      venue: {
+        name: { defaultValue: { language: 'es', value: r.tenant.brandName } },
+        address: { defaultValue: { language: 'es', value: r.tenant.brandName } },
+      },
+      dateTime: { start: startIso, end: endIso },
+      hexBackgroundColor: bgColor,
+      reviewStatus: 'UNDER_REVIEW',
+      ...(logoUri
+        ? {
+            logo: {
+              sourceUri: { uri: logoUri },
+              contentDescription: {
+                defaultValue: { language: 'es', value: r.tenant.brandName },
+              },
+            },
+          }
+        : {}),
+    };
+
+    const eventObject: Record<string, unknown> = {
+      id: objectId,
+      classId,
+      state: 'ACTIVE',
+      ticketHolderName: r.customerName,
+      seatInfo: {
+        seat: { defaultValue: { language: 'es', value: seatLabel } },
+      },
+      barcode: {
+        type: 'QR_CODE',
+        value: `clubify-reservation:${r.id}`,
+        alternateText: r.id.slice(0, 8).toUpperCase(),
+      },
+      textModulesData: [
+        { id: 'party', header: 'Personas', body: String(r.party) },
+        { id: 'time', header: 'Hora', body: r.time },
+      ],
+      hexBackgroundColor: bgColor,
+    };
+
+    const claims = {
+      iss: sa.client_email,
+      aud: 'google',
+      typ: 'savetowallet',
+      iat: Math.floor(Date.now() / 1000),
+      payload: {
+        eventTicketClasses: [eventClass],
+        eventTicketObjects: [eventObject],
+      },
+    };
+    const token = sign(claims, sa.private_key, { algorithm: 'RS256' });
+    return `https://pay.google.com/gp/v/save/${token}`;
+  }
+
+  /**
+   * Formatea el momento de la reserva como ISO 8601 con offset numérico
+   * (`YYYY-MM-DDTHH:MM:SS±HH:MM`). Google Wallet usa este formato para
+   * `dateTime.start/end`. Maneja DST: el offset se computa para ese
+   * instante específico vía Intl.DateTimeFormat con timeZoneName.
+   */
+  private formatReservationDateTimeIso(
+    date: Date,
+    time: string,
+    timezone: string,
+    addMinutes = 0,
+  ): string {
+    const [h, m] = time.split(':').map(Number);
+    const y = date.getUTCFullYear();
+    const mo = date.getUTCMonth();
+    const d = date.getUTCDate();
+    // Treat the local wall time as if it were UTC to get an instant we can
+    // ask Intl to render in the target TZ. Round-trip → derive offset.
+    const asUtc = Date.UTC(y, mo, d, h, m, 0);
+    const fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+    const parts = fmt.formatToParts(new Date(asUtc));
+    const get = (t: string) =>
+      Number(parts.find((p) => p.type === t)?.value ?? 0);
+    let tzH = get('hour');
+    if (tzH === 24) tzH = 0;
+    const projected = Date.UTC(
+      get('year'),
+      get('month') - 1,
+      get('day'),
+      tzH,
+      get('minute'),
+      get('second'),
+    );
+    const offsetMs = projected - asUtc;
+    const realUtc = new Date(asUtc - offsetMs + addMinutes * 60_000);
+
+    // Componentes "wall time" en el timezone target para el instante real.
+    const wallParts = fmt.formatToParts(realUtc);
+    const wallGet = (t: string) =>
+      String(wallParts.find((p) => p.type === t)?.value ?? '00');
+    let wallH = Number(wallGet('hour'));
+    if (wallH === 24) wallH = 0;
+    const dateStr = `${wallGet('year')}-${wallGet('month')}-${wallGet('day')}`;
+    const timeStr = `${String(wallH).padStart(2, '0')}:${wallGet(
+      'minute',
+    )}:${wallGet('second')}`;
+
+    // Offset numérico ±HH:MM derivado de timeZoneName: 'shortOffset'.
+    const offFmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      timeZoneName: 'shortOffset',
+    });
+    const offParts = offFmt.formatToParts(realUtc);
+    const offRaw =
+      offParts.find((p) => p.type === 'timeZoneName')?.value ?? 'GMT+0';
+    const match = offRaw.match(/GMT([+-])(\d{1,2})(?::?(\d{2}))?/);
+    let offset = 'Z';
+    if (match) {
+      const sign = match[1];
+      const hh = String(match[2]).padStart(2, '0');
+      const mm = match[3] ? String(match[3]).padStart(2, '0') : '00';
+      offset = `${sign}${hh}:${mm}`;
+    }
+    return `${dateStr}T${timeStr}${offset}`;
+  }
 }

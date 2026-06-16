@@ -24,6 +24,32 @@ export default function ReservationPass() {
   const [pass, setPass] = useState<Pass | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [isAndroid, setIsAndroid] = useState(false);
+  const [addingToWallet, setAddingToWallet] = useState(false);
+
+  useEffect(() => {
+    if (typeof navigator !== 'undefined') {
+      setIsAndroid(/android/i.test(navigator.userAgent));
+    }
+  }, []);
+
+  async function addToGoogleWallet() {
+    if (addingToWallet) return;
+    setAddingToWallet(true);
+    try {
+      const API = process.env.NEXT_PUBLIC_API_URL ?? '';
+      const r = await fetch(
+        `${API}/api/public/reservations/pase/${token}/google-wallet`,
+      );
+      if (!r.ok) throw new Error('No se pudo generar el pase');
+      const data = (await r.json()) as { url: string };
+      window.open(data.url, '_blank', 'noopener,noreferrer');
+    } catch (e: any) {
+      alert(e?.message || 'No se pudo añadir a Google Wallet');
+    } finally {
+      setAddingToWallet(false);
+    }
+  }
 
   useEffect(() => {
     const API = process.env.NEXT_PUBLIC_API_URL ?? '';
@@ -196,8 +222,26 @@ export default function ReservationPass() {
           )}
         </div>
 
+        {isAndroid && (
+          <button
+            type="button"
+            onClick={addToGoogleWallet}
+            disabled={addingToWallet}
+            className="w-full mt-4 py-3 rounded-2xl bg-black text-white text-sm font-semibold shadow-md active:scale-[0.97] transition-transform disabled:opacity-60 flex items-center justify-center gap-2"
+          >
+            {addingToWallet ? (
+              <>Generando pase…</>
+            ) : (
+              <>
+                <span>🪪</span>
+                <span>Añadir a Google Wallet</span>
+              </>
+            )}
+          </button>
+        )}
+
         <p className="text-xs text-slate-500 text-center mt-4">
-          Agregá este pase a la pantalla de inicio de tu celular para tenerlo a mano.
+          Agrega este pase a la pantalla de inicio de tu celular para tenerlo a mano.
         </p>
       </div>
     </main>
