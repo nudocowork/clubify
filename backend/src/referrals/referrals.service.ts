@@ -986,6 +986,13 @@ export class ReferralsService {
         ownerOfCampaign: true,
         ambassadors: { select: { id: true, isActive: true } },
         uses: { include: { commissions: true } },
+        // FIX 2026-06-16 (review): paid/pending del influencer deben incluir
+        // su 5% INDIRECTO (comisiones cuyo recipientCodeId = este influencer
+        // pero el use pertenece al embajador). Antes solo sumábamos las de
+        // sus clientes directos (c.uses) → sub-reportaba.
+        receivedCommissions: {
+          select: { id: true, status: true, amount: true, amountPaid: true },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -994,7 +1001,14 @@ export class ReferralsService {
       const directActive = directUses.filter(
         (u) => u.status === 'PAYING' || u.status === 'ACTIVE',
       ).length;
-      const allComm = directUses.flatMap((u) => u.commissions);
+      // Unión por id: directas (de c.uses — captura las legacy con
+      // recipientCodeId=null) + indirectas/directas-con-recipient (de
+      // receivedCommissions). Dedup por id para no doble-contar las directas
+      // que aparecen en ambas.
+      const byId = new Map<string, { status: string; amount: any; amountPaid: any }>();
+      for (const u of directUses) for (const com of u.commissions) byId.set(com.id, com);
+      for (const com of c.receivedCommissions) byId.set(com.id, com);
+      const allComm = Array.from(byId.values());
       // FIX 2026-06-16 (#14/#37): definición canónica — paid = amountPaid
       // real; pending = (PENDING+APPROVED) con amount − amountPaid.
       const paid = allComm

@@ -1074,9 +1074,13 @@ export class AdminReportsService {
         : t.createdAt
           ? new Date(t.createdAt)
           : null;
-      if (cpe) lastPaymentApprox?.setMonth(
-        (lastPaymentApprox as Date).getMonth() - period.months,
-      );
+      // FIX 2026-06-16 (review): restar meses sobre día 1 evita el overflow
+      // de setMonth cuando cpe cae un 31 (ej. 31-mar − 1 mes → 3-mar) que
+      // podía mis-bucketear el tenant dentro/fuera del rango.
+      if (cpe && lastPaymentApprox) {
+        lastPaymentApprox.setDate(1);
+        lastPaymentApprox.setMonth(lastPaymentApprox.getMonth() - period.months);
+      }
       if (!lastPaymentApprox) continue;
       if (
         lastPaymentApprox.getTime() >= from.getTime() &&
