@@ -876,6 +876,23 @@ export class AdminReportsService {
     // subestimación de métricas. Helper compartido en common/plan-period.
     const normalizePeriod = normalizePlanPeriod;
 
+    // FIX 2026-06-16 (#18): facturación REAL, no canónica. El monto que un
+    // tenant aporta a facturado/MRR es lo que REALMENTE pagó en Hotmart
+    // (Tenant.subscriptionPriceUsd, persistido por el webhook) y SOLO cae al
+    // precio canónico del bundle cuando no hay precio real registrado.
+    // Antes sumábamos siempre el canónico (68/150/278/500) → sobre-reportaba
+    // a los negocios con descuento o precio legacy (ej: Semestral real $250
+    // contado como $278, Mensual legacy $50 contado como $68). Misma fuente
+    // de verdad que CommissionRecalcService.getCommissionBase.
+    const billedAmountFor = (t: {
+      planPeriodicity: string | null;
+      subscriptionPriceUsd: unknown;
+    }): number => {
+      const real = Number(t.subscriptionPriceUsd);
+      if (Number.isFinite(real) && real > 0) return real;
+      return PERIODS[normalizePeriod(t.planPeriodicity)].bundlePrice;
+    };
+
     const [
       activeTenantsForPricing,
       newCustomersCurrent,
@@ -905,6 +922,7 @@ export class AdminReportsService {
           planPeriodicity: true,
           currentPeriodEnd: true,
           createdAt: true,
+          subscriptionPriceUsd: true,
         },
       }),
       // FIX 2026-06-07: clientes nuevos = solo ACTIVE creados en el
@@ -1026,7 +1044,8 @@ export class AdminReportsService {
     const mrrUsd = round2(
       activeTenantsForPricing.reduce((s, t) => {
         const period = PERIODS[normalizePeriod(t.planPeriodicity)];
-        return s + period.bundlePrice / period.months;
+        // FIX 2026-06-16 (#18): normaliza el pago REAL del ciclo a mensual.
+        return s + billedAmountFor(t) / period.months;
       }, 0),
     );
 
@@ -1071,10 +1090,22 @@ export class AdminReportsService {
         lastPaymentApprox.getTime() >= from.getTime() &&
         lastPaymentApprox.getTime() <= to.getTime()
       ) {
-        billedUsd += period.bundlePrice;
+        // FIX 2026-06-16 (#18): suma el pago REAL (subscriptionPriceUsd) y
+        // sólo cae al canónico cuando no hay precio real registrado.
+        const amount = billedAmountFor(t);
+        billedUsd += amount;
+        billedAcc[key].count += 1;
+        billedAcc[key].amount += amount;
       }
     }
     billedUsd = round2(billedUsd);
+
+    const billedByPlan = Object.entries(PERIODS).map(([key, meta]) => ({
+      periodicity: key,
+      label: meta.label,
+      count: billedAcc[key].count,
+      billingUsd: round2(billedAcc[key].amount),
+    }));
 
     const pendingCommissionsUsd = round2(
       Math.max(
