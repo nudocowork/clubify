@@ -464,7 +464,7 @@ export class ReferralsController {
    * setea la comisión máxima que puede repartir. UI: tab Embajadores
    * del admin de referrals.
    */
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'AFFILIATE_AMBASSADOR', 'AFFILIATE_INFLUENCER')
   @Patch('codes/:id/vendor-config')
   setVendorConfig(
     @CurrentUser() user: AuthUser,
@@ -479,7 +479,7 @@ export class ReferralsController {
    * vendedor se autoregistra desde `/seller/register/<su-code>`.
    * Auth: SUPER_ADMIN o el embajador dueño del code.
    */
-  @Roles('SUPER_ADMIN', 'AFFILIATE_AMBASSADOR')
+  @Roles('SUPER_ADMIN', 'AFFILIATE_AMBASSADOR', 'AFFILIATE_INFLUENCER')
   @Patch('codes/:id/default-vendor-commission')
   setDefaultVendorCommission(
     @CurrentUser() user: AuthUser,
@@ -493,7 +493,7 @@ export class ReferralsController {
     return this.svc.setEmbajadorDefaultVendorCommission(user, id, pct);
   }
 
-  @Roles('SUPER_ADMIN', 'AFFILIATE_AMBASSADOR')
+  @Roles('SUPER_ADMIN', 'AFFILIATE_AMBASSADOR', 'AFFILIATE_INFLUENCER')
   @Post('vendors')
   createVendor(
     @CurrentUser() user: AuthUser,
@@ -502,7 +502,7 @@ export class ReferralsController {
     return this.svc.createVendor(user, body);
   }
 
-  @Roles('SUPER_ADMIN', 'AFFILIATE_AMBASSADOR')
+  @Roles('SUPER_ADMIN', 'AFFILIATE_AMBASSADOR', 'AFFILIATE_INFLUENCER')
   @Get('vendors/by-embajador/:embajadorCodeId')
   listVendors(
     @CurrentUser() user: AuthUser,
@@ -511,7 +511,7 @@ export class ReferralsController {
     return this.svc.listVendorsForEmbajador(user, embajadorCodeId);
   }
 
-  @Roles('SUPER_ADMIN', 'AFFILIATE_AMBASSADOR')
+  @Roles('SUPER_ADMIN', 'AFFILIATE_AMBASSADOR', 'AFFILIATE_INFLUENCER')
   @Patch('vendors/:id')
   updateVendor(
     @CurrentUser() user: AuthUser,
@@ -521,7 +521,7 @@ export class ReferralsController {
     return this.svc.updateVendor(user, id, body);
   }
 
-  @Roles('SUPER_ADMIN', 'AFFILIATE_AMBASSADOR')
+  @Roles('SUPER_ADMIN', 'AFFILIATE_AMBASSADOR', 'AFFILIATE_INFLUENCER')
   @Post('vendors/:id/deactivate')
   deactivateVendor(
     @CurrentUser() user: AuthUser,
@@ -530,7 +530,7 @@ export class ReferralsController {
     return this.svc.deactivateVendor(user, id);
   }
 
-  @Roles('SUPER_ADMIN', 'AFFILIATE_AMBASSADOR')
+  @Roles('SUPER_ADMIN', 'AFFILIATE_AMBASSADOR', 'AFFILIATE_INFLUENCER')
   @Post('vendors/:id/reactivate')
   reactivateVendor(
     @CurrentUser() user: AuthUser,
@@ -539,7 +539,7 @@ export class ReferralsController {
     return this.svc.reactivateVendor(user, id);
   }
 
-  @Roles('SUPER_ADMIN', 'AFFILIATE_AMBASSADOR')
+  @Roles('SUPER_ADMIN', 'AFFILIATE_AMBASSADOR', 'AFFILIATE_INFLUENCER')
   @Delete('vendors/:id')
   deleteVendor(
     @CurrentUser() user: AuthUser,
