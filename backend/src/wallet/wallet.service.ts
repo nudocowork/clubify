@@ -175,7 +175,7 @@ export class WalletService {
           },
           { key: 'serial', label: 'Número de tarjeta', value: pass.serialNumber },
           { key: 'terms', label: 'Condiciones', value: pass.card.terms || '—' },
-          { key: 'contact', label: 'Contacto', value: pass.tenant.brandName },
+          { key: 'contact', label: 'Contacto', value: brandName },
           {
             // Apple Wallet detecta URLs en value y las hace clickeables.
             // El usuario tap el ⓘ del pase, ve "Creado por Clubify" con el
