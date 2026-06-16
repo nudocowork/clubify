@@ -30,6 +30,13 @@ export default function ReviewTargetsPage() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<ReviewQrTarget | null>(null);
   const [showNew, setShowNew] = useState(false);
+  // #27 (2026-06-16): slug para construir la URL pública por sede.
+  const [tenantSlug, setTenantSlug] = useState<string | null>(null);
+  useEffect(() => {
+    api<any>('/tenants/me')
+      .then((t) => setTenantSlug(t?.slug ?? null))
+      .catch(() => {});
+  }, []);
 
   async function load() {
     setLoading(true);
@@ -160,6 +167,38 @@ export default function ReviewTargetsPage() {
                   </span>
                 </div>
               </div>
+              {/* #27 (2026-06-16): URL pública por sede + copiar. El QR de
+                  esta sede se genera en el editor de pósters eligiendo este
+                  target; la URL pública es la misma que codifica el QR. */}
+              {tenantSlug && (
+                <div className="mt-3 pt-3 border-t border-line">
+                  <div className="text-[10px] uppercase tracking-wider text-mute mb-1">
+                    URL pública de esta sede
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <code className="text-[11px] bg-bg2 rounded px-2 py-1 flex-1 truncate">
+                      /r/{tenantSlug}?target={t.id}
+                    </code>
+                    <button
+                      type="button"
+                      className="btn-ghost text-xs whitespace-nowrap"
+                      onClick={async () => {
+                        const origin =
+                          typeof window !== 'undefined' ? window.location.origin : '';
+                        const url = `${origin}/r/${tenantSlug}?target=${t.id}`;
+                        try {
+                          await navigator.clipboard.writeText(url);
+                          toast('Link público de la sede copiado', 'success');
+                        } catch {
+                          toast(url, 'info');
+                        }
+                      }}
+                    >
+                      Copiar
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>
