@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma, StampAction } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
@@ -306,11 +306,19 @@ export class StampsService {
       );
     }
 
+    // FIX 2026-06-16 (review #11): escrituras RELATIVAS (increment por delta)
+    // en vez de absolutas, para no perder sellos/puntos bajo escaneos
+    // concurrentes (dos scans leían el mismo saldo viejo y escribían el mismo
+    // absoluto → un sello perdido). El delta = nuevoSaldo − saldoLeído.
+    const stampsDelta = newStamps - pass.stampsCount;
+    const pointsDelta = Number(newPoints) - Number(pass.pointsBalance);
+    const cashbackDelta = Number(newCashback) - Number(pass.cashbackBalance);
+    const visitsDelta = newVisits - pass.visitsCount;
     const passUpdateData: any = {
-      stampsCount: newStamps,
-      pointsBalance: newPoints,
-      cashbackBalance: newCashback,
-      visitsCount: newVisits,
+      stampsCount: { increment: stampsDelta },
+      pointsBalance: { increment: pointsDelta },
+      cashbackBalance: { increment: cashbackDelta },
+      visitsCount: { increment: visitsDelta },
       currentTier: newCurrentTier,
       tierProgress: newTierProgress,
       lastActivityAt: new Date(),
@@ -332,6 +340,34 @@ export class StampsService {
     // todo es atómico: o se borra el huérfano + crea stamp + update pass,
     // o ninguna de las 3.
     const [stamp, updatedPass] = await this.prisma.$transaction(async (tx) => {
+      // FIX 2026-06-16 (review #11): advisory lock por pass → serializa los
+      // escaneos concurrentes del mismo pase. Con el lock tomado, releemos el
+      // saldo FRESCO y, si esta operación CONSUME saldo (redención de premio,
+      // débito de puntos, redención de cashback), revalidamos contra el saldo
+      // fresco para evitar la DOBLE-REDENCIÓN (dos scans pasaban el check
+      // sobre el saldo viejo y ambos consumían).
+      await tx.$executeRawUnsafe(
+        `SELECT pg_advisory_xact_lock(hashtext($1))`,
+        pass.id,
+      );
+      const fresh = await tx.pass.findUnique({
+        where: { id: pass.id },
+        select: { stampsCount: true, pointsBalance: true, cashbackBalance: true },
+      });
+      if (fresh) {
+        const stampsConsumed = isCouponRedeem ? 0 : Math.max(0, -stampsDelta);
+        const pointsConsumed = Math.max(0, -pointsDelta);
+        const cashbackConsumed = Math.max(0, -cashbackDelta);
+        if (
+          stampsConsumed > fresh.stampsCount ||
+          pointsConsumed > Number(fresh.pointsBalance) + 0.001 ||
+          cashbackConsumed > Number(fresh.cashbackBalance) + 0.001
+        ) {
+          throw new ConflictException(
+            'El saldo cambió (otra operación lo usó). Volvé a escanear.',
+          );
+        }
+      }
       if (isCouponRedeem && stampsCardForTransform) {
         await tx.pass.deleteMany({
           where: {
