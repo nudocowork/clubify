@@ -281,11 +281,13 @@ export class GoogleWalletService {
       pass.tenant.logoUrl ||
       `${publicBase}/icons/icon-512.png`;
     // CACHE-BUST 2026-06-15: Google Wallet cachea las imágenes por URL. Sin
-    // esto, cambiar el logo del negocio NO se reflejaba en el pase aunque
-    // patcheáramos la clase. tenant.updatedAt cambia al editar el branding →
-    // nueva URL → Google re-descarga el logo. (R2 ignora el query param.)
-    const v = pass.tenant?.updatedAt
-      ? new Date(pass.tenant.updatedAt).getTime()
+    // esto, cambiar el logo NO se reflejaba aunque patcheáramos la clase con
+    // la misma URL. Usamos pass.lastActivityAt (igual que hero/strip): el
+    // "Refresh global de wallets" lo bumpea, forzando a Google a re-descargar
+    // el logo. (FIX: antes usaba tenant.updatedAt, campo que NO existe en el
+    // modelo → era undefined → cache-bust nunca aplicaba.) R2 ignora el ?v.
+    const v = pass?.lastActivityAt
+      ? new Date(pass.lastActivityAt).getTime()
       : null;
     if (!v) return base;
     return base.includes('?') ? `${base}&v=${v}` : `${base}?v=${v}`;
