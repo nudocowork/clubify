@@ -259,6 +259,17 @@ export class ReferralsController {
     return this.svc.createCompanyDirectAmbassador(user, body);
   }
 
+  // #36 (2026-06-16): crear un INFLUENCER directo desde la empresa (reemplaza
+  // la creación vía Campaña, ahora eliminada).
+  @Roles('SUPER_ADMIN')
+  @Post('influencers')
+  createInfluencer(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { fullName: string; email: string; whatsapp: string; commissionPercent?: number; customCode?: string },
+  ) {
+    return this.svc.createInfluencer(user, body);
+  }
+
   @Roles('SUPER_ADMIN')
   @Get('leaderboard')
   leaderboard(@CurrentUser() user: AuthUser) {

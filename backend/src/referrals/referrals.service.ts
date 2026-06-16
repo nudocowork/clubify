@@ -1247,6 +1247,83 @@ export class ReferralsService {
     };
   }
 
+  /**
+   * #36 (2026-06-16): crear un INFLUENCER directamente desde la empresa.
+   * Antes los influencers se creaban como titulares de una Campaña; ahora
+   * que se eliminó esa sección (#10), el super admin los crea directo acá.
+   * Mismo patrón que createCompanyDirectAmbassador pero role=INFLUENCER y
+   * usuario AFFILIATE_INFLUENCER. Sin campaña.
+   */
+  async createInfluencer(
+    user: AuthUser,
+    dto: {
+      fullName: string;
+      email: string;
+      whatsapp: string;
+      commissionPercent?: number;
+      customCode?: string;
+    },
+  ) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    if (!dto.fullName?.trim() || !dto.email?.trim() || !dto.whatsapp?.trim()) {
+      throw new BadRequestException('fullName, email y whatsapp son requeridos');
+    }
+    const email = dto.email.trim().toLowerCase();
+    await this.assertUniqueAffiliateEmail(email);
+
+    let code = dto.customCode?.trim().toUpperCase();
+    if (code) {
+      if (!/^[A-Z0-9]{4,16}$/.test(code)) {
+        throw new BadRequestException(
+          'customCode debe tener 4-16 caracteres A-Z 0-9',
+        );
+      }
+      const codeDup = await this.prisma.referralCode.findUnique({
+        where: { code },
+      });
+      if (codeDup) throw new BadRequestException(`Código "${code}" ya está en uso`);
+    } else {
+      code = codeGen();
+      while (await this.prisma.referralCode.findUnique({ where: { code } })) {
+        code = codeGen();
+      }
+    }
+
+    const slug = await this.allocateSlug(dto.fullName, code);
+    const created = await this.prisma.referralCode.create({
+      data: {
+        code,
+        slug,
+        ownerName: dto.fullName.trim(),
+        ownerEmail: email,
+        ownerWhatsapp: dto.whatsapp.trim(),
+        commissionPercent: dto.commissionPercent ?? COMMISSION_DEFAULTS.influencerPct,
+        role: 'INFLUENCER',
+        parentCodeId: null,
+        campaignId: null,
+        approvedAt: new Date(),
+        source: 'company_direct',
+      },
+    });
+
+    await this.auth
+      .inviteAffiliate({
+        email,
+        fullName: dto.fullName.trim(),
+        role: 'AFFILIATE_INFLUENCER',
+        referralCodeId: created.id,
+        phone: dto.whatsapp.trim(),
+      })
+      .catch((err) => {
+        this.logger.warn(
+          `inviteAffiliate (influencer) falló para ${email}: ${(err as Error).message}`,
+        );
+      });
+
+    const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
+    return { ...created, shareLink: `${appUrl}/ref/${slug}` };
+  }
+
   async listClients(user: AuthUser) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     const uses = await this.prisma.referralUse.findMany({
