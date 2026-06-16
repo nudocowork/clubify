@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import {
   CommissionStatus,
   PaymentMethodKind,
@@ -713,6 +714,64 @@ export class PayoutsService {
       select: { amount: true },
     });
     return rows.reduce((s, r) => s + Number(r.amount), 0);
+  }
+
+  // ============================================================
+  //              RECONCILE CRON (refund/cancellation)
+  // ============================================================
+
+  /**
+   * Defense-in-depth: cada hora rechaza commissions PENDING/APPROVED no
+   * pagadas que pertenecen a tenants suspendidos por refund/chargeback /
+   * subscription cancellation en los últimos 30 días.
+   *
+   * El webhook Hotmart (`hotmart.service.ts → churnReferral`) ya rechaza
+   * la ÚLTIMA commission PENDING/APPROVED de cada use en el momento del
+   * refund. Este cron cubre los casos que el webhook se pierde, llega
+   * tarde, o donde se generaron commissions adicionales DESPUÉS del
+   * suspendedAt (race entre cron generator + churn webhook).
+   *
+   * Filtro `paymentStatus: 'PENDING'`: NO tocamos commissions que ya
+   * tuvieron algún pago parcial. Esas requieren reverso contable manual.
+   * Solo prevenimos pagos futuros que aún no se hayan iniciado.
+   *
+   * Idempotente: rejected ya está fuera del filtro, así que correr el
+   * cron 100 veces no cambia nada después de la primera pasada.
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async reconcileSuspendedTenantsCommissions() {
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const suspendedTenants = await this.prisma.tenant.findMany({
+      where: {
+        status: 'SUSPENDED',
+        suspendedAt: { gte: cutoff },
+      },
+      select: { id: true, brandName: true, suspendedAt: true },
+    });
+    if (!suspendedTenants.length) return;
+
+    let totalRejected = 0;
+    for (const t of suspendedTenants) {
+      const result = await this.prisma.commission.updateMany({
+        where: {
+          referralUse: { tenantId: t.id },
+          status: { in: ['PENDING', 'APPROVED'] },
+          paymentStatus: 'PENDING',
+        },
+        data: { status: 'REJECTED' },
+      });
+      if (result.count > 0) {
+        this.logger.log(
+          `Commission reconcile: ${result.count} rechazadas para tenant ${t.brandName} (${t.id}) — suspendido ${t.suspendedAt?.toISOString()}`,
+        );
+        totalRejected += result.count;
+      }
+    }
+    if (totalRejected > 0) {
+      this.logger.log(
+        `Commission reconcile cron: ${totalRejected} commissions rechazadas en total (${suspendedTenants.length} tenants suspendidos revisados)`,
+      );
+    }
   }
 }
 
