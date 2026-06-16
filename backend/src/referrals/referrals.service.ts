@@ -4718,10 +4718,29 @@ export class ReferralsService {
           amount: true,
           amountPaid: true,
           paymentStatus: true,
+          status: true,
           notes: true,
+          payoutItem: { select: { id: true } },
         },
       });
       if (!c) throw new NotFoundException('Comisión no encontrada');
+
+      // FIX 2026-06-16 (review #5): guards que faltaban.
+      // (a) Solo se puede pagar lo APPROVED (disponible). PENDING está en
+      //     hold anti-reembolso, RETAINED está congelada, REJECTED cancelada.
+      if (c.status !== 'APPROVED') {
+        throw new BadRequestException(
+          `Solo se pueden pagar comisiones APPROVED (esta está ${c.status}).`,
+        );
+      }
+      // (b) Si ya está en un payout (batch de liquidación abierto), no se
+      //     paga por acá → evita doble-pago. Reversar el payout libera la
+      //     comisión (borra el payoutItem).
+      if (c.payoutItem) {
+        throw new BadRequestException(
+          'Esta comisión ya está en un pago (payout). Reversá ese pago antes de liquidarla manualmente.',
+        );
+      }
 
       const currentPaid = Number(c.amountPaid);
       const total = Number(c.amount);
