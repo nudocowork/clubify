@@ -452,10 +452,30 @@ export class ReferralsService {
         use.referralCode.role === 'AMBASSADOR' &&
         use.referralCode.parentCodeId
       ) {
-        await ensureCommission(
-          use.referralCode.parentCodeId,
-          round2mod((price * indirectPct) / 100),
-        );
+        const indirectAmount = round2mod((price * indirectPct) / 100);
+        if (indirectAmount > 0) {
+          // DEDUP CROSS-USE (fix 2026-06-16): el webhook Hotmart guarda el
+          // indirecto en un "parent-use" APARTE (referralUseId distinto al del
+          // embajador). El dedup de `ensureCommission` es por use.id → no lo
+          // ve → doble-pago del 5% en cada renovación. Acá buscamos CUALQUIER
+          // comisión del influencer parent para ESTE tenant dentro del ciclo,
+          // sin importar el referralUseId, y solo creamos si no existe.
+          const existingIndirect = await this.prisma.commission.findFirst({
+            where: {
+              recipientCodeId: use.referralCode.parentCodeId,
+              status: { not: 'REJECTED' },
+              createdAt: { gte: periodStart },
+              referralUse: { tenantId: use.tenantId },
+            },
+            select: { id: true },
+          });
+          if (!existingIndirect) {
+            await ensureCommission(
+              use.referralCode.parentCodeId,
+              indirectAmount,
+            );
+          }
+        }
       }
     }
 

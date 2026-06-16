@@ -429,9 +429,15 @@ export class PayoutsService {
       throw new BadRequestException('El afiliado no tiene comisiones disponibles');
     }
     // Costo de retiro: gratis si >= 50, sino 3 USD. amount = bruto, netUsd =
-    // lo que efectivamente se transfiere (bruto − fee).
+    // lo que efectivamente se transfiere (bruto − fee). Si el bruto no cubre
+    // ni el costo de retiro, no tiene sentido pagar (neto ≤ 0).
     const fee = withdrawalFeeFor(total);
-    const net = round2(total - fee);
+    if (total <= fee) {
+      throw new BadRequestException(
+        `El monto disponible (${round2(total)} USD) no cubre el costo de retiro de ${fee} USD. Espera a acumular más.`,
+      );
+    }
+    const net = round2(Math.max(0, total - fee));
 
     const snapshot: PaymentMethodSnapshot = {
       method: profile.method,

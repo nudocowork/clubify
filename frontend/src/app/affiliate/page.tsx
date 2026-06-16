@@ -188,13 +188,17 @@ export default function AffiliatePanel() {
           </span>
           <button
             onClick={() => {
+              const backToFidelia =
+                impersonation.user?.role === 'PLATFORM_OWNER';
               stopImpersonation();
-              router.push('/admin/referrals');
+              router.push(backToFidelia ? '/superadmin' : '/admin/referrals');
             }}
             className="ml-auto bg-amber-950 text-amber-100 px-3 py-1 rounded-md text-xs font-semibold hover:bg-amber-900 transition"
-            title="Volver al panel super admin"
+            title="Volver al panel anterior"
           >
-            ← Volver al admin
+            {impersonation.user?.role === 'PLATFORM_OWNER'
+              ? '← Volver a Fidelia'
+              : '← Volver al admin'}
           </button>
         </div>
       )}
