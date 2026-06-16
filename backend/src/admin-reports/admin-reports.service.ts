@@ -1026,20 +1026,6 @@ export class AdminReportsService {
       }),
     ]);
 
-    // FIX 2026-06-07: billedByPlan usa precios canónicos del bundle.
-    // Cuenta tenants ACTIVE por periodicidad × bundlePrice.
-    const billedByPlan = Object.entries(PERIODS).map(([key, meta]) => {
-      const count = activeTenantsForPricing.filter(
-        (t) => t.planPeriodicity === key,
-      ).length;
-      return {
-        periodicity: key,
-        label: meta.label,
-        count,
-        billingUsd: round2(count * meta.bundlePrice),
-      };
-    });
-
     // FIX 2026-06-07: MRR = suma de equivalencia mensual real del bundle
     // por tenant ACTIVE. Mensual aporta 68; Trimestral 150/3=50;
     // Semestral 278/6=46.33; Anual 500/12=41.67. Antes sumábamos
@@ -1075,9 +1061,23 @@ export class AdminReportsService {
     // usan createdAt como aproximación (asumiendo que el pago inicial
     // = createdAt). Antes se excluían silenciosamente → métricas
     // sub-estimadas. planPeriodicity null → MENSUAL.
+    //
+    // FIX 2026-06-16: billedByPlan se calcula EN ESTA MISMA PASADA, con el
+    // MISMO filtro de rango y el MISMO normalizePeriod (null→MENSUAL). Antes
+    // billedByPlan contaba TODOS los tenants ACTIVE sin filtrar por rango y
+    // con `=== key` crudo (dropeaba planPeriodicity=null), así que el total
+    // (date-filtered) no cuadraba con la suma de los buckets. Ahora el
+    // total es, por construcción, la suma exacta de los 4 buckets.
+    const billedAcc: Record<string, { count: number; amount: number }> = {
+      MENSUAL: { count: 0, amount: 0 },
+      TRIMESTRAL: { count: 0, amount: 0 },
+      SEMESTRAL: { count: 0, amount: 0 },
+      ANUAL: { count: 0, amount: 0 },
+    };
     let billedUsd = 0;
     for (const t of activeTenantsForPricing) {
-      const period = PERIODS[normalizePeriod(t.planPeriodicity)];
+      const key = normalizePeriod(t.planPeriodicity);
+      const period = PERIODS[key];
       const cpe = t.currentPeriodEnd ?? null;
       // Si no hay currentPeriodEnd, aproximamos: el pago inicial ocurrió
       // en createdAt. Para tenants viejos sin Hotmart wire-up esto da
