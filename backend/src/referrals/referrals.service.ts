@@ -1182,6 +1182,59 @@ export class ReferralsService {
   }
 
   /**
+   * #12 (2026-06-16): admin modifica/resetea la contraseña de un afiliado
+   * (influencer / embajador / vendedor / socio) ya existente. Devuelve las
+   * credenciales para compartir. Delega en auth (fuente única del hashing).
+   */
+  async setAffiliatePassword(
+    user: AuthUser,
+    codeId: string,
+    newPassword: string,
+  ) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    return this.auth.setAffiliatePasswordByCode(codeId, newPassword);
+  }
+
+  /**
+   * #3 (2026-06-16): lista de VENDEDORES activos para el selector de
+   * "Asignación a Embajador / Influencer". Un vendedor cuelga de un embajador
+   * (o influencer) vía parentEmbajadorCodeId; lo incluimos como contexto para
+   * que el admin sepa de quién depende cada vendedor.
+   */
+  async listVendors(user: AuthUser) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    const codes = await this.prisma.referralCode.findMany({
+      where: { role: 'VENDOR', isActive: true },
+      include: {
+        parentEmbajadorCode: { select: { code: true, ownerName: true, role: true } },
+        campaign: { select: { name: true } },
+        uses: { select: { id: true, status: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return codes.map((c) => ({
+      id: c.id,
+      code: c.code,
+      slug: c.slug ?? c.code.toLowerCase(),
+      ownerName: c.ownerName,
+      ownerEmail: c.ownerEmail,
+      ownerWhatsapp: c.ownerWhatsapp,
+      commissionPercent: Number(c.commissionPercent),
+      isActive: c.isActive,
+      // De quién depende el vendedor (embajador o influencer padre).
+      parentCode: c.parentEmbajadorCode?.code ?? null,
+      parentName: c.parentEmbajadorCode?.ownerName ?? null,
+      parentRole: c.parentEmbajadorCode?.role ?? null,
+      campaignName: c.campaign?.name ?? null,
+      clients: c.uses.length,
+      activeClients: c.uses.filter(
+        (u) => u.status === 'PAYING' || u.status === 'ACTIVE',
+      ).length,
+      createdAt: c.createdAt,
+    }));
+  }
+
+  /**
    * Crea o invita un "Embajador Directo Empresa" — un AMBASSADOR sin
    * influencer parent (parentCodeId=null, campaignId=null). Gana
    * comisión sobre sus propios referidos (igual que un embajador normal),
@@ -2106,7 +2159,9 @@ export class ReferralsService {
     const use = await this.prisma.referralUse.findFirst({
       where: {
         tenantId,
-        referralCode: { role: { in: ['INFLUENCER', 'AMBASSADOR'] } },
+        // #3 (2026-06-16): VENDOR también es una asignación "del dueño del
+        // negocio" (vendedor directo). SOCIO sigue excluido (atribución global).
+        referralCode: { role: { in: ['INFLUENCER', 'AMBASSADOR', 'VENDOR'] } },
       },
       orderBy: { createdAt: 'desc' },
       include: {
@@ -2149,7 +2204,9 @@ export class ReferralsService {
     const existingAll = await this.prisma.referralUse.findMany({
       where: {
         tenantId,
-        referralCode: { role: { in: ['INFLUENCER', 'AMBASSADOR'] } },
+        // #3 (2026-06-16): incluimos VENDOR para que reasignar entre
+        // influencer/embajador/vendedor limpie la atribución previa (1:1).
+        referralCode: { role: { in: ['INFLUENCER', 'AMBASSADOR', 'VENDOR'] } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -2181,9 +2238,13 @@ export class ReferralsService {
       select: { id: true, role: true, isActive: true },
     });
     if (!code) throw new NotFoundException('Código referral no encontrado');
-    if (code.role !== 'INFLUENCER' && code.role !== 'AMBASSADOR') {
+    if (
+      code.role !== 'INFLUENCER' &&
+      code.role !== 'AMBASSADOR' &&
+      code.role !== 'VENDOR'
+    ) {
       throw new BadRequestException(
-        'Solo se pueden asignar códigos de tipo INFLUENCER o AMBASSADOR',
+        'Solo se pueden asignar códigos de tipo INFLUENCER, EMBAJADOR o VENDEDOR',
       );
     }
 
@@ -2334,7 +2395,12 @@ export class ReferralsService {
       include: { parentCode: true },
     });
     if (!code) return;
-    if (code.role !== 'INFLUENCER' && code.role !== 'AMBASSADOR') return;
+    if (
+      code.role !== 'INFLUENCER' &&
+      code.role !== 'AMBASSADOR' &&
+      code.role !== 'VENDOR'
+    )
+      return;
 
     // Defensa: si ya hay commission reciente para este use, skip.
     const last = await this.prisma.commission.findFirst({
@@ -2345,6 +2411,21 @@ export class ReferralsService {
       last &&
       (Date.now() - new Date(last.createdAt).getTime()) / 86400_000 < 25;
     if (recent) return;
+
+    // #3 (2026-06-16): VENDEDOR asignado directo a una empresa. El split
+    // 3-way (influencer / embajador − vendedor / vendedor) ya lo resuelve
+    // generateCommissionsForPayment vía getAttributionChain + excepciones por
+    // tenant + clamp del vendor al slice del embajador. Reusamos esa fuente
+    // única en vez de duplicar la fórmula. Idempotente por
+    // UNIQUE(referralUseId, recipientCodeId, periodKey) → no duplica este mes.
+    if (code.role === 'VENDOR') {
+      await this.generateCommissionsForPayment({
+        tenantId,
+        paymentAmountUsd: price,
+        hotmartTransactionId: null,
+      });
+      return;
+    }
 
     const round2 = (n: number) => Math.round(n * 100) / 100;
     const pct = Number(code.commissionPercent ?? COMMISSION_DEFAULTS.ambassadorPct);
@@ -3885,50 +3966,42 @@ export class ReferralsService {
    *
    * Si NO hay atribución para el tenant, retorna [] silencioso.
    */
-  async generateCommissionsForPayment(args: {
-    tenantId: string;
-    paymentAmountUsd: number;
-    hotmartTransactionId?: string | null;
-  }): Promise<{ generated: number; skipped: number }> {
-    const chain = await this.getAttributionChain(args.tenantId);
-    if (!chain.sourceCodeId) return { generated: 0, skipped: 0 };
+  /**
+   * #11 (2026-06-16): FUENTE ÚNICA del split de comisiones. Devuelve las filas
+   * esperadas (influencer / embajador − vendedor / vendedor) para un tenant y
+   * un monto base, aplicando las excepciones por-tenant y clampeando el vendor
+   * al slice del embajador. La usan TANTO la generación real
+   * (generateCommissionsForPayment) COMO la auditoría (auditCommissions), para
+   * que el "esperado" nunca se desincronice del cálculo en vivo.
+   */
+  private async computeExpectedCommissionRows(tenantId: string, amount: number) {
+    const chain = await this.getAttributionChain(tenantId);
+    const rows: Array<{
+      recipientCodeId: string;
+      vendorCodeId: string | null;
+      amount: number;
+    }> = [];
+    if (!chain.sourceCodeId) return { chain, rows };
 
-    // El ReferralUse que vamos a usar como FK del Commission. Tomamos el
-    // más reciente del tenant para el código fuente.
-    const use = await this.prisma.referralUse.findFirst({
-      where: { tenantId: args.tenantId, referralCodeId: chain.sourceCodeId },
-      orderBy: { createdAt: 'desc' },
-      select: { id: true },
-    });
-    if (!use) return { generated: 0, skipped: 0 };
-
-    const amount = args.paymentAmountUsd;
-    const txId = args.hotmartTransactionId ?? null;
-
-    let generated = 0;
-    let skipped = 0;
-
-    // Item 6 sprint: cada nivel (influencer / embajador / vendor) puede
-    // tener su propia excepción configurada para este tenant. Resolvemos
-    // el % efectivo antes de calcular montos. Si no hay excepción, cae al
+    // Cada nivel puede tener su propia excepción por tenant. Si no hay, cae al
     // % normal del ReferralCode (que vino en `chain`).
     const influencerPct = chain.influencer
       ? await this.resolveExceptionPercent(
-          args.tenantId,
+          tenantId,
           chain.influencer.id,
           chain.influencer.commissionPercent,
         )
       : 0;
     const embajadorPct = chain.embajador
       ? await this.resolveExceptionPercent(
-          args.tenantId,
+          tenantId,
           chain.embajador.id,
           chain.embajador.commissionPercent,
         )
       : 0;
     const vendorPctRaw = chain.vendor
       ? await this.resolveExceptionPercent(
-          args.tenantId,
+          tenantId,
           chain.vendor.id,
           chain.vendor.commissionPercent,
         )
@@ -3940,12 +4013,6 @@ export class ReferralsService {
     const vendorPct = chain.embajador
       ? Math.min(vendorPctRaw, embajadorPct)
       : vendorPctRaw;
-
-    const rows: Array<{
-      recipientCodeId: string;
-      vendorCodeId: string | null;
-      amount: number;
-    }> = [];
 
     if (chain.influencer && influencerPct > 0) {
       rows.push({
@@ -3971,6 +4038,33 @@ export class ReferralsService {
         amount: Math.round(amount * vendorPct) / 100,
       });
     }
+    return { chain, rows };
+  }
+
+  async generateCommissionsForPayment(args: {
+    tenantId: string;
+    paymentAmountUsd: number;
+    hotmartTransactionId?: string | null;
+  }): Promise<{ generated: number; skipped: number }> {
+    const { chain, rows } = await this.computeExpectedCommissionRows(
+      args.tenantId,
+      args.paymentAmountUsd,
+    );
+    if (!chain.sourceCodeId) return { generated: 0, skipped: 0 };
+
+    // El ReferralUse que vamos a usar como FK del Commission. Tomamos el
+    // más reciente del tenant para el código fuente.
+    const use = await this.prisma.referralUse.findFirst({
+      where: { tenantId: args.tenantId, referralCodeId: chain.sourceCodeId },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+    if (!use) return { generated: 0, skipped: 0 };
+
+    const txId = args.hotmartTransactionId ?? null;
+
+    let generated = 0;
+    let skipped = 0;
 
     // HOTFIX 2026-06-05 (bug #20): wrap en $transaction para que las
     // 3 creates (influencer + embajador + vendor) sean atómicas. Antes,
@@ -4033,6 +4127,212 @@ export class ReferralsService {
       );
     }
     return { generated, skipped };
+  }
+
+  /**
+   * #11 (2026-06-16): AUDITORÍA AVANZADA de comisiones (read-only). Recalcula
+   * el split esperado DESDE LA FUENTE ORIGINAL (computeExpectedCommissionRows +
+   * getCommissionBase, los mismos que usa el webhook de Hotmart) y lo compara
+   * contra las comisiones vivas (PENDING/APPROVED). Cubre influencers,
+   * embajadores y vendedores, y detecta:
+   *   - WRONG_AMOUNT : monto ≠ base × % esperado (incluye el slice del vendedor
+   *                    y la tajada reducida del embajador, que la auditoría
+   *                    vieja marcaba como falso positivo)
+   *   - DUPLICATE    : >1 fila viva con mismo recipient + periodo
+   *   - PHANTOM      : recipiente que ya no está en la cadena de atribución,
+   *                    code inactivo, o tenant borrado (comisión fantasma)
+   * No modifica nada — devuelve hallazgos para revisión/acción manual.
+   */
+  async auditCommissions(user: AuthUser) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    const TOL = 0.01;
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+
+    // SOCIO se genera aparte (10% global): lo incluimos como "esperado" para
+    // no marcarlo como fantasma.
+    const socioRow = await this.prisma.setting.findUnique({
+      where: { key: 'referrals.socioCodeId' },
+    });
+    const socioCodeId = socioRow?.value || null;
+    let socioPct: number = COMMISSION_DEFAULTS.socioPct;
+    if (socioCodeId) {
+      const s = await this.prisma.referralCode.findUnique({
+        where: { id: socioCodeId },
+        select: { commissionPercent: true },
+      });
+      if (s) {
+        socioPct = Number(s.commissionPercent ?? COMMISSION_DEFAULTS.socioPct);
+      }
+    }
+
+    const live = await this.prisma.commission.findMany({
+      where: { status: { in: ['PENDING', 'APPROVED'] } },
+      select: {
+        id: true,
+        amount: true,
+        status: true,
+        periodKey: true,
+        recipientCodeId: true,
+        createdAt: true,
+        recipientCode: {
+          select: { ownerName: true, role: true, isActive: true },
+        },
+        referralUse: {
+          select: {
+            referralCodeId: true,
+            tenant: {
+              select: {
+                id: true,
+                brandName: true,
+                deletedAt: true,
+                planPeriodicity: true,
+                subscriptionPriceUsd: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    type Finding = {
+      type: 'WRONG_AMOUNT' | 'DUPLICATE' | 'PHANTOM';
+      reason?: string;
+      tenant: string | null;
+      recipient: string;
+      role: string | null;
+      periodKey: string | null;
+      actual: number;
+      expected?: number;
+      commissionId: string;
+    };
+    const findings: Finding[] = [];
+    const push = (f: Finding) => findings.push(f);
+
+    // Agrupar comisiones vivas por tenant para una sola pasada de cálculo.
+    const byTenant = new Map<string, typeof live>();
+    for (const c of live) {
+      const tid = c.referralUse?.tenant?.id;
+      if (!tid) {
+        push({
+          type: 'PHANTOM',
+          reason: 'sin-tenant',
+          tenant: null,
+          recipient: c.recipientCode?.ownerName ?? '(?)',
+          role: c.recipientCode?.role ?? null,
+          periodKey: c.periodKey,
+          actual: Number(c.amount),
+          commissionId: c.id,
+        });
+        continue;
+      }
+      const arr = byTenant.get(tid) ?? [];
+      arr.push(c);
+      byTenant.set(tid, arr);
+    }
+
+    for (const [tid, rows] of byTenant) {
+      const t = rows[0].referralUse!.tenant!;
+      if (t.deletedAt) {
+        for (const c of rows) {
+          push({
+            type: 'PHANTOM',
+            reason: 'tenant-borrado',
+            tenant: t.brandName,
+            recipient: c.recipientCode?.ownerName ?? '(?)',
+            role: c.recipientCode?.role ?? null,
+            periodKey: c.periodKey,
+            actual: Number(c.amount),
+            commissionId: c.id,
+          });
+        }
+        continue;
+      }
+      const base = await this.recalc.getCommissionBase(
+        t.subscriptionPriceUsd ?? null,
+        t.planPeriodicity,
+      );
+      const { rows: expRows } = await this.computeExpectedCommissionRows(
+        tid,
+        base,
+      );
+      const expected = new Map<string, number>();
+      for (const er of expRows) expected.set(er.recipientCodeId, er.amount);
+      if (socioCodeId && base > 0) {
+        expected.set(socioCodeId, r2((base * socioPct) / 100));
+      }
+
+      const seen = new Set<string>();
+      for (const c of rows) {
+        const key = `${c.recipientCodeId ?? 'null'}|${c.periodKey ?? 'null'}`;
+        if (seen.has(key)) {
+          push({
+            type: 'DUPLICATE',
+            tenant: t.brandName,
+            recipient: c.recipientCode?.ownerName ?? '(?)',
+            role: c.recipientCode?.role ?? null,
+            periodKey: c.periodKey,
+            actual: Number(c.amount),
+            commissionId: c.id,
+          });
+          continue;
+        }
+        seen.add(key);
+
+        if (c.recipientCode?.isActive === false) {
+          push({
+            type: 'PHANTOM',
+            reason: 'code-inactivo',
+            tenant: t.brandName,
+            recipient: c.recipientCode?.ownerName ?? '(?)',
+            role: c.recipientCode?.role ?? null,
+            periodKey: c.periodKey,
+            actual: Number(c.amount),
+            commissionId: c.id,
+          });
+          continue;
+        }
+        const exp = c.recipientCodeId
+          ? expected.get(c.recipientCodeId)
+          : undefined;
+        if (exp === undefined) {
+          push({
+            type: 'PHANTOM',
+            reason: 'fuera-de-cadena',
+            tenant: t.brandName,
+            recipient: c.recipientCode?.ownerName ?? '(?)',
+            role: c.recipientCode?.role ?? null,
+            periodKey: c.periodKey,
+            actual: Number(c.amount),
+            commissionId: c.id,
+          });
+        } else if (Math.abs(Number(c.amount) - exp) > TOL) {
+          push({
+            type: 'WRONG_AMOUNT',
+            tenant: t.brandName,
+            recipient: c.recipientCode?.ownerName ?? '(?)',
+            role: c.recipientCode?.role ?? null,
+            periodKey: c.periodKey,
+            actual: Number(c.amount),
+            expected: exp,
+            commissionId: c.id,
+          });
+        }
+      }
+    }
+
+    const summary = {
+      auditedTenants: byTenant.size,
+      liveCommissions: live.length,
+      wrongAmount: findings.filter((f) => f.type === 'WRONG_AMOUNT').length,
+      duplicates: findings.filter((f) => f.type === 'DUPLICATE').length,
+      phantom: findings.filter((f) => f.type === 'PHANTOM').length,
+      deltaUsd: r2(
+        findings
+          .filter((f) => f.type === 'WRONG_AMOUNT')
+          .reduce((s, f) => s + (f.actual - (f.expected ?? 0)), 0),
+      ),
+    };
+    return { summary, findings };
   }
 
   /**

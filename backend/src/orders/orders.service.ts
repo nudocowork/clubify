@@ -1263,6 +1263,12 @@ export class OrdersService {
             orderId,
             action: 'STAMP',
             amount: new Prisma.Decimal(amount),
+            // #18 (2026-06-16): el sello auto-otorgado por un pedido confirmado
+            // debe registrar el monto de la compra (total del pedido) para que
+            // alimente revenue/ticket promedio en métricas — antes quedaba null
+            // y el pedido no sumaba a la facturación de fidelización.
+            purchaseAmount:
+              orderTotal > 0 ? new Prisma.Decimal(orderTotal) : undefined,
             note: 'Auto por pedido confirmado',
           },
         }),
@@ -1306,6 +1312,11 @@ export class OrdersService {
             orderId,
             action: 'POINTS_ADD',
             amount: new Prisma.Decimal(earned),
+            // #18 (2026-06-16): registrar el monto del pedido también en cards
+            // de puntos (orderTotal ya es > 0 por el guard de arriba) para que
+            // el pedido sume a la facturación/ticket promedio.
+            purchaseAmount:
+              orderTotal > 0 ? new Prisma.Decimal(orderTotal) : undefined,
             note: `Auto +${earned} pts por pedido (×${ratio} pts/$)`,
           },
         }),

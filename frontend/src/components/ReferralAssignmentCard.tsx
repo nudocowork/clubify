@@ -14,12 +14,16 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 
+type AffiliateRole = 'INFLUENCER' | 'AMBASSADOR' | 'VENDOR';
+
 type CodeOption = {
   id: string;
   code: string;
   ownerName: string;
-  role: 'INFLUENCER' | 'AMBASSADOR';
+  role: AffiliateRole;
   campaignName?: string | null;
+  // #3: para VENDOR, de quién depende (embajador/influencer padre).
+  parentName?: string | null;
 };
 
 type Assignment = {
@@ -28,7 +32,7 @@ type Assignment = {
     id: string;
     code: string;
     ownerName: string;
-    role: 'INFLUENCER' | 'AMBASSADOR';
+    role: AffiliateRole;
     campaign?: { id: string; name: string } | null;
   };
   status: string;
@@ -50,7 +54,7 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
   // #6/#34 (2026-06-16): buscador + filtro por rol en vez de un <select>
   // plano largo.
   const [query, setQuery] = useState('');
-  const [roleFilter, setRoleFilter] = useState<'ALL' | 'INFLUENCER' | 'AMBASSADOR'>('ALL');
+  const [roleFilter, setRoleFilter] = useState<'ALL' | AffiliateRole>('ALL');
 
   async function load() {
     setLoading(true);
@@ -60,13 +64,16 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
       // string (no nested `campaign: {id, name}` como en /assignment).
       // Inyectamos `role` al normalizar — el filtro del endpoint ya lo
       // garantiza pero el shape devuelto no lo incluye explícito.
-      const [assignmentRes, influencersArr, ambassadorsArr] = await Promise.all([
-        api<{ assignment: Assignment | null }>(
-          `/referrals/tenants/${tenantId}/assignment`,
-        ),
-        api<any[]>('/referrals/influencers'),
-        api<any[]>('/referrals/ambassadors'),
-      ]);
+      const [assignmentRes, influencersArr, ambassadorsArr, vendorsArr] =
+        await Promise.all([
+          api<{ assignment: Assignment | null }>(
+            `/referrals/tenants/${tenantId}/assignment`,
+          ),
+          api<any[]>('/referrals/influencers'),
+          api<any[]>('/referrals/ambassadors'),
+          // #3 (2026-06-16): vendedores asignables directo a un negocio.
+          api<any[]>('/referrals/vendors'),
+        ]);
       const codes: CodeOption[] = [
         ...(Array.isArray(influencersArr) ? influencersArr : []).map(
           (c: any) => ({
@@ -86,6 +93,14 @@ export function ReferralAssignmentCard({ tenantId }: { tenantId: string }) {
             campaignName: c.campaignName ?? null,
           }),
         ),
+        ...(Array.isArray(vendorsArr) ? vendorsArr : []).map((c: any) => ({
+          id: c.id,
+          code: c.code,
+          ownerName: c.ownerName,
+          role: 'VENDOR' as const,
+          campaignName: c.campaignName ?? null,
+          parentName: c.parentName ?? null,
+        })),
       ].sort((a, b) => a.ownerName.localeCompare(b.ownerName));
       setOptions(codes);
       setCurrent(assignmentRes.assignment);
@@ -409,8 +424,8 @@ function AffiliatePicker({
   onSelect: (id: string) => void;
   query: string;
   onQuery: (q: string) => void;
-  roleFilter: 'ALL' | 'INFLUENCER' | 'AMBASSADOR';
-  onRoleFilter: (r: 'ALL' | 'INFLUENCER' | 'AMBASSADOR') => void;
+  roleFilter: 'ALL' | AffiliateRole;
+  onRoleFilter: (r: 'ALL' | AffiliateRole) => void;
   disabled?: boolean;
 }) {
   const q = query.trim().toLowerCase();
@@ -423,10 +438,11 @@ function AffiliatePicker({
           .includes(q)),
   );
   const selectedOpt = options.find((o) => o.id === selected);
-  const ROLE_TABS: { value: 'ALL' | 'INFLUENCER' | 'AMBASSADOR'; label: string }[] = [
+  const ROLE_TABS: { value: 'ALL' | AffiliateRole; label: string }[] = [
     { value: 'ALL', label: 'Todos' },
     { value: 'INFLUENCER', label: '🌟 Influencers' },
     { value: 'AMBASSADOR', label: '👥 Embajadores' },
+    { value: 'VENDOR', label: '💼 Vendedores' },
   ];
 
   return (
@@ -482,13 +498,20 @@ function AffiliatePicker({
             }`}
           >
             <span className="shrink-0">
-              {o.role === 'INFLUENCER' ? '🌟' : '👥'}
+              {o.role === 'INFLUENCER'
+                ? '🌟'
+                : o.role === 'AMBASSADOR'
+                  ? '👥'
+                  : '💼'}
             </span>
             <span className="flex-1 min-w-0 truncate">
               {o.ownerName}
               <span className="text-mute font-normal">
                 {' '}· {o.code}
                 {o.campaignName ? ` · ${o.campaignName}` : ''}
+                {o.role === 'VENDOR' && o.parentName
+                  ? ` · ▸ ${o.parentName}`
+                  : ''}
               </span>
             </span>
             {selected === o.id && <span className="text-brand">✓</span>}

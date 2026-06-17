@@ -30,8 +30,9 @@ class StorefrontBody {
   @IsOptional() @IsBoolean() popupEnabled?: boolean;
   @IsOptional() @IsString() popupImageUrl?: string | null;
   @IsOptional() @IsString() popupCardId?: string | null;
-  // Segundos antes de que aparezca el popup. Min 1s, max 120s (2min).
-  @IsOptional() @IsInt() @Min(1) @Max(120) popupDelaySeconds?: number;
+  // Segundos antes de que aparezca el popup. 0 = aparición inmediata (#6),
+  // max 120s (2min).
+  @IsOptional() @IsInt() @Min(0) @Max(120) popupDelaySeconds?: number;
   // M3: popup global del Menú Libro (/book/<slug>). Aparece después de
   // bookPopupDelaySeconds desde que se carga el book viewer. Misma
   // shape que MenuBookSection/Page popups para consistencia.

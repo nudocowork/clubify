@@ -285,6 +285,10 @@ export default function AdminCommissionsPage() {
         </div>
       </div>
 
+      {/* #11 (2026-06-16): auditoría avanzada — recalcula desde la fuente y
+          reporta montos incorrectos / duplicados / fantasmas. */}
+      <CommissionAuditPanel />
+
       {/* Buckets del ciclo de vida — clickeables para filtrar */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         {(
@@ -867,6 +871,178 @@ function RowActions({
             )}
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+// ===================================================================
+// #11 (2026-06-16): Auditoría avanzada de comisiones
+// ===================================================================
+type AuditFinding = {
+  type: 'WRONG_AMOUNT' | 'DUPLICATE' | 'PHANTOM';
+  reason?: string;
+  tenant: string | null;
+  recipient: string;
+  role: string | null;
+  periodKey: string | null;
+  actual: number;
+  expected?: number;
+  commissionId: string;
+};
+type AuditResult = {
+  summary: {
+    auditedTenants: number;
+    liveCommissions: number;
+    wrongAmount: number;
+    duplicates: number;
+    phantom: number;
+    deltaUsd: number;
+  };
+  findings: AuditFinding[];
+};
+
+const AUDIT_BADGE: Record<AuditFinding['type'], { label: string; cls: string }> =
+  {
+    WRONG_AMOUNT: { label: 'Monto incorrecto', cls: 'bg-amber-100 text-amber-700' },
+    DUPLICATE: { label: 'Duplicado', cls: 'bg-red-100 text-red-700' },
+    PHANTOM: { label: 'Fantasma', cls: 'bg-slate-200 text-slate-700' },
+  };
+
+function CommissionAuditPanel() {
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<AuditResult | null>(null);
+  const [open, setOpen] = useState(false);
+
+  async function run() {
+    setLoading(true);
+    try {
+      const res = await api<AuditResult>('/referrals/audit/commissions');
+      setResult(res ?? null);
+      setOpen(true);
+    } catch (e: unknown) {
+      toast((e as Error)?.message || 'Error al auditar comisiones', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const s = result?.summary;
+  const clean =
+    s && s.wrongAmount === 0 && s.duplicates === 0 && s.phantom === 0;
+  const findings = result?.findings ?? [];
+
+  return (
+    <div className="card card-pad mb-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="font-semibold">🔍 Auditoría avanzada de comisiones</div>
+          <div className="text-xs text-mute">
+            Recalcula el split desde la fuente original (influencer / embajador /
+            vendedor) y detecta montos incorrectos, duplicados y comisiones
+            fantasma. No modifica nada.
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {result && (
+            <button
+              type="button"
+              onClick={() => setOpen((o) => !o)}
+              className="text-sm px-3 py-2 rounded-pill border border-slate-300 bg-white text-slate-700 font-semibold hover:bg-slate-50 transition"
+            >
+              {open ? 'Ocultar' : 'Ver resultados'}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={run}
+            disabled={loading}
+            className="text-sm px-3.5 py-2 rounded-pill bg-brand text-white font-semibold hover:opacity-90 transition disabled:opacity-50"
+          >
+            {loading ? 'Auditando…' : 'Auditar comisiones'}
+          </button>
+        </div>
+      </div>
+
+      {result && open && s && (
+        <div className="mt-4">
+          <div className="flex flex-wrap gap-2 text-xs mb-3">
+            <span className="px-2.5 py-1 rounded-pill bg-bg2 text-mute">
+              {s.auditedTenants} negocios · {s.liveCommissions} comisiones vivas
+            </span>
+            <span className="px-2.5 py-1 rounded-pill bg-amber-100 text-amber-700">
+              {s.wrongAmount} montos incorrectos
+            </span>
+            <span className="px-2.5 py-1 rounded-pill bg-red-100 text-red-700">
+              {s.duplicates} duplicados
+            </span>
+            <span className="px-2.5 py-1 rounded-pill bg-slate-200 text-slate-700">
+              {s.phantom} fantasmas
+            </span>
+            <span className="px-2.5 py-1 rounded-pill bg-bg2 text-mute">
+              Δ ${s.deltaUsd.toFixed(2)} (actual − esperado)
+            </span>
+          </div>
+
+          {clean ? (
+            <div className="text-sm text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2">
+              ✅ Sin inconsistencias — todas las comisiones vivas cuadran con la
+              fuente original.
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-line">
+              <table className="w-full text-sm">
+                <thead className="bg-bg2 text-mute text-xs">
+                  <tr>
+                    <th className="text-left px-3 py-2">Tipo</th>
+                    <th className="text-left px-3 py-2">Negocio</th>
+                    <th className="text-left px-3 py-2">Recipiente</th>
+                    <th className="text-left px-3 py-2">Periodo</th>
+                    <th className="text-right px-3 py-2">Actual</th>
+                    <th className="text-right px-3 py-2">Esperado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {findings.map((f) => {
+                    const badge = AUDIT_BADGE[f.type];
+                    return (
+                      <tr key={f.commissionId} className="border-t border-line">
+                        <td className="px-3 py-2">
+                          <span
+                            className={`px-2 py-0.5 rounded-pill text-xs font-semibold ${badge.cls}`}
+                          >
+                            {badge.label}
+                          </span>
+                          {f.reason && (
+                            <span className="text-mute text-xs"> · {f.reason}</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2">{f.tenant ?? '—'}</td>
+                        <td className="px-3 py-2">
+                          {f.recipient}
+                          {f.role && (
+                            <span className="text-mute text-xs"> · {f.role}</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-mute">
+                          {f.periodKey ?? '—'}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          ${f.actual.toFixed(2)}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          {f.expected !== undefined
+                            ? `$${f.expected.toFixed(2)}`
+                            : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

@@ -1047,12 +1047,18 @@ function PopupConfig({
             <input
               type="number"
               className="input w-24"
-              min={1}
+              min={0}
               max={120}
               step={1}
               value={delaySeconds}
               onChange={(e) => {
-                const v = Math.max(1, Math.min(120, Number(e.target.value) || 10));
+                // #6 (2026-06-16): permitir 0 = aparición inmediata. Antes
+                // `|| 10` convertía el 0 en 10 y Math.max(1,…) lo bloqueaba.
+                const raw = Number(e.target.value);
+                const v = Math.max(
+                  0,
+                  Math.min(120, Number.isFinite(raw) ? raw : 10),
+                );
                 onChange({ popupDelaySeconds: v });
               }}
               disabled={!enabled}
@@ -1061,7 +1067,8 @@ function PopupConfig({
           </div>
           <p className="text-[11px] text-mute mt-1.5 leading-relaxed">
             Recomendado: 8–15s para dar tiempo a que el cliente vea la
-            primera categoría antes de la interrupción. Mín 1s, máx 120s.
+            primera categoría antes de la interrupción. Usá <strong>0</strong>{' '}
+            para que aparezca de inmediato. Máx 120s.
           </p>
         </div>
       </div>
