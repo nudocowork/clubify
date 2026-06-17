@@ -10,6 +10,11 @@ export type Locale = (typeof LOCALES)[number];
 
 export const DEFAULT_LOCALE: Locale = 'es';
 
+// #24 (2026-06-17): orden + set que se MUESTRA en el switcher:
+// Inglaterra, Estados Unidos, Español, Portugués. `LOCALES` queda completo
+// para resolver preferencias viejas; el switcher solo itera estas 4.
+export const DISPLAY_LOCALES: readonly Locale[] = ['en-GB', 'en-US', 'es', 'pt'];
+
 /** Variantes regionales → archivo de mensajes base que resuelven en
  *  request.ts. en-GB y en-US ambos cargan `en.json`; pt-BR carga `pt.json`. */
 export const BASE_LOCALE: Record<Locale, 'es' | 'en' | 'pt'> = {

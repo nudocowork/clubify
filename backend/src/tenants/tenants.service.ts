@@ -13,6 +13,7 @@ import { AuditService } from '../audit/audit.service';
 import { invalidateTenantStatusCache } from '../common/guards/tenant-status.guard';
 import { ReferralsService } from '../referrals/referrals.service';
 import { QueueService } from '../jobs/queue.service';
+import { GrowBusinessService } from '../integrations/grow-business.service';
 import { nanoid } from 'nanoid';
 import {
   isValidCategorySlug,
@@ -79,6 +80,11 @@ export type UpdateTenantDto = Partial<{
   reviewAlertsAccountId: string | null;
   billingAlertsAccountId: string | null;
   deliveryAlertsAccountId: string | null;
+  // #14 (2026-06-17): config de alertas SMS de domicilio movida de
+  // /app/settings (vista cliente) a super-admin /admin/tenants/[id].
+  deliveryAlertsEnabled: boolean;
+  deliveryAlertsPhones: string[] | null;
+  deliveryAlertsEvents: string[] | null;
   whatsappPhone: string;
   whatsappOrdersPhone: string;
   whatsappDeliveryPhone: string;
@@ -128,7 +134,94 @@ export class TenantsService {
     @Inject(forwardRef(() => ReferralsService))
     private referrals: ReferralsService,
     private queue: QueueService,
+    private growBusiness: GrowBusinessService,
   ) {}
+
+  /**
+   * #14 (2026-06-17): test del SMS de alerta de domicilio para un tenant dado.
+   * Lo usa el super-admin desde /admin/tenants/[id] (la config se movió de la
+   * vista del dueño). Resuelve creds (subcuenta global > creds tenant) y manda
+   * un SMS de prueba a los teléfonos configurados.
+   */
+  async sendDeliveryAlertTest(tenantId: string) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        brandName: true,
+        whatsappDeliveryPhone: true,
+        deliveryAlertsPhones: true,
+        deliveryAlertsAccountId: true,
+        growBusinessLocationId: true,
+        growBusinessApiKey: true,
+        growBusinessSwitchNumber: true,
+      },
+    });
+    if (!tenant) throw new NotFoundException('Negocio no encontrado');
+
+    const phones: string[] = Array.isArray(tenant.deliveryAlertsPhones)
+      ? (tenant.deliveryAlertsPhones as string[]).filter(
+          (p) => typeof p === 'string' && p.trim().length >= 6,
+        )
+      : [];
+    if (phones.length === 0 && tenant.whatsappDeliveryPhone) {
+      phones.push(tenant.whatsappDeliveryPhone);
+    }
+    if (phones.length === 0) {
+      throw new BadRequestException(
+        'Sin teléfonos destino — agrega al menos uno antes de probar.',
+      );
+    }
+
+    let creds: {
+      locationId: string;
+      apiKey: string;
+      switchNumber: number | null;
+    } | null = null;
+    if (tenant.deliveryAlertsAccountId) {
+      const acc = await this.prisma.growBusinessAccount.findFirst({
+        where: { id: tenant.deliveryAlertsAccountId, deletedAt: null },
+        select: { locationId: true, apiKey: true, switchNumber: true },
+      });
+      if (acc) {
+        creds = {
+          locationId: acc.locationId,
+          apiKey: acc.apiKey,
+          switchNumber: acc.switchNumber,
+        };
+      }
+    }
+    if (!creds && tenant.growBusinessLocationId && tenant.growBusinessApiKey) {
+      creds = {
+        locationId: tenant.growBusinessLocationId,
+        apiKey: tenant.growBusinessApiKey,
+        switchNumber: tenant.growBusinessSwitchNumber,
+      };
+    }
+    if (!creds) {
+      throw new BadRequestException(
+        'Sin credenciales — asigna una subcuenta o conecta Grow Business para el negocio.',
+      );
+    }
+
+    const body =
+      '🧪 Test de alerta de domicilio\n\n' +
+      `Negocio: ${tenant.brandName}\n` +
+      'Si recibiste este SMS, las alertas de pedidos delivery están listas.';
+    const results = await Promise.all(
+      phones.map(async (p) => {
+        const r = await this.growBusiness
+          .sendSmsWithCreds(creds!, p, body)
+          .catch((e) => ({ ok: false as const, message: e?.message }));
+        return {
+          phone: p,
+          ok: r.ok,
+          message: !r.ok ? (r as any).message : null,
+        };
+      }),
+    );
+    const okCount = results.filter((r) => r.ok).length;
+    return { ok: okCount > 0, total: phones.length, okCount, results };
+  }
 
   // Campos del tenant que afectan la APARIENCIA del wallet pass (logo,
   // colores, nombre). Si cambian, hay que re-pushear los passes activos.
@@ -405,7 +498,9 @@ export class TenantsService {
     await this.getById(id);
     const updated = await this.prisma.tenant.update({
       where: { id },
-      data: dto,
+      // `as any`: deliveryAlertsPhones/Events son columnas Json (string[]|null)
+      // y Prisma no acepta el tipo directo. Mismo patrón que updateMine.
+      data: dto as any,
     });
     // Mismo refresh de wallet que updateMine: si el admin cambió logo/colores/
     // nombre desde /admin/tenants/[id], re-pusheamos los passes.

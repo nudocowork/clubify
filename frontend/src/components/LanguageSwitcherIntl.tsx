@@ -3,7 +3,7 @@
 import { useLocale, useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
-import { LOCALES, LOCALE_LABELS, type Locale } from '@/i18n/config';
+import { DISPLAY_LOCALES, LOCALE_LABELS, type Locale } from '@/i18n/config';
 
 /**
  * Selector de idioma para next-intl (landing público + panel).
@@ -52,7 +52,7 @@ export function LanguageSwitcherIntl({
   if (variant === 'panel') {
     return (
       <div className={`grid grid-cols-1 sm:grid-cols-3 gap-2 ${className}`}>
-        {LOCALES.map((loc) => {
+        {DISPLAY_LOCALES.map((loc) => {
           const meta = LOCALE_LABELS[loc];
           const active = loc === currentLocale;
           return (
@@ -109,7 +109,7 @@ export function LanguageSwitcherIntl({
             className="absolute right-0 top-full mt-1 z-50 bg-white border border-line rounded-lg shadow-lg min-w-[160px] py-1"
             role="listbox"
           >
-            {LOCALES.map((loc) => {
+            {DISPLAY_LOCALES.map((loc) => {
               const meta = LOCALE_LABELS[loc];
               const active = loc === currentLocale;
               return (

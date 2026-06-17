@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { IsBoolean, IsDateString, IsEmail, IsHexColor, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsDateString, IsEmail, IsHexColor, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 import { TenantsService } from './tenants.service';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
@@ -77,6 +77,13 @@ class UpdateTenantBody {
   // Asignar subcuenta global de Grow Business para SMS a empresas de
   // domicilio cuando pedidos delivery cambian de estado. null = tenant.
   @IsOptional() deliveryAlertsAccountId?: string | null;
+  // #14 (2026-06-17): config de alertas SMS de domicilio movida desde
+  // /app/settings (vista cliente) a super-admin /admin/tenants/[id].
+  @IsOptional() @IsBoolean() deliveryAlertsEnabled?: boolean;
+  @IsOptional() @IsArray() @IsString({ each: true })
+  deliveryAlertsPhones?: string[] | null;
+  @IsOptional() @IsArray() @IsString({ each: true })
+  deliveryAlertsEvents?: string[] | null;
   // Mensajería WhatsApp del negocio (Bloque 8 2026-06-12). Antes el
   // tenant owner editaba esto desde /app/settings — movido a admin.
   @IsOptional() @IsString() whatsappPhone?: string;
@@ -138,6 +145,14 @@ export class TenantsController {
   @Roles('SUPER_ADMIN')
   update(@Param('id') id: string, @Body() body: UpdateTenantBody) {
     return this.svc.update(id, body);
+  }
+
+  // #14 (2026-06-17): test del SMS de alerta de domicilio para un negocio,
+  // desde super-admin (la config se movió acá desde la vista del dueño).
+  @Post(':id/delivery-alerts/test')
+  @Roles('SUPER_ADMIN')
+  testDeliveryAlert(@Param('id') id: string) {
+    return this.svc.sendDeliveryAlertTest(id);
   }
 
   @Patch(':id/status')

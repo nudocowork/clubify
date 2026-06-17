@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { api, getUser, startImpersonation } from '@/lib/api';
 import { GrowBusinessCard } from '@/components/GrowBusinessCard';
 import { ReferralAssignmentCard } from '@/components/ReferralAssignmentCard';
+import { DeliveryAlertsCard } from '@/components/DeliveryAlertsCard';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import {
@@ -553,6 +554,14 @@ export default function TenantDetail() {
             <ReviewAlertsAccountCard tenant={t} onSaved={load} />
             <BillingAlertsAccountCard tenant={t} onSaved={load} />
             <DeliveryAlertsAccountCard tenant={t} onSaved={load} />
+            {/* #14 (2026-06-17): config completa de alertas SMS de domicilio
+                (activar / teléfonos / eventos), movida desde /app/settings. */}
+            <DeliveryAlertsCard
+              tenant={t}
+              savePath={`/tenants/${t.id}`}
+              testPath={`/tenants/${t.id}/delivery-alerts/test`}
+              onSaved={load}
+            />
             <ReviewAlertsLogsCard tenantId={t.id} />
             <BillingNotificationsCard tenant={t} />
             <WhatsappMessagingCard tenant={t} onSaved={load} />
