@@ -2142,6 +2142,7 @@ function InfluencersTab() {
                     >
                       {enteringId === r.id ? 'Entrando…' : '→ Panel'}
                     </button>
+                    <AffiliatePasswordButton codeId={r.id} ownerName={r.ownerName} />
                     <button
                       onClick={() => setDeleteTarget(r)}
                       className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-red-100 text-red-700 hover:bg-red-200 whitespace-nowrap"
@@ -2464,6 +2465,7 @@ function AmbassadorsTab() {
                       >
                         {enteringId === r.id ? 'Entrando…' : '→ Panel'}
                       </button>
+                      <AffiliatePasswordButton codeId={r.id} ownerName={r.ownerName} />
                       <button
                         onClick={() => setDeleteTarget(r)}
                         className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-red-100 text-red-700 hover:bg-red-200 whitespace-nowrap"
@@ -2789,15 +2791,18 @@ function VendorConfigModal({
                         {!v.isActive && ' · inactivo'}
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => promoteVendor(v)}
-                      disabled={promoting === v.id}
-                      className="shrink-0 text-[11px] px-2.5 py-1 rounded-md bg-amber-100 text-amber-800 font-semibold hover:bg-amber-200 transition disabled:opacity-50"
-                      title="Convertir este vendedor en influencer de la empresa (panel completo)"
-                    >
-                      {promoting === v.id ? '…' : '↑ Influencer'}
-                    </button>
+                    <div className="shrink-0 flex items-center gap-1.5">
+                      <AffiliatePasswordButton codeId={v.id} ownerName={v.ownerName} />
+                      <button
+                        type="button"
+                        onClick={() => promoteVendor(v)}
+                        disabled={promoting === v.id}
+                        className="text-[11px] px-2.5 py-1 rounded-md bg-amber-100 text-amber-800 font-semibold hover:bg-amber-200 transition disabled:opacity-50"
+                        title="Convertir este vendedor en influencer de la empresa (panel completo)"
+                      >
+                        {promoting === v.id ? '…' : '↑ Influencer'}
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -3056,6 +3061,144 @@ function AffiliatePasswordFields({
         </>
       )}
     </div>
+  );
+}
+
+// #12 (2026-06-16): botón reutilizable para CREAR/CAMBIAR la contraseña de un
+// afiliado existente (influencer / embajador / vendedor). Modal autocontenido;
+// se puede colocar en cualquier fila pasando codeId + ownerName.
+function AffiliatePasswordButton({
+  codeId,
+  ownerName,
+}: {
+  codeId: string;
+  ownerName: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<{
+    email: string;
+    password: string;
+    loginUrl: string;
+  } | null>(null);
+
+  function reset() {
+    setPassword('');
+    setConfirm('');
+    setDone(null);
+    setBusy(false);
+  }
+
+  async function submit() {
+    const pwd = password.trim();
+    if (pwd.length < 8) {
+      toast('La contraseña debe tener al menos 8 caracteres', 'error');
+      return;
+    }
+    if (pwd !== confirm.trim()) {
+      toast('Las contraseñas no coinciden', 'error');
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await api<{
+        email: string;
+        password: string;
+        loginUrl: string;
+      }>(`/referrals/affiliates/${codeId}/password`, {
+        method: 'PATCH',
+        body: JSON.stringify({ password: pwd }),
+      });
+      setDone(res ?? { email: '', password: pwd, loginUrl: '' });
+      toast('Contraseña actualizada', 'success');
+    } catch (e: unknown) {
+      toast((e as Error)?.message || 'Error al cambiar contraseña', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          reset();
+          setOpen(true);
+        }}
+        className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-sky-100 text-sky-700 hover:bg-sky-200 whitespace-nowrap"
+        title="Crear o cambiar la contraseña de acceso de este afiliado"
+      >
+        🔑 Contraseña
+      </button>
+      {open && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setOpen(false)}
+        >
+          <div
+            className="bg-white rounded-xl w-full max-w-md p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-bold mb-1">Contraseña de {ownerName}</h3>
+            {done ? (
+              <div className="mt-3 space-y-2 text-sm">
+                <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3">
+                  <div>✅ Contraseña actualizada. Compartí estas credenciales:</div>
+                  <div className="mt-2 font-mono text-xs break-all space-y-0.5">
+                    <div>📧 {done.email}</div>
+                    <div>🔑 {done.password}</div>
+                    <div>🔗 {done.loginUrl}</div>
+                  </div>
+                </div>
+                <div className="flex justify-end pt-1">
+                  <button
+                    type="button"
+                    className="btn-primary text-sm"
+                    onClick={() => setOpen(false)}
+                  >
+                    Listo
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <p className="text-xs text-mute">
+                  Crea o reemplaza la contraseña de acceso del afiliado al panel
+                  /affiliate. Mínimo 8 caracteres.
+                </p>
+                <AffiliatePasswordFields
+                  password={password}
+                  confirmPassword={confirm}
+                  onPasswordChange={setPassword}
+                  onConfirmChange={setConfirm}
+                />
+                <div className="flex justify-end gap-2 pt-3">
+                  <button
+                    type="button"
+                    className="btn-ghost text-sm"
+                    disabled={busy}
+                    onClick={() => setOpen(false)}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary text-sm"
+                    disabled={busy || password.trim().length < 8}
+                    onClick={submit}
+                  >
+                    {busy ? 'Guardando…' : 'Guardar contraseña'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

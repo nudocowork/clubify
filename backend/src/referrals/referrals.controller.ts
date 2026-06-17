@@ -96,6 +96,11 @@ class SelfRegisterAffiliateBody {
   @IsOptional() @IsString() @MaxLength(2) country?: string;
 }
 
+// #12 (2026-06-16): admin setea/resetea la contraseña de un afiliado.
+class SetAffiliatePasswordBody {
+  @IsString() @MinLength(8) @MaxLength(64) password!: string;
+}
+
 class UpdatePublicAffiliateRegConfigBody {
   @IsOptional() @IsBoolean() enabled?: boolean;
   @IsOptional() @IsBoolean() allowInfluencer?: boolean;
@@ -144,6 +149,33 @@ export class ReferralsController {
   @Get('ambassadors')
   ambassadors(@CurrentUser() user: AuthUser) {
     return this.svc.listAmbassadors(user);
+  }
+
+  // #3 (2026-06-16): vendedores para el selector de asignación a negocio.
+  @Roles('SUPER_ADMIN')
+  @Get('vendors')
+  vendors(@CurrentUser() user: AuthUser) {
+    return this.svc.listVendors(user);
+  }
+
+  // #11 (2026-06-16): auditoría avanzada de comisiones (read-only).
+  // Recalcula el split esperado desde la fuente original y reporta
+  // montos incorrectos / duplicados / fantasmas para influencer/embajador/vendedor.
+  @Roles('SUPER_ADMIN')
+  @Get('audit/commissions')
+  auditCommissions(@CurrentUser() user: AuthUser) {
+    return this.svc.auditCommissions(user);
+  }
+
+  // #12 (2026-06-16): modificar/resetear la contraseña de un afiliado existente.
+  @Roles('SUPER_ADMIN')
+  @Patch('affiliates/:codeId/password')
+  setAffiliatePassword(
+    @CurrentUser() user: AuthUser,
+    @Param('codeId') codeId: string,
+    @Body() body: SetAffiliatePasswordBody,
+  ) {
+    return this.svc.setAffiliatePassword(user, codeId, body.password);
   }
 
   @Roles('SUPER_ADMIN')

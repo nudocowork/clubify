@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
@@ -660,6 +660,86 @@ export class AuthService {
     );
 
     return { ok: true, userId: user.id, password: null };
+  }
+
+  /**
+   * #12 (2026-06-16): MODIFICAR / RESETEAR la contraseña de un afiliado ya
+   * existente desde el panel admin. Si el afiliado ya tiene cuenta de login
+   * (ReferralCode.ownerUserId), actualizamos su passwordHash. Si todavía no
+   * tiene cuenta (creado sin password), la creamos vía inviteAffiliate con la
+   * password provista. Devuelve las credenciales para que el admin las comparta.
+   */
+  async setAffiliatePasswordByCode(
+    referralCodeId: string,
+    newPassword: string,
+  ): Promise<{ email: string; password: string; loginUrl: string }> {
+    if (!newPassword || newPassword.length < 8) {
+      throw new BadRequestException(
+        'La contraseña debe tener al menos 8 caracteres',
+      );
+    }
+    const code = await this.prisma.referralCode.findUnique({
+      where: { id: referralCodeId },
+      select: {
+        id: true,
+        ownerUserId: true,
+        ownerEmail: true,
+        ownerName: true,
+        ownerWhatsapp: true,
+        role: true,
+      },
+    });
+    if (!code) throw new NotFoundException('Código de afiliado no encontrado');
+
+    const loginUrl = `${this.appConfig.APP_URL}/login`;
+
+    // Caso 1: ya tiene cuenta de login → actualizamos su password.
+    if (code.ownerUserId) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: code.ownerUserId },
+      });
+      if (user) {
+        const hashed = await this.hashPassword(newPassword);
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: { passwordHash: hashed, passwordChangedAt: new Date() },
+        });
+        this.logger.log(
+          `Password de afiliado modificada por admin: ${user.email}`,
+        );
+        return { email: user.email, password: newPassword, loginUrl };
+      }
+    }
+
+    // Caso 2: aún no tiene cuenta de login → la creamos con esta password.
+    const roleMap: Record<
+      string,
+      'AFFILIATE_INFLUENCER' | 'AFFILIATE_AMBASSADOR' | 'AFFILIATE_VENDOR' | 'AFFILIATE_SOCIO'
+    > = {
+      INFLUENCER: 'AFFILIATE_INFLUENCER',
+      AMBASSADOR: 'AFFILIATE_AMBASSADOR',
+      VENDOR: 'AFFILIATE_VENDOR',
+      SOCIO: 'AFFILIATE_SOCIO',
+    };
+    const role = roleMap[code.role];
+    if (!role) {
+      throw new BadRequestException(
+        'Este código no es un afiliado al que se le pueda crear cuenta',
+      );
+    }
+    const res = await this.inviteAffiliate({
+      email: code.ownerEmail,
+      fullName: code.ownerName || code.ownerEmail,
+      role,
+      referralCodeId: code.id,
+      phone: code.ownerWhatsapp || undefined,
+      presetPassword: newPassword,
+    });
+    return {
+      email: code.ownerEmail,
+      password: res.password ?? newPassword,
+      loginUrl,
+    };
   }
 
   /**

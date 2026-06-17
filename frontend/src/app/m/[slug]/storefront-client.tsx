@@ -992,6 +992,7 @@ function StorefrontPublicInner() {
           currency={s.currency}
           currencySymbol={currencySymbol}
           ordersEnabled={ordersAllowed}
+          mode={mode}
           whatsappPhone={s.whatsappPhone}
           onClose={() => setOpenPromo(null)}
         />
@@ -1270,6 +1271,7 @@ function PromoModal({
   currency,
   currencySymbol,
   ordersEnabled,
+  mode,
   whatsappPhone,
   onClose,
 }: {
@@ -1279,6 +1281,7 @@ function PromoModal({
   currency: string;
   currencySymbol: string | null;
   ordersEnabled: boolean;
+  mode: StorefrontMode;
   whatsappPhone: string | null;
   onClose: () => void;
 }) {
@@ -1344,7 +1347,9 @@ function PromoModal({
         name: `🎁 ${promo.name}`,
         unitPrice: cartUnitPrice,
       },
-      'delivery',
+      // #21 (2026-06-16): usar el modo real (siempre 'delivery' cuando se
+      // permite agregar, pero correcto-por-construcción en vez de hardcode).
+      mode,
     );
     onClose();
   }
@@ -3151,7 +3156,14 @@ function StorefrontPopup({
     // Default 10s para configs viejas o tenants que aún no tienen el
     // campo seteado. El backend ya devuelve `popup.delaySeconds` cuando
     // está disponible.
-    const delayMs = Math.max(1, popup.delaySeconds ?? 10) * 1000;
+    // #6 (2026-06-16): delaySeconds=0 = aparición INMEDIATA. Antes
+    // Math.max(1, …) lo forzaba a 1s, así que "inmediato" nunca funcionaba.
+    const delayMs = Math.max(0, popup.delaySeconds ?? 10) * 1000;
+    if (delayMs === 0) {
+      setOpen(true);
+      sessionStorage.setItem(key, '1');
+      return;
+    }
     const t = window.setTimeout(() => {
       setOpen(true);
       sessionStorage.setItem(key, '1');

@@ -360,7 +360,11 @@ export class PassesController {
     this.logger.log(
       `Admin push-update requested by ${user.id} for pass ${pass.serialNumber}`,
     );
-    return this.wallet.pushPassUpdate(pass.id);
+    // #16 (2026-06-16): "Refrescar wallet" es una acción de ACTUALIZACIÓN
+    // visual (logo/branding/strip), NO un evento nuevo para el cliente. En
+    // modo silent Apple re-fetchea sin alerta y Google patchea clase/objeto
+    // sin disparar el TEXT_AND_NOTIFY → se actualiza el pase sin notificar.
+    return this.wallet.pushPassUpdate(pass.id, { silent: true });
   }
 
   /**
