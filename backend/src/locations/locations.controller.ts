@@ -11,6 +11,8 @@ class LocationBody {
   @IsNumber() longitude!: number;
   @IsOptional() @IsInt() @Min(50) radiusMeters?: number;
   @IsOptional() @IsString() walletRelevantText?: string;
+  // #20 (2026-06-17): link exacto de Google Maps de esta sede.
+  @IsOptional() @IsString() mapsUrl?: string;
 }
 
 @Controller('locations')
