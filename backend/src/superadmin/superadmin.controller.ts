@@ -67,6 +67,17 @@ class InviteOwnerBody {
   @IsString() @MaxLength(120) fullName!: string;
 }
 
+class CreateOwnerBody {
+  @IsString() @MaxLength(80) firstName!: string;
+  @IsOptional() @IsString() @MaxLength(80) lastName?: string;
+  @IsEmail() email!: string;
+  @IsString() @Length(8, 200) password!: string;
+}
+
+class ChangeOwnerPasswordBody {
+  @IsString() @Length(8, 200) password!: string;
+}
+
 class ToggleOwnerBody {
   @IsBoolean() isActive!: boolean;
 }
@@ -293,6 +304,12 @@ export class SuperAdminController {
     return this.svc.listOwnerInvites();
   }
 
+  /** Creación directa de un administrador de plataforma (sin invitación). */
+  @Post('owners')
+  createOwner(@Body() body: CreateOwnerBody, @CurrentUser() user: AuthUser) {
+    return this.svc.createPlatformOwner(body, user.id);
+  }
+
   @Post('owner-invites')
   createInvite(@Body() body: InviteOwnerBody, @CurrentUser() user: AuthUser) {
     return this.svc.createOwnerInvite(body, user.id);
@@ -301,6 +318,16 @@ export class SuperAdminController {
   @Delete('owner-invites/:id')
   revokeInvite(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.svc.revokeOwnerInvite(id, user.id);
+  }
+
+  /** Cambia la contraseña de un administrador de plataforma de inmediato. */
+  @Patch('owners/:id/password')
+  changeOwnerPassword(
+    @Param('id') id: string,
+    @Body() body: ChangeOwnerPasswordBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.changeOwnerPassword(id, body.password, user.id);
   }
 
   @Patch('owners/:id')
