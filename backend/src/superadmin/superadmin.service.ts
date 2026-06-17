@@ -1254,6 +1254,85 @@ export class SuperAdminService {
     }));
   }
 
+  /**
+   * Creación directa de un administrador de plataforma. A diferencia de la
+   * invitación, el usuario queda creado y habilitado de inmediato con la
+   * contraseña definida — sin email ni paso de activación.
+   */
+  async createPlatformOwner(
+    dto: { firstName: string; lastName?: string; email: string; password: string },
+    actorId: string,
+  ) {
+    const email = dto.email.trim().toLowerCase();
+    const fullName = `${(dto.firstName || '').trim()} ${(dto.lastName || '').trim()}`.trim();
+    if (!email || !fullName) {
+      throw new BadRequestException('Nombre y correo son requeridos');
+    }
+    if (!dto.password || dto.password.length < 8) {
+      throw new BadRequestException('La contraseña debe tener al menos 8 caracteres');
+    }
+
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing) {
+      throw new ConflictException('Ya existe un usuario con ese correo');
+    }
+
+    const passwordHash = await argon2.hash(dto.password, { type: argon2.argon2id });
+    const user = await this.prisma.user.create({
+      data: {
+        email,
+        fullName,
+        role: 'PLATFORM_OWNER',
+        passwordHash,
+        isActive: true,
+        passwordChangedAt: new Date(),
+      },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        isActive: true,
+        lastLoginAt: true,
+        createdAt: true,
+      },
+    });
+
+    await this.logAction(actorId, 'superadmin.owner.create', `user:${user.id}`, {
+      email,
+      fullName,
+    });
+
+    return user;
+  }
+
+  /** Cambia la contraseña de un PLATFORM_OWNER de inmediato. */
+  async changeOwnerPassword(userId: string, password: string, actorId: string) {
+    if (!password || password.length < 8) {
+      throw new BadRequestException('La contraseña debe tener al menos 8 caracteres');
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, role: true },
+    });
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+    if (user.role !== 'PLATFORM_OWNER') {
+      throw new BadRequestException('Solo se puede cambiar la contraseña de PLATFORM_OWNERs');
+    }
+
+    const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
+    await this.prisma.user.update({
+      where: { id: userId },
+      // passwordChangedAt invalida los tokens viejos del admin afectado.
+      data: { passwordHash, passwordChangedAt: new Date() },
+    });
+
+    await this.logAction(actorId, 'superadmin.owner.password_change', `user:${userId}`, {
+      email: user.email,
+    });
+
+    return { ok: true };
+  }
+
   async createOwnerInvite(
     dto: { email: string; fullName: string },
     actorId: string,

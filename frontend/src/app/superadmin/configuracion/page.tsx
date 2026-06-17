@@ -290,12 +290,14 @@ function OwnersSection({
         </>
       )}
 
-      {inviteOpen && <InviteModal onClose={() => setInviteOpen(false)} onCreated={onChange} />}
+      {inviteOpen && <CreateAdminModal onClose={() => setInviteOpen(false)} onCreated={onChange} />}
     </section>
   );
 }
 
 function OwnerRow({ owner, onChange }: { owner: Owner; onChange: () => void }) {
+  const [pwOpen, setPwOpen] = useState(false);
+
   async function toggle() {
     const next = !owner.isActive;
     const verb = next ? 'reactivar' : 'desactivar';
@@ -346,19 +348,133 @@ function OwnerRow({ owner, onChange }: { owner: Owner; onChange: () => void }) {
           </div>
         </div>
       </div>
-      <button
-        onClick={toggle}
-        className="text-xs font-semibold"
-        style={{
-          padding: '6px 12px',
-          borderRadius: 8,
-          background: 'white',
-          color: owner.isActive ? '#b91c1c' : '#15803d',
-          border: '1px solid #d7dbe0',
-        }}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setPwOpen(true)}
+          className="text-xs font-semibold"
+          style={{
+            padding: '6px 12px',
+            borderRadius: 8,
+            background: 'white',
+            color: '#1e40af',
+            border: '1px solid #d7dbe0',
+          }}
+        >
+          🔑 Cambiar contraseña
+        </button>
+        <button
+          onClick={toggle}
+          className="text-xs font-semibold"
+          style={{
+            padding: '6px 12px',
+            borderRadius: 8,
+            background: 'white',
+            color: owner.isActive ? '#b91c1c' : '#15803d',
+            border: '1px solid #d7dbe0',
+          }}
+        >
+          {owner.isActive ? '🚫 Desactivar' : '✅ Activar'}
+        </button>
+      </div>
+
+      {pwOpen && (
+        <ChangePasswordModal
+          owner={owner}
+          onClose={() => setPwOpen(false)}
+          onSaved={() => {
+            setPwOpen(false);
+            onChange();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ChangePasswordModal({
+  owner,
+  onClose,
+  onSaved,
+}: {
+  owner: Owner;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [password, setPassword] = useState('');
+  const [saving, setSaving] = useState(false);
+  const valid = password.trim().length >= 8;
+
+  async function submit() {
+    if (!valid) return;
+    setSaving(true);
+    try {
+      await api(`/superadmin/owners/${owner.id}/password`, {
+        method: 'PATCH',
+        body: JSON.stringify({ password }),
+      });
+      onSaved();
+    } catch (e: any) {
+      alert('Error: ' + (e?.message ?? e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(15,30,22,.55)', backdropFilter: 'blur(4px)' }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-[16px] p-6"
+        style={{ background: 'white', boxShadow: '0 20px 50px rgba(0,0,0,.25)' }}
+        onClick={(e) => e.stopPropagation()}
       >
-        {owner.isActive ? 'Desactivar' : 'Reactivar'}
-      </button>
+        <h3 className="m-0" style={{ fontSize: 18, fontWeight: 800, color: '#16241c' }}>
+          Cambiar contraseña
+        </h3>
+        <p className="text-sm mt-1.5 mb-5" style={{ color: '#6b7785' }}>
+          Defines una nueva contraseña para <b>{owner.email}</b>. Aplica de inmediato.
+        </p>
+
+        <Field label="Nueva contraseña" hint="Mínimo 8 caracteres.">
+          <input
+            type="text"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••••"
+            className="w-full"
+            style={inputStyle}
+            autoFocus
+          />
+        </Field>
+
+        <div className="flex items-center justify-end gap-2 mt-6">
+          <button
+            onClick={onClose}
+            disabled={saving}
+            className="text-sm font-semibold"
+            style={{ padding: '9px 14px', borderRadius: 9, background: 'white', color: '#6b7785', border: '1px solid #d7dbe0' }}
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={submit}
+            disabled={!valid || saving}
+            className="text-sm font-semibold"
+            style={{
+              padding: '9px 18px',
+              borderRadius: 9,
+              background: !valid ? '#cbd5d2' : '#15803d',
+              color: 'white',
+              border: 'none',
+            }}
+          >
+            {saving ? 'Guardando…' : 'Guardar'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -407,18 +523,27 @@ function InviteRow({ invite, isLast, onChange }: { invite: Invite; isLast: boole
   );
 }
 
-function InviteModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function CreateAdminModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
-  const [fullName, setFullName] = useState('');
+  const [password, setPassword] = useState('');
   const [saving, setSaving] = useState(false);
 
+  const valid = !!firstName.trim() && !!email.trim() && password.trim().length >= 8;
+
   async function submit() {
-    if (!email.trim() || !fullName.trim()) return;
+    if (!valid) return;
     setSaving(true);
     try {
-      await api('/superadmin/owner-invites', {
+      await api('/superadmin/owners', {
         method: 'POST',
-        body: JSON.stringify({ email: email.trim().toLowerCase(), fullName: fullName.trim() }),
+        body: JSON.stringify({
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          email: email.trim().toLowerCase(),
+          password,
+        }),
       });
       onCreated();
       onClose();
@@ -441,29 +566,50 @@ function InviteModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="m-0" style={{ fontSize: 18, fontWeight: 800, color: '#16241c' }}>
-          Invitar administrador
+          Crear administrador
         </h3>
         <p className="text-sm mt-1.5 mb-5" style={{ color: '#6b7785' }}>
-          Le va a llegar un email con un link para definir su contraseña. El link vence en 7 días.
+          Se crea de inmediato y podrá ingresar con estas credenciales. No se envía invitación.
         </p>
 
         <div className="space-y-3">
-          <Field label="Nombre completo">
-            <input
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              placeholder="María Pérez"
-              className="w-full"
-              style={inputStyle}
-              autoFocus
-            />
-          </Field>
-          <Field label="Email">
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Nombre">
+              <input
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                placeholder="María"
+                className="w-full"
+                style={inputStyle}
+                autoFocus
+              />
+            </Field>
+            <Field label="Apellido">
+              <input
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                placeholder="Pérez"
+                className="w-full"
+                style={inputStyle}
+              />
+            </Field>
+          </div>
+          <Field label="Correo electrónico">
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="maria@empresa.com"
+              className="w-full"
+              style={inputStyle}
+            />
+          </Field>
+          <Field label="Contraseña" hint="Mínimo 8 caracteres.">
+            <input
+              type="text"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
               className="w-full"
               style={inputStyle}
             />
@@ -481,17 +627,17 @@ function InviteModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
           </button>
           <button
             onClick={submit}
-            disabled={!email.trim() || !fullName.trim() || saving}
+            disabled={!valid || saving}
             className="text-sm font-semibold"
             style={{
               padding: '9px 18px',
               borderRadius: 9,
-              background: !email.trim() || !fullName.trim() ? '#cbd5d2' : '#15803d',
+              background: !valid ? '#cbd5d2' : '#15803d',
               color: 'white',
               border: 'none',
             }}
           >
-            {saving ? 'Enviando…' : 'Enviar invitación'}
+            {saving ? 'Creando…' : 'Crear Administrador'}
           </button>
         </div>
       </div>
