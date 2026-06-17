@@ -33,6 +33,7 @@ const COUNTRIES: { code: string; name: string }[] = [
   { code: 'UY', name: 'Uruguay' },
   { code: 'CR', name: 'Costa Rica' },
   { code: 'PA', name: 'Panamá' },
+  { code: 'BZ', name: 'Belice' },
   { code: 'GT', name: 'Guatemala' },
   { code: 'HN', name: 'Honduras' },
   { code: 'SV', name: 'El Salvador' },

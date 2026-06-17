@@ -16,6 +16,12 @@ type BaseLocale = 'es' | 'en' | 'pt';
 
 export const LOCALES: Locale[] = ['es', 'en', 'pt', 'en-GB', 'en-US', 'pt-BR'];
 
+// #24 (2026-06-17): orden + set de banderas que se MUESTRA en el switcher:
+// 1) Inglaterra 2) Estados Unidos 3) Español 4) Portugués. `LOCALES` se
+// mantiene completo para validar/resolver preferencias viejas ('en', 'pt-BR')
+// sin romperlas; el switcher solo itera estas 4.
+export const DISPLAY_LOCALES: Locale[] = ['en-GB', 'en-US', 'es', 'pt'];
+
 /** Variantes regionales que comparten dictionary con un locale base. */
 const BASE_LOCALE: Record<Locale, BaseLocale> = {
   es: 'es',

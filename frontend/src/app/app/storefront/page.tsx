@@ -6,6 +6,8 @@ import { resolveMainSectionLabel } from '@/lib/business-categories';
 import { Icon } from '@/components/Icon';
 import { ImageUploader } from '@/components/ImageUploader';
 import { toast } from '@/components/Toast';
+import { MenuPopupsCard } from '@/components/MenuPopupsCard';
+import type { StorefrontPopupItem } from '@/lib/storefront-popups';
 import {
   DndContext,
   closestCenter,
@@ -552,6 +554,14 @@ export default function StorefrontEditor() {
             cardId={sf.popupCardId ?? null}
             delaySeconds={sf.popupDelaySeconds ?? 10}
             onChange={(patch) => setSf({ ...sf, ...patch })}
+          />
+
+          {/* #5 (2026-06-17): popups múltiples + programados (theme.menuPopups). */}
+          <MenuPopupsCard
+            popups={(sf.theme?.menuPopups as StorefrontPopupItem[]) ?? []}
+            onChange={(arr) =>
+              setSf({ ...sf, theme: { ...(sf.theme ?? {}), menuPopups: arr } })
+            }
           />
 
           <h3 className="text-base font-semibold mt-6 mb-4">Bloques del sitio</h3>

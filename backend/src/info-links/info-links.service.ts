@@ -356,6 +356,8 @@ export class InfoLinksService {
             address: true,
             latitude: true,
             longitude: true,
+            // #20 (2026-06-17): link exacto por sede para el botón "Dirección".
+            mapsUrl: true,
           },
         },
       },

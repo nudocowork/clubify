@@ -44,6 +44,8 @@ export default function ReviewLocationsPage() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<ReviewLocation | null>(null);
   const [showNew, setShowNew] = useState(false);
+  // #19 (2026-06-17): slug del tenant para armar el link/QR por sede.
+  const [slug, setSlug] = useState<string>('');
 
   async function load() {
     setLoading(true);
@@ -59,6 +61,9 @@ export default function ReviewLocationsPage() {
 
   useEffect(() => {
     load();
+    api<any>('/tenants/me')
+      .then((t) => setSlug(t?.slug ?? ''))
+      .catch(() => {});
   }, []);
 
   async function remove(t: ReviewLocation) {
@@ -184,6 +189,7 @@ export default function ReviewLocationsPage() {
                 <SortableLocation
                   key={t.id}
                   loc={t}
+                  slug={slug}
                   onEdit={() => setEditing(t)}
                   onDelete={() => remove(t)}
                   onToggle={() => toggleActive(t)}
@@ -214,11 +220,13 @@ export default function ReviewLocationsPage() {
 
 function SortableLocation({
   loc,
+  slug,
   onEdit,
   onDelete,
   onToggle,
 }: {
   loc: ReviewLocation;
+  slug: string;
   onEdit: () => void;
   onDelete: () => void;
   onToggle: () => void;
@@ -284,6 +292,8 @@ function SortableLocation({
               {loc._count?.feedbacks ?? 0} reseñas privadas recibidas
             </span>
           </div>
+          {/* #19 (2026-06-17): link + QR propios de esta sede. */}
+          {slug && <ReviewTargetShare slug={slug} loc={loc} />}
         </div>
         <div className="flex flex-col gap-1 items-end">
           <button onClick={onEdit} className="btn-ghost text-xs">
@@ -497,6 +507,95 @@ function LocationModal({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// #19 (2026-06-17): link + QR propios por sede. La URL `/r/<slug>?target=<id>`
+// ya resuelve el Google de esa sede sin pasar por el selector — así cada sede
+// tiene su ruta propia para compartir + su QR propio.
+function ReviewTargetShare({ slug, loc }: { slug: string; loc: ReviewLocation }) {
+  const [open, setOpen] = useState(false);
+  const [qrPng, setQrPng] = useState<string | null>(null);
+  const origin =
+    typeof window !== 'undefined'
+      ? window.location.origin
+      : 'https://soyclubify.com';
+  const url = `${origin}/r/${slug}?target=${loc.id}`;
+
+  async function openQr() {
+    setOpen(true);
+    if (!qrPng) {
+      try {
+        const QR = (await import('qrcode')).default;
+        const png = await QR.toDataURL(url, { width: 600, margin: 2 });
+        setQrPng(png);
+      } catch {
+        toast('No se pudo generar el QR', 'error');
+      }
+    }
+  }
+  function copy() {
+    navigator.clipboard
+      ?.writeText(url)
+      .then(() => toast('Link de la sede copiado', 'success'))
+      .catch(() => toast('No se pudo copiar', 'error'));
+  }
+
+  return (
+    <div className="mt-2 flex items-center gap-2 flex-wrap">
+      <code className="text-[10px] bg-bg2 px-1.5 py-0.5 rounded truncate max-w-[200px]">
+        /r/{slug}?target=…
+      </code>
+      <button type="button" onClick={copy} className="btn-ghost text-[11px]">
+        🔗 Copiar link
+      </button>
+      <button type="button" onClick={openQr} className="btn-ghost text-[11px]">
+        📱 QR
+      </button>
+
+      {open && (
+        <div
+          className="fixed inset-0 z-50 bg-ink/60 flex items-center justify-center p-4"
+          onClick={() => setOpen(false)}
+        >
+          <div
+            className="bg-white rounded-2xl p-5 max-w-xs w-full text-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="font-semibold mb-1">QR · {loc.name}</h3>
+            <p className="text-[11px] text-mute mb-3 break-all">{url}</p>
+            {qrPng ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={qrPng}
+                alt={`QR ${loc.name}`}
+                className="w-full max-w-[256px] mx-auto block"
+              />
+            ) : (
+              <div className="text-mute py-10">Generando QR…</div>
+            )}
+            <div className="flex gap-2 justify-center mt-3">
+              {qrPng && (
+                <a
+                  href={qrPng}
+                  download={`qr-resena-${loc.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.png`}
+                  className="btn-primary text-sm"
+                >
+                  Descargar PNG
+                </a>
+              )}
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="btn-ghost text-sm"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

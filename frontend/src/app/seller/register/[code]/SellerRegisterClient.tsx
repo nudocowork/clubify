@@ -36,6 +36,7 @@ const COUNTRIES = [
   { code: 'CR', flag: '🇨🇷', dial: '506' },
   { code: 'GT', flag: '🇬🇹', dial: '502' },
   { code: 'PA', flag: '🇵🇦', dial: '507' },
+  { code: 'BZ', flag: '🇧🇿', dial: '501' },
   { code: 'DO', flag: '🇩🇴', dial: '1' },
   { code: 'SV', flag: '🇸🇻', dial: '503' },
   { code: 'HN', flag: '🇭🇳', dial: '504' },

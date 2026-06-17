@@ -35,6 +35,7 @@ export default function LocationsPage() {
     longitude: -74.0817,
     radiusMeters: 300,
     walletRelevantText: '',
+    mapsUrl: '',
   });
   const [picked, setPicked] = useState<MapPickResult | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -78,6 +79,7 @@ export default function LocationsPage() {
         longitude: -74.0817,
         radiusMeters: 300,
         walletRelevantText: '',
+        mapsUrl: '',
       });
       setPicked(null);
       load();
@@ -138,6 +140,20 @@ export default function LocationsPage() {
                   value={form.address}
                   onChange={(e) => setForm({ ...form, address: e.target.value })}
                 />
+              </div>
+
+              <div className="mt-3">
+                <label className="label">Link de Google Maps (exacto, opcional)</label>
+                <input
+                  className="input"
+                  value={form.mapsUrl}
+                  onChange={(e) => setForm({ ...form, mapsUrl: e.target.value })}
+                  placeholder="https://maps.app.goo.gl/…"
+                />
+                <p className="text-[11px] text-mute mt-1 leading-snug">
+                  Compartir → Copiar enlace en Google Maps. Hace que los botones
+                  “Dirección” abran exactamente esta sede.
+                </p>
               </div>
 
               {/* Lat/lng manual (avanzado, colapsado) */}
@@ -387,6 +403,7 @@ function EditLocationModal({
     longitude: Number(loc.longitude),
     radiusMeters: Number(loc.radiusMeters ?? 300),
     walletRelevantText: loc.walletRelevantText ?? '',
+    mapsUrl: loc.mapsUrl ?? '',
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -448,6 +465,21 @@ function EditLocationModal({
             onChange={(e) => setForm({ ...form, address: e.target.value })}
             placeholder="Calle 123 #45-67, Bogotá"
           />
+        </div>
+
+        <div>
+          <label className="label">Link de Google Maps (exacto)</label>
+          <input
+            className="input"
+            value={form.mapsUrl}
+            onChange={(e) => setForm({ ...form, mapsUrl: e.target.value })}
+            placeholder="https://maps.app.goo.gl/…"
+          />
+          <p className="text-[11px] text-mute mt-1 leading-snug">
+            Pegá el link del lugar exacto desde Google Maps (botón Compartir →
+            Copiar enlace). Si lo cargás, los botones “Dirección” abren
+            exactamente esta sede en vez de una búsqueda aproximada.
+          </p>
         </div>
 
         <div className="grid grid-cols-2 gap-2">

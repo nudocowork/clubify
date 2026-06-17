@@ -228,6 +228,23 @@ export class PublicMenuController {
               delaySeconds: t.storefront.popupDelaySeconds ?? 10,
             }
           : null,
+      // #5 (2026-06-17): popups MÚLTIPLES + programados. Viven en
+      // theme.menuPopups (Json, sin migración). Devolvemos solo los habilitados
+      // con imagen; el schedule (días/horario) lo evalúa el cliente con su hora
+      // local. Si hay alguno activo, el front lo prioriza sobre `popup` (legacy).
+      menuPopups: Array.isArray((t.storefront?.theme as any)?.menuPopups)
+        ? ((t.storefront!.theme as any).menuPopups as any[])
+            .filter((p) => p && p.enabled && typeof p.imageUrl === 'string' && p.imageUrl)
+            .map((p) => ({
+              id: String(p.id ?? ''),
+              imageUrl: String(p.imageUrl),
+              cardId: p.cardId ?? null,
+              delaySeconds: Number.isFinite(Number(p.delaySeconds))
+                ? Number(p.delaySeconds)
+                : 10,
+              schedule: p.schedule ?? null,
+            }))
+        : [],
       planName: t.plan?.name ?? null,
       // Label visible para tab principal y títulos ("Menú" / "Servicios" /
       // custom). Resuelto server-side: override del tenant > categoría > "Menú".

@@ -58,6 +58,7 @@ type Location = {
   address: string;
   latitude: number;
   longitude: number;
+  mapsUrl?: string | null;
 };
 
 type Tenant = {
@@ -198,11 +199,13 @@ export default function PublicInfoLink() {
         return tenant.instagramUrl ?? undefined;
       }
       case 'MAPS': {
-        // Abre Google Maps buscando por NOMBRE (+ dirección) de la ubicación
-        // en vez de las coordenadas crudas — así el usuario ve el lugar por su
-        // nombre. Fallback a coords solo si no hay nombre. Prioridad:
-        // location del botón > mapsUrl del tenant > primera location.
+        // #20 (2026-06-17): si la sede tiene mapsUrl (link EXACTO de Google
+        // Maps), lo abrimos tal cual → abre exactamente ese lugar, no una
+        // aproximación. Si no, caemos a la búsqueda por nombre+dirección.
+        // Prioridad: location del botón (mapsUrl > búsqueda) > mapsUrl tenant >
+        // primera location.
         const mapsForLoc = (l: Location) => {
+          if (l.mapsUrl && l.mapsUrl.trim()) return l.mapsUrl.trim();
           const query =
             [l.name, l.address].filter(Boolean).join(', ').trim() ||
             `${l.latitude},${l.longitude}`;

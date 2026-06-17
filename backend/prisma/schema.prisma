@@ -1289,6 +1289,10 @@ model Location {
   // dentro del radio (Apple Wallet `locations[].relevantText`). Si null,
   // cae al default "Estás cerca de {brandName}".
   walletRelevantText String?
+  // #20 (2026-06-17): link EXACTO de Google Maps de esta sede (share URL del
+  // lugar). Si está set, los botones "Dirección" del infolink (y otros) abren
+  // exactamente este lugar en vez de una búsqueda por texto/coordenadas.
+  mapsUrl            String?
   isActive           Boolean  @default(true)
   createdAt          DateTime @default(now())
 

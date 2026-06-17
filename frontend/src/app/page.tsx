@@ -188,15 +188,18 @@ export default async function Landing() {
               // Si la imagen tiene otra proporción, height fija + width auto
               // preserva el aspecto sin recortar. Cargado priority igual que
               // el default para no degradar LCP.
+              // #7 (2026-06-17): logo más grande + horizontal. h fija (más
+              // visible) + w auto + max-w con object-contain → los logos
+              // horizontales usan el espacio y no se deforman; los cuadrados
+              // se ven proporcionados, no chiquitos.
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={landingLogoUrl}
                 alt="Logo"
-                height={36}
-                style={{ height: 36, width: 'auto', display: 'block' }}
+                className="block h-12 w-auto max-w-[240px] object-contain"
               />
             ) : (
-              <Logo size={36} priority />
+              <Logo size={40} priority />
             )}
           </Link>
 
@@ -507,15 +510,15 @@ export default async function Landing() {
             <div className="col-span-2">
               <div className="flex items-center mb-3">
                 {landingLogoUrl ? (
+                  // #7 (2026-06-17): mismo criterio que el header, algo más chico.
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={landingLogoUrl}
                     alt="Logo"
-                    height={28}
-                    style={{ height: 28, width: 'auto', display: 'block' }}
+                    className="block h-9 w-auto max-w-[200px] object-contain"
                   />
                 ) : (
-                  <Logo size={28} />
+                  <Logo size={32} />
                 )}
               </div>
               <p className="text-mute text-sm leading-relaxed max-w-xs">

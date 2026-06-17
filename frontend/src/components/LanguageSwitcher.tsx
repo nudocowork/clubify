@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { LOCALES, LOCALE_FLAGS, LOCALE_NAMES, useLocale } from '@/lib/i18n';
+import { DISPLAY_LOCALES, LOCALE_FLAGS, LOCALE_NAMES, useLocale } from '@/lib/i18n';
 
 /**
  * Switcher flotante de idioma. Pensado para páginas públicas (storefront,
@@ -69,7 +69,7 @@ export function LanguageSwitcher({
               : 'absolute mt-1.5 left-0 min-w-[140px] rounded-xl bg-white shadow-lg border border-line overflow-hidden z-50'
           }
         >
-          {LOCALES.map((l) => {
+          {DISPLAY_LOCALES.map((l) => {
             const active = l === locale;
             return (
               <button
