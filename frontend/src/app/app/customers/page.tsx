@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api, downloadFile } from '@/lib/api';
 import { Icon } from '@/components/Icon';
@@ -69,6 +70,7 @@ function COP(n: number) {
 }
 
 export default function CustomersPage() {
+  const t = useTranslations('app_customers');
   const [list, setList] = useState<Customer[]>([]);
   const [search, setSearch] = useState('');
   const [locationId, setLocationId] = useState<string>('');
@@ -85,7 +87,7 @@ export default function CustomersPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [waOpen, setWaOpen] = useState(false);
   const [waMessage, setWaMessage] = useState(
-    '¡Hola {{nombre}}! Te queríamos contar que…',
+    t('waMessageDefault'),
   );
   const [duplicateGroups, setDuplicateGroups] = useState(0);
 
@@ -155,7 +157,7 @@ export default function CustomersPage() {
       }
     } catch (e: any) {
       if (myId === requestIdRef.current) {
-        toast(e.message || 'Error cargando clientes', 'error');
+        toast(e.message || t('errLoading'), 'error');
       }
     } finally {
       if (myId === requestIdRef.current) {
@@ -172,9 +174,9 @@ export default function CustomersPage() {
       setForm({ fullName: '', email: '', phone: '' });
       setShowForm(false);
       load();
-      toast('Cliente creado', 'success');
+      toast(t('customerCreated'), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo crear', 'error');
+      toast(e.message || t('errCreate'), 'error');
     } finally {
       setSaving(false);
     }
@@ -264,10 +266,10 @@ export default function CustomersPage() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Clientes{' '}
+          {t('title')}{' '}
           <span className="page-crumb">
             / {visible.length}
-            {segment !== 'all' && ` de ${list.length}`}
+            {segment !== 'all' && ` ${t('ofTotal', { total: list.length })}`}
           </span>
         </h1>
         <div className="flex gap-2 flex-wrap">
@@ -275,7 +277,7 @@ export default function CustomersPage() {
             <Icon name="search" size={14} className="text-mute" />
             <input
               className="border-0 outline-none text-sm w-52 bg-transparent"
-              placeholder="Buscar por nombre, email, teléfono…"
+              placeholder={t('searchPlaceholder')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -283,7 +285,7 @@ export default function CustomersPage() {
               <button
                 onClick={() => setSearch('')}
                 className="text-mute hover:text-ink text-sm"
-                title="Limpiar"
+                title={t('clear')}
               >
                 ✕
               </button>
@@ -294,9 +296,9 @@ export default function CustomersPage() {
               className="bg-white border border-line rounded-pill px-3 py-1.5 text-sm"
               value={locationId}
               onChange={(e) => setLocationId(e.target.value)}
-              title="Filtrar por sede del escaneo"
+              title={t('filterByLocation')}
             >
-              <option value="">Todas las sedes</option>
+              <option value="">{t('allLocations')}</option>
               {locations.map((l) => (
                 <option key={l.id} value={l.id}>
                   📍 {l.name}
@@ -309,9 +311,9 @@ export default function CustomersPage() {
               className="bg-white border border-line rounded-pill px-3 py-1.5 text-sm"
               value={operatorId}
               onChange={(e) => setOperatorId(e.target.value)}
-              title="Filtrar por usuario escáner"
+              title={t('filterByScanner')}
             >
-              <option value="">Todos los escáneres</option>
+              <option value="">{t('allScanners')}</option>
               {staff.map((s) => (
                 <option key={s.id} value={s.id}>
                   👤 {s.fullName}
@@ -323,20 +325,20 @@ export default function CustomersPage() {
             className="bg-white border border-line rounded-pill px-3 py-1.5 text-sm"
             value={sinceDays}
             onChange={(e) => setSinceDays(e.target.value)}
-            title="Filtrar por actividad reciente"
+            title={t('filterByActivity')}
           >
-            <option value="">Cualquier fecha</option>
-            <option value="7">📅 Últimos 7 días</option>
-            <option value="30">📅 Últimos 30 días</option>
-            <option value="90">📅 Últimos 90 días</option>
+            <option value="">{t('anyDate')}</option>
+            <option value="7">📅 {t('last7Days')}</option>
+            <option value="30">📅 {t('last30Days')}</option>
+            <option value="90">📅 {t('last90Days')}</option>
           </select>
           {duplicateGroups > 0 && (
             <Link
               href="/app/customers/duplicates"
               className="text-xs font-medium px-3 py-1.5 rounded-pill border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 transition flex items-center gap-1.5"
-              title="Detectamos posibles clientes duplicados"
+              title={t('duplicatesDetected')}
             >
-              ⚠ Posibles duplicados
+              ⚠ {t('possibleDuplicates')}
               <span className="bg-amber-600 text-white text-[10px] px-1.5 py-0.5 rounded-full">
                 {duplicateGroups}
               </span>
@@ -344,7 +346,7 @@ export default function CustomersPage() {
           )}
           <button
             className="btn-ghost text-xs"
-            title="Descargar CSV de la búsqueda actual"
+            title={t('downloadCsvTitle')}
             onClick={() =>
               downloadFile(
                 `/customers/export.csv${search ? `?search=${encodeURIComponent(search)}` : ''}`,
@@ -352,10 +354,10 @@ export default function CustomersPage() {
               )
             }
           >
-            ⤓ Exportar CSV
+            ⤓ {t('exportCsv')}
           </button>
           <button className="btn-primary" onClick={() => setShowForm(!showForm)}>
-            <Icon name="plus" /> {showForm ? 'Cancelar' : 'Nuevo cliente'}
+            <Icon name="plus" /> {showForm ? t('cancel') : t('newCustomer')}
           </button>
         </div>
       </div>
@@ -396,7 +398,7 @@ export default function CustomersPage() {
           className="card card-pad mb-4 grid grid-cols-1 md:grid-cols-3 gap-3"
         >
           <div>
-            <label className="label">Nombre</label>
+            <label className="label">{t('name')}</label>
             <input
               className="input"
               value={form.fullName}
@@ -405,7 +407,7 @@ export default function CustomersPage() {
             />
           </div>
           <div>
-            <label className="label">Email</label>
+            <label className="label">{t('email')}</label>
             <input
               className="input"
               type="email"
@@ -414,7 +416,7 @@ export default function CustomersPage() {
             />
           </div>
           <div>
-            <label className="label">Teléfono</label>
+            <label className="label">{t('phone')}</label>
             <input
               className="input"
               value={form.phone}
@@ -423,7 +425,7 @@ export default function CustomersPage() {
           </div>
           <div className="md:col-span-3">
             <button className="btn-primary" disabled={saving}>
-              {saving ? 'Guardando…' : 'Guardar'}
+              {saving ? t('saving') : t('save')}
             </button>
           </div>
         </form>
@@ -445,23 +447,23 @@ export default function CustomersPage() {
                       .every((c) => selected.has(c.id))
                   }
                   onChange={toggleSelectAllVisible}
-                  title="Seleccionar todos los visibles con teléfono"
+                  title={t('selectAllWithPhone')}
                 />
               </th>
               {[
-                'Cliente',
-                'Contacto',
-                'Pases',
-                'Pedidos',
-                'LTV',
-                'Último escaneo',
-                'Último',
+                { key: 'colCustomer', label: t('colCustomer') },
+                { key: 'colContact', label: t('colContact') },
+                { key: 'colPasses', label: t('colPasses') },
+                { key: 'colOrders', label: t('colOrders') },
+                { key: 'colLtv', label: t('colLtv') },
+                { key: 'colLastScan', label: t('colLastScan') },
+                { key: 'colLast', label: t('colLast') },
               ].map((h) => (
                 <th
-                  key={h}
+                  key={h.key}
                   className="text-left px-4 py-3.5 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
                 >
-                  {h}
+                  {h.label}
                 </th>
               ))}
             </tr>
@@ -483,14 +485,14 @@ export default function CustomersPage() {
                   </div>
                   <div className="font-semibold">
                     {search
-                      ? `Sin resultados para "${search}"`
+                      ? t('noResultsFor', { term: search })
                       : segment === 'all'
-                      ? 'Aún no hay clientes'
-                      : `Sin clientes en este segmento`}
+                      ? t('noCustomersYet')
+                      : t('noCustomersInSegment')}
                   </div>
                   <div className="text-xs text-mute mt-1 max-w-sm mx-auto">
                     {segment === 'all'
-                      ? 'Cuando alguien haga su primer pedido o reciba una tarjeta, aparece aquí.'
+                      ? t('emptyHelp')
                       : SEGMENTS.find((s) => s.key === segment)?.help}
                   </div>
                 </td>
@@ -513,8 +515,8 @@ export default function CustomersPage() {
                       onChange={() => toggleSelect(c.id)}
                       title={
                         c.phone
-                          ? 'Seleccionar para campaña'
-                          : 'Sin teléfono — no se puede contactar'
+                          ? t('selectForCampaign')
+                          : t('noPhoneCannotContact')
                       }
                     />
                   </td>
@@ -580,7 +582,7 @@ export default function CustomersPage() {
                           <div className="text-mute2 truncate max-w-[160px]">
                             {last.location
                               ? `📍 ${last.location.name}`
-                              : '— sin sede'}
+                              : t('noLocation')}
                             {' · '}
                             {fmtDate(last.createdAt)}
                           </div>
@@ -602,27 +604,26 @@ export default function CustomersPage() {
       {selected.size > 0 && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-ink text-white rounded-full shadow-2xl pl-5 pr-2 py-2 flex items-center gap-3">
           <span className="text-sm font-semibold">
-            {selected.size} cliente{selected.size === 1 ? '' : 's'} seleccionado
-            {selected.size === 1 ? '' : 's'}
+            {t('selectedCount', { count: selected.size })}
           </span>
           <button
             onClick={() => setSelected(new Set())}
             className="text-white/70 hover:text-white text-xs"
           >
-            Limpiar
+            {t('clear')}
           </button>
           <button
             onClick={() => setWaOpen(true)}
             className="bg-ok text-white text-sm font-semibold px-4 py-2 rounded-full inline-flex items-center gap-1.5 hover:bg-ok/90"
           >
-            <Icon name="send" size={14} /> Enviar WhatsApp
+            <Icon name="send" size={14} /> {t('sendWhatsApp')}
           </button>
           <button
             onClick={async () => {
               const n = selected.size;
-              const msg = `¿Eliminar ${n} cliente${n === 1 ? '' : 's'}?\n\nEsta acción NO se puede deshacer y borra:\n• Tarjeta wallet del cliente\n• Sellos / saldo / nivel VIP\n• Historial de pedidos\n• Mensajes asociados\n\nEscribe ELIMINAR para confirmar.`;
+              const msg = t('deleteConfirm', { count: n });
               const confirmText = window.prompt(msg);
-              if ((confirmText ?? '').trim().toUpperCase() !== 'ELIMINAR') return;
+              if ((confirmText ?? '').trim().toUpperCase() !== t('deleteConfirmKeyword')) return;
               let ok = 0;
               let fail = 0;
               for (const id of Array.from(selected)) {
@@ -636,15 +637,15 @@ export default function CustomersPage() {
               setSelected(new Set());
               toast(
                 fail > 0
-                  ? `${ok} eliminados · ${fail} fallaron`
-                  : `${ok} cliente${ok === 1 ? '' : 's'} eliminado${ok === 1 ? '' : 's'}`,
+                  ? t('deleteResultPartial', { ok, fail })
+                  : t('deleteResultAll', { count: ok }),
                 fail > 0 ? 'error' : 'success',
               );
               load();
             }}
             className="bg-bad text-white text-sm font-semibold px-4 py-2 rounded-full inline-flex items-center gap-1.5 hover:bg-bad/90"
           >
-            <Icon name="trash" size={14} /> Eliminar
+            <Icon name="trash" size={14} /> {t('delete')}
           </button>
         </div>
       )}
@@ -659,16 +660,15 @@ export default function CustomersPage() {
           <div className="relative bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col">
             <div className="px-6 py-4 border-b border-line2 flex items-center justify-between">
               <div>
-                <h2 className="font-bold text-lg">Campaña WhatsApp</h2>
+                <h2 className="font-bold text-lg">{t('waCampaign')}</h2>
                 <p className="text-xs text-mute mt-0.5">
-                  {selectedCustomers.length} destinatario
-                  {selectedCustomers.length === 1 ? '' : 's'} con teléfono
+                  {t('recipientsWithPhone', { count: selectedCustomers.length })}
                 </p>
               </div>
               <button
                 onClick={() => setWaOpen(false)}
                 className="text-mute hover:text-ink text-lg"
-                aria-label="Cerrar"
+                aria-label={t('close')}
               >
                 ✕
               </button>
@@ -676,19 +676,18 @@ export default function CustomersPage() {
 
             <div className="px-6 py-4 border-b border-line2">
               <label className="label">
-                Mensaje (usa <code>{'{{nombre}}'}</code> para personalizar)
+                {t('messageLabelBefore')} <code>{'{{nombre}}'}</code> {t('messageLabelAfter')}
               </label>
               <textarea
                 className="input min-h-[100px]"
                 value={waMessage}
                 onChange={(e) => setWaMessage(e.target.value)}
-                placeholder="¡Hola {{nombre}}! Tenemos una promo nueva esta semana…"
+                placeholder={t('waMessagePlaceholder')}
                 maxLength={1000}
               />
               <div className="text-xs text-mute mt-1.5 flex items-center justify-between">
                 <span>
-                  WhatsApp Web abrirá un chat por cliente. Tú decides cuáles
-                  enviar.
+                  {t('waWebHint')}
                 </span>
                 <span>{waMessage.length}/1000</span>
               </div>
@@ -696,11 +695,11 @@ export default function CustomersPage() {
 
             <div className="flex-1 overflow-auto px-6 py-4">
               <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
-                Lista de envío
+                {t('sendList')}
               </div>
               {selectedCustomers.length === 0 ? (
                 <div className="text-sm text-mute text-center py-6">
-                  Ningún seleccionado tiene teléfono.
+                  {t('noneHasPhone')}
                 </div>
               ) : (
                 <div className="space-y-1.5">
@@ -721,7 +720,7 @@ export default function CustomersPage() {
                         rel="noreferrer"
                         className="bg-ok text-white text-xs font-semibold px-3 py-1.5 rounded-full inline-flex items-center gap-1 hover:bg-ok/90 whitespace-nowrap"
                       >
-                        Abrir chat →
+                        {t('openChat')} →
                       </a>
                     </div>
                   ))}
@@ -731,21 +730,20 @@ export default function CustomersPage() {
 
             <div className="px-6 py-3 border-t border-line2 bg-bg2/40 flex items-center justify-between">
               <div className="text-xs text-mute">
-                💡 Para campañas masivas reales (sin abrir uno por uno), usa
-                las{' '}
+                💡 {t('massCampaignHintBefore')}{' '}
                 <Link
                   href="/app/automations"
                   className="text-brand hover:underline"
                 >
-                  automatizaciones de WhatsApp
+                  {t('whatsappAutomations')}
                 </Link>
-                .
+                {t('massCampaignHintAfter')}
               </div>
               <button
                 onClick={() => setWaOpen(false)}
                 className="btn-ghost text-sm"
               >
-                Cerrar
+                {t('close')}
               </button>
             </div>
           </div>

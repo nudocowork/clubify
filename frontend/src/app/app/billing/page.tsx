@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api, clearSession } from '@/lib/api';
 import { Icon } from '@/components/Icon';
@@ -31,6 +32,7 @@ const STATUS_LABELS: Record<Status['status'], { text: string; bg: string; ring: 
 };
 
 export default function BillingPage() {
+  const t = useTranslations('app_billing');
   const router = useRouter();
   const [s, setS] = useState<Status | null>(null);
   const [tenant, setTenant] = useState<any>(null);
@@ -61,14 +63,11 @@ export default function BillingPage() {
       if (r.url) {
         window.location.href = r.url;
       } else {
-        toast(
-          'El pago aún no está configurado. Te avisamos en cuanto esté listo.',
-          'info',
-        );
+        toast(t('paymentNotConfigured'), 'info');
         setActivating(false);
       }
     } catch (e: any) {
-      toast(e.message || 'No se pudo abrir el checkout', 'error');
+      toast(e.message || t('couldNotOpenCheckout'), 'error');
       setActivating(false);
     }
   }
@@ -83,41 +82,40 @@ export default function BillingPage() {
       clearSession();
       router.push('/login?canceled=1');
     } catch (e: any) {
-      toast(e.message || 'No se pudo cancelar', 'error');
+      toast(e.message || t('couldNotCancel'), 'error');
       setCanceling(false);
     }
   }
 
   async function reactivate() {
-    if (!confirm('Te reactivamos por 3 días para que completes el pago en Hotmart. ¿Confirmas?')) {
+    if (!confirm(t('reactivateConfirm'))) {
       return;
     }
     try {
       await api('/billing/reactivate', { method: 'POST' });
-      toast('Cuenta reactivada · completa el pago en Hotmart', 'success');
+      toast(t('accountReactivated'), 'success');
       setTimeout(() => window.location.reload(), 800);
     } catch (e: any) {
-      toast(e.message || 'No se pudo reactivar', 'error');
+      toast(e.message || t('couldNotReactivate'), 'error');
     }
   }
 
-  if (!s) return <div className="text-mute">Cargando…</div>;
+  if (!s) return <div className="text-mute">{t('loading')}</div>;
 
   const meta = STATUS_LABELS[s.status];
 
   return (
     <div className="max-w-3xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">Suscripción y facturación</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{t('title')}</h1>
         <p className="text-mute mt-1">
-          Estado de tu cuenta y opciones para activar tu suscripción.
+          {t('subtitle')}
         </p>
       </div>
 
       {justSuspended && (
         <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900 mb-4">
-          Quisiste hacer una acción que requiere cuenta activa. Reactiva tu
-          suscripción para continuar.
+          {t('suspendedNotice')}
         </div>
       )}
 
@@ -127,30 +125,30 @@ export default function BillingPage() {
           <div>
             <div className="flex items-center gap-2">
               <span className={`text-xs font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full ${meta.bg}`}>
-                {meta.text}
+                {t(`badge_${s.status}`)}
               </span>
             </div>
             <div className="mt-3 text-3xl font-bold">
               {s.status === 'TRIAL'
-                ? 'Esperando pago'
+                ? t('statusTrial')
                 : s.status === 'ACTIVE'
-                ? 'Suscripción activa'
+                ? t('statusActive')
                 : s.status === 'EXPIRED'
-                ? 'Cuenta inactiva'
+                ? t('statusExpired')
                 : s.status === 'SUSPENDED'
-                ? 'Cuenta suspendida'
+                ? t('statusSuspended')
                 : s.status === 'PAST_DUE'
-                ? 'Pago pendiente'
-                : 'Sin suscripción'}
+                ? t('statusPastDue')
+                : t('statusNone')}
             </div>
             {s.status === 'TRIAL' && (
               <div className="text-sm text-mute mt-1">
-                Completa el pago en Hotmart para activar tu cuenta.
+                {t('completePaymentHotmart')}
               </div>
             )}
             {s.status === 'ACTIVE' && s.currentPeriodEnd && (
               <div className="text-sm text-mute mt-1">
-                Próximo cobro:{' '}
+                {t('nextCharge')}{' '}
                 <span className="font-medium text-ink">
                   {new Date(s.currentPeriodEnd).toLocaleDateString('es-CO', {
                     day: 'numeric',
@@ -163,7 +161,7 @@ export default function BillingPage() {
           </div>
           <div className="text-right">
             <div className="text-xs uppercase tracking-wider text-mute font-semibold">
-              Plan actual
+              {t('currentPlan')}
             </div>
             <div className="text-lg font-semibold mt-1">
               {formatPlanLabel(
@@ -180,7 +178,7 @@ export default function BillingPage() {
               {periodCadence(tenant?.planPeriodicity as PlanPeriodicity | null)}
             </div>
             <div className="text-xs text-mute">
-              ≈ equivalente al cambio del día en tu país
+              {t('exchangeRateNote')}
             </div>
           </div>
         </div>
@@ -194,30 +192,32 @@ export default function BillingPage() {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <div className="font-bold text-xl">
-                  {s.status === 'TRIAL' ? 'Activa tu suscripción' : 'Activa tu cuenta'}
+                  {s.status === 'TRIAL' ? t('activateSubscription') : t('activateAccount')}
                 </div>
                 {!hotmartConfigured && (
                   <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-300/95 text-amber-900">
-                    🚧 En construcción
+                    {t('underConstruction')}
                   </span>
                 )}
               </div>
               <p className="text-white/85 text-sm mt-1.5 leading-relaxed">
                 {hotmartConfigured
-                  ? 'Te llevamos al checkout seguro para activar tu suscripción. Elige Mensual, Trimestral, Semestral o Anual — cancelas cuando quieras desde aquí.'
-                  : 'Tenemos 4 planes (Mensual, Trimestral, Semestral, Anual) facturados en tu moneda local al cambio del día. Estamos terminando la integración: en cuanto esté lista te avisamos por email.'}
+                  ? t('ctaDescConfigured')
+                  : t('ctaDescNotConfigured')}
               </p>
               {!hotmartConfigured && (
                 <p className="text-white/70 text-xs mt-2">
-                  Si necesitas activación manual, escríbenos por{' '}
-                  <a
-                    href="https://wa.me/573167689240"
-                    target="_blank"
-                    className="underline hover:text-white"
-                  >
-                    WhatsApp
-                  </a>
-                  .
+                  {t.rich('manualActivation', {
+                    wa: (chunks) => (
+                      <a
+                        href="https://wa.me/573167689240"
+                        target="_blank"
+                        className="underline hover:text-white"
+                      >
+                        {chunks}
+                      </a>
+                    ),
+                  })}
                 </p>
               )}
             </div>
@@ -229,13 +229,11 @@ export default function BillingPage() {
                   ? 'hover:bg-white'
                   : 'opacity-70 cursor-not-allowed'
               }`}
-              title={hotmartConfigured ? 'Activar' : 'Disponible muy pronto'}
+              title={hotmartConfigured ? t('activate') : t('availableSoon')}
             >
               {activating
-                ? 'Abriendo checkout…'
-                : hotmartConfigured
-                ? 'Activar suscripción →'
-                : 'Activar suscripción →'}
+                ? t('openingCheckout')
+                : t('activateSubscriptionCta')}
             </button>
           </div>
         </div>
@@ -246,17 +244,16 @@ export default function BillingPage() {
         <div className="card card-pad mt-4 bg-gradient-to-br from-ok to-emerald-600 text-white">
           <div className="flex items-start gap-4 flex-wrap">
             <div className="flex-1 min-w-0">
-              <div className="font-bold text-xl">¿Volver a Clubify?</div>
+              <div className="font-bold text-xl">{t('backToClubify')}</div>
               <p className="text-white/85 text-sm mt-1.5 leading-relaxed">
-                Te reactivamos por 3 días para que completes el pago en
-                Hotmart y retomes tu negocio. Tu data está intacta.
+                {t('reactivateDesc')}
               </p>
             </div>
             <button
               onClick={reactivate}
               className="bg-white text-ok font-semibold px-5 py-2.5 rounded-pill text-sm whitespace-nowrap hover:bg-white/90"
             >
-              Reactivar mi cuenta →
+              {t('reactivateMyAccount')}
             </button>
           </div>
         </div>
@@ -264,21 +261,21 @@ export default function BillingPage() {
 
       {/* Lo que incluye — todos los planes (Mensual/Trimestral/Semestral/Anual) */}
       <div className="card card-pad mt-4">
-        <div className="font-semibold mb-3">Tu suscripción incluye</div>
+        <div className="font-semibold mb-3">{t('subscriptionIncludes')}</div>
         <ul className="grid sm:grid-cols-2 gap-2 text-sm">
           {[
-            'Pedidos ilimitados',
-            'Tarjetas wallet ilimitadas',
-            'Apple Wallet + Google Wallet',
-            'Multi-ubicación + multi-staff',
-            'Dominio propio + analítica',
-            'Automatizaciones de WhatsApp',
-            'Mensajes automáticos por evento (cumpleaños, sello, etc.)',
-            'Segmentación avanzada de clientes',
-            'Plantillas de mensaje',
-            'Scanner PWA',
-            'Email transaccional',
-            'Soporte por chat',
+            t('featUnlimitedOrders'),
+            t('featUnlimitedWalletCards'),
+            t('featAppleGoogleWallet'),
+            t('featMultiLocationStaff'),
+            t('featCustomDomainAnalytics'),
+            t('featWhatsappAutomations'),
+            t('featEventMessages'),
+            t('featAdvancedSegmentation'),
+            t('featMessageTemplates'),
+            t('featScannerPwa'),
+            t('featTransactionalEmail'),
+            t('featChatSupport'),
           ].map((f) => (
             <li key={f} className="flex items-start gap-2 text-mute">
               <Icon name="check" size={14} className="text-ok mt-0.5 flex-none" />
@@ -295,21 +292,24 @@ export default function BillingPage() {
             onClick={() => setCancelOpen(true)}
             className="text-xs text-mute hover:text-bad underline"
           >
-            Cancelar mi cuenta
+            {t('cancelMyAccount')}
           </button>
         </div>
       )}
 
       <div className="text-xs text-mute mt-6 text-center">
-        ¿Dudas? Escríbenos por{' '}
-        <a href="https://wa.me/573167689240" className="text-brand hover:underline">
-          WhatsApp
-        </a>{' '}
-        o{' '}
-        <a href="mailto:hola@soyclubify.com" className="text-brand hover:underline">
-          email
-        </a>
-        .
+        {t.rich('questionsFooter', {
+          wa: (chunks) => (
+            <a href="https://wa.me/573167689240" className="text-brand hover:underline">
+              {chunks}
+            </a>
+          ),
+          email: (chunks) => (
+            <a href="mailto:hola@soyclubify.com" className="text-brand hover:underline">
+              {chunks}
+            </a>
+          ),
+        })}
       </div>
 
       {/* Modal de cancelación */}
@@ -320,20 +320,18 @@ export default function BillingPage() {
             onClick={() => !canceling && setCancelOpen(false)}
           />
           <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
-            <h2 className="text-lg font-bold">¿Seguro que quieres cancelar?</h2>
+            <h2 className="text-lg font-bold">{t('cancelModalTitle')}</h2>
             <p className="text-sm text-mute mt-2 leading-relaxed">
-              Tu cuenta queda suspendida inmediatamente. Tu storefront público
-              dejará de recibir pedidos. Tu data se conserva 30 días por si
-              decides volver. Después se elimina.
+              {t('cancelModalDesc')}
             </p>
             <div className="mt-4">
-              <label className="label">¿Por qué cancelas? (opcional)</label>
+              <label className="label">{t('cancelReasonLabel')}</label>
               <textarea
                 className="input"
                 rows={3}
                 value={cancelReason}
                 onChange={(e) => setCancelReason(e.target.value)}
-                placeholder="Nos ayuda mucho a mejorar"
+                placeholder={t('cancelReasonPlaceholder')}
               />
             </div>
             <div className="mt-5 flex gap-2 justify-end">
@@ -342,14 +340,14 @@ export default function BillingPage() {
                 disabled={canceling}
                 className="btn-ghost text-sm"
               >
-                No, mantener mi cuenta
+                {t('keepMyAccount')}
               </button>
               <button
                 onClick={confirmCancel}
                 disabled={canceling}
                 className="px-4 py-2 rounded-pill bg-bad text-white text-sm font-semibold disabled:opacity-50"
               >
-                {canceling ? 'Cancelando…' : 'Sí, cancelar'}
+                {canceling ? t('canceling') : t('confirmCancel')}
               </button>
             </div>
           </div>
