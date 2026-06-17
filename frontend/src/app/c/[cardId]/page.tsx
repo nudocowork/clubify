@@ -51,6 +51,7 @@ const COUNTRIES = [
   { code: 'CR', flag: '🇨🇷', name: 'Costa Rica', dial: '506' },
   { code: 'GT', flag: '🇬🇹', name: 'Guatemala', dial: '502' },
   { code: 'PA', flag: '🇵🇦', name: 'Panamá', dial: '507' },
+  { code: 'BZ', flag: '🇧🇿', name: 'Belice', dial: '501' },
   { code: 'DO', flag: '🇩🇴', name: 'R. Dominicana', dial: '1' },
   { code: 'SV', flag: '🇸🇻', name: 'El Salvador', dial: '503' },
   { code: 'HN', flag: '🇭🇳', name: 'Honduras', dial: '504' },
