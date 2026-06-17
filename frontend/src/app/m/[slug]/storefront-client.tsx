@@ -27,6 +27,10 @@ import { isDarkBackground } from '@/lib/contrast';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { CO_LOCATIONS, OTRO_MUNICIPIO } from '@/lib/co-locations';
 import { regionsForCountry } from '@/lib/regions';
+import {
+  type StorefrontPopupItem,
+  resolveActiveMenuPopup,
+} from '@/lib/storefront-popups';
 import { useLocale, useT } from '@/lib/i18n';
 import { SectionCoverPreview } from '@/components/menu/SectionCoverPreview';
 import { MenuBookViewer } from '@/components/menu/MenuBookViewer';
@@ -92,6 +96,9 @@ type Storefront = {
   descriptionColor?: string | null;
   backButtonConfig?: BackButtonConfig | null;
   popup?: { imageUrl: string; cardId: string | null; delaySeconds?: number } | null;
+  // #5 (2026-06-17): popups múltiples + programados. Si hay alguno activo,
+  // prevalece sobre `popup` (legacy single).
+  menuPopups?: StorefrontPopupItem[] | null;
   planName?: string | null;
   // Label visible para tab principal y títulos — resuelto server-side
   // (override del tenant > categoría > "Menú"). Fallback "Menú" si no llega.
@@ -1029,8 +1036,8 @@ function StorefrontPublicInner() {
         />
       )}
 
-      {/* Popup de inscripción a tarjeta (10s después de cargar) */}
-      {s.popup && <StorefrontPopup popup={s.popup} slug={slug} />}
+      {/* Popup del menú: prioriza popups programados (#5), cae al legacy single. */}
+      <StorefrontPopup menuPopups={s.menuPopups} legacy={s.popup} slug={slug} />
 
       {/* Marca Clubify — siempre visible, no removible. Auto-adapta light/
           dark según el brillo del fondo configurado por el dueño. */}
@@ -3141,40 +3148,69 @@ function SectionProductCard({
 // Click en la imagen → /c/{cardId} (página de inscripción).
 // X para cerrar y seguir viendo el menú.
 function StorefrontPopup({
-  popup,
+  menuPopups,
+  legacy,
   slug,
 }: {
-  popup: { imageUrl: string; cardId: string | null; delaySeconds?: number };
+  // #5 (2026-06-17): popups múltiples + programados. Se prioriza el primero
+  // habilitado cuyo schedule (día/horario, hora local del cliente) coincide.
+  menuPopups?: StorefrontPopupItem[] | null;
+  // Popup único legacy (theme-independiente). Fallback si no hay programado activo.
+  legacy?: { imageUrl: string; cardId: string | null; delaySeconds?: number } | null;
   slug: string;
 }) {
   const [open, setOpen] = useState(false);
+  // Popup resuelto (el activo según schedule, o el legacy). Se fija una vez al
+  // montar usando la hora local del cliente.
+  const [active, setActive] = useState<{
+    imageUrl: string;
+    cardId: string | null;
+    delaySeconds?: number;
+    key: string;
+  } | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const key = `clubify:popup-shown:${slug}`;
-    if (sessionStorage.getItem(key)) return;
-    // Default 10s para configs viejas o tenants que aún no tienen el
-    // campo seteado. El backend ya devuelve `popup.delaySeconds` cuando
-    // está disponible.
-    // #6 (2026-06-16): delaySeconds=0 = aparición INMEDIATA. Antes
-    // Math.max(1, …) lo forzaba a 1s, así que "inmediato" nunca funcionaba.
-    const delayMs = Math.max(0, popup.delaySeconds ?? 10) * 1000;
+    const scheduled = resolveActiveMenuPopup(menuPopups, new Date());
+    const chosen = scheduled
+      ? {
+          imageUrl: scheduled.imageUrl,
+          cardId: scheduled.cardId ?? null,
+          delaySeconds: scheduled.delaySeconds,
+          key: `${slug}:${scheduled.id}`,
+        }
+      : legacy
+        ? {
+            imageUrl: legacy.imageUrl,
+            cardId: legacy.cardId,
+            delaySeconds: legacy.delaySeconds,
+            key: slug,
+          }
+        : null;
+    if (!chosen) return;
+    setActive(chosen);
+
+    const storageKey = `clubify:popup-shown:${chosen.key}`;
+    if (sessionStorage.getItem(storageKey)) return;
+    // #6 (2026-06-16): delaySeconds=0 = aparición INMEDIATA.
+    const delayMs = Math.max(0, chosen.delaySeconds ?? 10) * 1000;
     if (delayMs === 0) {
       setOpen(true);
-      sessionStorage.setItem(key, '1');
+      sessionStorage.setItem(storageKey, '1');
       return;
     }
     const t = window.setTimeout(() => {
       setOpen(true);
-      sessionStorage.setItem(key, '1');
+      sessionStorage.setItem(storageKey, '1');
     }, delayMs);
     return () => window.clearTimeout(t);
-  }, [slug, popup.delaySeconds]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug]);
 
-  if (!open) return null;
+  if (!open || !active) return null;
 
-  const Body = popup.cardId ? 'a' : 'div';
-  const props: any = popup.cardId ? { href: `/c/${popup.cardId}` } : {};
+  const Body = active.cardId ? 'a' : 'div';
+  const props: any = active.cardId ? { href: `/c/${active.cardId}` } : {};
 
   return (
     <div
@@ -3197,7 +3233,7 @@ function StorefrontPopup({
           className="block rounded-2xl overflow-hidden shadow-2xl bg-white"
         >
           <img
-            src={popup.imageUrl}
+            src={active.imageUrl}
             alt=""
             className="w-full h-auto block"
             draggable={false}
