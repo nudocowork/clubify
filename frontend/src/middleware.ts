@@ -164,6 +164,30 @@ async function resolveHost(host: string): Promise<string | null> {
   }
 }
 
+// Cache del host → marca blanca (dominio propio del panel, ej. app.marca.com).
+const brandCache = new Map<string, { slug: string | null; until: number }>();
+async function resolveBrandHost(host: string): Promise<string | null> {
+  const now = Date.now();
+  const hit = brandCache.get(host);
+  if (hit && hit.until > now) return hit.slug;
+  try {
+    const r = await fetch(
+      `${API}/api/superadmin-public/white-labels/resolve-host?host=${encodeURIComponent(host)}`,
+      { cache: 'no-store' },
+    );
+    if (!r.ok) {
+      brandCache.set(host, { slug: null, until: now + TTL_MS });
+      return null;
+    }
+    const j = (await r.json()) as { slug?: string | null };
+    const slug = j?.slug ?? null;
+    brandCache.set(host, { slug, until: now + TTL_MS });
+    return slug;
+  } catch {
+    return null;
+  }
+}
+
 export async function middleware(req: NextRequest) {
   const url = req.nextUrl;
   const host = (req.headers.get('host') ?? '').toLowerCase().split(':')[0];
@@ -268,6 +292,20 @@ export async function middleware(req: NextRequest) {
       }
     }
     return NextResponse.rewrite(rewrite);
+  }
+
+  // 1.5 Dominio propio de marca blanca (app.selleala.com → panel /admin).
+  // Las rutas del sistema (/admin, /login, /_next, assets) ya salieron por el
+  // early-exit de arriba y se sirven normal en ese dominio; acá solo la raíz
+  // '/' se reescribe al panel.
+  const brandSlug = await resolveBrandHost(host);
+  if (brandSlug) {
+    if (url.pathname === '/' || url.pathname === '') {
+      const rewrite = url.clone();
+      rewrite.pathname = '/admin';
+      return NextResponse.rewrite(rewrite);
+    }
+    return NextResponse.next();
   }
 
   // 2. Custom domains via Storefront.customDomain (CNAME tipo mibarra.com)

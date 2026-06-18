@@ -7,6 +7,8 @@ import {
   HotmartCheckoutController,
 } from './hotmart.controller';
 import { HotmartSimulatorController } from './hotmart-simulator.controller';
+import { SmsTemplatesService } from './sms-templates.service';
+import { SmsTemplatesController } from './sms-templates.controller';
 import { IntegrationsModule } from '../integrations/integrations.module';
 import { EmailModule } from '../email/email.module';
 import { ReferralsModule } from '../referrals/referrals.module';
@@ -20,8 +22,9 @@ import { AdminModule } from '../admin/admin.module';
     HotmartWebhookController,
     HotmartCheckoutController,
     HotmartSimulatorController,
+    SmsTemplatesController,
   ],
-  providers: [BillingService, HotmartService],
-  exports: [BillingService, HotmartService],
+  providers: [BillingService, HotmartService, SmsTemplatesService],
+  exports: [BillingService, HotmartService, SmsTemplatesService],
 })
 export class BillingModule {}

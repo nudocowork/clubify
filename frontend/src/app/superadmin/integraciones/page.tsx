@@ -68,6 +68,8 @@ export default function IntegracionesPage() {
         )}
       </div>
 
+      <SmsTemplatesSection onToast={flashToast} />
+
       {editKey && (
         <ConfigureModal
           integration={items.find((i) => i.key === editKey)!}
@@ -323,6 +325,156 @@ function ConfigureModal({
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+type SmsTpl = {
+  id: string;
+  label: string;
+  description: string;
+  vars: string[];
+  default: string;
+  text: string;
+  isCustom: boolean;
+};
+
+/** Plantillas de SMS automáticos (cobros Hotmart) editables sin redeploy.
+ *  Vacío = vuelve al texto por defecto. Variables {token} se interpolan. */
+function SmsTemplatesSection({ onToast }: { onToast: (m: string) => void }) {
+  const [tpls, setTpls] = useState<SmsTpl[]>([]);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  async function load() {
+    try {
+      const data = await api<SmsTpl[]>('/superadmin/sms-templates');
+      const list = data ?? [];
+      setTpls(list);
+      const d: Record<string, string> = {};
+      list.forEach((t) => (d[t.id] = t.text));
+      setDrafts(d);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function save(t: SmsTpl) {
+    setSavingId(t.id);
+    try {
+      await api(`/superadmin/sms-templates/${t.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ text: drafts[t.id] ?? '' }),
+      });
+      onToast('Plantilla guardada');
+      load();
+    } catch (e: any) {
+      onToast(e.message ?? 'Error');
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  if (tpls.length === 0) return null;
+
+  return (
+    <div className="mt-9">
+      <h2 className="m-0" style={{ fontSize: 20, fontWeight: 800, color: '#16241c' }}>
+        Plantillas de SMS
+      </h2>
+      <p className="text-sm mt-1 mb-4" style={{ color: '#6b7785' }}>
+        Textos que el sistema envía automáticamente (secuencia de cobro Hotmart).
+        Dejá el campo vacío para volver al texto por defecto. Usá las variables{' '}
+        <span className="font-mono">{'{token}'}</span> donde corresponda.
+      </p>
+
+      <div className="space-y-4">
+        {tpls.map((t) => {
+          const draft = drafts[t.id] ?? '';
+          const dirty = draft !== t.text;
+          return (
+            <div
+              key={t.id}
+              className="rounded-[14px] p-5"
+              style={{
+                background: 'white',
+                border: '1px solid #e7e9ec',
+                boxShadow: '0 1px 2px rgba(16,24,40,.04)',
+              }}
+            >
+              <div className="flex items-center gap-2 flex-wrap mb-1">
+                <h3 className="m-0" style={{ fontSize: 15, fontWeight: 800, color: '#16241c' }}>
+                  {t.label}
+                </h3>
+                {t.isCustom && (
+                  <span
+                    className="text-[10px] font-bold px-2 py-0.5 rounded-[6px]"
+                    style={{ background: '#dbeafe', color: '#1d4ed8' }}
+                  >
+                    Editado
+                  </span>
+                )}
+              </div>
+              <p className="text-xs mb-2" style={{ color: '#6b7785' }}>
+                {t.description}
+              </p>
+              <textarea
+                value={draft}
+                onChange={(e) => setDrafts((d) => ({ ...d, [t.id]: e.target.value }))}
+                rows={3}
+                className="w-full text-sm"
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: 9,
+                  border: '1px solid #d7dbe0',
+                  background: 'white',
+                  color: '#16241c',
+                  resize: 'vertical',
+                }}
+              />
+              <div className="flex items-center justify-between gap-3 mt-2 flex-wrap">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {t.vars.map((v) => (
+                    <code
+                      key={v}
+                      className="text-[11px] px-1.5 py-0.5 rounded"
+                      style={{ background: '#f4f5f7', color: '#15803d' }}
+                    >
+                      {`{${v}}`}
+                    </code>
+                  ))}
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-[11px]" style={{ color: draft.length > 160 ? '#b45309' : '#9aa4af' }}>
+                    {draft.length}/160
+                  </span>
+                  <button
+                    onClick={() => setDrafts((d) => ({ ...d, [t.id]: t.default }))}
+                    className="text-[12px] font-semibold"
+                    style={{ color: '#6b7785' }}
+                  >
+                    Restaurar default
+                  </button>
+                  <button
+                    onClick={() => save(t)}
+                    disabled={!dirty || savingId === t.id}
+                    className="text-sm font-bold px-4 py-2 rounded-[10px] text-white"
+                    style={{
+                      background: !dirty ? '#9ca3af' : 'linear-gradient(180deg, #28c95f, #16a34a)',
+                      cursor: !dirty ? 'default' : 'pointer',
+                    }}
+                  >
+                    {savingId === t.id ? 'Guardando…' : 'Guardar'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

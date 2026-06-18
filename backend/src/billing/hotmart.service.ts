@@ -9,10 +9,8 @@ import { PreregAlertsService } from '../auth/prereg-alerts.service';
 import { CommissionExceptionsService } from '../admin/commission-exceptions.service';
 import { monthKey } from '../common/period-key';
 import { COMMISSION_DEFAULTS } from '../common/commission-defaults';
-import {
-  smsPaymentConfirmed,
-  smsPaymentFailed,
-} from './billing-sms-templates';
+import { SmsTemplatesService } from './sms-templates.service';
+import { fmtSmsDate } from './sms-templates';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -68,6 +66,7 @@ export class HotmartService {
     private referralsService: ReferralsService,
     private alerts: PreregAlertsService,
     private commissionExceptions: CommissionExceptionsService,
+    private smsTemplates: SmsTemplatesService,
   ) {}
 
   /** Best-effort: manda SMS al dueño, no falla el webhook si no se puede.
@@ -506,11 +505,12 @@ export class HotmartService {
           },
         });
         // SMS aviso de falla (best-effort)
-        this.notifyOwner(
-          tenant.id,
-          tenant.brandName,
-          smsPaymentFailed({ brandName: tenant.brandName }),
-        ).catch(() => null);
+        this.smsTemplates
+          .render('payment_failed', { brandName: tenant.brandName })
+          .then((msg) =>
+            this.notifyOwner(tenant.id, tenant.brandName, msg),
+          )
+          .catch(() => null);
         // Aviso a la cadena de atribución (embajador → influencer → admin)
         // si el dueño activó las notificaciones de pago fallido.
         this.notifyReferralChain(tenant.id, tenant.brandName, 'PAYMENT_FAILED').catch(
@@ -714,14 +714,16 @@ export class HotmartService {
       );
     }
     // SMS de confirmación al dueño (best-effort)
-    this.notifyOwner(
-      tenant.id,
-      tenant.brandName,
-      smsPaymentConfirmed({
+    const nextChargeInfo = nextCharge
+      ? ` Próximo cobro: ${fmtSmsDate(nextCharge)}.`
+      : '';
+    this.smsTemplates
+      .render('payment_confirmed', {
         brandName: tenant.brandName,
-        nextChargeDate: nextCharge,
-      }),
-    ).catch(() => null);
+        nextChargeInfo,
+      })
+      .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
+      .catch(() => null);
 
     // Fan-out post-activación (C2 sprint): alerta al equipo comercial,
     // creación de CrmContact en el pipeline del afiliado atribuido y

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { IsBoolean, IsEmail, IsHexColor, IsIn, IsInt, IsObject, IsNumber, IsOptional, IsString, Length, Max, MaxLength, Min } from 'class-validator';
 import { ModuleKey, WhiteLabelStatus } from '@prisma/client';
 import { Public } from '../common/decorators/public.decorator';
@@ -396,5 +396,14 @@ export class SuperAdminPublicController {
   @Post('white-label-admin-invites/:token/accept')
   acceptWhiteLabel(@Param('token') token: string, @Body() body: AcceptInviteBody) {
     return this.svc.acceptWhiteLabelAdminInvite(token, body.password);
+  }
+
+  // Resolución de dominio propio → marca blanca. El middleware Next lo usa
+  // para servir el panel /admin cuando entran por el dominio de la marca
+  // (ej. app.selleala.com). Devuelve { slug } o { slug: null }.
+  @Public()
+  @Get('white-labels/resolve-host')
+  resolveHost(@Query('host') host: string) {
+    return this.svc.resolveWhiteLabelByHost(host);
   }
 }

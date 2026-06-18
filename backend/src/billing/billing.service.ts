@@ -2,11 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
-import {
-  smsPaymentReminderTomorrow,
-  smsAccountWillPause,
-  smsAccountPaused,
-} from './billing-sms-templates';
+import { SmsTemplatesService } from './sms-templates.service';
+import { fmtSmsDate } from './sms-templates';
 
 const PAUSE_NOTICE_DAYS = 2;     // D+2 desde último intento fallido → aviso
 const PAUSE_DAYS = 4;            // D+4 → suspender
@@ -34,6 +31,7 @@ export class BillingService {
   constructor(
     private prisma: PrismaService,
     private growBusiness: GrowBusinessService,
+    private smsTemplates: SmsTemplatesService,
   ) {}
 
   /**
@@ -349,9 +347,9 @@ export class BillingService {
       if (!t.currentPeriodEnd) continue;
       const target = await this.resolveBillingTarget(t.id);
       if (!target) continue;
-      const message = smsPaymentReminderTomorrow({
+      const message = await this.smsTemplates.render('payment_reminder_tomorrow', {
         brandName: t.brandName,
-        chargeDate: t.currentPeriodEnd,
+        chargeDate: fmtSmsDate(t.currentPeriodEnd),
       });
       const r = await this.growBusiness.sendSmsWithCreds(
         target.creds,
@@ -408,9 +406,9 @@ export class BillingService {
       const pauseDate = new Date(
         t.lastPaymentAttemptAt.getTime() + PAUSE_DAYS * 24 * 60 * 60 * 1000,
       );
-      const message = smsAccountWillPause({
+      const message = await this.smsTemplates.render('account_will_pause', {
         brandName: t.brandName,
-        pauseDate,
+        pauseDate: fmtSmsDate(pauseDate),
       });
       const r = await this.growBusiness.sendSmsWithCreds(
         target.creds,
@@ -458,7 +456,9 @@ export class BillingService {
       suspended++;
       const target = await this.resolveBillingTarget(t.id);
       if (target) {
-        const message = smsAccountPaused({ brandName: t.brandName });
+        const message = await this.smsTemplates.render('account_paused', {
+          brandName: t.brandName,
+        });
         this.growBusiness
           .sendSmsWithCreds(target.creds, target.phone, message)
           .catch((e) =>

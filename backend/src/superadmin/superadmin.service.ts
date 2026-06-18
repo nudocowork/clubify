@@ -857,6 +857,25 @@ export class SuperAdminService {
     return { ok: true };
   }
 
+  /** Resuelve un host (dominio propio) a la marca blanca dueña. Usado por el
+   *  middleware Next para servir el panel /admin en app.<marca>.com. Compara
+   *  contra appDomain/domain (normalizados, sin www). Pocas marcas → findMany
+   *  + match en memoria es suficiente y robusto. */
+  async resolveWhiteLabelByHost(host: string): Promise<{ slug: string | null }> {
+    const norm = (s?: string | null) =>
+      (s ?? '').trim().toLowerCase().replace(/^www\./, '');
+    const h = norm(host);
+    if (!h) return { slug: null };
+    const wls = await this.prisma.whiteLabel.findMany({
+      where: { status: 'ACTIVE' },
+      select: { slug: true, domain: true, appDomain: true },
+    });
+    const match = wls.find(
+      (w) => norm(w.appDomain) === h || norm(w.domain) === h,
+    );
+    return { slug: match?.slug ?? null };
+  }
+
   async createHotmartLink(dto: HotmartLinkDto, actorId?: string) {
     if (!dto.credits || dto.credits < 1) throw new BadRequestException('credits >= 1');
     if (!dto.label?.trim()) throw new BadRequestException('label requerido');
