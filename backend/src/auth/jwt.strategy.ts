@@ -13,6 +13,10 @@ export type JwtPayload = {
   // si la sesión es legítima del owner. Propagado al AuthUser para
   // auditar acciones destructivas hechas desde sesión impostada.
   impersonatedBy?: string | null;
+  // Marca blanca activa de la sesión (cuando PLATFORM_OWNER "entra" a una
+  // marca vía impersonateWhiteLabel). Cuando está presente, los dashboards
+  // de /admin scopean sus métricas a los tenants de esta marca.
+  whiteLabelId?: string | null;
 };
 
 @Injectable()
@@ -32,6 +36,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       role: payload.role,
       tenantId: payload.tenantId,
       impersonatedBy: payload.impersonatedBy ?? null,
+      whiteLabelId: payload.whiteLabelId ?? null,
     };
   }
 }
