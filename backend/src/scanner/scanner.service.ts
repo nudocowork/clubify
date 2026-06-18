@@ -32,7 +32,13 @@ export class ScannerService {
       return this.reservations.handleScannedReservation(user, reservationId);
     }
 
-    let pass = await this.findByJwt(value);
+    // Orden de resolución del barcode:
+    //  1. qrToken corto (formato actual 2026-06-17: `QR-...`, inforjable).
+    //  2. JWT firmado (legacy fix #1 2026-06-16) — pases instalados antes
+    //     del refresh global todavía muestran el JWT largo en el barcode.
+    //  3. serial plano (legacy pre-fix) — fallback final.
+    let pass = await this.findByQrToken(value);
+    if (!pass) pass = await this.findByJwt(value);
     if (!pass) pass = await this.findBySerial(value);
     if (!pass) throw new NotFoundException('Pass');
 
@@ -54,6 +60,13 @@ export class ScannerService {
     customer: true,
     tenant: { select: { brandName: true, primaryColor: true, logoUrl: true } },
   } as const;
+
+  private async findByQrToken(value: string) {
+    // Token opaco actual: `QR-<nanoid>`. Búsqueda directa por índice @unique.
+    // No es un JWT (sin puntos) → evita el verify innecesario.
+    if (value.includes('.')) return null;
+    return this.prisma.pass.findUnique({ where: { qrToken: value }, include: this.passInclude });
+  }
 
   private async findByJwt(value: string) {
     if (!value.includes('.') || value.split('.').length !== 3) return null;

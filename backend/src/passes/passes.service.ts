@@ -4,12 +4,24 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { sign } from 'jsonwebtoken';
 import { nanoid } from 'nanoid';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AppConfigService } from '../common/config/app-config.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { AutomationsService } from '../automations/automations.service';
+
+/**
+ * Token que va dentro del barcode (PDF417) del pase de wallet.
+ *
+ * FIX 2026-06-17: token corto, aleatorio e inforjable (~23 chars). Reemplaza
+ * al JWT firmado del fix #1 (2026-06-16), que medía ~200 chars y dejaba el
+ * PDF417 tan denso que costaba escanearlo. Un token aleatorio mantiene la
+ * seguridad (no se puede adivinar; el scanner lo busca por `qrToken` @unique)
+ * pero deja el código tan limpio como el modelo original con serial.
+ */
+export function genQrToken(): string {
+  return `QR-${nanoid(20)}`;
+}
 
 @Injectable()
 export class PassesService {
@@ -51,11 +63,7 @@ export class PassesService {
 
     const serial = `CLB-${nanoid(10).toUpperCase()}`;
     const authToken = nanoid(32);
-    const qrToken = sign(
-      { pid: '__placeholder__', tid: card.tenantId },
-      this.appConfig.QR_HMAC_SECRET,
-      { algorithm: 'HS256' },
-    );
+    const qrToken = genQrToken();
 
     let pass;
     try {
@@ -80,13 +88,6 @@ export class PassesService {
       throw e;
     }
 
-    const finalQr = sign(
-      { pid: pass.id, tid: card.tenantId },
-      this.appConfig.QR_HMAC_SECRET,
-      { algorithm: 'HS256' },
-    );
-    const updated = await this.prisma.pass.update({ where: { id: pass.id }, data: { qrToken: finalQr } });
-
     // Hook PASS_CREATED — dispara mensaje de bienvenida si hay regla activa.
     this.automations
       .emit('PASS_CREATED', {
@@ -99,7 +100,7 @@ export class PassesService {
       })
       .catch(() => null);
 
-    return updated;
+    return pass;
   }
 
   async get(user: AuthUser, id: string) {
@@ -311,7 +312,7 @@ export class PassesService {
           cardId,
           customerId: customer.id,
           serialNumber: serial,
-          qrToken: 'placeholder',
+          qrToken: genQrToken(),
           authToken,
           stampsCount: bonusStamps,
           pointsBalance: bonusPoints,
@@ -328,15 +329,6 @@ export class PassesService {
       }
       throw e;
     }
-    const finalQr = sign(
-      { pid: tmp.id, tid: card.tenantId },
-      this.appConfig.QR_HMAC_SECRET,
-      { algorithm: 'HS256' },
-    );
-    await this.prisma.pass.update({
-      where: { id: tmp.id },
-      data: { qrToken: finalQr },
-    });
 
     return { passId: tmp.id, customerId: customer.id, isNew: true };
   }
