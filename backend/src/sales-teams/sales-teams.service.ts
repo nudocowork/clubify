@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { AuthUser } from '../common/decorators/current-user.decorator';
 
 /**
  * Equipos de ventas (C4). Solo el super admin los gestiona desde
@@ -20,8 +21,25 @@ export class SalesTeamsService {
    * Lista todos los equipos con counter de miembros + datos del lead.
    * Ordenados por createdAt desc para que los nuevos aparezcan arriba.
    */
-  async list() {
+  async list(user: AuthUser) {
+    // Aislamiento por marca: equipos cuyo lead o algún miembro pertenece a la
+    // marca activa (la marca de un afiliado = su ReferralCode.whiteLabelId).
+    const wlId = user.whiteLabelId ?? null;
     const teams = await this.prisma.salesTeam.findMany({
+      where: wlId
+        ? {
+            OR: [
+              { leadUser: { referralCodes: { some: { whiteLabelId: wlId } } } },
+              {
+                members: {
+                  some: {
+                    user: { referralCodes: { some: { whiteLabelId: wlId } } },
+                  },
+                },
+              },
+            ],
+          }
+        : {},
       orderBy: { createdAt: 'desc' },
       include: {
         _count: { select: { members: true } },
@@ -155,12 +173,16 @@ export class SalesTeamsService {
    * de la lista de members elegibles (puede ser lead pero no necesita
    * ser miembro adicionalmente).
    */
-  async listEligibleUsers(teamId?: string) {
+  async listEligibleUsers(user: AuthUser, teamId?: string) {
     const where: any = {
       role: {
         in: ['AFFILIATE_INFLUENCER', 'AFFILIATE_AMBASSADOR', 'AFFILIATE_SOCIO'],
       },
       isActive: true,
+      // Aislamiento por marca: solo afiliados de la marca activa.
+      ...(user.whiteLabelId
+        ? { referralCodes: { some: { whiteLabelId: user.whiteLabelId } } }
+        : {}),
     };
     if (teamId) {
       // Excluir users que YA están en este equipo.

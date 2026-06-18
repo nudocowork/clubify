@@ -1345,10 +1345,17 @@ export class CrmService {
    * Y también el ranking de equipos por suma de clientCount entre
    * sus miembros.
    */
-  async getLeaderboard() {
+  async getLeaderboard(user?: AuthUser) {
+    // Aislamiento por marca: solo afiliados de la marca activa (su marca =
+    // ReferralCode.whiteLabelId del owner). whiteLabelId null = global.
+    const wlId = user?.whiteLabelId ?? null;
+    const ownerBrandWhere = wlId
+      ? { ownerUser: { referralCodes: { some: { whiteLabelId: wlId } } } }
+      : {};
     // Agrupamos contactos por owner + count.
     const byOwner = await this.prisma.crmContact.groupBy({
       by: ['ownerUserId'],
+      where: ownerBrandWhere,
       _count: { _all: true },
     });
     const ownerIds = byOwner.map((r) => r.ownerUserId);
@@ -1403,6 +1410,20 @@ export class CrmService {
     // Top equipos: por cada SalesTeam, suma de contactos y clients de
     // sus miembros (incluyendo el lead).
     const teams = await this.prisma.salesTeam.findMany({
+      where: wlId
+        ? {
+            OR: [
+              { leadUser: { referralCodes: { some: { whiteLabelId: wlId } } } },
+              {
+                members: {
+                  some: {
+                    user: { referralCodes: { some: { whiteLabelId: wlId } } },
+                  },
+                },
+              },
+            ],
+          }
+        : {},
       include: {
         members: { select: { userId: true } },
       },

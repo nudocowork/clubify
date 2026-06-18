@@ -12,6 +12,7 @@ import { IsOptional, IsString, MaxLength } from 'class-validator';
 import { SalesTeamsService } from './sales-teams.service';
 import { CrmService } from '../crm/crm.service';
 import { Roles } from '../common/decorators/roles.decorator';
+import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 
 class TeamCreateBody {
   @IsString() @MaxLength(80) name!: string;
@@ -44,23 +45,23 @@ export class SalesTeamsController {
   ) {}
 
   @Get()
-  list() {
-    return this.svc.list();
+  list(@CurrentUser() user: AuthUser) {
+    return this.svc.list(user);
   }
 
   /** Leaderboard global (C8): rankings de usuarios y equipos por
    *  totalContacts / clientCount / conversionRate. Path fijo ANTES de
    *  :id para no chocar con get(:id). */
   @Get('leaderboard')
-  leaderboard() {
-    return this.crm.getLeaderboard();
+  leaderboard(@CurrentUser() user: AuthUser) {
+    return this.crm.getLeaderboard(user);
   }
 
   /** Users elegibles para sumar al equipo (afiliados activos). El query
    *  `teamId` opcional excluye los que ya son miembros. */
   @Get('eligible-users')
-  eligible(@Query('teamId') teamId?: string) {
-    return this.svc.listEligibleUsers(teamId);
+  eligible(@CurrentUser() user: AuthUser, @Query('teamId') teamId?: string) {
+    return this.svc.listEligibleUsers(user, teamId);
   }
 
   @Get(':id')
