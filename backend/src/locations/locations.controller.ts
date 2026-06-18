@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsInt, IsNumber, IsOptional, IsString, Min, MaxLength } from 'class-validator';
 import { LocationsService } from './locations.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -13,6 +13,9 @@ class LocationBody {
   @IsOptional() @IsString() walletRelevantText?: string;
   // #20 (2026-06-17): link exacto de Google Maps de esta sede.
   @IsOptional() @IsString() mapsUrl?: string;
+  // #3 (2026-06-18): administrador de sede (alertas de reseña negativa).
+  @IsOptional() @IsString() @MaxLength(80) adminName?: string;
+  @IsOptional() @IsString() @MaxLength(30) adminPhone?: string;
 }
 
 @Controller('locations')

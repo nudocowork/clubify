@@ -236,7 +236,7 @@ export class ReviewsService {
 
     const feedback = await this.prisma.reviewFeedback.findUnique({
       where: { id: feedbackId },
-      include: { reviewTarget: true },
+      include: { reviewTarget: { include: { location: true } } },
     });
     if (!feedback) return;
     // HOTFIX 2026-06-05 (Fase 8 follow-up): si el feedback tiene
@@ -264,9 +264,12 @@ export class ReviewsService {
     });
     if (existing) return;
 
-    // Resolver teléfono destino: override del tenant → owner.phone →
-    // whatsappPhone → phone general. Si nada, abortar con log.
-    let toPhone = tenant.reviewAlertsPhone?.trim() || '';
+    // #3: si la reseña vino por el QR de una SEDE con administrador propio,
+    // la alerta va a ESE teléfono (no al general del negocio).
+    const locationAdminPhone = feedback.reviewTarget?.location?.adminPhone?.trim();
+    // Resolver teléfono destino: admin de sede → override del tenant →
+    // owner.phone → whatsappPhone → phone general. Si nada, abortar con log.
+    let toPhone = locationAdminPhone || tenant.reviewAlertsPhone?.trim() || '';
     if (!toPhone) {
       const owner = await this.prisma.user.findFirst({
         where: { tenantId, role: 'TENANT_OWNER' },

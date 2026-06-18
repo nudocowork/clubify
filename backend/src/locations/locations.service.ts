@@ -11,6 +11,9 @@ export type LocationDto = {
   radiusMeters?: number;
   walletRelevantText?: string;
   mapsUrl?: string;
+  // #3: administrador de sede (recibe alertas de reseña negativa de esta sede).
+  adminName?: string;
+  adminPhone?: string;
 };
 
 @Injectable()
@@ -53,6 +56,8 @@ export class LocationsService {
         radiusMeters: dto.radiusMeters ?? 300,
         walletRelevantText: dto.walletRelevantText?.trim() || null,
         mapsUrl: dto.mapsUrl?.trim() || null,
+        adminName: dto.adminName?.trim() || null,
+        adminPhone: dto.adminPhone?.trim() || null,
       },
     });
   }
@@ -63,7 +68,12 @@ export class LocationsService {
     if (user.role !== 'SUPER_ADMIN' && loc.tenantId !== user.tenantId) {
       throw new ForbiddenException();
     }
-    return this.prisma.location.update({ where: { id }, data: dto });
+    // Normalizamos los campos de admin (trim → null si vacío) sin pisar el
+    // resto del dto que viene del controller.
+    const data: any = { ...dto };
+    if ('adminName' in dto) data.adminName = dto.adminName?.trim() || null;
+    if ('adminPhone' in dto) data.adminPhone = dto.adminPhone?.trim() || null;
+    return this.prisma.location.update({ where: { id }, data });
   }
 
   async remove(user: AuthUser, id: string) {

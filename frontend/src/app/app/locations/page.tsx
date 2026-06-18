@@ -36,6 +36,8 @@ export default function LocationsPage() {
     radiusMeters: 300,
     walletRelevantText: '',
     mapsUrl: '',
+    adminName: '',
+    adminPhone: '',
   });
   const [picked, setPicked] = useState<MapPickResult | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -80,6 +82,8 @@ export default function LocationsPage() {
         radiusMeters: 300,
         walletRelevantText: '',
         mapsUrl: '',
+        adminName: '',
+        adminPhone: '',
       });
       setPicked(null);
       load();
@@ -153,6 +157,33 @@ export default function LocationsPage() {
                 <p className="text-[11px] text-mute mt-1 leading-snug">
                   Compartir → Copiar enlace en Google Maps. Hace que los botones
                   “Dirección” abran exactamente esta sede.
+                </p>
+              </div>
+
+              {/* #3: administrador de sede — recibe las alertas de reseña
+                  negativa de esta sede en vez del administrador general. */}
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Administrador de sede (opcional)</label>
+                  <input
+                    className="input"
+                    value={form.adminName}
+                    onChange={(e) => setForm({ ...form, adminName: e.target.value })}
+                    placeholder="Nombre"
+                  />
+                </div>
+                <div>
+                  <label className="label">Teléfono del administrador</label>
+                  <input
+                    className="input"
+                    value={form.adminPhone}
+                    onChange={(e) => setForm({ ...form, adminPhone: e.target.value })}
+                    placeholder="+52 1 55 1234 5678"
+                  />
+                </div>
+                <p className="text-[11px] text-mute -mt-1 col-span-2 leading-snug">
+                  Si una reseña queda por debajo de tu umbral, la alerta se envía
+                  a este teléfono (de la sede) en vez del general del negocio.
                 </p>
               </div>
 

@@ -1293,6 +1293,11 @@ model Location {
   // lugar). Si está set, los botones "Dirección" del infolink (y otros) abren
   // exactamente este lugar en vez de una búsqueda por texto/coordenadas.
   mapsUrl            String?
+  // #3 (2026-06-18): administrador de esta sede. Si una reseña queda por
+  // debajo del umbral, la alerta SMS va a este teléfono (de la sede) en vez
+  // del administrador general del negocio. Null = usa el destino global.
+  adminName          String?
+  adminPhone         String?
   isActive           Boolean  @default(true)
   createdAt          DateTime @default(now())
 
