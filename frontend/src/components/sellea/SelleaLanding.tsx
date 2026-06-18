@@ -3,14 +3,15 @@ import { useState } from 'react';
 import { SelleaLogo, SelleaMark } from './SelleaLogo';
 
 /**
- * Landing de Sellea — réplica de la de Clubify con identidad Sellea.
- * Autocontenida (no usa i18n ni settings de Clubify). Los teléfonos son
- * mockups CSS. ⚠️ Logo = aproximación SVG; reemplazar por el oficial.
+ * Landing de Sellea orientada a CONVERSIÓN — espeja la estructura de
+ * soyclubify.com con la identidad NARANJA de Sellea (cero verde).
+ * Autocontenida. Teléfonos = mockups CSS. ⚠️ Logo = aproximación SVG.
  */
 
 const C = {
   coral: '#FF4D3D',
   coralDark: '#E63521',
+  coralSoft: '#FFE9E5',
   tinta: '#1A1033',
   crema: '#FFF6F0',
   gris: '#6B6478',
@@ -21,36 +22,30 @@ const FONT = "'Poppins', sans-serif";
 const NAV = ['Funciones', 'Precios', 'Casos de éxito', 'Recursos', 'Preguntas'];
 
 const HERO_FEATURES = [
-  ['wallet', 'Disponible Apple Wallet y Google Wallet'],
+  ['wallet', 'Apple Wallet y Google Wallet'],
   ['stamp', 'Sellos automáticos al escanear'],
   ['pin', 'GeoPush a 300mts del local'],
-  ['gift', 'Mensajes de cumpleaños'],
+  ['gift', 'Cupones y cumpleaños'],
   ['reward', 'Recompensas configurables'],
   ['users', 'Base de datos de tus clientes'],
 ] as const;
 
+const BUSINESSES = [
+  'Nudo Cowork', 'Birria León', 'Wok Explosivo', 'Valmont Barbería',
+  'Pizza Roma', 'Burger Lab', 'Panadería 21', 'Café del Día', 'Bowls & Co',
+];
+
+const ROI = [
+  ['Recompra', '+38%', 'Tus clientes vuelven más seguido al ver cuánto les falta para su premio.'],
+  ['Ticket promedio', '+22%', 'El programa incentiva compras más grandes para sumar sellos.'],
+  ['Frecuencia de compra', '×2', 'GeoPush y recordatorios traen al cliente de vuelta al local.'],
+  ['Base de datos', '100%', 'Cada cliente queda registrado: ya no dependes de plataformas ajenas.'],
+] as const;
+
 const TESTIMONIALS = [
-  {
-    quote:
-      'Antes manejaba pedidos por WhatsApp uno por uno. Hoy entran al kanban, suenan, los confirmo y la gente recibe estado en tiempo real. Vendí 30% más en 2 meses.',
-    name: 'Carolina M.',
-    role: 'Café del Día · Bogotá',
-    avatar: '☕',
-  },
-  {
-    quote:
-      'La tarjeta wallet cambió todo. Mis clientes vuelven más porque les llega el progreso al iPhone. Sin imprimir, sin tarjetas físicas perdidas.',
-    name: 'Andrés R.',
-    role: 'Burger Lab · CDMX',
-    avatar: '🍔',
-  },
-  {
-    quote:
-      'El soporte por WhatsApp y la activación inmediata me dieron confianza. Configuré todo en un fin de semana sin saber código.',
-    name: 'Sofía L.',
-    role: 'Bowls Saludables · Lima',
-    avatar: '🥗',
-  },
+  { stat: '+30% recompras', quote: 'En dos meses la gente empezó a volver mucho más. Ver el progreso en el wallet los engancha.', name: 'Carolina M.', role: 'Café del Día · Bogotá', avatar: '☕' },
+  { stat: 'Base ×2', quote: 'Duplicamos nuestra base de clientes registrados. Ahora sé quién vuelve y les escribo directo.', name: 'Andrés R.', role: 'Burger Lab · CDMX', avatar: '🍔' },
+  { stat: 'ROI en 30 días', quote: 'Recuperé la inversión en menos de un mes. Lo configuré solo en un fin de semana, sin saber código.', name: 'Sofía L.', role: 'Bowls Saludables · Lima', avatar: '🥗' },
 ];
 
 const PLANS = [
@@ -68,6 +63,8 @@ const TRUST = [
   ['refresh', 'Actualizaciones incluidas'],
 ] as const;
 
+const INTEGRATIONS = ['WhatsApp', 'Hotmart', 'Stripe', 'Google Maps', 'Apple Wallet', 'Google Wallet', 'Meta'];
+
 const FAQS_LEFT = [
   ['¿Cuánto pago y en qué moneda?', 'Eliges entre 4 periodicidades (mensual, trimestral, semestral o anual) en USD. Mientras más tiempo contratas, menor es el costo por mes. El pago es seguro vía Hotmart.'],
   ['¿Mis clientes necesitan descargar una app?', 'No. La tarjeta de fidelización se guarda en Apple Wallet o Google Wallet, que ya vienen en el teléfono. Cero apps, cero fricción.'],
@@ -82,9 +79,8 @@ const FAQS_RIGHT = [
 ];
 
 const FOOTER_COLS = [
-  ['Producto', ['Funciones', 'Precios', 'Integraciones', 'Roadmap']],
-  ['Recursos', ['Blog', 'Centro de ayuda', 'Guías', 'Estado del sistema']],
-  ['Empresa', ['Nosotros', 'Contacto', 'Términos y condiciones', 'Política de privacidad']],
+  ['Producto', ['Funciones', 'Planes', 'Integraciones', 'Roadmap']],
+  ['Empresa', ['Nosotros', 'Contacto', 'Casos de éxito', 'Blog']],
   ['Legal', ['Términos', 'Privacidad', 'Cookies']],
 ] as const;
 
@@ -101,23 +97,22 @@ function I({ name, color = C.coral, size = 16 }: { name: string; color?: string;
     refresh: <><path d="M21 12a9 9 0 1 1-3-6.7L21 7" /><path d="M21 3v4h-4" /></>,
     x: <><circle cx="12" cy="12" r="9" /><path d="M15 9l-6 6M9 9l6 6" /></>,
     '%': <><path d="M19 5L5 19" /><circle cx="7.5" cy="7.5" r="2" /><circle cx="16.5" cy="16.5" r="2" /></>,
+    trend: <><path d="M3 17l6-6 4 4 7-7" /><path d="M17 8h4v4" /></>,
     check: <path d="M20 6 9 17l-5-5" />,
   };
   return <svg {...p}>{paths[name] ?? paths.check}</svg>;
 }
 
-/** Patrón de puntos coral decorativo (como en el mockup). */
 function Dots({ className }: { className?: string }) {
   return (
-    <div className={className} aria-hidden style={{ display: 'grid', gridTemplateColumns: 'repeat(6,6px)', gap: 8, opacity: 0.5 }}>
+    <div className={className} aria-hidden style={{ display: 'grid', gridTemplateColumns: 'repeat(6,6px)', gap: 8 }}>
       {Array.from({ length: 36 }).map((_, i) => (
-        <span key={i} style={{ width: 4, height: 4, borderRadius: '50%', background: C.coral, opacity: 0.45 }} />
+        <span key={i} style={{ width: 4, height: 4, borderRadius: '50%', background: C.coral, opacity: 0.4 }} />
       ))}
     </div>
   );
 }
 
-/** Marco de teléfono genérico. */
 function Phone({ children, w = 200, className = '', style = {} }: { children: React.ReactNode; w?: number; className?: string; style?: React.CSSProperties }) {
   return (
     <div className={className} style={{ width: w, borderRadius: 30, background: C.tinta, padding: 7, boxShadow: '0 28px 55px -22px rgba(26,16,51,.5)', ...style }}>
@@ -129,12 +124,11 @@ function Phone({ children, w = 200, className = '', style = {} }: { children: Re
   );
 }
 
-/** Tarjeta wallet de sellos (café) para el hero. */
 function WalletCardScreen({ provider }: { provider: 'apple' | 'google' }) {
   return (
-    <div style={{ background: C.coral, color: '#fff', padding: '18px 14px 14px', minHeight: 300 }}>
-      <div className="flex items-center justify-between text-[10px] font-semibold" style={{ opacity: 0.9 }}>
-        <span>{provider === 'apple' ? ' Wallet' : 'Google'}</span>
+    <div style={{ background: `linear-gradient(160deg, ${C.coral}, ${C.coralDark})`, color: '#fff', padding: '18px 14px 14px', minHeight: 300 }}>
+      <div className="flex items-center justify-between text-[10px] font-semibold" style={{ opacity: 0.92 }}>
+        <span>{provider === 'apple' ? ' Wallet' : 'Google Wallet'}</span>
         <span className="px-2 py-0.5 rounded-full" style={{ background: 'rgba(255,255,255,.2)' }}>Listo</span>
       </div>
       <div className="flex items-center gap-2 mt-3">
@@ -159,30 +153,18 @@ function WalletCardScreen({ provider }: { provider: 'apple' | 'google' }) {
   );
 }
 
-/** Pantalla de menú digital. */
 function MenuScreen() {
-  const items = [
-    ['Nudo Pepper', '$ 30.000'],
-    ['Nudo Chicken', '$ 38.000'],
-    ['Matcha Latte', '$ 18.000'],
-    ['Americano', '$ 6.000'],
-    ['Capuccino', '$ 10.000'],
-  ];
+  const items = [['Nudo Pepper', '$ 30.000'], ['Nudo Chicken', '$ 38.000'], ['Matcha Latte', '$ 18.000'], ['Americano', '$ 6.000'], ['Capuccino', '$ 10.000']];
   return (
     <div style={{ background: '#fff', minHeight: 300, padding: '16px 12px 12px' }}>
-      <div className="flex gap-2 text-[10px] font-semibold" style={{ color: C.gris }}>
-        {['Cárnes', 'Pollo', 'Pastas', 'Sopas'].map((c, i) => (
-          <span key={c} style={{ color: i === 0 ? C.coral : C.gris, fontWeight: i === 0 ? 700 : 500 }}>{c}</span>
-        ))}
+      <div className="flex gap-2 text-[10px] font-semibold">
+        {['Cárnes', 'Pollo', 'Pastas', 'Sopas'].map((c, i) => <span key={c} style={{ color: i === 0 ? C.coral : C.gris, fontWeight: i === 0 ? 700 : 500 }}>{c}</span>)}
       </div>
       <div className="mt-3 space-y-2.5">
         {items.map(([n, p]) => (
           <div key={n} className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-lg" style={{ background: C.crema, border: `1px solid ${C.line}` }} />
-            <div className="flex-1">
-              <div className="text-[11px] font-bold" style={{ color: C.tinta }}>{n}</div>
-              <div className="text-[10px]" style={{ color: C.coral, fontWeight: 700 }}>{p}</div>
-            </div>
+            <div className="flex-1"><div className="text-[11px] font-bold" style={{ color: C.tinta }}>{n}</div><div className="text-[10px]" style={{ color: C.coral, fontWeight: 700 }}>{p}</div></div>
             <div className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[13px] font-bold" style={{ background: C.coral }}>+</div>
           </div>
         ))}
@@ -191,38 +173,23 @@ function MenuScreen() {
   );
 }
 
-/** Pantalla InfoLink (link en bio). */
 function InfoLinkScreen({ name }: { name: string }) {
   return (
     <div style={{ background: `linear-gradient(180deg, ${C.coral}, ${C.coralDark})`, color: '#fff', minHeight: 300, padding: '22px 16px' }} className="text-center">
       <div className="text-[13px] font-extrabold tracking-wide">{name}</div>
       <div className="mt-1 text-[9px]" style={{ opacity: 0.85 }}>Únete a nuestro programa de fidelización</div>
       <div className="mt-4 mx-auto w-16 h-16 rounded-lg bg-white/95" style={{ backgroundImage: 'repeating-linear-gradient(45deg,#1A1033 0 3px,transparent 3px 6px)' }} />
-      <div className="mt-4 space-y-2">
-        {['Ver menú', 'Promociones', 'Ubicación'].map((b) => (
-          <div key={b} className="text-[10px] font-semibold py-1.5 rounded-full bg-white/15">{b}</div>
-        ))}
-      </div>
+      <div className="mt-4 space-y-2">{['Ver menú', 'Promociones', 'Ubicación'].map((b) => <div key={b} className="text-[10px] font-semibold py-1.5 rounded-full bg-white/15">{b}</div>)}</div>
     </div>
   );
 }
 
-/** Badge "● label" coral. */
 function Badge({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="inline-flex items-center gap-2 text-[12px] font-bold px-3 py-1.5 rounded-full" style={{ color: C.coralDark, background: '#fff', border: `1px solid ${C.coral}33` }}>
-      <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.coral }} /> {children}
-    </span>
-  );
+  return <span className="inline-flex items-center gap-2 text-[12px] font-bold px-3 py-1.5 rounded-full" style={{ color: C.coralDark, background: '#fff', border: `1px solid ${C.coral}33` }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: C.coral }} /> {children}</span>;
 }
 
-/** Pill oscuro (badge flotante sobre teléfonos). */
 function FloatPill({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
-  return (
-    <span className="absolute text-[11px] font-bold px-3 py-1.5 rounded-full text-white whitespace-nowrap" style={{ background: C.tinta, boxShadow: '0 8px 20px -6px rgba(26,16,51,.5)', ...style }}>
-      {children}
-    </span>
-  );
+  return <span className="absolute text-[11px] font-bold px-3 py-1.5 rounded-full text-white whitespace-nowrap" style={{ background: C.tinta, boxShadow: '0 8px 20px -6px rgba(26,16,51,.5)', ...style }}>{children}</span>;
 }
 
 export function SelleaLanding() {
@@ -230,24 +197,20 @@ export function SelleaLanding() {
   const [faq, setFaq] = useState<string | null>(null);
   const selected = PLANS.find((p) => p.id === plan)!;
 
-  const ctaPrimary = (label: string) => (
-    <a href="#precios" className="font-bold px-6 py-3.5 rounded-full text-white transition active:scale-95" style={{ background: `linear-gradient(180deg, ${C.coral}, ${C.coralDark})` }}>{label}</a>
-  );
-  const ctaSecondary = (label: string) => (
-    <a href="https://wa.me/" className="font-bold px-6 py-3.5 rounded-full transition active:scale-95" style={{ background: '#fff', color: C.tinta, border: `1px solid ${C.line}` }}>{label}</a>
-  );
+  const ctaPrimary = (label: string) => <a href="#precios" className="font-bold px-6 py-3.5 rounded-full text-white transition active:scale-95" style={{ background: `linear-gradient(180deg, ${C.coral}, ${C.coralDark})`, boxShadow: `0 12px 24px -10px ${C.coral}` }}>{label}</a>;
+  const ctaSecondary = (label: string) => <a href="https://wa.me/" className="font-bold px-6 py-3.5 rounded-full transition active:scale-95" style={{ background: '#fff', color: C.tinta, border: `1px solid ${C.line}` }}>{label}</a>;
 
   return (
     <div style={{ fontFamily: FONT, background: C.crema, color: C.tinta }}>
+      <style>{`@keyframes sellea-marquee{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}`}</style>
+
       {/* Nav */}
-      <header className="sticky top-0 z-50" style={{ background: 'rgba(255,246,240,.88)', backdropFilter: 'blur(10px)', borderBottom: `1px solid ${C.line}` }}>
+      <header className="sticky top-0 z-50" style={{ background: 'rgba(255,246,240,.9)', backdropFilter: 'blur(10px)', borderBottom: `1px solid ${C.line}` }}>
         <div className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between">
           <SelleaLogo size={28} />
-          <nav className="hidden lg:flex items-center gap-7 text-[14px] font-semibold" style={{ color: C.tinta }}>
-            {NAV.map((n) => <a key={n} href="#" className="hover:opacity-60 transition">{n}</a>)}
-          </nav>
+          <nav className="hidden lg:flex items-center gap-7 text-[14px] font-semibold">{NAV.map((n) => <a key={n} href="#" className="hover:opacity-60 transition">{n}</a>)}</nav>
           <div className="flex items-center gap-3">
-            <a href="https://app.soyclubify.com/login" className="hidden sm:block text-[14px] font-semibold" style={{ color: C.tinta }}>Iniciar sesión</a>
+            <a href="https://app.soyclubify.com/login" className="hidden sm:block text-[14px] font-semibold">Iniciar sesión</a>
             <a href="#precios" className="text-[14px] font-bold px-4 py-2 rounded-full text-white active:scale-95 transition" style={{ background: C.coral }}>Comenzar gratis</a>
           </div>
         </div>
@@ -255,43 +218,36 @@ export function SelleaLanding() {
 
       {/* Hero */}
       <section className="relative overflow-hidden" style={{ background: C.crema }}>
-        <div className="max-w-6xl mx-auto px-5 py-16 md:py-20 grid lg:grid-cols-2 gap-10 items-center">
+        <div className="max-w-6xl mx-auto px-5 py-14 md:py-20 grid lg:grid-cols-2 gap-10 items-center">
           <div>
-            <Badge>Fidelización digital</Badge>
-            <h1 className="mt-5 font-extrabold leading-[1.02]" style={{ fontSize: 'clamp(38px, 5.4vw, 60px)', letterSpacing: '-1.5px' }}>
-              Tarjetas de<br />fidelización en{' '}
-              <span style={{ color: C.coral }}>Apple y Google Wallet</span>
+            <div className="inline-flex items-center gap-2 text-[13px] font-semibold px-3 py-1.5 rounded-full mb-5" style={{ background: '#fff', border: `1px solid ${C.line}` }}>
+              <span style={{ color: C.coral, letterSpacing: 1 }}>★★★★★</span>
+              <span className="font-bold">4.9/5</span>
+              <span style={{ color: C.gris }}>· +150 negocios en LATAM</span>
+            </div>
+            <h1 className="font-extrabold leading-[1.02]" style={{ fontSize: 'clamp(38px, 5.4vw, 60px)', letterSpacing: '-1.5px' }}>
+              Haz que tus clientes<br /><span style={{ color: C.coral }}>vuelvan más seguido.</span>
             </h1>
             <p className="mt-5 text-[17px] max-w-md" style={{ color: C.gris }}>
-              Haz que tus clientes vuelvan más seguido con sellos, cupones y
-              recompensas automáticas directamente en su celular. Cero apps, cero
-              tarjetas plásticas perdidas.
+              Sellea es el sistema de fidelización digital que pone tu tarjeta de
+              sellos en el wallet del cliente. Más recompra, más ticket, más
+              clientes que vuelven. Cero apps, cero tarjetas perdidas.
             </p>
             <div className="mt-6 grid sm:grid-cols-2 gap-x-6 gap-y-2.5">
-              {HERO_FEATURES.map(([ic, t]) => (
-                <div key={t} className="flex items-center gap-2.5 text-[13.5px]" style={{ color: C.tinta }}>
-                  <I name={ic} size={16} /> {t}
-                </div>
-              ))}
+              {HERO_FEATURES.map(([ic, t]) => <div key={t} className="flex items-center gap-2.5 text-[13.5px]"><I name={ic} size={16} /> {t}</div>)}
             </div>
-            <div className="mt-8 flex flex-wrap gap-3">
-              {ctaPrimary('Ver plan y empezar')}
-              {ctaSecondary('Agendar una Demo')}
+            <div className="mt-8 flex flex-wrap gap-3">{ctaPrimary('Ver plan y empezar')}{ctaSecondary('Agendar una Demo')}</div>
+            <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-[13px]" style={{ color: C.gris }}>
+              <span>✓ Activación inmediata</span><span>✓ Sin permanencia</span><span>✓ Soporte en español</span>
             </div>
           </div>
-
-          {/* Teléfonos wallet */}
           <div className="relative flex justify-center lg:justify-end min-h-[380px]">
             <Dots className="absolute right-0 top-6 hidden md:grid" />
-            <FloatPill style={{ top: 4, right: 8, display: 'inline-flex', alignItems: 'center', gap: 6 }}> Apple Wallet</FloatPill>
+            <FloatPill style={{ top: 4, right: 8 }}> Apple Wallet</FloatPill>
             <FloatPill style={{ bottom: 70, left: 0 }}>Google Wallet</FloatPill>
             <div className="absolute left-2 top-16 z-20 hidden sm:block rounded-2xl bg-white p-3 shadow-xl" style={{ width: 180, border: `1px solid ${C.line}` }}>
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-full flex items-center justify-center" style={{ background: C.crema }}><SelleaMark size={14} /></div>
-                <div className="text-[10px] font-bold">NUDO COWORK</div>
-                <div className="ml-auto text-[9px]" style={{ color: C.gris }}>ahora</div>
-              </div>
-              <div className="mt-1.5 text-[11px] font-bold" style={{ color: C.tinta }}>⭐ Estás cerca, pasa por tu café!</div>
+              <div className="flex items-center gap-2"><div className="w-6 h-6 rounded-full flex items-center justify-center" style={{ background: C.crema }}><SelleaMark size={14} /></div><div className="text-[10px] font-bold">NUDO COWORK</div><div className="ml-auto text-[9px]" style={{ color: C.gris }}>ahora</div></div>
+              <div className="mt-1.5 text-[11px] font-bold">⭐ Estás cerca, pasa por tu café!</div>
               <div className="text-[10px]" style={{ color: C.gris }}>Te faltan 2 sellos para tu próxima gratis.</div>
             </div>
             <div className="flex items-end gap-3">
@@ -302,11 +258,48 @@ export function SelleaLanding() {
         </div>
       </section>
 
-      {/* Sección Menús IA */}
+      {/* Carrusel de negocios */}
+      <section className="py-10 overflow-hidden" style={{ background: '#fff', borderTop: `1px solid ${C.line}`, borderBottom: `1px solid ${C.line}` }}>
+        <div className="text-center text-[12px] font-bold uppercase tracking-wider mb-6" style={{ color: C.coral }}>Negocios LATAM creciendo con Sellea</div>
+        <div className="relative" style={{ maskImage: 'linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent)', WebkitMaskImage: 'linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent)' }}>
+          <div className="flex gap-4 w-max" style={{ animation: 'sellea-marquee 28s linear infinite' }}>
+            {[...BUSINESSES, ...BUSINESSES].map((b, i) => (
+              <div key={i} className="flex items-center gap-2.5 px-5 py-3 rounded-2xl flex-none" style={{ background: C.crema, border: `1px solid ${C.line}` }}>
+                <span className="w-7 h-7 rounded-full flex items-center justify-center font-extrabold text-white text-[13px]" style={{ background: C.coral }}>{b[0]}</span>
+                <span className="font-bold text-[14px] whitespace-nowrap">{b}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Wallet */}
       <ProductSection
+        badge="Tarjetas Wallet"
+        title={<>Tarjetas de fidelización en <span style={{ color: C.coral }}>Apple y Google Wallet</span></>}
+        text="Tu tarjeta de sellos vive en el wallet del cliente. Se actualiza sola al escanear y le llega el progreso al teléfono — sin apps ni plástico."
+        bullets={['Disponible en Apple Wallet y Google Wallet', 'Sellos automáticos al escanear', 'GeoPush a 300mts del local', 'Cupones y recompensas', 'Mensajes de cumpleaños', 'Base de datos de tus clientes']}
+        ctas={<>{ctaPrimary('Ver plan y empezar')}{ctaSecondary('Agendar una Demo')}</>}
+        phones={
+          <div className="relative flex justify-center min-h-[360px] items-center">
+            <Dots className="absolute left-0 top-4 hidden md:grid" />
+            <FloatPill style={{ top: 0, right: 16 }}> Apple Wallet</FloatPill>
+            <FloatPill style={{ bottom: 36, left: 8 }}>Google Wallet</FloatPill>
+            <div className="flex items-end gap-3">
+              <Phone w={176} style={{ transform: 'rotate(-2deg)' }}><WalletCardScreen provider="apple" /></Phone>
+              <Phone w={162} style={{ transform: 'translateY(-16px) rotate(2deg)' }}><WalletCardScreen provider="google" /></Phone>
+            </div>
+          </div>
+        }
+      />
+
+      {/* Menú digital */}
+      <ProductSection
+        reverse
         badge="Menú digital"
         title={<>Menús digitales con <span style={{ color: C.coral }}>inteligencia artificial</span></>}
-        text="Tu menú vive en el iPhone de tu cliente. Foto + variantes + traducción automática + rotación de los más vendidos. Cero imprenta, cero fricción."
+        text="Tu menú vive en el iPhone de tu cliente. Foto, variantes, traducción automática y rotación de los más vendidos. Cero imprenta, cero fricción."
+        bullets={['Traducción automática', 'Rotación de productos', 'Variantes y modificadores', 'Multilenguaje', 'Fotos de cada producto', 'Menú siempre vivo']}
         ctas={<>{ctaPrimary('Ver plan y empezar')}{ctaSecondary('Agendar una Demo')}</>}
         phones={
           <div className="relative flex justify-center min-h-[360px] items-center">
@@ -321,11 +314,12 @@ export function SelleaLanding() {
         }
       />
 
-      {/* Sección InfoLinks */}
+      {/* InfoLink */}
       <ProductSection
-        badge="Infolinks"
+        badge="InfoLink"
         title={<>Tu InfoLink se crea en <span style={{ color: C.coral }}>menos de 2 minutos</span></>}
-        text="Comparte el link en tu bio de Instagram, WhatsApp o QR de mesa. Adentro: menú, eventos, promociones, ubicación, redes y tarjeta de fidelización — todo en un solo lugar."
+        text="Un solo link para tu bio de Instagram, WhatsApp o QR de mesa. Adentro, todo tu negocio en un lugar."
+        bullets={['Botón de WhatsApp', 'Redes sociales', 'Eventos', 'Ubicación con mapa', 'Menú digital', 'Tarjeta de fidelización']}
         ctas={ctaPrimary('Ver planes y comenzar')}
         phones={
           <div className="relative flex flex-col items-center min-h-[360px] justify-center">
@@ -335,28 +329,50 @@ export function SelleaLanding() {
               <Phone w={168} style={{ transform: 'translateY(-14px) rotate(2deg)' }}><InfoLinkScreen name="MOTILART" /></Phone>
             </div>
             <div className="mt-4 flex gap-8 text-[12px] font-semibold">
-              <span style={{ color: C.tinta }}>Nudo Cowork · <a href="#" style={{ color: C.coral }}>Ver ejemplo →</a></span>
-              <span style={{ color: C.tinta }}>Motilart · <a href="#" style={{ color: C.coral }}>Ver ejemplo →</a></span>
+              <span>Nudo Cowork · <a href="#" style={{ color: C.coral }}>Ver ejemplo →</a></span>
+              <span>Motilart · <a href="#" style={{ color: C.coral }}>Ver ejemplo →</a></span>
             </div>
           </div>
         }
       />
 
+      {/* ROI */}
+      <section className="py-20" style={{ background: C.tinta, color: '#fff' }}>
+        <div className="max-w-6xl mx-auto px-5">
+          <div className="text-center max-w-2xl mx-auto">
+            <span className="text-[12px] font-bold uppercase tracking-wider" style={{ color: C.coral }}>El retorno</span>
+            <h2 className="mt-2 font-extrabold leading-[1.1]" style={{ fontSize: 'clamp(28px, 4vw, 44px)', letterSpacing: '-1px' }}>
+              Un cliente recurrente vale más que <span style={{ color: C.coral }}>10 nuevos.</span>
+            </h2>
+            <p className="mt-3 text-[16px]" style={{ color: '#c9c3d4' }}>
+              Conseguir un cliente nuevo cuesta caro. Hacer que vuelva el que ya
+              tienes, no. Sellea convierte cada compra en una razón para regresar.
+            </p>
+          </div>
+          <div className="mt-12 grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {ROI.map(([label, val, desc]) => (
+              <div key={label} className="rounded-2xl p-6" style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)' }}>
+                <div className="flex items-center gap-2"><I name="trend" size={18} /><span className="text-2xl font-extrabold" style={{ color: C.coral }}>{val}</span></div>
+                <div className="mt-2 font-bold text-[15px]">{label}</div>
+                <div className="mt-1 text-[13px]" style={{ color: '#c9c3d4' }}>{desc}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* Testimonios */}
       <section className="py-20" style={{ background: C.crema, borderTop: `1px solid ${C.line}` }}>
         <div className="max-w-6xl mx-auto px-5">
-          <div className="text-center text-[12px] font-bold uppercase tracking-wider mb-8" style={{ color: C.coral }}>Lo que dicen nuestros clientes</div>
+          <div className="text-center text-[12px] font-bold uppercase tracking-wider mb-8" style={{ color: C.coral }}>Resultados reales de nuestros clientes</div>
           <div className="grid md:grid-cols-3 gap-5">
             {TESTIMONIALS.map((t) => (
               <div key={t.name} className="rounded-2xl p-6 bg-white" style={{ border: `1px solid ${C.line}` }}>
-                <div className="text-[15px]" style={{ color: C.coral }}>★★★★★</div>
-                <p className="mt-3 text-[14.5px] leading-relaxed" style={{ color: C.tinta }}>"{t.quote}"</p>
+                <div className="inline-block text-[13px] font-extrabold px-3 py-1 rounded-full mb-3" style={{ background: C.coralSoft, color: C.coralDark }}>{t.stat}</div>
+                <p className="text-[14.5px] leading-relaxed" style={{ color: C.tinta }}>"{t.quote}"</p>
                 <div className="mt-5 flex items-center gap-3">
                   <div className="w-9 h-9 rounded-full flex items-center justify-center text-lg" style={{ background: C.crema }}>{t.avatar}</div>
-                  <div>
-                    <div className="font-bold text-[13px]">{t.name}</div>
-                    <div className="text-[12px]" style={{ color: C.gris }}>{t.role}</div>
-                  </div>
+                  <div><div className="font-bold text-[13px]">{t.name}</div><div className="text-[12px]" style={{ color: C.gris }}>{t.role}</div></div>
                 </div>
               </div>
             ))}
@@ -370,12 +386,8 @@ export function SelleaLanding() {
           <div className="text-center">
             <div className="text-[12px] font-bold uppercase tracking-wider" style={{ color: C.coral }}>Precios</div>
             <h2 className="mt-2 font-extrabold" style={{ fontSize: 'clamp(28px, 4vw, 42px)', letterSpacing: '-1px' }}>Precios claros · sin sorpresas</h2>
-            <p className="mt-3 text-[15px] max-w-2xl mx-auto" style={{ color: C.gris }}>
-              Elige la periodicidad que más te convenga. Mientras más tiempo, más ahorras.
-              Activa tu cuenta en minutos y empieza a vender — cancela cuando quieras desde tu panel.
-            </p>
+            <p className="mt-3 text-[15px] max-w-2xl mx-auto" style={{ color: C.gris }}>Elige la periodicidad que más te convenga. Mientras más tiempo, más ahorras. Activa tu cuenta en minutos y cancela cuando quieras desde tu panel.</p>
           </div>
-
           <div className="mt-10 rounded-3xl p-5 md:p-7 grid lg:grid-cols-[1.4fr_1fr] gap-6" style={{ background: C.crema, border: `1px solid ${C.line}` }}>
             <div>
               <div className="font-bold text-lg">Elige tu plan</div>
@@ -385,7 +397,7 @@ export function SelleaLanding() {
                   const active = p.id === plan;
                   return (
                     <button key={p.id} onClick={() => setPlan(p.id)} className="w-full text-left rounded-2xl px-4 py-3.5 flex items-center gap-3 transition" style={{ background: '#fff', border: `1.5px solid ${active ? C.coral : C.line}`, boxShadow: active ? `0 0 0 3px ${C.coral}22` : 'none' }}>
-                      <span className="w-4 h-4 rounded-full flex-none" style={{ border: `2px solid ${active ? C.coral : '#cfc7d2'}`, background: active ? C.coral : '#fff', boxShadow: active ? `inset 0 0 0 2.5px #fff` : 'none' }} />
+                      <span className="w-4 h-4 rounded-full flex-none" style={{ border: `2px solid ${active ? C.coral : '#cfc7d2'}`, background: active ? C.coral : '#fff', boxShadow: active ? 'inset 0 0 0 2.5px #fff' : 'none' }} />
                       <span className="flex-1">
                         <span className="font-bold flex items-center gap-2">{p.name}{p.best && <span className="text-[10px] font-extrabold px-2 py-0.5 rounded text-white" style={{ background: C.coral }}>MEJOR PRECIO</span>}</span>
                         <span className="text-[12px]" style={{ color: C.gris }}>{p.perMonth}{p.save && <span style={{ color: C.coral }}> · {p.save}</span>}</span>
@@ -396,24 +408,37 @@ export function SelleaLanding() {
                 })}
               </div>
             </div>
-
             <div className="flex flex-col justify-center">
               <div className="text-[13px]" style={{ color: C.gris }}>Total hoy</div>
-              <div className="text-4xl font-extrabold mt-1" style={{ letterSpacing: '-1px' }}>{selected.total} USD</div>
-              <a href="https://app.soyclubify.com/signup" className="mt-4 text-center font-bold py-3.5 rounded-full text-white active:scale-95 transition" style={{ background: `linear-gradient(180deg, ${C.coral}, ${C.coralDark})` }}>Continuar al pago →</a>
+              <div className="text-4xl font-extrabold mt-1" style={{ letterSpacing: '-1px', color: C.coral }}>{selected.total} USD</div>
+              <a href="https://app.soyclubify.com/signup" className="mt-4 text-center font-bold py-3.5 rounded-full text-white active:scale-95 transition" style={{ background: `linear-gradient(180deg, ${C.coral}, ${C.coralDark})`, boxShadow: `0 12px 24px -10px ${C.coral}` }}>Continuar al pago →</a>
               <div className="text-[12px] mt-3" style={{ color: C.gris }}>Pago seguro con Hotmart. Apenas pagas, creas tu cuenta en 1 minuto.</div>
             </div>
           </div>
-
-          {/* Trust row */}
           <div className="mt-8 flex flex-wrap justify-center gap-x-7 gap-y-3 text-[13px]" style={{ color: C.gris }}>
             {TRUST.map(([ic, t]) => <span key={t} className="flex items-center gap-2"><I name={ic} size={15} /> {t}</span>)}
           </div>
         </div>
       </section>
 
+      {/* Integraciones */}
+      <section className="py-16" style={{ background: C.crema, borderTop: `1px solid ${C.line}` }}>
+        <div className="max-w-5xl mx-auto px-5 text-center">
+          <span className="text-[12px] font-bold uppercase tracking-wider" style={{ color: C.coral }}>Integraciones</span>
+          <h2 className="mt-2 font-extrabold" style={{ fontSize: 'clamp(24px, 3.4vw, 36px)', letterSpacing: '-1px' }}>Conecta Sellea con las herramientas que ya usas</h2>
+          <div className="mt-9 flex flex-wrap justify-center gap-3">
+            {INTEGRATIONS.map((n) => (
+              <div key={n} className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-white" style={{ border: `1px solid ${C.line}` }}>
+                <span className="w-7 h-7 rounded-lg flex items-center justify-center font-extrabold text-[12px] text-white" style={{ background: C.tinta }}>{n[0]}</span>
+                <span className="font-bold text-[14px]">{n}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* FAQ */}
-      <section className="py-20" style={{ background: C.crema, borderTop: `1px solid ${C.line}` }}>
+      <section className="py-20" style={{ background: '#fff', borderTop: `1px solid ${C.line}` }}>
         <div className="max-w-5xl mx-auto px-5">
           <div className="text-center text-[12px] font-bold uppercase tracking-wider mb-8" style={{ color: C.coral }}>Preguntas frecuentes</div>
           <div className="grid md:grid-cols-2 gap-4">
@@ -422,9 +447,9 @@ export function SelleaLanding() {
                 {col.map(([q, a]) => {
                   const open = faq === q;
                   return (
-                    <div key={q} className="rounded-2xl bg-white overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+                    <div key={q} className="rounded-2xl overflow-hidden" style={{ background: C.crema, border: `1px solid ${C.line}` }}>
                       <button onClick={() => setFaq(open ? null : q)} className="w-full text-left px-5 py-4 flex items-center justify-between gap-3">
-                        <span className="text-[14px] font-semibold" style={{ color: C.tinta }}>{q}</span>
+                        <span className="text-[14px] font-semibold">{q}</span>
                         <span style={{ color: C.coral, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}>⌄</span>
                       </button>
                       {open && <div className="px-5 pb-4 text-[13.5px] leading-relaxed" style={{ color: C.gris }}>{a}</div>}
@@ -434,8 +459,21 @@ export function SelleaLanding() {
               </div>
             ))}
           </div>
-          <div className="text-center mt-7 text-[14px]" style={{ color: C.gris }}>
-            ¿Otra pregunta? <a href="https://wa.me/" className="font-bold" style={{ color: C.coral }}>Escríbenos por WhatsApp</a>
+          <div className="text-center mt-7 text-[14px]" style={{ color: C.gris }}>¿Otra pregunta? <a href="https://wa.me/" className="font-bold" style={{ color: C.coral }}>Escríbenos por WhatsApp</a></div>
+        </div>
+      </section>
+
+      {/* CTA final */}
+      <section className="py-16" style={{ background: '#fff' }}>
+        <div className="max-w-5xl mx-auto px-5">
+          <div className="rounded-[32px] px-8 py-14 text-center" style={{ background: C.tinta, color: '#fff' }}>
+            <div className="flex justify-center mb-5"><SelleaMark size={52} variant="dark" /></div>
+            <h2 className="font-extrabold leading-[1.08]" style={{ fontSize: 'clamp(28px, 4vw, 44px)', letterSpacing: '-1px' }}>Cada compra deja su <span style={{ color: C.coral }}>sello.</span></h2>
+            <p className="mt-3 text-[16px] max-w-xl mx-auto" style={{ color: '#c9c3d4' }}>Empieza hoy y haz que tus clientes vuelvan. Sin permanencia, activación inmediata y soporte en español.</p>
+            <div className="mt-7 flex flex-wrap gap-3 justify-center">
+              <a href="#precios" className="font-bold px-7 py-3.5 rounded-full text-white active:scale-95 transition" style={{ background: `linear-gradient(180deg, ${C.coral}, ${C.coralDark})` }}>Ver plan y empezar</a>
+              <a href="https://wa.me/" className="font-bold px-7 py-3.5 rounded-full active:scale-95 transition" style={{ background: 'rgba(255,255,255,.08)', color: '#fff', border: '1px solid rgba(255,255,255,.18)' }}>Agendar una Demo</a>
+            </div>
           </div>
         </div>
       </section>
@@ -443,28 +481,22 @@ export function SelleaLanding() {
       {/* Footer */}
       <footer style={{ background: C.tinta, color: '#c9c3d4' }}>
         <div className="max-w-6xl mx-auto px-5 py-14">
-          <div className="grid md:grid-cols-[1.4fr_repeat(4,1fr)] gap-8">
+          <div className="grid md:grid-cols-[1.5fr_repeat(3,1fr)] gap-8">
             <div>
               <SelleaLogo size={30} variant="dark" />
-              <p className="mt-3 text-[13px]">Cada compra deja su sello.</p>
-              <div className="mt-4 flex gap-2.5">
-                {['◎', '✆', '✉'].map((s, i) => (
-                  <span key={i} className="w-8 h-8 rounded-full flex items-center justify-center text-sm" style={{ background: 'rgba(255,255,255,.08)' }}>{s}</span>
-                ))}
-              </div>
+              <p className="mt-3 text-[13px] max-w-xs">Cada compra deja su sello. Sistema de fidelización digital para negocios de LATAM.</p>
+              <div className="mt-4 flex gap-2.5">{['◎', '✆', '✉'].map((s, i) => <a key={i} href="#" className="w-8 h-8 rounded-full flex items-center justify-center text-sm" style={{ background: 'rgba(255,255,255,.08)' }}>{s}</a>)}</div>
             </div>
             {FOOTER_COLS.map(([title, links]) => (
               <div key={title}>
                 <div className="text-[13px] font-bold text-white mb-3">{title}</div>
-                <div className="space-y-2">
-                  {links.map((l) => <a key={l} href="#" className="block text-[13px] hover:text-white transition">{l}</a>)}
-                </div>
+                <div className="space-y-2">{links.map((l) => <a key={l} href="#" className="block text-[13px] hover:text-white transition">{l}</a>)}</div>
               </div>
             ))}
           </div>
           <div className="mt-12 pt-6 flex flex-wrap justify-between gap-2 text-[12.5px]" style={{ borderTop: '1px solid rgba(255,255,255,.08)' }}>
             <span>© {new Date().getFullYear()} Sellea. Todos los derechos reservados.</span>
-            <span>www.selleala.com · @selleala</span>
+            <span>www.selleala.com · @selleala · hola@selleala.com</span>
           </div>
         </div>
       </footer>
@@ -472,18 +504,21 @@ export function SelleaLanding() {
   );
 }
 
-/** Sección de producto: texto a la izquierda, teléfonos a la derecha (alterna). */
-function ProductSection({ badge, title, text, ctas, phones }: { badge: string; title: React.ReactNode; text: string; ctas: React.ReactNode; phones: React.ReactNode }) {
+/** Sección de producto: texto + teléfonos. `reverse` invierte el orden. */
+function ProductSection({ badge, title, text, bullets, ctas, phones, reverse }: { badge: string; title: React.ReactNode; text: string; bullets: string[]; ctas: React.ReactNode; phones: React.ReactNode; reverse?: boolean }) {
   return (
     <section className="py-16 md:py-20" style={{ background: C.crema, borderTop: `1px solid ${C.line}` }}>
       <div className="max-w-6xl mx-auto px-5 grid lg:grid-cols-2 gap-10 items-center">
-        <div>
+        <div className={reverse ? 'lg:order-2' : ''}>
           <Badge>{badge}</Badge>
           <h2 className="mt-4 font-extrabold leading-[1.08]" style={{ fontSize: 'clamp(28px, 4vw, 40px)', letterSpacing: '-1px' }}>{title}</h2>
           <p className="mt-4 text-[16px] max-w-md" style={{ color: C.gris }}>{text}</p>
+          <div className="mt-5 grid sm:grid-cols-2 gap-x-6 gap-y-2">
+            {bullets.map((b) => <div key={b} className="flex items-center gap-2 text-[13.5px]"><I name="check" size={15} /> {b}</div>)}
+          </div>
           <div className="mt-7 flex flex-wrap gap-3">{ctas}</div>
         </div>
-        {phones}
+        <div className={reverse ? 'lg:order-1' : ''}>{phones}</div>
       </div>
     </section>
   );
