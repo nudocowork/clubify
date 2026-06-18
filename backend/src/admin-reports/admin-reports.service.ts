@@ -559,7 +559,12 @@ export class AdminReportsService {
     const sinceDate = this.rangeToSince(opts.range);
 
     const codes = await this.prisma.referralCode.findMany({
-      where: { role: opts.role, isActive: true },
+      // Aislamiento por marca: rankings solo de los afiliados de la marca.
+      where: {
+        role: opts.role,
+        isActive: true,
+        ...(user.whiteLabelId ? { whiteLabelId: user.whiteLabelId } : {}),
+      },
       select: {
         id: true,
         code: true,

@@ -561,6 +561,8 @@ export class ReferralsService {
   async list(user: AuthUser) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     return this.prisma.referralCode.findMany({
+      // Aislamiento por marca.
+      where: user.whiteLabelId ? { whiteLabelId: user.whiteLabelId } : {},
       include: {
         uses: {
           include: {
@@ -765,7 +767,11 @@ export class ReferralsService {
       // #7/#38 (2026-06-16): excluir afiliados eliminados (soft-delete
       // isActive=false) del ranking. Antes el leaderboard los seguía
       // mostrando y los seguía rankeando.
-      where: { isActive: true },
+      // Aislamiento por marca.
+      where: {
+        isActive: true,
+        ...(user.whiteLabelId ? { whiteLabelId: user.whiteLabelId } : {}),
+      },
       include: {
         uses: {
           include: { commissions: true },
@@ -848,18 +854,29 @@ export class ReferralsService {
     // findMany() previo bloqueaba el dashboard.
     const oneMonthAgo = new Date(Date.now() - 30 * 86400_000);
     const oneMonthAgoMs = oneMonthAgo.getTime();
+    // Aislamiento por marca: códigos por whiteLabelId, comisiones/uses vía el
+    // tenant del referido, campañas vía su influencer dueño.
+    const wlId = user.whiteLabelId ?? null;
+    const codeWhere = wlId ? { whiteLabelId: wlId } : {};
+    const commWhere = wlId
+      ? { referralUse: { tenant: { whiteLabelId: wlId } } }
+      : {};
+    const useWhere = wlId ? { tenant: { whiteLabelId: wlId } } : {};
+    const campWhere = wlId ? { ownerCode: { whiteLabelId: wlId } } : {};
     const [campaigns, codes, uses, commByStatus, mrrAgg] = await Promise.all([
       this.prisma.campaign.findMany({
+        where: campWhere,
         include: {
           ownerCode: { include: { uses: { include: { commissions: true } } } },
           codes: { include: { uses: { include: { commissions: true } } } },
         },
       }),
-      this.prisma.referralCode.findMany({ where: { isActive: true } }),
+      this.prisma.referralCode.findMany({ where: { isActive: true, ...codeWhere } }),
       // Incluimos commissions embebidas en el use para evitar un segundo
       // findMany() sobre toda la tabla — los agregados por code/socio se
       // calculan en memoria sobre estas listas locales.
       this.prisma.referralUse.findMany({
+        where: useWhere,
         include: {
           referralCode: { select: { role: true, ownerName: true, code: true } },
           commissions: {
@@ -869,12 +886,14 @@ export class ReferralsService {
       }),
       this.prisma.commission.groupBy({
         by: ['status'],
+        where: commWhere,
         _sum: { amount: true },
       }),
       this.prisma.commission.aggregate({
         where: {
           createdAt: { gte: oneMonthAgo },
           status: { not: 'REJECTED' },
+          ...commWhere,
         },
         _sum: { amount: true },
       }),
@@ -1471,7 +1490,13 @@ export class ReferralsService {
   async listClients(user: AuthUser) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     const uses = await this.prisma.referralUse.findMany({
-      where: { tenantId: { not: null } },
+      // Aislamiento por marca: clientes de los negocios de la marca activa.
+      where: {
+        tenantId: { not: null },
+        ...(user.whiteLabelId
+          ? { tenant: { whiteLabelId: user.whiteLabelId } }
+          : {}),
+      },
       include: {
         tenant: {
           select: {
@@ -2095,7 +2120,11 @@ export class ReferralsService {
       data: { status: 'APPROVED' },
     });
 
-    const where: any = {};
+    // Aislamiento por marca: comisiones de los negocios de la marca activa.
+    const commWhere = user.whiteLabelId
+      ? { referralUse: { tenant: { whiteLabelId: user.whiteLabelId } } }
+      : {};
+    const where: any = { ...commWhere };
     if (opts.status === 'AVAILABLE_OR_PENDING') {
       where.status = { in: ['PENDING', 'APPROVED'] };
     } else if (opts.status) {
@@ -2162,6 +2191,7 @@ export class ReferralsService {
     // cargabamos TODA la tabla a memoria para sumar 3 estados.
     const totalsByStatus = await this.prisma.commission.groupBy({
       by: ['status'],
+      where: commWhere,
       _sum: { amount: true, amountPaid: true },
     });
     const round = (n: number) => Math.round(n * 100) / 100;
@@ -2751,6 +2781,7 @@ export class ReferralsService {
     const where: any = {
       role: { in: ['INFLUENCER', 'AMBASSADOR'] },
       isActive: true,
+      ...(user.whiteLabelId ? { whiteLabelId: user.whiteLabelId } : {}),
     };
     if (query) {
       where.OR = [
@@ -4218,7 +4249,12 @@ export class ReferralsService {
     }
 
     const live = await this.prisma.commission.findMany({
-      where: { status: { in: ['PENDING', 'APPROVED'] } },
+      where: {
+        status: { in: ['PENDING', 'APPROVED'] },
+        ...(user.whiteLabelId
+          ? { referralUse: { tenant: { whiteLabelId: user.whiteLabelId } } }
+          : {}),
+      },
       select: {
         id: true,
         amount: true,
@@ -5206,6 +5242,9 @@ export class ReferralsService {
       where: {
         paymentStatus: { in: ['PENDING', 'PARTIAL'] },
         recipientCodeId: { not: null },
+        ...(user.whiteLabelId
+          ? { referralUse: { tenant: { whiteLabelId: user.whiteLabelId } } }
+          : {}),
       },
       include: {
         recipientCode: {
