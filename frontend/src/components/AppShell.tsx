@@ -104,6 +104,7 @@ export default function AppShell({
     name: string;
     color: string | null;
     slug: string;
+    modules: string[];
   } | null>(null);
   const [tenantInfo, setTenantInfo] = useState<{
     brandName?: string;
@@ -194,32 +195,40 @@ export default function AppShell({
     setImpersonation(getImpersonationBackup());
   }, [pathname]);
 
-  // Resuelve el branding de la marca activa por slug de la URL (/admin/<slug>)
-  // cuando NO hay pila de impersonación con el branding — caso login directo
-  // de un admin de marca. Si la impersonación ya trae el nombre, no fetchea.
+  // Resuelve branding + módulos de la marca activa por slug (de la pila de
+  // impersonación o de la URL /admin/<slug>). Se fetchea SIEMPRE que haya una
+  // marca activa (no solo en login directo) porque el gating de menú por
+  // módulos (#2) necesita la lista de módulos también al impersonar.
   useEffect(() => {
     if (variant !== 'admin') {
       setBrandFetched(null);
       return;
     }
     const backup = getImpersonationBackup();
-    if (backup?.tenant?.brandName) {
-      setBrandFetched(null);
-      return;
-    }
     const m = pathname.match(/^\/admin\/([^/]+)/);
-    const slug = m && !ADMIN_ROUTE_SEGMENTS.has(m[1]) ? m[1] : null;
+    const urlSlug = m && !ADMIN_ROUTE_SEGMENTS.has(m[1]) ? m[1] : null;
+    const slug = backup?.tenant?.slug || urlSlug;
     if (!slug) {
       setBrandFetched(null);
       return;
     }
     let cancelled = false;
-    api<{ name: string; primaryColor: string; slug: string } | null>(
+    api<{
+      name: string;
+      primaryColor: string;
+      slug: string;
+      modules?: string[];
+    } | null>(
       `/superadmin-public/white-labels/branding?slug=${encodeURIComponent(slug)}`,
     )
       .then((r) => {
         if (!cancelled && r)
-          setBrandFetched({ name: r.name, color: r.primaryColor, slug: r.slug });
+          setBrandFetched({
+            name: r.name,
+            color: r.primaryColor,
+            slug: r.slug,
+            modules: r.modules ?? [],
+          });
       })
       .catch(() => {});
     return () => {
@@ -358,12 +367,11 @@ export default function AppShell({
               section: 'Sistema',
               items: [
                 { href: '/admin/users', label: 'Administradores', icon: 'users', hideForMarketing: true },
-                { href: '/admin/business-categories', label: 'Categorías', icon: 'grid' },
-                { href: '/admin/ai-knowledge', label: 'IA · Knowledge', icon: 'spark' },
                 { href: '/admin/branding', label: 'Branding', icon: 'spark' },
                 { href: '/admin/integrations', label: 'Integraciones SMS', icon: 'spark' },
-                { href: '/admin/maintenance', label: 'Mantenimiento', icon: 'grid', hideForMarketing: true },
-                { href: '/admin/audit', label: 'Audit log', icon: 'history', hideForMarketing: true },
+                // #4: Categorías + IA Knowledge ocultos (no relevantes para
+                // el usuario final). #5: Mantenimiento + Audit movidos a
+                // Master Admin (/superadmin) exclusivamente.
               ],
             },
             {
@@ -376,8 +384,17 @@ export default function AppShell({
               ],
             },
           ];
-          if (!isMarketing) return adminGroups;
-          return adminGroups
+          // #2: si la marca activa NO tiene el módulo REFERRALS, ocultar la
+          // sección "Programa" y "Comunidad" (Lab) por completo. brandModules
+          // null = marca sin resolver / global → mostrar todo (sin flicker).
+          const referralSections = new Set(['Programa', 'Comunidad']);
+          const moduleAllowed = (g: NavGroup) =>
+            !referralSections.has(g.section) ||
+            !brandModules ||
+            brandModules.includes('REFERRALS');
+          const gated = adminGroups.filter(moduleAllowed);
+          if (!isMarketing) return gated;
+          return gated
             .map((g) => ({
               ...g,
               items: g.items.filter((it) => !it.hideForMarketing),
@@ -575,6 +592,11 @@ export default function AppShell({
     variant === 'admin'
       ? impersonation?.tenant?.slug || urlBrandSlug || brandFetched?.slug || null
       : null;
+
+  // Módulos habilitados de la marca activa (para gatear secciones del menú).
+  // null = aún sin resolver o sin marca (global) → no se gatea nada.
+  const brandModules =
+    variant === 'admin' && brandSlug ? brandFetched?.modules ?? null : null;
 
   // Prefija un href de /admin con el slug de marca activo (/admin/tenants →
   // /admin/<slug>/tenants). El middleware reescribe de vuelta a /admin.

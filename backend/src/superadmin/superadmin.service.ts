@@ -884,9 +884,22 @@ export class SuperAdminService {
     if (!s) return null;
     const wl = await this.prisma.whiteLabel.findFirst({
       where: { slug: s, status: 'ACTIVE' },
-      select: { slug: true, name: true, primaryColor: true },
+      select: {
+        slug: true,
+        name: true,
+        primaryColor: true,
+        // Módulos habilitados → el panel gatea secciones (ej. Referidos) por
+        // marca. Solo los enabled.
+        modules: { where: { enabled: true }, select: { module: true } },
+      },
     });
-    return wl ?? null;
+    if (!wl) return null;
+    return {
+      slug: wl.slug,
+      name: wl.name,
+      primaryColor: wl.primaryColor,
+      modules: wl.modules.map((m) => m.module),
+    };
   }
 
   async createHotmartLink(dto: HotmartLinkDto, actorId?: string) {

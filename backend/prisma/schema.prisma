@@ -2064,6 +2064,13 @@ model ReferralCode {
   country               String?
   ownerUserId           String?
   ownerUser             User?          @relation(fields: [ownerUserId], references: [id])
+  // Marca blanca dueña del afiliado. Los referidos son 100% independientes
+  // por marca: cada Master Admin de marca ve SOLO sus influencers/embajadores/
+  // vendedores. Nullable solo durante el backfill (los existentes se asignan
+  // a "Clubify"). onDelete SetNull para no perder el código si se borra la
+  // marca.
+  whiteLabelId          String?
+  whiteLabel            WhiteLabel?    @relation("WhiteLabelReferralCodes", fields: [whiteLabelId], references: [id], onDelete: SetNull)
   commissionPercent     Decimal        @default(20) @db.Decimal(5, 2)
   role                  ReferralRole   @default(INFLUENCER)
   // Si role=AMBASSADOR, parentCodeId apunta al ReferralCode del influencer
@@ -3804,6 +3811,7 @@ model WhiteLabel {
   // Relaciones — todo lo "scoped" a una marca blanca cuelga de acá.
   tenants         Tenant[]
   modules         WhiteLabelModule[]
+  referralCodes   ReferralCode[]       @relation("WhiteLabelReferralCodes")
   creditTransactions CreditTransaction[]
   /// Users con role SUPER_ADMIN vinculados directamente a esta marca
   /// (no atados a un tenant específico). Ven todos los tenants de la

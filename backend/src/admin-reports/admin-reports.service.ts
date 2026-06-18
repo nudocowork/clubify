@@ -59,7 +59,11 @@ export class AdminReportsService {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
 
     const ambassadors = await this.prisma.referralCode.findMany({
-      where: { role: 'AMBASSADOR' },
+      // Aislamiento por marca: cada Master Admin ve solo los suyos.
+      where: {
+        role: 'AMBASSADOR',
+        ...(user.whiteLabelId ? { whiteLabelId: user.whiteLabelId } : {}),
+      },
       include: {
         parentCode: { select: { id: true, ownerName: true, code: true } },
         childVendors: {
@@ -352,7 +356,11 @@ export class AdminReportsService {
   async listVendors(user: AuthUser) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     const vendors = await this.prisma.referralCode.findMany({
-      where: { role: 'VENDOR' },
+      // Aislamiento por marca: cada Master Admin ve solo los suyos.
+      where: {
+        role: 'VENDOR',
+        ...(user.whiteLabelId ? { whiteLabelId: user.whiteLabelId } : {}),
+      },
       include: {
         parentEmbajadorCode: {
           select: { id: true, ownerName: true, code: true },

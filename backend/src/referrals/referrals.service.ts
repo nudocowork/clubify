@@ -485,6 +485,23 @@ export class ReferralsService {
     }
   }
 
+  /** Resuelve la marca blanca dueña de un afiliado nuevo: prioridad al padre
+   *  (sub-afiliado hereda la marca de su embajador/influencer), luego al admin
+   *  que lo crea (user.whiteLabelId), y por último cae a "Clubify" (registro
+   *  público sin contexto de marca). Mantiene los referidos aislados por marca. */
+  private async resolveAffiliateWhiteLabelId(opts: {
+    user?: AuthUser;
+    parentWhiteLabelId?: string | null;
+  }): Promise<string | null> {
+    if (opts.parentWhiteLabelId) return opts.parentWhiteLabelId;
+    if (opts.user?.whiteLabelId) return opts.user.whiteLabelId;
+    const clubify = await this.prisma.whiteLabel.findFirst({
+      where: { slug: 'clubify' },
+      select: { id: true },
+    });
+    return clubify?.id ?? null;
+  }
+
   async createCode(dto: CreateReferralDto) {
     if (!dto.fullName || !dto.email || !dto.whatsapp) {
       throw new BadRequestException('fullName, email and whatsapp required');
@@ -509,6 +526,7 @@ export class ReferralsService {
         ownerWhatsapp: dto.whatsapp,
         commissionPercent: dto.commissionPercent ?? COMMISSION_DEFAULTS.ambassadorPct,
         source: cleanSource,
+        whiteLabelId: await this.resolveAffiliateWhiteLabelId({}),
       },
     });
 
@@ -992,7 +1010,12 @@ export class ReferralsService {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     const codes = await this.prisma.referralCode.findMany({
       // #7 (2026-06-16): no listar influencers eliminados (isActive=false).
-      where: { role: 'INFLUENCER', isActive: true },
+      // Aislamiento por marca: cada Master Admin ve solo los suyos.
+      where: {
+        role: 'INFLUENCER',
+        isActive: true,
+        ...(user.whiteLabelId ? { whiteLabelId: user.whiteLabelId } : {}),
+      },
       include: {
         ownerOfCampaign: true,
         ambassadors: { select: { id: true, isActive: true } },
@@ -1124,7 +1147,12 @@ export class ReferralsService {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     const codes = await this.prisma.referralCode.findMany({
       // #7 (2026-06-16): no listar embajadores eliminados (isActive=false).
-      where: { role: 'AMBASSADOR', isActive: true },
+      // Aislamiento por marca: cada Master Admin ve solo los suyos.
+      where: {
+        role: 'AMBASSADOR',
+        isActive: true,
+        ...(user.whiteLabelId ? { whiteLabelId: user.whiteLabelId } : {}),
+      },
       include: {
         parentCode: { select: { code: true, ownerName: true } },
         campaign: { select: { name: true } },
@@ -1204,7 +1232,12 @@ export class ReferralsService {
   async listVendors(user: AuthUser) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     const codes = await this.prisma.referralCode.findMany({
-      where: { role: 'VENDOR', isActive: true },
+      // Aislamiento por marca: cada Master Admin ve solo los suyos.
+      where: {
+        role: 'VENDOR',
+        isActive: true,
+        ...(user.whiteLabelId ? { whiteLabelId: user.whiteLabelId } : {}),
+      },
       include: {
         parentEmbajadorCode: { select: { code: true, ownerName: true, role: true } },
         campaign: { select: { name: true } },
@@ -1302,6 +1335,7 @@ export class ReferralsService {
         country: dto.country?.trim() || null,
         commissionPercent: dto.commissionPercent ?? COMMISSION_DEFAULTS.ambassadorPct,
         role: 'AMBASSADOR',
+        whiteLabelId: await this.resolveAffiliateWhiteLabelId({ user }),
         parentCodeId: null,
         campaignId: null,
         approvedAt: new Date(), // pre-aprobado (no requiere flow de approval)
@@ -1401,6 +1435,7 @@ export class ReferralsService {
         country: dto.country?.trim() || null,
         commissionPercent: dto.commissionPercent ?? COMMISSION_DEFAULTS.influencerPct,
         role: 'INFLUENCER',
+        whiteLabelId: await this.resolveAffiliateWhiteLabelId({ user }),
         parentCodeId: null,
         campaignId: null,
         approvedAt: new Date(),
@@ -1623,6 +1658,7 @@ export class ReferralsService {
           ownerWhatsapp: dto.whatsapp,
           commissionPercent: dto.commissionPercent ?? COMMISSION_DEFAULTS.socioPct,
           role: 'SOCIO',
+          whiteLabelId: await this.resolveAffiliateWhiteLabelId({ user }),
           approvedAt: new Date(),
         },
       });
@@ -1653,7 +1689,12 @@ export class ReferralsService {
   async listPendingAmbassadors(user: AuthUser) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     return this.prisma.referralCode.findMany({
-      where: { role: 'AMBASSADOR', approvedAt: null },
+      // Aislamiento por marca: solo pendientes de la marca activa.
+      where: {
+        role: 'AMBASSADOR',
+        approvedAt: null,
+        ...(user.whiteLabelId ? { whiteLabelId: user.whiteLabelId } : {}),
+      },
       include: {
         parentCode: { select: { code: true, ownerName: true } },
         campaign: { select: { name: true } },
@@ -3027,6 +3068,9 @@ export class ReferralsService {
         ownerWhatsapp: dto.phone,
         role: 'VENDOR',
         commissionPercent,
+        whiteLabelId: await this.resolveAffiliateWhiteLabelId({
+          parentWhiteLabelId: amb.whiteLabelId,
+        }),
         parentEmbajadorCodeId: amb.id,
         isActive: true,
       },
@@ -3153,6 +3197,9 @@ export class ReferralsService {
         ownerWhatsapp: dto.phone,
         role: 'AMBASSADOR',
         commissionPercent,
+        whiteLabelId: await this.resolveAffiliateWhiteLabelId({
+          parentWhiteLabelId: inf.whiteLabelId,
+        }),
         parentCodeId: inf.id,
         campaignId: inf.campaignId ?? null,
         approvedAt: new Date(),
@@ -3337,6 +3384,7 @@ export class ReferralsService {
         country: dto.country?.trim() || null,
         role: dto.role,
         commissionPercent,
+        whiteLabelId: await this.resolveAffiliateWhiteLabelId({}),
         isActive: true,
       },
     });
@@ -3474,6 +3522,10 @@ export class ReferralsService {
         ownerWhatsapp: dto.whatsapp,
         role: 'VENDOR',
         commissionPercent: dto.commissionPercent,
+        whiteLabelId: await this.resolveAffiliateWhiteLabelId({
+          user,
+          parentWhiteLabelId: embajador.whiteLabelId,
+        }),
         parentEmbajadorCodeId: embajador.id,
         isActive: true,
       },
