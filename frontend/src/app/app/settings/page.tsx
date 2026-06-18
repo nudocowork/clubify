@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api, downloadFile, getUser, setSession, clearSession } from '@/lib/api';
 import { useRouter } from 'next/navigation';
@@ -133,6 +134,7 @@ function detectMainMode(override: string | null): {
 }
 
 export default function SettingsPage() {
+  const t = useTranslations('app_settings');
   const router = useRouter();
   const [me, setMe] = useState<Profile | null>(null);
   const [profile, setProfile] = useState({ fullName: '', email: '', phone: '' });
@@ -208,14 +210,14 @@ export default function SettingsPage() {
       if (!trimmed) {
         setSectionMsg({
           ok: false,
-          text: 'Escribe el nombre personalizado o elige otra opción',
+          text: t('sectionCustomRequired'),
         });
         return;
       }
       if (trimmed.length > 24) {
         setSectionMsg({
           ok: false,
-          text: 'Máximo 24 caracteres',
+          text: t('max24Chars'),
         });
         return;
       }
@@ -239,12 +241,12 @@ export default function SettingsPage() {
       );
       setSectionMsg({
         ok: true,
-        text: 'Nombre actualizado. Recarga para verlo en todo el panel.',
+        text: t('sectionUpdatedReload'),
       });
     } catch (err: any) {
       setSectionMsg({
         ok: false,
-        text: err?.message || 'No se pudo guardar',
+        text: err?.message || t('couldNotSave'),
       });
     } finally {
       setSavingSection(false);
@@ -263,10 +265,10 @@ export default function SettingsPage() {
       setTenant(updated);
       setStampsMsg({
         ok: true,
-        text: `Tus clientes pueden recibir hasta ${maxStampsPerDay} sello${maxStampsPerDay === 1 ? '' : 's'} por día.`,
+        text: t('stampsSaved', { count: maxStampsPerDay }),
       });
     } catch (e: any) {
-      setStampsMsg({ ok: false, text: e.message || 'No se pudo guardar' });
+      setStampsMsg({ ok: false, text: e.message || t('couldNotSave') });
     } finally {
       setSavingStamps(false);
     }
@@ -289,10 +291,10 @@ export default function SettingsPage() {
       setTenant(updated);
       setCurrencyMsg({
         ok: true,
-        text: 'Configuración guardada. Los precios y ubicaciones se actualizarán.',
+        text: t('currencySaved'),
       });
     } catch (e: any) {
-      setCurrencyMsg({ ok: false, text: e.message || 'No se pudo guardar' });
+      setCurrencyMsg({ ok: false, text: e.message || t('couldNotSave') });
     } finally {
       setSavingCurrency(false);
     }
@@ -320,9 +322,9 @@ export default function SettingsPage() {
           JSON.stringify({ ...u, email: updated.email, fullName: updated.fullName }),
         );
       }
-      setProfileMsg({ ok: true, text: 'Perfil actualizado' });
+      setProfileMsg({ ok: true, text: t('profileUpdated') });
     } catch (e: any) {
-      setProfileMsg({ ok: false, text: e.message || 'No se pudo actualizar' });
+      setProfileMsg({ ok: false, text: e.message || t('couldNotUpdate') });
     } finally {
       setSavingProfile(false);
     }
@@ -333,15 +335,15 @@ export default function SettingsPage() {
     setBrandNameMsg(null);
     const trimmed = brandNameDraft.trim();
     if (!trimmed) {
-      setBrandNameMsg({ ok: false, text: 'El nombre no puede quedar vacío' });
+      setBrandNameMsg({ ok: false, text: t('brandNameEmpty') });
       return;
     }
     if (trimmed.length > 80) {
-      setBrandNameMsg({ ok: false, text: 'Máximo 80 caracteres' });
+      setBrandNameMsg({ ok: false, text: t('max80Chars') });
       return;
     }
     if (trimmed === tenant?.brandName) {
-      setBrandNameMsg({ ok: true, text: 'Sin cambios' });
+      setBrandNameMsg({ ok: true, text: t('noChanges') });
       return;
     }
     setSavingBrandName(true);
@@ -361,9 +363,9 @@ export default function SettingsPage() {
           JSON.stringify({ ...u, tenant: { ...u.tenant, brandName: updated.brandName ?? trimmed } }),
         );
       }
-      setBrandNameMsg({ ok: true, text: 'Nombre del negocio actualizado' });
+      setBrandNameMsg({ ok: true, text: t('brandNameUpdated') });
     } catch (e: any) {
-      setBrandNameMsg({ ok: false, text: e.message || 'No se pudo actualizar' });
+      setBrandNameMsg({ ok: false, text: e.message || t('couldNotUpdate') });
     } finally {
       setSavingBrandName(false);
     }
@@ -373,11 +375,11 @@ export default function SettingsPage() {
     e.preventDefault();
     setPwdMsg(null);
     if (pwd.next.length < 8) {
-      setPwdMsg({ ok: false, text: 'La nueva contraseña debe tener al menos 8 caracteres' });
+      setPwdMsg({ ok: false, text: t('passwordMinLength') });
       return;
     }
     if (pwd.next !== pwd.confirm) {
-      setPwdMsg({ ok: false, text: 'Las contraseñas no coinciden' });
+      setPwdMsg({ ok: false, text: t('passwordsDoNotMatch') });
       return;
     }
     setSavingPwd(true);
@@ -390,9 +392,9 @@ export default function SettingsPage() {
         }),
       });
       setPwd({ current: '', next: '', confirm: '' });
-      setPwdMsg({ ok: true, text: 'Contraseña actualizada' });
+      setPwdMsg({ ok: true, text: t('passwordUpdated') });
     } catch (e: any) {
-      setPwdMsg({ ok: false, text: e.message || 'No se pudo cambiar' });
+      setPwdMsg({ ok: false, text: e.message || t('couldNotChange') });
     } finally {
       setSavingPwd(false);
     }
@@ -403,21 +405,21 @@ export default function SettingsPage() {
     router.push('/login');
   }
 
-  if (!me) return <div className="text-mute">Cargando…</div>;
+  if (!me) return <div className="text-mute">{t('loading')}</div>;
 
   return (
     <div className="max-w-2xl mx-auto">
       <div className="page-head">
-        <h1 className="page-title">Mi cuenta</h1>
+        <h1 className="page-title">{t('myAccount')}</h1>
       </div>
 
       {/* Perfil */}
       <form onSubmit={saveProfile} className="card card-pad mb-4">
-        <h2 className="text-base font-semibold m-0">Datos personales</h2>
-        <p className="text-xs text-mute mt-1">Tu información de contacto.</p>
+        <h2 className="text-base font-semibold m-0">{t('personalData')}</h2>
+        <p className="text-xs text-mute mt-1">{t('personalDataDesc')}</p>
         <div className="grid sm:grid-cols-2 gap-3 mt-4">
           <div>
-            <label className="label">Nombre completo</label>
+            <label className="label">{t('fullName')}</label>
             <input
               className="input"
               value={profile.fullName}
@@ -426,7 +428,7 @@ export default function SettingsPage() {
             />
           </div>
           <div>
-            <label className="label">Email</label>
+            <label className="label">{t('email')}</label>
             <input
               className="input"
               type="email"
@@ -436,7 +438,7 @@ export default function SettingsPage() {
             />
           </div>
           <div className="sm:col-span-2">
-            <label className="label">Teléfono (opcional)</label>
+            <label className="label">{t('phoneOptional')}</label>
             {/* #25 (2026-06-16): selector internacional con banderas. */}
             <PhoneInput
               value={profile.phone}
@@ -455,7 +457,7 @@ export default function SettingsPage() {
         )}
         <div className="mt-4 flex justify-end">
           <button type="submit" className="btn-primary" disabled={savingProfile}>
-            {savingProfile ? 'Guardando…' : 'Guardar cambios'}
+            {savingProfile ? t('saving') : t('saveChanges')}
           </button>
         </div>
       </form>
@@ -464,17 +466,17 @@ export default function SettingsPage() {
           (storefront, wallet, headers, emails). Slug/subdomain quedan
           fijos desde el create — cambiar brandName NO los toca. */}
       <form onSubmit={saveBrandName} className="card card-pad mb-4">
-        <h2 className="text-base font-semibold m-0">Nombre del negocio</h2>
+        <h2 className="text-base font-semibold m-0">{t('businessName')}</h2>
         <p className="text-xs text-mute mt-1">
-          Así aparecerá en el menú público, la tarjeta wallet, los recibos y los emails.
+          {t('businessNameDesc')}
         </p>
         <div className="mt-4">
-          <label className="label">Nombre comercial</label>
+          <label className="label">{t('commercialName')}</label>
           <input
             className="input"
             value={brandNameDraft}
             onChange={(e) => setBrandNameDraft(e.target.value)}
-            placeholder="Café del Día"
+            placeholder={t('businessNamePlaceholder')}
             maxLength={80}
             required
           />
@@ -490,7 +492,7 @@ export default function SettingsPage() {
         )}
         <div className="mt-4 flex justify-end">
           <button type="submit" className="btn-primary" disabled={savingBrandName}>
-            {savingBrandName ? 'Guardando…' : 'Guardar nombre'}
+            {savingBrandName ? t('saving') : t('saveName')}
           </button>
         </div>
       </form>
@@ -499,9 +501,9 @@ export default function SettingsPage() {
           elección en cookie + User.preferredLocale (al estar logueado)
           via POST /api/locale → POST /api/auth/locale. */}
       <section className="card card-pad mb-4">
-        <h2 className="text-base font-semibold m-0">Idioma</h2>
+        <h2 className="text-base font-semibold m-0">{t('language')}</h2>
         <p className="text-xs text-mute mt-1">
-          Aplica al panel y se sincroniza entre tus dispositivos.
+          {t('languageDesc')}
         </p>
         <div className="mt-4">
           <LanguageSwitcherIntl variant="panel" />
@@ -510,14 +512,13 @@ export default function SettingsPage() {
 
       {/* Password */}
       <form onSubmit={changePassword} className="card card-pad mb-4">
-        <h2 className="text-base font-semibold m-0">Cambiar contraseña</h2>
+        <h2 className="text-base font-semibold m-0">{t('changePassword')}</h2>
         <p className="text-xs text-mute mt-1">
-          Después de cambiarla seguirás logueado, pero los demás dispositivos van
-          a pedir login otra vez.
+          {t('changePasswordDesc')}
         </p>
         <div className="grid gap-3 mt-4">
           <div>
-            <label className="label">Contraseña actual</label>
+            <label className="label">{t('currentPassword')}</label>
             <input
               className="input"
               type="password"
@@ -529,7 +530,7 @@ export default function SettingsPage() {
           </div>
           <div className="grid sm:grid-cols-2 gap-3">
             <div>
-              <label className="label">Nueva contraseña</label>
+              <label className="label">{t('newPassword')}</label>
               <input
                 className="input"
                 type="password"
@@ -541,7 +542,7 @@ export default function SettingsPage() {
               />
             </div>
             <div>
-              <label className="label">Confirmar nueva</label>
+              <label className="label">{t('confirmNew')}</label>
               <input
                 className="input"
                 type="password"
@@ -565,7 +566,7 @@ export default function SettingsPage() {
         )}
         <div className="mt-4 flex justify-end">
           <button type="submit" className="btn-primary" disabled={savingPwd}>
-            {savingPwd ? 'Cambiando…' : 'Cambiar contraseña'}
+            {savingPwd ? t('changing') : t('changePassword')}
           </button>
         </div>
       </form>
@@ -583,16 +584,14 @@ export default function SettingsPage() {
       {/* País + Moneda del menú público */}
       <form onSubmit={saveCurrency} className="card card-pad mb-4">
         <h2 className="text-base font-semibold m-0 flex items-center gap-2">
-          🌎 País y moneda
+          🌎 {t('countryAndCurrency')}
         </h2>
         <p className="text-xs text-mute mt-1 leading-relaxed">
-          El país define los dropdowns de estado/provincia/municipio en el
-          checkout. La moneda define los precios del menú público. La zona
-          horaria se usa para recordatorios de reservas.
+          {t('countryAndCurrencyDesc')}
         </p>
 
         <div className="mt-4">
-          <label className="label">País del negocio</label>
+          <label className="label">{t('businessCountry')}</label>
           <select
             className="input"
             value={country}
@@ -605,35 +604,35 @@ export default function SettingsPage() {
               if (suggested) setCurrency(suggested);
             }}
           >
-            <option value="CO">🇨🇴 Colombia</option>
-            <option value="MX">🇲🇽 México</option>
-            <option value="AR">🇦🇷 Argentina</option>
-            <option value="CL">🇨🇱 Chile</option>
-            <option value="PE">🇵🇪 Perú</option>
-            <option value="EC">🇪🇨 Ecuador</option>
-            <option value="VE">🇻🇪 Venezuela</option>
-            <option value="UY">🇺🇾 Uruguay</option>
-            <option value="PY">🇵🇾 Paraguay</option>
-            <option value="BO">🇧🇴 Bolivia</option>
-            <option value="CR">🇨🇷 Costa Rica</option>
-            <option value="PA">🇵🇦 Panamá</option>
-            <option value="GT">🇬🇹 Guatemala</option>
-            <option value="HN">🇭🇳 Honduras</option>
-            <option value="SV">🇸🇻 El Salvador</option>
-            <option value="NI">🇳🇮 Nicaragua</option>
-            <option value="BZ">🇧🇿 Belice</option>
-            <option value="DO">🇩🇴 R. Dominicana</option>
-            <option value="ES">🇪🇸 España</option>
-            <option value="US">🇺🇸 Estados Unidos</option>
-            <option value="BR">🇧🇷 Brasil</option>
+            <option value="CO">🇨🇴 {t('countryCO')}</option>
+            <option value="MX">🇲🇽 {t('countryMX')}</option>
+            <option value="AR">🇦🇷 {t('countryAR')}</option>
+            <option value="CL">🇨🇱 {t('countryCL')}</option>
+            <option value="PE">🇵🇪 {t('countryPE')}</option>
+            <option value="EC">🇪🇨 {t('countryEC')}</option>
+            <option value="VE">🇻🇪 {t('countryVE')}</option>
+            <option value="UY">🇺🇾 {t('countryUY')}</option>
+            <option value="PY">🇵🇾 {t('countryPY')}</option>
+            <option value="BO">🇧🇴 {t('countryBO')}</option>
+            <option value="CR">🇨🇷 {t('countryCR')}</option>
+            <option value="PA">🇵🇦 {t('countryPA')}</option>
+            <option value="GT">🇬🇹 {t('countryGT')}</option>
+            <option value="HN">🇭🇳 {t('countryHN')}</option>
+            <option value="SV">🇸🇻 {t('countrySV')}</option>
+            <option value="NI">🇳🇮 {t('countryNI')}</option>
+            <option value="BZ">🇧🇿 {t('countryBZ')}</option>
+            <option value="DO">🇩🇴 {t('countryDO')}</option>
+            <option value="ES">🇪🇸 {t('countryES')}</option>
+            <option value="US">🇺🇸 {t('countryUS')}</option>
+            <option value="BR">🇧🇷 {t('countryBR')}</option>
           </select>
         </div>
 
         <div className="mt-4">
-          <label className="label">Zona horaria</label>
+          <label className="label">{t('timezone')}</label>
           <select
             className="input"
-            value={COMMON_TIMEZONES.some((t) => t.value === timezone) ? timezone : '__other__'}
+            value={COMMON_TIMEZONES.some((tz) => tz.value === timezone) ? timezone : '__other__'}
             onChange={(e) => {
               if (e.target.value === '__other__') {
                 // mantenemos el valor actual; el input libre debajo permite editarlo
@@ -647,25 +646,24 @@ export default function SettingsPage() {
                 {tz.label}
               </option>
             ))}
-            <option value="__other__">Otra (escribir IANA)…</option>
+            <option value="__other__">{t('timezoneOther')}</option>
           </select>
-          {!COMMON_TIMEZONES.some((t) => t.value === timezone) && (
+          {!COMMON_TIMEZONES.some((tz) => tz.value === timezone) && (
             <input
               type="text"
               className="input mt-2"
               value={timezone}
               onChange={(e) => setTimezone(e.target.value.slice(0, 64))}
-              placeholder="ej: America/Mexico_City"
+              placeholder={t('timezonePlaceholder')}
             />
           )}
           <p className="text-[11px] text-mute mt-1.5">
-            Los recordatorios de reserva se mandan al negocio en su hora local.
-            Si no estás seguro, deja la opción por defecto.
+            {t('timezoneHint')}
           </p>
         </div>
 
         <div className="mt-4">
-          <label className="label">Moneda</label>
+          <label className="label">{t('currency')}</label>
           <select
             className="input"
             value={currency}
@@ -681,19 +679,19 @@ export default function SettingsPage() {
 
         <div className="mt-4">
           <label className="label">
-            Símbolo personalizado{' '}
-            <span className="text-mute font-normal">— opcional, sobrescribe el automático</span>
+            {t('customSymbol')}{' '}
+            <span className="text-mute font-normal">{t('customSymbolHint')}</span>
           </label>
           <input
             type="text"
             className="input max-w-[160px]"
             value={currencySymbol}
             onChange={(e) => setCurrencySymbol(e.target.value.slice(0, 8))}
-            placeholder="$, €, Bs, Ref., Pts…"
+            placeholder={t('customSymbolPlaceholder')}
             maxLength={8}
           />
           <p className="text-[11px] text-mute mt-1.5">
-            Vista previa:{' '}
+            {t('preview')}{' '}
             <span className="font-mono text-ink">
               {(() => {
                 try {
@@ -737,7 +735,7 @@ export default function SettingsPage() {
                 timezone === (tenant?.timezone ?? 'America/Bogota'))
             }
           >
-            {savingCurrency ? 'Guardando…' : 'Guardar moneda'}
+            {savingCurrency ? t('saving') : t('saveCurrency')}
           </button>
         </div>
       </form>
@@ -745,16 +743,14 @@ export default function SettingsPage() {
       {/* M4: máximo de sellos por día */}
       <form onSubmit={saveStamps} className="card card-pad mb-4">
         <h2 className="text-base font-semibold m-0 flex items-center gap-2">
-          🎯 Sellos por día
+          🎯 {t('stampsPerDay')}
         </h2>
         <p className="text-xs text-mute mt-1 leading-relaxed">
-          Cuántas veces tu cliente puede recibir un sello (o visita) en el
-          mismo día. Default 1. Subilo para campañas promocionales —
-          cumpleaños, evento, doble sello hoy, etc.
+          {t('stampsPerDayDesc')}
         </p>
         <div className="mt-4 grid sm:grid-cols-4 gap-3 items-end">
           <div className="sm:col-span-1">
-            <label className="label">Máximo / día</label>
+            <label className="label">{t('maxPerDay')}</label>
             <input
               className="input"
               type="number"
@@ -770,11 +766,10 @@ export default function SettingsPage() {
           </div>
           <div className="sm:col-span-3 text-[11px] text-mute leading-relaxed">
             {maxStampsPerDay === 1
-              ? 'Comportamiento estándar — 1 sello cada 24 horas por cliente.'
-              : `Hasta ${maxStampsPerDay} sellos por cliente cada 24 horas. Después del máximo, el cliente espera al rolling window de 24h.`}
+              ? t('stampsStandard')
+              : t('stampsMultiple', { count: maxStampsPerDay })}
             <br />
-            El bypass de SUPER_ADMIN sigue intacto para corregir errores
-            manualmente.
+            {t('stampsSuperAdminBypass')}
           </div>
         </div>
         {stampsMsg && (
@@ -795,7 +790,7 @@ export default function SettingsPage() {
               maxStampsPerDay === Math.max(1, tenant?.maxStampsPerDay ?? 1)
             }
           >
-            {savingStamps ? 'Guardando…' : 'Guardar máximo'}
+            {savingStamps ? t('saving') : t('saveMax')}
           </button>
         </div>
       </form>
@@ -807,24 +802,21 @@ export default function SettingsPage() {
       {/* Nombre de sección principal */}
       <div className="card card-pad mb-4">
         <h2 className="text-base font-semibold m-0 flex items-center gap-2">
-          🏷 Nombre de sección principal
+          🏷 {t('mainSectionName')}
         </h2>
         <p className="text-xs text-mute mt-1 leading-relaxed">
-          Cambia cómo aparece la palabra "Menú" en tu panel y en la vista
-          pública. Útil si vendés servicios (peluquería, autolavado, spa) o
-          tienes algo distinto a una carta tradicional (tratamientos, planes,
-          paquetes, etc.).
+          {t('mainSectionNameDesc')}
         </p>
         <form onSubmit={saveSectionLabel} className="mt-4 grid gap-3">
           <div>
-            <label className="label">Opción</label>
+            <label className="label">{t('option')}</label>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {(
                 [
-                  { v: 'menu', emoji: '🍽', label: 'Menú', hint: 'Por defecto' },
-                  { v: 'services', emoji: '🛠', label: 'Servicios', hint: 'Spas, peluquerías' },
-                  { v: 'catalog', emoji: '🛍', label: 'Catálogo', hint: 'Tienda / productos' },
-                  { v: 'custom', emoji: '✏️', label: 'Personalizado', hint: 'Tratamientos, Carta…' },
+                  { v: 'menu', emoji: '🍽', label: t('optMenu'), hint: t('optMenuHint') },
+                  { v: 'services', emoji: '🛠', label: t('optServices'), hint: t('optServicesHint') },
+                  { v: 'catalog', emoji: '🛍', label: t('optCatalog'), hint: t('optCatalogHint') },
+                  { v: 'custom', emoji: '✏️', label: t('optCustom'), hint: t('optCustomHint') },
                 ] as const
               ).map((opt) => {
                 const active = sectionMode === opt.v;
@@ -850,17 +842,16 @@ export default function SettingsPage() {
 
           {sectionMode === 'custom' && (
             <div>
-              <label className="label">Nombre personalizado</label>
+              <label className="label">{t('customName')}</label>
               <input
                 className="input max-w-xs"
-                placeholder="Ej: Tratamientos, Catálogo, Paquetes…"
+                placeholder={t('customNamePlaceholder')}
                 value={sectionCustom}
                 onChange={(e) => setSectionCustom(e.target.value.slice(0, 24))}
                 maxLength={24}
               />
               <p className="text-[11px] text-mute mt-1">
-                Máximo 24 caracteres. Vas a verlo en sidebar, botones, QR,
-                tabs públicos y títulos.
+                {t('customNameHint')}
               </p>
             </div>
           )}
@@ -881,7 +872,7 @@ export default function SettingsPage() {
               disabled={savingSection}
               className="btn-primary text-sm"
             >
-              {savingSection ? 'Guardando…' : 'Guardar nombre'}
+              {savingSection ? t('saving') : t('saveName')}
             </button>
           </div>
         </form>
@@ -889,10 +880,9 @@ export default function SettingsPage() {
 
       {/* Export */}
       <div className="card card-pad mb-4">
-        <h2 className="text-base font-semibold m-0">Tus datos</h2>
+        <h2 className="text-base font-semibold m-0">{t('yourData')}</h2>
         <p className="text-xs text-mute mt-1">
-          Descarga un archivo JSON con todos tus datos (clientes, productos,
-          pedidos, tarjetas). Útil para backup o si decides migrar.
+          {t('yourDataDesc')}
         </p>
         <div className="mt-4 flex justify-end">
           <button
@@ -904,23 +894,23 @@ export default function SettingsPage() {
             }
             className="btn-ghost text-sm"
           >
-            <Icon name="arrow-right" size={14} /> Descargar mis datos (JSON)
+            <Icon name="arrow-right" size={14} /> {t('downloadMyData')}
           </button>
         </div>
       </div>
 
       {/* Sesión */}
       <div className="card card-pad">
-        <h2 className="text-base font-semibold m-0">Sesión</h2>
+        <h2 className="text-base font-semibold m-0">{t('session')}</h2>
         <p className="text-xs text-mute mt-1">
-          Estás logueado como <span className="font-medium text-ink">{me.email}</span>
+          {t('loggedInAs')} <span className="font-medium text-ink">{me.email}</span>
         </p>
         <div className="mt-4 flex justify-end">
           <button
             onClick={logout}
             className="px-4 py-2 rounded-pill bg-bg2 text-ink text-sm font-semibold hover:bg-line"
           >
-            <Icon name="arrow-right" size={14} /> Cerrar sesión
+            <Icon name="arrow-right" size={14} /> {t('logout')}
           </button>
         </div>
       </div>
@@ -936,8 +926,9 @@ function BillingAlertsCard({
   onSaved,
 }: {
   tenant: TenantMe | null;
-  onSaved: (t: TenantMe) => void;
+  onSaved: (updatedTenant: TenantMe) => void;
 }) {
+  const t = useTranslations('app_settings');
   const [enabled, setEnabled] = useState<boolean>(true);
   const [phone, setPhone] = useState<string>('');
   const [saving, setSaving] = useState(false);
@@ -961,10 +952,10 @@ function BillingAlertsCard({
           billingAlertsPhone: phone.trim() || null,
         }),
       });
-      toast('Alertas de pago guardadas', 'success');
+      toast(t('billingAlertsSaved'), 'success');
       onSaved(updated);
     } catch (e: any) {
-      toast(e.message || 'No se pudo guardar', 'error');
+      toast(e.message || t('couldNotSave'), 'error');
     } finally {
       setSaving(false);
     }
@@ -978,15 +969,15 @@ function BillingAlertsCard({
         { method: 'POST' },
       );
       if (res.ok) {
-        toast(`SMS de prueba enviado a ${res.toPhone}`, 'success');
+        toast(t('testSmsSent', { phone: res.toPhone }), 'success');
       } else {
         toast(
-          `Falló: ${res.response?.message || 'sin detalle'}`,
+          t('testSmsFailed', { detail: res.response?.message || t('noDetail') }),
           'error',
         );
       }
     } catch (e: any) {
-      toast(e.message || 'No se pudo probar', 'error');
+      toast(e.message || t('couldNotTest'), 'error');
     } finally {
       setTesting(false);
     }
@@ -999,20 +990,19 @@ function BillingAlertsCard({
   return (
     <div className="card card-pad mb-4">
       <h2 className="text-base font-semibold m-0 flex items-center gap-2">
-        💳 Alertas SMS de pago
+        💳 {t('billingAlertsTitle')}
         {enabled ? (
           <span className="text-[10px] font-bold uppercase tracking-wider bg-ok/15 text-ok px-2 py-0.5 rounded-full">
-            Activas
+            {t('active')}
           </span>
         ) : (
           <span className="text-[10px] font-bold uppercase tracking-wider bg-bg2 text-mute px-2 py-0.5 rounded-full">
-            Pausadas
+            {t('paused')}
           </span>
         )}
       </h2>
       <p className="text-xs text-mute mt-1 leading-relaxed">
-        Recordatorios automáticos sobre tu suscripción: aviso 24 horas
-        antes del cobro, si un cobro falla, y antes de pausar la cuenta.
+        {t('billingAlertsDesc')}
       </p>
 
       <div className="mt-4 space-y-3">
@@ -1024,19 +1014,18 @@ function BillingAlertsCard({
             className="w-5 h-5 accent-brand"
           />
           <div>
-            <div className="font-semibold text-sm">Recibir alertas de pago</div>
+            <div className="font-semibold text-sm">{t('receiveBillingAlerts')}</div>
             <div className="text-[11px] text-mute leading-snug">
-              Apágalas si prefieres manejar la facturación sin SMS — vas a
-              ver los avisos igual en email y en el panel.
+              {t('receiveBillingAlertsHint')}
             </div>
           </div>
         </label>
 
         <div>
           <label className="label">
-            Teléfono destino
+            {t('destinationPhone')}
             <span className="text-mute font-normal ml-2 text-[10px]">
-              (opcional · default: tu WhatsApp)
+              {t('destinationPhoneHint')}
             </span>
           </label>
           <input
@@ -1056,7 +1045,7 @@ function BillingAlertsCard({
             disabled={testing}
             className="btn-ghost text-sm disabled:opacity-50"
           >
-            {testing ? 'Enviando…' : '📤 Probar SMS'}
+            {testing ? t('sending') : t('testSms')}
           </button>
           <button
             type="button"
@@ -1064,7 +1053,7 @@ function BillingAlertsCard({
             disabled={saving || !dirty}
             className="btn-primary text-sm"
           >
-            {saving ? 'Guardando…' : 'Guardar cambios'}
+            {saving ? t('saving') : t('saveChanges')}
           </button>
         </div>
       </div>

@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { useEffect, useState, type CSSProperties } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
@@ -175,6 +176,7 @@ export default function InfoLinkEditor() {
   // Índice del botón al que se le está editando el cover en modal.
   // null = modal cerrado.
   const [coverEditingIdx, setCoverEditingIdx] = useState<number | null>(null);
+  const t = useTranslations('app_info_links_id');
 
   async function load() {
     const l = await api<InfoLink>(`/info-links/${id}`);
@@ -219,7 +221,7 @@ export default function InfoLinkEditor() {
       // mensaje claro del backend — lo mostramos al user con alert
       // (la página usa toasts en otros lados pero aquí no tengo el hook).
       // Re-throw para que el botón quede en estado normal.
-      const msg = e?.message || 'No se pudo guardar';
+      const msg = e?.message || t('saveFailed');
       alert(msg);
     } finally {
       setBusy(false);
@@ -227,7 +229,7 @@ export default function InfoLinkEditor() {
   }
 
   async function remove() {
-    if (!confirm('¿Eliminar este link?')) return;
+    if (!confirm(t('confirmDeleteLink'))) return;
     await api(`/info-links/${id}`, { method: 'DELETE' });
     router.push('/app/info-links');
   }
@@ -240,8 +242,8 @@ export default function InfoLinkEditor() {
   function addSection(type: Section['type']) {
     if (!link) return;
     const s: any = { type };
-    if (type === 'heading') s.text = 'Nuevo título';
-    if (type === 'paragraph') s.text = 'Texto del párrafo…';
+    if (type === 'heading') s.text = t('newHeading');
+    if (type === 'paragraph') s.text = t('paragraphPlaceholderText');
     if (type === 'image') s.url = '';
     if (type === 'gallery') s.images = [];
     update('sections', [...link.sections, s]);
@@ -273,7 +275,7 @@ export default function InfoLinkEditor() {
   function addButton() {
     if (!link) return;
     const fresh: Button = {
-      label: 'Botón nuevo',
+      label: t('newButton'),
       type: 'EXTERNAL',
       url: 'https://',
       style: 'primary',
@@ -293,7 +295,7 @@ export default function InfoLinkEditor() {
 
   function removeButton(i: number) {
     if (!link) return;
-    if (!confirm('¿Eliminar este botón?')) return;
+    if (!confirm(t('confirmDeleteButton'))) return;
     const arr = [...link.buttons];
     arr.splice(i, 1);
     update('buttons', arr);
@@ -306,7 +308,7 @@ export default function InfoLinkEditor() {
     const copy = ensureButtonId({
       ...src,
       _id: undefined,
-      label: `${src.label} (copia)`,
+      label: t('copyLabel', { label: src.label }),
     });
     const arr = [...link.buttons];
     arr.splice(i + 1, 0, copy);
@@ -330,7 +332,7 @@ export default function InfoLinkEditor() {
     }
   }
 
-  if (!link || !tenant) return <div className="text-mute">Cargando…</div>;
+  if (!link || !tenant) return <div className="text-mute">{t('loading')}</div>;
 
   const publicUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/i/${tenant.slug}/${link.slug}`;
   const primary = link.theme?.primaryColor ?? tenant.primaryColor ?? '#22C55E';
@@ -341,7 +343,7 @@ export default function InfoLinkEditor() {
         <h1 className="page-title">
           {link.title}{' '}
           <span className="page-crumb">
-            / {link.views} vistas · {stats?.qrScans ?? 0} QR
+            / {t('viewsQrCrumb', { views: link.views, qr: stats?.qrScans ?? 0 })}
           </span>
         </h1>
         <div className="flex gap-2 flex-wrap">
@@ -349,16 +351,16 @@ export default function InfoLinkEditor() {
             href={`/app/info-links`}
             className="btn-ghost"
           >
-            ← Volver
+            {t('back')}
           </Link>
           <a
             href="/preview/info-links"
             target="_blank"
             rel="noreferrer"
             className="btn-ghost text-xs"
-            title="Ver los 5 estilos disponibles para tu InfoLink"
+            title={t('view5StylesTitle')}
           >
-            🎨 Ver 5 estilos
+            {t('view5Styles')}
           </a>
           <a
             href={publicUrl}
@@ -366,17 +368,17 @@ export default function InfoLinkEditor() {
             rel="noreferrer"
             className="btn-ghost"
           >
-            <Icon name="arrow-right" /> Ver público
+            <Icon name="arrow-right" /> {t('viewPublic')}
           </a>
           <button className="btn-primary" onClick={save} disabled={busy}>
-            <Icon name="check" /> {busy ? 'Guardando…' : 'Guardar'}
+            <Icon name="check" /> {busy ? t('saving') : t('save')}
           </button>
         </div>
       </div>
 
       {savedAt && (
         <div className="rounded-lg bg-ok-soft text-ok-ink px-3 py-2 mb-4 text-sm">
-          ✓ Guardado a las {savedAt.toLocaleTimeString('es-CO')}
+          {t('savedAt', { time: savedAt.toLocaleTimeString('es-CO') })}
         </div>
       )}
 
@@ -386,14 +388,14 @@ export default function InfoLinkEditor() {
           {/* Estilo */}
           <div className="card card-pad">
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-              <h3 className="font-semibold m-0">Estilo de la página</h3>
+              <h3 className="font-semibold m-0">{t('pageStyle')}</h3>
               <a
                 href="/preview/info-links"
                 target="_blank"
                 rel="noreferrer"
                 className="text-xs text-brand hover:underline"
               >
-                Ver los 5 estilos →
+                {t('view5StylesArrow')}
               </a>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
@@ -426,10 +428,10 @@ export default function InfoLinkEditor() {
 
           {/* Info general */}
           <div className="card card-pad">
-            <h3 className="font-semibold m-0 mb-4">Información general</h3>
+            <h3 className="font-semibold m-0 mb-4">{t('generalInfo')}</h3>
 
             <div>
-              <label className="label">Título</label>
+              <label className="label">{t('title')}</label>
               <input
                 className="input"
                 value={link.title}
@@ -437,7 +439,7 @@ export default function InfoLinkEditor() {
               />
             </div>
             <div className="mt-3">
-              <label className="label">Bajada / descripción corta</label>
+              <label className="label">{t('subtitleLabel')}</label>
               <input
                 className="input"
                 value={link.subtitle ?? ''}
@@ -448,8 +450,8 @@ export default function InfoLinkEditor() {
             {/* URL personalizada (vanity) — soyclubify.com/<slug>. */}
             <div className="mt-3">
               <label className="label">
-                URL personalizada{' '}
-                <span className="text-mute font-normal">— opcional</span>
+                {t('customUrl')}{' '}
+                <span className="text-mute font-normal">{t('optionalDash')}</span>
               </label>
               <div className="flex items-center gap-2">
                 <span className="text-[13px] text-mute select-none whitespace-nowrap">
@@ -458,7 +460,7 @@ export default function InfoLinkEditor() {
                 <input
                   className="input flex-1"
                   value={link.rootSlug ?? ''}
-                  placeholder="mi-marca"
+                  placeholder={t('myBrandPlaceholder')}
                   onChange={(e) => {
                     // Normalizamos: lowercase + solo letras/números/guiones.
                     // El backend valida la forma final + reserved + duplicados.
@@ -471,14 +473,13 @@ export default function InfoLinkEditor() {
                 />
               </div>
               <p className="text-[11px] text-mute mt-1 leading-snug">
-                Si está vacío, el link se accede como <code>/i/{tenant.slug}/{link.slug}</code>.
-                Al asignar una URL personalizada, queda accesible directamente
-                como <code>soyclubify.com/{link.rootSlug || 'tu-slug'}</code>.
+                {t('customUrlHelpBefore')} <code>/i/{tenant.slug}/{link.slug}</code>.
+                {' '}{t('customUrlHelpMiddle')} <code>soyclubify.com/{link.rootSlug || t('yourSlug')}</code>.
               </p>
             </div>
 
             <div className="mt-3">
-              <label className="label">Imagen de portada (hero)</label>
+              <label className="label">{t('heroImage')}</label>
               <ImageUploader
                 value={link.heroImageUrl}
                 onChange={(url) => update('heroImageUrl', url)}
@@ -487,7 +488,7 @@ export default function InfoLinkEditor() {
             </div>
             <div className="mt-3 grid grid-cols-2 gap-3">
               <div>
-                <label className="label">Color principal</label>
+                <label className="label">{t('primaryColor')}</label>
                 <input
                   type="color"
                   className="input h-11 p-1"
@@ -498,14 +499,14 @@ export default function InfoLinkEditor() {
                 />
               </div>
               <div>
-                <label className="label">Estado</label>
+                <label className="label">{t('status')}</label>
                 <select
                   className="input"
                   value={link.isActive ? '1' : '0'}
                   onChange={(e) => update('isActive', e.target.value === '1')}
                 >
-                  <option value="1">Activo (visible)</option>
-                  <option value="0">Pausado (oculto)</option>
+                  <option value="1">{t('statusActive')}</option>
+                  <option value="0">{t('statusPaused')}</option>
                 </select>
               </div>
             </div>
@@ -522,21 +523,21 @@ export default function InfoLinkEditor() {
 
           {/* URL */}
           <div className="card card-pad">
-            <h3 className="font-semibold m-0 mb-3">URL pública</h3>
+            <h3 className="font-semibold m-0 mb-3">{t('publicUrl')}</h3>
             <div className="flex items-center gap-2 bg-bg2 rounded-lg p-3">
               <code className="text-xs flex-1 break-all">{publicUrl}</code>
               <button
                 className="btn-link text-xs"
                 onClick={() => navigator.clipboard.writeText(publicUrl)}
               >
-                Copiar
+                {t('copy')}
               </button>
               <a
                 href={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(publicUrl)}&download=1`}
                 download={`qr-${link.slug}.png`}
                 className="btn-link text-xs"
               >
-                Descargar QR
+                {t('downloadQr')}
               </a>
             </div>
           </div>
@@ -544,7 +545,7 @@ export default function InfoLinkEditor() {
           {/* Bloques */}
           <div className="card card-pad">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold m-0">Bloques</h3>
+              <h3 className="font-semibold m-0">{t('blocks')}</h3>
               <select
                 className="input w-auto text-sm"
                 defaultValue=""
@@ -555,22 +556,22 @@ export default function InfoLinkEditor() {
                   }
                 }}
               >
-                <option value="">+ Agregar bloque</option>
-                <option value="heading">Encabezado</option>
-                <option value="paragraph">Párrafo</option>
-                <option value="image">Imagen</option>
-                <option value="gallery">Galería</option>
-                <option value="divider">Separador</option>
-                <option value="embed_menu">📋 Embed menú</option>
-                <option value="embed_promotions">🎁 Embed promociones</option>
-                <option value="embed_card">💳 Embed tarjeta</option>
+                <option value="">{t('addBlock')}</option>
+                <option value="heading">{t('blockHeading')}</option>
+                <option value="paragraph">{t('blockParagraph')}</option>
+                <option value="image">{t('blockImage')}</option>
+                <option value="gallery">{t('blockGallery')}</option>
+                <option value="divider">{t('blockDivider')}</option>
+                <option value="embed_menu">{t('blockEmbedMenu')}</option>
+                <option value="embed_promotions">{t('blockEmbedPromotions')}</option>
+                <option value="embed_card">{t('blockEmbedCard')}</option>
               </select>
             </div>
 
             <div className="space-y-2">
               {link.sections.length === 0 && (
                 <div className="text-mute text-sm text-center py-4">
-                  Sin bloques aún. Agrega uno arriba.
+                  {t('noBlocks')}
                 </div>
               )}
               {link.sections.map((s, i) => (
@@ -591,15 +592,15 @@ export default function InfoLinkEditor() {
           {/* Botones */}
           <div className="card card-pad">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold m-0">Botones</h3>
+              <h3 className="font-semibold m-0">{t('buttons')}</h3>
               <button className="btn-ghost text-sm" onClick={addButton}>
-                <Icon name="plus" /> Botón
+                <Icon name="plus" /> {t('button')}
               </button>
             </div>
 
             {link.buttons.length === 0 && (
               <div className="text-mute text-sm text-center py-4">
-                Sin botones. Agrega CTAs como WhatsApp, Maps, Menú embed.
+                {t('noButtons')}
               </div>
             )}
             <SortableList<Button & { id: string }>
@@ -634,7 +635,7 @@ export default function InfoLinkEditor() {
                             : 'bg-white text-ink shadow-sm'
                         }`}
                       >
-                        Botón simple
+                        {t('simpleButton')}
                       </button>
                       <button
                         type="button"
@@ -645,7 +646,7 @@ export default function InfoLinkEditor() {
                             : 'text-mute hover:text-ink'
                         }`}
                       >
-                        ✨ Visual / portada
+                        {t('visualCover')}
                       </button>
                     </div>
                     <div className="flex-1" />
@@ -657,15 +658,15 @@ export default function InfoLinkEditor() {
                           updateButton(i, { isActive: e.target.checked })
                         }
                       />
-                      {active ? 'Activo' : 'Pausado'}
+                      {active ? t('active') : t('paused')}
                     </label>
                     <button
                       type="button"
                       className="btn-ghost text-xs"
                       onClick={() => duplicateButton(i)}
-                      title="Duplicar este botón"
+                      title={t('duplicateButtonTitle')}
                     >
-                      ⎘ Duplicar
+                      {t('duplicate')}
                     </button>
                   </div>
 
@@ -675,7 +676,7 @@ export default function InfoLinkEditor() {
                   <div className="hidden sm:block" />
                   <input
                     className="input"
-                    placeholder="Texto del botón"
+                    placeholder={t('buttonTextPlaceholder')}
                     value={b.label}
                     onChange={(e) => updateButton(i, { label: e.target.value })}
                   />
@@ -711,7 +712,7 @@ export default function InfoLinkEditor() {
                             type="button"
                             className="flex-shrink-0 rounded-lg overflow-hidden border border-line hover:border-brand transition w-28"
                             onClick={() => setCoverEditingIdx(i)}
-                            title="Editar diseño de la portada"
+                            title={t('editCoverDesignTitle')}
                           >
                             <SectionCoverPreview
                               config={b.cover}
@@ -722,13 +723,13 @@ export default function InfoLinkEditor() {
                           </button>
                         ) : (
                           <div className="w-28 h-20 rounded-lg border-2 border-dashed border-line flex items-center justify-center text-mute text-xs">
-                            sin portada
+                            {t('noCover')}
                           </div>
                         )}
                         <div className="flex-1 min-w-0">
                           <input
                             className="input text-sm"
-                            placeholder="Subtítulo (ej: De especialidad)"
+                            placeholder={t('taglinePlaceholder')}
                             value={b.tagline ?? ''}
                             onChange={(e) =>
                               updateButton(i, {
@@ -738,7 +739,7 @@ export default function InfoLinkEditor() {
                             maxLength={200}
                           />
                           <div className="text-[11px] text-mute mt-1">
-                            Aparece debajo del título en la portada.
+                            {t('taglineHint')}
                           </div>
                         </div>
                         <button
@@ -746,7 +747,7 @@ export default function InfoLinkEditor() {
                           className="btn-ghost text-xs"
                           onClick={() => setCoverEditingIdx(i)}
                         >
-                          🎨 Diseñar portada
+                          {t('designCover')}
                         </button>
                       </div>
                     </div>
@@ -757,17 +758,17 @@ export default function InfoLinkEditor() {
                   {!coverMode && (
                     <div className="col-span-full flex items-center gap-2 flex-wrap">
                       <span className="text-[11px] uppercase tracking-wider text-mute font-semibold">
-                        Estilo
+                        {t('style')}
                       </span>
                       <div className="inline-flex rounded-pill bg-bg2 p-0.5 text-[11px] font-semibold">
                         {(['solid', 'transparent', 'outline'] as const).map((opt) => {
                           const current = (b.bgStyle ?? 'solid') === opt;
                           const label =
                             opt === 'solid'
-                              ? '● Sólido'
+                              ? t('bgStyleSolid')
                               : opt === 'transparent'
-                              ? '○ Transparente'
-                              : '▢ Solo borde';
+                              ? t('bgStyleTransparent')
+                              : t('bgStyleOutline');
                           return (
                             <button
                               key={opt}
@@ -797,25 +798,25 @@ export default function InfoLinkEditor() {
                   {b.type === 'MENU' && (
                     <div className="col-span-full">
                       <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-1.5">
-                        ¿Qué versión del menú?
+                        {t('whichMenuVersion')}
                       </div>
                       <div className="grid grid-cols-3 gap-2">
                         {(
                           [
                             {
                               v: 'DELIVERY',
-                              label: '🛵 Delivery',
-                              hint: 'Con carrito + WhatsApp',
+                              label: t('menuDeliveryLabel'),
+                              hint: t('menuDeliveryHint'),
                             },
                             {
                               v: 'MESA',
-                              label: '🍽 Mesa',
-                              hint: 'Solo precios, informativo',
+                              label: t('menuMesaLabel'),
+                              hint: t('menuMesaHint'),
                             },
                             {
                               v: 'BOOK',
-                              label: '📖 Libro',
-                              hint: 'Flipbook visual',
+                              label: t('menuBookLabel'),
+                              hint: t('menuBookHint'),
                             },
                           ] as const
                         ).map((opt) => {
@@ -844,11 +845,11 @@ export default function InfoLinkEditor() {
                         })}
                       </div>
                       <div className="text-[11px] text-mute mt-1.5">
-                        Si el libro o delivery está desactivado en{' '}
+                        {t('menuStorefrontWarnBefore')}{' '}
                         <a href="/app/storefront" className="text-brand hover:underline">
                           /app/storefront
                         </a>
-                        , el botón apuntará a un menú que el cliente verá vacío.
+                        {t('menuStorefrontWarnAfter')}
                       </div>
                     </div>
                   )}
@@ -870,7 +871,7 @@ export default function InfoLinkEditor() {
                         />
                       </div>
                       <div className="text-[11px] text-mute mt-1">
-                        Solo el usuario, sin URL completa. Abre instagram.com/<b>{b.igHandle || 'usuario'}</b>
+                        {t('igHelp')} instagram.com/<b>{b.igHandle || t('igUserFallback')}</b>
                       </div>
                     </div>
                   )}
@@ -884,7 +885,7 @@ export default function InfoLinkEditor() {
                       />
                       <input
                         className="input"
-                        placeholder="Hola, quiero más información"
+                        placeholder={t('waMessagePlaceholder')}
                         value={b.waMessage ?? ''}
                         onChange={(e) => updateButton(i, { waMessage: e.target.value })}
                       />
@@ -894,9 +895,9 @@ export default function InfoLinkEditor() {
                     <div className="col-span-full">
                       {locations.length === 0 ? (
                         <div className="text-[11px] text-mute p-2 bg-bg2/50 rounded">
-                          No tienes ubicaciones registradas.{' '}
+                          {t('noLocations')}{' '}
                           <a href="/app/locations" className="text-brand underline">
-                            Crear una en Ubicaciones →
+                            {t('createLocation')}
                           </a>
                         </div>
                       ) : (
@@ -910,7 +911,7 @@ export default function InfoLinkEditor() {
                               })
                             }
                           >
-                            <option value="">Primera ubicación (default)</option>
+                            <option value="">{t('firstLocationDefault')}</option>
                             {locations.map((loc) => (
                               <option key={loc.id} value={loc.id}>
                                 {loc.name}
@@ -964,13 +965,10 @@ export default function InfoLinkEditor() {
                           }
                           className="accent-brand"
                         />
-                        Mostrar popup antes de abrir
+                        {t('showPopupBeforeOpen')}
                       </label>
                       <p className="text-[11px] text-mute mt-1 leading-relaxed">
-                        Cuando esté activado, al dar clic el cliente verá
-                        un mensaje con tu CTA antes de ejecutar la acción
-                        (ej: "Antes de reservar, instala nuestra tarjeta").
-                        Hay 2 botones: continuar al link o cancelar.
+                        {t('showPopupBeforeOpenHelp')}
                       </p>
                       {b.popup && (
                         <div className="mt-3">
@@ -995,23 +993,23 @@ export default function InfoLinkEditor() {
           {/* Stats */}
           {stats && (
             <div className="card card-pad">
-              <h3 className="font-semibold m-0 mb-3">Estadísticas (30 días)</h3>
+              <h3 className="font-semibold m-0 mb-3">{t('stats30Days')}</h3>
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <div className="text-xs text-mute uppercase tracking-wider">
-                    Vistas
+                    {t('statsViews')}
                   </div>
                   <div className="text-2xl font-bold">{stats.views}</div>
                 </div>
                 <div>
                   <div className="text-xs text-mute uppercase tracking-wider">
-                    Escaneos QR
+                    {t('statsQrScans')}
                   </div>
                   <div className="text-2xl font-bold">{stats.qrScans}</div>
                 </div>
                 <div>
                   <div className="text-xs text-mute uppercase tracking-wider">
-                    Clics botón
+                    {t('statsButtonClicks')}
                   </div>
                   <div className="text-2xl font-bold">
                     {Object.values(stats.buttonClicks ?? {}).reduce(
@@ -1038,14 +1036,14 @@ export default function InfoLinkEditor() {
           )}
 
           <button onClick={remove} className="text-bad underline text-sm">
-            Eliminar link
+            {t('deleteLink')}
           </button>
         </div>
 
         {/* Preview iPhone */}
         <div className="lg:sticky lg:top-6 self-start">
           <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-2.5">
-            Vista previa
+            {t('preview')}
           </div>
           <div className="flex justify-center">
             <div className="iphone">
@@ -1088,6 +1086,7 @@ function CoverModal({
   onClose: () => void;
   onPatch: (patch: Partial<Button>) => void;
 }) {
+  const t = useTranslations('app_info_links_id');
   return (
     <div
       className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-start justify-center overflow-y-auto p-0 sm:p-4"
@@ -1099,16 +1098,16 @@ function CoverModal({
       >
         <div className="sticky top-0 bg-bg z-10 flex items-center justify-between px-5 py-3 border-b border-line">
           <div>
-            <div className="text-xs text-mute">Portada del botón</div>
+            <div className="text-xs text-mute">{t('buttonCover')}</div>
             <h2 className="font-semibold text-lg m-0">
-              {button.label || 'Sin título'}
+              {button.label || t('untitled')}
             </h2>
           </div>
           <button
             type="button"
             onClick={onClose}
             className="text-mute hover:text-ink p-1"
-            aria-label="Cerrar"
+            aria-label={t('close')}
           >
             ✕
           </button>
@@ -1116,17 +1115,17 @@ function CoverModal({
 
         <div className="p-5 space-y-4">
           <div>
-            <label className="label">Subtítulo (tagline) — opcional</label>
+            <label className="label">{t('taglineLabelOptional')}</label>
             <input
               type="text"
               className="input"
-              placeholder="Ej: De especialidad"
+              placeholder={t('taglineExample')}
               value={button.tagline ?? ''}
               onChange={(e) => onPatch({ tagline: e.target.value || null })}
               maxLength={200}
             />
             <p className="text-[11px] text-mute mt-1">
-              Aparece debajo del nombre en la portada. Vacío = sin subtítulo.
+              {t('taglineModalHint')}
             </p>
           </div>
 
@@ -1144,12 +1143,12 @@ function CoverModal({
             type="button"
             onClick={() => onPatch({ cover: null })}
             className="btn-ghost text-xs"
-            title="Resetea el diseño visual (mantiene el botón en modo Visual)"
+            title={t('resetDesignTitle')}
           >
-            Reset diseño
+            {t('resetDesign')}
           </button>
           <button type="button" onClick={onClose} className="btn-primary">
-            Listo
+            {t('done')}
           </button>
         </div>
       </div>
@@ -1177,6 +1176,7 @@ function SectionEditor({
   isFirst: boolean;
   isLast: boolean;
 }) {
+  const t = useTranslations('app_info_links_id');
   return (
     <div className="border border-line2 rounded-lg p-3 group">
       <div className="flex items-center justify-between mb-2">
@@ -1209,7 +1209,7 @@ function SectionEditor({
           className="input"
           value={section.text}
           onChange={(e) => onChange({ text: e.target.value })}
-          placeholder="Título"
+          placeholder={t('title')}
         />
       )}
       {section.type === 'paragraph' && (
@@ -1217,7 +1217,7 @@ function SectionEditor({
           className="input"
           value={section.text}
           onChange={(e) => onChange({ text: e.target.value })}
-          placeholder="Texto del párrafo"
+          placeholder={t('paragraphPlaceholder')}
         />
       )}
       {section.type === 'image' && (
@@ -1266,7 +1266,7 @@ function SectionEditor({
         section.type === 'embed_promotions' ||
         section.type === 'embed_card') && (
         <div className="text-xs text-mute italic">
-          Se renderizará automáticamente en la página pública con datos de tu negocio.
+          {t('embedAutoRender')}
         </div>
       )}
     </div>
@@ -1285,6 +1285,7 @@ function PublicLinkPreview({
   tenant: any;
   primary: string;
 }) {
+  const t = useTranslations('app_info_links_id');
   const initial = (tenant?.brandName?.[0] || 'C').toUpperCase();
   return (
     <div className="text-ink bg-white" style={{ ['--primary' as any]: primary }}>
@@ -1427,7 +1428,7 @@ function PublicLinkPreview({
                   key={i}
                   className="border border-line2 rounded-lg p-2 text-[10px] text-mute italic text-center"
                 >
-                  📋 Aquí va el menú embebido
+                  {t('previewEmbedMenu')}
                 </div>
               );
             if (s.type === 'embed_promotions')
@@ -1436,7 +1437,7 @@ function PublicLinkPreview({
                   key={i}
                   className="border border-line2 rounded-lg p-2 text-[10px] text-mute italic text-center"
                 >
-                  🎁 Aquí van las promociones activas
+                  {t('previewEmbedPromotions')}
                 </div>
               );
             if (s.type === 'embed_card')
@@ -1445,7 +1446,7 @@ function PublicLinkPreview({
                   key={i}
                   className="border border-line2 rounded-lg p-2 text-[10px] text-mute italic text-center"
                 >
-                  💳 Aquí va la tarjeta de fidelización
+                  {t('previewEmbedCard')}
                 </div>
               );
             return null;
@@ -1454,7 +1455,7 @@ function PublicLinkPreview({
 
         {/* Footer */}
         <div className="mt-6 pt-4 border-t border-line text-center text-[10px] text-mute">
-          Desarrollado por{' '}
+          {t('developedBy')}{' '}
           <span className="font-semibold text-brand">Clubify</span>
         </div>
       </div>
@@ -1501,6 +1502,7 @@ function VisualSection({
     popups?: InfoLinkPopup[] | null;
   }) => void;
 }) {
+  const t = useTranslations('app_info_links_id');
   function applyFullLook(id: FullLookId) {
     const look = FULL_LOOKS[id];
     onChange({
@@ -1514,28 +1516,27 @@ function VisualSection({
   }
 
   const FONT_OPTIONS: Array<{ value: string; label: string }> = [
-    { value: 'Inter, system-ui, sans-serif', label: 'Inter (sans clean)' },
-    { value: '"Playfair Display", Georgia, serif', label: 'Playfair (serif editorial)' },
-    { value: '"Space Grotesk", Inter, sans-serif', label: 'Space Grotesk (tech)' },
-    { value: '"Manrope", Inter, sans-serif', label: 'Manrope (moderna)' },
-    { value: 'Georgia, "Times New Roman", serif', label: 'Georgia (clásica)' },
-    { value: '"Poppins", Inter, sans-serif', label: 'Poppins (amigable)' },
+    { value: 'Inter, system-ui, sans-serif', label: t('fontInter') },
+    { value: '"Playfair Display", Georgia, serif', label: t('fontPlayfair') },
+    { value: '"Space Grotesk", Inter, sans-serif', label: t('fontSpaceGrotesk') },
+    { value: '"Manrope", Inter, sans-serif', label: t('fontManrope') },
+    { value: 'Georgia, "Times New Roman", serif', label: t('fontGeorgia') },
+    { value: '"Poppins", Inter, sans-serif', label: t('fontPoppins') },
   ];
 
   return (
     <div className="card card-pad space-y-6">
       <div>
-        <h3 className="font-semibold m-0 mb-1">Personalización visual</h3>
+        <h3 className="font-semibold m-0 mb-1">{t('visualCustomization')}</h3>
         <div className="text-xs text-mute leading-relaxed">
-          Elige un "look completo" abajo para aplicar logo + banner + tipografía
-          coherentes en un click, o ajustá cada sección individualmente más abajo.
+          {t('visualCustomizationHelp')}
         </div>
       </div>
 
       {/* FullLook presets — un click setea logo+banner+font juntos */}
       <div>
         <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
-          Looks completos
+          {t('fullLooks')}
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
           {(Object.keys(FULL_LOOKS) as FullLookId[]).map((id) => {
@@ -1564,15 +1565,14 @@ function VisualSection({
           })}
         </div>
         <div className="text-[11px] text-mute mt-2 leading-snug">
-          Tip: aplicá un look y después tuneá fino abajo — los cambios sobreescriben
-          las configs sin perder el resto del look.
+          {t('fullLooksTip')}
         </div>
       </div>
 
       {/* Tipografía */}
       <div>
         <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
-          Tipografía
+          {t('typography')}
         </div>
         <select
           className="input"
@@ -1581,7 +1581,7 @@ function VisualSection({
             onChange({ fontFamily: e.target.value || null })
           }
         >
-          <option value="">Por defecto del template</option>
+          <option value="">{t('templateDefault')}</option>
           {FONT_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.value} style={{ fontFamily: opt.value }}>
               {opt.label}
@@ -1593,8 +1593,8 @@ function VisualSection({
             className="mt-2 p-3 rounded-lg bg-bg2 text-ink"
             style={{ fontFamily: theme.fontFamily }}
           >
-            <div className="text-lg font-bold">Tu negocio</div>
-            <div className="text-sm">Así se ve un título con esta fuente.</div>
+            <div className="text-lg font-bold">{t('yourBusiness')}</div>
+            <div className="text-sm">{t('fontPreviewSample')}</div>
           </div>
         )}
       </div>
@@ -1659,6 +1659,7 @@ function MultiPopupPanel({
   primary: string;
   onChange: (next: InfoLinkPopup[] | null) => void;
 }) {
+  const t = useTranslations('app_info_links_id');
   const items = Array.isArray(value) ? value : [];
 
   function addPopup() {
@@ -1668,7 +1669,7 @@ function MultiPopupPanel({
       enabled: true,
       delaySeconds: 3,
       oncePerSession: true,
-      name: `Popup ${items.length + 2}`,
+      name: t('popupNumber', { n: items.length + 2 }),
     };
     onChange([...items, next]);
   }
@@ -1699,11 +1700,9 @@ function MultiPopupPanel({
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h4 className="font-semibold text-sm m-0">Popups adicionales</h4>
+          <h4 className="font-semibold text-sm m-0">{t('additionalPopups')}</h4>
           <div className="text-[11px] text-mute mt-0.5 leading-snug">
-            Suma popups distintos con su propia programación. Si hay varios
-            elegibles a la vez, se muestra el PRIMERO de la lista (orden de
-            prioridad). El popup principal de arriba va al final.
+            {t('additionalPopupsHelp')}
           </div>
         </div>
         <button
@@ -1711,14 +1710,13 @@ function MultiPopupPanel({
           onClick={addPopup}
           className="text-xs font-semibold px-3 py-1.5 rounded-full border border-line hover:bg-bg2 shrink-0"
         >
-          ➕ Agregar
+          {t('add')}
         </button>
       </div>
 
       {items.length === 0 && (
         <div className="text-xs text-mute text-center py-4 border border-dashed border-line2 rounded-lg">
-          Sin popups adicionales. Usa el popup principal de arriba o agrega
-          uno aquí si necesitas más de uno.
+          {t('noAdditionalPopups')}
         </div>
       )}
 
@@ -1731,7 +1729,7 @@ function MultiPopupPanel({
               maxLength={40}
               value={p.name ?? ''}
               onChange={(e) => updateAt(i, { ...p, name: e.target.value })}
-              placeholder={`Popup ${i + 2}`}
+              placeholder={t('popupNumber', { n: i + 2 })}
             />
             <div className="flex items-center gap-1 shrink-0">
               <button
@@ -1739,7 +1737,7 @@ function MultiPopupPanel({
                 onClick={() => moveUp(i)}
                 disabled={i === 0}
                 className="text-xs px-2 py-1 text-mute hover:text-ink disabled:opacity-30"
-                title="Subir prioridad"
+                title={t('raisePriority')}
               >
                 ↑
               </button>
@@ -1748,7 +1746,7 @@ function MultiPopupPanel({
                 onClick={() => moveDown(i)}
                 disabled={i === items.length - 1}
                 className="text-xs px-2 py-1 text-mute hover:text-ink disabled:opacity-30"
-                title="Bajar prioridad"
+                title={t('lowerPriority')}
               >
                 ↓
               </button>
@@ -1756,13 +1754,13 @@ function MultiPopupPanel({
                 type="button"
                 onClick={() => {
                   if (
-                    confirm(`Eliminar "${p.name || 'Popup'}"? No se puede deshacer.`)
+                    confirm(t('confirmDeletePopup', { name: p.name || t('popupFallback') }))
                   ) {
                     updateAt(i, null);
                   }
                 }}
                 className="text-xs px-2 py-1 text-bad hover:text-bad-strong"
-                title="Eliminar"
+                title={t('delete')}
               >
                 ✕
               </button>
@@ -1789,6 +1787,7 @@ function BackgroundPanel({
   value: InfoLinkBackground | null;
   onChange: (next: InfoLinkBackground | null) => void;
 }) {
+  const t = useTranslations('app_info_links_id');
   const type = value?.type ?? 'NONE';
 
   function setType(t: 'NONE' | 'SOLID' | 'IMAGE' | 'GRADIENT') {
@@ -1812,19 +1811,19 @@ function BackgroundPanel({
   return (
     <div className="space-y-4">
       <div>
-        <h4 className="font-semibold text-sm m-0">Fondo de la página</h4>
+        <h4 className="font-semibold text-sm m-0">{t('pageBackground')}</h4>
         <div className="text-[11px] text-mute mt-0.5 leading-snug">
-          Reemplaza el fondo por defecto del template con un color, una imagen o un gradiente.
+          {t('pageBackgroundHelp')}
         </div>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {(
           [
-            { id: 'NONE', label: 'Template', hint: 'Por defecto' },
-            { id: 'SOLID', label: 'Color', hint: 'Sólido' },
-            { id: 'IMAGE', label: 'Imagen', hint: 'Foto cover' },
-            { id: 'GRADIENT', label: 'Gradiente', hint: '2 colores' },
+            { id: 'NONE', label: t('bgTemplateLabel'), hint: t('bgTemplateHint') },
+            { id: 'SOLID', label: t('bgColorLabel'), hint: t('bgColorHint') },
+            { id: 'IMAGE', label: t('bgImageLabel'), hint: t('bgImageHint') },
+            { id: 'GRADIENT', label: t('bgGradientLabel'), hint: t('bgGradientHint') },
           ] as const
         ).map((opt) => {
           const active = type === opt.id;
@@ -1848,7 +1847,7 @@ function BackgroundPanel({
 
       {value?.type === 'SOLID' && (
         <div>
-          <label className="label">Color sólido</label>
+          <label className="label">{t('solidColor')}</label>
           <input
             type="color"
             value={value.color}
@@ -1861,7 +1860,7 @@ function BackgroundPanel({
       {value?.type === 'IMAGE' && (
         <div className="space-y-3">
           <div>
-            <label className="label">Imagen de fondo</label>
+            <label className="label">{t('bgImageField')}</label>
             <ImageUploader
               value={value.imageUrl || null}
               onChange={(url) =>
@@ -1872,7 +1871,7 @@ function BackgroundPanel({
           </div>
           <div>
             <label className="label">
-              Oscurecer ({value.overlay ?? 0}%) — mejor legibilidad
+              {t('darken', { pct: value.overlay ?? 0 })}
             </label>
             <input
               type="range"
@@ -1893,7 +1892,7 @@ function BackgroundPanel({
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label">Color inicial</label>
+              <label className="label">{t('startColor')}</label>
               <input
                 type="color"
                 value={value.from}
@@ -1902,7 +1901,7 @@ function BackgroundPanel({
               />
             </div>
             <div>
-              <label className="label">Color final</label>
+              <label className="label">{t('endColor')}</label>
               <input
                 type="color"
                 value={value.to}
@@ -1913,7 +1912,7 @@ function BackgroundPanel({
           </div>
           <div>
             <label className="label">
-              Ángulo ({value.angle ?? 180}°)
+              {t('angle', { deg: value.angle ?? 180 })}
             </label>
             <input
               type="range"
@@ -1961,6 +1960,7 @@ function PopupPanel({
   primary: string;
   onChange: (next: InfoLinkPopup | null) => void;
 }) {
+  const t = useTranslations('app_info_links_id');
   const enabled = !!value?.enabled;
 
   function patch(next: Partial<InfoLinkPopup>) {
@@ -1977,10 +1977,9 @@ function PopupPanel({
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h4 className="font-semibold text-sm m-0">Popup promocional</h4>
+          <h4 className="font-semibold text-sm m-0">{t('promoPopup')}</h4>
           <div className="text-[11px] text-mute mt-0.5 leading-snug">
-            Ventana emergente opcional para promos, descuentos o fidelización.
-            Aparece al entrar a la página después de unos segundos.
+            {t('promoPopupHelp')}
           </div>
         </div>
         <label className="inline-flex items-center gap-2 cursor-pointer">
@@ -1994,7 +1993,7 @@ function PopupPanel({
             }
           />
           <span className="text-xs font-semibold">
-            {enabled ? 'Activo' : 'Apagado'}
+            {enabled ? t('active') : t('off')}
           </span>
         </label>
       </div>
@@ -2002,28 +2001,28 @@ function PopupPanel({
       {enabled && (
         <div className="space-y-3">
           <div>
-            <label className="label">Título</label>
+            <label className="label">{t('title')}</label>
             <input
               type="text"
               className="input"
               maxLength={80}
               value={value?.title ?? ''}
               onChange={(e) => patch({ title: e.target.value })}
-              placeholder="Ej: 🎁 ¡15% de descuento!"
+              placeholder={t('popupTitlePlaceholder')}
             />
           </div>
           <div>
-            <label className="label">Descripción</label>
+            <label className="label">{t('description')}</label>
             <textarea
               className="input min-h-[70px]"
               maxLength={300}
               value={value?.description ?? ''}
               onChange={(e) => patch({ description: e.target.value })}
-              placeholder="Detalle del popup"
+              placeholder={t('popupDescPlaceholder')}
             />
           </div>
           <div>
-            <label className="label">Imagen (opcional)</label>
+            <label className="label">{t('imageOptional')}</label>
             <ImageUploader
               value={value?.imageUrl ?? null}
               onChange={(url) => patch({ imageUrl: url ?? undefined })}
@@ -2032,18 +2031,18 @@ function PopupPanel({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label">Texto del botón</label>
+              <label className="label">{t('buttonText')}</label>
               <input
                 type="text"
                 className="input"
                 maxLength={40}
                 value={value?.buttonText ?? ''}
                 onChange={(e) => patch({ buttonText: e.target.value })}
-                placeholder="Ver más"
+                placeholder={t('seeMore')}
               />
             </div>
             <div>
-              <label className="label">URL del botón</label>
+              <label className="label">{t('buttonUrl')}</label>
               <input
                 type="url"
                 className="input"
@@ -2055,7 +2054,7 @@ function PopupPanel({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label">Color del botón</label>
+              <label className="label">{t('buttonColor')}</label>
               <input
                 type="color"
                 className="w-full h-10 cursor-pointer rounded"
@@ -2065,7 +2064,7 @@ function PopupPanel({
             </div>
             <div>
               <label className="label">
-                Retraso ({value?.delaySeconds ?? 3}s)
+                {t('delay', { sec: value?.delaySeconds ?? 3 })}
               </label>
               <input
                 type="range"
@@ -2088,7 +2087,7 @@ function PopupPanel({
                 patch({ oncePerSession: e.target.checked })
               }
             />
-            Mostrar solo 1 vez por sesión
+            {t('oncePerSession')}
           </label>
 
           <PopupScheduleEditor
@@ -2120,6 +2119,7 @@ function PopupScheduleEditor({
   schedule: PopupSchedule | null;
   onChange: (next: PopupSchedule | null) => void;
 }) {
+  const t = useTranslations('app_info_links_id');
   const enabled = !!schedule;
   const days = schedule?.daysOfWeek ?? [];
   function toggleDay(num: number) {
@@ -2141,16 +2141,16 @@ function PopupScheduleEditor({
               : onChange(null)
           }
         />
-        <span className="font-semibold">📅 Programar</span>
+        <span className="font-semibold">{t('schedule')}</span>
         <span className="text-mute">
-          (días / rango de fechas / horas)
+          {t('scheduleSub')}
         </span>
       </label>
 
       {enabled && (
         <div className="space-y-3 mt-3">
           <div>
-            <label className="label">Días de la semana</label>
+            <label className="label">{t('daysOfWeek')}</label>
             <div className="flex gap-1.5">
               {DAY_LABELS.map((d) => {
                 const active = days.includes(d.num);
@@ -2173,14 +2173,14 @@ function PopupScheduleEditor({
             </div>
             <div className="text-[11px] text-mute mt-1">
               {!days || days.length === 0 || days.length === 7
-                ? 'Todos los días'
-                : `${days.length} día${days.length === 1 ? '' : 's'} seleccionado${days.length === 1 ? '' : 's'}`}
+                ? t('allDays')
+                : t('daysSelected', { count: days.length })}
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label">Desde fecha</label>
+              <label className="label">{t('fromDate')}</label>
               <input
                 type="date"
                 className="input"
@@ -2191,7 +2191,7 @@ function PopupScheduleEditor({
               />
             </div>
             <div>
-              <label className="label">Hasta fecha</label>
+              <label className="label">{t('toDate')}</label>
               <input
                 type="date"
                 className="input"
@@ -2205,7 +2205,7 @@ function PopupScheduleEditor({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label">Desde hora</label>
+              <label className="label">{t('fromTime')}</label>
               <input
                 type="time"
                 className="input"
@@ -2216,7 +2216,7 @@ function PopupScheduleEditor({
               />
             </div>
             <div>
-              <label className="label">Hasta hora</label>
+              <label className="label">{t('toTime')}</label>
               <input
                 type="time"
                 className="input"
@@ -2252,6 +2252,7 @@ function LogoContainerPanel({
   tenantLogoUrl: string | null;
   onChange: (next: LogoContainerConfig | null) => void;
 }) {
+  const t = useTranslations('app_info_links_id');
   const enabled = value !== null;
   const cfg = value ?? DEFAULT_LOGO_CONTAINER;
 
@@ -2268,7 +2269,7 @@ function LogoContainerPanel({
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <h3 className="font-semibold m-0 text-sm">Estilo del logo</h3>
+        <h3 className="font-semibold m-0 text-sm">{t('logoStyle')}</h3>
         <label className="flex items-center gap-2 text-xs text-mute cursor-pointer">
           <input
             type="checkbox"
@@ -2277,15 +2278,13 @@ function LogoContainerPanel({
               onChange(e.target.checked ? { ...DEFAULT_LOGO_CONTAINER } : null)
             }
           />
-          Personalizar
+          {t('customize')}
         </label>
       </div>
 
       {!enabled && (
         <div className="text-xs text-mute leading-relaxed">
-          Sin personalizar — el contenedor del logo usa el estilo del
-          template activo. Activa la opción de arriba para elegir un look
-          o ajustarlo fino.
+          {t('logoStyleDisabledHelp')}
         </div>
       )}
 
@@ -2295,7 +2294,7 @@ function LogoContainerPanel({
             {/* Presets */}
             <div>
               <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
-                Presets
+                {t('presets')}
               </div>
               <div className="grid grid-cols-2 gap-2">
                 {(
@@ -2327,12 +2326,12 @@ function LogoContainerPanel({
             {/* Forma del contenedor */}
             <div>
               <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
-                Forma
+                {t('shape')}
               </div>
               <div className="inline-flex rounded-pill bg-bg2 p-0.5 text-xs font-semibold">
                 {(['circle', 'rounded'] as const).map((s) => {
                   const current = (cfg.shape ?? 'circle') === s;
-                  const label = s === 'circle' ? '⚪ Círculo' : '▢ Cuadrado redondeado';
+                  const label = s === 'circle' ? t('shapeCircle') : t('shapeRounded');
                   return (
                     <button
                       key={s}
@@ -2356,8 +2355,8 @@ function LogoContainerPanel({
               <SliderRow
                 label={
                   (cfg.shape ?? 'circle') === 'circle'
-                    ? 'Tamaño del círculo'
-                    : 'Tamaño máximo (ancho)'
+                    ? t('circleSize')
+                    : t('maxWidth')
                 }
                 min={80}
                 max={280}
@@ -2366,7 +2365,7 @@ function LogoContainerPanel({
                 unit="px"
               />
               <SliderRow
-                label="Padding interno (horizontal)"
+                label={t('paddingHorizontal')}
                 min={0}
                 max={40}
                 value={cfg.paddingX}
@@ -2374,7 +2373,7 @@ function LogoContainerPanel({
                 unit="px"
               />
               <SliderRow
-                label="Padding interno (vertical)"
+                label={t('paddingVertical')}
                 min={0}
                 max={40}
                 value={cfg.paddingY}
@@ -2383,7 +2382,7 @@ function LogoContainerPanel({
               />
               {(cfg.shape ?? 'circle') === 'rounded' && (
                 <SliderRow
-                  label="Radio del borde"
+                  label={t('borderRadius')}
                   min={0}
                   max={40}
                   value={cfg.borderRadius}
@@ -2392,7 +2391,7 @@ function LogoContainerPanel({
                 />
               )}
               <SliderRow
-                label="Opacidad del fondo"
+                label={t('bgOpacity')}
                 min={0}
                 max={100}
                 value={Math.round(cfg.bgOpacity * 100)}
@@ -2400,7 +2399,7 @@ function LogoContainerPanel({
                 unit="%"
               />
               <SliderRow
-                label="Blur del fondo (glassmorphism)"
+                label={t('bgBlur')}
                 min={0}
                 max={30}
                 value={cfg.backdropBlur}
@@ -2408,7 +2407,7 @@ function LogoContainerPanel({
                 unit="px"
               />
               <SliderRow
-                label="Grosor del anillo"
+                label={t('ringWidth')}
                 min={0}
                 max={8}
                 value={cfg.ringWidth}
@@ -2420,7 +2419,7 @@ function LogoContainerPanel({
             {/* Color de fondo + sombra */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="label text-xs">Color de fondo</label>
+                <label className="label text-xs">{t('bgColor')}</label>
                 <input
                   type="color"
                   className="input h-11 p-1"
@@ -2429,7 +2428,7 @@ function LogoContainerPanel({
                 />
               </div>
               <div>
-                <label className="label text-xs">Sombra</label>
+                <label className="label text-xs">{t('shadow')}</label>
                 <select
                   className="input"
                   value={cfg.shadow}
@@ -2437,12 +2436,12 @@ function LogoContainerPanel({
                     patch({ shadow: e.target.value as LogoContainerConfig['shadow'] })
                   }
                 >
-                  <option value="none">Ninguna</option>
-                  <option value="sm">Suave</option>
-                  <option value="md">Media</option>
-                  <option value="lg">Grande</option>
-                  <option value="xl">Premium (XL)</option>
-                  <option value="glow">Glow neón (color marca)</option>
+                  <option value="none">{t('shadowNone')}</option>
+                  <option value="sm">{t('shadowSm')}</option>
+                  <option value="md">{t('shadowMd')}</option>
+                  <option value="lg">{t('shadowLg')}</option>
+                  <option value="xl">{t('shadowXl')}</option>
+                  <option value="glow">{t('shadowGlow')}</option>
                 </select>
               </div>
             </div>
@@ -2451,7 +2450,7 @@ function LogoContainerPanel({
           {/* Preview */}
           <div className="lg:sticky lg:top-4">
             <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2 text-center">
-              Vista previa
+              {t('preview')}
             </div>
             <div
               className="rounded-xl flex items-center justify-center min-h-[180px] p-6"
@@ -2469,7 +2468,7 @@ function LogoContainerPanel({
                 </div>
               ) : (
                 <div className="text-xs text-mute italic">
-                  Sube un logo en Configuración → Marca para ver el preview
+                  {t('uploadLogoHint')}
                 </div>
               )}
             </div>
@@ -2533,6 +2532,7 @@ function BannerPanel({
   heroImageUrl: string | null;
   onChange: (next: BannerConfig | null) => void;
 }) {
+  const t = useTranslations('app_info_links_id');
   const enabled = value !== null;
   const cfg = value ?? DEFAULT_BANNER_CONFIG;
 
@@ -2549,7 +2549,7 @@ function BannerPanel({
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <h3 className="font-semibold m-0 text-sm">Banner (foto de portada)</h3>
+        <h3 className="font-semibold m-0 text-sm">{t('banner')}</h3>
         <label className="flex items-center gap-2 text-xs text-mute cursor-pointer">
           <input
             type="checkbox"
@@ -2558,21 +2558,19 @@ function BannerPanel({
               onChange(e.target.checked ? { ...DEFAULT_BANNER_CONFIG } : null)
             }
           />
-          Personalizar
+          {t('customize')}
         </label>
       </div>
 
       {!heroImageUrl && (
         <div className="text-xs text-mute italic mb-3">
-          Sube una imagen de portada arriba para ver el preview.
+          {t('uploadHeroForPreview')}
         </div>
       )}
 
       {!enabled && (
         <div className="text-xs text-mute leading-relaxed">
-          Sin personalizar — el banner muestra la foto con un overlay
-          oscuro suave para que el contenido encima quede legible. Activa
-          arriba para tunear overlay, posición, zoom o blur.
+          {t('bannerDisabledHelp')}
         </div>
       )}
 
@@ -2582,7 +2580,7 @@ function BannerPanel({
             {/* Presets */}
             <div>
               <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
-                Presets
+                {t('presets')}
               </div>
               <div className="grid grid-cols-2 gap-2">
                 {(Object.keys(BANNER_PRESETS) as BannerPresetId[]).map((id) => {
@@ -2612,7 +2610,7 @@ function BannerPanel({
             {/* Posición */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="label text-xs">Posición</label>
+                <label className="label text-xs">{t('position')}</label>
                 <select
                   className="input"
                   value={cfg.position}
@@ -2620,16 +2618,16 @@ function BannerPanel({
                     patch({ position: e.target.value as BannerPosition })
                   }
                 >
-                  <option value="center">Centro</option>
-                  <option value="top">Arriba</option>
-                  <option value="bottom">Abajo</option>
-                  <option value="left">Izquierda</option>
-                  <option value="right">Derecha</option>
-                  <option value="custom">Personalizada (X/Y)</option>
+                  <option value="center">{t('positionCenter')}</option>
+                  <option value="top">{t('positionTop')}</option>
+                  <option value="bottom">{t('positionBottom')}</option>
+                  <option value="left">{t('positionLeft')}</option>
+                  <option value="right">{t('positionRight')}</option>
+                  <option value="custom">{t('positionCustom')}</option>
                 </select>
               </div>
               <div>
-                <label className="label text-xs">Overlay</label>
+                <label className="label text-xs">{t('overlay')}</label>
                 <select
                   className="input"
                   value={cfg.overlay.type}
@@ -2639,9 +2637,9 @@ function BannerPanel({
                     })
                   }
                 >
-                  <option value="none">Sin overlay</option>
-                  <option value="solid">Color sólido</option>
-                  <option value="gradient">Gradiente</option>
+                  <option value="none">{t('overlayNone')}</option>
+                  <option value="solid">{t('overlaySolid')}</option>
+                  <option value="gradient">{t('overlayGradient')}</option>
                 </select>
               </div>
             </div>
@@ -2649,7 +2647,7 @@ function BannerPanel({
             {cfg.position === 'custom' && (
               <div className="space-y-3">
                 <SliderRow
-                  label="Posición X (offset horizontal)"
+                  label={t('offsetX')}
                   min={-50}
                   max={50}
                   value={cfg.offsetX}
@@ -2657,7 +2655,7 @@ function BannerPanel({
                   unit="%"
                 />
                 <SliderRow
-                  label="Posición Y (offset vertical)"
+                  label={t('offsetY')}
                   min={-50}
                   max={50}
                   value={cfg.offsetY}
@@ -2669,7 +2667,7 @@ function BannerPanel({
 
             <div className="space-y-3">
               <SliderRow
-                label="Zoom"
+                label={t('zoom')}
                 min={100}
                 max={300}
                 value={Math.round(cfg.scale * 100)}
@@ -2677,7 +2675,7 @@ function BannerPanel({
                 unit="%"
               />
               <SliderRow
-                label="Blur"
+                label={t('blur')}
                 min={0}
                 max={20}
                 value={cfg.blur}
@@ -2690,7 +2688,7 @@ function BannerPanel({
             {cfg.overlay.type === 'solid' && (
               <div className="grid grid-cols-[120px_1fr] gap-3 items-end">
                 <div>
-                  <label className="label text-xs">Color overlay</label>
+                  <label className="label text-xs">{t('overlayColor')}</label>
                   <input
                     type="color"
                     className="input h-11 p-1"
@@ -2699,7 +2697,7 @@ function BannerPanel({
                   />
                 </div>
                 <SliderRow
-                  label="Opacidad overlay"
+                  label={t('overlayOpacity')}
                   min={0}
                   max={100}
                   value={Math.round(cfg.overlay.opacity * 100)}
@@ -2713,7 +2711,7 @@ function BannerPanel({
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="label text-xs">From</label>
+                    <label className="label text-xs">{t('gradientFrom')}</label>
                     <input
                       type="text"
                       className="input text-xs"
@@ -2725,7 +2723,7 @@ function BannerPanel({
                     />
                   </div>
                   <div>
-                    <label className="label text-xs">To</label>
+                    <label className="label text-xs">{t('gradientTo')}</label>
                     <input
                       type="text"
                       className="input text-xs"
@@ -2738,7 +2736,7 @@ function BannerPanel({
                   </div>
                 </div>
                 <SliderRow
-                  label="Ángulo gradient"
+                  label={t('gradientAngle')}
                   min={0}
                   max={360}
                   value={cfg.overlay.gradientAngle}
@@ -2752,7 +2750,7 @@ function BannerPanel({
           {/* Preview */}
           <div className="lg:sticky lg:top-4">
             <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2 text-center">
-              Vista previa
+              {t('preview')}
             </div>
             <div className="relative h-40 rounded-xl overflow-hidden border border-line">
               {heroImageUrl ? (
@@ -2774,13 +2772,12 @@ function BannerPanel({
                 </>
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center text-xs text-mute italic bg-bg2">
-                  Sube una imagen primero
+                  {t('uploadImageFirst')}
                 </div>
               )}
             </div>
             <div className="text-[10px] text-mute mt-2 text-center leading-snug">
-              El contenido (logo, título, botones) va encima — ajustá
-              overlay para que se lea bien.
+              {t('bannerPreviewHint')}
             </div>
           </div>
         </div>
@@ -2806,6 +2803,7 @@ function PopupEditor({
    *  pidiendo crear una tarjeta primero. */
   cards?: Array<{ id: string; name: string }>;
 }) {
+  const t = useTranslations('app_info_links_id');
   const cfg = value ?? DEFAULT_POPUP_CONFIG;
   function patch(p: Partial<PopupConfig>) {
     onChange({ ...cfg, ...p });
@@ -2818,12 +2816,12 @@ function PopupEditor({
   return (
     <div className="space-y-4">
       <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
-        Contenido del popup
+        {t('popupContent')}
       </div>
 
       <div>
         <div className="text-xs text-mute mb-1.5">
-          Plantillas rápidas (clic para precargar)
+          {t('quickTemplates')}
         </div>
         <div className="flex gap-2 flex-wrap">
           {(Object.keys(POPUP_TEMPLATES) as PopupTemplateId[]).map((id) => (
@@ -2842,7 +2840,7 @@ function PopupEditor({
       <div className="grid grid-cols-1 md:grid-cols-[1fr_240px] gap-5">
         <div className="space-y-3">
           <div>
-            <label className="label text-xs">Título</label>
+            <label className="label text-xs">{t('title')}</label>
             <input
               className="input"
               value={cfg.title}
@@ -2851,18 +2849,18 @@ function PopupEditor({
             />
           </div>
           <div>
-            <label className="label text-xs">Descripción</label>
+            <label className="label text-xs">{t('description')}</label>
             <textarea
               className="input"
               rows={4}
               value={cfg.description}
               onChange={(e) => patch({ description: e.target.value })}
               maxLength={500}
-              placeholder="Texto del popup. Saltos de línea respetados."
+              placeholder={t('popupEditorDescPlaceholder')}
             />
           </div>
           <div>
-            <label className="label text-xs">Imagen (opcional)</label>
+            <label className="label text-xs">{t('imageOptional')}</label>
             <ImageUploader
               value={cfg.imageUrl}
               onChange={(url) => patch({ imageUrl: url })}
@@ -2871,28 +2869,28 @@ function PopupEditor({
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="label text-xs">Texto del botón (opcional)</label>
+              <label className="label text-xs">{t('buttonTextOptional')}</label>
               <input
                 className="input"
                 value={cfg.ctaText}
                 onChange={(e) => patch({ ctaText: e.target.value })}
-                placeholder="Ej: Reservar ahora"
+                placeholder={t('ctaTextPlaceholder')}
                 maxLength={40}
               />
             </div>
             <div>
-              <label className="label text-xs">Link del botón</label>
+              <label className="label text-xs">{t('buttonLink')}</label>
               <input
                 className="input"
                 value={cfg.ctaUrl}
                 onChange={(e) => patch({ ctaUrl: e.target.value })}
-                placeholder="https://wa.me/... o https://..."
+                placeholder={t('ctaUrlPlaceholder')}
               />
             </div>
           </div>
           <div className="grid grid-cols-3 gap-2">
             <div>
-              <label className="label text-xs">Fondo</label>
+              <label className="label text-xs">{t('colorBg')}</label>
               <input
                 type="color"
                 className="input h-10 p-1"
@@ -2901,7 +2899,7 @@ function PopupEditor({
               />
             </div>
             <div>
-              <label className="label text-xs">Texto</label>
+              <label className="label text-xs">{t('colorText')}</label>
               <input
                 type="color"
                 className="input h-10 p-1"
@@ -2910,7 +2908,7 @@ function PopupEditor({
               />
             </div>
             <div>
-              <label className="label text-xs">Botón</label>
+              <label className="label text-xs">{t('colorButton')}</label>
               <input
                 type="color"
                 className="input h-10 p-1"
@@ -2921,7 +2919,7 @@ function PopupEditor({
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="label text-xs">Tamaño</label>
+              <label className="label text-xs">{t('size')}</label>
               <select
                 className="input"
                 value={cfg.size}
@@ -2929,13 +2927,13 @@ function PopupEditor({
                   patch({ size: e.target.value as PopupConfig['size'] })
                 }
               >
-                <option value="sm">Chico (320px)</option>
-                <option value="md">Medio (440px)</option>
-                <option value="lg">Grande (560px)</option>
+                <option value="sm">{t('sizeSm')}</option>
+                <option value="md">{t('sizeMd')}</option>
+                <option value="lg">{t('sizeLg')}</option>
               </select>
             </div>
             <div>
-              <label className="label text-xs">Sombra</label>
+              <label className="label text-xs">{t('shadow')}</label>
               <select
                 className="input"
                 value={cfg.shadow}
@@ -2943,16 +2941,16 @@ function PopupEditor({
                   patch({ shadow: e.target.value as PopupConfig['shadow'] })
                 }
               >
-                <option value="none">Ninguna</option>
-                <option value="sm">Suave</option>
-                <option value="md">Media</option>
-                <option value="lg">Grande</option>
-                <option value="xl">Premium (XL)</option>
+                <option value="none">{t('shadowNone')}</option>
+                <option value="sm">{t('shadowSm')}</option>
+                <option value="md">{t('shadowMd')}</option>
+                <option value="lg">{t('shadowLg')}</option>
+                <option value="xl">{t('shadowXl')}</option>
               </select>
             </div>
           </div>
           <SliderRow
-            label="Bordes redondeados"
+            label={t('roundedCorners')}
             min={0}
             max={40}
             value={cfg.borderRadius}
@@ -2965,7 +2963,7 @@ function PopupEditor({
               checked={cfg.closeOnOutside}
               onChange={(e) => patch({ closeOnOutside: e.target.checked })}
             />
-            Permitir cerrar tocando fuera del popup
+            {t('closeOnOutside')}
           </label>
 
           {/* G3: selector de tarjeta de fidelización. Cuando está
@@ -2974,14 +2972,14 @@ function PopupEditor({
               herramienta comercial ("Antes de reservar, instala nuestra
               tarjeta"). */}
           <div className="pt-3 border-t border-line2">
-            <label className="label text-xs">Tarjeta de fidelización (opcional)</label>
+            <label className="label text-xs">{t('loyaltyCardOptional')}</label>
             {(cards ?? []).length === 0 ? (
               <p className="text-[11px] text-mute leading-relaxed">
-                No tienes tarjetas creadas. Crea una desde{' '}
+                {t('noCardsBefore')}{' '}
                 <a href="/app/cards" className="underline text-brand">
-                  Tarjetas
+                  {t('cardsLink')}
                 </a>{' '}
-                y vuelves aquí para conectarla.
+                {t('noCardsAfter')}
               </p>
             ) : (
               <>
@@ -2992,7 +2990,7 @@ function PopupEditor({
                     patch({ walletCardId: e.target.value || null })
                   }
                 >
-                  <option value="">Sin tarjeta (oculto)</option>
+                  <option value="">{t('noCardHidden')}</option>
                   {(cards ?? []).map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
@@ -3000,13 +2998,12 @@ function PopupEditor({
                   ))}
                 </select>
                 <p className="text-[11px] text-mute mt-1 leading-relaxed">
-                  Aparece como botón secundario en el popup → abre la
-                  página de instalación de la tarjeta en otra pestaña.
+                  {t('loyaltyCardHelp')}
                 </p>
                 {cfg.walletCardId && (
                   <input
                     className="input mt-2"
-                    placeholder="🎁 Instalar tarjeta de fidelización"
+                    placeholder={t('installCardPlaceholder')}
                     value={cfg.walletCardLabel ?? ''}
                     onChange={(e) =>
                       patch({ walletCardLabel: e.target.value })
@@ -3020,7 +3017,7 @@ function PopupEditor({
 
           {/* G3: auto-close timer. 0 = manual close only. */}
           <div className="pt-3 border-t border-line2">
-            <label className="label text-xs">Cierre automático (opcional)</label>
+            <label className="label text-xs">{t('autoCloseOptional')}</label>
             <div className="flex items-center gap-2">
               <input
                 type="number"
@@ -3036,7 +3033,7 @@ function PopupEditor({
                 }}
               />
               <span className="text-xs text-mute">
-                segundos (0 = sin auto-close)
+                {t('autoCloseSecondsHint')}
               </span>
             </div>
           </div>
@@ -3045,7 +3042,7 @@ function PopupEditor({
         {/* Preview mini */}
         <div className="lg:sticky lg:top-4">
           <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2 text-center">
-            Vista previa
+            {t('preview')}
           </div>
           <div
             className="rounded-xl p-4 bg-ink/80 flex items-center justify-center"
@@ -3077,7 +3074,7 @@ function PopupEditor({
               )}
               <div className="px-3 py-2.5">
                 <div className="font-bold text-sm leading-tight">
-                  {cfg.title || 'Título'}
+                  {cfg.title || t('title')}
                 </div>
                 {cfg.description && (
                   <div className="text-[11px] mt-1 leading-snug whitespace-pre-line opacity-90">
@@ -3096,7 +3093,7 @@ function PopupEditor({
             </div>
           </div>
           <div className="text-[10px] text-mute mt-2 text-center leading-snug">
-            Se abre al tocar el botón en el InfoLink público.
+            {t('popupOpenHint')}
           </div>
         </div>
       </div>

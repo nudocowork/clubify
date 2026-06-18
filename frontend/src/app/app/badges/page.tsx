@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
@@ -161,6 +162,7 @@ const CRITERIA_LABEL: Record<Criteria['type'], string> = {
 };
 
 export default function BadgesPage() {
+  const t = useTranslations('app_badges');
   const [list, setList] = useState<Badge[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Badge | null>(null);
@@ -173,7 +175,7 @@ export default function BadgesPage() {
       const rows = await api<Badge[]>('/badges');
       setList(rows);
     } catch (e: any) {
-      toast(e.message || 'Error cargando insignias', 'error');
+      toast(e.message || t('errorLoading'), 'error');
     } finally {
       setLoading(false);
     }
@@ -186,37 +188,37 @@ export default function BadgesPage() {
     const earned = b._count?.earned ?? 0;
     const msg =
       earned > 0
-        ? `"${b.name}" la tienen ${earned} clientes. Si la borras se pierde de sus perfiles. ¿Confirmar?`
-        : `¿Borrar la insignia "${b.name}"?`;
+        ? t('confirmDeleteEarned', { name: b.name, count: earned })
+        : t('confirmDelete', { name: b.name });
     if (!confirm(msg)) return;
     try {
       await api(`/badges/${b.id}`, { method: 'DELETE' });
-      toast('Insignia eliminada', 'success');
+      toast(t('badgeDeleted'), 'success');
       load();
     } catch (e: any) {
-      toast(e.message || 'Error', 'error');
+      toast(e.message || t('error'), 'error');
     }
   }
 
-  async function createFromTemplate(t: BadgeTemplate) {
+  async function createFromTemplate(tpl: BadgeTemplate) {
     try {
       await api('/badges', {
         method: 'POST',
         body: JSON.stringify({
-          name: t.name,
-          description: t.description,
-          icon: t.icon,
-          color: t.color,
-          criteria: t.criteria,
-          xpReward: t.xpReward,
+          name: tpl.name,
+          description: tpl.description,
+          icon: tpl.icon,
+          color: tpl.color,
+          criteria: tpl.criteria,
+          xpReward: tpl.xpReward,
           isActive: true,
         }),
       });
-      toast(`Insignia "${t.name}" creada`, 'success');
+      toast(t('badgeCreatedNamed', { name: tpl.name }), 'success');
       setShowTemplates(false);
       load();
     } catch (e: any) {
-      toast(e.message || 'Error', 'error');
+      toast(e.message || t('error'), 'error');
     }
   }
 
@@ -233,15 +235,15 @@ export default function BadgesPage() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Insignias{' '}
-          <span className="page-crumb">/ {list.length} configuradas</span>
+          {t('title')}{' '}
+          <span className="page-crumb">/ {t('configuredCount', { count: list.length })}</span>
         </h1>
         <div className="flex gap-2">
           <button className="btn-ghost" onClick={() => setShowTemplates(true)}>
-            <Icon name="spark" /> Plantillas
+            <Icon name="spark" /> {t('templates')}
           </button>
           <button className="btn-primary" onClick={() => setCreating(true)}>
-            <Icon name="plus" /> Crear insignia
+            <Icon name="plus" /> {t('createBadge')}
           </button>
         </div>
       </div>
@@ -250,11 +252,7 @@ export default function BadgesPage() {
         <div className="flex items-start gap-3">
           <span className="text-2xl">🎮</span>
           <div className="text-sm leading-relaxed">
-            <strong>Sistema de gamificación.</strong> Cada vez que un cliente
-            scaneá su tarjeta gana XP, sube de nivel (Bronce → Plata → Oro →
-            Platino → Diamante) y desbloquea insignias automáticamente.
-            Configura las insignias aquí; los criterios se chequean al instante
-            con cada scan.
+            <strong>{t('gamificationTitle')}</strong> {t('gamificationBody')}
           </div>
         </div>
       </div>
@@ -272,23 +270,22 @@ export default function BadgesPage() {
       {!loading && list.length === 0 && (
         <div className="card card-pad text-center py-12">
           <div className="text-5xl mb-3">🏅</div>
-          <div className="font-semibold text-lg">Sin insignias configuradas</div>
+          <div className="font-semibold text-lg">{t('emptyTitle')}</div>
           <div className="text-sm text-mute mt-1.5 max-w-md mx-auto leading-relaxed">
-            Empieza con una plantilla pre-armada o crea la tuya desde cero. Tus
-            clientes las desbloquean automáticamente al alcanzar los criterios.
+            {t('emptyBody')}
           </div>
           <div className="mt-5 flex gap-2 justify-center">
             <button
               className="btn-primary"
               onClick={() => setShowTemplates(true)}
             >
-              <Icon name="spark" /> Ver plantillas
+              <Icon name="spark" /> {t('viewTemplates')}
             </button>
             <button
               className="btn-ghost"
               onClick={() => setCreating(true)}
             >
-              <Icon name="plus" /> Crear desde cero
+              <Icon name="plus" /> {t('createFromScratch')}
             </button>
           </div>
         </div>
@@ -319,7 +316,7 @@ export default function BadgesPage() {
                   </div>
                 </div>
                 {!b.isActive && (
-                  <span className="badge badge-mute text-[9px]">Pausada</span>
+                  <span className="badge badge-mute text-[9px]">{t('paused')}</span>
                 )}
               </div>
 
@@ -330,21 +327,21 @@ export default function BadgesPage() {
                   </span>
                   <span>
                     <strong className="text-ink">{b._count?.earned ?? 0}</strong>{' '}
-                    {(b._count?.earned ?? 0) === 1 ? 'cliente' : 'clientes'}
+                    {(b._count?.earned ?? 0) === 1 ? t('customer') : t('customers')}
                   </span>
                 </div>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
                   <button
                     onClick={() => setEditing(b)}
                     className="p-1.5 rounded hover:bg-bg2 text-mute hover:text-ink"
-                    title="Editar"
+                    title={t('edit')}
                   >
                     <Icon name="edit" />
                   </button>
                   <button
                     onClick={() => deleteBadge(b)}
                     className="p-1.5 rounded hover:bg-red-50 text-mute hover:text-red-600"
-                    title="Eliminar"
+                    title={t('delete')}
                   >
                     <Icon name="trash" />
                   </button>
@@ -390,6 +387,7 @@ function TemplatesModal({
   onPick: (t: BadgeTemplate) => void;
   existingNames: Set<string>;
 }) {
+  const t = useTranslations('app_badges');
   return (
     <div
       className="fixed inset-0 z-50 bg-ink/60 flex items-center justify-center p-4"
@@ -400,18 +398,18 @@ function TemplatesModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold m-0">Plantillas de insignia</h2>
+          <h2 className="text-lg font-bold m-0">{t('templatesModalTitle')}</h2>
           <button onClick={onClose} className="text-mute hover:text-ink text-xl leading-none">
             ×
           </button>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {TEMPLATES.map((t) => {
-            const exists = existingNames.has(t.name);
+          {TEMPLATES.map((tpl) => {
+            const exists = existingNames.has(tpl.name);
             return (
               <button
-                key={t.id}
-                onClick={() => !exists && onPick(t)}
+                key={tpl.id}
+                onClick={() => !exists && onPick(tpl)}
                 disabled={exists}
                 className={`card p-4 text-left transition ${
                   exists
@@ -422,23 +420,23 @@ function TemplatesModal({
                 <div className="flex items-start gap-3">
                   <div
                     className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0"
-                    style={{ background: `${t.color}22`, color: t.color }}
+                    style={{ background: `${tpl.color}22`, color: tpl.color }}
                   >
-                    {t.icon}
+                    {tpl.icon}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-sm">{t.name}</div>
+                    <div className="font-semibold text-sm">{tpl.name}</div>
                     <div className="text-xs text-mute mt-0.5 leading-snug">
-                      {t.description}
+                      {tpl.description}
                     </div>
                     <div className="text-[10px] uppercase tracking-wider text-mute mt-1.5 font-semibold">
-                      +{t.xpReward} XP · {CRITERIA_LABEL[t.criteria.type]}
+                      +{tpl.xpReward} XP · {CRITERIA_LABEL[tpl.criteria.type]}
                     </div>
                   </div>
                 </div>
                 {exists && (
                   <div className="mt-2 text-[10px] text-mute font-semibold">
-                    ✓ Ya creada
+                    {t('alreadyCreated')}
                   </div>
                 )}
               </button>
@@ -459,6 +457,7 @@ function BadgeEditModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations('app_badges');
   const [form, setForm] = useState<{
     name: string;
     description: string;
@@ -512,10 +511,10 @@ function BadgeEditModal({
           body: JSON.stringify(payload),
         });
       }
-      toast(badge ? 'Insignia actualizada' : 'Insignia creada', 'success');
+      toast(badge ? t('badgeUpdated') : t('badgeCreated'), 'success');
       onSaved();
     } catch (e: any) {
-      toast(e.message || 'Error', 'error');
+      toast(e.message || t('error'), 'error');
     } finally {
       setSaving(false);
     }
@@ -533,7 +532,7 @@ function BadgeEditModal({
       >
         <div className="flex items-center justify-between mb-1">
           <h2 className="text-lg font-bold m-0">
-            {badge ? 'Editar insignia' : 'Nueva insignia'}
+            {badge ? t('editBadge') : t('newBadge')}
           </h2>
           <button
             type="button"
@@ -553,7 +552,7 @@ function BadgeEditModal({
           </div>
           <div className="flex-1 grid grid-cols-2 gap-2">
             <div>
-              <label className="label">Icono</label>
+              <label className="label">{t('icon')}</label>
               <input
                 className="input text-center text-xl"
                 maxLength={2}
@@ -562,7 +561,7 @@ function BadgeEditModal({
               />
             </div>
             <div>
-              <label className="label">Color</label>
+              <label className="label">{t('color')}</label>
               <input
                 type="color"
                 className="input h-10 p-1"
@@ -574,28 +573,28 @@ function BadgeEditModal({
         </div>
 
         <div>
-          <label className="label">Nombre</label>
+          <label className="label">{t('name')}</label>
           <input
             className="input"
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             required
-            placeholder="Cliente VIP"
+            placeholder={t('namePlaceholder')}
           />
         </div>
 
         <div>
-          <label className="label">Descripción</label>
+          <label className="label">{t('description')}</label>
           <input
             className="input"
             value={form.description}
             onChange={(e) => setForm({ ...form, description: e.target.value })}
-            placeholder="Cómo se gana esta insignia"
+            placeholder={t('descriptionPlaceholder')}
           />
         </div>
 
         <div>
-          <label className="label">Criterio de desbloqueo</label>
+          <label className="label">{t('unlockCriteria')}</label>
           <select
             className="input"
             value={form.criteriaType}
@@ -614,7 +613,7 @@ function BadgeEditModal({
         {needsThreshold && (
           <div>
             <label className="label">
-              Umbral{' '}
+              {t('threshold')}{' '}
               {form.criteriaType === 'CASHBACK_EARNED' ? '($)' : ''}
             </label>
             <input
@@ -631,7 +630,7 @@ function BadgeEditModal({
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="label">XP que regala</label>
+            <label className="label">{t('xpReward')}</label>
             <input
               type="number"
               className="input"
@@ -651,17 +650,17 @@ function BadgeEditModal({
                   setForm({ ...form, isActive: e.target.checked })
                 }
               />
-              <span className="text-sm">Activa</span>
+              <span className="text-sm">{t('active')}</span>
             </label>
           </div>
         </div>
 
         <div className="flex gap-2 justify-end pt-2">
           <button type="button" className="btn-ghost" onClick={onClose}>
-            Cancelar
+            {t('cancel')}
           </button>
           <button type="submit" className="btn-primary" disabled={saving}>
-            {saving ? 'Guardando…' : badge ? 'Guardar' : 'Crear'}
+            {saving ? t('saving') : badge ? t('save') : t('create')}
           </button>
         </div>
       </form>

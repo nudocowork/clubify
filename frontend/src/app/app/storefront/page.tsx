@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api, getUser } from '@/lib/api';
 import { resolveMainSectionLabel } from '@/lib/business-categories';
@@ -135,12 +136,13 @@ const MENU_LAYOUTS: { id: MenuLayout; emoji: string; label: string; sub: string 
 ];
 
 export default function StorefrontEditor() {
+  const t = useTranslations('app_storefront');
   const [sf, setSf] = useState<Storefront | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [tenantSlug, setTenantSlug] = useState<string>('');
-  const [brandName, setBrandName] = useState<string>('Mi negocio');
+  const [brandName, setBrandName] = useState<string>(t('defaultBrandName'));
   const [mainLabel, setMainLabel] = useState<string>('Menú');
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [logoDirty, setLogoDirty] = useState(false);
@@ -190,7 +192,7 @@ export default function StorefrontEditor() {
       // 500, network), sf quedaba null y la página se quedaba en
       // "Cargando..." para siempre sin pista. Ahora mostramos el
       // mensaje del backend y dejamos un botón para reintentar.
-      setLoadErr(e?.message || 'No se pudo cargar la configuración');
+      setLoadErr(e?.message || t('loadError'));
     }
   }
   useEffect(() => {
@@ -253,46 +255,46 @@ export default function StorefrontEditor() {
     return (
       <div className="card card-pad max-w-lg mx-auto mt-8 text-center space-y-3">
         <div className="text-3xl">⚠️</div>
-        <div className="font-semibold">No se pudo cargar la configuración del {mainLabel.toLowerCase()}</div>
+        <div className="font-semibold">{t('loadErrorHeading', { label: mainLabel.toLowerCase() })}</div>
         <div className="text-sm text-mute break-words">{loadErr}</div>
         <button type="button" onClick={load} className="btn-primary">
-          Reintentar
+          {t('retry')}
         </button>
       </div>
     );
   }
-  if (!sf) return <div className="text-mute">Cargando…</div>;
+  if (!sf) return <div className="text-mute">{t('loading')}</div>;
 
   return (
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Configura tu {mainLabel.toLowerCase()}{' '}
-          <span className="page-crumb">/ {sf.isPublished ? 'Publicado' : 'Borrador'}</span>
+          {t('configureTitle', { label: mainLabel.toLowerCase() })}{' '}
+          <span className="page-crumb">/ {sf.isPublished ? t('published') : t('draft')}</span>
         </h1>
         <div className="flex gap-2 flex-wrap items-center">
           <Link
             href={mesaHref}
             target="_blank"
             className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
-            title={`Vista del ${mainLabel.toLowerCase()} como la verá un cliente sentado en una mesa`}
+            title={t('viewTableTitle', { label: mainLabel.toLowerCase() })}
           >
-            🍽 Ver {mainLabel.toLowerCase()} mesa
+            🍽 {t('viewTable', { label: mainLabel.toLowerCase() })}
           </Link>
           <Link
             href="/app/marketing/qr-menu"
             className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
-            title={`Genera un cartel imprimible con el QR de tu ${mainLabel.toLowerCase()}`}
+            title={t('qrPosterTitle', { label: mainLabel.toLowerCase() })}
           >
-            🖨 QR {mainLabel}
+            🖨 {t('qrLabel', { label: mainLabel })}
           </Link>
           <Link
             href={publicHref}
             target="_blank"
             className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
-            title={`Vista del ${mainLabel.toLowerCase()} para domicilio — el link público que envías a tus clientes`}
+            title={t('viewDeliveryTitle', { label: mainLabel.toLowerCase() })}
           >
-            🛵 Ver {mainLabel.toLowerCase()} delivery
+            🛵 {t('viewDelivery', { label: mainLabel.toLowerCase() })}
           </Link>
           <button
             type="button"
@@ -304,43 +306,43 @@ export default function StorefrontEditor() {
               const url = `${window.location.origin}/d/${tenantSlug}`;
               try {
                 await navigator.clipboard.writeText(url);
-                toast('Link delivery copiado — pégalo en WhatsApp', 'success');
+                toast(t('linkCopied'), 'success');
               } catch {
-                toast('No se pudo copiar — selecciona el link manualmente', 'error');
+                toast(t('linkCopyFailed'), 'error');
               }
             }}
             className="btn-ghost disabled:opacity-50"
-            title="Copia el link de delivery al portapapeles"
+            title={t('copyLinkTitle')}
           >
-            📋 Copiar link
+            📋 {t('copyLink')}
           </button>
           <button className="btn-primary" onClick={save} disabled={saving}>
-            <Icon name="check" /> {saving ? 'Guardando…' : 'Publicar cambios'}
+            <Icon name="check" /> {saving ? t('saving') : t('publishChanges')}
           </button>
         </div>
       </div>
 
       {savedAt && (
         <div className="rounded-lg bg-ok-soft text-ok-ink px-3 py-2 mb-4 text-sm">
-          ✓ Guardado a las {savedAt.toLocaleTimeString('es-CO')}
+          ✓ {t('savedAt', { time: savedAt.toLocaleTimeString('es-CO') })}
         </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <div className="card card-pad">
-          <h3 className="text-base font-semibold m-0 mb-4">Información general</h3>
+          <h3 className="text-base font-semibold m-0 mb-4">{t('generalInfo')}</h3>
           <div>
-            <label className="label">Descripción corta</label>
+            <label className="label">{t('shortDescription')}</label>
             <textarea
               className="input"
-              placeholder="Café de especialidad en el centro de Bogotá."
+              placeholder={t('descriptionPlaceholder')}
               value={sf.description ?? ''}
               onChange={(e) => setSf({ ...sf, description: e.target.value })}
             />
           </div>
 
           <div className="mt-4">
-            <label className="label">Logo</label>
+            <label className="label">{t('logo')}</label>
             <ImageUploader
               value={logoUrl}
               onChange={(url) => {
@@ -350,11 +352,11 @@ export default function StorefrontEditor() {
               folder="logos"
             />
             <p className="text-[11px] text-mute mt-1.5">
-              Cuadrado, mínimo 400×400px. PNG con fondo transparente o JPG.
+              {t('logoHint')}
             </p>
           </div>
           <div className="mt-3">
-            <label className="label">Estado</label>
+            <label className="label">{t('status')}</label>
             <select
               className="input"
               value={sf.isPublished ? '1' : '0'}
@@ -362,20 +364,20 @@ export default function StorefrontEditor() {
                 setSf({ ...sf, isPublished: e.target.value === '1' })
               }
             >
-              <option value="1">Publicado</option>
-              <option value="0">Borrador (oculto)</option>
+              <option value="1">{t('published')}</option>
+              <option value="0">{t('draftHidden')}</option>
             </select>
           </div>
 
-          <h3 className="text-base font-semibold mt-6 mb-3">Estilo del {mainLabel.toLowerCase()}</h3>
+          <h3 className="text-base font-semibold mt-6 mb-3">{t('styleHeading', { label: mainLabel.toLowerCase() })}</h3>
           <p className="text-mute text-xs mb-3">
-            Cómo se ven los productos en tu storefront. Cambia cuando quieras.{' '}
+            {t('styleHint')}{' '}
             <a
               href="/preview/menus"
               target="_blank"
               className="text-brand hover:underline"
             >
-              Ver los 8 estilos →
+              {t('viewStyles')}
             </a>
           </p>
           <div className="grid grid-cols-2 gap-2">
@@ -410,10 +412,9 @@ export default function StorefrontEditor() {
           {/* Fondo de la página pública: 3 tipos (sólido / gradiente /
               imagen). El viewer aplica el tipo según pageBackgroundType.
               Compat: storefronts viejos quedan con type=null → SOLID. */}
-          <h3 className="text-base font-semibold mt-6 mb-3">🖌 Fondo de la página</h3>
+          <h3 className="text-base font-semibold mt-6 mb-3">🖌 {t('pageBackground')}</h3>
           <p className="text-mute text-xs mb-3 leading-relaxed">
-            Elige cómo quieres el fondo del {mainLabel.toLowerCase()} público:
-            color sólido, gradiente personalizado o imagen.
+            {t('pageBackgroundHint', { label: mainLabel.toLowerCase() })}
           </p>
           <PageBackgroundEditor
             type={(sf.pageBackgroundType as any) ?? 'SOLID'}
@@ -428,60 +429,57 @@ export default function StorefrontEditor() {
               descripción. Permiten matchear el branding cuando el logo o
               los textos no contrastan con el fondo default (blanco). NULL
               en los 3 = comportamiento histórico. */}
-          <h3 className="text-base font-semibold mt-6 mb-3">🖼 Logo y texto del header</h3>
+          <h3 className="text-base font-semibold mt-6 mb-3">🖼 {t('headerLogoText')}</h3>
           <p className="text-mute text-xs mb-3 leading-relaxed">
-            Personalizá los colores del header del {mainLabel.toLowerCase()}{' '}
-            público. Útil cuando tu logo es claro (necesita fondo oscuro) u
-            oscuro (necesita fondo claro). Los textos pueden adaptarse al
-            color de fondo que elijas para mantener contraste.
+            {t('headerLogoTextHint', { label: mainLabel.toLowerCase() })}
           </p>
           <div className="space-y-4">
             <HeaderColorRow
-              label="Fondo del logo"
-              hint='Cuadro detrás del logo. Usa "Transparente" si tu logo ya trae fondo propio.'
+              label={t('logoBgLabel')}
+              hint={t('logoBgHint')}
               value={sf.logoBgColor ?? ''}
-              defaultLabel="Blanco"
+              defaultLabel={t('colorWhite')}
               defaultColor="#FFFFFF"
               allowTransparent
               presets={[
-                { color: '#FFFFFF', label: 'Blanco' },
-                { color: '#0a0a0a', label: 'Negro' },
-                { color: '#1F2937', label: 'Gris oscuro' },
-                { color: '#F5F1EA', label: 'Crema' },
-                { color: '#FFF7ED', label: 'Beige' },
-                { color: primaryColor, label: 'Color de marca' },
+                { color: '#FFFFFF', label: t('colorWhite') },
+                { color: '#0a0a0a', label: t('colorBlack') },
+                { color: '#1F2937', label: t('colorDarkGray') },
+                { color: '#F5F1EA', label: t('colorCream') },
+                { color: '#FFF7ED', label: t('colorBeige') },
+                { color: primaryColor, label: t('colorBrand') },
               ]}
               onChange={(v) => setSf({ ...sf, logoBgColor: v })}
             />
             <HeaderColorRow
-              label="Color del título"
-              hint="Nombre del negocio en el header."
+              label={t('titleColorLabel')}
+              hint={t('titleColorHint')}
               value={sf.titleColor ?? ''}
-              defaultLabel="Negro"
+              defaultLabel={t('colorBlack')}
               defaultColor="#0F172A"
               presets={[
-                { color: '#0F172A', label: 'Negro' },
-                { color: '#FFFFFF', label: 'Blanco' },
-                { color: '#1F2937', label: 'Gris oscuro' },
-                { color: '#92400E', label: 'Marrón' },
-                { color: '#9F1239', label: 'Vino' },
-                { color: primaryColor, label: 'Color de marca' },
+                { color: '#0F172A', label: t('colorBlack') },
+                { color: '#FFFFFF', label: t('colorWhite') },
+                { color: '#1F2937', label: t('colorDarkGray') },
+                { color: '#92400E', label: t('colorBrown') },
+                { color: '#9F1239', label: t('colorWine') },
+                { color: primaryColor, label: t('colorBrand') },
               ]}
               onChange={(v) => setSf({ ...sf, titleColor: v })}
             />
             <HeaderColorRow
-              label="Color de la descripción"
-              hint="Subtítulo / tagline del negocio."
+              label={t('descriptionColorLabel')}
+              hint={t('descriptionColorHint')}
               value={sf.descriptionColor ?? ''}
-              defaultLabel="Gris medio"
+              defaultLabel={t('colorMediumGray')}
               defaultColor="#64748B"
               presets={[
-                { color: '#64748B', label: 'Gris medio' },
-                { color: '#FFFFFFCC', label: 'Blanco 80%' },
-                { color: '#0F172A', label: 'Negro' },
-                { color: '#A78BFA', label: 'Violeta suave' },
-                { color: '#FBBF24', label: 'Dorado' },
-                { color: primaryColor, label: 'Color de marca' },
+                { color: '#64748B', label: t('colorMediumGray') },
+                { color: '#FFFFFFCC', label: t('colorWhite80') },
+                { color: '#0F172A', label: t('colorBlack') },
+                { color: '#A78BFA', label: t('colorSoftViolet') },
+                { color: '#FBBF24', label: t('colorGold') },
+                { color: primaryColor, label: t('colorBrand') },
               ]}
               onChange={(v) => setSf({ ...sf, descriptionColor: v })}
             />
@@ -493,13 +491,10 @@ export default function StorefrontEditor() {
           {(sf.menuLayout ?? 'CLASSIC') === 'SECTIONS' && (
             <>
               <h3 className="text-base font-semibold mt-6 mb-3">
-                ← Botón "Volver" (Secciones premium)
+                ← {t('backButtonHeading')}
               </h3>
               <p className="text-mute text-xs mb-3 leading-relaxed">
-                El botón redondo que aparece sobre la portada de cada
-                sección para volver al listado. Personalizá el contraste
-                para que se distinga sobre cualquier portada (clara,
-                oscura o con foto compleja).
+                {t('backButtonHint')}
               </p>
               <BackButtonEditor
                 config={sf.backButtonConfig ?? null}
@@ -508,11 +503,9 @@ export default function StorefrontEditor() {
             </>
           )}
 
-          <h3 className="text-base font-semibold mt-6 mb-3">🎨 Color principal</h3>
+          <h3 className="text-base font-semibold mt-6 mb-3">🎨 {t('primaryColor')}</h3>
           <p className="text-mute text-xs mb-3 leading-relaxed">
-            Define el color de marca que se usa en el botón "{mainLabel}"
-            activo, estados seleccionados, bordes activos y acentos del{' '}
-            {mainLabel.toLowerCase()} público. Cambialo por tu color de marca.
+            {t('primaryColorHint', { label: mainLabel, labelLower: mainLabel.toLowerCase() })}
           </p>
           <PrimaryColorPicker
             value={primaryColor}
@@ -522,12 +515,9 @@ export default function StorefrontEditor() {
             }}
           />
 
-          <h3 className="text-base font-semibold mt-6 mb-3">💬 Botón de WhatsApp</h3>
+          <h3 className="text-base font-semibold mt-6 mb-3">💬 {t('whatsappButton')}</h3>
           <p className="text-mute text-xs mb-3 leading-relaxed">
-            Muestra u ocultá el botón que aparece arriba del{' '}
-            {mainLabel.toLowerCase()} público y redirige a tu WhatsApp. El
-            número se guarda en la cuenta del negocio aunque desactives el
-            botón.
+            {t('whatsappButtonHint', { label: mainLabel.toLowerCase() })}
           </p>
           <WhatsAppConfig
             enabled={sf.whatsappButtonEnabled ?? true}
@@ -541,12 +531,9 @@ export default function StorefrontEditor() {
             }}
           />
 
-          <h3 className="text-base font-semibold mt-6 mb-3">📣 Configura tu popup</h3>
+          <h3 className="text-base font-semibold mt-6 mb-3">📣 {t('popupHeading')}</h3>
           <p className="text-mute text-xs mb-3 leading-relaxed">
-            Aparece a los 10 segundos de que un cliente abre tu{' '}
-            {mainLabel.toLowerCase()} público. Si hace click en la imagen, lo
-            llevamos a inscribirse en la tarjeta seleccionada. Tiene una × en
-            la esquina para cerrarlo.
+            {t('popupHint', { label: mainLabel.toLowerCase() })}
           </p>
           <PopupConfig
             enabled={sf.popupEnabled ?? false}
@@ -564,9 +551,9 @@ export default function StorefrontEditor() {
             }
           />
 
-          <h3 className="text-base font-semibold mt-6 mb-4">Bloques del sitio</h3>
+          <h3 className="text-base font-semibold mt-6 mb-4">{t('siteBlocks')}</h3>
           <p className="text-mute text-xs mb-3">
-            Arrastra para reordenar. El orden se guarda al publicar.
+            {t('siteBlocksHint')}
           </p>
           <BlocksList
             blocks={sf.blocks ?? []}
@@ -585,11 +572,11 @@ export default function StorefrontEditor() {
                 e.target.value = '';
               }}
             >
-              <option value="">+ Agregar bloque</option>
+              <option value="">{t('addBlock')}</option>
               <option value="hero">Hero</option>
-              <option value="social">Botones sociales</option>
-              <option value="menu">Menú</option>
-              <option value="promotions">Promociones</option>
+              <option value="social">{t('blockSocial')}</option>
+              <option value="menu">{t('blockMenu')}</option>
+              <option value="promotions">{t('blockPromotions')}</option>
             </select>
           </div>
         </div>
@@ -629,6 +616,7 @@ function BlocksList({
   blocks: any[];
   onChange: (arr: any[]) => void;
 }) {
+  const t = useTranslations('app_storefront');
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
   );
@@ -647,7 +635,7 @@ function BlocksList({
   if (items.length === 0) {
     return (
       <div className="text-xs text-mute italic px-3 py-4 border border-dashed border-line rounded-lg text-center">
-        No has agregado bloques. Usa el selector de abajo.
+        {t('noBlocks')}
       </div>
     );
   }
@@ -683,6 +671,7 @@ function SortableBlock({
   block: any;
   onRemove: () => void;
 }) {
+  const t = useTranslations('app_storefront');
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id });
   const meta = BLOCK_LABEL[block.type] ?? {
@@ -705,7 +694,7 @@ function SortableBlock({
         {...attributes}
         {...listeners}
         className="cursor-grab active:cursor-grabbing text-mute hover:text-ink"
-        aria-label="Mover bloque"
+        aria-label={t('moveBlock')}
         type="button"
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
@@ -729,7 +718,7 @@ function SortableBlock({
         className="text-bad text-xs hover:underline"
         onClick={onRemove}
       >
-        Quitar
+        {t('remove')}
       </button>
     </div>
   );
@@ -759,6 +748,7 @@ function StorefrontPreview({
   mainLabel: string;
   menuLayout: MenuLayout;
 }) {
+  const t = useTranslations('app_storefront');
   // Default a 'live' cuando el negocio ya tiene slug: es el único modo
   // que refleja el layout real (premium / SECTIONS / colores de header).
   // El SimPreview es un mock genérico estilo CLASSIC y se queda como
@@ -800,7 +790,7 @@ function StorefrontPreview({
     <div className="lg:sticky lg:top-4">
       <div className="flex items-center justify-between mb-3 px-2">
         <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold">
-          Vista previa
+          {t('preview')}
         </div>
         <div className="flex gap-0.5 bg-bg2 rounded-pill p-0.5 text-xs">
           <button
@@ -809,7 +799,7 @@ function StorefrontPreview({
               mode === 'sim' ? 'bg-white text-ink shadow-sm' : 'text-mute'
             }`}
           >
-            Simulación
+            {t('simulation')}
           </button>
           <button
             onClick={() => setMode('live')}
@@ -818,7 +808,7 @@ function StorefrontPreview({
               mode === 'live' ? 'bg-white text-ink shadow-sm' : 'text-mute'
             }`}
           >
-            En vivo
+            {t('live')}
           </button>
         </div>
       </div>
@@ -866,8 +856,10 @@ function StorefrontPreview({
                 <div className="h-full overflow-hidden">
                   {!simIsFaithful && (
                     <div className="bg-amber-50 border-b border-amber-200 px-2 py-1.5 text-[9px] text-amber-900 leading-snug text-center">
-                      ⚠ La simulación muestra estilo Clásico. Cambia a{' '}
-                      <strong>En vivo</strong> para ver "{layoutLabel}".
+                      {t.rich('simNotFaithful', {
+                        layout: layoutLabel,
+                        strong: (chunks) => <strong>{chunks}</strong>,
+                      })}
                     </div>
                   )}
                   <SimPreview
@@ -881,13 +873,13 @@ function StorefrontPreview({
                 <iframe
                   key={iframeKey}
                   src={publicHref}
-                  title="Vista previa del sitio"
+                  title={t('sitePreviewTitle')}
                   className="w-full border-0 block"
                   style={{ height: 'calc(640px - 34px - 20px)' }}
                 />
               ) : (
                 <div className="p-6 text-xs text-mute text-center mt-20">
-                  Aún no se puede previsualizar.
+                  {t('cannotPreviewYet')}
                 </div>
               )}
             </div>
@@ -905,7 +897,7 @@ function StorefrontPreview({
             onClick={() => setIframeKey((k) => k + 1)}
             className="text-brand hover:underline"
           >
-            ↻ Refrescar
+            ↻ {t('refresh')}
           </button>
         )}
       </div>
@@ -924,6 +916,7 @@ function SimPreview({
   blocksCount: number;
   mainLabel: string;
 }) {
+  const t = useTranslations('app_storefront');
   return (
     <div className="h-full overflow-y-auto px-5 pt-3 pb-4">
       <div className="flex items-center gap-3">
@@ -932,7 +925,7 @@ function SimPreview({
         </div>
         <div className="flex-1 min-w-0">
           <div className="font-bold text-base leading-tight truncate">{brandName}</div>
-          <div className="text-[11px] text-mute mt-0.5 line-clamp-2">{description || 'Sin descripción aún'}</div>
+          <div className="text-[11px] text-mute mt-0.5 line-clamp-2">{description || t('noDescriptionYet')}</div>
         </div>
       </div>
       <div className="flex gap-1.5 mt-3 text-[11px]">
@@ -942,8 +935,8 @@ function SimPreview({
       </div>
       <div className="flex gap-1.5 mt-3 text-[11px]">
         <span className="px-2.5 py-1 rounded-full bg-brand text-white font-semibold">{mainLabel}</span>
-        <span className="px-2.5 py-1 rounded-full bg-bg2 text-mute">Mi tarjeta</span>
-        <span className="px-2.5 py-1 rounded-full bg-bg2 text-mute">Promos</span>
+        <span className="px-2.5 py-1 rounded-full bg-bg2 text-mute">{t('myCard')}</span>
+        <span className="px-2.5 py-1 rounded-full bg-bg2 text-mute">{t('promos')}</span>
       </div>
 
       <div className="mt-4 space-y-2">
@@ -960,7 +953,7 @@ function SimPreview({
       </div>
 
       <div className="mt-4 text-center text-mute text-[10px] uppercase tracking-wider">
-        Simulación · {blocksCount} bloques · cambia a "En vivo"
+        {t('simSummary', { count: blocksCount })}
       </div>
     </div>
   );
@@ -988,6 +981,7 @@ function PopupConfig({
     popupDelaySeconds?: number;
   }) => void;
 }) {
+  const t = useTranslations('app_storefront');
   const [cards, setCards] = useState<{ id: string; name: string; isActive: boolean }[]>([]);
 
   useEffect(() => {
@@ -1011,33 +1005,32 @@ function PopupConfig({
           checked={enabled}
           onChange={(e) => onChange({ popupEnabled: e.target.checked })}
         />
-        Activar popup en el menú público
+        {t('popupEnable')}
       </label>
 
       <div className="grid grid-cols-1 md:grid-cols-[1fr_220px] gap-4">
         <div>
-          <label className="label">Tarjeta de fidelización</label>
+          <label className="label">{t('loyaltyCard')}</label>
           <select
             className="input"
             value={cardId ?? ''}
             onChange={(e) => onChange({ popupCardId: e.target.value || null })}
             disabled={!enabled}
           >
-            <option value="">— Sin tarjeta (solo informativo) —</option>
+            <option value="">{t('noCardInformational')}</option>
             {cards.map((c) => (
               <option key={c.id} value={c.id} disabled={!c.isActive}>
-                {c.name} {!c.isActive && '· pausada'}
+                {c.name} {!c.isActive && t('cardPausedSuffix')}
               </option>
             ))}
           </select>
           <p className="text-[11px] text-mute mt-1.5 leading-relaxed">
-            Click en la imagen del popup → lleva al cliente a inscribirse
-            en esta tarjeta. Si dejas vacío, la imagen no es clickeable.
+            {t('popupCardHint')}
           </p>
         </div>
 
         <div>
-          <label className="label">Imagen del popup</label>
+          <label className="label">{t('popupImage')}</label>
           <ImageUploader
             value={imageUrl}
             onChange={(url) => onChange({ popupImageUrl: url })}
@@ -1045,14 +1038,14 @@ function PopupConfig({
             crop={false}
           />
           <p className="text-[11px] text-mute mt-1.5">
-            Vertical funciona mejor (~600×800).
+            {t('popupImageHint')}
           </p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-[1fr_220px] gap-4 pt-1">
         <div>
-          <label className="label">¿Cuándo aparece?</label>
+          <label className="label">{t('popupWhenLabel')}</label>
           <div className="flex items-center gap-2">
             <input
               type="number"
@@ -1073,12 +1066,12 @@ function PopupConfig({
               }}
               disabled={!enabled}
             />
-            <span className="text-sm text-mute">segundos después de abrir el menú</span>
+            <span className="text-sm text-mute">{t('secondsAfterOpen')}</span>
           </div>
           <p className="text-[11px] text-mute mt-1.5 leading-relaxed">
-            Recomendado: 8–15s para dar tiempo a que el cliente vea la
-            primera categoría antes de la interrupción. Usá <strong>0</strong>{' '}
-            para que aparezca de inmediato. Máx 120s.
+            {t.rich('popupDelayHint', {
+              strong: (chunks) => <strong>{chunks}</strong>,
+            })}
           </p>
         </div>
       </div>
@@ -1142,6 +1135,7 @@ function BackButtonEditor({
   config: BackButtonCfg | null;
   onChange: (c: BackButtonCfg | null) => void;
 }) {
+  const t = useTranslations('app_storefront');
   // Merge con defaults para tener valores siempre definidos en los inputs
   const cfg: Required<BackButtonCfg> = {
     ...DEFAULT_BACK_CFG,
@@ -1165,7 +1159,7 @@ function BackButtonEditor({
       {/* Presets rápidos */}
       <div>
         <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1.5">
-          Estilos rápidos
+          {t('quickStyles')}
         </div>
         <div className="grid grid-cols-5 gap-1.5">
           {BACK_BTN_PRESETS.map((p) => (
@@ -1207,19 +1201,19 @@ function BackButtonEditor({
             boxShadow: shadowMap[cfg.shadow] ?? shadowMap.md,
             fontSize: Math.round(cfg.size * 0.5),
           }}
-          aria-label="Vista previa botón volver"
+          aria-label={t('backButtonPreviewAria')}
         >
           ←
         </button>
         <span className="absolute bottom-2 right-3 text-[10px] text-white/80 uppercase tracking-wider font-semibold">
-          Vista previa
+          {t('preview')}
         </span>
       </div>
 
       {/* Controles individuales */}
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="label text-[11px]">Color de fondo</label>
+          <label className="label text-[11px]">{t('bgColor')}</label>
           <input
             type="text"
             className="input font-mono text-xs"
@@ -1230,7 +1224,7 @@ function BackButtonEditor({
           />
         </div>
         <div>
-          <label className="label text-[11px]">Color de la flecha</label>
+          <label className="label text-[11px]">{t('arrowColor')}</label>
           <input
             type="text"
             className="input font-mono text-xs"
@@ -1245,7 +1239,7 @@ function BackButtonEditor({
       <div>
         <div className="flex justify-between text-[11px] mb-0.5">
           <span className="uppercase tracking-wider text-mute font-semibold">
-            Opacidad
+            {t('opacity')}
           </span>
           <span className="text-mute">{Math.round(cfg.opacity * 100)}%</span>
         </div>
@@ -1262,7 +1256,7 @@ function BackButtonEditor({
 
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="label text-[11px]">Tamaño (px)</label>
+          <label className="label text-[11px]">{t('sizePx')}</label>
           <input
             type="number"
             className="input"
@@ -1277,23 +1271,23 @@ function BackButtonEditor({
           />
         </div>
         <div>
-          <label className="label text-[11px]">Sombra</label>
+          <label className="label text-[11px]">{t('shadow')}</label>
           <select
             className="input"
             value={cfg.shadow}
             onChange={(e) => patch({ shadow: e.target.value as any })}
           >
-            <option value="none">Sin sombra</option>
-            <option value="sm">Suave</option>
-            <option value="md">Media</option>
-            <option value="lg">Fuerte</option>
+            <option value="none">{t('shadowNone')}</option>
+            <option value="sm">{t('shadowSoft')}</option>
+            <option value="md">{t('shadowMedium')}</option>
+            <option value="lg">{t('shadowStrong')}</option>
           </select>
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="label text-[11px]">Borde — color</label>
+          <label className="label text-[11px]">{t('borderColor')}</label>
           <input
             type="text"
             className="input font-mono text-xs"
@@ -1304,7 +1298,7 @@ function BackButtonEditor({
           />
         </div>
         <div>
-          <label className="label text-[11px]">Borde — grosor (px)</label>
+          <label className="label text-[11px]">{t('borderWidth')}</label>
           <input
             type="number"
             className="input"
@@ -1326,7 +1320,7 @@ function BackButtonEditor({
           onClick={() => onChange(null)}
           className="text-xs text-mute hover:text-brand underline"
         >
-          ↺ Restablecer al estilo por defecto
+          ↺ {t('resetToDefault')}
         </button>
       )}
     </div>
@@ -1369,6 +1363,7 @@ function PageBackgroundEditor({
     pageBackgroundImageUrl?: string | null;
   }) => void;
 }) {
+  const t = useTranslations('app_storefront');
   // Parseamos el gradient para mostrar el editor amigable. Si el user
   // pegó algo manual que no matchea nuestro patrón, mostramos sólo el
   // input raw. Patrón soportado: linear-gradient(<deg>deg, <c1>, <c2>).
@@ -1397,19 +1392,19 @@ function PageBackgroundEditor({
     previewCss = `url("${imageUrl}") center/cover no-repeat ${defaultBg}`;
 
   const TABS: { id: PageBgType; label: string; icon: string }[] = [
-    { id: 'SOLID', label: 'Color', icon: '🎨' },
-    { id: 'GRADIENT', label: 'Gradiente', icon: '🌈' },
-    { id: 'IMAGE', label: 'Imagen', icon: '🖼️' },
+    { id: 'SOLID', label: t('tabColor'), icon: '🎨' },
+    { id: 'GRADIENT', label: t('tabGradient'), icon: '🌈' },
+    { id: 'IMAGE', label: t('tabImage'), icon: '🖼️' },
   ];
 
   // Presets de gradientes para arranque rápido.
   const GRADIENT_PRESETS = [
-    { c1: '#6366F1', c2: '#EC4899', deg: 135, label: 'Violeta → Rosa' },
-    { c1: '#22C55E', c2: '#0EA5E9', deg: 135, label: 'Verde → Celeste' },
-    { c1: '#F59E0B', c2: '#EF4444', deg: 135, label: 'Naranja → Rojo' },
-    { c1: '#0F172A', c2: '#475569', deg: 180, label: 'Noche oscura' },
-    { c1: '#FCD34D', c2: '#FB923C', deg: 135, label: 'Atardecer' },
-    { c1: '#A78BFA', c2: '#FBCFE8', deg: 135, label: 'Pastel suave' },
+    { c1: '#6366F1', c2: '#EC4899', deg: 135, label: t('gradVioletPink') },
+    { c1: '#22C55E', c2: '#0EA5E9', deg: 135, label: t('gradGreenSky') },
+    { c1: '#F59E0B', c2: '#EF4444', deg: 135, label: t('gradOrangeRed') },
+    { c1: '#0F172A', c2: '#475569', deg: 180, label: t('gradDarkNight') },
+    { c1: '#FCD34D', c2: '#FB923C', deg: 135, label: t('gradSunset') },
+    { c1: '#A78BFA', c2: '#FBCFE8', deg: 135, label: t('gradSoftPastel') },
   ];
 
   return (
@@ -1445,7 +1440,7 @@ function PageBackgroundEditor({
         <div className="space-y-3">
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="label">Color 1</label>
+              <label className="label">{t('color1')}</label>
               <input
                 type="color"
                 className="w-full h-11 rounded-lg border border-line cursor-pointer"
@@ -1454,7 +1449,7 @@ function PageBackgroundEditor({
               />
             </div>
             <div>
-              <label className="label">Color 2</label>
+              <label className="label">{t('color2')}</label>
               <input
                 type="color"
                 className="w-full h-11 rounded-lg border border-line cursor-pointer"
@@ -1463,7 +1458,7 @@ function PageBackgroundEditor({
               />
             </div>
             <div>
-              <label className="label">Ángulo · {deg}°</label>
+              <label className="label">{t('angle', { deg })}</label>
               <input
                 type="range"
                 min={0}
@@ -1479,7 +1474,7 @@ function PageBackgroundEditor({
           </div>
           <div className="flex gap-1.5 flex-wrap items-center">
             <span className="text-[10px] uppercase tracking-wider text-mute font-semibold mr-1">
-              Presets:
+              {t('presets')}
             </span>
             {GRADIENT_PRESETS.map((p) => (
               <button
@@ -1508,17 +1503,14 @@ function PageBackgroundEditor({
             folder="storefront-bg"
           />
           <p className="text-[11px] text-mute leading-snug">
-            Recomendado: 1920×1080 px o mayor. La imagen se renderea con
-            cobertura completa (cover) centrada. El contenido del menú se
-            superpone — usa imágenes con áreas oscuras o difuminadas para
-            mantener legibilidad.
+            {t('bgImageHint')}
           </p>
         </div>
       )}
 
       {/* Preview en tiempo real */}
       <div>
-        <label className="label">Vista previa</label>
+        <label className="label">{t('preview')}</label>
         <div
           className="rounded-xl border border-line h-24 w-full"
           style={{ background: previewCss }}
@@ -1554,6 +1546,7 @@ function PageBgColorPicker({
   isCluvi: boolean;
   onChange: (v: string | null) => void;
 }) {
+  const t = useTranslations('app_storefront');
   const isUsingDefault = !value;
   const defaultBg = isCluvi ? '#0a0a0a' : '#FAFBFC';
   const effective = value || defaultBg;
@@ -1561,15 +1554,15 @@ function PageBgColorPicker({
   // Presets pensados para SECTIONS premium — fondos suaves que no
   // compiten con los banners de cada categoría.
   const PRESETS = [
-    { color: '#FAFBFC', label: 'Gris claro (default)' },
-    { color: '#FFFFFF', label: 'Blanco puro' },
-    { color: '#F5F1EA', label: 'Crema' },
-    { color: '#FFF7ED', label: 'Beige cálido' },
-    { color: '#F0F9FF', label: 'Celeste suave' },
-    { color: '#F0FDF4', label: 'Verde menta' },
-    { color: '#FDF2F8', label: 'Rosa pálido' },
-    { color: '#1F2937', label: 'Gris oscuro' },
-    { color: '#0a0a0a', label: 'Negro' },
+    { color: '#FAFBFC', label: t('bgLightGrayDefault') },
+    { color: '#FFFFFF', label: t('bgPureWhite') },
+    { color: '#F5F1EA', label: t('colorCream') },
+    { color: '#FFF7ED', label: t('bgWarmBeige') },
+    { color: '#F0F9FF', label: t('bgSoftSky') },
+    { color: '#F0FDF4', label: t('bgMintGreen') },
+    { color: '#FDF2F8', label: t('bgPalePink') },
+    { color: '#1F2937', label: t('colorDarkGray') },
+    { color: '#0a0a0a', label: t('colorBlack') },
   ];
 
   return (
@@ -1580,15 +1573,15 @@ function PageBgColorPicker({
           value={effective}
           onChange={(e) => onChange(e.target.value)}
           className="w-12 h-12 rounded-lg border border-line cursor-pointer"
-          aria-label="Selector de color de fondo"
+          aria-label={t('bgColorSelectorAria')}
         />
         <div className="flex-1">
-          <label className="label">Código HEX</label>
+          <label className="label">{t('hexCode')}</label>
           <input
             type="text"
             className="input font-mono uppercase"
             value={value}
-            placeholder={`Default: ${defaultBg}`}
+            placeholder={t('defaultPlaceholder', { value: defaultBg })}
             onChange={(e) => {
               const v = e.target.value.trim();
               if (!v) {
@@ -1615,12 +1608,12 @@ function PageBgColorPicker({
         <div
           className="w-12 h-12 rounded-lg border border-line"
           style={{ background: effective }}
-          title={`Vista previa: ${effective}`}
+          title={t('previewValue', { value: effective })}
         />
       </div>
       <div className="flex gap-1.5 flex-wrap items-center">
         <span className="text-[10px] uppercase tracking-wider text-mute font-semibold mr-1">
-          Sugeridos:
+          {t('suggested')}
         </span>
         {PRESETS.map((p) => (
           <button
@@ -1647,7 +1640,7 @@ function PageBgColorPicker({
           onClick={() => onChange(null)}
           className="text-xs text-mute hover:text-brand underline"
         >
-          ↺ Usar fondo por defecto del layout ({defaultBg})
+          ↺ {t('useLayoutDefault', { value: defaultBg })}
         </button>
       )}
     </div>
@@ -1681,6 +1674,7 @@ function HeaderColorRow({
   allowTransparent?: boolean;
   onChange: (v: string | null) => void;
 }) {
+  const t = useTranslations('app_storefront');
   const isUsingDefault = !value;
   const isTransparent = value === 'transparent';
   // input type=color no acepta "transparent" — caemos al default visual.
@@ -1699,7 +1693,7 @@ function HeaderColorRow({
             onClick={() => onChange(null)}
             className="text-[10px] text-mute hover:text-brand underline whitespace-nowrap"
           >
-            ↺ Default ({defaultLabel})
+            ↺ {t('defaultWith', { label: defaultLabel })}
           </button>
         )}
       </div>
@@ -1709,13 +1703,13 @@ function HeaderColorRow({
           value={effective}
           onChange={(e) => onChange(e.target.value)}
           className="w-10 h-10 rounded-md border border-line cursor-pointer flex-none"
-          aria-label={`Selector ${label}`}
+          aria-label={t('selectorFor', { label })}
         />
         <input
           type="text"
           className="input font-mono uppercase text-xs flex-1"
           value={value}
-          placeholder={`Default: ${defaultColor}`}
+          placeholder={t('defaultPlaceholder', { value: defaultColor })}
           onChange={(e) => {
             const v = e.target.value.trim();
             if (!v) {
@@ -1743,7 +1737,7 @@ function HeaderColorRow({
                 }
               : { background: effective }
           }
-          title={isTransparent ? 'Transparente' : effective}
+          title={isTransparent ? t('transparent') : effective}
         />
       </div>
       <div className="flex gap-1 flex-wrap">
@@ -1761,8 +1755,8 @@ function HeaderColorRow({
               backgroundPosition: '0 0, 3px 3px',
               boxShadow: '0 0 0 1px rgba(0,0,0,0.1)',
             }}
-            title="Transparente"
-            aria-label="Transparente"
+            title={t('transparent')}
+            aria-label={t('transparent')}
           />
         )}
         {presets.map((p) => (
@@ -1804,6 +1798,7 @@ function PrimaryColorPicker({
   value: string;
   onChange: (hex: string) => void;
 }) {
+  const t = useTranslations('app_storefront');
   const [hexDraft, setHexDraft] = useState(value);
 
   useEffect(() => {
@@ -1844,10 +1839,10 @@ function PrimaryColorPicker({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           className="w-12 h-12 rounded-lg border border-line cursor-pointer"
-          aria-label="Selector de color"
+          aria-label={t('colorSelectorAria')}
         />
         <div className="flex-1">
-          <label className="label">Código HEX</label>
+          <label className="label">{t('hexCode')}</label>
           <input
             type="text"
             className="input font-mono uppercase"
@@ -1864,12 +1859,12 @@ function PrimaryColorPicker({
         <div
           className="w-12 h-12 rounded-lg border border-line"
           style={{ background: value }}
-          title={`Vista previa: ${value}`}
+          title={t('previewValue', { value })}
         />
       </div>
       <div className="flex gap-1.5 flex-wrap">
         <span className="text-[10px] uppercase tracking-wider text-mute font-semibold self-center mr-1">
-          Sugeridos:
+          {t('suggested')}
         </span>
         {PRESETS.map((p) => (
           <button
@@ -1883,7 +1878,7 @@ function PrimaryColorPicker({
             }`}
             style={{ background: p, boxShadow: '0 0 0 1px rgba(0,0,0,0.08)' }}
             title={p}
-            aria-label={`Color ${p}`}
+            aria-label={t('colorAria', { color: p })}
           />
         ))}
       </div>
@@ -1906,6 +1901,7 @@ function WhatsAppConfig({
   onToggle: (v: boolean) => void;
   onPhoneChange: (fullPhone: string) => void;
 }) {
+  const t = useTranslations('app_storefront');
   const { dial, local } = parsePhone(phone);
   const currentCountry =
     COUNTRY_CODES.find((c) => c.dial === dial) ?? COUNTRY_CODES[0];
@@ -1931,12 +1927,12 @@ function WhatsAppConfig({
           checked={enabled}
           onChange={(e) => onToggle(e.target.checked)}
         />
-        Mostrar botón de WhatsApp en el menú
+        {t('whatsappShowButton')}
       </label>
 
       <div className="grid grid-cols-[1fr_2fr] gap-2">
         <div>
-          <label className="label">País</label>
+          <label className="label">{t('country')}</label>
           <select
             className="input"
             value={currentCountry.code}
@@ -1954,14 +1950,14 @@ function WhatsAppConfig({
           </select>
         </div>
         <div>
-          <label className="label">Número</label>
+          <label className="label">{t('number')}</label>
           <input
             type="tel"
             inputMode="numeric"
             className="input"
             value={local}
             onChange={(e) => update(currentCountry.dial, e.target.value)}
-            placeholder={`${currentCountry.maxLen} dígitos`}
+            placeholder={t('digitsPlaceholder', { count: currentCountry.maxLen })}
             maxLength={currentCountry.maxLen + 4}
           />
         </div>
@@ -1972,7 +1968,7 @@ function WhatsAppConfig({
       <div className="text-[11px] text-mute leading-relaxed">
         {finalNumber ? (
           <>
-            Redirección final:{' '}
+            {t('finalRedirect')}{' '}
             <span className="font-mono text-ink">
               +{currentCountry.dial} {local}
             </span>
@@ -1984,18 +1980,21 @@ function WhatsAppConfig({
                   target="_blank"
                   className="text-brand underline"
                 >
-                  probar link
+                  {t('testLink')}
                 </a>
               </>
             )}
           </>
         ) : (
-          'Ingresa el número para previsualizar la redirección.'
+          t('enterNumberToPreview')
         )}
         {local && local.length < currentCountry.maxLen && (
           <div className="text-amber-700 mt-1">
-            ⚠️ {currentCountry.name} usa {currentCountry.maxLen} dígitos —
-            te faltan {currentCountry.maxLen - local.length}.
+            ⚠️ {t('digitsWarning', {
+              country: currentCountry.name,
+              expected: currentCountry.maxLen,
+              missing: currentCountry.maxLen - local.length,
+            })}
           </div>
         )}
       </div>

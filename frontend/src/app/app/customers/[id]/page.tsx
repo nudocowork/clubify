@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
@@ -147,6 +148,7 @@ function fmtBirthday(s: string | null) {
 }
 
 function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
+  const t = useTranslations('app_customers_id');
   const [busy, setBusy] = useState(false);
   const required = p.card.stampsRequired ?? 10;
   const stamps = p.card.type === 'STAMPS' ? p.stampsCount : 0;
@@ -161,13 +163,13 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
     // sello" y el botón parecía "no funcionar". Ahora preguntamos el
     // monto al staff antes del POST.
     const raw = window.prompt(
-      'Monto de la compra (en $) para registrar el sello:',
+      t('stampPurchasePrompt'),
       '',
     );
     if (raw === null) return; // cancelado
     const purchaseAmount = Number(raw.replace(',', '.'));
     if (!Number.isFinite(purchaseAmount) || purchaseAmount <= 0) {
-      toast('Monto inválido — debe ser un número mayor a 0', 'error');
+      toast(t('invalidAmount'), 'error');
       return;
     }
     setBusy(true);
@@ -181,17 +183,17 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
           purchaseAmount,
         }),
       });
-      toast('Sello agregado', 'success');
+      toast(t('stampAdded'), 'success');
       onChange();
     } catch (e: any) {
-      toast(e.message || 'No se pudo agregar el sello', 'error');
+      toast(e.message || t('stampAddFailed'), 'error');
     } finally {
       setBusy(false);
     }
   }
 
   async function redeem() {
-    if (!confirm(`¿Canjear premio? Esto resetea los sellos a 0.`)) return;
+    if (!confirm(t('redeemConfirm'))) return;
     setBusy(true);
     try {
       await api('/stamps', {
@@ -202,10 +204,10 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
           note: 'Canje desde panel',
         }),
       });
-      toast('🎁 Premio canjeado', 'success');
+      toast(t('rewardRedeemed'), 'success');
       onChange();
     } catch (e: any) {
-      toast(e.message || 'No se pudo canjear', 'error');
+      toast(e.message || t('redeemFailed'), 'error');
     } finally {
       setBusy(false);
     }
@@ -221,31 +223,31 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
         google?: { ok: boolean; status: string; error?: string };
       }>(`/passes/${p.id}/push-update`, { method: 'POST' });
       if (r.error === 'pass_not_found') {
-        toast('Pase no encontrado', 'error');
+        toast(t('passNotFound'), 'error');
         return;
       }
       const apple =
         r.sent > 0
-          ? `Apple: ${r.sent} dispositivo${r.sent === 1 ? '' : 's'}`
+          ? t('appleDevices', { count: r.sent })
           : r.skipped > 0
-            ? `Apple: ${r.skipped} fallidos`
-            : 'Apple: no instalado';
+            ? t('appleFailed', { count: r.skipped })
+            : t('appleNotInstalled');
       const g = r.google;
-      let google = 'Google: no instalado';
+      let google = t('googleNotInstalled');
       if (g) {
-        if (g.status === 'patched') google = 'Google: actualizado';
-        else if (g.status === 'not_saved_to_google_wallet') google = 'Google: no instalado';
-        else if (g.status === 'object_not_found') google = 'Google: pase no encontrado en Google';
+        if (g.status === 'patched') google = t('googleUpdated');
+        else if (g.status === 'not_saved_to_google_wallet') google = t('googleNotInstalled');
+        else if (g.status === 'object_not_found') google = t('googlePassNotFoundInGoogle');
         else if (g.status === 'api_disabled')
-          google = 'Google: API deshabilitada (habilitar en Google Cloud)';
-        else if (g.status === 'not_configured') google = 'Google: no configurado';
-        else if (g.status === 'pass_not_found') google = 'Google: pase no encontrado';
+          google = t('googleApiDisabled');
+        else if (g.status === 'not_configured') google = t('googleNotConfigured');
+        else if (g.status === 'pass_not_found') google = t('googlePassNotFound');
         else google = `Google: ${g.error ?? g.status}`;
       }
       const ok = r.sent > 0 || g?.ok;
       toast(`${apple} · ${google}`, ok ? 'success' : 'info');
     } catch (e: any) {
-      toast(e.message || 'No se pudo refrescar', 'error');
+      toast(e.message || t('refreshFailed'), 'error');
     } finally {
       setBusy(false);
     }
@@ -277,7 +279,7 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
         <div className="mt-3">
           <div className="flex items-center justify-between text-xs mb-1.5">
             <span className="text-mute">
-              {stamps}/{required} sellos
+              {t('stampsProgress', { stamps, required })}
             </span>
             <span
               className={
@@ -287,8 +289,8 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
               }
             >
               {remaining === 0
-                ? '🎁 Premio listo para canjear'
-                : `Le faltan ${remaining} para premio`}
+                ? t('rewardReady')
+                : t('stampsRemaining', { remaining })}
             </span>
           </div>
           <div className="h-1.5 bg-bg2 rounded-full overflow-hidden mb-2.5">
@@ -320,9 +322,9 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
                 onClick={addStamp}
                 disabled={busy || canRedeem}
                 className="flex-1 btn-ghost text-xs justify-center disabled:opacity-50"
-                title={canRedeem ? 'Canjea primero el premio' : 'Sumar 1 sello'}
+                title={canRedeem ? t('redeemFirstTitle') : t('addStampTitle')}
               >
-                + Sumar sello
+                {t('addStampBtn')}
               </button>
               <button
                 onClick={redeem}
@@ -332,9 +334,9 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
                     ? 'bg-ok text-white hover:bg-ok/90'
                     : 'bg-bg2 text-mute cursor-not-allowed'
                 }`}
-                title={canRedeem ? 'Canjear premio' : 'Aún no completa los sellos'}
+                title={canRedeem ? t('redeemTitle') : t('redeemNotReadyTitle')}
               >
-                🎁 Canjear
+                {t('redeemBtn')}
               </button>
             </div>
           )}
@@ -343,8 +345,8 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
 
       {p.card.type === 'POINTS' && (
         <div className="mt-3 flex items-center justify-between">
-          <span className="text-xs text-mute">Saldo</span>
-          <span className="font-bold text-lg">{p.pointsBalance} puntos</span>
+          <span className="text-xs text-mute">{t('balance')}</span>
+          <span className="font-bold text-lg">{t('points', { count: p.pointsBalance })}</span>
         </div>
       )}
 
@@ -353,9 +355,9 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
           onClick={refreshWallet}
           disabled={busy}
           className="text-[11px] text-mute hover:text-ink disabled:opacity-50 inline-flex items-center gap-1"
-          title="Manda un silent push para forzar a Apple/Google Wallet a actualizar el pase ya instalado"
+          title={t('refreshWalletTitle')}
         >
-          🔄 Refrescar Apple/Google Wallet
+          {t('refreshWalletBtn')}
         </button>
         <button
           onClick={async () => {
@@ -367,13 +369,13 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
               const url = URL.createObjectURL(blob);
               window.open(url, '_blank');
             } catch (e: any) {
-              toast(e.message || 'No se pudo obtener', 'error');
+              toast(e.message || t('fetchFailed'), 'error');
             }
           }}
           className="text-[11px] text-mute hover:text-ink inline-flex items-center gap-1"
-          title="Ver el LoyaltyObject crudo guardado en Google Wallet"
+          title={t('viewGoogleObjectTitle')}
         >
-          🔍 Ver Google Object
+          {t('viewGoogleObjectBtn')}
         </button>
       </div>
     </div>
@@ -381,6 +383,7 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
 }
 
 export default function CustomerDetail() {
+  const t = useTranslations('app_customers_id');
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const [c, setC] = useState<Customer | null>(null);
@@ -403,7 +406,7 @@ export default function CustomerDetail() {
         )
         .catch(() => null);
     } catch (e: any) {
-      toast(e.message || 'Error cargando cliente', 'error');
+      toast(e.message || t('loadError'), 'error');
     }
   }
   useEffect(() => {
@@ -412,21 +415,24 @@ export default function CustomerDetail() {
 
   async function deleteCustomer() {
     if (!c) return;
-    const msg = `¿Eliminar a ${c.fullName}?\n\nEsta acción NO se puede deshacer y borra:\n• Tarjeta wallet del cliente\n• Sellos / saldo / nivel VIP\n• Historial de pedidos (${c.totalOrdersCount})\n• Mensajes asociados\n\nEscribe ELIMINAR para confirmar.`;
+    const msg = t('deleteConfirm', {
+      name: c.fullName,
+      ordersCount: c.totalOrdersCount,
+    });
     const confirmText = window.prompt(msg);
     if ((confirmText ?? '').trim().toUpperCase() !== 'ELIMINAR') return;
     setDeleting(true);
     try {
       await api(`/customers/${id}`, { method: 'DELETE' });
-      toast('Cliente eliminado', 'success');
+      toast(t('customerDeleted'), 'success');
       router.push('/app/customers');
     } catch (e: any) {
-      toast(e.message || 'No se pudo eliminar', 'error');
+      toast(e.message || t('deleteFailed'), 'error');
       setDeleting(false);
     }
   }
 
-  if (!c) return <div className="text-mute">Cargando…</div>;
+  if (!c) return <div className="text-mute">{t('loading')}</div>;
 
   const lifetimeAvg =
     c.totalOrdersCount > 0
@@ -438,7 +444,7 @@ export default function CustomerDetail() {
       <div className="page-head">
         <h1 className="page-title">
           <Link href="/app/customers" className="text-mute hover:text-ink">
-            Clientes
+            {t('customers')}
           </Link>{' '}
           <span className="page-crumb">/ {c.fullName}</span>
         </h1>
@@ -457,10 +463,10 @@ export default function CustomerDetail() {
             onClick={deleteCustomer}
             disabled={deleting}
             className="bg-bad text-white text-sm font-semibold px-4 py-2 rounded-pill inline-flex items-center gap-1.5 hover:bg-bad/90 disabled:opacity-50"
-            title="Eliminar cliente y todo su historial"
+            title={t('deleteCustomerTitle')}
           >
             <Icon name="trash" size={14} />
-            {deleting ? 'Eliminando…' : 'Eliminar'}
+            {deleting ? t('deleting') : t('delete')}
           </button>
         </div>
       </div>
@@ -479,40 +485,40 @@ export default function CustomerDetail() {
             {c.email && <div className="text-xs text-mute">{c.email}</div>}
             <div className="flex gap-1 justify-center flex-wrap mt-3">
               {c.whatsappVerified && (
-                <span className="badge badge-ok text-[10px]">WA verif.</span>
+                <span className="badge badge-ok text-[10px]">{t('waVerified')}</span>
               )}
               {c.marketingOptIn && (
-                <span className="badge badge-info text-[10px]">Marketing OK</span>
+                <span className="badge badge-info text-[10px]">{t('marketingOk')}</span>
               )}
             </div>
           </div>
 
           <div className="card card-pad">
             <div className="text-[10px] uppercase tracking-[0.18em] text-mute font-semibold mb-3">
-              Lifetime value
+              {t('lifetimeValue')}
             </div>
             <div className="grid grid-cols-2 gap-3 text-center">
               <div>
                 <div className="text-2xl font-bold">{c.totalOrdersCount}</div>
-                <div className="text-xs text-mute">pedidos</div>
+                <div className="text-xs text-mute">{t('orders')}</div>
               </div>
               <div>
                 <div className="text-2xl font-bold">
                   {COP(Number(c.totalOrdersAmount), tenantMoney.currency, tenantMoney.currencySymbol)}
                 </div>
-                <div className="text-xs text-mute">facturado</div>
+                <div className="text-xs text-mute">{t('billed')}</div>
               </div>
               <div>
                 <div className="text-base font-semibold">
                   {COP(lifetimeAvg, tenantMoney.currency, tenantMoney.currencySymbol)}
                 </div>
-                <div className="text-xs text-mute">ticket promedio</div>
+                <div className="text-xs text-mute">{t('avgTicket')}</div>
               </div>
               <div>
                 <div className="text-base font-semibold">
                   {c.passes.length}
                 </div>
-                <div className="text-xs text-mute">pases activos</div>
+                <div className="text-xs text-mute">{t('activePasses')}</div>
               </div>
             </div>
           </div>
@@ -521,22 +527,22 @@ export default function CustomerDetail() {
 
           <div className="card card-pad text-sm">
             <div className="text-[10px] uppercase tracking-[0.18em] text-mute font-semibold mb-2">
-              Datos
+              {t('data')}
             </div>
             <div className="flex justify-between py-1 border-b border-line2">
-              <span className="text-mute">Cliente desde</span>
+              <span className="text-mute">{t('customerSince')}</span>
               <span>{fmtDate(c.createdAt)}</span>
             </div>
             <div className="flex justify-between py-1 border-b border-line2">
-              <span className="text-mute">Primer pedido</span>
+              <span className="text-mute">{t('firstOrder')}</span>
               <span>{fmtDate(c.firstOrderAt)}</span>
             </div>
             <div className="flex justify-between py-1 border-b border-line2">
-              <span className="text-mute">Último pedido</span>
+              <span className="text-mute">{t('lastOrder')}</span>
               <span>{fmtDate(c.lastOrderAt)}</span>
             </div>
             <div className="flex justify-between py-1">
-              <span className="text-mute">Cumpleaños</span>
+              <span className="text-mute">{t('birthday')}</span>
               <span>{fmtBirthday(c.birthday)}</span>
             </div>
           </div>
@@ -549,7 +555,7 @@ export default function CustomerDetail() {
           {c.passes.length > 0 && (
             <div className="card card-pad">
               <h3 className="font-semibold mb-3">
-                Tarjetas de fidelización ({c.passes.length})
+                {t('loyaltyCards', { count: c.passes.length })}
               </h3>
               <div className="grid gap-3">
                 {c.passes.map((p) => (
@@ -562,17 +568,17 @@ export default function CustomerDetail() {
           {/* Pedidos */}
           <div className="card overflow-hidden">
             <div className="card-h">
-              <h3>Historial de pedidos ({c.orders.length})</h3>
+              <h3>{t('orderHistory', { count: c.orders.length })}</h3>
             </div>
             {c.orders.length === 0 ? (
               <div className="p-6 text-center text-mute text-sm">
-                Aún no ha hecho pedidos
+                {t('noOrders')}
               </div>
             ) : (
               <table className="w-full text-sm">
                 <thead className="bg-bg2">
                   <tr>
-                    {['#', 'Fecha', 'Tipo', 'Pago', 'Estado', 'Total'].map(
+                    {['#', t('colDate'), t('colType'), t('colPayment'), t('colStatus'), t('colTotal')].map(
                       (h) => (
                         <th
                           key={h}
@@ -649,7 +655,7 @@ export default function CustomerDetail() {
             <div className="card card-pad">
               <div className="flex items-start justify-between gap-3 mb-3">
                 <h3 className="font-semibold m-0">
-                  Actividad de sellos ({c.stamps.length})
+                  {t('stampActivity', { count: c.stamps.length })}
                 </h3>
                 {(() => {
                   const stampsWithAmt = c.stamps.filter(
@@ -664,13 +670,13 @@ export default function CustomerDetail() {
                   return (
                     <div className="text-right shrink-0">
                       <div className="text-[10px] uppercase tracking-wider text-mute font-bold">
-                        Gastado en {stampsWithAmt.length} compra{stampsWithAmt.length === 1 ? '' : 's'}
+                        {t('spentInPurchases', { count: stampsWithAmt.length })}
                       </div>
                       <div className="text-base font-bold text-brand">
                         {COP(total, tenantMoney.currency, tenantMoney.currencySymbol)}
                       </div>
                       <div className="text-[11px] text-mute">
-                        Ticket promedio · {COP(avg, tenantMoney.currency, tenantMoney.currencySymbol)}
+                        {t('avgTicketLabel')} · {COP(avg, tenantMoney.currency, tenantMoney.currencySymbol)}
                       </div>
                     </div>
                   );
@@ -727,6 +733,7 @@ function CustomerNotesAndTags({
   customer: Customer;
   onChange: () => void;
 }) {
+  const t = useTranslations('app_customers_id');
   const [tags, setTags] = useState<string[]>(customer.tags ?? []);
   const [tagInput, setTagInput] = useState('');
   const [notes, setNotes] = useState(customer.notes ?? '');
@@ -743,23 +750,23 @@ function CustomerNotesAndTags({
       });
       onChange();
     } catch (e: any) {
-      toast(e.message || 'No se pudo guardar tags', 'error');
+      toast(e.message || t('saveTagsFailed'), 'error');
     } finally {
       setSavingTags(false);
     }
   }
 
   function addTag(val: string) {
-    const t = val.trim();
-    if (!t || tags.includes(t)) return;
-    const next = [...tags, t];
+    const tag = val.trim();
+    if (!tag || tags.includes(tag)) return;
+    const next = [...tags, tag];
     setTags(next);
     setTagInput('');
     persistTags(next);
   }
 
-  function removeTag(t: string) {
-    const next = tags.filter((x) => x !== t);
+  function removeTag(tag: string) {
+    const next = tags.filter((x) => x !== tag);
     setTags(next);
     persistTags(next);
   }
@@ -773,10 +780,10 @@ function CustomerNotesAndTags({
         body: JSON.stringify({ notes }),
       });
       setNotesDirty(false);
-      toast('Notas guardadas', 'success');
+      toast(t('notesSaved'), 'success');
       onChange();
     } catch (e: any) {
-      toast(e.message || 'No se pudo guardar', 'error');
+      toast(e.message || t('saveFailed'), 'error');
     } finally {
       setSavingNotes(false);
     }
@@ -787,23 +794,23 @@ function CustomerNotesAndTags({
   return (
     <div className="card card-pad">
       <div className="text-[10px] uppercase tracking-[0.18em] text-mute font-semibold mb-2">
-        Tags
+        {t('tags')}
       </div>
       <div className="flex flex-wrap gap-1.5 mb-2">
         {tags.length === 0 && (
-          <span className="text-xs text-mute italic">Sin tags todavía</span>
+          <span className="text-xs text-mute italic">{t('noTagsYet')}</span>
         )}
-        {tags.map((t) => (
+        {tags.map((tag) => (
           <span
-            key={t}
+            key={tag}
             className="inline-flex items-center gap-1 bg-brand-soft text-brand-700 text-[11px] font-medium px-2 py-1 rounded-full"
           >
-            {t}
+            {tag}
             <button
               type="button"
-              onClick={() => removeTag(t)}
+              onClick={() => removeTag(tag)}
               className="hover:text-bad"
-              aria-label={`Quitar tag ${t}`}
+              aria-label={t('removeTag', { tag })}
             >
               ✕
             </button>
@@ -821,7 +828,7 @@ function CustomerNotesAndTags({
               addTag(tagInput);
             }
           }}
-          placeholder="Nuevo tag…"
+          placeholder={t('newTagPlaceholder')}
           maxLength={30}
           className="input text-xs flex-1"
           disabled={savingTags}
@@ -832,7 +839,7 @@ function CustomerNotesAndTags({
           disabled={!tagInput.trim() || savingTags}
           className="btn-ghost text-xs disabled:opacity-50"
         >
-          + Agregar
+          {t('add')}
         </button>
       </div>
       {presetsAvailable.length > 0 && (
@@ -852,10 +859,10 @@ function CustomerNotesAndTags({
       )}
 
       <div className="text-[10px] uppercase tracking-[0.18em] text-mute font-semibold mt-5 mb-2 flex items-center justify-between">
-        <span>Notas internas</span>
+        <span>{t('internalNotes')}</span>
         {notesDirty && (
           <span className="text-amber-600 text-[10px] normal-case font-normal tracking-normal">
-            sin guardar
+            {t('unsaved')}
           </span>
         )}
       </div>
@@ -866,12 +873,12 @@ function CustomerNotesAndTags({
           setNotesDirty(true);
         }}
         onBlur={saveNotes}
-        placeholder="Ej: alérgico a maní, prefiere bebidas sin azúcar…"
+        placeholder={t('notesPlaceholder')}
         className="input text-sm min-h-[70px] resize-y"
         maxLength={500}
       />
       <div className="text-[10px] text-mute mt-1 flex items-center justify-between">
-        <span>Solo tu equipo ve estas notas. Se guardan al salir del campo.</span>
+        <span>{t('notesHelp')}</span>
         <span>{notes.length}/500</span>
       </div>
       {notesDirty && (
@@ -881,7 +888,7 @@ function CustomerNotesAndTags({
           disabled={savingNotes}
           className="btn-primary text-xs mt-2"
         >
-          {savingNotes ? 'Guardando…' : 'Guardar nota'}
+          {savingNotes ? t('saving') : t('saveNote')}
         </button>
       )}
     </div>
@@ -906,6 +913,7 @@ function MergeIntoThisCustomer({
   customer: Customer;
   onMerged: () => void;
 }) {
+  const t = useTranslations('app_customers_id');
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [results, setResults] = useState<MergeCandidate[]>([]);
@@ -920,7 +928,7 @@ function MergeIntoThisCustomer({
       return;
     }
     setSearching(true);
-    const t = setTimeout(async () => {
+    const timer = setTimeout(async () => {
       try {
         const list: MergeCandidate[] = await api(
           `/customers?search=${encodeURIComponent(search)}`,
@@ -932,15 +940,16 @@ function MergeIntoThisCustomer({
         setSearching(false);
       }
     }, 250);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
   }, [search, open, customer.id]);
 
   async function confirmMerge() {
     if (!picked) return;
     const ok = window.confirm(
-      `Vas a fusionar a "${picked.fullName}" dentro de "${customer.fullName}".\n\n` +
-        `Todos los pedidos, tarjetas, sellos y mensajes de "${picked.fullName}" se moverán a este cliente, y "${picked.fullName}" se eliminará.\n\n` +
-        `Esta acción no se puede deshacer. ¿Continuar?`,
+      t('mergeConfirm', {
+        source: picked.fullName,
+        target: customer.fullName,
+      }),
     );
     if (!ok) return;
     setMerging(true);
@@ -953,7 +962,7 @@ function MergeIntoThisCustomer({
         }),
       });
       toast(
-        `Cliente fusionado · ${res.movedOrders} pedidos consolidados`,
+        t('mergeSuccess', { count: res.movedOrders }),
         'success',
       );
       setOpen(false);
@@ -961,7 +970,7 @@ function MergeIntoThisCustomer({
       setPicked(null);
       onMerged();
     } catch (e: any) {
-      toast(e.message || 'No se pudo fusionar', 'error');
+      toast(e.message || t('mergeFailed'), 'error');
     } finally {
       setMerging(false);
     }
@@ -971,18 +980,17 @@ function MergeIntoThisCustomer({
     <>
       <div className="card card-pad">
         <div className="text-[10px] uppercase tracking-[0.18em] text-mute font-semibold mb-2">
-          ¿Es un duplicado?
+          {t('isDuplicate')}
         </div>
         <p className="text-xs text-mute mb-3">
-          Si encontraste otro registro de la misma persona, fusiónalo aquí.
-          Su historial se moverá a este cliente y el duplicado se eliminará.
+          {t('duplicateHelp')}
         </p>
         <button
           type="button"
           onClick={() => setOpen(true)}
           className="btn-ghost text-xs w-full justify-center"
         >
-          🔗 Fusionar otro cliente aquí
+          {t('mergeOtherBtn')}
         </button>
       </div>
 
@@ -996,10 +1004,10 @@ function MergeIntoThisCustomer({
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[80vh] flex flex-col overflow-hidden">
             <div className="px-4 py-3 border-b border-line flex items-center justify-between">
               <div>
-                <div className="font-semibold">Fusionar otro cliente</div>
+                <div className="font-semibold">{t('mergeModalTitle')}</div>
                 <div className="text-xs text-mute">
-                  Conservar a <strong>{customer.fullName}</strong> y eliminar el
-                  otro
+                  {t('mergeKeepPrefix')} <strong>{customer.fullName}</strong>{' '}
+                  {t('mergeKeepSuffix')}
                 </div>
               </div>
               <button
@@ -1019,26 +1027,26 @@ function MergeIntoThisCustomer({
                   setSearch(e.target.value);
                   setPicked(null);
                 }}
-                placeholder="Buscar por nombre, email o teléfono…"
+                placeholder={t('mergeSearchPlaceholder')}
                 className="input text-sm w-full"
               />
             </div>
             <div className="flex-1 overflow-y-auto">
               {search.trim().length < 2 && (
                 <div className="p-6 text-center text-mute text-sm">
-                  Escribe al menos 2 caracteres para buscar.
+                  {t('mergeMinChars')}
                 </div>
               )}
               {searching && (
                 <div className="p-6 text-center text-mute text-sm">
-                  Buscando…
+                  {t('searching')}
                 </div>
               )}
               {!searching &&
                 search.trim().length >= 2 &&
                 results.length === 0 && (
                   <div className="p-6 text-center text-mute text-sm">
-                    Sin resultados. Prueba otro término.
+                    {t('noResults')}
                   </div>
                 )}
               {results.map((r) => {
@@ -1055,12 +1063,12 @@ function MergeIntoThisCustomer({
                     <div className="min-w-0 flex-1">
                       <div className="font-medium truncate">{r.fullName}</div>
                       <div className="text-xs text-mute truncate">
-                        {r.phone || r.email || 'Sin contacto'}
+                        {r.phone || r.email || t('noContact')}
                       </div>
                     </div>
                     <div className="text-xs text-mute text-right shrink-0">
-                      <div>{r.totalOrdersCount} pedidos</div>
-                      <div>{r._count?.passes ?? 0} pases</div>
+                      <div>{t('ordersCount', { count: r.totalOrdersCount })}</div>
+                      <div>{t('passesCount', { count: r._count?.passes ?? 0 })}</div>
                     </div>
                     {isPicked && (
                       <span className="text-brand text-lg leading-none">✓</span>
@@ -1076,7 +1084,7 @@ function MergeIntoThisCustomer({
                 className="btn-ghost text-xs"
                 disabled={merging}
               >
-                Cancelar
+                {t('cancel')}
               </button>
               <button
                 type="button"
@@ -1084,7 +1092,7 @@ function MergeIntoThisCustomer({
                 disabled={!picked || merging}
                 className="btn-primary text-xs disabled:opacity-50"
               >
-                {merging ? 'Fusionando…' : 'Fusionar →'}
+                {merging ? t('merging') : t('mergeBtn')}
               </button>
             </div>
           </div>
@@ -1116,6 +1124,7 @@ type GamificationData = {
 };
 
 function GamificationBanner({ customerId }: { customerId: string }) {
+  const t = useTranslations('app_customers_id');
   const [data, setData] = useState<GamificationData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -1132,8 +1141,7 @@ function GamificationBanner({ customerId }: { customerId: string }) {
       <div className="card card-pad mb-4 bg-bg2/30 border-dashed text-center">
         <div className="text-2xl mb-1">🎮</div>
         <div className="text-sm text-mute">
-          Sin actividad de gamificación todavía. Cuando este cliente scanee su
-          tarjeta empezará a ganar XP y desbloquear insignias automáticamente.
+          {t('gamificationEmpty')}
         </div>
       </div>
     );
@@ -1157,12 +1165,12 @@ function GamificationBanner({ customerId }: { customerId: string }) {
         {/* Level + XP */}
         <div>
           <div className="text-[10px] uppercase tracking-wider opacity-80 font-bold">
-            Nivel {data.tier.level}
+            {t('level', { level: data.tier.level })}
           </div>
           <div className="text-2xl font-black mt-0.5">{data.tier.name}</div>
           <div className="text-xs opacity-85 mt-1">
             <strong className="text-base">{data.xpPoints.toLocaleString('es-CO')}</strong>{' '}
-            XP totales
+            {t('totalXp')}
           </div>
           {data.nextTier && (
             <div className="mt-3">
@@ -1173,13 +1181,13 @@ function GamificationBanner({ customerId }: { customerId: string }) {
                 />
               </div>
               <div className="text-[10px] opacity-80 mt-1">
-                {data.xpToNext.toLocaleString('es-CO')} XP para {data.nextTier.name}
+                {t('xpToNext', { xp: data.xpToNext.toLocaleString('es-CO'), tier: data.nextTier.name })}
               </div>
             </div>
           )}
           {!data.nextTier && (
             <div className="text-xs opacity-90 mt-2">
-              👑 Nivel máximo alcanzado
+              {t('maxLevel')}
             </div>
           )}
         </div>
@@ -1187,17 +1195,17 @@ function GamificationBanner({ customerId }: { customerId: string }) {
         {/* Streak */}
         <div>
           <div className="text-[10px] uppercase tracking-wider opacity-80 font-bold">
-            Racha actual
+            {t('currentStreak')}
           </div>
           <div className="text-2xl font-black mt-0.5 flex items-center gap-1.5">
-            🔥 {data.currentStreak} {data.currentStreak === 1 ? 'día' : 'días'}
+            🔥 {t('streakDays', { count: data.currentStreak })}
           </div>
           <div className="text-xs opacity-85 mt-1">
-            Récord: <strong>{data.longestStreak}</strong> días consecutivos
+            {t('recordPrefix')} <strong>{data.longestStreak}</strong> {t('recordSuffix')}
           </div>
           {data.rank !== null && (
             <div className="text-xs opacity-90 mt-2">
-              🏆 #{data.rank} en el ranking
+              {t('rankInLeaderboard', { rank: data.rank })}
             </div>
           )}
         </div>
@@ -1205,11 +1213,11 @@ function GamificationBanner({ customerId }: { customerId: string }) {
         {/* Badges */}
         <div>
           <div className="text-[10px] uppercase tracking-wider opacity-80 font-bold">
-            Insignias ({data.badges.length})
+            {t('badges', { count: data.badges.length })}
           </div>
           {data.badges.length === 0 ? (
             <div className="text-xs opacity-85 mt-2">
-              Aún no desbloqueó ninguna insignia.
+              {t('noBadges')}
             </div>
           ) : (
             <div className="flex flex-wrap gap-1.5 mt-2">
@@ -1256,6 +1264,7 @@ const RESERVATION_STATUS_META: Record<string, { label: string; bg: string; fg: s
 };
 
 function ReservationsSection({ customerId }: { customerId: string }) {
+  const t = useTranslations('app_customers_id');
   const [data, setData] = useState<{
     total: number;
     stats: {
@@ -1283,36 +1292,36 @@ function ReservationsSection({ customerId }: { customerId: string }) {
 
   const lastVisitStr = data.stats.lastVisit
     ? new Date(data.stats.lastVisit).toISOString().slice(0, 10)
-    : 'Nunca';
+    : t('never');
 
   return (
     <div className="card card-pad">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="font-semibold m-0">📅 Reservas ({data.total})</h3>
+        <h3 className="font-semibold m-0">{t('reservations', { count: data.total })}</h3>
         {data.stats.noShowRate > 25 && (
           <span className="text-[10px] font-bold px-2 py-1 rounded bg-bad-soft text-bad">
-            No-show alto · {data.stats.noShowRate}%
+            {t('highNoShow', { rate: data.stats.noShowRate })}
           </span>
         )}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
         <div className="bg-bg2/60 rounded-lg p-2 text-center">
-          <div className="text-[10px] text-mute font-bold">COMPLETADAS</div>
+          <div className="text-[10px] text-mute font-bold">{t('statCompleted')}</div>
           <div className="text-lg font-extrabold">{data.stats.completed}</div>
         </div>
         <div className="bg-bg2/60 rounded-lg p-2 text-center">
-          <div className="text-[10px] text-mute font-bold">CANCELADAS</div>
+          <div className="text-[10px] text-mute font-bold">{t('statCancelled')}</div>
           <div className="text-lg font-extrabold">{data.stats.cancelled}</div>
         </div>
         <div className="bg-bg2/60 rounded-lg p-2 text-center">
-          <div className="text-[10px] text-mute font-bold">AUSENTES</div>
+          <div className="text-[10px] text-mute font-bold">{t('statNoShow')}</div>
           <div className={`text-lg font-extrabold ${data.stats.noShow > 0 ? 'text-bad' : ''}`}>
             {data.stats.noShow}
           </div>
         </div>
         <div className="bg-bg2/60 rounded-lg p-2 text-center">
-          <div className="text-[10px] text-mute font-bold">ÚLTIMA VISITA</div>
+          <div className="text-[10px] text-mute font-bold">{t('statLastVisit')}</div>
           <div className="text-sm font-bold mt-0.5">{lastVisitStr}</div>
         </div>
       </div>
@@ -1331,7 +1340,7 @@ function ReservationsSection({ customerId }: { customerId: string }) {
                 <div className="text-[10px] text-mute">{r.time}</div>
               </div>
               <div className="flex-1 min-w-0 text-xs">
-                <span className="font-semibold">{r.party} pax</span>
+                <span className="font-semibold">{t('pax', { count: r.party })}</span>
                 {r.zone?.name && <span className="text-mute"> · {r.zone.name}</span>}
                 {r.notes && <span className="text-mute italic"> · {r.notes}</span>}
               </div>
@@ -1347,7 +1356,7 @@ function ReservationsSection({ customerId }: { customerId: string }) {
       </div>
       {data.reservations.length > 15 && (
         <p className="text-[11px] text-mute mt-2 text-center">
-          Mostrando 15 de {data.reservations.length} reservas recientes.
+          {t('showingRecent', { total: data.reservations.length })}
         </p>
       )}
     </div>

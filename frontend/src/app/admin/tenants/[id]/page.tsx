@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { api, getUser, startImpersonation } from '@/lib/api';
@@ -17,6 +18,7 @@ import {
 } from '@/lib/plan-format';
 
 export default function TenantDetail() {
+  const tr = useTranslations('admin_tenants_id');
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const [t, setT] = useState<any>(null);
@@ -46,7 +48,7 @@ export default function TenantDetail() {
       setT(data);
       setExtraLocations(data.maxLocationsOverride ?? '');
     } catch (e: any) {
-      toast(e.message || 'Error cargando tenant', 'error');
+      toast(e.message || tr('errorLoadingTenant'), 'error');
     }
   }
   useEffect(() => {
@@ -56,11 +58,11 @@ export default function TenantDetail() {
   async function saveBrandName() {
     const trimmed = brandDraft.trim();
     if (!trimmed) {
-      toast('El nombre no puede quedar vacío', 'error');
+      toast(tr('nameCannotBeEmpty'), 'error');
       return;
     }
     if (trimmed.length > 80) {
-      toast('Máximo 80 caracteres', 'error');
+      toast(tr('max80Chars'), 'error');
       return;
     }
     if (trimmed === t?.brandName) {
@@ -73,11 +75,11 @@ export default function TenantDetail() {
         method: 'PATCH',
         body: JSON.stringify({ brandName: trimmed }),
       });
-      toast('Nombre actualizado', 'success');
+      toast(tr('nameUpdated'), 'success');
       setBrandEditing(false);
       await load();
     } catch (e: any) {
-      toast(e.message || 'No se pudo actualizar', 'error');
+      toast(e.message || tr('couldNotUpdate'), 'error');
     } finally {
       setBrandSaving(false);
     }
@@ -93,9 +95,9 @@ export default function TenantDetail() {
         }),
       });
       await load();
-      toast('Cambios guardados', 'success');
+      toast(tr('changesSaved'), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo guardar', 'error');
+      toast(e.message || tr('couldNotSave'), 'error');
     } finally {
       setSaving(false);
     }
@@ -104,7 +106,7 @@ export default function TenantDetail() {
   async function setStatus(status: string) {
     if (
       status === 'SUSPENDED' &&
-      !confirm(`¿Suspender ${t?.brandName ?? 'este negocio'}? Su storefront público dejará de aceptar pedidos.`)
+      !confirm(tr('confirmSuspend', { name: t?.brandName ?? tr('thisBusiness') }))
     ) {
       return;
     }
@@ -117,14 +119,14 @@ export default function TenantDetail() {
       await load();
       toast(
         status === 'ACTIVE'
-          ? 'Negocio activado'
+          ? tr('businessActivated')
           : status === 'SUSPENDED'
-          ? 'Negocio suspendido'
-          : 'Estado actualizado',
+          ? tr('businessSuspended')
+          : tr('statusUpdated'),
         'success',
       );
     } catch (e: any) {
-      toast(e.message || 'No se pudo cambiar el estado', 'error');
+      toast(e.message || tr('couldNotChangeStatus'), 'error');
     } finally {
       setActioning(false);
     }
@@ -138,9 +140,9 @@ export default function TenantDetail() {
         body: JSON.stringify({ days }),
       });
       await load();
-      toast(`Trial extendido ${days} día${days === 1 ? '' : 's'}`, 'success');
+      toast(tr('trialExtended', { days }), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo extender el trial', 'error');
+      toast(e.message || tr('couldNotExtendTrial'), 'error');
     } finally {
       setActioning(false);
     }
@@ -154,15 +156,7 @@ export default function TenantDetail() {
    */
   async function convertToPaying() {
     if (
-      !confirm(
-        `¿Convertir ${t?.brandName ?? 'este negocio'} a cliente pagante?\n\n` +
-          'Esto:\n' +
-          '• Marca el negocio como ACTIVE\n' +
-          '• Setea el próximo cobro en 30 días\n' +
-          '• Limpia los días de trial\n' +
-          '• Genera la comisión PENDING al afiliado si lo tiene asignado\n\n' +
-          'Usalo solo si el cliente efectivamente pagó (por fuera de Hotmart).',
-      )
+      !confirm(tr('confirmConvertToPaying', { name: t?.brandName ?? tr('thisBusiness') }))
     ) {
       return;
     }
@@ -173,9 +167,9 @@ export default function TenantDetail() {
         body: JSON.stringify({ periodDays: 30 }),
       });
       await load();
-      toast('Negocio convertido a cliente pagante', 'success');
+      toast(tr('businessConvertedToPaying'), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo convertir', 'error');
+      toast(e.message || tr('couldNotConvert'), 'error');
     } finally {
       setActioning(false);
     }
@@ -221,7 +215,7 @@ export default function TenantDetail() {
               disabled={brandSaving}
               onClick={saveBrandName}
             >
-              {brandSaving ? 'Guardando…' : 'Guardar'}
+              {brandSaving ? tr('saving') : tr('save')}
             </button>
             <button
               type="button"
@@ -229,17 +223,17 @@ export default function TenantDetail() {
               disabled={brandSaving}
               onClick={() => setBrandEditing(false)}
             >
-              Cancelar
+              {tr('cancel')}
             </button>
           </div>
         ) : (
           <h1 className="page-title flex items-center gap-2">
-            {t.brandName} <span className="page-crumb">/ Negocios</span>
+            {t.brandName} <span className="page-crumb">{tr('crumbBusinesses')}</span>
             {isSuperAdmin && (
               <button
                 type="button"
                 className="text-mute hover:text-ink"
-                title="Editar nombre del negocio"
+                title={tr('editBusinessName')}
                 onClick={() => {
                   setBrandDraft(t.brandName ?? '');
                   setBrandEditing(true);
@@ -251,7 +245,7 @@ export default function TenantDetail() {
           </h1>
         )}
         <button className="btn-ghost" onClick={() => router.push('/admin/tenants')}>
-          ← Volver
+          ← {tr('back')}
         </button>
       </div>
 
@@ -260,7 +254,7 @@ export default function TenantDetail() {
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <div className="text-xs uppercase tracking-wider text-mute font-semibold">
-              Estado actual
+              {tr('currentStatus')}
             </div>
             <div className="mt-2 flex items-center gap-3 flex-wrap">
               <span
@@ -276,11 +270,11 @@ export default function TenantDetail() {
               </span>
               {daysLeft !== null && (
                 <span className="text-sm text-mute">
-                  Trial: <strong className="text-ink">{daysLeft} días restantes</strong>
+                  {tr('trialLabel')} <strong className="text-ink">{tr('daysRemaining', { days: daysLeft })}</strong>
                   {t.trialEndsAt && (
                     <>
                       {' '}
-                      (vence{' '}
+                      ({tr('expires')}{' '}
                       {new Date(t.trialEndsAt).toLocaleDateString('es-CO', {
                         day: 'numeric',
                         month: 'short',
@@ -292,7 +286,7 @@ export default function TenantDetail() {
               )}
               {t.suspendedAt && (
                 <span className="text-xs text-bad">
-                  Suspendido el{' '}
+                  {tr('suspendedOn')}{' '}
                   {new Date(t.suspendedAt).toLocaleDateString('es-CO', {
                     day: 'numeric',
                     month: 'short',
@@ -315,16 +309,16 @@ export default function TenantDetail() {
                       user: res.user,
                       tenant: { id: res.tenant.id, brandName: res.tenant.brandName },
                     });
-                    toast(`Entrando a ${res.tenant.brandName}…`, 'success');
+                    toast(tr('enteringBusiness', { name: res.tenant.brandName }), 'success');
                     router.push('/app');
                   } catch (e: any) {
-                    toast(e.message || 'No se pudo entrar', 'error');
+                    toast(e.message || tr('couldNotEnter'), 'error');
                     setActioning(false);
                   }
                 }}
-                title={t.status === 'SUSPENDED' ? 'Reactiva el negocio para entrar' : 'Entrar como dueño del negocio'}
+                title={t.status === 'SUSPENDED' ? tr('reactivateToEnter') : tr('enterAsOwner')}
               >
-                <Icon name="arrow-right" /> Entrar al negocio
+                <Icon name="arrow-right" /> {tr('enterBusiness')}
               </button>
             )}
             {isSuperAdmin && t.status === 'TRIAL' && (
@@ -334,22 +328,22 @@ export default function TenantDetail() {
                   disabled={actioning}
                   onClick={() => extendTrial(7)}
                 >
-                  +7 días
+                  {tr('plus7Days')}
                 </button>
                 <button
                   className="btn-ghost text-sm"
                   disabled={actioning}
                   onClick={() => extendTrial(30)}
                 >
-                  +30 días
+                  {tr('plus30Days')}
                 </button>
                 <button
                   className="btn-primary text-sm"
                   disabled={actioning}
                   onClick={convertToPaying}
-                  title="El cliente pagó por fuera de Hotmart — convertir a cliente activo y generar comisión"
+                  title={tr('markAsPaidTitle')}
                 >
-                  💰 Marcar como pagado
+                  {tr('markAsPaid')}
                 </button>
               </>
             )}
@@ -359,7 +353,7 @@ export default function TenantDetail() {
                 disabled={actioning}
                 onClick={() => extendTrial(14)}
               >
-                Reactivar (+14d)
+                {tr('reactivatePlus14')}
               </button>
             )}
             {isSuperAdmin && (t.status === 'ACTIVE' ? (
@@ -368,7 +362,7 @@ export default function TenantDetail() {
                 disabled={actioning}
                 onClick={() => setStatus('SUSPENDED')}
               >
-                Suspender
+                {tr('suspend')}
               </button>
             ) : (
               <button
@@ -376,7 +370,7 @@ export default function TenantDetail() {
                 disabled={actioning}
                 onClick={() => setStatus('ACTIVE')}
               >
-                Marcar como activo
+                {tr('markAsActive')}
               </button>
             ))}
             {/* Demo lock toggle — convierte el tenant en cuenta demo de
@@ -388,11 +382,7 @@ export default function TenantDetail() {
               onClick={async () => {
                 const wantLock = !t.isLocked;
                 if (wantLock) {
-                  if (
-                    !confirm(
-                      '¿Activar modo demo (solo lectura)?\n\nNadie excepto super admin podrá modificar este negocio. Pensado para cuentas demo que los embajadores muestran a prospects.',
-                    )
-                  )
+                  if (!confirm(tr('confirmDemoLock')))
                     return;
                 }
                 setActioning(true);
@@ -402,32 +392,29 @@ export default function TenantDetail() {
                     body: JSON.stringify({ locked: wantLock }),
                   });
                   toast(
-                    wantLock ? '🔒 Cuenta bloqueada como demo' : '🔓 Demo desbloqueado — editable',
+                    wantLock ? tr('accountLockedAsDemo') : tr('demoUnlocked'),
                     'success',
                   );
                   await load();
                 } catch (e: any) {
-                  toast(e.message || 'No se pudo cambiar el lock', 'error');
+                  toast(e.message || tr('couldNotChangeLock'), 'error');
                 } finally {
                   setActioning(false);
                 }
               }}
               title={
                 t.isLocked
-                  ? 'Quitar el bloqueo demo para volver a editar el contenido'
-                  : 'Activar modo demo: solo lectura para no-super-admin'
+                  ? tr('unlockDemoTitle')
+                  : tr('lockDemoTitle')
               }
             >
-              {t.isLocked ? '🔓 Desbloquear demo' : '🔒 Bloquear como demo'}
+              {t.isLocked ? tr('unlockDemo') : tr('lockAsDemo')}
             </button>)}
           </div>
         </div>
         {t.isLocked && (
           <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 mt-3 text-xs text-amber-900">
-            <strong>🔒 Modo demo activo.</strong> Cualquier usuario que entre a
-            este negocio (incluyendo dueño o staff) solo puede ver y navegar —
-            no puede modificar nada. Solo super admin puede editar. Desbloqueá
-            arriba si necesitas actualizar el contenido curado.
+            <strong>{tr('demoModeActiveTitle')}</strong> {tr('demoModeActiveBody')}
           </div>
         )}
       </div>
@@ -439,7 +426,7 @@ export default function TenantDetail() {
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5 mb-4">
         <div className="kpi">
-          <div className="kpi-lbl">Plan</div>
+          <div className="kpi-lbl">{tr('kpiPlan')}</div>
           <div className="kpi-val text-brand">{t.plan?.name ?? 'Elite'}</div>
           <div className="kpi-sub">
             🗓️ {periodLabel(t.planPeriodicity as PlanPeriodicity | null)} ·{' '}
@@ -451,15 +438,15 @@ export default function TenantDetail() {
           </div>
         </div>
         <div className="kpi">
-          <div className="kpi-lbl">Tarjetas</div>
+          <div className="kpi-lbl">{tr('kpiCards')}</div>
           <div className="kpi-val">{t._count?.cards ?? 0}</div>
         </div>
         <div className="kpi">
-          <div className="kpi-lbl">Clientes</div>
+          <div className="kpi-lbl">{tr('kpiCustomers')}</div>
           <div className="kpi-val">{t._count?.customers ?? 0}</div>
         </div>
         <div className="kpi">
-          <div className="kpi-lbl">Pases</div>
+          <div className="kpi-lbl">{tr('kpiPasses')}</div>
           <div className="kpi-val">{t._count?.passes ?? 0}</div>
         </div>
       </div>
@@ -467,22 +454,22 @@ export default function TenantDetail() {
       {/* Info */}
       <div className="grid md:grid-cols-2 gap-4">
         <div className="card card-pad">
-          <h2 className="text-base font-semibold m-0">Información</h2>
+          <h2 className="text-base font-semibold m-0">{tr('information')}</h2>
           <dl className="mt-3 space-y-2 text-sm">
             <div className="flex justify-between">
-              <dt className="text-mute">Email</dt>
+              <dt className="text-mute">{tr('email')}</dt>
               <dd className="font-medium">{t.email}</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-mute">WhatsApp</dt>
+              <dt className="text-mute">{tr('whatsapp')}</dt>
               <dd className="font-medium">{t.whatsappPhone || '—'}</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-mute">Slug</dt>
+              <dt className="text-mute">{tr('slug')}</dt>
               <dd className="font-mono text-xs">{t.slug}</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-mute">Creado</dt>
+              <dt className="text-mute">{tr('created')}</dt>
               <dd className="font-medium">
                 {new Date(t.createdAt).toLocaleDateString('es-CO', {
                   day: 'numeric',
@@ -502,7 +489,7 @@ export default function TenantDetail() {
               target="_blank"
               className="text-sm text-brand hover:underline"
             >
-              Abrir storefront →
+              {tr('openStorefront')}
             </Link>
           </div>
         </div>
@@ -511,18 +498,21 @@ export default function TenantDetail() {
 
         {isSuperAdmin && (
           <div className="card card-pad">
-            <h2 className="text-base font-semibold m-0">Override de ubicaciones</h2>
+            <h2 className="text-base font-semibold m-0">{tr('locationsOverride')}</h2>
             <p className="mt-1 text-sm text-mute">
-              Plan permite <strong className="text-ink">{t.plan?.maxLocations}</strong> ubicaciones.
+              {tr.rich('planAllowsLocations', {
+                count: t.plan?.maxLocations,
+                strong: (chunks) => <strong className="text-ink">{chunks}</strong>,
+              })}
             </p>
             <div className="mt-4 flex items-end gap-3">
               <div className="flex-1">
-                <label className="label">Override</label>
+                <label className="label">{tr('override')}</label>
                 <input
                   className="input"
                   type="number"
                   min={0}
-                  placeholder={`Default ${t.plan?.maxLocations}`}
+                  placeholder={tr('defaultPlaceholder', { count: t.plan?.maxLocations })}
                   value={extraLocations}
                   onChange={(e) =>
                     setExtraLocations(e.target.value === '' ? '' : Number(e.target.value))
@@ -530,7 +520,7 @@ export default function TenantDetail() {
                 />
               </div>
               <button className="btn-primary" disabled={saving} onClick={save}>
-                {saving ? 'Guardando…' : 'Guardar'}
+                {saving ? tr('saving') : tr('save')}
               </button>
             </div>
           </div>
@@ -550,7 +540,7 @@ export default function TenantDetail() {
             colapsados para reducir el scroll. Info/Plan/Referidos quedan
             visibles arriba; el resto se despliega bajo demanda. */}
         {isSuperAdmin && (
-          <CollapsibleSection title="🔔 Alertas y notificaciones" className="md:col-span-2">
+          <CollapsibleSection title={tr('sectionAlerts')} className="md:col-span-2">
             <ReviewAlertsAccountCard tenant={t} onSaved={load} />
             <BillingAlertsAccountCard tenant={t} onSaved={load} />
             <DeliveryAlertsAccountCard tenant={t} onSaved={load} />
@@ -569,14 +559,14 @@ export default function TenantDetail() {
         )}
 
         {isSuperAdmin && (
-          <CollapsibleSection title="💳 Facturación avanzada" className="md:col-span-2">
+          <CollapsibleSection title={tr('sectionBilling')} className="md:col-span-2">
             <BillingCard tenant={t} onChange={load} />
             <HotmartSimulatorCard tenant={t} onChange={load} />
           </CollapsibleSection>
         )}
 
         {isSuperAdmin && (
-          <CollapsibleSection title="🧩 Integraciones y extras" className="md:col-span-2">
+          <CollapsibleSection title={tr('sectionIntegrations')} className="md:col-span-2">
             <AcademyTogglesCard tenant={t} onSaved={load} />
             <WalletsGlobalRefreshCard tenantId={t.id} />
           </CollapsibleSection>
@@ -630,6 +620,7 @@ function CollapsibleSection({
 // ============================================================
 
 function WalletsGlobalRefreshCard({ tenantId }: { tenantId: string }) {
+  const t = useTranslations('admin_tenants_id');
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<{
     total: number;
@@ -637,15 +628,7 @@ function WalletsGlobalRefreshCard({ tenantId }: { tenantId: string }) {
   } | null>(null);
 
   async function trigger() {
-    if (
-      !confirm(
-        '¿Encolar refresh de TODAS las wallets activas de este negocio?\n\n' +
-          'Esto NO modifica sellos / puntos / beneficios — solo le pide a ' +
-          'Apple / Google que vuelvan a descargar el .pkpass actualizado ' +
-          '(útil tras cambios de branding o diseño). Cada wallet recibe ' +
-          'un silent push en background.',
-      )
-    )
+    if (!confirm(t('confirmRefreshWallets')))
       return;
     setRunning(true);
     setResult(null);
@@ -656,11 +639,11 @@ function WalletsGlobalRefreshCard({ tenantId }: { tenantId: string }) {
       );
       setResult(res);
       toast(
-        `${res.enqueued} / ${res.total} wallets encoladas para refresh`,
+        t('walletsEnqueuedToast', { enqueued: res.enqueued, total: res.total }),
         'success',
       );
     } catch (e: any) {
-      toast(e.message || 'No se pudo disparar el refresh', 'error');
+      toast(e.message || t('couldNotTriggerRefresh'), 'error');
     } finally {
       setRunning(false);
     }
@@ -669,17 +652,14 @@ function WalletsGlobalRefreshCard({ tenantId }: { tenantId: string }) {
   return (
     <div className="card card-pad">
       <h2 className="text-base font-semibold m-0 flex items-center gap-2">
-        🔁 Refresh global de wallets
+        {t('walletsRefreshTitle')}
       </h2>
       <p className="text-xs text-mute mt-1 leading-relaxed">
-        Encola un push update para todas las wallets activas del negocio.
-        Útil tras cambiar branding (logo, colores, strip). No modifica sellos
-        ni beneficios — solo re-sincroniza el diseño del .pkpass.
+        {t('walletsRefreshDesc')}
       </p>
       {result && (
         <div className="mt-3 text-sm rounded-lg px-3 py-2 bg-ok-soft text-ok-ink">
-          {result.enqueued} de {result.total} wallets encoladas correctamente.
-          El refresh corre en background (1-2 min en tenants grandes).
+          {t('walletsEnqueuedResult', { enqueued: result.enqueued, total: result.total })}
         </div>
       )}
       <div className="mt-4 flex justify-end">
@@ -689,7 +669,7 @@ function WalletsGlobalRefreshCard({ tenantId }: { tenantId: string }) {
           disabled={running}
           className="btn-primary text-sm"
         >
-          {running ? 'Encolando…' : '🔁 Refrescar todas las wallets'}
+          {running ? t('enqueuing') : t('refreshAllWallets')}
         </button>
       </div>
     </div>
@@ -709,6 +689,7 @@ function WhatsappMessagingCard({
   tenant: any;
   onSaved: () => void;
 }) {
+  const t = useTranslations('admin_tenants_id');
   const [form, setForm] = useState({
     whatsappPhone: tenant.whatsappPhone ?? '',
     whatsappOrdersPhone: tenant.whatsappOrdersPhone ?? '',
@@ -730,10 +711,10 @@ function WhatsappMessagingCard({
           whatsappDeliveryPhone: form.whatsappDeliveryPhone.trim() || '',
         }),
       });
-      setMsg({ ok: true, text: 'Números guardados' });
+      setMsg({ ok: true, text: t('numbersSaved') });
       onSaved();
     } catch (e: any) {
-      setMsg({ ok: false, text: e.message || 'No se pudo guardar' });
+      setMsg({ ok: false, text: e.message || t('couldNotSave') });
     } finally {
       setSaving(false);
     }
@@ -742,16 +723,15 @@ function WhatsappMessagingCard({
   return (
     <div className="card card-pad">
       <h2 className="text-base font-semibold m-0 flex items-center gap-2">
-        💬 Mensajería WhatsApp
+        {t('whatsappMessagingTitle')}
       </h2>
       <p className="text-xs text-mute mt-1 leading-relaxed">
-        Configura los teléfonos que enrutan los pedidos del negocio. El cliente
-        final no ve esta sección — solo SUPER_ADMIN puede editarla.
+        {t('whatsappMessagingDesc')}
       </p>
 
       <form onSubmit={save} className="mt-4 grid gap-3">
         <div>
-          <label className="label">WhatsApp principal del negocio</label>
+          <label className="label">{t('mainBusinessWhatsapp')}</label>
           <input
             className="input"
             placeholder="+57 300 000 0000"
@@ -763,7 +743,7 @@ function WhatsappMessagingCard({
         </div>
 
         <div>
-          <label className="label">🍽 Pedido a Negocio (caja)</label>
+          <label className="label">{t('orderToBusiness')}</label>
           <input
             className="input"
             placeholder="+57 300 000 0000"
@@ -773,13 +753,12 @@ function WhatsappMessagingCard({
             }
           />
           <p className="text-[11px] text-mute mt-1 leading-relaxed">
-            Cuando un cliente envía pedido desde el menú, el wa.me abre a este
-            número. Si está vacío usa el WhatsApp principal.
+            {t('orderToBusinessHelp')}
           </p>
         </div>
 
         <div>
-          <label className="label">🛵 Negocio a Domicilio (courier)</label>
+          <label className="label">{t('businessToDelivery')}</label>
           <input
             className="input"
             placeholder="+57 300 000 0000"
@@ -789,8 +768,7 @@ function WhatsappMessagingCard({
             }
           />
           <p className="text-[11px] text-mute mt-1 leading-relaxed">
-            Cuando se acepta el pago de un pedido domicilio, se abre wa.me a
-            este número con el resumen y dirección listo para despachar.
+            {t('businessToDeliveryHelp')}
           </p>
         </div>
 
@@ -806,7 +784,7 @@ function WhatsappMessagingCard({
 
         <div className="flex justify-end">
           <button type="submit" disabled={saving} className="btn-primary text-sm">
-            {saving ? 'Guardando…' : 'Guardar números'}
+            {saving ? t('saving') : t('saveNumbers')}
           </button>
         </div>
       </form>
@@ -827,6 +805,7 @@ function AcademyTogglesCard({
   tenant: any;
   onSaved: () => void;
 }) {
+  const t = useTranslations('admin_tenants_id');
   const [tutorials, setTutorials] = useState<boolean>(
     tenant.tutorialsEnabled ?? true,
   );
@@ -851,10 +830,10 @@ function AcademyTogglesCard({
           reservationsEnabled: reservations,
         }),
       });
-      setMsg({ ok: true, text: 'Cambios guardados' });
+      setMsg({ ok: true, text: t('changesSaved') });
       onSaved();
     } catch (e: any) {
-      setMsg({ ok: false, text: e.message || 'No se pudo guardar' });
+      setMsg({ ok: false, text: e.message || t('couldNotSave') });
     } finally {
       setSaving(false);
     }
@@ -863,11 +842,10 @@ function AcademyTogglesCard({
   return (
     <div className="card card-pad">
       <h2 className="text-base font-semibold m-0 flex items-center gap-2">
-        🎛️ Módulos del tenant
+        {t('tenantModulesTitle')}
       </h2>
       <p className="text-xs text-mute mt-1 leading-relaxed">
-        Tutoriales, academia y módulo de reservas. Cambios se reflejan en el
-        sidebar del cliente al refrescar.
+        {t('tenantModulesDesc')}
       </p>
 
       <div className="mt-4 space-y-3">
@@ -879,10 +857,9 @@ function AcademyTogglesCard({
             className="mt-1"
           />
           <div>
-            <div className="text-sm font-semibold">Mostrar Tutoriales</div>
+            <div className="text-sm font-semibold">{t('showTutorials')}</div>
             <div className="text-xs text-mute leading-snug">
-              Link "🎓 Tutoriales" en el sidebar del cliente
-              (academy.soyclubify.lat/cliente).
+              {t('showTutorialsHelp')}
             </div>
           </div>
         </label>
@@ -895,10 +872,9 @@ function AcademyTogglesCard({
             className="mt-1"
           />
           <div>
-            <div className="text-sm font-semibold">Mostrar Academia Clubify</div>
+            <div className="text-sm font-semibold">{t('showAcademy')}</div>
             <div className="text-xs text-mute leading-snug">
-              Reservado (campo per-tenant para uso futuro — la Academia para
-              afiliados se muestra siempre por ahora).
+              {t('showAcademyHelp')}
             </div>
           </div>
         </label>
@@ -911,11 +887,11 @@ function AcademyTogglesCard({
             className="mt-1"
           />
           <div>
-            <div className="text-sm font-semibold">📅 Activar Reservas</div>
+            <div className="text-sm font-semibold">{t('enableReservations')}</div>
             <div className="text-xs text-mute leading-snug">
-              Habilita el módulo de reservas (zonas + mesas + agenda) y el
-              flujo público <code>/reserva/&lt;slug&gt;</code>. Cuando se activa
-              aparece la sección "Reservas" en el sidebar del cliente.
+              {t.rich('enableReservationsHelp', {
+                code: (chunks) => <code>{chunks}</code>,
+              })}
             </div>
           </div>
         </label>
@@ -938,7 +914,7 @@ function AcademyTogglesCard({
           disabled={saving}
           className="btn-primary text-sm"
         >
-          {saving ? 'Guardando…' : 'Guardar'}
+          {saving ? t('saving') : t('save')}
         </button>
       </div>
     </div>
@@ -967,6 +943,7 @@ type TrialHistoryEntry = {
 };
 
 function TrialHistoryCard({ tenantId }: { tenantId: string }) {
+  const t = useTranslations('admin_tenants_id');
   const [rows, setRows] = useState<TrialHistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -995,9 +972,9 @@ function TrialHistoryCard({ tenantId }: { tenantId: string }) {
   return (
     <div className="card card-pad mb-4">
       <div className="flex items-center justify-between gap-2 mb-3">
-        <h2 className="text-base font-semibold m-0">⏱ Historial de Trial</h2>
+        <h2 className="text-base font-semibold m-0">{t('trialHistoryTitle')}</h2>
         <span className="text-xs text-mute">
-          {loading ? '…' : `${rows.length} movimiento${rows.length === 1 ? '' : 's'}`}
+          {loading ? '…' : t('movementsCount', { count: rows.length })}
         </span>
       </div>
 
@@ -1012,9 +989,9 @@ function TrialHistoryCard({ tenantId }: { tenantId: string }) {
       {!loading && rows.length === 0 && (
         <div className="text-center py-6 text-sm text-mute">
           <div className="text-2xl mb-1">📭</div>
-          Aún no hay modificaciones de trial registradas.
+          {t('noTrialModifications')}
           <div className="text-xs mt-1">
-            Usa "Gestionar Trial" desde el listado para sumar o restar días.
+            {t('noTrialModificationsHelp')}
           </div>
         </div>
       )}
@@ -1037,11 +1014,12 @@ function TrialHistoryCard({ tenantId }: { tenantId: string }) {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium">
-                    {positive ? 'Suma' : 'Descuento'} de {Math.abs(delta)} día
-                    {Math.abs(delta) === 1 ? '' : 's'}
+                    {positive
+                      ? t('addedDays', { count: Math.abs(delta) })
+                      : t('subtractedDays', { count: Math.abs(delta) })}
                     {r.metadata?.newStatus === 'SUSPENDED' && (
                       <span className="ml-2 badge badge-bad text-[10px]">
-                        Quedó SUSPENDIDO
+                        {t('endedSuspended')}
                       </span>
                     )}
                   </div>
@@ -1064,12 +1042,12 @@ function TrialHistoryCard({ tenantId }: { tenantId: string }) {
                   </div>
                   {r.metadata?.previousTrialEndsAt && r.metadata?.newTrialEndsAt && (
                     <div className="text-[11px] text-mute2 mt-0.5">
-                      Vencía{' '}
+                      {t('wasExpiring')}{' '}
                       {new Date(r.metadata.previousTrialEndsAt).toLocaleDateString(
                         'es-CO',
                         { day: 'numeric', month: 'short' },
                       )}{' '}
-                      → Vence{' '}
+                      → {t('nowExpires')}{' '}
                       {new Date(r.metadata.newTrialEndsAt).toLocaleDateString(
                         'es-CO',
                         { day: 'numeric', month: 'short', year: 'numeric' },
@@ -1141,13 +1119,14 @@ function ReviewAlertsAccountCard({
   tenant: any;
   onSaved: () => void;
 }) {
+  const t = useTranslations('admin_tenants_id');
   return (
     <AlertsAccountCard
       tenant={tenant}
       onSaved={onSaved}
       field="reviewAlertsAccountId"
-      title="📲 Subcuenta SMS para alertas de reseñas"
-      description="Elige qué subcuenta Grow Business usar para los SMS cuando un cliente deje una reseña baja en este negocio."
+      title={t('reviewAlertsAccountTitle')}
+      description={t('reviewAlertsAccountDesc')}
       preferredPurpose="OPERATIONAL"
       radioName="gb-review-account"
     />
@@ -1161,13 +1140,14 @@ function BillingAlertsAccountCard({
   tenant: any;
   onSaved: () => void;
 }) {
+  const t = useTranslations('admin_tenants_id');
   return (
     <AlertsAccountCard
       tenant={tenant}
       onSaved={onSaved}
       field="billingAlertsAccountId"
-      title="💳 Subcuenta SMS para recordatorios de pago"
-      description="Elige qué subcuenta Grow Business usar para los SMS administrativos (D-1 recordatorio, impago, suspensión)."
+      title={t('billingAlertsAccountTitle')}
+      description={t('billingAlertsAccountDesc')}
       preferredPurpose="BILLING"
       radioName="gb-billing-account"
     />
@@ -1181,13 +1161,14 @@ function DeliveryAlertsAccountCard({
   tenant: any;
   onSaved: () => void;
 }) {
+  const t = useTranslations('admin_tenants_id');
   return (
     <AlertsAccountCard
       tenant={tenant}
       onSaved={onSaved}
       field="deliveryAlertsAccountId"
-      title="🛵 Subcuenta SMS para alertas de domicilio"
-      description="Elige qué subcuenta Grow Business usar para los SMS a empresas de domicilio cuando un pedido delivery cambia de estado."
+      title={t('deliveryAlertsAccountTitle')}
+      description={t('deliveryAlertsAccountDesc')}
       preferredPurpose="OPERATIONAL"
       radioName="gb-delivery-account"
     />
@@ -1219,6 +1200,7 @@ function AlertsAccountCard({
   preferredPurpose: 'BILLING' | 'OPERATIONAL';
   radioName: string;
 }) {
+  const t = useTranslations('admin_tenants_id');
   const [accounts, setAccounts] = useState<GbAccountOption[] | null>(null);
   const [selected, setSelected] = useState<string>(tenant[field] ?? '');
   const [saving, setSaving] = useState(false);
@@ -1241,7 +1223,7 @@ function AlertsAccountCard({
         ),
       )
       .catch((e: any) =>
-        toast(e.message || 'No se cargaron las subcuentas', 'error'),
+        toast(e.message || t('couldNotLoadAccounts'), 'error'),
       );
   }, []);
 
@@ -1252,10 +1234,10 @@ function AlertsAccountCard({
         method: 'PATCH',
         body: JSON.stringify({ [field]: selected || null }),
       });
-      toast('Subcuenta asignada', 'success');
+      toast(t('accountAssigned'), 'success');
       onSaved();
     } catch (e: any) {
-      toast(e.message || 'No se pudo guardar', 'error');
+      toast(e.message || t('couldNotSave'), 'error');
     } finally {
       setSaving(false);
     }
@@ -1283,19 +1265,19 @@ function AlertsAccountCard({
           href="/admin/integrations"
           className="text-brand hover:underline"
         >
-          Gestionar subcuentas →
+          {t('manageAccounts')}
         </Link>
       </p>
 
       {accounts === null && (
-        <div className="text-xs text-mute mt-3">Cargando subcuentas…</div>
+        <div className="text-xs text-mute mt-3">{t('loadingAccounts')}</div>
       )}
 
       {accounts && accounts.length === 0 && (
         <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-900">
-          No hay subcuentas registradas todavía.{' '}
+          {t('noAccountsYet')}{' '}
           <Link href="/admin/integrations" className="font-semibold underline">
-            Crea la primera →
+            {t('createFirstAccount')}
           </Link>
         </div>
       )}
@@ -1313,11 +1295,10 @@ function AlertsAccountCard({
               />
               <div>
                 <div className="text-sm font-medium">
-                  Usar credenciales propias del negocio
+                  {t('useBusinessOwnCreds')}
                 </div>
                 <div className="text-[11px] text-mute">
-                  Fallback al card Grow Business arriba (creds pegadas
-                  individualmente para este tenant).
+                  {t('useBusinessOwnCredsHelp')}
                 </div>
               </div>
             </label>
@@ -1346,24 +1327,24 @@ function AlertsAccountCard({
                         }`}
                       >
                         {acc.purpose === 'BILLING'
-                          ? 'Billing'
+                          ? t('purposeBilling')
                           : acc.purpose === 'OPERATIONAL'
-                          ? 'Operativa'
-                          : 'General'}
+                          ? t('purposeOperational')
+                          : t('purposeGeneral')}
                       </span>
                       {acc.isDefault && (
                         <span className="text-[9px] uppercase tracking-wider font-bold bg-brand/15 text-brand px-1.5 py-0.5 rounded">
-                          Default
+                          {t('badgeDefault')}
                         </span>
                       )}
                       {acc.lastTestOk === true && (
                         <span className="text-[9px] uppercase tracking-wider font-bold bg-ok/15 text-ok px-1.5 py-0.5 rounded">
-                          OK
+                          {t('badgeOk')}
                         </span>
                       )}
                       {acc.lastTestOk === false && (
                         <span className="text-[9px] uppercase tracking-wider font-bold bg-bad/15 text-bad px-1.5 py-0.5 rounded">
-                          Falló
+                          {t('badgeFailed')}
                         </span>
                       )}
                     </div>
@@ -1380,7 +1361,7 @@ function AlertsAccountCard({
                 disabled={saving}
                 className="btn-primary text-sm"
               >
-                {saving ? 'Guardando…' : 'Guardar asignación'}
+                {saving ? t('saving') : t('saveAssignment')}
               </button>
             </div>
           )}
@@ -1391,6 +1372,7 @@ function AlertsAccountCard({
 }
 
 function ReviewAlertsLogsCard({ tenantId }: { tenantId: string }) {
+  const t = useTranslations('admin_tenants_id');
   const [logs, setLogs] = useState<ReviewAlertEvent[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -1403,7 +1385,7 @@ function ReviewAlertsLogsCard({ tenantId }: { tenantId: string }) {
       );
       setLogs(data);
     } catch (e: any) {
-      toast(e.message || 'No se pudo cargar', 'error');
+      toast(e.message || t('couldNotLoad'), 'error');
     } finally {
       setLoading(false);
     }
@@ -1425,16 +1407,15 @@ function ReviewAlertsLogsCard({ tenantId }: { tenantId: string }) {
       >
         <div>
           <h3 className="text-base font-semibold m-0 flex items-center gap-2">
-            📲 Logs de alertas SMS de reseñas
+            {t('reviewLogsTitle')}
             {logs && (
               <span className="text-[10px] uppercase tracking-wider text-mute">
-                {sent} enviadas · {failed} fallidas (últimas 50)
+                {t('reviewLogsSummary', { sent, failed })}
               </span>
             )}
           </h3>
           <p className="text-xs text-mute mt-1 leading-relaxed">
-            Cada vez que un cliente deja una reseña baja, registramos si el
-            SMS via Grow Business salió o falló.
+            {t('reviewLogsDesc')}
           </p>
         </div>
         <span
@@ -1448,10 +1429,10 @@ function ReviewAlertsLogsCard({ tenantId }: { tenantId: string }) {
 
       {open && (
         <div className="mt-4 pt-4 border-t border-line">
-          {loading && <div className="text-xs text-mute">Cargando…</div>}
+          {loading && <div className="text-xs text-mute">{t('loading')}</div>}
           {!loading && logs?.length === 0 && (
             <div className="text-xs text-mute italic">
-              Aún no hay envíos registrados.
+              {t('noLogsYet')}
             </div>
           )}
           {!loading && logs && logs.length > 0 && (
@@ -1473,7 +1454,7 @@ function ReviewAlertsLogsCard({ tenantId }: { tenantId: string }) {
                           ok ? 'bg-ok text-white' : 'bg-bad text-white'
                         }`}
                       >
-                        {ok ? 'enviado' : 'fallido'}
+                        {ok ? t('logSent') : t('logFailed')}
                       </span>
                       <span className="text-mute">
                         {new Date(log.createdAt).toLocaleString('es-CO')}
@@ -1496,7 +1477,7 @@ function ReviewAlertsLogsCard({ tenantId }: { tenantId: string }) {
                     )}
                     {log.payload?.reason === 'no_destination_phone' && (
                       <div className="text-amber-700 italic">
-                        Sin teléfono destino configurado.
+                        {t('noDestinationPhone')}
                       </div>
                     )}
                   </div>
@@ -1509,7 +1490,7 @@ function ReviewAlertsLogsCard({ tenantId }: { tenantId: string }) {
             onClick={load}
             className="btn-ghost text-xs mt-3"
           >
-            ↻ Refrescar
+            {t('refresh')}
           </button>
         </div>
       )}
@@ -1524,10 +1505,11 @@ function HotmartSimulatorCard({
   tenant: any;
   onChange: () => void;
 }) {
+  const t = useTranslations('admin_tenants_id');
   const [busy, setBusy] = useState<string | null>(null);
 
   async function fire(event: string) {
-    if (!confirm(`¿Disparar ${event} en este tenant? Esto NO involucra Hotmart real.`)) return;
+    if (!confirm(t('confirmSimulateEvent', { event }))) return;
     setBusy(event);
     try {
       const body: any = { tenantId: tenant.id, event };
@@ -1535,11 +1517,11 @@ function HotmartSimulatorCard({
         method: 'POST',
         body: JSON.stringify(body),
       });
-      const action = r?.handlerResult?.action ?? 'sin acción';
+      const action = r?.handlerResult?.action ?? t('noAction');
       toast(`${event} → ${action}`, 'success');
       onChange();
     } catch (e: any) {
-      toast(e.message || 'Error simulando webhook', 'error');
+      toast(e.message || t('errorSimulatingWebhook'), 'error');
     } finally {
       setBusy(null);
     }
@@ -1550,16 +1532,16 @@ function HotmartSimulatorCard({
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h2 className="text-base font-semibold m-0">
-            🧪 Simulador Hotmart (QA)
+            {t('hotmartSimulatorTitle')}
           </h2>
           <p className="text-xs text-mute mt-1">
-            Dispara eventos del webhook contra este tenant{' '}
-            <strong>sin involucrar Hotmart ni cobrar nada</strong>. Pasa por el
-            mismo handler que un pago real.
+            {t.rich('hotmartSimulatorDesc', {
+              strong: (chunks) => <strong>{chunks}</strong>,
+            })}
           </p>
         </div>
         <span className="text-[10px] px-2 py-1 rounded-full bg-amber-100 text-amber-900 font-semibold uppercase tracking-wide">
-          solo super admin
+          {t('superAdminOnly')}
         </span>
       </div>
 
@@ -1583,7 +1565,7 @@ function HotmartSimulatorCard({
             >
               <div className="text-xl mb-1">{e.emoji}</div>
               <div className="text-sm font-semibold">
-                {busy === e.event ? 'Disparando…' : e.label}
+                {busy === e.event ? t('triggering') : e.label}
               </div>
               <div className="text-[11px] text-mute mt-0.5">{e.hint}</div>
               <div className="text-[10px] text-mute font-mono mt-1.5">
@@ -1595,10 +1577,10 @@ function HotmartSimulatorCard({
       </div>
 
       <div className="mt-3 text-[11px] text-mute leading-relaxed">
-        Las simulaciones marcan al tenant con <code>subscriberCode = sim-...</code>{' '}
-        para distinguir de cobros reales. Si quieres simular múltiples renovaciones,
-        usa <strong>UPDATE_SUBSCRIPTION_CHARGE_DATE</strong> y después{' '}
-        <strong>PURCHASE_APPROVED</strong> de nuevo.
+        {t.rich('hotmartSimulatorFooter', {
+          code: (chunks) => <code>{chunks}</code>,
+          strong: (chunks) => <strong>{chunks}</strong>,
+        })}
       </div>
     </div>
   );
@@ -1609,6 +1591,7 @@ function HotmartSimulatorCard({
 // ============================================================
 
 function BillingNotificationsCard({ tenant }: { tenant: any }) {
+  const t = useTranslations('admin_tenants_id');
   const fmt = (d: string | null | undefined) =>
     d
       ? new Date(d).toLocaleString('es-CO', {
@@ -1642,46 +1625,41 @@ function BillingNotificationsCard({ tenant }: { tenant: any }) {
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h2 className="text-base font-semibold m-0 flex items-center gap-2">
-            📱 Secuencia SMS de cobro
+            {t('billingSmsSequenceTitle')}
           </h2>
           <p className="text-xs text-mute mt-1 leading-relaxed">
-            Mensajes SMS automáticos al dueño desde el sub-account de Grow
-            Business. El cron diario (3 AM) los dispara según el ciclo de
-            Hotmart.
+            {t('billingSmsSequenceDesc')}
           </p>
         </div>
         {gbConnected ? (
-          <span className="badge badge-ok">SMS conectado</span>
+          <span className="badge badge-ok">{t('smsConnected')}</span>
         ) : (
-          <span className="badge badge-warn">Sin Grow Business</span>
+          <span className="badge badge-warn">{t('noGrowBusiness')}</span>
         )}
       </div>
 
       {!gbConnected && (
         <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5 text-xs text-amber-900">
-          ⚠ Este negocio no está conectado a Grow Business. Los SMS de cobro
-          no se envían — los emails que aparezcan en el cron quedan en log
-          pero no llegan al dueño. Conecta arriba en la card "Grow Business ·
-          SMS".
+          {t('noGrowBusinessWarning')}
         </div>
       )}
 
       <ol className="mt-4 space-y-2.5">
         <NotifStep
           n={1}
-          title="🗓 Recordatorio D-1 (un día antes del cobro)"
+          title={t('notifStep1Title')}
           help={
             reminderDate
-              ? `Próximo cobro: ${reminderDate}`
-              : 'Sin currentPeriodEnd configurado'
+              ? t('notifStep1HelpNext', { date: reminderDate })
+              : t('notifStep1HelpNone')
           }
           status={reminderSent ? 'sent' : 'pending'}
-          when={reminderSent ? `Enviado para ${reminderDate}` : null}
+          when={reminderSent ? t('notifSentFor', { date: reminderDate ?? '' }) : null}
         />
         <NotifStep
           n={2}
-          title="✅ Confirmación de pago"
-          help="Se envía al recibir PURCHASE_APPROVED del webhook Hotmart"
+          title={t('notifStep2Title')}
+          help={t('notifStep2Help')}
           status={
             tenant.failedPaymentCount === 0 && tenant.lastPaymentAttemptAt
               ? 'sent'
@@ -1689,40 +1667,40 @@ function BillingNotificationsCard({ tenant }: { tenant: any }) {
           }
           when={
             tenant.failedPaymentCount === 0 && tenant.lastPaymentAttemptAt
-              ? `Último: ${fmt(tenant.lastPaymentAttemptAt)}`
+              ? t('notifLast', { date: fmt(tenant.lastPaymentAttemptAt) })
               : null
           }
         />
         <NotifStep
           n={3}
-          title="⚠ Aviso de pago fallido"
-          help="Se envía al recibir PURCHASE_DELAYED/PROTEST"
+          title={t('notifStep3Title')}
+          help={t('notifStep3Help')}
           status={failed ? 'warn' : 'idle'}
           when={
             tenant.paymentFailureNoticeSentAt
-              ? `Enviado: ${fmt(tenant.paymentFailureNoticeSentAt)}`
+              ? t('notifSent', { date: fmt(tenant.paymentFailureNoticeSentAt) })
               : null
           }
         />
         <NotifStep
           n={4}
-          title="⏰ Tu cuenta se pausará en 2 días"
-          help={`Cron envía 2 días después del último intento fallido (failedPaymentCount=${tenant.failedPaymentCount ?? 0})`}
+          title={t('notifStep4Title')}
+          help={t('notifStep4Help', { count: tenant.failedPaymentCount ?? 0 })}
           status={tenant.pausePendingNoticeSentAt ? 'sent' : failed ? 'pending' : 'idle'}
           when={
             tenant.pausePendingNoticeSentAt
-              ? `Enviado: ${fmt(tenant.pausePendingNoticeSentAt)}`
+              ? t('notifSent', { date: fmt(tenant.pausePendingNoticeSentAt) })
               : null
           }
         />
         <NotifStep
           n={5}
-          title="🔴 Cuenta pausada"
-          help="4 días después del último intento fallido sin pago, cron suspende la cuenta"
+          title={t('notifStep5Title')}
+          help={t('notifStep5Help')}
           status={
             tenant.suspendedAt && failed ? 'sent' : 'idle'
           }
-          when={tenant.suspendedAt ? `Suspendido: ${fmt(tenant.suspendedAt)}` : null}
+          when={tenant.suspendedAt ? t('notifSuspended', { date: fmt(tenant.suspendedAt) }) : null}
         />
       </ol>
     </div>
@@ -1789,6 +1767,7 @@ const MODE_OPTIONS: Array<{ v: BillingMode; emoji: string; label: string; hint: 
 ];
 
 function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }) {
+  const t = useTranslations('admin_tenants_id');
   // Detectar modo actual desde el estado del tenant
   const currentMode: BillingMode = (() => {
     const code: string | null = tenant.hotmartSubscriberCode ?? null;
@@ -1831,7 +1810,7 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
     const trimmed = subPrice.trim();
     const value = trimmed === '' ? null : Number(trimmed);
     if (value != null && (!Number.isFinite(value) || value < 0)) {
-      toast('Precio inválido', 'error');
+      toast(t('invalidPrice'), 'error');
       return;
     }
     setSavingPrice(true);
@@ -1842,13 +1821,13 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
       });
       toast(
         value == null
-          ? 'Precio limpiado — vuelve al canónico del bundle'
-          : 'Precio real de comisión guardado',
+          ? t('priceCleared')
+          : t('commissionPriceSaved'),
         'success',
       );
       onChange();
     } catch (e: any) {
-      toast(e.message || 'No se pudo guardar', 'error');
+      toast(e.message || t('couldNotSave'), 'error');
     } finally {
       setSavingPrice(false);
     }
@@ -1860,23 +1839,23 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
     // Solo cambia la gracia (mismo modo): usamos PATCH /tenants/:id sin tocar
     // trialEndsAt ni el ciclo de cobro. Útil para extender gracia sin reset.
     if (graceChanged && !modeChanged) {
-      if (!confirm(`Actualizar días de gracia a ${gracePeriodDays}?`)) return;
+      if (!confirm(t('confirmUpdateGrace', { days: gracePeriodDays }))) return;
       setSaving(true);
       try {
         await api(`/tenants/${tenant.id}`, {
           method: 'PATCH',
           body: JSON.stringify({ gracePeriodDays }),
         });
-        toast('Días de gracia actualizados', 'success');
+        toast(t('graceDaysUpdated'), 'success');
         onChange();
       } catch (e: any) {
-        toast(e.message || 'No se pudo actualizar', 'error');
+        toast(e.message || t('couldNotUpdate'), 'error');
       } finally {
         setSaving(false);
       }
       return;
     }
-    if (!confirm(`Cambiar facturación a "${MODE_OPTIONS.find((m) => m.v === mode)?.label}"?`))
+    if (!confirm(t('confirmChangeBilling', { mode: MODE_OPTIONS.find((m) => m.v === mode)?.label ?? '' })))
       return;
     setSaving(true);
     try {
@@ -1888,7 +1867,7 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
           body.nextChargeDate = new Date(nextChargeDate).toISOString();
         if (code.trim()) body.hotmartSubscriberCode = code.trim();
         if (!body.nextChargeDate && !body.hotmartSubscriberCode) {
-          toast('Para "Pagada" necesitas fecha o código de suscriptor', 'error');
+          toast(t('paidNeedsDateOrCode'), 'error');
           setSaving(false);
           return;
         }
@@ -1897,10 +1876,10 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
         method: 'PATCH',
         body: JSON.stringify(body),
       });
-      toast('Facturación actualizada', 'success');
+      toast(t('billingUpdated'), 'success');
       onChange();
     } catch (e: any) {
-      toast(e.message || 'No se pudo actualizar', 'error');
+      toast(e.message || t('couldNotUpdate'), 'error');
     } finally {
       setSaving(false);
     }
@@ -1908,12 +1887,12 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
 
   return (
     <div className="card card-pad md:col-span-2">
-      <h2 className="text-base font-semibold m-0">Facturación</h2>
+      <h2 className="text-base font-semibold m-0">{t('billing')}</h2>
       <p className="text-xs text-mute mt-1">
-        Estado actual: <strong className="text-ink">{MODE_OPTIONS.find((m) => m.v === currentMode)?.label}</strong>
+        {t('currentStatusLabel')} <strong className="text-ink">{MODE_OPTIONS.find((m) => m.v === currentMode)?.label}</strong>
         {tenant.trialEndsAt && (
           <>
-            {' '}· Trial vence{' '}
+            {' '}· {t('trialExpiresLabel')}{' '}
             <strong className="text-ink">
               {new Date(tenant.trialEndsAt).toLocaleDateString('es-CO', {
                 day: 'numeric',
@@ -1925,13 +1904,13 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
         )}
         {(tenant.gracePeriodDays ?? 0) > 0 && (
           <>
-            {' '}· Gracia post-trial{' '}
-            <strong className="text-ink">{tenant.gracePeriodDays} días</strong>
+            {' '}· {t('gracePostTrialLabel')}{' '}
+            <strong className="text-ink">{t('graceDays', { days: tenant.gracePeriodDays })}</strong>
           </>
         )}
         {tenant.currentPeriodEnd && (
           <>
-            {' '}· Próximo cobro{' '}
+            {' '}· {t('nextChargeLabel')}{' '}
             <strong className="text-ink">
               {new Date(tenant.currentPeriodEnd).toLocaleDateString('es-CO', {
                 day: 'numeric',
@@ -1968,7 +1947,7 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
       {mode === 'trial' && (
         <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <label className="label">Días de trial desde hoy</label>
+            <label className="label">{t('trialDaysFromToday')}</label>
             <input
               className="input"
               type="number"
@@ -1978,11 +1957,11 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
               onChange={(e) => setTrialDays(Number(e.target.value) || 7)}
             />
             <div className="text-[11px] text-mute mt-1">
-              El trial arranca al aplicar y vence al final del día N.
+              {t('trialDaysFromTodayHelp')}
             </div>
           </div>
           <div>
-            <label className="label">Días de gracia tras vencer</label>
+            <label className="label">{t('graceDaysAfterExpiry')}</label>
             <input
               className="input"
               type="number"
@@ -1994,8 +1973,7 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
               }
             />
             <div className="text-[11px] text-mute mt-1">
-              Días extra de acceso tras vencer el trial antes de bloquear.
-              0 = corte inmediato.
+              {t('graceDaysAfterExpiryHelp')}
             </div>
           </div>
         </div>
@@ -2004,7 +1982,7 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
       {mode === 'paid' && (
         <div className="grid grid-cols-2 gap-3 mt-4">
           <div>
-            <label className="label">Próxima fecha de cobro</label>
+            <label className="label">{t('nextChargeDate')}</label>
             <input
               className="input"
               type="date"
@@ -2013,10 +1991,10 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
             />
           </div>
           <div>
-            <label className="label">Código suscriptor Hotmart</label>
+            <label className="label">{t('hotmartSubscriberCode')}</label>
             <input
               className="input"
-              placeholder="opcional"
+              placeholder={t('optional')}
               value={code}
               onChange={(e) => setCode(e.target.value)}
             />
@@ -2026,14 +2004,13 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
 
       {mode === 'pending' && (
         <div className="mt-4 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5 text-xs text-amber-900">
-          Esto desactiva el código actual y reactiva el lockscreen. El dueño
-          tendrá que pagar en Hotmart para volver a entrar.
+          {t('pendingModeNote')}
         </div>
       )}
 
       {mode === 'free' && (
         <div className="mt-4 rounded-lg bg-ok-soft/50 border border-ok/20 px-3 py-2.5 text-xs text-ok-ink">
-          Cuenta queda activa de cortesía indefinidamente.
+          {t('freeModeNote')}
         </div>
       )}
 
@@ -2041,7 +2018,7 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
           comisiones (directa, 5% indirecto, 10% socio). Se autollena desde
           el webhook Hotmart; editable para corregir legacy ($50 viejo). */}
       <div className="mt-5 pt-4 border-t border-line">
-        <label className="label">Precio real pagado en Hotmart (base de comisiones)</label>
+        <label className="label">{t('realPriceLabel')}</label>
         <div className="flex items-end gap-2 mt-1">
           <div className="relative flex-1 max-w-[180px]">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-mute text-sm">
@@ -2052,7 +2029,7 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
               type="number"
               min={0}
               step="0.01"
-              placeholder="auto"
+              placeholder={t('autoPlaceholder')}
               value={subPrice}
               onChange={(e) => setSubPrice(e.target.value)}
             />
@@ -2069,13 +2046,11 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
                   : '')
             }
           >
-            {savingPrice ? 'Guardando…' : 'Guardar precio'}
+            {savingPrice ? t('saving') : t('savePrice')}
           </button>
         </div>
         <div className="text-[11px] text-mute mt-1.5">
-          Vacío = usa el precio canónico del plan (68/150/278/500). Setealo si
-          el negocio pagó un monto distinto (ej. link viejo de $50) para que
-          las comisiones no se sobre-estimen.
+          {t('realPriceHelp')}
         </div>
       </div>
 
@@ -2092,11 +2067,11 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
           title={
             mode === currentMode &&
             gracePeriodDays === (tenant.gracePeriodDays ?? 0)
-              ? 'No hay cambios'
-              : 'Aplicar cambio'
+              ? t('noChanges')
+              : t('applyChangeTitle')
           }
         >
-          {saving ? 'Aplicando…' : 'Aplicar cambio →'}
+          {saving ? t('applying') : t('applyChange')}
         </button>
       </div>
     </div>
@@ -2155,6 +2130,7 @@ function PlanCurrentCard({
   isSuperAdmin: boolean;
   onChange: () => void;
 }) {
+  const t = useTranslations('admin_tenants_id');
   const [plans, setPlans] = useState<LandingPlansResp | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -2176,9 +2152,9 @@ function PlanCurrentCard({
     <div className="card card-pad">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="text-base font-semibold m-0">Plan actual</h2>
+          <h2 className="text-base font-semibold m-0">{t('currentPlan')}</h2>
           <p className="text-xs text-mute mt-1">
-            Metadata interna del negocio. El cobro real lo dicta Hotmart.
+            {t('currentPlanDesc')}
           </p>
         </div>
         {isSuperAdmin && (
@@ -2187,24 +2163,24 @@ function PlanCurrentCard({
             className="btn-ghost text-sm cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"
             onClick={() => setModalOpen(true)}
           >
-            Cambiar plan
+            {t('changePlan')}
           </button>
         )}
       </div>
 
       <dl className="mt-4 space-y-2 text-sm">
         <div className="flex justify-between">
-          <dt className="text-mute">Plan</dt>
+          <dt className="text-mute">{t('planDt')}</dt>
           <dd className="font-semibold text-brand">{tenant.plan?.name ?? '—'}</dd>
         </div>
         <div className="flex justify-between">
-          <dt className="text-mute">Periodicidad</dt>
+          <dt className="text-mute">{t('periodicity')}</dt>
           <dd className="font-medium">
-            {currentPeriod ? PERIOD_LABEL[currentPeriod] : <span className="text-mute">— sin definir —</span>}
+            {currentPeriod ? PERIOD_LABEL[currentPeriod] : <span className="text-mute">{t('undefined')}</span>}
           </dd>
         </div>
         <div className="flex justify-between">
-          <dt className="text-mute">Precio</dt>
+          <dt className="text-mute">{t('price')}</dt>
           <dd className="font-medium">
             {currentPrice != null ? (
               <>
@@ -2218,7 +2194,7 @@ function PlanCurrentCard({
         </div>
         {tenant.currentPeriodEnd && (
           <div className="flex justify-between">
-            <dt className="text-mute">Próximo cobro</dt>
+            <dt className="text-mute">{t('nextCharge')}</dt>
             <dd className="font-medium">
               {new Date(tenant.currentPeriodEnd).toLocaleDateString('es-CO', {
                 day: 'numeric',
@@ -2269,6 +2245,7 @@ function ChangePlanPeriodModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations('admin_tenants_id');
   const [selected, setSelected] = useState<PeriodId | null>(currentPeriod);
   const [check1, setCheck1] = useState(false);
   const [check2, setCheck2] = useState(false);
@@ -2287,10 +2264,10 @@ function ChangePlanPeriodModal({
         method: 'POST',
         body: JSON.stringify({ periodicity: selected }),
       });
-      toast('Plan actualizado (metadata interna)', 'success');
+      toast(t('planUpdatedMetadata'), 'success');
       onSaved();
     } catch (e: any) {
-      toast(e.message || 'No se pudo cambiar el plan', 'error');
+      toast(e.message || t('couldNotChangePlan'), 'error');
     } finally {
       setSaving(false);
     }
@@ -2306,12 +2283,12 @@ function ChangePlanPeriodModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-5 py-4 border-b border-line2 flex items-center justify-between sticky top-0 bg-white z-10">
-          <h3 className="text-lg font-semibold m-0 text-ink">Cambiar plan</h3>
+          <h3 className="text-lg font-semibold m-0 text-ink">{t('changePlan')}</h3>
           <button
             type="button"
             className="text-mute hover:text-ink text-2xl leading-none cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"
             onClick={onClose}
-            aria-label="Cerrar"
+            aria-label={t('close')}
           >
             ×
           </button>
@@ -2321,28 +2298,29 @@ function ChangePlanPeriodModal({
           {/* Warning grande arriba de todo */}
           <div className="rounded-lg bg-amber-50 border border-amber-200 px-3.5 py-3 text-xs text-amber-900 leading-relaxed">
             <div className="font-semibold mb-1.5">
-              ⚠ Este cambio actualiza la metadata interna del negocio.
+              {t('changeWarningTitle')}
             </div>
-            Hotmart NO se entera automáticamente — tú tienes que:
+            {t('changeWarningIntro')}
             <ol className="list-decimal list-inside mt-1.5 space-y-0.5">
-              <li>Cancelar la suscripción vieja en Hotmart.</li>
+              <li>{t('changeWarningStep1')}</li>
               <li>
-                Enviarle al cliente el link del nuevo plan (link de Hotmart
-                configurado en{' '}
-                <Link href="/admin/branding" className="underline font-semibold">
-                  /admin/branding
-                </Link>
-                ).
+                {t.rich('changeWarningStep2', {
+                  link: (chunks) => (
+                    <Link href="/admin/branding" className="underline font-semibold">
+                      {chunks}
+                    </Link>
+                  ),
+                })}
               </li>
             </ol>
             <div className="mt-1.5">
-              Sin esto, el cobro seguirá siendo el del plan anterior.
+              {t('changeWarningFooter')}
             </div>
           </div>
 
           {/* Radios de periodicidad */}
           <div>
-            <label className="label">Nueva periodicidad</label>
+            <label className="label">{t('newPeriodicity')}</label>
             <div className="mt-2 space-y-1.5">
               {(['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL'] as PeriodId[]).map((p) => {
                 const price =
@@ -2369,7 +2347,7 @@ function ChangePlanPeriodModal({
                         {PERIOD_LABEL[p]}
                         {isCurrent && (
                           <span className="ml-2 text-[10px] uppercase tracking-wider font-bold text-mute bg-bg2 px-1.5 py-0.5 rounded">
-                            actual
+                            {t('currentBadge')}
                           </span>
                         )}
                       </div>
@@ -2389,7 +2367,7 @@ function ChangePlanPeriodModal({
           {/* Checklist de 3 confirmaciones */}
           <div className="rounded-lg border border-line bg-bg2/40 px-3.5 py-3">
             <div className="text-xs font-semibold text-mute uppercase tracking-wider mb-2">
-              Confirmaciones obligatorias
+              {t('mandatoryConfirmations')}
             </div>
             <div className="space-y-2 text-sm">
               <label className="flex items-start gap-2.5 cursor-pointer touch-manipulation select-none">
@@ -2399,7 +2377,7 @@ function ChangePlanPeriodModal({
                   onChange={(e) => setCheck1(e.target.checked)}
                   className="accent-brand mt-0.5"
                 />
-                <span>Cancelé la suscripción vieja en Hotmart</span>
+                <span>{t('check1')}</span>
               </label>
               <label className="flex items-start gap-2.5 cursor-pointer touch-manipulation select-none">
                 <input
@@ -2408,7 +2386,7 @@ function ChangePlanPeriodModal({
                   onChange={(e) => setCheck2(e.target.checked)}
                   className="accent-brand mt-0.5"
                 />
-                <span>Le envié al cliente el link del nuevo plan</span>
+                <span>{t('check2')}</span>
               </label>
               <label className="flex items-start gap-2.5 cursor-pointer touch-manipulation select-none">
                 <input
@@ -2418,7 +2396,7 @@ function ChangePlanPeriodModal({
                   className="accent-brand mt-0.5"
                 />
                 <span>
-                  Confirmo que entiendo que el cobro real lo dicta Hotmart
+                  {t('check3')}
                 </span>
               </label>
             </div>
@@ -2432,7 +2410,7 @@ function ChangePlanPeriodModal({
             onClick={onClose}
             disabled={saving}
           >
-            Cancelar
+            {t('cancel')}
           </button>
           <button
             type="button"
@@ -2441,15 +2419,15 @@ function ChangePlanPeriodModal({
             disabled={!canConfirm}
             title={
               !selected
-                ? 'Elige una periodicidad'
+                ? t('chooseFirstPeriodicity')
                 : selected === currentPeriod
-                ? 'Ya está en esta periodicidad'
+                ? t('alreadyThisPeriodicity')
                 : !allChecksOk
-                ? 'Marca los 3 checks de confirmación'
-                : 'Confirmar el cambio'
+                ? t('mark3Checks')
+                : t('confirmChangeTitle')
             }
           >
-            {saving ? 'Guardando…' : 'Confirmar cambio'}
+            {saving ? t('saving') : t('confirmChange')}
           </button>
         </div>
       </div>

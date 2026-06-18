@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
@@ -109,6 +110,7 @@ const TEMPLATE_GROUPS: TemplateGroup[] = [
 // =============================================================
 
 export default function NotificationsPage() {
+  const t = useTranslations('app_notifications');
   const [history, setHistory] = useState<any[]>([]);
   const [cards, setCards] = useState<any[]>([]);
   const [form, setForm] = useState({ cardId: '', title: '', body: '' });
@@ -165,7 +167,7 @@ export default function NotificationsPage() {
       // Preview prioriza pushLogo → wallet → general (mismo fallback que .pkpass icon.png).
       setBrandLogoUrl(pushLogo ?? walletLogo ?? generalLogo);
     } catch (e: any) {
-      toast(e.message || 'Error cargando notificaciones', 'error');
+      toast(e.message || t('errorLoading'), 'error');
     }
   }
   useEffect(() => {
@@ -178,12 +180,12 @@ export default function NotificationsPage() {
     try {
       if (scheduleMode === 'recurring') {
         if (recDays.length === 0) {
-          toast('Elegí al menos un día de la semana', 'error');
+          toast(t('pickAtLeastOneDay'), 'error');
           setSending(false);
           return;
         }
         if (!/^\d{2}:\d{2}$/.test(recTime)) {
-          toast('Hora inválida', 'error');
+          toast(t('invalidTime'), 'error');
           setSending(false);
           return;
         }
@@ -199,7 +201,7 @@ export default function NotificationsPage() {
         });
         setForm({ cardId: '', title: '', body: '' });
         load();
-        toast('Recurrencia creada · el cron la disparará en los días configurados', 'success');
+        toast(t('recurrenceCreated'), 'success');
         setSending(false);
         return;
       }
@@ -211,12 +213,12 @@ export default function NotificationsPage() {
       if (scheduleEnabled) {
         const when = new Date(scheduledAt);
         if (!Number.isFinite(when.getTime())) {
-          toast('Fecha inválida', 'error');
+          toast(t('invalidDate'), 'error');
           setSending(false);
           return;
         }
         if (when.getTime() <= Date.now()) {
-          toast('La fecha debe estar en el futuro', 'error');
+          toast(t('dateMustBeFuture'), 'error');
           setSending(false);
           return;
         }
@@ -230,12 +232,14 @@ export default function NotificationsPage() {
       load();
       toast(
         scheduleEnabled
-          ? `Notificación programada para ${new Date(scheduledAt).toLocaleString('es-CO')}`
-          : 'Notificación enviada',
+          ? t('notificationScheduledFor', {
+              when: new Date(scheduledAt).toLocaleString('es-CO'),
+            })
+          : t('notificationSent'),
         'success',
       );
     } catch (e: any) {
-      toast(e.message || 'No se pudo enviar', 'error');
+      toast(e.message || t('couldNotSend'), 'error');
     } finally {
       setSending(false);
     }
@@ -248,20 +252,20 @@ export default function NotificationsPage() {
         body: JSON.stringify({ isActive: next }),
       });
       load();
-      toast(next ? 'Recurrencia activada' : 'Recurrencia pausada', 'success');
+      toast(next ? t('recurrenceActivated') : t('recurrencePaused'), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo cambiar', 'error');
+      toast(e.message || t('couldNotChange'), 'error');
     }
   }
 
   async function deleteRecurring(id: string) {
-    if (!confirm('¿Eliminar esta recurrencia? Los envíos pasados quedan en el historial.')) return;
+    if (!confirm(t('confirmDeleteRecurrence'))) return;
     try {
       await api(`/notifications/recurring/${id}`, { method: 'DELETE' });
       load();
-      toast('Recurrencia eliminada', 'success');
+      toast(t('recurrenceDeleted'), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo eliminar', 'error');
+      toast(e.message || t('couldNotDelete'), 'error');
     }
   }
 
@@ -276,46 +280,46 @@ export default function NotificationsPage() {
       setBrandLogoUrl(url ?? walletLogoFallback);
       toast(
         url
-          ? 'Logo de push guardado · aplica al próximo envío'
-          : 'Logo de push eliminado · vuelve al logo general',
+          ? t('pushLogoSaved')
+          : t('pushLogoRemoved'),
         'success',
       );
     } catch (e: any) {
-      toast(e.message || 'No se pudo guardar el logo', 'error');
+      toast(e.message || t('couldNotSaveLogo'), 'error');
     } finally {
       setSavingPushLogo(false);
     }
   }
 
-  function applyTemplate(t: Template) {
-    setForm((f) => ({ ...f, title: t.title, body: t.body }));
+  function applyTemplate(tpl: Template) {
+    setForm((f) => ({ ...f, title: tpl.title, body: tpl.body }));
     if (typeof window !== 'undefined')
       window.scrollTo({ top: 0, behavior: 'smooth' });
     // El cumpleaños es el único caso per-persona: aquí se enviaría a TODOS.
     // Avisamos para que use Automatizaciones en su lugar.
-    if (t.id === 'birthday') {
+    if (tpl.id === 'birthday') {
       toast(
-        'Ojo: esto se envía a TODOS. Para que llegue solo al cumpleañero, usa una automatización 🎂',
+        t('birthdayBroadcastWarning'),
         'info',
       );
       return;
     }
-    toast('Plantilla cargada · edita lo que quieras antes de enviar', 'info');
+    toast(t('templateLoaded'), 'info');
   }
 
   return (
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Notificaciones push{' '}
-          <span className="page-crumb">/ {history.length} enviadas</span>
+          {t('pageTitle')}{' '}
+          <span className="page-crumb">{t('sentCrumb', { count: history.length })}</span>
         </h1>
         <Link
           href="/app/locations"
           className="btn-ghost"
-          title="Configura ubicaciones para que las tarjetas wallet se activen automáticamente cuando el cliente esté cerca del local"
+          title={t('locationLinkTitle')}
         >
-          📍 Ubicación
+          {t('locationLink')}
         </Link>
       </div>
 
@@ -331,15 +335,15 @@ export default function NotificationsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px_1.2fr] gap-5">
         {/* Composer */}
         <form onSubmit={send} className="card card-pad self-start">
-          <h2 className="text-base font-semibold m-0">Nueva notificación</h2>
+          <h2 className="text-base font-semibold m-0">{t('newNotification')}</h2>
           <div className="mt-4">
-            <label className="label">Tarjeta (opcional)</label>
+            <label className="label">{t('cardOptional')}</label>
             <select
               className="input"
               value={form.cardId}
               onChange={(e) => setForm({ ...form, cardId: e.target.value })}
             >
-              <option value="">Todas las tarjetas</option>
+              <option value="">{t('allCards')}</option>
               {cards
                 .filter((c) => c.name && c.name.trim().length > 0)
                 .map((c) => (
@@ -350,7 +354,7 @@ export default function NotificationsPage() {
             </select>
           </div>
           <div className="mt-3">
-            <label className="label">Título</label>
+            <label className="label">{t('titleLabel')}</label>
             <div className="flex items-stretch gap-2">
               <input
                 className="input flex-1"
@@ -358,17 +362,17 @@ export default function NotificationsPage() {
                 onChange={(e) => setForm({ ...form, title: e.target.value })}
                 required
                 maxLength={64}
-                placeholder="Ej: Promo de fin de semana"
+                placeholder={t('titlePlaceholder')}
               />
               <EmojiPicker
                 onSelect={(emoji) => appendEmoji('title', emoji)}
                 size="sm"
-                placeholder="Agregar emoji al título"
+                placeholder={t('addEmojiTitle')}
               />
             </div>
           </div>
           <div className="mt-3">
-            <label className="label">Mensaje</label>
+            <label className="label">{t('messageLabel')}</label>
             <div className="flex items-start gap-2">
               <textarea
                 className="input flex-1"
@@ -377,12 +381,12 @@ export default function NotificationsPage() {
                 required
                 maxLength={200}
                 rows={3}
-                placeholder="Ej: 2x1 en cafés todo el sábado ☕"
+                placeholder={t('messagePlaceholder')}
               />
               <EmojiPicker
                 onSelect={(emoji) => appendEmoji('body', emoji)}
                 size="sm"
-                placeholder="Agregar emoji al mensaje"
+                placeholder={t('addEmojiMessage')}
               />
             </div>
           </div>
@@ -390,13 +394,13 @@ export default function NotificationsPage() {
           {/* Selector de modo: inmediato / fecha / recurrente */}
           <div className="mt-4 border-t border-line pt-3">
             <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
-              Cuándo enviar
+              {t('whenToSend')}
             </div>
             <div className="grid grid-cols-3 gap-1 bg-bg2 rounded-lg p-1">
               {([
-                { v: 'now' as const, label: '📤 Ahora' },
-                { v: 'once' as const, label: '📅 Fecha' },
-                { v: 'recurring' as const, label: '🔁 Recurrente' },
+                { v: 'now' as const, label: t('modeNow') },
+                { v: 'once' as const, label: t('modeDate') },
+                { v: 'recurring' as const, label: t('modeRecurring') },
               ]).map((opt) => {
                 const active = scheduleMode === opt.v;
                 return (
@@ -423,24 +427,23 @@ export default function NotificationsPage() {
                   onChange={(e) => setScheduledAt(e.target.value)}
                 />
                 <p className="text-[11px] text-mute mt-1.5 leading-relaxed">
-                  Se enviará automáticamente en la fecha y hora elegidas
-                  (zona horaria del navegador).
+                  {t('onceHint')}
                 </p>
               </div>
             )}
             {scheduleMode === 'recurring' && (
               <div className="mt-2.5 space-y-3">
                 <div>
-                  <label className="label">Días de la semana</label>
+                  <label className="label">{t('daysOfWeek')}</label>
                   <div className="flex flex-wrap gap-1.5 mt-1">
                     {([
-                      { v: 1, label: 'L' },
-                      { v: 2, label: 'M' },
-                      { v: 3, label: 'X' },
-                      { v: 4, label: 'J' },
-                      { v: 5, label: 'V' },
-                      { v: 6, label: 'S' },
-                      { v: 0, label: 'D' },
+                      { v: 1, label: t('dayShortMon') },
+                      { v: 2, label: t('dayShortTue') },
+                      { v: 3, label: t('dayShortWed') },
+                      { v: 4, label: t('dayShortThu') },
+                      { v: 5, label: t('dayShortFri') },
+                      { v: 6, label: t('dayShortSat') },
+                      { v: 0, label: t('dayShortSun') },
                     ]).map((d) => {
                       const active = recDays.includes(d.v);
                       return (
@@ -460,7 +463,7 @@ export default function NotificationsPage() {
                               : 'bg-bg2 text-mute hover:bg-line'
                           }`}
                           aria-pressed={active}
-                          title={['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'][d.v]}
+                          title={[t('daySun'),t('dayMon'),t('dayTue'),t('dayWed'),t('dayThu'),t('dayFri'),t('daySat')][d.v]}
                         >
                           {d.label}
                         </button>
@@ -469,7 +472,7 @@ export default function NotificationsPage() {
                   </div>
                 </div>
                 <div>
-                  <label className="label">Hora (24h)</label>
+                  <label className="label">{t('time24h')}</label>
                   <input
                     type="time"
                     className="input"
@@ -478,19 +481,19 @@ export default function NotificationsPage() {
                   />
                 </div>
                 <p className="text-[11px] text-mute leading-relaxed">
-                  Se enviará cada semana en los días + hora configurados (zona horaria America/Bogota). Podés pausarla cuando quieras desde la lista de abajo.
+                  {t('recurringHint')}
                 </p>
               </div>
             )}
           </div>
 
           <div className="mt-4 text-[11px] leading-relaxed rounded-lg border border-amber-300 bg-amber-50 text-amber-800 px-3 py-2">
-            ⚠️ Esta notificación se envía a <b>TODOS</b> los clientes
-            {form.cardId ? ' de la tarjeta seleccionada' : ' de todas tus tarjetas'}.
-            No es individual. Para saludos de cumpleaños que lleguen <b>solo a
-            la persona que cumple ese día</b>, usa una{' '}
+            ⚠️ {t('broadcastWarnPrefix')} <b>{t('broadcastWarnAll')}</b>{' '}
+            {form.cardId ? t('broadcastWarnSelectedCard') : t('broadcastWarnAllCards')}.{' '}
+            {t('broadcastWarnNotIndividual')} <b>{t('broadcastWarnOnlyBirthday')}</b>,{' '}
+            {t('broadcastWarnUseAn')}{' '}
             <Link href="/app/automations" className="underline font-semibold">
-              automatización
+              {t('broadcastWarnAutomation')}
             </Link>
             .
           </div>
@@ -501,19 +504,19 @@ export default function NotificationsPage() {
           >
             <Icon name="send" />{' '}
             {sending
-              ? 'Enviando…'
+              ? t('sending')
               : scheduleMode === 'recurring'
-              ? 'Crear recurrencia'
+              ? t('createRecurrence')
               : scheduleMode === 'once'
-              ? 'Programar'
-              : 'Enviar'}
+              ? t('schedule')
+              : t('send')}
           </button>
         </form>
 
         {/* Live preview iPhone */}
         <div className="self-start">
           <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-2.5 text-center">
-            Vista previa en iPhone
+            {t('iphonePreview')}
           </div>
           <PushPreview
             brandName={brandName}
@@ -528,9 +531,9 @@ export default function NotificationsPage() {
         {/* Plantillas */}
         <div className="card card-pad">
           <div className="flex items-baseline justify-between mb-3">
-            <h2 className="text-base font-semibold m-0">📋 Plantillas</h2>
+            <h2 className="text-base font-semibold m-0">{t('templates')}</h2>
             <span className="text-[11px] text-mute">
-              Click → carga al composer
+              {t('clickLoadsComposer')}
             </span>
           </div>
 
@@ -559,7 +562,7 @@ export default function NotificationsPage() {
                   : 'bg-bg2 text-ink hover:bg-line'
               }`}
             >
-              📍 GeoPush
+              {t('geopushTab')}
             </button>
             <button
               type="button"
@@ -570,28 +573,23 @@ export default function NotificationsPage() {
                   : 'bg-bg2 text-ink hover:bg-line'
               }`}
             >
-              ⚡ Automatizaciones
+              {t('automationsTab')}
             </button>
           </div>
 
           {(activeGroup as any) === 'geopush' ? (
             <div>
               <p className="text-sm text-mute leading-relaxed">
-                El <b className="text-ink">GeoPush</b> es el mensaje que
-                recibe el cliente en la pantalla de bloqueo de su iPhone
-                cuando pasa cerca de tu negocio (Apple Wallet detecta la
-                ubicación automáticamente, no necesita app abierta).
+                {t('geopushDesc1Prefix')}<b className="text-ink">{t('geopushTerm')}</b>{t('geopushDesc1Suffix')}
               </p>
               <p className="text-sm text-mute mt-2 leading-relaxed">
-                Se configura por ubicación desde la sección Ubicaciones —
-                cada local puede tener un texto distinto y un radio
-                personalizado (300 m por default).
+                {t('geopushDesc2')}
               </p>
               <Link
                 href="/app/locations"
                 className="btn-primary mt-4 inline-flex"
               >
-                <Icon name="pin" /> Ir a Ubicaciones
+                <Icon name="pin" /> {t('goToLocations')}
               </Link>
             </div>
           ) : (activeGroup as any) === 'automations' ? (
@@ -634,19 +632,21 @@ export default function NotificationsPage() {
           Lista cards con días + hora + status + toggle/delete. */}
       <div className="mt-5 card card-pad">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold m-0">🔁 Recurrencias programadas</h2>
+          <h2 className="text-base font-semibold m-0">{t('scheduledRecurrences')}</h2>
           <span className="text-xs text-mute">
-            {recurring.length} {recurring.length === 1 ? 'configurada' : 'configuradas'}
+            {recurring.length === 1
+              ? t('recurrencesCountOne', { count: recurring.length })
+              : t('recurrencesCountOther', { count: recurring.length })}
           </span>
         </div>
         {recurring.length === 0 ? (
           <p className="text-xs text-mute mt-2">
-            Aún no tienes recurrencias. Crea una con el modo "🔁 Recurrente" del formulario de arriba.
+            {t('noRecurrencesYet')}
           </p>
         ) : (
           <div className="mt-3 space-y-2">
             {recurring.map((r: any) => {
-              const dayLabels = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+              const dayLabels = [t('dayAbbrSun'), t('dayAbbrMon'), t('dayAbbrTue'), t('dayAbbrWed'), t('dayAbbrThu'), t('dayAbbrFri'), t('dayAbbrSat')];
               const days = (r.daysOfWeek as number[]).slice().sort((a, b) => a - b).map((d) => dayLabels[d]).join(', ');
               return (
                 <div
@@ -663,7 +663,7 @@ export default function NotificationsPage() {
                           r.isActive ? 'bg-ok-soft text-ok' : 'bg-bad-soft text-bad-ink'
                         }`}
                       >
-                        {r.isActive ? 'Activa' : 'Pausada'}
+                        {r.isActive ? t('statusActive') : t('statusPaused')}
                       </span>
                     </div>
                     <div className="text-xs text-mute mt-1 line-clamp-2">{r.body}</div>
@@ -672,7 +672,7 @@ export default function NotificationsPage() {
                       <span>🕐 {r.timeOfDay}</span>
                       {r.lastDispatchedAt && (
                         <span>
-                          · Último envío:{' '}
+                          {t('lastDispatch')}{' '}
                           {new Date(r.lastDispatchedAt).toLocaleDateString('es-CO', {
                             day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
                           })}
@@ -686,14 +686,14 @@ export default function NotificationsPage() {
                       className="btn-ghost text-xs"
                       onClick={() => toggleRecurring(r.id, !r.isActive)}
                     >
-                      {r.isActive ? '⏸ Pausar' : '▶ Reactivar'}
+                      {r.isActive ? t('pause') : t('reactivate')}
                     </button>
                     <button
                       type="button"
                       className="text-xs text-bad hover:underline"
                       onClick={() => deleteRecurring(r.id)}
                     >
-                      Eliminar
+                      {t('delete')}
                     </button>
                   </div>
                 </div>
@@ -707,17 +707,19 @@ export default function NotificationsPage() {
       <details className="mt-5 card card-pad">
         <summary className="cursor-pointer flex items-center justify-between">
           <span className="font-semibold text-sm">
-            📜 Historial de envíos
+            {t('sendHistory')}
           </span>
           <span className="text-xs text-mute">
-            {history.length} {history.length === 1 ? 'envío' : 'envíos'}
+            {history.length === 1
+              ? t('sendsCountOne', { count: history.length })
+              : t('sendsCountOther', { count: history.length })}
           </span>
         </summary>
         <div className="mt-3 space-y-2">
           {history.length === 0 ? (
             <div className="text-center py-6 text-sm text-mute">
               <div className="text-2xl mb-1">🔔</div>
-              Sin envíos aún. Manda tu primera notificación arriba.
+              {t('noSendsYet')}
             </div>
           ) : (
             history.map((n) => (
@@ -743,7 +745,7 @@ export default function NotificationsPage() {
                   <div className="font-semibold text-ink">
                     {n.stats?.targeted ?? 0}
                   </div>
-                  <div className="text-[10px]">enviados</div>
+                  <div className="text-[10px]">{t('delivered')}</div>
                 </div>
               </div>
             ))
@@ -773,6 +775,7 @@ function PushLogoCard({
   saving: boolean;
   onChange: (url: string | null) => void | Promise<void>;
 }) {
+  const t = useTranslations('app_notifications');
   const [open, setOpen] = useState(false);
   const effective = pushLogoUrl ?? fallbackUrl;
   const initial = (brandName?.[0] || 'C').toUpperCase();
@@ -803,25 +806,24 @@ function PushLogoCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-base font-semibold m-0">
-              🔔 Logo para notificaciones push
+              {t('pushLogoTitle')}
             </h2>
             {pushLogoUrl ? (
               <span className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-pill bg-ok/10 text-ok">
-                Personalizado
+                {t('badgeCustom')}
               </span>
             ) : usingFallback ? (
               <span className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-pill bg-amber-100 text-amber-800">
-                Usando logo del negocio
+                {t('badgeUsingBusinessLogo')}
               </span>
             ) : (
               <span className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-pill bg-bg2 text-mute">
-                Sin logo
+                {t('badgeNoLogo')}
               </span>
             )}
           </div>
           <p className="text-xs text-mute mt-1.5 leading-relaxed">
-            Aparece en el banner de la pantalla de bloqueo del iPhone cuando
-            mandes una push y en la lista de la app Wallet. <b className="text-ink">No</b> cambia el diseño visual del pase abierto — eso sigue usando tu logo wallet.
+            {t('pushLogoDescPrefix')} <b className="text-ink">{t('pushLogoDescNo')}</b> {t('pushLogoDescSuffix')}
           </p>
           <div className="flex items-center gap-2 mt-3 flex-wrap">
             <button
@@ -830,7 +832,7 @@ function PushLogoCard({
               onClick={() => setOpen(true)}
             >
               <Icon name="edit" />{' '}
-              {pushLogoUrl ? 'Cambiar logo' : 'Subir logo'}
+              {pushLogoUrl ? t('changeLogo') : t('uploadLogo')}
             </button>
             {pushLogoUrl && (
               <button
@@ -839,12 +841,12 @@ function PushLogoCard({
                 onClick={() => onChange(null)}
                 disabled={saving}
               >
-                Eliminar
+                {t('delete')}
               </button>
             )}
             {noLogo && (
               <span className="text-[11px] text-amber-700">
-                Sin logo el banner muestra la inicial — sube uno cuadrado para mejor resultado.
+                {t('noLogoHint')}
               </span>
             )}
           </div>
@@ -863,25 +865,23 @@ function PushLogoCard({
             <div className="flex items-start justify-between mb-3">
               <div>
                 <h3 className="text-base font-semibold m-0">
-                  Logo para push
+                  {t('modalTitle')}
                 </h3>
                 <p className="text-xs text-mute mt-1">
-                  PNG, JPG o WEBP · cuadrado · fondo transparente recomendado.
+                  {t('modalFormatHint')}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
                 className="text-mute hover:text-ink text-xl leading-none"
-                aria-label="Cerrar"
+                aria-label={t('close')}
               >
                 ×
               </button>
             </div>
             <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-900 leading-relaxed mb-3">
-              💡 Sube una imagen <b>cuadrada</b> con tu marca. iOS la recorta a
-              29×29 / 58×58 / 87×87 px. Si tiene fondo blanco va a quedar un
-              cuadrado blanco detrás del logo en el banner.
+              💡 {t('modalTipPrefix')} <b>{t('modalTipSquare')}</b> {t('modalTipSuffix')}
             </div>
             <ImageUploader
               value={pushLogoUrl}
@@ -893,13 +893,13 @@ function PushLogoCard({
             />
             {saving && (
               <div className="text-[11px] text-mute mt-2 text-center">
-                Guardando…
+                {t('saving')}
               </div>
             )}
 
             <div className="mt-4 pt-3 border-t border-line">
               <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-2 text-center">
-                Vista previa
+                {t('preview')}
               </div>
               <div
                 className="mx-auto rounded-[20px] p-3 shadow-xl border border-white/10"
@@ -934,14 +934,14 @@ function PushLogoCard({
                         {brandName}
                       </div>
                     </div>
-                    <div className="text-[10px] text-white/70">ahora</div>
+                    <div className="text-[10px] text-white/70">{t('now')}</div>
                   </div>
                   <div className="mt-1.5 text-white">
                     <div className="text-[12px] font-semibold leading-snug">
-                      🎂 ¡Feliz cumpleaños!
+                      {t('sampleNotifTitle')}
                     </div>
                     <div className="text-[11px] mt-0.5 leading-snug opacity-90">
-                      Hoy te invitamos algo especial de la casa.
+                      {t('sampleNotifBody')}
                     </div>
                   </div>
                 </div>
@@ -973,13 +973,14 @@ function PushPreview({
   brandColor?: string;
   brandLogoUrl?: string | null;
 }) {
+  const t = useTranslations('app_notifications');
   const when = scheduledAt
     ? formatRelative(new Date(scheduledAt))
-    : 'ahora';
-  const showTitle = title.trim() || 'Tu título aparece aquí';
+    : t('now');
+  const showTitle = title.trim() || t('previewTitlePlaceholder');
   const showBody =
     body.trim() ||
-    'Escribe el cuerpo del mensaje y vas a ver aquí cómo se verá en la pantalla de bloqueo del iPhone de tu cliente.';
+    t('previewBodyPlaceholder');
   const initial = (brandName?.[0] || 'C').toUpperCase();
 
   // Hora "ahora" simulada para que se vea real en lock screen.
@@ -1064,7 +1065,7 @@ function PushPreview({
 
         {/* Bottom hint */}
         <div className="text-center text-white/50 text-[9px] mt-2">
-          Deslizar para abrir
+          {t('swipeToOpen')}
         </div>
       </div>
     </div>
@@ -1095,6 +1096,7 @@ function formatRelative(d: Date): string {
 
 // ─── Tab inline de automatizaciones (consume /api/automations) ───
 function AutomationsTab() {
+  const t = useTranslations('app_notifications');
   const [rules, setRules] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -1106,26 +1108,26 @@ function AutomationsTab() {
   return (
     <div>
       <p className="text-sm text-mute leading-relaxed">
-        Las <b className="text-ink">automatizaciones</b> envían push o sumas de
-        sellos a tus clientes cuando ocurre un evento (cumpleaños, recompensa
-        cerca, cliente inactivo, etc.). Las configuras una vez y se disparan
-        solas.
+        {t('automationsDescPrefix')}<b className="text-ink">{t('automationsTerm')}</b>{t('automationsDescSuffix')}
       </p>
       <Link
         href="/app/automations"
         className="btn-primary mt-3 inline-flex"
       >
-        <Icon name="spark" /> Ir a Automatizaciones
+        <Icon name="spark" /> {t('goToAutomations')}
       </Link>
 
       {loading && (
-        <div className="mt-4 text-xs text-mute">Cargando reglas…</div>
+        <div className="mt-4 text-xs text-mute">{t('loadingRules')}</div>
       )}
 
       {!loading && rules.length > 0 && (
         <div className="mt-4">
           <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
-            Reglas activas ({rules.filter((r) => r.isActive).length} de {rules.length})
+            {t('activeRulesCount', {
+              active: rules.filter((r) => r.isActive).length,
+              total: rules.length,
+            })}
           </div>
           <div className="space-y-1.5 max-h-72 overflow-auto">
             {rules.map((r) => (
@@ -1142,8 +1144,8 @@ function AutomationsTab() {
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold text-sm truncate">{r.name}</div>
                   <div className="text-[11px] text-mute">
-                    Trigger: {r.trigger?.type ?? '—'} ·{' '}
-                    {r.actions?.length ?? 0} acciones · {r.stats?.runs ?? 0} ejecuciones
+                    {t('triggerLabel')} {r.trigger?.type ?? '—'} ·{' '}
+                    {t('actionsCount', { count: r.actions?.length ?? 0 })} · {t('runsCount', { count: r.stats?.runs ?? 0 })}
                   </div>
                 </div>
                 {r.stats?.lastRunAt && (
@@ -1162,8 +1164,8 @@ function AutomationsTab() {
 
       {!loading && rules.length === 0 && (
         <div className="mt-4 p-4 text-center bg-bg2/40 rounded-lg text-sm text-mute">
-          Sin reglas configuradas. En /app/automations encuentras{' '}
-          <b className="text-ink">6 plantillas</b> listas para activar con un clic.
+          {t('noRulesPrefix')}{' '}
+          <b className="text-ink">{t('noRulesTemplates')}</b> {t('noRulesSuffix')}
         </div>
       )}
     </div>

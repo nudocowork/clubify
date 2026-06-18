@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { resolveMainSectionLabel } from '@/lib/business-categories';
@@ -84,6 +85,7 @@ function fmt(n: number, currency = 'COP', symbolOverride?: string | null) {
 }
 
 export default function MenuEditor() {
+  const t = useTranslations('app_menu');
   const [cats, setCats] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [activeCat, setActiveCat] = useState<string | null>(null);
@@ -196,9 +198,7 @@ export default function MenuEditor() {
     const next = !ordersDeliveryEnabled;
     if (
       !next &&
-      !confirm(
-        'Apagar pedidos en delivery: los clientes verán precios pero NO podrán agregar al carrito. ¿Continuar?',
-      )
+      !confirm(t('confirmDisableDelivery'))
     ) {
       return;
     }
@@ -216,12 +216,12 @@ export default function MenuEditor() {
       });
       toast(
         next
-          ? `Pedidos delivery activos — el carrito aparece en el ${mainLabel.toLowerCase()} público`
-          : 'Delivery informativo — sin botones de pedido en el link público',
+          ? t('deliveryOnToast', { label: mainLabel.toLowerCase() })
+          : t('deliveryOffToast'),
         'success',
       );
     } catch (e: any) {
-      toast(e.message || 'Error', 'error');
+      toast(e.message || t('error'), 'error');
       setOrdersDeliveryEnabled(!next);
     } finally {
       setTogglingOrders(false);
@@ -240,12 +240,12 @@ export default function MenuEditor() {
       setShowCatForm(false);
       load();
     } catch (e: any) {
-      toast(e.message || 'No se pudo crear la categoría', 'error');
+      toast(e.message || t('couldNotCreateCategory'), 'error');
     }
   }
 
   async function createSubsection(parentId: string) {
-    const name = prompt('Nombre de la subsección:');
+    const name = prompt(t('subsectionNamePrompt'));
     if (!name?.trim()) return;
     try {
       await api('/catalog/categories', {
@@ -253,21 +253,21 @@ export default function MenuEditor() {
         body: JSON.stringify({ name: name.trim(), parentId }),
       });
       load();
-      toast('Subsección creada', 'success');
+      toast(t('subsectionCreated'), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo crear', 'error');
+      toast(e.message || t('couldNotCreate'), 'error');
     }
   }
 
   async function deleteCategory(id: string) {
-    if (!confirm('¿Eliminar esta categoría y todos sus productos?')) return;
+    if (!confirm(t('confirmDeleteCategory'))) return;
     try {
       await api(`/catalog/categories/${id}`, { method: 'DELETE' });
       if (activeCat === id) setActiveCat(null);
       load(false);
-      toast('Categoría eliminada', 'success');
+      toast(t('categoryDeleted'), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo eliminar', 'error');
+      toast(e.message || t('couldNotDelete'), 'error');
     }
   }
 
@@ -282,9 +282,9 @@ export default function MenuEditor() {
         method: 'PATCH',
         body: JSON.stringify({ name: trimmed }),
       });
-      toast('Categoría renombrada', 'success');
+      toast(t('categoryRenamed'), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo renombrar', 'error');
+      toast(e.message || t('couldNotRename'), 'error');
       load(false); // rollback desde server
     }
   }
@@ -315,18 +315,18 @@ export default function MenuEditor() {
       });
       load();
     } catch (e: any) {
-      toast(e.message || 'No se pudo cambiar la disponibilidad', 'error');
+      toast(e.message || t('couldNotChangeAvailability'), 'error');
     }
   }
 
   async function deleteProduct(id: string) {
-    if (!confirm('¿Eliminar producto?')) return;
+    if (!confirm(t('confirmDeleteProduct'))) return;
     try {
       await api(`/catalog/products/${id}`, { method: 'DELETE' });
       load();
-      toast('Producto eliminado', 'success');
+      toast(t('productDeleted'), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo eliminar el producto', 'error');
+      toast(e.message || t('couldNotDeleteProduct'), 'error');
     }
   }
 
@@ -362,10 +362,7 @@ export default function MenuEditor() {
       (p.priceMax == null ||
         Number(p.priceMax) <= Number(p.basePrice ?? 0))
     ) {
-      toast(
-        'El precio máximo debe ser mayor al mínimo. Corregí el rango antes de guardar.',
-        'error',
-      );
+      toast(t('priceMaxMustBeGreater'), 'error');
       return;
     }
     // El backend usa ValidationPipe con forbidNonWhitelisted=true — manda
@@ -422,9 +419,9 @@ export default function MenuEditor() {
       }
       setEditing(null);
       load();
-      toast(p.id ? 'Producto actualizado' : 'Producto creado', 'success');
+      toast(p.id ? t('productUpdated') : t('productCreated'), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo guardar', 'error');
+      toast(e.message || t('couldNotSave'), 'error');
     }
   }
 
@@ -443,7 +440,7 @@ export default function MenuEditor() {
         <h1 className="page-title">
           {mainLabel}{' '}
           <span className="page-crumb">
-            / {cats.length} categorías · {products.length} productos
+            / {t('crumbCounts', { cats: cats.length, products: products.length })}
           </span>
         </h1>
         <div className="flex gap-2 flex-wrap">
@@ -455,17 +452,17 @@ export default function MenuEditor() {
               className={`btn-ghost ${ordersDeliveryEnabled ? 'text-ok' : 'text-amber-600'}`}
               title={
                 ordersDeliveryEnabled
-                  ? 'Delivery ON — carrito + botón "Pedir por WhatsApp" activos en el link público. La vista mesa siempre es informativa.'
-                  : 'Delivery OFF — solo visualización (precios, sin carrito, sin WhatsApp). La vista mesa siempre es informativa.'
+                  ? t('deliveryOnTitle')
+                  : t('deliveryOffTitle')
               }
             >
               {ordersDeliveryEnabled
-                ? '🛒 Pedidos delivery: ON'
-                : '📋 Delivery informativo'}
+                ? t('deliveryOnBtn')
+                : t('deliveryOffBtn')}
             </button>
           )}
           <button className="btn-ghost" onClick={() => setShowCatForm(!showCatForm)}>
-            <Icon name="plus" /> Categoría
+            <Icon name="plus" /> {t('category')}
           </button>
           {/* Fix 2026-06-08: separación de rutas /m vs /d. El botón
               "Ver mesa" ahora apunta a /m/<slug> (sin ?mesa=1 legacy) y
@@ -475,41 +472,41 @@ export default function MenuEditor() {
             href={tenantSlug ? `/m/${tenantSlug}` : '#'}
             target="_blank"
             className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
-            title={`Vista de ${mainLabel.toLowerCase()} como la verá un cliente sentado en una mesa`}
+            title={t('viewMesaTitle', { label: mainLabel.toLowerCase() })}
           >
-            🍽 Ver {mainLabel.toLowerCase()} mesa
+            🍽 {t('viewMesaBtn', { label: mainLabel.toLowerCase() })}
           </Link>
           <Link
             href={tenantSlug ? `/d/${tenantSlug}` : '#'}
             target="_blank"
             className={`btn-ghost ${!tenantSlug ? 'pointer-events-none opacity-50' : ''}`}
-            title={`Vista de ${mainLabel.toLowerCase()} para domicilio — el link público que envías a tus clientes`}
+            title={t('viewDeliveryTitle', { label: mainLabel.toLowerCase() })}
           >
-            🛵 Ver {mainLabel.toLowerCase()} delivery
+            🛵 {t('viewDeliveryBtn', { label: mainLabel.toLowerCase() })}
           </Link>
           <Link
             href="/app/storefront"
             className="btn-ghost"
-            title={`Personaliza el aspecto público de tu ${mainLabel.toLowerCase()} (logo, estilo, layout)`}
+            title={t('configureStorefrontTitle', { label: mainLabel.toLowerCase() })}
           >
-            🎨 Configura tu {mainLabel.toLowerCase()}
+            🎨 {t('configureStorefrontBtn', { label: mainLabel.toLowerCase() })}
           </Link>
           <Link
             href="/app/info-links"
             className="btn-ghost"
-            title="Mini-páginas tipo Linktree para campañas y eventos"
+            title={t('infoLinksTitle')}
           >
-            🔗 InfoLinks
+            🔗 {t('infoLinks')}
           </Link>
           <button className="btn-ghost" onClick={() => setShowAdicionales(true)}>
-            <Icon name="plus" /> Adicionales
+            <Icon name="plus" /> {t('addons')}
           </button>
           <Link
             href="/app/promos"
             className="btn-ghost"
-            title={`Productos en oferta del ${mainLabel.toLowerCase()}`}
+            title={t('promosTitle', { label: mainLabel.toLowerCase() })}
           >
-            <Icon name="spark" /> Promociones
+            <Icon name="spark" /> {t('promotions')}
           </Link>
           <button
             className="btn-primary"
@@ -518,10 +515,10 @@ export default function MenuEditor() {
             // categoría activa, ahora permite producto sin categoría
             // cuando el tenant todavía no creó ninguna.
             title={!activeCat && cats.length > 0
-              ? 'Elige una categoría primero o crea una nueva'
-              : 'Crear producto'}
+              ? t('chooseCategoryFirst')
+              : t('createProduct')}
           >
-            <Icon name="plus" /> Producto
+            <Icon name="plus" /> {t('product')}
           </button>
         </div>
       </div>
@@ -535,12 +532,12 @@ export default function MenuEditor() {
         <form onSubmit={createCategory} className="card card-pad mb-4 flex gap-2">
           <input
             className="input flex-1"
-            placeholder="Nombre de categoría"
+            placeholder={t('categoryNamePlaceholder')}
             value={newCatName}
             onChange={(e) => setNewCatName(e.target.value)}
             autoFocus
           />
-          <button className="btn-primary">Crear</button>
+          <button className="btn-primary">{t('create')}</button>
         </form>
       )}
 
@@ -568,11 +565,11 @@ export default function MenuEditor() {
               );
             }}
             className="hidden lg:block absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-brand/40 active:bg-brand/60 transition-colors z-10"
-            title="Arrastra para ajustar el ancho del sidebar"
+            title={t('dragSidebarTitle')}
           />
           {cats.length === 0 && (
             <div className="text-mute text-sm text-center py-6">
-              Sin categorías
+              {t('noCategories')}
             </div>
           )}
           {/* Sección virtual "Recomendados" — solo aparece si hay al
@@ -585,15 +582,15 @@ export default function MenuEditor() {
             <div className="mb-1 flex items-center gap-2 px-2.5 py-2.5 rounded-lg bg-amber-50 border border-amber-200">
               <span className="text-base">⭐</span>
               <div className="flex-1 min-w-0">
-                <div className="font-medium text-sm truncate">Recomendados</div>
+                <div className="font-medium text-sm truncate">{t('recommended')}</div>
                 <div className="text-xs text-mute">
-                  {products.filter((p) => p.isRecommended).length} productos
+                  {t('productsCount', { count: products.filter((p) => p.isRecommended).length })}
                 </div>
               </div>
               <button
                 className="text-mute hover:text-brand p-1"
                 onClick={() => setCoverRecommendedOpen(true)}
-                title="Diseñar portada de Recomendados"
+                title={t('designRecommendedCover')}
               >
                 🎨
               </button>
@@ -644,8 +641,8 @@ export default function MenuEditor() {
                     <>
                       <div className="font-medium text-sm truncate">{c.name}</div>
                       <div className="text-xs text-mute">
-                        {c._count?.products ?? 0} productos
-                        {subs.length > 0 && ` · ${subs.length} sub`}
+                        {t('productsCount', { count: c._count?.products ?? 0 })}
+                        {subs.length > 0 && ` · ${t('subCount', { count: subs.length })}`}
                       </div>
                     </>
                   )}
@@ -656,7 +653,7 @@ export default function MenuEditor() {
                     e.stopPropagation();
                     createSubsection(c.id);
                   }}
-                  title="Agregar subsección"
+                  title={t('addSubsection')}
                 >
                   ＋
                 </button>
@@ -666,7 +663,7 @@ export default function MenuEditor() {
                     e.stopPropagation();
                     setCoverCat(c);
                   }}
-                  title="Diseñar portada"
+                  title={t('designCover')}
                 >
                   🎨
                 </button>
@@ -682,8 +679,8 @@ export default function MenuEditor() {
                   }}
                   title={
                     c.popupConfig?.enabled
-                      ? 'Editar popup (activo)'
-                      : 'Agregar popup opcional'
+                      ? t('editPopupActive')
+                      : t('addOptionalPopup')
                   }
                 >
                   🔔
@@ -695,7 +692,7 @@ export default function MenuEditor() {
                     setEditingCatId(c.id);
                     setEditingCatName(c.name);
                   }}
-                  title="Renombrar"
+                  title={t('rename')}
                 >
                   <Icon name="edit" size={14} />
                 </button>
@@ -705,7 +702,7 @@ export default function MenuEditor() {
                     e.stopPropagation();
                     deleteCategory(c.id);
                   }}
-                  title="Eliminar"
+                  title={t('delete')}
                 >
                   <Icon name="trash" size={14} />
                 </button>
@@ -750,7 +747,7 @@ export default function MenuEditor() {
                           <>
                             <div className="font-medium truncate">{s.name}</div>
                             <div className="text-[10px] text-mute">
-                              {s._count?.products ?? 0} productos
+                              {t('productsCount', { count: s._count?.products ?? 0 })}
                             </div>
                           </>
                         )}
@@ -758,7 +755,7 @@ export default function MenuEditor() {
                       <button
                         className="text-mute hover:text-brand p-0.5"
                         onClick={(e) => { e.stopPropagation(); setCoverCat(s); }}
-                        title="Diseñar portada"
+                        title={t('designCover')}
                       >
                         🎨
                       </button>
@@ -771,8 +768,8 @@ export default function MenuEditor() {
                         onClick={(e) => { e.stopPropagation(); setPopupCat(s); }}
                         title={
                           s.popupConfig?.enabled
-                            ? 'Editar popup (activo)'
-                            : 'Agregar popup opcional'
+                            ? t('editPopupActive')
+                            : t('addOptionalPopup')
                         }
                       >
                         🔔
@@ -784,14 +781,14 @@ export default function MenuEditor() {
                           setEditingCatId(s.id);
                           setEditingCatName(s.name);
                         }}
-                        title="Renombrar"
+                        title={t('rename')}
                       >
                         <Icon name="edit" size={12} />
                       </button>
                       <button
                         className="text-mute hover:text-bad p-0.5"
                         onClick={(e) => { e.stopPropagation(); deleteCategory(s.id); }}
-                        title="Eliminar"
+                        title={t('delete')}
                       >
                         <Icon name="trash" size={12} />
                       </button>
@@ -819,15 +816,15 @@ export default function MenuEditor() {
           <div style={{ minWidth: totalMin }}>
           <div className="flex items-center justify-between bg-bg2/60 px-3 py-1.5 border-b border-line2">
             <div className="text-[10px] uppercase tracking-wider text-mute">
-              💡 Arrastra el borde derecho de cada columna para ajustar el ancho
+              {t('dragColumnHint')}
             </div>
             <button
               type="button"
               onClick={productCols.reset}
               className="text-[11px] text-mute hover:text-ink underline"
-              title="Volver al ancho de columna original"
+              title={t('resetColumnsTitle')}
             >
-              Resetear columnas
+              {t('resetColumns')}
             </button>
           </div>
           <div
@@ -836,35 +833,35 @@ export default function MenuEditor() {
           >
             <div></div>
             <ResizableHeader
-              label="Producto"
+              label={t('colProduct')}
               width={w.name}
               onResizeStart={(e) =>
                 productCols.startResize('name', e.clientX, w.name)
               }
             />
             <ResizableHeader
-              label="Precio"
+              label={t('colPrice')}
               width={w.price}
               onResizeStart={(e) =>
                 productCols.startResize('price', e.clientX, w.price)
               }
             />
             <ResizableHeader
-              label="Variantes"
+              label={t('colVariants')}
               width={w.variants}
               onResizeStart={(e) =>
                 productCols.startResize('variants', e.clientX, w.variants)
               }
             />
             <ResizableHeader
-              label="Disponible"
+              label={t('colAvailable')}
               width={w.available}
               onResizeStart={(e) =>
                 productCols.startResize('available', e.clientX, w.available)
               }
             />
             <ResizableHeader
-              label="Acciones"
+              label={t('colActions')}
               width={w.actions}
               align="right"
               onResizeStart={(e) =>
@@ -876,10 +873,10 @@ export default function MenuEditor() {
             <div className="text-center p-12">
               <div className="text-3xl mb-1">🍴</div>
               <div className="font-semibold text-sm">
-                Sin productos en esta categoría
+                {t('noProductsInCategory')}
               </div>
               <div className="text-mute text-xs mt-1">
-                Usa el botón "Nuevo producto" para empezar.
+                {t('useNewProductButton')}
               </div>
             </div>
           ) : (
@@ -917,33 +914,33 @@ export default function MenuEditor() {
                           {noChannels ? (
                             <span
                               className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-800"
-                              title="Este producto no aparecerá en ningún menú público — actívalo en al menos un canal."
+                              title={t('noChannelWarningTitle')}
                             >
-                              ⚠️ Sin menú
+                              ⚠️ {t('noMenuBadge')}
                             </span>
                           ) : (
                             <>
                               {onMesa && (
                                 <span
                                   className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800"
-                                  title="Visible en el menú mesa (/m/<slug>)"
+                                  title={t('visibleMesaTitle')}
                                 >
-                                  🍽️ Mesa
+                                  🍽️ {t('mesaBadge')}
                                 </span>
                               )}
                               {onDelivery && (
                                 <span
                                   className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-100 text-sky-800"
-                                  title="Visible en el menú delivery (/d/<slug>)"
+                                  title={t('visibleDeliveryTitle')}
                                 >
-                                  🚚 Delivery
+                                  🚚 {t('deliveryBadge')}
                                 </span>
                               )}
                             </>
                           )}
-                          {p.tags.map((t) => (
-                            <span key={t} className="badge badge-info text-[10px]">
-                              {t}
+                          {p.tags.map((tag) => (
+                            <span key={tag} className="badge badge-info text-[10px]">
+                              {tag}
                             </span>
                           ))}
                         </div>
@@ -960,7 +957,7 @@ export default function MenuEditor() {
                     style={{ width: w.variants, maxWidth: w.variants }}
                     className="text-mute text-xs truncate"
                   >
-                    {p.variants.length}v · {p.extras.length}e
+                    {t('variantsExtrasShort', { v: p.variants.length, e: p.extras.length })}
                   </div>
                   <div
                     style={{ width: w.available, maxWidth: w.available }}
@@ -972,7 +969,7 @@ export default function MenuEditor() {
                         p.isAvailable ? 'badge-ok' : 'badge-mute'
                       } cursor-pointer`}
                     >
-                      {p.isAvailable ? 'Visible' : 'Oculto'}
+                      {p.isAvailable ? t('visible') : t('hidden')}
                     </button>
                     {p.stock !== null && p.stock !== undefined && (
                       <span
@@ -983,7 +980,7 @@ export default function MenuEditor() {
                             ? 'bg-amber-100 text-amber-800'
                             : 'bg-bg2 text-mute'
                         }`}
-                        title="Stock disponible"
+                        title={t('stockAvailable')}
                       >
                         📦 {p.stock}
                       </span>
@@ -997,13 +994,13 @@ export default function MenuEditor() {
                       className="btn-link text-xs mr-3"
                       onClick={() => setEditing(p)}
                     >
-                      Editar
+                      {t('edit')}
                     </button>
                     <button
                       className="text-bad text-xs underline"
                       onClick={() => deleteProduct(p.id)}
                     >
-                      Eliminar
+                      {t('delete')}
                     </button>
                   </div>
                 </div>
@@ -1052,7 +1049,7 @@ export default function MenuEditor() {
           onSaved={() => {
             setCoverCat(null);
             load();
-            toast('Portada guardada', 'success');
+            toast(t('coverSaved'), 'success');
           }}
         />
       )}
@@ -1062,7 +1059,7 @@ export default function MenuEditor() {
           onClose={() => setCoverRecommendedOpen(false)}
           onSaved={() => {
             setCoverRecommendedOpen(false);
-            toast('Portada de Recomendados guardada', 'success');
+            toast(t('recommendedCoverSaved'), 'success');
           }}
         />
       )}
@@ -1074,7 +1071,7 @@ export default function MenuEditor() {
           onSaved={() => {
             setPopupCat(null);
             load();
-            toast('Popup guardado', 'success');
+            toast(t('popupSaved'), 'success');
           }}
         />
       )}
@@ -1107,6 +1104,7 @@ function CoverEditorModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations('app_menu');
   const [config, setConfig] = useState<SectionCoverConfig | null>(
     target.initialConfig,
   );
@@ -1125,7 +1123,7 @@ function CoverEditorModal({
       });
       onSaved();
     } catch (e: any) {
-      toast(e.message || 'No se pudo guardar', 'error');
+      toast(e.message || t('couldNotSave'), 'error');
     } finally {
       setSaving(false);
     }
@@ -1142,14 +1140,14 @@ function CoverEditorModal({
       >
         <div className="flex items-center justify-between px-5 py-3 border-b border-line">
           <div>
-            <div className="text-xs text-mute">Portada de sección</div>
+            <div className="text-xs text-mute">{t('sectionCover')}</div>
             <h2 className="font-semibold text-lg m-0">{target.title}</h2>
           </div>
           <button
             type="button"
             onClick={onClose}
             className="text-mute hover:text-ink p-1"
-            aria-label="Cerrar"
+            aria-label={t('close')}
           >
             ✕
           </button>
@@ -1157,17 +1155,17 @@ function CoverEditorModal({
 
         <div className="p-5 space-y-4">
           <div>
-            <label className="label">Subtítulo (tagline) — opcional</label>
+            <label className="label">{t('taglineLabel')}</label>
             <input
               type="text"
               className="input"
-              placeholder="Ej: Cortes premium importados"
+              placeholder={t('taglinePlaceholder')}
               value={tagline}
               onChange={(e) => setTagline(e.target.value)}
               maxLength={200}
             />
             <p className="text-[11px] text-mute mt-1">
-              Aparece debajo del nombre en la portada. Vacío = sin subtítulo.
+              {t('taglineHint')}
             </p>
           </div>
 
@@ -1185,16 +1183,16 @@ function CoverEditorModal({
             type="button"
             onClick={() => setConfig(null)}
             className="btn-ghost text-xs"
-            title="Vuelve al fallback legacy (imagen + nombre centrado)"
+            title={t('resetToDefaultTitle')}
           >
-            Reset a default
+            {t('resetToDefault')}
           </button>
           <button
             type="button"
             onClick={onClose}
             className="btn-secondary"
           >
-            Cancelar
+            {t('cancel')}
           </button>
           <button
             type="button"
@@ -1202,7 +1200,7 @@ function CoverEditorModal({
             disabled={saving}
             className="btn-primary"
           >
-            {saving ? 'Guardando…' : 'Guardar portada'}
+            {saving ? t('saving') : t('saveCover')}
           </button>
         </div>
       </div>
@@ -1221,6 +1219,7 @@ function RecommendedCoverModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations('app_menu');
   const [initial, setInitial] = useState<{
     config: SectionCoverConfig | null;
     tagline: string;
@@ -1239,7 +1238,7 @@ function RecommendedCoverModal({
           tagline: sf.recommendedTagline ?? '',
         });
       } catch (e: any) {
-        setErr(e?.message || 'No se pudo cargar la configuración');
+        setErr(e?.message || t('couldNotLoadConfig'));
       }
     })();
   }, []);
@@ -1257,7 +1256,7 @@ function RecommendedCoverModal({
           <div className="text-2xl">⚠️</div>
           <div className="text-sm">{err}</div>
           <button onClick={onClose} className="btn-primary">
-            Cerrar
+            {t('close')}
           </button>
         </div>
       </div>
@@ -1266,14 +1265,14 @@ function RecommendedCoverModal({
   if (!initial) {
     return (
       <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center">
-        <div className="text-white text-sm">Cargando…</div>
+        <div className="text-white text-sm">{t('loading')}</div>
       </div>
     );
   }
   return (
     <CoverEditorModal
       target={{
-        title: 'Recomendados',
+        title: t('recommended'),
         endpoint: '/storefront',
         // El endpoint /storefront acepta nombres específicos
         // (recommendedCoverConfig + recommendedTagline) en lugar del
@@ -1318,6 +1317,7 @@ function PopupEditorModal({
     trigger: 'auto',
     oncePerSession: true,
   };
+  const t = useTranslations('app_menu');
   const [cfg, setCfg] = useState<PopupConfig>(initial);
   const [saving, setSaving] = useState(false);
 
@@ -1342,7 +1342,7 @@ function PopupEditorModal({
       });
       onSaved();
     } catch (e: any) {
-      toast(e.message || 'No se pudo guardar el popup', 'error');
+      toast(e.message || t('couldNotSavePopup'), 'error');
     } finally {
       setSaving(false);
     }
@@ -1360,7 +1360,7 @@ function PopupEditorModal({
         <div className="px-6 py-4 border-b border-line flex items-center justify-between gap-3">
           <div>
             <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
-              Popup opcional
+              {t('optionalPopup')}
             </div>
             <div className="font-bold text-lg leading-tight">
               {category.name}
@@ -1385,32 +1385,31 @@ function PopupEditorModal({
                 className="w-5 h-5 accent-brand"
               />
               <div>
-                <div className="font-semibold text-sm">Activar popup</div>
+                <div className="font-semibold text-sm">{t('enablePopup')}</div>
                 <div className="text-[11px] text-mute leading-snug">
-                  Cuando esté activo, los clientes lo verán al entrar a esta
-                  sección del menú.
+                  {t('enablePopupHint')}
                 </div>
               </div>
             </label>
 
             <div>
-              <label className="label">Imagen</label>
+              <label className="label">{t('image')}</label>
               <ImageUploader
                 value={cfg.imageUrl ?? ''}
                 onChange={(url) => patch('imageUrl', url || null)}
                 folder="category-popup"
               />
               <div className="text-[10px] text-mute mt-1">
-                Opcional. JPG / PNG hasta 15 MB. Se muestra arriba del popup.
+                {t('imageHint')}
               </div>
             </div>
 
             <div>
-              <label className="label">Título</label>
+              <label className="label">{t('title')}</label>
               <input
                 type="text"
                 className="input"
-                placeholder="Ej: Happy hour 2x1"
+                placeholder={t('popupTitlePlaceholder')}
                 maxLength={80}
                 value={cfg.title ?? ''}
                 onChange={(e) => patch('title', e.target.value)}
@@ -1418,10 +1417,10 @@ function PopupEditorModal({
             </div>
 
             <div>
-              <label className="label">Descripción</label>
+              <label className="label">{t('description')}</label>
               <textarea
                 className="input min-h-[80px]"
-                placeholder="Cuéntale a tus clientes el detalle de la promo, experiencia o servicio."
+                placeholder={t('popupDescriptionPlaceholder')}
                 maxLength={400}
                 value={cfg.description ?? ''}
                 onChange={(e) => patch('description', e.target.value)}
@@ -1430,18 +1429,18 @@ function PopupEditorModal({
 
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="label">Texto del botón</label>
+                <label className="label">{t('buttonText')}</label>
                 <input
                   type="text"
                   className="input"
-                  placeholder="Reservar"
+                  placeholder={t('buttonTextPlaceholder')}
                   maxLength={30}
                   value={cfg.buttonText ?? ''}
                   onChange={(e) => patch('buttonText', e.target.value)}
                 />
               </div>
               <div>
-                <label className="label">Color del botón</label>
+                <label className="label">{t('buttonColor')}</label>
                 <div className="flex gap-2 items-center">
                   <input
                     type="color"
@@ -1462,23 +1461,22 @@ function PopupEditorModal({
             </div>
 
             <div>
-              <label className="label">URL del botón</label>
+              <label className="label">{t('buttonUrl')}</label>
               <input
                 type="url"
                 className="input"
-                placeholder="https://wa.me/57... o https://reservas.tu.com"
+                placeholder={t('buttonUrlPlaceholder')}
                 value={cfg.buttonUrl ?? ''}
                 onChange={(e) => patch('buttonUrl', e.target.value)}
               />
               <div className="text-[10px] text-mute mt-1">
-                Si está vacío, el botón no se muestra. Sin botón el popup
-                queda informativo (solo cerrar).
+                {t('buttonUrlHint')}
               </div>
             </div>
 
             <div className="space-y-2 pt-2 border-t border-line">
               <div className="text-xs font-semibold uppercase tracking-wider text-mute">
-                Comportamiento
+                {t('behavior')}
               </div>
               <label className="flex items-start gap-2 cursor-pointer text-sm">
                 <input
@@ -1489,10 +1487,9 @@ function PopupEditorModal({
                   className="mt-1 accent-brand"
                 />
                 <div>
-                  <div className="font-medium">Abrir automáticamente</div>
+                  <div className="font-medium">{t('openAutomatically')}</div>
                   <div className="text-[11px] text-mute">
-                    Cuando el cliente entra a esta sección, el popup aparece
-                    solo.
+                    {t('openAutomaticallyHint')}
                   </div>
                 </div>
               </label>
@@ -1505,10 +1502,9 @@ function PopupEditorModal({
                   className="mt-1 accent-brand"
                 />
                 <div>
-                  <div className="font-medium">Solo al tocar el banner</div>
+                  <div className="font-medium">{t('onlyOnTapBanner')}</div>
                   <div className="text-[11px] text-mute">
-                    Aparece un indicador pulsante en la portada de la
-                    sección y el cliente decide si lo abre.
+                    {t('onlyOnTapBannerHint')}
                   </div>
                 </div>
               </label>
@@ -1519,7 +1515,7 @@ function PopupEditorModal({
                   onChange={(e) => patch('oncePerSession', e.target.checked)}
                   className="w-4 h-4 accent-brand"
                 />
-                <span>Mostrar solo una vez por sesión</span>
+                <span>{t('oncePerSession')}</span>
               </label>
 
               {(cfg.trigger ?? 'auto') === 'auto' && (
@@ -1532,16 +1528,16 @@ function PopupEditorModal({
                       className="mt-1 w-4 h-4 accent-brand"
                     />
                     <div>
-                      <div className="font-medium">Aparecer inmediatamente al abrir la categoría</div>
+                      <div className="font-medium">{t('appearImmediately')}</div>
                       <div className="text-[11px] text-mute">
-                        Sin esperar a que la sección esté centrada en pantalla — fire en cuanto entra al viewport.
+                        {t('appearImmediatelyHint')}
                       </div>
                     </div>
                   </label>
 
                   <div className="pt-2">
                     <label className="label text-xs">
-                      Retraso ({cfg.delaySeconds ?? 0}s)
+                      {t('delayLabel', { seconds: cfg.delaySeconds ?? 0 })}
                     </label>
                     <input
                       type="range"
@@ -1553,7 +1549,7 @@ function PopupEditorModal({
                       className="w-full"
                     />
                     <div className="text-[11px] text-mute">
-                      Segundos a esperar después que se activa antes de mostrar el popup.
+                      {t('delayHint')}
                     </div>
                   </div>
                 </>
@@ -1564,12 +1560,12 @@ function PopupEditorModal({
           {/* Preview */}
           <div className="bg-gradient-to-b from-bg2/50 to-bg2 p-5 flex flex-col items-center">
             <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-3">
-              Vista previa
+              {t('preview')}
             </div>
             <PopupPreview cfg={cfg} />
             {!cfg.enabled && (
               <div className="mt-3 text-[10px] text-mute italic text-center">
-                El popup está desactivado — no se mostrará a los clientes.
+                {t('popupDisabledNotice')}
               </div>
             )}
           </div>
@@ -1582,7 +1578,7 @@ function PopupEditorModal({
             className="btn-ghost text-sm"
             disabled={saving}
           >
-            Cancelar
+            {t('cancel')}
           </button>
           <button
             type="button"
@@ -1590,7 +1586,7 @@ function PopupEditorModal({
             disabled={saving}
             className="btn-primary text-sm"
           >
-            {saving ? 'Guardando…' : 'Guardar popup'}
+            {saving ? t('saving') : t('savePopup')}
           </button>
         </div>
       </div>
@@ -1601,6 +1597,7 @@ function PopupEditorModal({
 /** Mock visual del popup tal como se verá en el storefront público.
  *  Frame mini-iPhone para dar contexto del tamaño. */
 function PopupPreview({ cfg }: { cfg: PopupConfig }) {
+  const t = useTranslations('app_menu');
   const hasContent =
     cfg.imageUrl ||
     cfg.title?.trim() ||
@@ -1615,7 +1612,7 @@ function PopupPreview({ cfg }: { cfg: PopupConfig }) {
         />
       ) : (
         <div className="w-full h-[120px] bg-bg2 flex items-center justify-center text-mute text-xs">
-          (Sin imagen)
+          {t('noImagePlaceholder')}
         </div>
       )}
       <div className="p-4 space-y-2">
@@ -1623,7 +1620,7 @@ function PopupPreview({ cfg }: { cfg: PopupConfig }) {
           <div className="font-bold text-sm leading-tight">{cfg.title}</div>
         ) : (
           <div className="font-bold text-sm text-mute italic">
-            (Título del popup)
+            {t('popupTitlePreviewPlaceholder')}
           </div>
         )}
         {cfg.description?.trim() && (
@@ -1633,7 +1630,7 @@ function PopupPreview({ cfg }: { cfg: PopupConfig }) {
         )}
         <div className="flex items-center justify-end gap-2 pt-1">
           <button className="text-[11px] px-2 py-1.5 rounded-md text-mute" disabled>
-            Cerrar
+            {t('close')}
           </button>
           {cfg.buttonText?.trim() && cfg.buttonUrl?.trim() && (
             <button
@@ -1648,7 +1645,7 @@ function PopupPreview({ cfg }: { cfg: PopupConfig }) {
       </div>
       {!hasContent && (
         <div className="px-4 pb-3 text-[10px] text-mute italic text-center">
-          Completa los campos a la izquierda para previsualizar.
+          {t('completeFieldsToPreview')}
         </div>
       )}
     </div>
@@ -1668,6 +1665,7 @@ function AdicionalesModal({
   tenantCurrency: string;
   tenantCurrencySymbol: string | null;
 }) {
+  const t = useTranslations('app_menu');
   // editingId === null → form de creación; con id → form de edición
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', price: 0 });
@@ -1683,19 +1681,19 @@ function AdicionalesModal({
           method: 'PATCH',
           body: JSON.stringify(form),
         });
-        toast('Adicional actualizado', 'success');
+        toast(t('addonUpdated'), 'success');
       } else {
         await api('/catalog/adicionales', {
           method: 'POST',
           body: JSON.stringify(form),
         });
-        toast('Adicional creado', 'success');
+        toast(t('addonCreated'), 'success');
       }
       setForm({ name: '', price: 0 });
       setEditingId(null);
       onChange();
     } catch (e: any) {
-      toast(e.message || 'No se pudo guardar', 'error');
+      toast(e.message || t('couldNotSave'), 'error');
     } finally {
       setBusy(false);
     }
@@ -1712,13 +1710,13 @@ function AdicionalesModal({
   }
 
   async function remove(id: string) {
-    if (!confirm('¿Eliminar este adicional? Los productos que lo usan no se ven afectados.')) return;
+    if (!confirm(t('confirmDeleteAddon'))) return;
     try {
       await api(`/catalog/adicionales/${id}`, { method: 'DELETE' });
       if (editingId === id) cancelEdit();
       onChange();
     } catch (e: any) {
-      toast(e.message || 'No se pudo eliminar', 'error');
+      toast(e.message || t('couldNotDelete'), 'error');
     }
   }
 
@@ -1733,13 +1731,12 @@ function AdicionalesModal({
       >
         <div className="px-5 py-4 border-b border-line flex items-center justify-between">
           <div>
-            <h3 className="font-semibold text-base m-0">Adicionales</h3>
+            <h3 className="font-semibold text-base m-0">{t('addons')}</h3>
             <p className="text-xs text-mute mt-0.5">
-              Biblioteca compartida de extras. Agregalos a productos desde el
-              formulario de cada producto.
+              {t('addonsLibraryHint')}
             </p>
           </div>
-          <button onClick={onClose} className="text-mute hover:text-ink p-1" title="Cerrar">
+          <button onClick={onClose} className="text-mute hover:text-ink p-1" title={t('close')}>
             ✕
           </button>
         </div>
@@ -1747,22 +1744,22 @@ function AdicionalesModal({
         <form onSubmit={submit} className="px-5 py-3 border-b border-line flex gap-2">
           <input
             className="input flex-1"
-            placeholder="Nombre (ej: Queso extra)"
+            placeholder={t('addonNamePlaceholder')}
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
           />
           <input
             type="number"
             className="input w-28"
-            placeholder="Precio"
+            placeholder={t('price')}
             value={form.price}
             onChange={(e) => setForm({ ...form, price: Number(e.target.value) })}
           />
-          <button className="btn-primary" disabled={busy} title={editingId ? 'Guardar cambios' : 'Agregar'}>
+          <button className="btn-primary" disabled={busy} title={editingId ? t('saveChanges') : t('add')}>
             <Icon name={editingId ? 'check' : 'plus'} />
           </button>
           {editingId && (
-            <button type="button" className="btn-ghost" onClick={cancelEdit} title="Cancelar edición">
+            <button type="button" className="btn-ghost" onClick={cancelEdit} title={t('cancelEdit')}>
               ✕
             </button>
           )}
@@ -1771,7 +1768,7 @@ function AdicionalesModal({
         <div className="flex-1 overflow-y-auto px-5 py-2">
           {items.length === 0 ? (
             <div className="text-center text-mute text-sm py-8">
-              Aún no creaste adicionales.
+              {t('noAddonsYet')}
             </div>
           ) : (
             items.map((a) => (
@@ -1788,14 +1785,14 @@ function AdicionalesModal({
                 <button
                   className="text-mute hover:text-brand p-1"
                   onClick={() => startEdit(a)}
-                  title="Editar"
+                  title={t('edit')}
                 >
                   <Icon name="edit" size={14} />
                 </button>
                 <button
                   className="text-mute hover:text-bad p-1"
                   onClick={() => remove(a.id)}
-                  title="Eliminar"
+                  title={t('delete')}
                 >
                   <Icon name="trash" size={14} />
                 </button>
@@ -1827,6 +1824,7 @@ function ProductDrawer({
   onCancel: () => void;
   onSave: (p: Partial<Product>) => void;
 }) {
+  const t = useTranslations('app_menu');
   const [form, setForm] = useState<Partial<Product>>(value);
 
   function update<K extends keyof Product>(k: K, v: any) {
@@ -1839,7 +1837,7 @@ function ProductDrawer({
       <div className="w-full max-w-md bg-white h-full overflow-auto p-6 shadow-2xl">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">
-            {form.id ? 'Editar producto' : 'Nuevo producto'}
+            {form.id ? t('editProduct') : t('newProduct')}
           </h2>
           <button onClick={onCancel} className="text-mute hover:text-ink">
             ✕
@@ -1848,7 +1846,7 @@ function ProductDrawer({
 
         <div className="space-y-3">
           <div>
-            <label className="label">Nombre</label>
+            <label className="label">{t('name')}</label>
             <input
               className="input"
               value={form.name ?? ''}
@@ -1856,7 +1854,7 @@ function ProductDrawer({
             />
           </div>
           <div>
-            <label className="label">Categoría (opcional)</label>
+            <label className="label">{t('categoryOptional')}</label>
             <select
               className="input"
               value={form.categoryId ?? ''}
@@ -1867,7 +1865,7 @@ function ProductDrawer({
               {/* Bloque 2 (2026-06-12): "" = sin categoría. El storefront
                   renderiza productos sin categoría en una sección "Otros"
                   al final, sin layout especial. */}
-              <option value="">— Sin categoría —</option>
+              <option value="">{t('noCategoryOption')}</option>
               {categories
                 .filter((c) => !c.parentId)
                 .flatMap((root) => {
@@ -1887,13 +1885,12 @@ function ProductDrawer({
             {form.categoryId &&
               categories.find((c) => c.id === form.categoryId)?.parentId && (
                 <div className="text-[11px] text-mute mt-1">
-                  Producto asignado a una subsección — aparece dentro del chip
-                  correspondiente en el layout SECTIONS del storefront.
+                  {t('subsectionAssignedHint')}
                 </div>
               )}
           </div>
           <div>
-            <label className="label">Tipo de precio</label>
+            <label className="label">{t('priceType')}</label>
             <div className="grid grid-cols-2 gap-2 mb-3">
               {(['FIXED', 'RANGE'] as const).map((mode) => {
                 const active = (form.priceMode ?? 'FIXED') === mode;
@@ -1911,14 +1908,14 @@ function ProductDrawer({
                         : 'border-line bg-white text-mute hover:border-mute'
                     }`}
                   >
-                    {mode === 'FIXED' ? '🏷 Precio fijo' : '📊 Rango'}
+                    {mode === 'FIXED' ? t('fixedPrice') : t('rangePrice')}
                   </button>
                 );
               })}
             </div>
             {(form.priceMode ?? 'FIXED') === 'FIXED' ? (
               <div>
-                <label className="label">Precio base</label>
+                <label className="label">{t('basePrice')}</label>
                 <input
                   type="text"
                   inputMode="decimal"
@@ -1932,7 +1929,7 @@ function ProductDrawer({
             ) : (
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="label">Mínimo</label>
+                  <label className="label">{t('minimum')}</label>
                   <input
                     type="text"
                     inputMode="decimal"
@@ -1944,7 +1941,7 @@ function ProductDrawer({
                   />
                 </div>
                 <div>
-                  <label className="label">Máximo</label>
+                  <label className="label">{t('maximum')}</label>
                   <input
                     type="text"
                     inputMode="decimal"
@@ -1956,24 +1953,24 @@ function ProductDrawer({
                         e.target.value === '' ? null : parsePriceInput(e.target.value),
                       )
                     }
-                    placeholder="Hasta…"
+                    placeholder={t('upToPlaceholder')}
                   />
                 </div>
                 <div className="col-span-2 text-[11px] text-mute">
-                  Se muestra como{' '}
+                  {t('shownAs')}{' '}
                   <strong>
                     {fmt(Number(form.basePrice ?? 0), tenantCurrency, tenantCurrencySymbol)} —{' '}
                     {form.priceMax != null
                       ? fmt(Number(form.priceMax), tenantCurrency, tenantCurrencySymbol)
                       : '?'}
                   </strong>
-                  . El carrito usa el mínimo como referencia.
+                  {t('cartUsesMinimum')}
                 </div>
               </div>
             )}
           </div>
           <div>
-            <label className="label">Descripción</label>
+            <label className="label">{t('description')}</label>
             <textarea
               className="input"
               value={form.description ?? ''}
@@ -1981,7 +1978,7 @@ function ProductDrawer({
             />
           </div>
           <div>
-            <label className="label">Imagen del producto</label>
+            <label className="label">{t('productImage')}</label>
             <ImageUploader
               value={form.imageUrl}
               onChange={(url) => update('imageUrl', url)}
@@ -1989,7 +1986,7 @@ function ProductDrawer({
             />
           </div>
           <div>
-            <label className="label">Etiquetas (separadas por coma)</label>
+            <label className="label">{t('tagsLabel')}</label>
             <input
               className="input"
               value={(form.tags ?? []).join(', ')}
@@ -1998,11 +1995,11 @@ function ProductDrawer({
                   'tags',
                   e.target.value
                     .split(',')
-                    .map((t) => t.trim())
+                    .map((tag) => tag.trim())
                     .filter(Boolean),
                 )
               }
-              placeholder="popular, nuevo, veggie"
+              placeholder={t('tagsPlaceholder')}
             />
           </div>
 
@@ -2015,12 +2012,10 @@ function ProductDrawer({
             />
             <div className="flex-1">
               <div className="text-sm font-semibold flex items-center gap-1.5">
-                ⭐ Destacar como Recomendado
+                ⭐ {t('highlightAsRecommended')}
               </div>
               <div className="text-xs text-mute mt-0.5">
-                Aparece en una sección "Recomendados" al inicio del{' '}
-                {mainLabel.toLowerCase()} público para empujar las ventas de
-                este producto.
+                {t('recommendedHint', { label: mainLabel.toLowerCase() })}
               </div>
             </div>
           </label>
@@ -2028,7 +2023,7 @@ function ProductDrawer({
           {/* Visibilidad por canal (separación menú mesa vs delivery, 2026-06-06). */}
           <fieldset className="border border-line rounded-lg p-3">
             <legend className="px-1 text-xs font-semibold text-mute">
-              Visibilidad en menús públicos
+              {t('visibilityInPublicMenus')}
             </legend>
             {(() => {
               const onMesa = form.availableForMesa ?? true;
@@ -2047,11 +2042,10 @@ function ProductDrawer({
                     />
                     <div className="flex-1">
                       <div className="text-sm font-semibold">
-                        🍽️ Disponible en menú mesa
+                        🍽️ {t('availableInMesaMenu')}
                       </div>
                       <div className="text-xs text-mute mt-0.5">
-                        Aparece en <code>/m/&lt;slug&gt;</code> — vista
-                        informativa que ven los clientes desde el QR de mesa.
+                        {t('availableInMesaHintPre')} <code>/m/&lt;slug&gt;</code> {t('availableInMesaHintPost')}
                       </div>
                     </div>
                   </label>
@@ -2066,19 +2060,16 @@ function ProductDrawer({
                     />
                     <div className="flex-1">
                       <div className="text-sm font-semibold">
-                        🚚 Disponible en menú delivery
+                        🚚 {t('availableInDeliveryMenu')}
                       </div>
                       <div className="text-xs text-mute mt-0.5">
-                        Aparece en <code>/d/&lt;slug&gt;</code> — vista
-                        con carrito para pedir a domicilio.
+                        {t('availableInDeliveryHintPre')} <code>/d/&lt;slug&gt;</code> {t('availableInDeliveryHintPost')}
                       </div>
                     </div>
                   </label>
                   {noChannels && (
                     <div className="mt-2 rounded-md bg-red-50 border border-red-200 px-2.5 py-1.5 text-xs text-red-800">
-                      ⚠️ Este producto no aparecerá en ningún menú público.
-                      Actívalo en al menos un canal para que los clientes
-                      puedan verlo.
+                      ⚠️ {t('noChannelWarning')}
                     </div>
                   )}
                 </>
@@ -2088,7 +2079,7 @@ function ProductDrawer({
 
           <fieldset className="border border-line rounded-lg p-3">
             <legend className="px-1 text-xs font-semibold text-mute">
-              Inventario (opcional)
+              {t('inventoryOptional')}
             </legend>
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input
@@ -2098,12 +2089,12 @@ function ProductDrawer({
                   update('stock', e.target.checked ? 0 : null)
                 }
               />
-              <span>Llevar control de stock</span>
+              <span>{t('trackStock')}</span>
             </label>
             {form.stock !== null && form.stock !== undefined && (
               <div className="grid grid-cols-2 gap-2 mt-3">
                 <div>
-                  <label className="label">Stock disponible</label>
+                  <label className="label">{t('stockAvailable')}</label>
                   <input
                     type="number"
                     min="0"
@@ -2115,12 +2106,12 @@ function ProductDrawer({
                   />
                 </div>
                 <div>
-                  <label className="label">Avisar a los…</label>
+                  <label className="label">{t('alertAtLabel')}</label>
                   <input
                     type="number"
                     min="0"
                     className="input"
-                    placeholder="opcional"
+                    placeholder={t('optional')}
                     value={form.stockAlert ?? ''}
                     onChange={(e) =>
                       update(
@@ -2131,8 +2122,7 @@ function ProductDrawer({
                   />
                 </div>
                 <div className="col-span-2 text-[11px] text-mute">
-                  💡 Cada pedido descuenta automáticamente. Cuando llega a 0,
-                  el producto se oculta del storefront público.
+                  💡 {t('stockAutoDeductHint')}
                 </div>
               </div>
             )}
@@ -2140,10 +2130,10 @@ function ProductDrawer({
 
           <fieldset className="border border-line rounded-lg p-3">
             <legend className="px-1 text-xs font-semibold text-mute flex items-center gap-1.5">
-              Variantes (
+              {t('variants')} (
               <input
                 className="bg-transparent border-b border-dashed border-line focus:border-brand outline-none text-xs font-semibold w-24 px-0.5"
-                placeholder="Tamaños"
+                placeholder={t('sizesPlaceholder')}
                 value={form.variants?.[0]?.groupName ?? ''}
                 onChange={(e) => {
                   const label = e.target.value;
@@ -2153,7 +2143,7 @@ function ProductDrawer({
                   }));
                   update('variants', arr);
                 }}
-                title="Edita la palabra (ej: Sabores, Colores, Opciones)"
+                title={t('editGroupNameTitle')}
               />
               )
             </legend>
@@ -2161,7 +2151,7 @@ function ProductDrawer({
               <div key={i} className="flex gap-2 mb-2">
                 <input
                   className="input flex-1"
-                  placeholder="Nombre (ej: Grande)"
+                  placeholder={t('variantNamePlaceholder')}
                   value={v.name}
                   onChange={(e) => {
                     const arr = [...(form.variants ?? [])];
@@ -2172,7 +2162,7 @@ function ProductDrawer({
                 <input
                   type="number"
                   className="input w-28"
-                  placeholder="+precio"
+                  placeholder={t('plusPricePlaceholder')}
                   value={v.priceDelta}
                   onChange={(e) => {
                     const arr = [...(form.variants ?? [])];
@@ -2202,17 +2192,17 @@ function ProductDrawer({
                 ]);
               }}
             >
-              + Variante
+              {t('addVariant')}
             </button>
           </fieldset>
 
           <fieldset className="border border-line rounded-lg p-3">
-            <legend className="px-1 text-xs font-semibold text-mute">Extras</legend>
+            <legend className="px-1 text-xs font-semibold text-mute">{t('extras')}</legend>
 
             {adicionales.length > 0 && (
               <div className="mb-3 p-2 rounded-lg bg-bg2">
                 <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1.5">
-                  De la biblioteca
+                  {t('fromLibrary')}
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {adicionales.map((a) => {
@@ -2257,7 +2247,7 @@ function ProductDrawer({
               <div key={i} className="flex gap-2 mb-2">
                 <input
                   className="input flex-1"
-                  placeholder="Nombre (ej: Aguacate)"
+                  placeholder={t('extraNamePlaceholder')}
                   value={e.name}
                   onChange={(ev) => {
                     const arr = [...(form.extras ?? [])];
@@ -2268,7 +2258,7 @@ function ProductDrawer({
                 <input
                   type="number"
                   className="input w-28"
-                  placeholder="precio"
+                  placeholder={t('price')}
                   value={e.price}
                   onChange={(ev) => {
                     const arr = [...(form.extras ?? [])];
@@ -2294,17 +2284,17 @@ function ProductDrawer({
                 update('extras', [...(form.extras ?? []), { name: '', price: 0 }])
               }
             >
-              + Extra
+              {t('addExtra')}
             </button>
           </fieldset>
         </div>
 
         <div className="mt-6 flex gap-2">
           <button className="btn-ghost flex-1 justify-center" onClick={onCancel}>
-            Cancelar
+            {t('cancel')}
           </button>
           <button className="btn-primary flex-1 justify-center" onClick={() => onSave(form)}>
-            <Icon name="check" /> Guardar
+            <Icon name="check" /> {t('save')}
           </button>
         </div>
       </div>
@@ -2319,6 +2309,7 @@ function ProductDrawer({
  * botón para copiar el link y abrir en pestaña nueva.
  */
 function PublicMenuLinks({ slug, mainLabel }: { slug: string; mainLabel: string }) {
+  const t = useTranslations('app_menu');
   const [origin, setOrigin] = useState<string>('');
   useEffect(() => {
     if (typeof window !== 'undefined') setOrigin(window.location.origin);
@@ -2330,34 +2321,32 @@ function PublicMenuLinks({ slug, mainLabel }: { slug: string; mainLabel: string 
   async function copy(url: string, label: string) {
     try {
       await navigator.clipboard.writeText(url);
-      toast(`Link de ${label} copiado`, 'success');
+      toast(t('linkCopied', { label }), 'success');
     } catch {
-      toast('No se pudo copiar — copialo manualmente', 'error');
+      toast(t('couldNotCopy'), 'error');
     }
   }
 
   return (
     <div className="card card-pad mb-4">
       <h2 className="text-base font-semibold m-0 flex items-center gap-2">
-        🔗 Links públicos del {labelLower}
+        🔗 {t('publicLinksTitle', { label: labelLower })}
       </h2>
       <p className="text-xs text-mute mt-1 leading-relaxed">
-        Misma información de productos, distinta función. El link de mesa es
-        solo para que el cliente vea, el de delivery acepta pedidos.
+        {t('publicLinksIntro')}
       </p>
       <div className="mt-4 grid md:grid-cols-2 gap-3">
         {/* Mesa */}
         <div className="rounded-input border border-line2 bg-bg2/30 p-4">
           <div className="flex items-center gap-2 text-sm font-semibold">
             <span className="text-lg">🍽</span>
-            <span>Menú Mesa</span>
+            <span>{t('mesaMenu')}</span>
             <span className="ml-auto text-[10px] uppercase tracking-wider font-bold bg-bg2 text-mute px-1.5 py-0.5 rounded">
-              Informativo
+              {t('informative')}
             </span>
           </div>
           <p className="text-[11px] text-mute mt-1 leading-snug">
-            Solo visualización. Sin carrito, sin botón WhatsApp. Pensado
-            para el QR de cada mesa — el cliente sentado pide al mozo.
+            {t('mesaMenuDesc')}
           </p>
           <div className="mt-3 rounded-input bg-white border border-line px-2.5 py-2 text-[11px] font-mono break-all">
             {mesaUrl || '—'}
@@ -2366,17 +2355,17 @@ function PublicMenuLinks({ slug, mainLabel }: { slug: string; mainLabel: string 
             <button
               type="button"
               className="btn-ghost text-xs flex-1 justify-center"
-              onClick={() => copy(mesaUrl, 'mesa')}
+              onClick={() => copy(mesaUrl, t('mesaLabel'))}
               disabled={!origin}
             >
-              📋 Copiar
+              📋 {t('copy')}
             </button>
             <Link
               href={`/m/${slug}`}
               target="_blank"
               className="btn-ghost text-xs flex-1 justify-center"
             >
-              ↗ Abrir
+              ↗ {t('open')}
             </Link>
           </div>
         </div>
@@ -2384,14 +2373,13 @@ function PublicMenuLinks({ slug, mainLabel }: { slug: string; mainLabel: string 
         <div className="rounded-input border-2 border-brand/30 bg-brand-soft/30 p-4">
           <div className="flex items-center gap-2 text-sm font-semibold">
             <span className="text-lg">🛵</span>
-            <span>Menú Delivery</span>
+            <span>{t('deliveryMenu')}</span>
             <span className="ml-auto text-[10px] uppercase tracking-wider font-bold bg-brand text-white px-1.5 py-0.5 rounded">
-              Con carrito
+              {t('withCart')}
             </span>
           </div>
           <p className="text-[11px] text-mute mt-1 leading-snug">
-            El link público para enviar a clientes. Si Delivery está ON,
-            permite armar pedido + enviar por WhatsApp.
+            {t('deliveryMenuDesc')}
           </p>
           <div className="mt-3 rounded-input bg-white border border-line px-2.5 py-2 text-[11px] font-mono break-all">
             {deliveryUrl || '—'}
@@ -2400,17 +2388,17 @@ function PublicMenuLinks({ slug, mainLabel }: { slug: string; mainLabel: string 
             <button
               type="button"
               className="btn-ghost text-xs flex-1 justify-center"
-              onClick={() => copy(deliveryUrl, 'delivery')}
+              onClick={() => copy(deliveryUrl, t('deliveryLabel'))}
               disabled={!origin}
             >
-              📋 Copiar
+              📋 {t('copy')}
             </button>
             <Link
               href={`/d/${slug}`}
               target="_blank"
               className="btn-ghost text-xs flex-1 justify-center"
             >
-              ↗ Abrir
+              ↗ {t('open')}
             </Link>
           </div>
         </div>
