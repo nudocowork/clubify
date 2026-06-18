@@ -27,8 +27,8 @@ type IconName = Parameters<typeof Icon>[0]['name'];
 // (/admin/<slug>). Debe coincidir con RESERVED_ADMIN_ROUTES del middleware.
 const ADMIN_ROUTE_SEGMENTS = new Set([
   'accounting', 'affiliate-registration', 'ai-knowledge', 'audit', 'branding',
-  'business-categories', 'commissions', 'industries', 'integrations', 'lab',
-  'maintenance', 'map', 'payouts', 'rankings', 'referrals', 'reports',
+  'business-categories', 'commissions', 'creditos', 'industries', 'integrations',
+  'lab', 'maintenance', 'map', 'payouts', 'rankings', 'referrals', 'reports',
   'sales-leaderboard', 'sales-teams', 'support-materials', 'tenants', 'trials',
   'users', 'ventas',
 ]);
@@ -46,6 +46,8 @@ type NavItem = {
   /** Link externo (abre en nueva pestaña). Usado para Tutoriales /
    *  Academia Clubify (Bloque 2 2026-06-12). */
   external?: boolean;
+  /** Contador opcional (ej negocios pendientes en Créditos). */
+  badge?: string;
 };
 type NavGroup = { section: string; items: NavItem[]; badge?: string };
 
@@ -107,6 +109,11 @@ export default function AppShell({
     slug: string;
     modules: string[];
   } | null>(null);
+  // Fase 3 (#6): si el admin actual es de una marca blanca con créditos
+  // (no ilimitada), se muestra la sección "Créditos" en /admin. Para
+  // Clubify / PLATFORM_OWNER el endpoint da 403 y queda oculta.
+  const [showCredits, setShowCredits] = useState(false);
+  const [pendingCreditsCount, setPendingCreditsCount] = useState(0);
   const [tenantInfo, setTenantInfo] = useState<{
     brandName?: string;
     hotmartSubscriberCode?: string | null;
@@ -242,6 +249,33 @@ export default function AppShell({
     };
   }, [variant, pathname]);
 
+  // Fase 3 (#6/#7): resuelve si el admin tiene panel de créditos por marca.
+  // 403 (admin global Clubify) o marca ilimitada → oculto.
+  useEffect(() => {
+    if (variant !== 'admin') {
+      setShowCredits(false);
+      return;
+    }
+    let cancelled = false;
+    api<{ unlimited?: boolean; pendingTenants?: number } | null>('/admin/credits')
+      .then((r) => {
+        if (cancelled) return;
+        if (r && !r.unlimited) {
+          setShowCredits(true);
+          setPendingCreditsCount(r.pendingTenants ?? 0);
+        } else {
+          setShowCredits(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setShowCredits(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // whiteLabelId viene del JWT (estable por sesión) → 1 fetch, no por nav.
+  }, [variant]);
+
   useEffect(() => {
     const u = getUser();
     if (!u) {
@@ -373,6 +407,23 @@ export default function AppShell({
             {
               section: 'Sistema',
               items: [
+                // Fase 3 (#6/#7): sección Créditos solo para admins de marca
+                // blanca no-ilimitada (showCredits). Badge = negocios
+                // pendientes de activación.
+                ...(showCredits
+                  ? [
+                      {
+                        href: '/admin/creditos',
+                        label: 'Créditos',
+                        icon: 'card' as const,
+                        badge:
+                          pendingCreditsCount > 0
+                            ? String(pendingCreditsCount)
+                            : undefined,
+                        hideForMarketing: true,
+                      },
+                    ]
+                  : []),
                 { href: '/admin/users', label: 'Administradores', icon: 'users', hideForMarketing: true },
                 { href: '/admin/branding', label: 'Branding', icon: 'spark' },
                 { href: '/admin/integrations', label: 'Integraciones SMS', icon: 'spark' },
@@ -810,7 +861,12 @@ export default function AppShell({
                         size={18}
                         className="opacity-90 flex-none"
                       />
-                      <span>{n.label}</span>
+                      <span className="flex-1">{n.label}</span>
+                      {n.badge && (
+                        <span className="flex-none text-[10px] font-bold leading-none px-1.5 py-1 rounded-full bg-amber-400 text-amber-950">
+                          {n.badge}
+                        </span>
+                      )}
                     </Link>
                   );
                 })}

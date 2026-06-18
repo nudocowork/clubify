@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -93,5 +93,28 @@ export class AdminReportsController {
     @Query('to') to?: string,
   ) {
     return this.svc.dashboardMetricsV2(user, { range, from, to });
+  }
+
+  // ─────────── Créditos por marca (Fase 3 · #6 / #7) ───────────
+  /** Resumen de créditos de la marca del admin + links de compra +
+   *  historial. 403 si el admin es global (Clubify). */
+  @Get('credits')
+  myCredits(@CurrentUser() user: AuthUser) {
+    return this.svc.myCredits(user);
+  }
+
+  /** Negocios de la marca pendientes de activación/renovación. */
+  @Get('credits/pending')
+  pendingTenants(@CurrentUser() user: AuthUser) {
+    return this.svc.listPendingTenants(user);
+  }
+
+  /** Activa manualmente un negocio consumiendo 1 crédito. */
+  @Post('credits/activate/:tenantId')
+  activateTenant(
+    @CurrentUser() user: AuthUser,
+    @Param('tenantId') tenantId: string,
+  ) {
+    return this.svc.activateTenant(user, tenantId);
   }
 }

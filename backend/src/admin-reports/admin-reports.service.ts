@@ -1374,6 +1374,288 @@ export class AdminReportsService {
       generatedAt: now,
     };
   }
+
+  // ============================================================
+  //            CRÉDITOS POR MARCA (Fase 3 · #6 / #7)
+  // ============================================================
+  //
+  // El admin de una marca blanca (SUPER_ADMIN con whiteLabelId) ve y
+  // gestiona los créditos de SU marca desde /admin/credits. 1 crédito =
+  // 30 días de servicio para un negocio. La infra de créditos vive en
+  // WhiteLabel + CreditTransaction + HotmartCreditLink (gestionada por el
+  // PLATFORM_OWNER en /superadmin/creditos); acá sólo exponemos la vista
+  // brand-scoped + la activación manual (consume 1 crédito).
+  //
+  // Diseño ADITIVO: NO toca activatePurchase ni el cron de renovaciones.
+  // La activación manual replica el débito race-safe del cron.
+
+  private static readonly CYCLE_DAYS = 30;
+
+  /** Resuelve la marca del admin actual. null = Clubify / PLATFORM_OWNER
+   *  (scope global) → no aplica panel de créditos por marca. */
+  private requireWhiteLabelId(user: AuthUser): string {
+    if (user.role !== 'SUPER_ADMIN' && user.role !== 'PLATFORM_OWNER') {
+      throw new ForbiddenException();
+    }
+    if (!user.whiteLabelId) {
+      // Admin global (Clubify) — no tiene una marca propia con créditos.
+      throw new ForbiddenException(
+        'Esta sección es para administradores de una marca blanca.',
+      );
+    }
+    return user.whiteLabelId;
+  }
+
+  /**
+   * Resumen de créditos de la marca del admin: disponibles / usados /
+   * comprometidos + links de compra (Hotmart) + historial reciente.
+   * Las marcas con créditos ilimitados no necesitan esta sección
+   * (`unlimited:true`); el front la oculta.
+   */
+  async myCredits(user: AuthUser) {
+    const wlId = this.requireWhiteLabelId(user);
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id: wlId },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        creditsAvailable: true,
+        creditsCommitted: true,
+        creditsUsed: true,
+        creditsUnlimited: true,
+      },
+    });
+    if (!wl) throw new NotFoundException('Marca no encontrada');
+
+    const [history, buyLinks, pendingCount] = await Promise.all([
+      this.prisma.creditTransaction.findMany({
+        where: { whiteLabelId: wlId },
+        orderBy: { createdAt: 'desc' },
+        take: 30,
+        select: {
+          id: true,
+          type: true,
+          amount: true,
+          note: true,
+          tenantId: true,
+          createdAt: true,
+        },
+      }),
+      // Links de compra públicos (los mismos que el PLATFORM_OWNER
+      // configura). Sólo activos, ordenados.
+      this.prisma.hotmartCreditLink.findMany({
+        where: { isActive: true },
+        orderBy: [{ position: 'asc' }, { credits: 'asc' }],
+        select: {
+          id: true,
+          credits: true,
+          label: true,
+          url: true,
+          price: true,
+          currency: true,
+        },
+      }),
+      this.countPendingTenants(wlId),
+    ]);
+
+    return {
+      whiteLabel: { id: wl.id, name: wl.name, slug: wl.slug },
+      unlimited: wl.creditsUnlimited,
+      available: wl.creditsAvailable,
+      committed: wl.creditsCommitted,
+      used: wl.creditsUsed,
+      pendingTenants: pendingCount,
+      buyLinks: buyLinks.map((l) => ({
+        ...l,
+        price: l.price == null ? null : Number(l.price),
+      })),
+      history,
+    };
+  }
+
+  /** WHERE de negocios "pendientes de activación" de una marca: TRIAL
+   *  vencido, periodo vencido, o suspendidos. Compartido entre count y
+   *  list para que el badge y la lista cuadren. */
+  private pendingTenantsWhere(wlId: string) {
+    const now = new Date();
+    return {
+      whiteLabelId: wlId,
+      OR: [
+        { status: 'SUSPENDED' as const },
+        { status: 'TRIAL' as const, trialEndsAt: { lt: now } },
+        { status: 'ACTIVE' as const, currentPeriodEnd: { lt: now } },
+      ],
+    };
+  }
+
+  private countPendingTenants(wlId: string) {
+    return this.prisma.tenant.count({ where: this.pendingTenantsWhere(wlId) });
+  }
+
+  /**
+   * Lista los negocios de la marca pendientes de activación/renovación.
+   * El admin los activa manualmente consumiendo 1 crédito.
+   */
+  async listPendingTenants(user: AuthUser) {
+    const wlId = this.requireWhiteLabelId(user);
+    const now = new Date();
+    const tenants = await this.prisma.tenant.findMany({
+      where: this.pendingTenantsWhere(wlId),
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+      select: {
+        id: true,
+        brandName: true,
+        slug: true,
+        status: true,
+        trialEndsAt: true,
+        currentPeriodEnd: true,
+        planPeriodicity: true,
+        createdAt: true,
+      },
+    });
+    return tenants.map((t) => {
+      const ref = t.status === 'TRIAL' ? t.trialEndsAt : t.currentPeriodEnd;
+      const overdueDays =
+        ref && ref < now
+          ? Math.floor(
+              (now.getTime() - ref.getTime()) / (24 * 60 * 60 * 1000),
+            )
+          : 0;
+      return {
+        id: t.id,
+        brandName: t.brandName,
+        slug: t.slug,
+        status: t.status,
+        reason:
+          t.status === 'SUSPENDED'
+            ? 'Suspendido'
+            : t.status === 'TRIAL'
+              ? 'Prueba vencida'
+              : 'Periodo vencido',
+        overdueDays,
+        createdAt: t.createdAt,
+      };
+    });
+  }
+
+  /**
+   * Activa manualmente un negocio de la marca consumiendo 1 crédito:
+   * pasa a ACTIVE + extiende currentPeriodEnd 30 días (desde hoy o desde
+   * el fin de periodo si aún es futuro). Replica el débito race-safe del
+   * cron de renovaciones. Marcas ilimitadas activan sin consumir.
+   *
+   * ADITIVO: no toca activatePurchase (Hotmart) — esto es activación
+   * operativa por créditos, no una compra.
+   */
+  async activateTenant(user: AuthUser, tenantId: string) {
+    const wlId = this.requireWhiteLabelId(user);
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        id: true,
+        brandName: true,
+        whiteLabelId: true,
+        status: true,
+        currentPeriodEnd: true,
+      },
+    });
+    if (!tenant) throw new NotFoundException('Negocio no encontrado');
+    // Aislamiento estricto: sólo negocios de la propia marca.
+    if (tenant.whiteLabelId !== wlId) {
+      throw new ForbiddenException('Este negocio no pertenece a tu marca.');
+    }
+
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id: wlId },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        creditsAvailable: true,
+        creditsUnlimited: true,
+      },
+    });
+    if (!wl) throw new NotFoundException('Marca no encontrada');
+    if (wl.status === 'SUSPENDED') {
+      throw new ForbiddenException('Tu marca está suspendida. Contacta soporte.');
+    }
+
+    const now = new Date();
+    const base =
+      tenant.currentPeriodEnd && tenant.currentPeriodEnd > now
+        ? tenant.currentPeriodEnd
+        : now;
+    const newPeriodEnd = new Date(
+      base.getTime() + AdminReportsService.CYCLE_DAYS * 24 * 60 * 60 * 1000,
+    );
+
+    // Marca ilimitada: activa sin consumir crédito ni crear transacción.
+    if (wl.creditsUnlimited) {
+      await this.prisma.tenant.update({
+        where: { id: tenant.id },
+        data: { status: 'ACTIVE', currentPeriodEnd: newPeriodEnd },
+      });
+      return {
+        ok: true,
+        consumed: 0,
+        creditsAvailable: wl.creditsAvailable,
+        currentPeriodEnd: newPeriodEnd,
+      };
+    }
+
+    // Débito race-safe: sólo decrementa si hay >= 1 crédito.
+    const debit = await this.prisma.whiteLabel.updateMany({
+      where: { id: wlId, creditsAvailable: { gte: 1 } },
+      data: {
+        creditsAvailable: { decrement: 1 },
+        creditsUsed: { increment: 1 },
+      },
+    });
+    if (debit.count === 0) {
+      throw new ForbiddenException(
+        'No tienes créditos disponibles. Compra un pack para activar este negocio.',
+      );
+    }
+
+    try {
+      await this.prisma.tenant.update({
+        where: { id: tenant.id },
+        data: { status: 'ACTIVE', currentPeriodEnd: newPeriodEnd },
+      });
+      await this.prisma.creditTransaction.create({
+        data: {
+          whiteLabelId: wlId,
+          type: 'CONSUME',
+          amount: -1,
+          tenantId: tenant.id,
+          note: `Activación manual · ${tenant.brandName} · +30d`,
+        },
+      });
+    } catch (e) {
+      // Rollback del crédito si la activación falló.
+      await this.prisma.whiteLabel.update({
+        where: { id: wlId },
+        data: {
+          creditsAvailable: { increment: 1 },
+          creditsUsed: { decrement: 1 },
+        },
+      });
+      throw e;
+    }
+
+    const after = await this.prisma.whiteLabel.findUnique({
+      where: { id: wlId },
+      select: { creditsAvailable: true },
+    });
+    return {
+      ok: true,
+      consumed: 1,
+      creditsAvailable: after?.creditsAvailable ?? wl.creditsAvailable - 1,
+      currentPeriodEnd: newPeriodEnd,
+    };
+  }
 }
 
 /**

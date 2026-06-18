@@ -32,6 +32,7 @@ const RESERVED_ADMIN_ROUTES = new Set([
   'branding',
   'business-categories',
   'commissions',
+  'creditos',
   'industries',
   'integrations',
   'lab',

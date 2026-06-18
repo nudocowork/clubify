@@ -150,6 +150,7 @@ export class AuthService {
       role: any;
       tenantId: string | null;
       fullName: string;
+      whiteLabelId?: string | null;
     },
     ip: string | undefined,
     opts: {
@@ -176,6 +177,11 @@ export class AuthService {
       email: user.email,
       role: user.role,
       tenantId: user.tenantId,
+      // Marca blanca propia del admin (relación WhiteLabelAdmin). Para
+      // Clubify y owners de tenant es null = scope global. Propagarlo en el
+      // login (no solo en impersonación) hace que el admin de una marca
+      // blanca quede aislado a sus datos también en login directo.
+      whiteLabelId: user.whiteLabelId ?? null,
     };
 
     const accessToken =
