@@ -369,6 +369,23 @@ export default function AppShell({
 
   const isMarketing = user?.role === 'MARKETING';
 
+  // Slug + módulos de la marca activa. DEBEN declararse ANTES de `groups`:
+  // el IIFE de `groups` (más abajo) lee `brandModules` para gatear secciones,
+  // y `const` no se hoistea → si se declaran después da TDZ ("Cannot access
+  // before initialization") y la pantalla crashea con "Algo salió mal".
+  const urlBrandMatch = pathname.match(/^\/admin\/([^/]+)/);
+  const urlBrandSlug =
+    urlBrandMatch && !ADMIN_ROUTE_SEGMENTS.has(urlBrandMatch[1])
+      ? urlBrandMatch[1]
+      : null;
+  const brandSlug =
+    variant === 'admin'
+      ? impersonation?.tenant?.slug || urlBrandSlug || brandFetched?.slug || null
+      : null;
+  // null = aún sin resolver o sin marca (global) → no se gatea nada.
+  const brandModules =
+    variant === 'admin' && brandSlug ? brandFetched?.modules ?? null : null;
+
   const groups: NavGroup[] =
     variant === 'admin'
       ? (() => {
@@ -656,22 +673,8 @@ export default function AppShell({
             }
           : null;
 
-  // Slug de la marca activa para prefijar los links del panel y mantener la
-  // URL /admin/<slug> al navegar.
-  const urlBrandMatch = pathname.match(/^\/admin\/([^/]+)/);
-  const urlBrandSlug =
-    urlBrandMatch && !ADMIN_ROUTE_SEGMENTS.has(urlBrandMatch[1])
-      ? urlBrandMatch[1]
-      : null;
-  const brandSlug =
-    variant === 'admin'
-      ? impersonation?.tenant?.slug || urlBrandSlug || brandFetched?.slug || null
-      : null;
-
-  // Módulos habilitados de la marca activa (para gatear secciones del menú).
-  // null = aún sin resolver o sin marca (global) → no se gatea nada.
-  const brandModules =
-    variant === 'admin' && brandSlug ? brandFetched?.modules ?? null : null;
+  // (brandSlug + brandModules se declaran arriba, antes de `groups`, para
+  // evitar el TDZ — ver comentario allí.)
 
   // Prefija un href de /admin con el slug de marca activo (/admin/tenants →
   // /admin/<slug>/tenants). El middleware reescribe de vuelta a /admin.
