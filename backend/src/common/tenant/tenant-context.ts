@@ -24,7 +24,25 @@ export type TenantCtx = {
   role: Role | null;
   /** Si true, el middleware NO inyecta `tenantId` (super admin / jobs). */
   bypass: boolean;
+  /** Marca blanca activa (SUPER_ADMIN que "entró" a una white-label). */
+  whiteLabelId?: string | null;
+  /** Set de tenantIds de la marca activa, resuelto por el interceptor.
+   *  Presente → el middleware scopea las queries a `tenantId IN (...)` en
+   *  vez de a un solo tenant. Tiene prioridad sobre el bypass global de
+   *  SUPER_ADMIN (modo "dentro de la marca"). */
+  whiteLabelTenantIds?: string[] | null;
 };
+
+/**
+ * Alcance de enforcement resuelto para el contexto actual:
+ *   - { kind: 'tenant' }     → un solo negocio (usuario normal)
+ *   - { kind: 'whiteLabel' } → todos los tenants de una marca (impersonación)
+ *   - null                   → sin enforcement (global / bypass / público)
+ */
+export type EnforcedScope =
+  | { kind: 'tenant'; tenantId: string }
+  | { kind: 'whiteLabel'; tenantIds: string[] }
+  | null;
 
 const storage = new AsyncLocalStorage<TenantCtx>();
 
@@ -60,5 +78,25 @@ export const TenantContext = {
     if (ctx.bypass) return null;
     if (ctx.role === 'SUPER_ADMIN' || ctx.role === 'MARKETING') return null;
     return ctx.tenantId;
+  },
+
+  /**
+   * Alcance de enforcement para el contexto actual. Reemplaza a
+   * `enforcedTenantId()` en el middleware: distingue el modo "un tenant" del
+   * modo "marca blanca" (set de tenants), o null si no hay enforcement.
+   */
+  enforcedScope(): EnforcedScope {
+    const ctx = storage.getStore();
+    if (!ctx) return null;
+    if (ctx.bypass) return null;
+    // Modo marca blanca: SUPER_ADMIN dentro de una marca con el set de
+    // tenants ya resuelto por el interceptor. Prioridad sobre el bypass
+    // global de SUPER_ADMIN.
+    if (ctx.whiteLabelTenantIds) {
+      return { kind: 'whiteLabel', tenantIds: ctx.whiteLabelTenantIds };
+    }
+    if (ctx.role === 'SUPER_ADMIN' || ctx.role === 'MARKETING') return null;
+    if (ctx.tenantId) return { kind: 'tenant', tenantId: ctx.tenantId };
+    return null;
   },
 };
