@@ -1024,16 +1024,24 @@ export class TenantsService {
       where: { id: tenantId },
       include: {
         plan: true,
-        whiteLabel: { select: { creditsUnlimited: true } },
+        whiteLabel: {
+          select: {
+            creditsUnlimited: true,
+            modules: { where: { module: 'REVIEWS' }, select: { enabled: true } },
+          },
+        },
         _count: { select: { cards: true, customers: true, products: true, locations: true } },
       },
     });
     if (!t) throw new NotFoundException();
-    // Exponemos un flag plano para el frontend; el lockscreen de Hotmart
-    // se salta para tenants bajo marcas blancas con créditos ilimitados.
+    // Exponemos flags planos para el frontend. reviewsEnabled: el módulo
+    // REVIEWS de la marca; sin registro (marcas viejas / sin marca) = true
+    // para preservar el comportamiento actual (reseñas siempre activas).
+    const reviewsModule = t.whiteLabel?.modules?.[0];
     return {
       ...t,
       whiteLabelCreditsUnlimited: t.whiteLabel?.creditsUnlimited ?? false,
+      reviewsEnabled: reviewsModule ? reviewsModule.enabled : true,
     };
   }
 

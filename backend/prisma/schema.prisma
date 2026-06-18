@@ -3783,6 +3783,19 @@ model WhiteLabel {
   appDomain       String?
   /// Color hex del avatar / botones primarios de la marca.
   primaryColor    String          @default("#16a34a")
+  /// Identidad visual extendida de la marca (manual de marca). Todos opcionales.
+  /// Logo del panel (si está, reemplaza el avatar de inicial).
+  logoUrl         String?
+  /// Color secundario / tinta (textos y fondos oscuros).
+  secondaryColor  String?
+  /// Color de fondos suaves (crema).
+  backgroundColor String?
+  /// Color de apoyo / accent oscuro.
+  supportColor    String?
+  /// Handle de Instagram público (ej "@selleala").
+  instagram       String?
+  /// Email de contacto público de la marca (ej "hola@selleala.com").
+  contactEmail    String?
   /// Letra inicial mostrada en el avatar cuadrado.
   initial         String?
   /// Email del admin principal (queda informativo; los logins reales son
@@ -3848,6 +3861,7 @@ enum ModuleKey {
   REFERRALS
   ORDERS
   GROW_BUSINESS_SMS
+  REVIEWS
 }
 
 /// Ledger de movimientos de créditos por marca blanca. Cada compra,

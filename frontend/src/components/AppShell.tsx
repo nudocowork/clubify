@@ -103,6 +103,7 @@ export default function AppShell({
   const [brandFetched, setBrandFetched] = useState<{
     name: string;
     color: string | null;
+    logoUrl: string | null;
     slug: string;
     modules: string[];
   } | null>(null);
@@ -126,6 +127,9 @@ export default function AppShell({
     // Master Admin 2026-06-14: si la marca blanca tiene créditos ilimitados,
     // este tenant nunca necesita pasar por Hotmart. Salta el lockscreen.
     whiteLabelCreditsUnlimited?: boolean;
+    // Módulo Reseñas de la marca (default true). Si la marca lo apaga, se
+    // ocultan los items de reseñas del menú.
+    reviewsEnabled?: boolean;
   } | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
     new Set(),
@@ -216,6 +220,7 @@ export default function AppShell({
     api<{
       name: string;
       primaryColor: string;
+      logoUrl?: string | null;
       slug: string;
       modules?: string[];
     } | null>(
@@ -226,6 +231,7 @@ export default function AppShell({
           setBrandFetched({
             name: r.name,
             color: r.primaryColor,
+            logoUrl: r.logoUrl ?? null,
             slug: r.slug,
             modules: r.modules ?? [],
           });
@@ -307,6 +313,7 @@ export default function AppShell({
           academyEnabled: t?.academyEnabled ?? true,
           reservationsEnabled: t?.reservationsEnabled ?? false,
           whiteLabelCreditsUnlimited: t?.whiteLabelCreditsUnlimited ?? false,
+          reviewsEnabled: t?.reviewsEnabled ?? true,
         });
       })
       .catch(() => null);
@@ -512,10 +519,22 @@ export default function AppShell({
           // items para no flickear. Una vez carga, se filtran.
           if (!tenantInfo) return all;
 
+          // #3 módulo Reseñas: si la marca lo apaga, ocultar los items de
+          // reseñas (panel + QR). reviewsEnabled default true.
+          const reviewsHidden = tenantInfo.reviewsEnabled === false;
+          const reviewHrefs = new Set([
+            '/app/reviews',
+            '/app/marketing/qr-reviews',
+          ]);
+
           return all
             .map((g) => ({
               ...g,
-              items: g.items.filter((it) => !it.module || has(it.module)),
+              items: g.items.filter(
+                (it) =>
+                  (!it.module || has(it.module)) &&
+                  !(reviewsHidden && reviewHrefs.has(it.href)),
+              ),
             }))
             .filter((g) => g.items.length > 0);
         })();
@@ -576,9 +595,14 @@ export default function AppShell({
         ? {
             name: impersonation.tenant.brandName.trim(),
             color: impersonation.tenant.primaryColor || null,
+            logo: brandFetched?.logoUrl ?? null,
           }
         : brandFetched
-          ? { name: brandFetched.name, color: brandFetched.color }
+          ? {
+              name: brandFetched.name,
+              color: brandFetched.color,
+              logo: brandFetched.logoUrl,
+            }
           : null;
 
   // Slug de la marca activa para prefijar los links del panel y mantener la
@@ -621,6 +645,19 @@ export default function AppShell({
       : tenantInfo?.brandName?.trim() || 'Mi Negocio';
 
   const renderBrandMark = (size: number) => {
+    // Marca activa con logo propio → su logo.
+    if (activeBrand?.logo) {
+      return (
+        <img
+          src={activeBrand.logo}
+          alt={activeBrand.name}
+          width={size}
+          height={size}
+          className="bg-white rounded-input object-contain flex-none"
+          style={{ width: size, height: size }}
+        />
+      );
+    }
     // Marca activa sin logo propio → avatar con su inicial y color (evita
     // mostrar el logo de Clubify dentro del panel de otra marca).
     if (activeBrand) {

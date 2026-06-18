@@ -16,6 +16,12 @@ export type WhiteLabelDto = {
   initial?: string;
   adminEmail?: string;
   creditsUnlimited?: boolean;
+  logoUrl?: string;
+  secondaryColor?: string;
+  backgroundColor?: string;
+  supportColor?: string;
+  instagram?: string;
+  contactEmail?: string;
 };
 
 export type HotmartLinkDto = {
@@ -594,6 +600,12 @@ export class SuperAdminService {
           domain: dto.domain?.trim() || null,
           appDomain: dto.appDomain?.trim() || null,
           primaryColor: dto.primaryColor || '#16a34a',
+          logoUrl: dto.logoUrl?.trim() || null,
+          secondaryColor: dto.secondaryColor || null,
+          backgroundColor: dto.backgroundColor || null,
+          supportColor: dto.supportColor || null,
+          instagram: dto.instagram?.trim() || null,
+          contactEmail: dto.contactEmail?.trim().toLowerCase() || null,
           initial: (dto.initial || dto.name.trim()[0] || 'M').toUpperCase().slice(0, 1),
           adminEmail: dto.adminEmail?.trim().toLowerCase() || null,
           creditsUnlimited: dto.creditsUnlimited ?? false,
@@ -602,6 +614,7 @@ export class SuperAdminService {
               { module: 'REFERRALS', enabled: true },
               { module: 'ORDERS', enabled: true },
               { module: 'GROW_BUSINESS_SMS', enabled: true },
+              { module: 'REVIEWS', enabled: true },
             ],
           },
         },
@@ -630,6 +643,12 @@ export class SuperAdminService {
         domain: patch.domain === undefined ? undefined : patch.domain?.trim() || null,
         appDomain: patch.appDomain === undefined ? undefined : patch.appDomain?.trim() || null,
         primaryColor: patch.primaryColor ?? undefined,
+        logoUrl: patch.logoUrl === undefined ? undefined : patch.logoUrl?.trim() || null,
+        secondaryColor: patch.secondaryColor === undefined ? undefined : patch.secondaryColor || null,
+        backgroundColor: patch.backgroundColor === undefined ? undefined : patch.backgroundColor || null,
+        supportColor: patch.supportColor === undefined ? undefined : patch.supportColor || null,
+        instagram: patch.instagram === undefined ? undefined : patch.instagram?.trim() || null,
+        contactEmail: patch.contactEmail === undefined ? undefined : patch.contactEmail?.trim().toLowerCase() || null,
         initial: patch.initial ? patch.initial.toUpperCase().slice(0, 1) : undefined,
         adminEmail: patch.adminEmail === undefined ? undefined : patch.adminEmail?.trim().toLowerCase() || null,
         creditsUnlimited: patch.creditsUnlimited === undefined ? undefined : patch.creditsUnlimited,
@@ -888,6 +907,12 @@ export class SuperAdminService {
         slug: true,
         name: true,
         primaryColor: true,
+        logoUrl: true,
+        secondaryColor: true,
+        backgroundColor: true,
+        supportColor: true,
+        instagram: true,
+        contactEmail: true,
         // Módulos habilitados → el panel gatea secciones (ej. Referidos) por
         // marca. Solo los enabled.
         modules: { where: { enabled: true }, select: { module: true } },
@@ -898,6 +923,12 @@ export class SuperAdminService {
       slug: wl.slug,
       name: wl.name,
       primaryColor: wl.primaryColor,
+      logoUrl: wl.logoUrl,
+      secondaryColor: wl.secondaryColor,
+      backgroundColor: wl.backgroundColor,
+      supportColor: wl.supportColor,
+      instagram: wl.instagram,
+      contactEmail: wl.contactEmail,
       modules: wl.modules.map((m) => m.module),
     };
   }
@@ -969,7 +1000,7 @@ export class SuperAdminService {
    *  los 3 módulos. Si la marca no tiene una fila de
    *  WhiteLabelModule para un módulo, asumimos enabled=false. */
   async modulesMatrix() {
-    const ALL_MODULES: ModuleKey[] = ['REFERRALS', 'ORDERS', 'GROW_BUSINESS_SMS'];
+    const ALL_MODULES: ModuleKey[] = ['REFERRALS', 'ORDERS', 'GROW_BUSINESS_SMS', 'REVIEWS'];
     const whiteLabels = await this.prisma.whiteLabel.findMany({
       orderBy: { name: 'asc' },
       include: {

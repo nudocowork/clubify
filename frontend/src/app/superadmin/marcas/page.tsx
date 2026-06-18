@@ -10,6 +10,12 @@ type WhiteLabel = {
   domain: string | null;
   appDomain: string | null;
   primaryColor: string;
+  logoUrl: string | null;
+  secondaryColor: string | null;
+  backgroundColor: string | null;
+  supportColor: string | null;
+  instagram: string | null;
+  contactEmail: string | null;
   initial: string | null;
   adminEmail: string | null;
   status: 'ACTIVE' | 'SUSPENDED';
@@ -50,6 +56,7 @@ const MODULE_LABELS: Record<string, string> = {
   REFERRALS: 'Referidos',
   ORDERS: 'Pedidos',
   GROW_BUSINESS_SMS: 'GrowBusiness SMS',
+  REVIEWS: 'Reseñas',
 };
 
 export default function MarcasBlancasPage() {
@@ -576,21 +583,22 @@ function Drawer({
                 </button>
               </div>
 
-              <div>
-                <SectionTitle>Branding</SectionTitle>
-                <div className="mt-2 space-y-1.5 text-sm" style={{ color: '#2b3a30' }}>
-                  <div className="flex justify-between">
-                    <span style={{ color: '#9aa4af' }}>Color</span>
-                    <span className="inline-flex items-center gap-2">
-                      <span
-                        className="inline-block w-5 h-5 rounded"
-                        style={{ background: w.primaryColor }}
-                      />
-                      <span className="font-mono text-xs">{w.primaryColor}</span>
-                    </span>
-                  </div>
-                </div>
-              </div>
+              <BrandingConfig
+                whiteLabelId={w.id}
+                initial={{
+                  logoUrl: w.logoUrl,
+                  primaryColor: w.primaryColor,
+                  secondaryColor: w.secondaryColor,
+                  backgroundColor: w.backgroundColor,
+                  supportColor: w.supportColor,
+                  instagram: w.instagram,
+                  contactEmail: w.contactEmail,
+                }}
+                onSaved={(msg) => {
+                  reloadAdmins();
+                  onChanged(msg);
+                }}
+              />
 
               <DomainConfig
                 whiteLabelId={w.id}
@@ -1347,6 +1355,148 @@ function DomainConfig({
           }}
         >
           {busy ? 'Guardando…' : 'Guardar dominio'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Edita la identidad visual de una marca: logo, paleta de colores (primario/
+ *  secundario/fondo/apoyo), Instagram y email de contacto. PATCH a
+ *  /superadmin/white-labels/:id. El panel de la marca toma estos valores. */
+function BrandingConfig({
+  whiteLabelId,
+  initial,
+  onSaved,
+}: {
+  whiteLabelId: string;
+  initial: {
+    logoUrl: string | null;
+    primaryColor: string;
+    secondaryColor: string | null;
+    backgroundColor: string | null;
+    supportColor: string | null;
+    instagram: string | null;
+    contactEmail: string | null;
+  };
+  onSaved: (msg: string) => void;
+}) {
+  const [f, setF] = useState({
+    logoUrl: initial.logoUrl ?? '',
+    primaryColor: initial.primaryColor ?? '#16a34a',
+    secondaryColor: initial.secondaryColor ?? '',
+    backgroundColor: initial.backgroundColor ?? '',
+    supportColor: initial.supportColor ?? '',
+    instagram: initial.instagram ?? '',
+    contactEmail: initial.contactEmail ?? '',
+  });
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    setBusy(true);
+    try {
+      await api(`/superadmin/white-labels/${whiteLabelId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          logoUrl: f.logoUrl.trim() || null,
+          primaryColor: f.primaryColor || undefined,
+          secondaryColor: f.secondaryColor.trim() || null,
+          backgroundColor: f.backgroundColor.trim() || null,
+          supportColor: f.supportColor.trim() || null,
+          instagram: f.instagram.trim() || null,
+          contactEmail: f.contactEmail.trim() || null,
+        }),
+      });
+      onSaved('Branding actualizado');
+    } catch (e: any) {
+      onSaved(e.message ?? 'Error al guardar branding');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const colorRow = (
+    label: string,
+    key: 'primaryColor' | 'secondaryColor' | 'backgroundColor' | 'supportColor',
+  ) => (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-xs" style={{ color: '#6b7785' }}>
+        {label}
+      </span>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={/^#[0-9a-fA-F]{6}$/.test(f[key]) ? f[key] : '#000000'}
+          onChange={(e) => setF((s) => ({ ...s, [key]: e.target.value }))}
+          style={{ width: 28, height: 28, border: 'none', background: 'none', padding: 0 }}
+        />
+        <input
+          value={f[key]}
+          onChange={(e) => setF((s) => ({ ...s, [key]: e.target.value }))}
+          placeholder="#000000"
+          className="text-xs font-mono"
+          style={{
+            width: 90,
+            padding: '6px 8px',
+            borderRadius: 7,
+            border: '1px solid #d7dbe0',
+          }}
+        />
+      </div>
+    </div>
+  );
+
+  const textInput = (
+    label: string,
+    key: 'logoUrl' | 'instagram' | 'contactEmail',
+    placeholder: string,
+  ) => (
+    <div>
+      <label className="text-xs font-semibold" style={{ color: '#6b7785' }}>
+        {label}
+      </label>
+      <input
+        value={f[key]}
+        onChange={(e) => setF((s) => ({ ...s, [key]: e.target.value }))}
+        placeholder={placeholder}
+        className="w-full mt-1 text-sm"
+        style={{
+          padding: '8px 11px',
+          borderRadius: 8,
+          border: '1px solid #d7dbe0',
+          background: 'white',
+          color: '#16241c',
+        }}
+      />
+    </div>
+  );
+
+  return (
+    <div>
+      <SectionTitle>Identidad visual</SectionTitle>
+      <div className="mt-2 space-y-3">
+        {textInput('URL del logo', 'logoUrl', 'https://…/logo.png')}
+        <div className="space-y-2">
+          {colorRow('Color principal', 'primaryColor')}
+          {colorRow('Color secundario', 'secondaryColor')}
+          {colorRow('Color de fondos', 'backgroundColor')}
+          {colorRow('Color de apoyo', 'supportColor')}
+        </div>
+        {textInput('Instagram', 'instagram', '@marca')}
+        {textInput('Email de contacto', 'contactEmail', 'hola@marca.com')}
+        <button
+          onClick={save}
+          disabled={busy}
+          className="w-full text-sm font-bold text-white rounded-[10px]"
+          style={{
+            padding: '10px',
+            background: busy
+              ? '#9ca3af'
+              : 'linear-gradient(180deg, #28c95f, #16a34a)',
+            cursor: busy ? 'default' : 'pointer',
+          }}
+        >
+          {busy ? 'Guardando…' : 'Guardar branding'}
         </button>
       </div>
     </div>
