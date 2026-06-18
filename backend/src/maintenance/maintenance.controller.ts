@@ -14,8 +14,11 @@ import { Public } from '../common/decorators/public.decorator';
  * funcionan, incluso con mantenimiento activo. Sino el SUPER_ADMIN se
  * quedaría encerrado afuera.
  */
+// PLATFORM_OWNER (Master Admin / Fidelia) también accede: sin esto, el poll
+// de estado de mantenimiento desde su panel devolvía 403 (ruido en consola
+// que se confundía con un fallo al guardar branding).
 @Controller('admin/maintenance')
-@Roles('SUPER_ADMIN')
+@Roles('SUPER_ADMIN', 'PLATFORM_OWNER')
 export class MaintenanceAdminController {
   constructor(private svc: MaintenanceService) {}
 

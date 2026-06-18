@@ -668,7 +668,7 @@ function EditLinksModal({
   onChanged: () => void;
 }) {
   const [rows, setRows] = useState<HotmartLink[]>(links);
-  const [draft, setDraft] = useState({ credits: 1, label: '', url: '', price: '', currency: 'MXN', hotmartProductId: '' });
+  const [draft, setDraft] = useState({ credits: 1, label: '', url: '', price: '', currency: 'USD', hotmartProductId: '' });
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -691,7 +691,7 @@ function EditLinksModal({
           hotmartProductId: draft.hotmartProductId.trim() || null,
         }),
       });
-      setDraft({ credits: 1, label: '', url: '', price: '', currency: 'MXN', hotmartProductId: '' });
+      setDraft({ credits: 1, label: '', url: '', price: '', currency: 'USD', hotmartProductId: '' });
       onChanged();
     } finally {
       setBusy(false);

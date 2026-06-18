@@ -278,26 +278,11 @@ export default function MarcasBlancasPage() {
                     {new Date(w.createdAt).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}
                   </td>
                   <td style={{ padding: '14px 16px' }}>
-                    <div className="flex gap-1.5" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={() => setDrawerId(w.id)}
-                        className="text-xs font-semibold px-3 py-1.5 rounded-md transition"
-                        style={{ background: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0' }}
-                      >
-                        Entrar
-                      </button>
-                      <button
-                        onClick={() => toggleStatus(w)}
-                        className="text-xs font-semibold px-3 py-1.5 rounded-md transition"
-                        style={{
-                          background: 'white',
-                          color: w.status === 'ACTIVE' ? '#b91c1c' : '#15803d',
-                          border: `1px solid ${w.status === 'ACTIVE' ? '#fecaca' : '#bbf7d0'}`,
-                        }}
-                      >
-                        {w.status === 'ACTIVE' ? 'Suspender' : 'Activar'}
-                      </button>
-                    </div>
+                    <BrandRowActions
+                      status={w.status}
+                      onEnter={() => setDrawerId(w.id)}
+                      onToggle={() => toggleStatus(w)}
+                    />
                   </td>
                 </tr>
               ))}
@@ -437,10 +422,17 @@ function Drawer({
       startImpersonation({
         accessToken: r.accessToken,
         user: r.user,
-        tenant: { id: r.whiteLabel.id, brandName: r.whiteLabel.name },
+        tenant: {
+          id: r.whiteLabel.id,
+          brandName: r.whiteLabel.name,
+          primaryColor: r.whiteLabel.primaryColor,
+          slug: w.slug,
+        },
       });
-      // Llevar al admin de la marca
-      router.push('/admin');
+      // Llevar al panel de la marca por su slug (ej. /admin/sellea). El
+      // middleware reescribe a /admin sirviendo el mismo panel. Clubify u
+      // otra marca sin slug cae al /admin global.
+      router.push(w.slug ? `/admin/${w.slug}` : '/admin');
     } catch (e: any) {
       onChanged(e.message ?? 'No se pudo entrar');
     } finally {
@@ -588,14 +580,6 @@ function Drawer({
                 <SectionTitle>Branding</SectionTitle>
                 <div className="mt-2 space-y-1.5 text-sm" style={{ color: '#2b3a30' }}>
                   <div className="flex justify-between">
-                    <span style={{ color: '#9aa4af' }}>Dominio</span>
-                    <span className="font-medium">{w.domain ?? '—'}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span style={{ color: '#9aa4af' }}>Dominio app</span>
-                    <span className="font-medium">{w.appDomain ?? '—'}</span>
-                  </div>
-                  <div className="flex justify-between">
                     <span style={{ color: '#9aa4af' }}>Color</span>
                     <span className="inline-flex items-center gap-2">
                       <span
@@ -607,6 +591,17 @@ function Drawer({
                   </div>
                 </div>
               </div>
+
+              <DomainConfig
+                whiteLabelId={w.id}
+                slug={w.slug}
+                domain={w.domain}
+                appDomain={w.appDomain}
+                onSaved={(msg) => {
+                  reloadAdmins();
+                  onChanged(msg);
+                }}
+              />
 
               <div>
                 <SectionTitle>Módulos activos</SectionTitle>
@@ -1154,6 +1149,206 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
         {label}
       </label>
       {children}
+    </div>
+  );
+}
+
+/** Acciones de una marca blanca como menú desplegable (Entrar / Suspender /
+ *  Activar). Reemplaza los botones sueltos para dejar la fila más limpia y
+ *  poder sumar acciones futuras sin ensanchar la tabla. */
+function BrandRowActions({
+  status,
+  onEnter,
+  onToggle,
+}: {
+  status: string;
+  onEnter: () => void;
+  onToggle: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative inline-block" onClick={(e) => e.stopPropagation()}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="text-xs font-semibold px-3 py-1.5 rounded-md transition"
+        style={{ background: 'white', color: '#374151', border: '1px solid #e5e7eb' }}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        Acciones ▾
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div
+            role="menu"
+            className="absolute right-0 mt-1 z-20 rounded-lg overflow-hidden"
+            style={{
+              background: 'white',
+              border: '1px solid #e5e7eb',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+              minWidth: 150,
+            }}
+          >
+            <button
+              onClick={() => {
+                setOpen(false);
+                onEnter();
+              }}
+              className="block w-full text-left text-xs font-semibold px-3 py-2 transition hover:bg-gray-50"
+              style={{ color: '#15803d' }}
+            >
+              Entrar
+            </button>
+            <button
+              onClick={() => {
+                setOpen(false);
+                onToggle();
+              }}
+              className="block w-full text-left text-xs font-semibold px-3 py-2 transition hover:bg-gray-50"
+              style={{ color: status === 'ACTIVE' ? '#b91c1c' : '#15803d' }}
+            >
+              {status === 'ACTIVE' ? 'Suspender' : 'Activar'}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Config de dominio propio + instrucciones DNS para una marca blanca.
+ *  Edita appDomain/domain (PATCH /superadmin/white-labels/:id) y muestra el
+ *  CNAME a crear + la URL de fallback por path (/admin/<slug>) que ya
+ *  funciona sin dominio conectado (lo que pidió el spec). */
+function DomainConfig({
+  whiteLabelId,
+  slug,
+  domain,
+  appDomain,
+  onSaved,
+}: {
+  whiteLabelId: string;
+  slug: string;
+  domain: string | null;
+  appDomain: string | null;
+  onSaved: (msg: string) => void;
+}) {
+  const [d, setD] = useState(domain ?? '');
+  const [app, setApp] = useState(appDomain ?? '');
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    setBusy(true);
+    try {
+      await api(`/superadmin/white-labels/${whiteLabelId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          domain: d.trim() || null,
+          appDomain: app.trim() || null,
+        }),
+      });
+      onSaved('Dominio actualizado');
+    } catch (e: any) {
+      onSaved(e.message ?? 'Error al guardar dominio');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      <SectionTitle>Dominio propio</SectionTitle>
+      <div className="mt-2 space-y-3">
+        <div>
+          <label className="text-xs font-semibold" style={{ color: '#6b7785' }}>
+            Dominio del panel (app)
+          </label>
+          <input
+            value={app}
+            onChange={(e) => setApp(e.target.value)}
+            placeholder="app.tudominio.com"
+            className="w-full mt-1 text-sm font-mono"
+            style={{
+              padding: '9px 12px',
+              borderRadius: 8,
+              border: '1px solid #d7dbe0',
+              background: 'white',
+              color: '#16241c',
+            }}
+          />
+        </div>
+        <div>
+          <label className="text-xs font-semibold" style={{ color: '#6b7785' }}>
+            Dominio de marketing (opcional)
+          </label>
+          <input
+            value={d}
+            onChange={(e) => setD(e.target.value)}
+            placeholder="tudominio.com"
+            className="w-full mt-1 text-sm font-mono"
+            style={{
+              padding: '9px 12px',
+              borderRadius: 8,
+              border: '1px solid #d7dbe0',
+              background: 'white',
+              color: '#16241c',
+            }}
+          />
+        </div>
+
+        <div
+          className="rounded-lg p-3 text-xs"
+          style={{ background: '#f7fbf8', border: '1px solid #d9eadf' }}
+        >
+          <div className="font-bold mb-1" style={{ color: '#15803d' }}>
+            📡 Configuración DNS
+          </div>
+          <div className="space-y-1.5" style={{ color: '#4b5563' }}>
+            <div>
+              En el proveedor DNS del dominio, creá un registro <b>CNAME</b>:
+            </div>
+            <div
+              className="font-mono"
+              style={{
+                background: 'white',
+                border: '1px solid #e5e7eb',
+                borderRadius: 6,
+                padding: '6px 8px',
+              }}
+            >
+              {app || 'app.tudominio.com'} &nbsp;&rarr;&nbsp; cname.vercel-dns.com
+            </div>
+            <div className="mt-1">
+              Despu&eacute;s, el dominio debe agregarse al proyecto en <b>Vercel</b>{' '}
+              (equipo Clubify). La propagaci&oacute;n DNS puede tardar hasta 48 h.
+            </div>
+          </div>
+        </div>
+
+        <div
+          className="rounded-lg p-3 text-xs"
+          style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e' }}
+        >
+          Mientras el dominio no est&eacute; conectado, el panel ya funciona en:
+          <div className="font-mono font-semibold mt-1">
+            soyclubify.com/admin/{slug}
+          </div>
+        </div>
+
+        <button
+          onClick={save}
+          disabled={busy}
+          className="w-full text-sm font-bold text-white rounded-[10px]"
+          style={{
+            padding: '10px',
+            background: busy ? '#9ca3af' : 'linear-gradient(180deg, #28c95f, #16a34a)',
+            cursor: busy ? 'default' : 'pointer',
+          }}
+        >
+          {busy ? 'Guardando…' : 'Guardar dominio'}
+        </button>
+      </div>
     </div>
   );
 }

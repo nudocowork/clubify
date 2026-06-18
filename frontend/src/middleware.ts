@@ -20,6 +20,36 @@ const RESERVED_HOSTS = new Set([
 // nudo-cowork.soyclubify.com → tenant slug "nudo-cowork"
 const CLUBIFY_ROOTS = ['soyclubify.com', 'clubify.app'];
 
+// Subrutas REALES del panel /admin (carpetas en app/admin). Si el primer
+// segmento tras /admin es una de estas, NO es un slug de marca → no se
+// reescribe. Cualquier otro primer segmento se trata como slug de marca
+// blanca: /admin/sellea sirve el mismo panel con la URL por marca.
+const RESERVED_ADMIN_ROUTES = new Set([
+  'accounting',
+  'affiliate-registration',
+  'ai-knowledge',
+  'audit',
+  'branding',
+  'business-categories',
+  'commissions',
+  'industries',
+  'integrations',
+  'lab',
+  'maintenance',
+  'map',
+  'payouts',
+  'rankings',
+  'referrals',
+  'reports',
+  'sales-leaderboard',
+  'sales-teams',
+  'support-materials',
+  'tenants',
+  'trials',
+  'users',
+  'ventas',
+]);
+
 // Subdominios reservados por Clubify (no son tenants)
 const RESERVED_SUBS = new Set([
   '',
@@ -137,6 +167,19 @@ async function resolveHost(host: string): Promise<string | null> {
 export async function middleware(req: NextRequest) {
   const url = req.nextUrl;
   const host = (req.headers.get('host') ?? '').toLowerCase().split(':')[0];
+
+  // ────────── Panel de marca blanca por path: /admin/<slug> ──────────
+  // /admin/<slug> y /admin/<slug>/<resto> sirven el MISMO panel /admin (y sus
+  // subrutas) con la URL bonita por marca. Solo aplica si <slug> NO es una
+  // subruta real de /admin. El branding lo resuelve el cliente desde la pila
+  // de impersonación. /admin (sin slug) = Clubify, sin cambios.
+  const adminBrand = url.pathname.match(/^\/admin\/([^/]+)(\/.*)?$/);
+  if (adminBrand && !RESERVED_ADMIN_ROUTES.has(adminBrand[1])) {
+    const rest = adminBrand[2] ?? '';
+    const rewrite = url.clone();
+    rewrite.pathname = `/admin${rest}`;
+    return NextResponse.rewrite(rewrite);
+  }
 
   // ────────── Maintenance mode ──────────
   // Si el flag global está activo, rewriteamos TODO el tráfico web a

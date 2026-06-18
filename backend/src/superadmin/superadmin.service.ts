@@ -867,7 +867,7 @@ export class SuperAdminService {
         label: dto.label.trim(),
         url: dto.url.trim(),
         price: dto.price !== null && dto.price !== undefined ? new Prisma.Decimal(dto.price) : null,
-        currency: dto.currency ?? 'MXN',
+        currency: dto.currency ?? 'USD',
         position: dto.position ?? 0,
         isActive: dto.isActive ?? true,
         hotmartProductId: dto.hotmartProductId?.trim() || null,

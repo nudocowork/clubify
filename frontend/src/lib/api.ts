@@ -70,7 +70,10 @@ type ImpersonationBackup = {
   token: string;
   refreshToken?: string | null;
   user: any;
-  tenant?: { id: string; brandName: string };
+  // Para impersonación de marca blanca, `tenant` lleva el branding de la
+  // marca activa (nombre + color + slug) para que el panel /admin se pinte
+  // con la identidad de esa marca, no la de Clubify.
+  tenant?: { id: string; brandName: string; primaryColor?: string; slug?: string };
   affiliate?: { codeId: string; code: string; ownerName: string; role: string };
   startedAt: string;
 };
@@ -113,7 +116,7 @@ function writeImpersonationStack(stack: ImpersonationBackup[]) {
 export function startImpersonation(opts: {
   accessToken: string;
   user: any;
-  tenant?: { id: string; brandName: string };
+  tenant?: { id: string; brandName: string; primaryColor?: string; slug?: string };
   affiliate?: { codeId: string; code: string; ownerName: string; role: string };
 }) {
   const currentToken = getToken();

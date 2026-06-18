@@ -497,13 +497,41 @@ export default function AppShell({
     // el countdown de días restantes.
   }
 
+  // Marca blanca activa: cuando un PLATFORM_OWNER "entró" a una marca, el
+  // tope de la pila de impersonación lleva su branding (nombre + color). El
+  // panel /admin debe pintarse con esa identidad, NO con la de Clubify.
+  const activeBrand =
+    variant === 'admin' && impersonation?.tenant?.brandName?.trim()
+      ? {
+          name: impersonation.tenant.brandName.trim(),
+          color: impersonation.tenant.primaryColor || null,
+        }
+      : null;
+
   const brandTitle =
     variant === 'admin'
-      ? 'Admin Clubify'
+      ? activeBrand?.name || 'Admin Clubify'
       : tenantInfo?.brandName?.trim() || 'Mi Negocio';
 
-  const renderBrandMark = (size: number) =>
-    branding.appLogoUrl ? (
+  const renderBrandMark = (size: number) => {
+    // Marca activa sin logo propio → avatar con su inicial y color (evita
+    // mostrar el logo de Clubify dentro del panel de otra marca).
+    if (activeBrand) {
+      return (
+        <div
+          className="rounded-input flex items-center justify-center flex-none font-bold text-white"
+          style={{
+            width: size,
+            height: size,
+            background: activeBrand.color || '#16a34a',
+            fontSize: Math.round(size * 0.45),
+          }}
+        >
+          {activeBrand.name.charAt(0).toUpperCase()}
+        </div>
+      );
+    }
+    return branding.appLogoUrl ? (
       <img
         src={branding.appLogoUrl}
         alt="Logo"
@@ -515,6 +543,7 @@ export default function AppShell({
     ) : (
       <Logo variant="mark" size={size} className="bg-white" />
     );
+  };
 
   const sidebar = (
     <aside className="bg-sidebar-bg text-sidebar-ink p-4 flex flex-col gap-1.5 h-full w-[260px] lg:w-[240px] flex-none">
