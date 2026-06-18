@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
@@ -80,6 +81,7 @@ const FROM_SCRATCH_DEFAULTS = {
 type LocationLite = { id: string; name: string };
 
 export default function NewCardWizard() {
+  const t = useTranslations('app_cards_new');
   const router = useRouter();
   const [step, setStep] = useState<Step>(1);
   const [tenantCategorySlug, setTenantCategorySlug] = useState<string | null>(null);
@@ -162,14 +164,14 @@ export default function NewCardWizard() {
 
   function attemptSubmit() {
     if (!form.name.trim()) {
-      setErr('Falta el nombre de la tarjeta');
+      setErr(t('errNameRequired'));
       return;
     }
     setErr(null);
     setConfirmActivate(true);
   }
 
-  const cardName = form.name.trim() || 'Sin nombre';
+  const cardName = form.name.trim() || t('untitled');
 
   return (
     <div>
@@ -276,12 +278,13 @@ function WizardHeader({
   onCancel: () => void;
   onSubmit: () => void;
 }) {
+  const t = useTranslations('app_cards_new');
   const steps = [
-    { n: 1, label: 'Plantilla' },
-    { n: 2, label: 'Tipo' },
-    { n: 3, label: 'Configurar' },
-    { n: 4, label: 'Diseño' },
-    { n: 5, label: 'Información' },
+    { n: 1, label: t('stepTemplate') },
+    { n: 2, label: t('stepType') },
+    { n: 3, label: t('stepConfigure') },
+    { n: 4, label: t('stepDesign') },
+    { n: 5, label: t('stepInformation') },
   ];
 
   return (
@@ -313,16 +316,16 @@ function WizardHeader({
 
       <div className="flex gap-2">
         <button className="btn-ghost" onClick={onCancel}>
-          Cancelar
+          {t('cancel')}
         </button>
         {canBack && (
           <button className="btn-ghost" onClick={onBack}>
-            ← Anterior
+            ← {t('previous')}
           </button>
         )}
         {step < 5 && (
           <button className="btn-primary" onClick={onNext} disabled={!canNext}>
-            Siguiente →
+            {t('next')} →
           </button>
         )}
         {step === 5 && (
@@ -331,7 +334,7 @@ function WizardHeader({
             onClick={onSubmit}
             disabled={!canSubmit || submitting}
           >
-            <Icon name="check" /> {submitting ? 'Creando…' : 'Crear tarjeta'}
+            <Icon name="check" /> {submitting ? t('creating') : t('createCard')}
           </button>
         )}
       </div>
@@ -362,6 +365,7 @@ function Step1Templates({
   onPick: (t: CardTemplate) => void;
   onScratch: () => void;
 }) {
+  const t = useTranslations('app_cards_new');
   const filtered = useMemo(() => {
     // Filtramos plantillas a tipos expuestos en el wizard. Si un template
     // usa CASHBACK/VISITS/HYBRID/etc no se muestra hasta que se reactiven.
@@ -385,9 +389,9 @@ function Step1Templates({
     <div className="card card-pad">
       <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
         <div>
-          <h2 className="text-base font-semibold m-0">Elige una plantilla</h2>
+          <h2 className="text-base font-semibold m-0">{t('chooseTemplate')}</h2>
           <p className="text-xs text-mute mt-1">
-            Plantillas pre-armadas para tu rubro. También puedes empezar desde cero.
+            {t('chooseTemplateDesc')}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -399,7 +403,7 @@ function Step1Templates({
                   filterMode === 'mine' ? 'bg-white text-ink shadow-sm' : 'text-mute'
                 }`}
               >
-                Para mi rubro
+                {t('forMyIndustry')}
               </button>
               <button
                 onClick={() => setFilterMode('all')}
@@ -407,13 +411,13 @@ function Step1Templates({
                   filterMode === 'all' ? 'bg-white text-ink shadow-sm' : 'text-mute'
                 }`}
               >
-                Todas
+                {t('all')}
               </button>
             </div>
           )}
           <input
             className="input w-56"
-            placeholder="Buscar plantilla…"
+            placeholder={t('searchTemplate')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -429,9 +433,9 @@ function Step1Templates({
           <div className="w-10 h-10 rounded-full bg-brand-soft flex items-center justify-center text-brand">
             <Icon name="spark" size={18} />
           </div>
-          <div className="font-semibold text-sm">Desde cero</div>
+          <div className="font-semibold text-sm">{t('fromScratch')}</div>
           <div className="text-xs text-mute px-3 text-center leading-snug">
-            Configura todo manualmente
+            {t('fromScratchDesc')}
           </div>
         </button>
 
@@ -469,7 +473,7 @@ function Step1Templates({
 
       {filtered.length === 0 && (
         <div className="text-center text-mute text-sm py-8">
-          No encontramos plantillas. Prueba con otro filtro o "Desde cero".
+          {t('noTemplates')}
         </div>
       )}
     </div>
@@ -489,11 +493,12 @@ function Step2Type({
   onSelect: (t: CardType) => void;
   onContinue: () => void;
 }) {
+  const t = useTranslations('app_cards_new');
   return (
     <div className="card card-pad">
-      <h2 className="text-base font-semibold m-0">¿Qué tipo de tarjeta quieres crear?</h2>
+      <h2 className="text-base font-semibold m-0">{t('typeQuestion')}</h2>
       <p className="text-xs text-mute mt-1">
-        Cambia cómo se acumulan recompensas y qué ven tus clientes en el wallet.
+        {t('typeDesc')}
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-4">
@@ -529,7 +534,7 @@ function Step2Type({
       </div>
 
       <div className="text-xs text-mute mt-4 text-center">
-        Doble click en un tipo para confirmar y continuar.
+        {t('doubleClickHint')}
       </div>
     </div>
   );
@@ -550,6 +555,7 @@ function Step3Configure({
   err: string | null;
   locations: LocationLite[];
 }) {
+  const t = useTranslations('app_cards_new');
   // Buffer raw del input multiRewards — preservar texto crudo mientras
   // el user tipea "5:" o "5" (sin reward todavía). form.multiRewards
   // solo guarda entradas válidas (at + reward).
@@ -562,38 +568,38 @@ function Step3Configure({
   function set<K extends keyof typeof form>(k: K, v: any) {
     setForm({ ...form, [k]: v });
   }
-  const brand = (form.name.split('—')[0] || 'Tu marca').trim();
+  const brand = (form.name.split('—')[0] || t('yourBrand')).trim();
   const visibleStamps = Math.min(form.stampsRequired, 7);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-7">
       <div className="card card-pad">
         <div className="text-xs text-mute mb-2">
-          Tipo seleccionado: <span className="font-semibold text-ink">{TYPE_EMOJI[form.type]} {TYPE_LABEL[form.type]}</span>
+          {t('selectedType')} <span className="font-semibold text-ink">{TYPE_EMOJI[form.type]} {TYPE_LABEL[form.type]}</span>
         </div>
 
         <div className="mt-3">
-          <label className="label">Nombre de la tarjeta</label>
+          <label className="label">{t('cardName')}</label>
           <input
             className="input"
             value={form.name}
             onChange={(e) => set('name', e.target.value)}
             required
-            placeholder="Café del Día — 10 sellos"
+            placeholder={t('cardNamePlaceholder')}
           />
         </div>
 
         <div className="mt-3">
           <label className="label">
-            Sede / Ubicación
-            <span className="text-mute font-normal ml-1">(opcional)</span>
+            {t('locationLabel')}
+            <span className="text-mute font-normal ml-1">{t('optional')}</span>
           </label>
           <select
             className="input"
             value={form.locationId ?? ''}
             onChange={(e) => set('locationId', e.target.value || null)}
           >
-            <option value="">Todas las sedes</option>
+            <option value="">{t('allLocations')}</option>
             {locations.map((l) => (
               <option key={l.id} value={l.id}>
                 {l.name}
@@ -601,18 +607,17 @@ function Step3Configure({
             ))}
           </select>
           <div className="text-[11px] text-mute mt-1">
-            Si tu negocio tiene varias sedes, asociar la tarjeta a una sede te
-            permite filtrar clientes por origen.{' '}
+            {t('locationHint')}{' '}
             {locations.length === 0 && (
               <a href="/app/locations" className="text-brand hover:underline">
-                Crear una sede →
+                {t('createLocation')} →
               </a>
             )}
           </div>
         </div>
 
         <div className="mt-3">
-          <label className="label">Descripción</label>
+          <label className="label">{t('description')}</label>
           <textarea
             className="input"
             value={form.description}
@@ -620,7 +625,7 @@ function Step3Configure({
           />
         </div>
         <div className="mt-3">
-          <label className="label">Recompensa</label>
+          <label className="label">{t('reward')}</label>
           <input
             className="input"
             value={form.rewardText}
@@ -631,7 +636,7 @@ function Step3Configure({
         {form.type === 'STAMPS' && (
           <>
             <div className="mt-3">
-              <label className="label">Sellos requeridos</label>
+              <label className="label">{t('stampsRequired')}</label>
               <input
                 type="number"
                 className="input"
@@ -643,12 +648,12 @@ function Step3Configure({
             </div>
             <div className="mt-3">
               <label className="label">
-                Recompensas intermedias
-                <span className="text-mute font-normal ml-1">(opcional)</span>
+                {t('intermediateRewards')}
+                <span className="text-mute font-normal ml-1">{t('optional')}</span>
               </label>
               <input
                 className="input"
-                placeholder="Ej: 5:5% off, 10:10% off"
+                placeholder={t('intermediateRewardsPlaceholder')}
                 value={multiRewardsRaw}
                 onChange={(e) => {
                   const raw = e.target.value;
@@ -669,9 +674,9 @@ function Step3Configure({
                 }}
               />
               <div className="text-[11px] text-mute mt-1">
-                Sintaxis: <code className="bg-bg2 px-1 rounded">N:premio</code>{' '}
-                separados por coma. Ej: <code className="bg-bg2 px-1 rounded">5:5% off, 10:10% off</code>.
-                Si lo dejas vacío, solo hay recompensa al alcanzar los sellos requeridos.
+                {t('syntax')} <code className="bg-bg2 px-1 rounded">{t('syntaxFormat')}</code>{' '}
+                {t('separatedByComma')} <code className="bg-bg2 px-1 rounded">5:5% off, 10:10% off</code>.
+                {' '}{t('intermediateRewardsHint')}
               </div>
             </div>
           </>
@@ -680,7 +685,7 @@ function Step3Configure({
             Cards DISCOUNT existentes se editan desde /app/cards/[id]. */}
         {form.type === 'POINTS' && (
           <div className="mt-3">
-            <label className="label">Puntos por cada $1.000 de compra</label>
+            <label className="label">{t('pointsPerThousand')}</label>
             <input
               type="number"
               step={0.1}
@@ -693,15 +698,14 @@ function Step3Configure({
               }
             />
             <div className="text-[11px] text-mute mt-1">
-              Ej: 1 punto por cada $1.000 → un pedido de $50.000 acumula 50
-              puntos automáticamente al confirmar.
+              {t('pointsHint')}
             </div>
           </div>
         )}
         {form.type === 'CASHBACK' && (
           <div className="mt-3 grid grid-cols-2 gap-3">
             <div>
-              <label className="label">% de cashback</label>
+              <label className="label">{t('cashbackPercent')}</label>
               <input
                 type="number"
                 className="input"
@@ -711,11 +715,11 @@ function Step3Configure({
                 onChange={(e) => set('cashbackPercent', Number(e.target.value))}
               />
               <div className="text-[11px] text-mute mt-1">
-                % devuelto en saldo de moneda en cada compra.
+                {t('cashbackPercentHint')}
               </div>
             </div>
             <div>
-              <label className="label">Compra mínima</label>
+              <label className="label">{t('minPurchase')}</label>
               <input
                 type="number"
                 className="input"
@@ -727,7 +731,7 @@ function Step3Configure({
                 }
               />
               <div className="text-[11px] text-mute mt-1">
-                Mínimo a gastar para activar cashback (0 = sin mínimo).
+                {t('cashbackMinHint')}
               </div>
             </div>
           </div>
@@ -735,7 +739,7 @@ function Step3Configure({
         {form.type === 'VISITS' && (
           <>
             <div className="mt-3">
-              <label className="label">Visitas requeridas</label>
+              <label className="label">{t('visitsRequired')}</label>
               <input
                 type="number"
                 className="input"
@@ -745,8 +749,7 @@ function Step3Configure({
                 onChange={(e) => set('visitsRequired', Number(e.target.value))}
               />
               <div className="text-[11px] text-mute mt-1">
-                Cada scan suma 1 visita, sin importar el monto. Al alcanzar el
-                tope, se libera la recompensa.
+                {t('visitsHint')}
               </div>
             </div>
           </>
@@ -754,11 +757,10 @@ function Step3Configure({
         {form.type === 'HYBRID' && (
           <div className="mt-3 space-y-3">
             <div className="text-xs p-3 rounded-lg bg-brand/10 border border-brand/30">
-              💡 Tarjeta híbrida: combina sellos + descuento permanente.
-              Configura ambos.
+              💡 {t('hybridHint')}
             </div>
             <div>
-              <label className="label">Sellos requeridos</label>
+              <label className="label">{t('stampsRequired')}</label>
               <input
                 type="number"
                 className="input"
@@ -769,7 +771,7 @@ function Step3Configure({
               />
             </div>
             <div>
-              <label className="label">% descuento permanente</label>
+              <label className="label">{t('permanentDiscount')}</label>
               <input
                 type="number"
                 className="input"
@@ -786,15 +788,15 @@ function Step3Configure({
           form.type === 'HYBRID') && (
           <div className="mt-3">
             <label className="label">
-              Monto mínimo por sello
-              <span className="text-mute font-normal ml-1">(opcional)</span>
+              {t('minAmountPerStamp')}
+              <span className="text-mute font-normal ml-1">{t('optional')}</span>
             </label>
             <input
               type="number"
               className="input"
               min={0}
               step={1000}
-              placeholder="0 = sin mínimo"
+              placeholder={t('noMinPlaceholder')}
               value={form.minAmountPerStamp ?? ''}
               onChange={(e) => {
                 const v = e.target.value.trim();
@@ -802,9 +804,7 @@ function Step3Configure({
               }}
             />
             <div className="text-[11px] text-mute mt-1">
-              Si lo seteas, el scanner solo otorga sello si la compra es
-              mayor o igual a este monto. Útil para evitar sellos por
-              compras chicas.
+              {t('minAmountPerStampHint')}
             </div>
           </div>
         )}
@@ -844,8 +844,7 @@ function Step3Configure({
         </div>
 
         <div className="mt-3 text-[11px] text-mute p-3 rounded-lg bg-bg2/40">
-          💡 En el siguiente paso configuras los <b>colores y diseño</b> visual.
-          Aquí solo definimos lo funcional (qué hace la tarjeta).
+          💡 {t('nextStepDesignHint')}
         </div>
 
         {err && (
@@ -857,7 +856,7 @@ function Step3Configure({
 
       <div>
         <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-2.5">
-          Así se verá en el iPhone
+          {t('iphonePreview')}
         </div>
         <div className="flex justify-center">
           <WalletPassPreview
@@ -889,8 +888,7 @@ function Step3Configure({
         <div className="card card-pad mt-4 flex items-start gap-3">
           <Icon name="spark" size={18} className="text-brand flex-none mt-0.5" />
           <div className="text-sm">
-            <strong>Tip:</strong> usa los colores de tu marca para que tus clientes
-            te reconozcan al primer vistazo en su Wallet.
+            <strong>{t('tip')}</strong> {t('tipBrandColors')}
           </div>
         </div>
       </div>
@@ -911,20 +909,20 @@ function Step4Design({
   setForm: (f: typeof FROM_SCRATCH_DEFAULTS) => void;
   err: string | null;
 }) {
+  const t = useTranslations('app_cards_new');
   function set<K extends keyof typeof form>(k: K, v: any) {
     setForm({ ...form, [k]: v });
   }
-  const brand = (form.name.split('—')[0] || 'Tu marca').trim();
+  const brand = (form.name.split('—')[0] || t('yourBrand')).trim();
   const visibleStamps = Math.min(form.stampsRequired, 7);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-7">
       <div className="card card-pad space-y-4">
         <div>
-          <h3 className="font-semibold text-base m-0">✨ Estilos pre-armados</h3>
+          <h3 className="font-semibold text-base m-0">✨ {t('presetStyles')}</h3>
           <p className="text-xs text-mute mt-1">
-            Elige un estilo y aplicamos los 6 colores del wallet pass de una
-            vez. Después puedes ajustar cualquiera abajo.
+            {t('presetStylesDesc')}
           </p>
         </div>
         <WalletStylesGallery
@@ -950,14 +948,14 @@ function Step4Design({
         />
 
         <div className="pt-2 border-t border-line">
-          <h3 className="font-semibold text-base m-0">🎨 Colores de marca</h3>
+          <h3 className="font-semibold text-base m-0">🎨 {t('brandColors')}</h3>
           <p className="text-xs text-mute mt-1">
-            Estos colores aplican al fondo del wallet pass del cliente.
+            {t('brandColorsDesc')}
           </p>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="label">Color principal</label>
+            <label className="label">{t('primaryColor')}</label>
             <input
               type="color"
               className="input h-11 p-1"
@@ -966,7 +964,7 @@ function Step4Design({
             />
           </div>
           <div>
-            <label className="label">Color secundario</label>
+            <label className="label">{t('secondaryColor')}</label>
             <input
               type="color"
               className="input h-11 p-1"
@@ -978,29 +976,28 @@ function Step4Design({
 
         {(form.type === 'STAMPS' || form.type === 'HYBRID' || form.type === 'VISITS') && (
           <div className="pt-2 border-t border-line">
-            <h4 className="text-sm font-semibold m-0 mb-2">🎯 Colores avanzados del sello</h4>
+            <h4 className="text-sm font-semibold m-0 mb-2">🎯 {t('advancedStampColors')}</h4>
             <p className="text-[11px] text-mute mb-3">
-              Personaliza cada elemento del sello individualmente. Si los dejas
-              vacíos, se calculan desde los colores de marca.
+              {t('advancedStampColorsDesc')}
             </p>
             <div className="grid grid-cols-2 gap-3">
               <AdvancedColorInput
-                label="Sello activo"
+                label={t('stampActive')}
                 value={form.stampActiveColor}
                 onChange={(v) => set('stampActiveColor', v)}
               />
               <AdvancedColorInput
-                label="Sello inactivo"
+                label={t('stampInactive')}
                 value={form.stampInactiveColor}
                 onChange={(v) => set('stampInactiveColor', v)}
               />
               <AdvancedColorInput
-                label="Contorno del sello"
+                label={t('stampContour')}
                 value={form.stampContourColor}
                 onChange={(v) => set('stampContourColor', v)}
               />
               <AdvancedColorInput
-                label="Fondo central"
+                label={t('centerBg')}
                 value={form.centerBgColor}
                 onChange={(v) => set('centerBgColor', v)}
               />
@@ -1010,7 +1007,7 @@ function Step4Design({
 
         {(form.type === 'STAMPS' || form.type === 'HYBRID' || form.type === 'VISITS') && (
           <div className="pt-2 border-t border-line">
-            <label className="label">Icono del sello</label>
+            <label className="label">{t('stampIcon')}</label>
             <StampIconPicker
               value={form.stampIcon}
               onSelect={(icon) => set('stampIcon', icon)}
@@ -1019,12 +1016,9 @@ function Step4Design({
         )}
 
         <div className="pt-2 border-t border-line">
-          <label className="label">📸 Imagen de portada de la tarjeta</label>
+          <label className="label">📸 {t('coverImage')}</label>
           <p className="text-xs text-mute leading-relaxed -mt-1 mb-2.5">
-            Se muestra como fondo del banner en Apple y Google Wallet (estilo
-            premium glassmorphism, con los sellos encima). Sube una foto de tu
-            producto o local — recomendado <b>800×400 px</b> o más.
-            Si no subes, se usa un gradiente con tus colores.
+            {t('coverImageDesc')} <b>800×400 px</b> {t('coverImageDescEnd')}
           </p>
           <ImageUploader
             value={form.heroImageUrl}
@@ -1036,14 +1030,14 @@ function Step4Design({
 
         <div className="pt-2 border-t border-line">
           <div className="flex items-center justify-between">
-            <label className="label m-0">Términos y condiciones</label>
+            <label className="label m-0">{t('termsAndConditions')}</label>
             <button
               type="button"
               onClick={() => set('termsEnabled', !form.termsEnabled)}
               className={`relative w-10 h-5 rounded-full transition ${
                 form.termsEnabled ? 'bg-brand' : 'bg-bg2 border border-line'
               }`}
-              aria-label="Toggle T&C"
+              aria-label={t('toggleTerms')}
             >
               <span
                 className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition ${
@@ -1058,11 +1052,11 @@ function Step4Design({
               rows={3}
               value={form.terms}
               onChange={(e) => set('terms', e.target.value)}
-              placeholder="Aparecen en el reverso de la tarjeta wallet"
+              placeholder={t('termsPlaceholder')}
             />
           ) : (
             <div className="text-xs text-mute mt-2">
-              Esta tarjeta no muestra términos y condiciones.
+              {t('noTerms')}
             </div>
           )}
         </div>
@@ -1076,7 +1070,7 @@ function Step4Design({
 
       <div>
         <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-2.5">
-          Vista previa
+          {t('preview')}
         </div>
         <div className="flex justify-center">
           <WalletPassPreview
@@ -1107,8 +1101,7 @@ function Step4Design({
         <div className="card card-pad mt-4 flex items-start gap-3">
           <Icon name="spark" size={18} className="text-brand flex-none mt-0.5" />
           <div className="text-sm">
-            <strong>Tip:</strong> usa los colores exactos de tu identidad de marca. El
-            cliente reconoce tu negocio en su Wallet al primer vistazo.
+            <strong>{t('tip')}</strong> {t('tipExactColors')}
           </div>
         </div>
       </div>
@@ -1129,6 +1122,7 @@ function Step5Information({
   setForm: (f: typeof FROM_SCRATCH_DEFAULTS) => void;
   err: string | null;
 }) {
+  const t = useTranslations('app_cards_new');
   function set<K extends keyof typeof form>(k: K, v: any) {
     setForm({ ...form, [k]: v });
   }
@@ -1152,7 +1146,7 @@ function Step5Information({
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-7">
       <div className="card card-pad space-y-3">
         <div className="text-xs text-mute mb-1">
-          Esta información va al reverso de la tarjeta wallet del cliente.
+          {t('backInfoNote')}
         </div>
 
         {(() => {
@@ -1167,36 +1161,36 @@ function Step5Information({
             <>
               <div>
                 <label className="label">
-                  {isCoupon ? 'Cómo canjear un cupón' : 'Cómo ganar un sello'}
+                  {isCoupon ? t('howToRedeemCoupon') : t('howToEarnStamp')}
                 </label>
                 <input
                   className="input"
                   placeholder={
                     isCoupon
-                      ? 'Ej: Mostrar el QR en caja para canjear'
-                      : 'Ej: Comprar cualquier producto para obtener un sello'
+                      ? t('howToRedeemCouponPlaceholder')
+                      : t('howToEarnStampPlaceholder')
                   }
                   value={form.howToEarnText}
                   onChange={(e) => set('howToEarnText', e.target.value)}
                 />
               </div>
               <div>
-                <label className="label">Nombre de empresa</label>
+                <label className="label">{t('businessName')}</label>
                 <input
                   className="input"
-                  placeholder="Como se ve en el reverso"
+                  placeholder={t('businessNamePlaceholder')}
                   value={form.businessName}
                   onChange={(e) => set('businessName', e.target.value)}
                 />
               </div>
               <div>
-                <label className="label">Descripción de la recompensa</label>
+                <label className="label">{t('rewardDescription')}</label>
                 <input
                   className="input"
                   placeholder={
                     isCoupon
-                      ? 'Ej: Café gratis al canjear este cupón'
-                      : 'Ej: Café gratis al completar 10 sellos'
+                      ? t('rewardDescCouponPlaceholder')
+                      : t('rewardDescStampPlaceholder')
                   }
                   value={form.rewardDescText}
                   onChange={(e) => set('rewardDescText', e.target.value)}
@@ -1208,14 +1202,14 @@ function Step5Information({
               {!isCoupon && (
                 <div>
                   <label className="label">
-                    Mensaje de sello ganado
+                    {t('stampEarnedMessage')}
                     <span className="text-mute font-normal ml-1">
-                      ({'['}#{']'} = sellos restantes)
+                      {t('stampsRemainingHint')}
                     </span>
                   </label>
                   <input
                     className="input"
-                    placeholder="¡Solo [#] para tu recompensa!"
+                    placeholder={t('stampEarnedPlaceholder')}
                     value={form.stampEarnedMessage}
                     onChange={(e) => set('stampEarnedMessage', e.target.value)}
                   />
@@ -1224,15 +1218,15 @@ function Step5Information({
               <div>
                 <label className="label">
                   {isCoupon
-                    ? 'Mensaje al canjear el cupón'
-                    : 'Mensaje de recompensa ganada'}
+                    ? t('couponRedeemMessage')
+                    : t('rewardEarnedMessage')}
                 </label>
                 <input
                   className="input"
                   placeholder={
                     isCoupon
-                      ? '¡Felicidades por canjear tu cupón! Empieza a acumular sellos para seguir obteniendo recompensas.'
-                      : '¡Has ganado tu recompensa!'
+                      ? t('couponRedeemPlaceholder')
+                      : t('rewardEarnedPlaceholder')
                   }
                   value={form.rewardEarnedMessage}
                   onChange={(e) =>
@@ -1245,9 +1239,9 @@ function Step5Information({
         })()}
 
         <div className="pt-3 border-t border-line">
-          <label className="label">Enlaces activos</label>
+          <label className="label">{t('activeLinks')}</label>
           <div className="text-[11px] text-mute mb-2">
-            Aparecen en el reverso del pass y el cliente puede tocarlos.
+            {t('activeLinksHint')}
           </div>
           {form.activeLinks.map((link, i) => (
             <div
@@ -1259,10 +1253,10 @@ function Step5Information({
                 value={link.type}
                 onChange={(e) => updateLink(i, { type: e.target.value })}
               >
-                <option value="URL">URL</option>
-                <option value="PHONE">Teléfono</option>
-                <option value="EMAIL">Correo</option>
-                <option value="ADDRESS">Dirección</option>
+                <option value="URL">{t('linkTypeUrl')}</option>
+                <option value="PHONE">{t('linkTypePhone')}</option>
+                <option value="EMAIL">{t('linkTypeEmail')}</option>
+                <option value="ADDRESS">{t('linkTypeAddress')}</option>
               </select>
               <input
                 className="input"
@@ -1273,14 +1267,14 @@ function Step5Information({
                     ? '+57...'
                     : link.type === 'EMAIL'
                     ? 'tu@email.com'
-                    : 'Dirección'
+                    : t('addressPlaceholder')
                 }
                 value={link.url}
                 onChange={(e) => updateLink(i, { url: e.target.value })}
               />
               <input
                 className="input"
-                placeholder="Etiqueta (Ej: Instagram)"
+                placeholder={t('linkLabelPlaceholder')}
                 value={link.label}
                 onChange={(e) => updateLink(i, { label: e.target.value })}
               />
@@ -1288,7 +1282,7 @@ function Step5Information({
                 type="button"
                 onClick={() => removeLink(i)}
                 className="text-mute hover:text-bad text-lg leading-none"
-                aria-label="Quitar"
+                aria-label={t('remove')}
               >
                 ×
               </button>
@@ -1299,7 +1293,7 @@ function Step5Information({
             onClick={addLink}
             className="btn-ghost w-full mt-1 text-sm"
           >
-            + Añadir enlace
+            + {t('addLink')}
           </button>
         </div>
 
@@ -1312,7 +1306,7 @@ function Step5Information({
 
       <div className="card card-pad">
         <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-3">
-          Vista previa del reverso
+          {t('backPreview')}
         </div>
         <div className="bg-bg2 rounded-lg p-4 space-y-2 text-sm">
           {form.howToEarnText && (
@@ -1321,8 +1315,8 @@ function Step5Information({
                 {form.type === 'COUPON' ||
                 form.type === 'DISCOUNT' ||
                 form.type === 'GIFT'
-                  ? 'Cómo canjear un cupón'
-                  : 'Cómo ganar un sello'}
+                  ? t('howToRedeemCoupon')
+                  : t('howToEarnStamp')}
               </div>
               <div>{form.howToEarnText}</div>
             </div>
@@ -1330,7 +1324,7 @@ function Step5Information({
           {form.businessName && (
             <div>
               <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
-                Empresa
+                {t('company')}
               </div>
               <div>{form.businessName}</div>
             </div>
@@ -1338,7 +1332,7 @@ function Step5Information({
           {form.rewardDescText && (
             <div>
               <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
-                Recompensa
+                {t('reward')}
               </div>
               <div>{form.rewardDescText}</div>
             </div>
@@ -1346,7 +1340,7 @@ function Step5Information({
           {form.activeLinks.length > 0 && (
             <div>
               <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
-                Enlaces
+                {t('links')}
               </div>
               <ul className="list-disc list-inside">
                 {form.activeLinks
@@ -1362,7 +1356,7 @@ function Step5Information({
           {form.termsEnabled && form.terms && (
             <div className="pt-2 border-t border-line">
               <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
-                Términos
+                {t('terms')}
               </div>
               <div className="whitespace-pre-line text-xs">{form.terms}</div>
             </div>
@@ -1383,6 +1377,7 @@ function AdvancedColorInput({
   value: string | null;
   onChange: (v: string | null) => void;
 }) {
+  const t = useTranslations('app_cards_new');
   const enabled = value != null;
   return (
     <div>
@@ -1393,7 +1388,7 @@ function AdvancedColorInput({
           className="text-[10px] text-brand hover:underline"
           onClick={() => onChange(enabled ? null : '#000000')}
         >
-          {enabled ? 'Limpiar' : 'Usar custom'}
+          {enabled ? t('clear') : t('useCustom')}
         </button>
       </div>
       <input
@@ -1420,11 +1415,12 @@ function ActivateConfirmModal({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const t = useTranslations('app_cards_new');
   const lockedItems = [
-    { icon: '📱', label: 'Tipo de tarjeta' },
-    { icon: 'ℹ️', label: 'Términos del programa de fidelización' },
-    { icon: '🕓', label: 'Fecha de vencimiento de la tarjeta' },
-    { icon: '🧾', label: 'Detalles del formulario de emisión' },
+    { icon: '📱', label: t('lockedType') },
+    { icon: 'ℹ️', label: t('lockedTerms') },
+    { icon: '🕓', label: t('lockedExpiry') },
+    { icon: '🧾', label: t('lockedIssuance') },
   ];
   return (
     <div
@@ -1437,14 +1433,14 @@ function ActivateConfirmModal({
       >
         <button
           onClick={onCancel}
-          aria-label="Cerrar"
+          aria-label={t('close')}
           className="absolute top-4 right-4 text-mute hover:text-ink text-xl"
         >
           ×
         </button>
-        <h2 className="text-xl font-bold m-0">Activar tarjeta</h2>
+        <h2 className="text-xl font-bold m-0">{t('activateCard')}</h2>
         <p className="text-sm text-mute mt-1.5">
-          Después de la activación, no puedes editar algunas configuraciones de la tarjeta.
+          {t('activateWarning')}
         </p>
 
         <div className="mt-5 space-y-2">
@@ -1466,7 +1462,7 @@ function ActivateConfirmModal({
             disabled={submitting}
             className="px-5 py-2.5 rounded-xl bg-ink text-white font-semibold hover:bg-ink/90 transition disabled:opacity-50"
           >
-            {submitting ? 'Activando…' : 'Activar'}
+            {submitting ? t('activating') : t('activate')}
           </button>
           <button
             type="button"
@@ -1474,7 +1470,7 @@ function ActivateConfirmModal({
             disabled={submitting}
             className="px-5 py-2.5 rounded-xl border border-line text-ink font-semibold hover:bg-bg2 transition"
           >
-            Cancelar
+            {t('cancel')}
           </button>
         </div>
       </div>
@@ -1502,6 +1498,7 @@ function TiersEditor({
   onChangeTiers: (t: Tier[]) => void;
   onChangeMetric: (m: 'spend' | 'visits' | 'stamps') => void;
 }) {
+  const t = useTranslations('app_cards_new');
   function addTier() {
     onChangeTiers([
       ...tiers,
@@ -1522,67 +1519,65 @@ function TiersEditor({
   }
 
   const metricLabel: Record<typeof metric, string> = {
-    spend: 'Monto gastado',
-    visits: 'Cantidad de visitas',
-    stamps: 'Sellos acumulados',
+    spend: t('metricSpend'),
+    visits: t('metricVisits'),
+    stamps: t('metricStamps'),
   };
 
   return (
     <div className="mt-3 space-y-3">
       <div>
-        <label className="label">Métrica para subir de tier</label>
+        <label className="label">{t('tierMetricLabel')}</label>
         <select
           className="input"
           value={metric}
           onChange={(e) => onChangeMetric(e.target.value as any)}
         >
-          <option value="spend">Monto total gastado</option>
-          <option value="visits">Cantidad de visitas</option>
-          <option value="stamps">Sellos acumulados</option>
+          <option value="spend">{t('metricSpendTotal')}</option>
+          <option value="visits">{t('metricVisits')}</option>
+          <option value="stamps">{t('metricStamps')}</option>
         </select>
         <div className="text-[11px] text-mute mt-1">
-          El cliente sube de tier al alcanzar el umbral de {metricLabel[metric].toLowerCase()}.
+          {t('tierThresholdHint', { metric: metricLabel[metric].toLowerCase() })}
         </div>
       </div>
 
       <div className="flex items-center justify-between">
-        <label className="label m-0">Tiers VIP</label>
+        <label className="label m-0">{t('vipTiers')}</label>
         <button
           type="button"
           onClick={addTier}
           className="text-xs text-brand hover:underline"
         >
-          + Añadir tier
+          + {t('addTier')}
         </button>
       </div>
 
       {tiers.length === 0 && (
         <div className="text-xs text-mute p-3 rounded-lg bg-bg2/40 border border-dashed border-line">
-          Sin tiers configurados. Añade Silver/Gold/Black para gamificar la
-          membresía. Si no agregas ninguno, la tarjeta se comporta como
-          membresía única sin niveles.
+          {t('noTiersHint')}
         </div>
       )}
 
-      {tiers.map((t, i) => (
+      {tiers.map((tier, i) => (
         <div key={i} className="p-3 rounded-lg border border-line bg-bg2/30 space-y-2">
           <div className="flex items-center gap-2">
             <input
               className="input flex-1"
-              placeholder="Nombre (ej. Silver)"
-              value={t.name}
+              placeholder={t('tierNamePlaceholder')}
+              value={tier.name}
               onChange={(e) => patch(i, { name: e.target.value })}
             />
             <input
               className="input w-16 text-center"
               placeholder="🥈"
-              value={t.icon ?? ''}
+              value={tier.icon ?? ''}
               onChange={(e) => patch(i, { icon: e.target.value })}
             />
             <input
               type="color"
               className="input h-10 p-1 w-12"
-              value={t.color ?? '#9CA3AF'}
+              value={tier.color ?? '#9CA3AF'}
               onChange={(e) => patch(i, { color: e.target.value })}
             />
             <button
@@ -1590,30 +1585,30 @@ function TiersEditor({
               onClick={() => removeTier(i)}
               className="text-xs text-rose-500 hover:underline"
             >
-              Quitar
+              {t('remove')}
             </button>
           </div>
           <div>
             <label className="label">
-              Umbral ({metricLabel[metric]})
+              {t('threshold')} ({metricLabel[metric]})
             </label>
             <input
               type="number"
               className="input"
               min={0}
               step={metric === 'spend' ? 10000 : 1}
-              value={t.threshold}
+              value={tier.threshold}
               onChange={(e) =>
                 patch(i, { threshold: Number(e.target.value) })
               }
             />
           </div>
           <div>
-            <label className="label">Beneficios (uno por línea)</label>
+            <label className="label">{t('perksLabel')}</label>
             <textarea
               className="input"
               rows={2}
-              value={(t.perks ?? []).join('\n')}
+              value={(tier.perks ?? []).join('\n')}
               onChange={(e) =>
                 patch(i, {
                   perks: e.target.value
@@ -1622,7 +1617,7 @@ function TiersEditor({
                     .filter(Boolean),
                 })
               }
-              placeholder="5% descuento&#10;Cumpleaños con regalo"
+              placeholder={t('perksPlaceholder')}
             />
           </div>
         </div>
@@ -1645,6 +1640,7 @@ function CouponTransformTargetPicker({
   value: string | null;
   onChange: (id: string | null) => void;
 }) {
+  const t = useTranslations('app_cards_new');
   const [options, setOptions] = useState<
     Array<{ id: string; name: string }>
   >([]);
@@ -1667,9 +1663,9 @@ function CouponTransformTargetPicker({
   return (
     <div className="mt-3 pt-3 border-t border-line">
       <label className="label">
-        Al redimirse, transformar en:{' '}
+        {t('transformInto')}{' '}
         <span className="text-mute font-normal">
-          (tarjeta de sellos destino)
+          {t('targetStampsCard')}
         </span>
       </label>
       <select
@@ -1679,7 +1675,7 @@ function CouponTransformTargetPicker({
         disabled={loading}
       >
         <option value="">
-          Auto · usar la primera tarjeta de sellos activa
+          {t('autoFirstStampsCard')}
         </option>
         {options.map((o) => (
           <option key={o.id} value={o.id}>
@@ -1688,10 +1684,7 @@ function CouponTransformTargetPicker({
         ))}
       </select>
       <div className="text-[11px] text-mute mt-1 leading-snug">
-        El mismo wallet pass del cliente cambia de cupón a tarjeta de
-        sellos sin pedir instalar nada nuevo. Si dejas "Auto", se usa la
-        primera tarjeta de sellos activa del negocio (o se crea una
-        genérica si no existe ninguna).
+        {t('transformHint')}
       </div>
     </div>
   );

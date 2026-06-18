@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
@@ -25,6 +26,7 @@ const SUGGESTED_CATEGORIES = [
 ];
 
 export default function AIKnowledgePage() {
+  const t = useTranslations('admin_ai_knowledge');
   const [list, setList] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Partial<Entry> | null>(null);
@@ -36,7 +38,7 @@ export default function AIKnowledgePage() {
     try {
       setList(await api<Entry[]>('/admin/knowledge'));
     } catch (e: any) {
-      toast(e.message || 'Error cargando knowledge', 'error');
+      toast(e.message || t('errLoadingKnowledge'), 'error');
     } finally {
       setLoading(false);
     }
@@ -48,7 +50,7 @@ export default function AIKnowledgePage() {
   async function save() {
     if (!editing) return;
     if (!editing.title?.trim() || !editing.content?.trim()) {
-      toast('Título y contenido obligatorios', 'error');
+      toast(t('titleContentRequired'), 'error');
       return;
     }
     setSaving(true);
@@ -70,24 +72,24 @@ export default function AIKnowledgePage() {
           body: JSON.stringify(body),
         });
       }
-      toast('Guardado', 'success');
+      toast(t('saved'), 'success');
       setEditing(null);
       load();
     } catch (e: any) {
-      toast(e.message || 'No se pudo guardar', 'error');
+      toast(e.message || t('errCouldNotSave'), 'error');
     } finally {
       setSaving(false);
     }
   }
 
   async function remove(id: string) {
-    if (!confirm('¿Eliminar esta entrada?')) return;
+    if (!confirm(t('confirmDeleteEntry'))) return;
     try {
       await api(`/admin/knowledge/${id}`, { method: 'DELETE' });
-      toast('Eliminada', 'success');
+      toast(t('entryDeleted'), 'success');
       load();
     } catch (e: any) {
-      toast(e.message || 'No se pudo eliminar', 'error');
+      toast(e.message || t('errCouldNotDelete'), 'error');
     }
   }
 
@@ -99,7 +101,7 @@ export default function AIKnowledgePage() {
       });
       load();
     } catch (err: any) {
-      toast(err.message || 'No se pudo actualizar', 'error');
+      toast(err.message || t('errCouldNotUpdate'), 'error');
     }
   }
 
@@ -128,9 +130,9 @@ export default function AIKnowledgePage() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          IA · Knowledge base{' '}
+          {t('pageTitle')}{' '}
           <span className="page-crumb">
-            / {activeCount} activas · {list.length} totales
+            {t('pageCrumb', { active: activeCount, total: list.length })}
           </span>
         </h1>
         <div className="flex gap-2 flex-wrap">
@@ -142,7 +144,7 @@ export default function AIKnowledgePage() {
               setEditing({ title: '', content: '', category: 'General', isActive: true })
             }
           >
-            <Icon name="plus" /> Nueva entrada
+            <Icon name="plus" /> {t('newEntry')}
           </button>
         </div>
       </div>
@@ -153,26 +155,20 @@ export default function AIKnowledgePage() {
 
       <div className="card card-pad mb-5">
         <h3 className="text-base font-semibold m-0 flex items-center gap-2">
-          🤖 ¿Cómo funciona?
+          🤖 {t('howItWorksTitle')}
         </h3>
         <p className="text-sm text-mute mt-2 leading-relaxed">
-          Cada entrada de esta lista alimenta el asistente IA del widget de
-          soporte que ven los clientes en el panel. El backend toma todas las
-          entradas <b>activas</b>, las concatena en el system prompt de
-          Anthropic Claude (haiku) y responde basándose en eso.
+          {t('howItWorksP1')}
         </p>
         <p className="text-sm text-mute mt-2 leading-relaxed">
-          Mantén las entradas <b>cortas y directas</b> (200-500 palabras).
-          Una pregunta común + una respuesta clara funciona mejor que un
-          tutorial largo. Agrupá por categoría para que sea más fácil
-          mantenerlas.
+          {t('howItWorksP2')}
         </p>
       </div>
 
       <div className="mb-4">
         <input
           type="text"
-          placeholder="🔍 Buscar entradas…"
+          placeholder={t('searchPlaceholder')}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="input max-w-md"
@@ -187,11 +183,9 @@ export default function AIKnowledgePage() {
       ) : list.length === 0 ? (
         <div className="card card-pad text-center py-12">
           <div className="text-4xl mb-2">🧠</div>
-          <div className="font-semibold">Sin entradas todavía</div>
+          <div className="font-semibold">{t('emptyTitle')}</div>
           <p className="text-sm text-mute mt-1.5 max-w-md mx-auto">
-            Agrega la primera entrada con preguntas frecuentes y respuestas.
-            El asistente IA empezará a usar la información en cuanto
-            actives la entrada.
+            {t('emptyDesc')}
           </p>
         </div>
       ) : (
@@ -215,7 +209,7 @@ export default function AIKnowledgePage() {
                           {e.title}
                           {!e.isActive && (
                             <span className="badge badge-mute text-[10px]">
-                              Pausada
+                              {t('paused')}
                             </span>
                           )}
                         </div>
@@ -227,7 +221,7 @@ export default function AIKnowledgePage() {
                         <button
                           className="btn-ghost text-xs"
                           onClick={() => toggleActive(e)}
-                          title={e.isActive ? 'Pausar' : 'Activar'}
+                          title={e.isActive ? t('pause') : t('activate')}
                         >
                           {e.isActive ? '⏸' : '▶'}
                         </button>
@@ -235,12 +229,12 @@ export default function AIKnowledgePage() {
                           className="btn-ghost text-xs"
                           onClick={() => setEditing(e)}
                         >
-                          <Icon name="edit" /> Editar
+                          <Icon name="edit" /> {t('edit')}
                         </button>
                         <button
                           className="btn-danger text-xs"
                           onClick={() => remove(e.id)}
-                          title="Eliminar"
+                          title={t('delete')}
                         >
                           <Icon name="trash" />
                         </button>
@@ -264,7 +258,7 @@ export default function AIKnowledgePage() {
           <div className="relative bg-white rounded-2xl shadow-2xl max-w-xl w-full max-h-[90vh] overflow-hidden flex flex-col">
             <div className="px-5 py-4 border-b border-line flex items-center justify-between">
               <h2 className="font-bold text-lg">
-                {editing.id ? 'Editar entrada' : 'Nueva entrada'}
+                {editing.id ? t('editEntry') : t('newEntry')}
               </h2>
               <button
                 onClick={() => !saving && setEditing(null)}
@@ -275,10 +269,10 @@ export default function AIKnowledgePage() {
             </div>
             <div className="flex-1 overflow-y-auto p-5 space-y-3">
               <div>
-                <label className="label">Título / Pregunta</label>
+                <label className="label">{t('titleQuestionLabel')}</label>
                 <input
                   className="input"
-                  placeholder="Ej: Cómo cambiar el plan de un negocio"
+                  placeholder={t('titleQuestionPlaceholder')}
                   value={editing.title ?? ''}
                   onChange={(e) =>
                     setEditing((c) => ({ ...c, title: e.target.value }))
@@ -287,7 +281,7 @@ export default function AIKnowledgePage() {
                 />
               </div>
               <div>
-                <label className="label">Categoría</label>
+                <label className="label">{t('categoryLabel')}</label>
                 <input
                   className="input"
                   list="categories-list"
@@ -303,21 +297,18 @@ export default function AIKnowledgePage() {
                 </datalist>
               </div>
               <div>
-                <label className="label">Respuesta / Contenido</label>
+                <label className="label">{t('answerContentLabel')}</label>
                 <textarea
                   className="input"
                   rows={10}
-                  placeholder={
-                    'Ej: Para cambiar el plan de un negocio, entra a /admin/tenants/[id], busca la card "Facturación" y elige el modo (Pagada / Trial / Sin pago). Aplicar cambio actualiza el estado del lockscreen.'
-                  }
+                  placeholder={t('answerContentPlaceholder')}
                   value={editing.content ?? ''}
                   onChange={(e) =>
                     setEditing((c) => ({ ...c, content: e.target.value }))
                   }
                 />
                 <div className="text-[11px] text-mute mt-1">
-                  Markdown básico permitido. La IA usa este texto como
-                  contexto al responder.
+                  {t('markdownHint')}
                 </div>
               </div>
               <label className="flex items-center gap-2 text-sm cursor-pointer">
@@ -328,7 +319,7 @@ export default function AIKnowledgePage() {
                     setEditing((c) => ({ ...c, isActive: e.target.checked }))
                   }
                 />
-                <span>Activa (se incluye en el contexto del asistente)</span>
+                <span>{t('activeIncludedHint')}</span>
               </label>
             </div>
             <div className="px-5 py-3 border-t border-line bg-bg2/30 flex justify-end gap-2">
@@ -337,14 +328,14 @@ export default function AIKnowledgePage() {
                 disabled={saving}
                 className="btn-ghost"
               >
-                Cancelar
+                {t('cancel')}
               </button>
               <button
                 onClick={save}
                 disabled={saving}
                 className="btn-primary disabled:opacity-50"
               >
-                {saving ? 'Guardando…' : 'Guardar'}
+                {saving ? t('saving') : t('save')}
               </button>
             </div>
           </div>
@@ -358,6 +349,7 @@ export default function AIKnowledgePage() {
  *  partirlo (## sections, párrafos, o uno solo). Cada chunk se vuelve
  *  un KnowledgeEntry — upsert por title dentro de la misma categoría. */
 function BulkImportButton({ onDone }: { onDone: () => void }) {
+  const t = useTranslations('admin_ai_knowledge');
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
   const [mode, setMode] = useState<'sections' | 'paragraphs' | 'whole'>('sections');
@@ -366,7 +358,7 @@ function BulkImportButton({ onDone }: { onDone: () => void }) {
 
   async function submit() {
     if (!text.trim()) {
-      toast('Pega algún contenido primero', 'error');
+      toast(t('pasteContentFirst'), 'error');
       return;
     }
     setBusy(true);
@@ -375,12 +367,12 @@ function BulkImportButton({ onDone }: { onDone: () => void }) {
         method: 'POST',
         body: JSON.stringify({ text, mode, category }),
       });
-      toast(`✓ Se importaron ${r.count} entradas`, 'success');
+      toast(t('importedCount', { count: r.count }), 'success');
       setOpen(false);
       setText('');
       onDone();
     } catch (e: any) {
-      toast(e.message || 'No se pudo importar', 'error');
+      toast(e.message || t('errCouldNotImport'), 'error');
     } finally {
       setBusy(false);
     }
@@ -389,7 +381,7 @@ function BulkImportButton({ onDone }: { onDone: () => void }) {
   return (
     <>
       <button className="btn-ghost text-sm" onClick={() => setOpen(true)}>
-        📥 Importar documento
+        📥 {t('importDocumentBtn')}
       </button>
       {open && (
         <div
@@ -401,7 +393,7 @@ function BulkImportButton({ onDone }: { onDone: () => void }) {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-5 border-b border-line flex items-center justify-between">
-              <h3 className="text-lg font-semibold m-0">Importar documento → IA</h3>
+              <h3 className="text-lg font-semibold m-0">{t('importModalTitle')}</h3>
               <button
                 onClick={() => setOpen(false)}
                 className="text-mute hover:text-ink"
@@ -412,21 +404,18 @@ function BulkImportButton({ onDone }: { onDone: () => void }) {
             </div>
             <div className="p-5 space-y-3">
               <div className="text-sm text-mute leading-relaxed">
-                Pega un documento largo (FAQ, brief, copy de la landing) y la
-                IA lo partirá automáticamente en entradas individuales del
-                knowledge base. No tienes que crear cada pregunta-respuesta
-                a mano.
+                {t('importModalDesc')}
               </div>
 
               <div>
-                <label className="label">Modo de split</label>
+                <label className="label">{t('splitModeLabel')}</label>
                 <div className="grid grid-cols-3 gap-2">
                   {(
                     [
-                      { v: 'sections', label: '## Headers', hint: 'Splittea por "## Título"' },
-                      { v: 'paragraphs', label: 'Párrafos', hint: 'Splittea por doble salto' },
-                      { v: 'whole', label: 'Documento entero', hint: '1 sola entrada' },
-                    ] as const
+                      { v: 'sections', label: t('splitSectionsLabel'), hint: t('splitSectionsHint') },
+                      { v: 'paragraphs', label: t('splitParagraphsLabel'), hint: t('splitParagraphsHint') },
+                      { v: 'whole', label: t('splitWholeLabel'), hint: t('splitWholeHint') },
+                    ] as { v: 'sections' | 'paragraphs' | 'whole'; label: string; hint: string }[]
                   ).map((m) => (
                     <button
                       key={m.v}
@@ -446,7 +435,7 @@ function BulkImportButton({ onDone }: { onDone: () => void }) {
               </div>
 
               <div>
-                <label className="label">Categoría destino</label>
+                <label className="label">{t('targetCategoryLabel')}</label>
                 <input
                   className="input"
                   value={category}
@@ -454,26 +443,25 @@ function BulkImportButton({ onDone }: { onDone: () => void }) {
                   placeholder="General"
                 />
                 <div className="text-[11px] text-mute mt-1">
-                  Si ya existe una entrada con el mismo título en esta
-                  categoría, se sobrescribe (no se duplica).
+                  {t('overwriteHint')}
                 </div>
               </div>
 
               <div>
-                <label className="label">Documento</label>
+                <label className="label">{t('documentLabel')}</label>
                 <textarea
                   className="input font-mono text-xs"
                   rows={14}
                   placeholder={
                     mode === 'sections'
-                      ? '## ¿Cómo funcionan las tarjetas wallet?\nClubify genera pkpass para Apple y JWT save links para Google...\n\n## ¿Qué pasa si el cliente cambia de celular?\nEl pass se restaura automáticamente desde iCloud...'
-                      : 'Pega aquí el documento. Será partido automáticamente según el modo elegido.'
+                      ? t('documentPlaceholderSections')
+                      : t('documentPlaceholderOther')
                   }
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                 />
                 <div className="text-[11px] text-mute mt-1">
-                  {text.length.toLocaleString()} caracteres · máx 200.000
+                  {t('charsCountMax200k', { count: text.length.toLocaleString() })}
                 </div>
               </div>
             </div>
@@ -483,14 +471,18 @@ function BulkImportButton({ onDone }: { onDone: () => void }) {
                 disabled={busy}
                 className="btn-ghost"
               >
-                Cancelar
+                {t('cancel')}
               </button>
               <button
                 onClick={submit}
                 disabled={busy || !text.trim()}
                 className="btn-primary disabled:opacity-50"
               >
-                {busy ? 'Importando…' : `Importar ${text.length > 0 ? `(${Math.max(1, text.split(/\n\s*\n/).length)} ~chunks)` : ''}`}
+                {busy
+                  ? t('importing')
+                  : text.length > 0
+                  ? t('importWithChunks', { count: Math.max(1, text.split(/\n\s*\n/).length) })
+                  : t('import')}
               </button>
             </div>
           </div>
@@ -504,6 +496,7 @@ function BulkImportButton({ onDone }: { onDone: () => void }) {
  *  del widget. Permite ajustar tono, instrucciones, restricciones sin
  *  redeploy. */
 function MasterPromptButton() {
+  const t = useTranslations('admin_ai_knowledge');
   const [open, setOpen] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [loaded, setLoaded] = useState(false);
@@ -526,10 +519,10 @@ function MasterPromptButton() {
         method: 'PATCH',
         body: JSON.stringify({ prompt: prompt.trim() || null }),
       });
-      toast('Master prompt guardado', 'success');
+      toast(t('masterPromptSaved'), 'success');
       setOpen(false);
     } catch (e: any) {
-      toast(e.message || 'No se pudo guardar', 'error');
+      toast(e.message || t('errCouldNotSave'), 'error');
     } finally {
       setBusy(false);
     }
@@ -538,7 +531,7 @@ function MasterPromptButton() {
   return (
     <>
       <button className="btn-ghost text-sm" onClick={() => setOpen(true)}>
-        🧠 Master prompt
+        🧠 {t('masterPromptBtn')}
       </button>
       {open && (
         <div
@@ -550,7 +543,7 @@ function MasterPromptButton() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-5 border-b border-line flex items-center justify-between">
-              <h3 className="text-lg font-semibold m-0">Master prompt de la IA</h3>
+              <h3 className="text-lg font-semibold m-0">{t('masterPromptModalTitle')}</h3>
               <button
                 onClick={() => setOpen(false)}
                 className="text-mute hover:text-ink"
@@ -561,24 +554,21 @@ function MasterPromptButton() {
             </div>
             <div className="p-5 space-y-3">
               <div className="text-sm text-mute leading-relaxed">
-                Texto que se preponne al system prompt del widget IA. Sirve
-                para fijar tono, agregar instrucciones específicas o
-                restricciones sin redeploy. Si está vacío, se usa solo el
-                prompt default + el knowledge base.
+                {t('masterPromptDesc')}
               </div>
               {loaded ? (
                 <textarea
                   className="input font-mono text-xs"
                   rows={16}
-                  placeholder="Ejemplo:&#10;Sos un asistente de Clubify. Hablás en español neutro LATAM. Nunca uses jerga argentina. Si el cliente menciona precios sin tener login, redirígelo a /signup. Plan único Elite USD 50/mes incluye todo (tarjetas wallet, automatizaciones WhatsApp, multi-ubicación)."
+                  placeholder={t('masterPromptPlaceholder')}
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                 />
               ) : (
-                <div className="text-sm text-mute py-8 text-center">Cargando…</div>
+                <div className="text-sm text-mute py-8 text-center">{t('loading')}</div>
               )}
               <div className="text-[11px] text-mute">
-                {prompt.length.toLocaleString()} caracteres · máx 20.000
+                {t('charsCountMax20k', { count: prompt.length.toLocaleString() })}
               </div>
             </div>
             <div className="p-5 border-t border-line flex gap-2 justify-end">
@@ -587,14 +577,14 @@ function MasterPromptButton() {
                 disabled={busy}
                 className="btn-ghost"
               >
-                Cancelar
+                {t('cancel')}
               </button>
               <button
                 onClick={save}
                 disabled={busy || !loaded}
                 className="btn-primary disabled:opacity-50"
               >
-                {busy ? 'Guardando…' : 'Guardar prompt'}
+                {busy ? t('saving') : t('savePrompt')}
               </button>
             </div>
           </div>
@@ -621,6 +611,7 @@ type HealthResp = {
 };
 
 function AIHealthCard() {
+  const t = useTranslations('admin_ai_knowledge');
   const [h, setH] = useState<HealthResp | null>(null);
   useEffect(() => {
     api<HealthResp>('/admin/knowledge/health').then(setH).catch(() => {});
@@ -631,41 +622,43 @@ function AIHealthCard() {
     <div className="card card-pad mb-5">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <HealthStat
-          label="LLM"
-          value={h.anthropic.configured ? 'Activo' : 'Sin key'}
+          label={t('statLlm')}
+          value={h.anthropic.configured ? t('statActive') : t('statNoKey')}
           hint={h.anthropic.model}
           ok={h.anthropic.configured}
         />
         <HealthStat
-          label="Embeddings"
-          value={h.voyage.configured ? 'Activo' : 'Lexical'}
-          hint={h.voyage.configured ? h.voyage.model : 'Sin Voyage'}
+          label={t('statEmbeddings')}
+          value={h.voyage.configured ? t('statActive') : t('statLexical')}
+          hint={h.voyage.configured ? h.voyage.model : t('statNoVoyage')}
           ok={h.voyage.configured}
         />
         <HealthStat
-          label="Documentos"
+          label={t('statDocuments')}
           value={`${k.docsReady} / ${k.totalDocs}`}
-          hint="listos / totales"
+          hint={t('statReadyTotal')}
         />
         <HealthStat
-          label="Chunks"
+          label={t('statChunks')}
           value={`${k.activeEntries}`}
           hint={
             h.voyage.configured
-              ? `${k.embeddingCoverage}% con embedding`
-              : `${k.totalEntries} totales`
+              ? t('statWithEmbedding', { pct: k.embeddingCoverage })
+              : t('statTotalEntries', { count: k.totalEntries })
           }
         />
       </div>
       <div className="mt-3 text-[11px] text-mute flex items-center gap-3 flex-wrap">
         <span>
-          🏪 {k.byAudience.TENANT ?? 0} solo dueños · 🚀{' '}
-          {k.byAudience.AFFILIATE ?? 0} solo afiliados · 🌐{' '}
-          {k.byAudience.BOTH ?? 0} ambos
+          {t('audienceBreakdown', {
+            tenant: k.byAudience.TENANT ?? 0,
+            affiliate: k.byAudience.AFFILIATE ?? 0,
+            both: k.byAudience.BOTH ?? 0,
+          })}
         </span>
         {!h.voyage.configured && (
           <span className="text-amber-700">
-            ⚠ Activa VOYAGE_API_KEY en Railway para retrieval semántico
+            {t('voyageWarning')}
           </span>
         )}
       </div>
@@ -740,6 +733,7 @@ function fmtBytes(n: number | null | undefined): string {
 }
 
 function DocumentsSection({ onChunksChanged }: { onChunksChanged: () => void }) {
+  const t = useTranslations('admin_ai_knowledge');
   const [docs, setDocs] = useState<KnowledgeDoc[]>([]);
   const [loading, setLoading] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
@@ -749,7 +743,7 @@ function DocumentsSection({ onChunksChanged }: { onChunksChanged: () => void }) 
     try {
       setDocs(await api<KnowledgeDoc[]>('/admin/knowledge/documents'));
     } catch (e: any) {
-      toast(e.message || 'Error cargando documentos', 'error');
+      toast(e.message || t('errLoadingDocuments'), 'error');
     } finally {
       setLoading(false);
     }
@@ -759,14 +753,14 @@ function DocumentsSection({ onChunksChanged }: { onChunksChanged: () => void }) 
   }, []);
 
   async function remove(id: string) {
-    if (!confirm('¿Eliminar este documento y sus chunks indexados?')) return;
+    if (!confirm(t('confirmDeleteDocument'))) return;
     try {
       await api(`/admin/knowledge/documents/${id}`, { method: 'DELETE' });
-      toast('Documento eliminado', 'success');
+      toast(t('documentDeleted'), 'success');
       load();
       onChunksChanged();
     } catch (e: any) {
-      toast(e.message || 'No se pudo eliminar', 'error');
+      toast(e.message || t('errCouldNotDelete'), 'error');
     }
   }
 
@@ -779,7 +773,7 @@ function DocumentsSection({ onChunksChanged }: { onChunksChanged: () => void }) 
       load();
       onChunksChanged();
     } catch (e: any) {
-      toast(e.message || 'No se pudo actualizar', 'error');
+      toast(e.message || t('errCouldNotUpdate'), 'error');
     }
   }
 
@@ -788,19 +782,16 @@ function DocumentsSection({ onChunksChanged }: { onChunksChanged: () => void }) 
       <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
         <div>
           <h3 className="text-base font-semibold m-0 flex items-center gap-2">
-            📂 Base de Conocimiento IA
+            📂 {t('knowledgeBaseTitle')}
           </h3>
           <p className="text-xs text-mute mt-1 leading-relaxed max-w-2xl">
-            Sube PDF, DOCX, TXT o MD. El sistema los parsea, los corta en
-            chunks (~1500 chars con overlap), los embebe con Voyage AI (si
-            <code className="px-1">VOYAGE_API_KEY</code> está set) y los
-            consulta semánticamente. Sin Voyage, el retrieval es lexical.
-            Cada chunk hereda la audiencia del doc — tenant ve docs TENANT
-            + BOTH; afiliados ven AFFILIATE + BOTH.
+            {t('knowledgeBaseDescPart1')}
+            <code className="px-1">VOYAGE_API_KEY</code>
+            {t('knowledgeBaseDescPart2')}
           </p>
         </div>
         <button onClick={() => setShowUpload(true)} className="btn-primary">
-          <Icon name="plus" /> Subir documento
+          <Icon name="plus" /> {t('uploadDocumentBtn')}
         </button>
       </div>
 
@@ -819,15 +810,14 @@ function DocumentsSection({ onChunksChanged }: { onChunksChanged: () => void }) 
         <div className="h-16 bg-bg2 rounded animate-shimmer" />
       ) : docs.length === 0 ? (
         <div className="text-center py-8 text-sm text-mute">
-          Sin documentos todavía. Sube el primero para entrenar a la IA con
-          info de tu negocio (manuales, scripts, plan de compensación, etc).
+          {t('noDocumentsYet')}
         </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-bg2/50">
               <tr>
-                {['Documento', 'Tipo', 'Audiencia', 'Chunks', 'Tamaño', 'Estado', ''].map((h) => (
+                {[t('colDocument'), t('colType'), t('colAudience'), t('colChunks'), t('colSize'), t('colStatus'), ''].map((h) => (
                   <th
                     key={h}
                     className="text-left px-3 py-2 text-[10px] uppercase tracking-[0.1em] text-mute font-semibold"
@@ -877,7 +867,7 @@ function DocumentsSection({ onChunksChanged }: { onChunksChanged: () => void }) 
                     <button
                       onClick={() => toggleActive(d)}
                       className="text-xs text-mute hover:text-ink mr-3"
-                      title={d.isActive ? 'Desactivar' : 'Activar'}
+                      title={d.isActive ? t('deactivate') : t('activate')}
                     >
                       {d.isActive ? '👁' : '🚫'}
                     </button>
@@ -885,7 +875,7 @@ function DocumentsSection({ onChunksChanged }: { onChunksChanged: () => void }) 
                       onClick={() => remove(d.id)}
                       className="text-xs text-red-600 hover:underline"
                     >
-                      Eliminar
+                      {t('delete')}
                     </button>
                   </td>
                 </tr>
@@ -905,6 +895,7 @@ function UploadDocumentModal({
   onClose: () => void;
   onUploaded: () => void;
 }) {
+  const t = useTranslations('admin_ai_knowledge');
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState('');
   const [audience, setAudience] = useState<'TENANT' | 'AFFILIATE' | 'BOTH'>('BOTH');
@@ -914,7 +905,7 @@ function UploadDocumentModal({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!file) {
-      toast('Selecciona un archivo', 'error');
+      toast(t('selectFile'), 'error');
       return;
     }
     setBusy(true);
@@ -946,20 +937,20 @@ function UploadDocumentModal({
       });
       if (!res.ok) {
         const txt = await res.text().catch(() => '');
-        throw new Error(`Upload falló (${res.status}): ${txt.slice(0, 200)}`);
+        throw new Error(t('uploadFailedStatus', { status: res.status, detail: txt.slice(0, 200) }));
       }
       const doc = (await res.json()) as KnowledgeDoc;
       toast(
         doc.status === 'READY'
-          ? `Procesado: ${doc.chunkCount} chunks indexados`
+          ? t('processedChunks', { count: doc.chunkCount })
           : doc.status === 'FAILED'
-          ? `Falló: ${doc.errorMessage}`
-          : 'Procesando…',
+          ? t('failedWithMessage', { message: doc.errorMessage ?? '' })
+          : t('processing'),
         doc.status === 'FAILED' ? 'error' : 'success',
       );
       onUploaded();
     } catch (e: any) {
-      toast(e.message || 'No se pudo subir', 'error');
+      toast(e.message || t('errCouldNotUpload'), 'error');
       setBusy(false);
     }
   }
@@ -975,7 +966,7 @@ function UploadDocumentModal({
         className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl"
       >
         <div className="flex items-start justify-between mb-1">
-          <h3 className="text-lg font-bold">📂 Subir documento</h3>
+          <h3 className="text-lg font-bold">📂 {t('uploadDocumentBtn')}</h3>
           <button
             type="button"
             onClick={onClose}
@@ -985,11 +976,10 @@ function UploadDocumentModal({
           </button>
         </div>
         <p className="text-xs text-mute leading-relaxed mb-4">
-          PDF, DOCX, TXT o MD. Max 25MB. Se parsea + chunkea + embebe
-          (si Voyage AI configurado).
+          {t('uploadModalDesc')}
         </p>
 
-        <label className="label">Archivo</label>
+        <label className="label">{t('fileLabel')}</label>
         <input
           type="file"
           accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
@@ -1003,18 +993,18 @@ function UploadDocumentModal({
           </div>
         )}
 
-        <label className="label mt-3">Título (opcional)</label>
+        <label className="label mt-3">{t('titleOptionalLabel')}</label>
         <input
           type="text"
           className="input"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder={file?.name?.replace(/\.[^.]+$/, '') ?? '(usa nombre del archivo)'}
+          placeholder={file?.name?.replace(/\.[^.]+$/, '') ?? t('usesFileName')}
         />
 
         <div className="grid grid-cols-2 gap-3 mt-3">
           <div>
-            <label className="label">Audiencia</label>
+            <label className="label">{t('audienceLabel')}</label>
             <select
               className="input"
               value={audience}
@@ -1022,13 +1012,13 @@ function UploadDocumentModal({
                 setAudience(e.target.value as 'TENANT' | 'AFFILIATE' | 'BOTH')
               }
             >
-              <option value="BOTH">🌐 Ambos (tenant + afiliado)</option>
-              <option value="TENANT">🏪 Solo dueños de negocio</option>
-              <option value="AFFILIATE">🚀 Solo afiliados</option>
+              <option value="BOTH">{t('audienceBoth')}</option>
+              <option value="TENANT">{t('audienceTenant')}</option>
+              <option value="AFFILIATE">{t('audienceAffiliate')}</option>
             </select>
           </div>
           <div>
-            <label className="label">Categoría</label>
+            <label className="label">{t('categoryLabel')}</label>
             <input
               type="text"
               className="input"
@@ -1046,14 +1036,14 @@ function UploadDocumentModal({
             className="btn-ghost text-sm"
             disabled={busy}
           >
-            Cancelar
+            {t('cancel')}
           </button>
           <button
             type="submit"
             disabled={busy || !file}
             className="btn-primary text-sm disabled:opacity-50"
           >
-            {busy ? 'Procesando…' : 'Subir y procesar'}
+            {busy ? t('processing') : t('uploadAndProcess')}
           </button>
         </div>
       </form>
