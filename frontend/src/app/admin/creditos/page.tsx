@@ -194,6 +194,12 @@ export default function CreditsPage() {
           <h2 className="text-sm font-bold text-gray-700 mb-2">
             Comprar créditos
           </h2>
+          <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-900">
+            <span className="font-bold">Importante:</span> compra los créditos
+            usando <span className="font-bold">exactamente el mismo correo</span>{' '}
+            registrado en tu marca para que la acreditación sea automática. Si
+            usas otro correo, el pago queda pendiente de asignación manual.
+          </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {data.buyLinks.map((l) => (
               <a

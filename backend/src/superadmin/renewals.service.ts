@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { WhiteLabelNotificationsService } from '../white-label-notifications/white-label-notifications.service';
+import { addPlanPeriod, bundleMonths } from '../common/plan-period';
 
 /**
  * Cron de renovaciones automáticas (Fase 2 del Master Admin).
@@ -140,6 +141,7 @@ export class RenewalsService {
         brandName: true,
         whiteLabelId: true,
         currentPeriodEnd: true,
+        planPeriodicity: true,
       },
       take: 1000,
     });
@@ -212,7 +214,9 @@ export class RenewalsService {
       // Marcas con créditos ilimitados: siempre renovamos, sin consumir.
       if (wl.creditsUnlimited) {
         if (!opts.dryRun) {
-          const newPeriodEnd = new Date(periodEnd.getTime() + RenewalsService.CYCLE_DAYS * RenewalsService.DAY_MS);
+          // Bug #1: extiende por la periodicidad real del plan (Trimestral
+          // = +3 meses), no +30 días fijos.
+          const newPeriodEnd = addPlanPeriod(periodEnd, t.planPeriodicity);
           await this.prisma.tenant.updateMany({
             where: { id: t.id, currentPeriodEnd: periodEnd },
             data: { currentPeriodEnd: newPeriodEnd },
@@ -237,7 +241,9 @@ export class RenewalsService {
         //     — si otro worker ya renovó, no extiende.
         // Si el tenant ya estaba renovado, rollback del crédito.
         if (!opts.dryRun) {
-          const newPeriodEnd = new Date(periodEnd.getTime() + RenewalsService.CYCLE_DAYS * RenewalsService.DAY_MS);
+          // Bug #1: extiende por la periodicidad real del plan (Trimestral
+          // = +3 meses), no +30 días fijos.
+          const newPeriodEnd = addPlanPeriod(periodEnd, t.planPeriodicity);
           const debit = await this.prisma.whiteLabel.updateMany({
             where: { id: wl.id, creditsAvailable: { gte: 1 } },
             data: {
@@ -278,7 +284,7 @@ export class RenewalsService {
                 type: 'CONSUME',
                 amount: -1,
                 tenantId: t.id,
-                note: `Auto-renovación · ${t.brandName} · +30d`,
+                note: `Auto-renovación · ${t.brandName} · +${bundleMonths(t.planPeriodicity)}m`,
               },
             });
             summary.renewed++;

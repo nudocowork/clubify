@@ -9,6 +9,7 @@ import { PreregAlertsService } from '../auth/prereg-alerts.service';
 import { CommissionExceptionsService } from '../admin/commission-exceptions.service';
 import { monthKey } from '../common/period-key';
 import { COMMISSION_DEFAULTS } from '../common/commission-defaults';
+import { addPlanPeriod } from '../common/plan-period';
 import { SmsTemplatesService } from './sms-templates.service';
 import { WhiteLabelNotificationsService } from '../white-label-notifications/white-label-notifications.service';
 import { fmtSmsDate } from './sms-templates';
@@ -696,14 +697,20 @@ export class HotmartService {
     // hacemos fallback a +30 días — sino el tenant queda sin fecha de
     // próximo cobro PERMANENTEMENTE y el cron de billing nunca le manda
     // recordatorios. El usuario puede ajustar a mano después.
+    // Periodicidad del plan — necesaria para calcular el próximo cobro real
+    // (bug #1) y para validar el monto USD (bug #10).
+    const planForBase = await this.prisma.tenant.findUnique({
+      where: { id: tenant.id },
+      select: { planPeriodicity: true },
+    });
     const nextChargeRaw = payload.data?.subscription?.date_next_charge;
     let nextCharge = nextChargeRaw ? new Date(nextChargeRaw) : null;
     if (!nextCharge && !tenant.currentPeriodEnd) {
-      const fallback = new Date();
-      fallback.setDate(fallback.getDate() + 30);
-      nextCharge = fallback;
+      // Bug #1: el fallback debe respetar la periodicidad real del plan
+      // (Trimestral = +3 meses, no +30 días fijos). Antes siempre sumaba 30d.
+      nextCharge = addPlanPeriod(new Date(), planForBase?.planPeriodicity);
       this.logger.warn(
-        `activatePurchase tenant=${tenant.id}: primer pago sin date_next_charge — fallback +30d=${nextCharge.toISOString()}`,
+        `activatePurchase tenant=${tenant.id}: primer pago sin date_next_charge — fallback por periodicidad ${planForBase?.planPeriodicity ?? 'MENSUAL'}=${nextCharge.toISOString()}`,
       );
     } else if (!nextCharge) {
       this.logger.warn(
@@ -718,10 +725,6 @@ export class HotmartService {
     // pisamos con 0/undefined en eventos que no traen price).
     // Bug #10: validamos el value contra el precio canónico del plan para
     // descartar montos en moneda local (Hotmart no manda currency_code).
-    const planForBase = await this.prisma.tenant.findUnique({
-      where: { id: tenant.id },
-      select: { planPeriodicity: true },
-    });
     const canonicalUsd = await this.getCanonicalBundlePrice(
       planForBase?.planPeriodicity ?? null,
     );

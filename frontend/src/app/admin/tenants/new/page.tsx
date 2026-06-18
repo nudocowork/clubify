@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api } from '@/lib/api';
+import { api, getImpersonationBackup } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { PhoneInput } from '@/components/PhoneInput';
 import {
@@ -37,6 +37,9 @@ export default function NewTenant() {
   });
   const [result, setResult] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
+  // #10: si la marca activa NO tiene el módulo REFERRALS, ocultamos la
+  // asignación a afiliados. null = sin marca (Clubify global) → se muestra.
+  const [referralsEnabled, setReferralsEnabled] = useState(true);
 
   useEffect(() => {
     api('/tenants').then((arr: any[]) => {
@@ -44,6 +47,31 @@ export default function NewTenant() {
       arr.forEach((t) => seen.set(t.plan.id, t.plan));
       setPlans(Array.from(seen.values()));
     });
+  }, []);
+
+  // #10: resuelve el módulo REFERRALS de la marca activa (vía la pila de
+  // impersonación). Sin marca (admin Clubify) → REFERRALS activo por default.
+  useEffect(() => {
+    const slug = getImpersonationBackup()?.tenant?.slug;
+    if (!slug) {
+      setReferralsEnabled(true);
+      return;
+    }
+    let cancelled = false;
+    api<{ modules?: string[] } | null>(
+      `/superadmin-public/white-labels/branding?slug=${encodeURIComponent(slug)}`,
+    )
+      .then((r) => {
+        if (cancelled) return;
+        // Marca resuelta: mostramos afiliados SOLO si tiene REFERRALS activo.
+        // (modules viene como array; vacío = sin REFERRALS → ocultar.)
+        const mods = r?.modules;
+        setReferralsEnabled(mods ? mods.includes('REFERRALS') : true);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   function set<K extends keyof typeof form>(k: K, v: typeof form[K]) {
@@ -60,7 +88,7 @@ export default function NewTenant() {
         phone: form.phone || undefined,
         ownerFullName: form.ownerFullName,
         ownerPassword: form.ownerPassword || undefined,
-        planId: form.planId,
+        planId: form.planId || undefined,
         planPeriodicity: form.planPeriodicity || undefined,
         businessCategorySlug: form.businessCategorySlug,
       };
@@ -225,15 +253,22 @@ export default function NewTenant() {
             className="input"
             value={form.planId}
             onChange={(e) => set('planId', e.target.value)}
-            required
           >
-            <option value="">Selecciona…</option>
+            {/* #9: "Sin plan" permite crear el negocio aunque la marca no tenga
+                planes configurados (ej. Sellea). */}
+            <option value="">Sin plan</option>
             {plans.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
               </option>
             ))}
           </select>
+          {!form.planId && (
+            <div className="text-[11px] text-mute mt-1">
+              Se creará sin plan asignado (precio 0). Podés asignarle un plan
+              después desde la página del negocio.
+            </div>
+          )}
         </div>
         <div className="col-span-2">
           <label className="label">
@@ -271,22 +306,26 @@ export default function NewTenant() {
             página del negocio.
           </div>
         </div>
-        <div className="col-span-2">
-          <label className="label">
-            Asignar a embajador / influencer{' '}
-            <span className="text-mute font-normal">— opcional</span>
-          </label>
-          <AffiliatePickerSearch
-            value={form.referralCodeId}
-            onChange={(id) => set('referralCodeId', id)}
-            placeholder="Buscar por nombre, correo, teléfono o código…"
-          />
-          <div className="text-[11px] text-mute mt-1 leading-snug">
-            Si el negocio fue traído por un afiliado offline, elegilo aquí.
-            Las comisiones futuras se atribuyen automáticamente. Puedes
-            cambiar esto después desde la página del negocio.
+        {/* #10: la asignación a afiliados solo se muestra si la marca activa
+            tiene el módulo REFERRALS habilitado. */}
+        {referralsEnabled && (
+          <div className="col-span-2">
+            <label className="label">
+              Asignar a embajador / influencer{' '}
+              <span className="text-mute font-normal">— opcional</span>
+            </label>
+            <AffiliatePickerSearch
+              value={form.referralCodeId}
+              onChange={(id) => set('referralCodeId', id)}
+              placeholder="Buscar por nombre, correo, teléfono o código…"
+            />
+            <div className="text-[11px] text-mute mt-1 leading-snug">
+              Si el negocio fue traído por un afiliado offline, elegilo aquí.
+              Las comisiones futuras se atribuyen automáticamente. Puedes
+              cambiar esto después desde la página del negocio.
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="col-span-2">
           <label className="label">Categoría del negocio</label>

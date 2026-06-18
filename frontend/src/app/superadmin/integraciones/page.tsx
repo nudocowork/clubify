@@ -382,7 +382,6 @@ function SmsTemplatesSection({ onToast }: { onToast: (m: string) => void }) {
 
   if (tpls.length === 0) return null;
 
-  const clienteTpls = tpls.filter((t) => t.group !== 'marca');
   const marcaTpls = tpls.filter((t) => t.group === 'marca');
 
   const renderCard = (t: SmsTpl) => {
@@ -490,16 +489,8 @@ function SmsTemplatesSection({ onToast }: { onToast: (m: string) => void }) {
         <span className="font-mono">{'{token}'}</span> donde corresponda.
       </p>
 
-      {clienteTpls.length > 0 && (
-        <>
-          {groupHeader(
-            'Cliente final (cobro Hotmart)',
-            'Le llegan al negocio que paga directo a la pasarela.',
-          )}
-          <div className="space-y-4">{clienteTpls.map(renderCard)}</div>
-        </>
-      )}
-
+      {/* #4: la sección "Cliente final (cobro Hotmart)" se eliminó — esos SMS
+          ya no se usan. Solo quedan las notificaciones a la marca blanca. */}
       {marcaTpls.length > 0 && (
         <>
           {groupHeader(

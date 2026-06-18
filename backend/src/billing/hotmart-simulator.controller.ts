@@ -9,6 +9,7 @@ import {
 import { IsIn, IsUUID } from 'class-validator';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { Roles } from '../common/decorators/roles.decorator';
+import { addPlanPeriod } from '../common/plan-period';
 import {
   HotmartEventType,
   HotmartService,
@@ -61,6 +62,7 @@ export class HotmartSimulatorController {
         brandName: true,
         hotmartSubscriberCode: true,
         hotmartTransactionId: true,
+        planPeriodicity: true,
         plan: { select: { name: true } },
       },
     });
@@ -85,9 +87,10 @@ export class HotmartSimulatorController {
       `SIMTX-${Date.now().toString(36).toUpperCase()}`;
     const planName = tenant.plan?.name;
 
-    // Default `date_next_charge` = +30 días para PURCHASE_APPROVED y
+    // Default `date_next_charge` según la periodicidad real del plan
+    // (Trimestral = +3 meses), para PURCHASE_APPROVED y
     // UPDATE_SUBSCRIPTION_CHARGE_DATE. Para los demás no aplica.
-    const nextChargeMs = Date.now() + 30 * 24 * 60 * 60 * 1000;
+    const nextChargeMs = addPlanPeriod(new Date(), tenant.planPeriodicity).getTime();
 
     const payload: HotmartWebhookPayload = {
       id: `sim-${Date.now()}`,

@@ -73,6 +73,7 @@ export default function CreditsCenterPage() {
   const [editLinksOpen, setEditLinksOpen] = useState(false);
   const [adjustTarget, setAdjustTarget] = useState<WhiteLabelRow | null>(null);
   const [assignTarget, setAssignTarget] = useState<Purchase | null>(null);
+  const [manualOpen, setManualOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -120,12 +121,25 @@ export default function CreditsCenterPage() {
 
   return (
     <div>
-      <h1 className="m-0" style={{ fontSize: 26, fontWeight: 800, color: '#16241c', letterSpacing: -0.6 }}>
-        Centro de Créditos
-      </h1>
-      <p className="text-sm mt-1 mb-5" style={{ color: '#6b7785' }}>
-        1 crédito = 30 días de servicio · los créditos no vencen y son acumulativos
-      </p>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="m-0" style={{ fontSize: 26, fontWeight: 800, color: '#16241c', letterSpacing: -0.6 }}>
+            Centro de Créditos
+          </h1>
+          <p className="text-sm mt-1 mb-5" style={{ color: '#6b7785' }}>
+            1 crédito = 30 días de servicio · los créditos no vencen y son acumulativos
+          </p>
+        </div>
+        {/* #6: alta manual de créditos (cuando el pago se hizo pero el correo
+            no hizo match). Trazabilidad completa en CreditTransaction + AuditLog. */}
+        <button
+          onClick={() => setManualOpen(true)}
+          className="text-sm font-bold px-4 py-2.5 rounded-[10px] text-white"
+          style={{ background: 'linear-gradient(180deg,#ff6a4d,#e63521)' }}
+        >
+          + Agregar créditos manualmente
+        </button>
+      </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-3">
         <Stat label="Créditos Disponibles" value={fmt(s.available)} color="#16a34a" sub="en toda la red" />
@@ -279,7 +293,9 @@ export default function CreditsCenterPage() {
                 Links de compra · Hotmart
               </div>
               <div className="text-xs" style={{ color: '#6b7785' }}>
-                Cada compra es pago único, sin recurrencia.
+                Cada compra es pago único, sin recurrencia. La marca debe comprar
+                con el <b>mismo correo registrado como adminEmail</b> para que la
+                acreditación sea automática.
               </div>
             </div>
             <button
@@ -358,6 +374,18 @@ export default function CreditsCenterPage() {
           onClose={() => setAssignTarget(null)}
           onSaved={(msg) => {
             setAssignTarget(null);
+            flashToast(msg);
+            load();
+          }}
+        />
+      )}
+
+      {manualOpen && data && (
+        <ManualCreditsModal
+          whiteLabels={data.whiteLabels}
+          onClose={() => setManualOpen(false)}
+          onSaved={(msg) => {
+            setManualOpen(false);
             flashToast(msg);
             load();
           }}
@@ -554,6 +582,86 @@ function AdjustCreditsModal({
               {busy ? 'Guardando…' : direction === 'add' ? 'Agregar' : 'Descontar'}
             </button>
           </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/** #6: alta MANUAL de créditos por el Platform Owner — elige Empresa,
+ *  cantidad y motivo (obligatorio). Útil cuando el pago se hizo pero el
+ *  correo no hizo match. Trazabilidad: CreditTransaction (type PURCHASE,
+ *  note=motivo) + AuditLog (actor + fecha) vía /superadmin/credits/adjust. */
+function ManualCreditsModal({
+  whiteLabels,
+  onClose,
+  onSaved,
+}: {
+  whiteLabels: WhiteLabelRow[];
+  onClose: () => void;
+  onSaved: (msg: string) => void;
+}) {
+  const [whiteLabelId, setWhiteLabelId] = useState('');
+  const [amount, setAmount] = useState<number>(1);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!whiteLabelId) return setErr('Elige una empresa');
+    if (!amount || amount < 1) return setErr('Cantidad mayor a 0');
+    if (!note.trim()) return setErr('El motivo es obligatorio');
+    setBusy(true);
+    setErr(null);
+    try {
+      await api('/superadmin/credits/adjust', {
+        method: 'POST',
+        body: JSON.stringify({ whiteLabelId, amount, note: note.trim(), type: 'PURCHASE' }),
+      });
+      const name = whiteLabels.find((w) => w.id === whiteLabelId)?.name ?? 'la marca';
+      onSaved(`+${amount} créditos a ${name} (manual)`);
+    } catch (e: any) {
+      setErr(e.message ?? 'Error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const fieldStyle = { padding: '9px 11px', borderRadius: 9, border: '1px solid #d7dbe0', background: 'white', color: '#16241c', width: '100%' } as const;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,.4)' }} onClick={onClose}>
+      <div className="rounded-[14px] p-6 w-full" style={{ maxWidth: 460, background: 'white', boxShadow: '0 24px 70px rgba(0,0,0,.28)' }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="m-0" style={{ fontSize: 18, fontWeight: 800, color: '#16241c' }}>Agregar créditos manualmente</h2>
+          <button onClick={onClose} className="text-xl leading-none" style={{ color: '#9aa4af' }}>×</button>
+        </div>
+        <p className="text-xs mb-4" style={{ color: '#6b7785' }}>
+          Acredita créditos cuando el pago se hizo pero el correo no coincidió. Queda registrado con tu usuario, fecha, cantidad y motivo.
+        </p>
+        <form onSubmit={submit} className="space-y-3">
+          <div>
+            <label className="text-xs font-semibold" style={{ color: '#6b7785' }}>Empresa (marca blanca)</label>
+            <select value={whiteLabelId} onChange={(e) => setWhiteLabelId(e.target.value)} className="text-sm mt-1" style={fieldStyle}>
+              <option value="">— Elegir empresa —</option>
+              {whiteLabels.map((w) => (
+                <option key={w.id} value={w.id}>{w.name} ({w.creditsAvailable} créditos)</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-semibold" style={{ color: '#6b7785' }}>Cantidad de créditos</label>
+            <input type="number" min={1} value={amount} onChange={(e) => setAmount(Number(e.target.value))} className="text-sm mt-1" style={fieldStyle} />
+          </div>
+          <div>
+            <label className="text-xs font-semibold" style={{ color: '#6b7785' }}>Motivo</label>
+            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ej. Pago Hotmart tx 12345 sin match de correo" className="text-sm mt-1" style={fieldStyle} />
+          </div>
+          {err && <div className="text-xs" style={{ color: '#dc2626' }}>{err}</div>}
+          <button type="submit" disabled={busy} className="w-full text-sm font-bold py-2.5 rounded-[10px] text-white" style={{ background: busy ? '#9ca3af' : 'linear-gradient(180deg,#ff6a4d,#e63521)' }}>
+            {busy ? 'Acreditando…' : 'Acreditar créditos'}
+          </button>
         </form>
       </div>
     </div>

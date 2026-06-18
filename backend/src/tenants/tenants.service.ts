@@ -12,6 +12,7 @@ import { AuthService } from '../auth/auth.service';
 import { AuditService } from '../audit/audit.service';
 import { invalidateTenantStatusCache } from '../common/guards/tenant-status.guard';
 import { ReferralsService } from '../referrals/referrals.service';
+import { addPlanPeriod } from '../common/plan-period';
 import { QueueService } from '../jobs/queue.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { nanoid } from 'nanoid';
@@ -24,7 +25,9 @@ export type CreateTenantDto = {
   brandName: string;
   email: string;
   phone?: string;
-  planId: string;
+  /** #9: opcional. Si no viene, se usa el plan "Sin plan" (precio 0), que
+   *  permite crear el negocio aunque la marca aún no tenga planes. */
+  planId?: string;
   primaryColor?: string;
   secondaryColor?: string;
   ownerFullName: string;
@@ -398,6 +401,19 @@ export class TenantsService {
     return tenant;
   }
 
+  /** #9: asegura un Plan "Sin plan" (precio 0) reutilizable para crear
+   *  negocios cuando la marca todavía no tiene planes configurados. Idempotente
+   *  por nombre único. */
+  private async ensureFreePlan() {
+    const existing = await this.prisma.plan.findUnique({
+      where: { name: 'Sin plan' },
+    });
+    if (existing) return existing;
+    return this.prisma.plan.create({
+      data: { name: 'Sin plan', priceMonthly: 0, isActive: true },
+    });
+  }
+
   async create(dto: CreateTenantDto) {
     const slug = dto.brandName
       .toLowerCase()
@@ -407,6 +423,10 @@ export class TenantsService {
 
     const exists = await this.prisma.tenant.findUnique({ where: { slug } });
     if (exists) throw new BadRequestException('Slug already exists, pick another brandName');
+
+    // #9: si no se eligió plan (marca sin planes configurados, ej Sellea),
+    // usamos el plan "Sin plan" (precio 0) que se asegura on-demand.
+    const planId = dto.planId ?? (await this.ensureFreePlan()).id;
 
     const tempPassword = dto.ownerPassword ?? nanoid(12);
     const passwordHash = await this.auth.hashPassword(tempPassword);
@@ -462,7 +482,7 @@ export class TenantsService {
         primaryColor: dto.primaryColor ?? '#0F3D2E',
         secondaryColor: dto.secondaryColor ?? '#2E7D5B',
         businessCategorySlug: categorySlug,
-        planId: dto.planId,
+        planId,
         planPeriodicity: dto.planPeriodicity ?? null,
         referredByCode: dto.referredByCode,
         status,
@@ -736,13 +756,17 @@ export class TenantsService {
    * efectivo) y el admin quiere convertirlo manualmente para que el
    * afiliado vea su comisión.
    */
-  async convertToPaying(id: string, actorId: string, periodDays = 30) {
+  async convertToPaying(id: string, actorId: string, periodDays?: number) {
     const t = await this.prisma.tenant.findUnique({ where: { id } });
     if (!t) throw new NotFoundException('Tenant');
     const now = new Date();
-    const newPeriodEnd = new Date(
-      now.getTime() + periodDays * 24 * 60 * 60 * 1000,
-    );
+    // Bug #1: por default el periodo se extiende según la periodicidad real
+    // del plan (Trimestral = +3 meses). Solo se usa `periodDays` si el caller
+    // lo pasa explícito (override puntual).
+    const newPeriodEnd =
+      periodDays != null
+        ? new Date(now.getTime() + periodDays * 24 * 60 * 60 * 1000)
+        : addPlanPeriod(now, t.planPeriodicity);
     const updated = await this.prisma.tenant.update({
       where: { id },
       data: {

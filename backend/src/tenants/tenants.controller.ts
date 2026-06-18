@@ -10,7 +10,8 @@ class CreateTenantBody {
   @IsString() brandName!: string;
   @IsEmail() email!: string;
   @IsOptional() @IsString() phone?: string;
-  @IsUUID() planId!: string;
+  // #9: opcional → "Sin plan" si no se envía (permite crear sin planes configurados).
+  @IsOptional() @IsUUID() planId?: string;
   @IsOptional() @IsHexColor() primaryColor?: string;
   @IsOptional() @IsHexColor() secondaryColor?: string;
   @IsString() ownerFullName!: string;
@@ -209,7 +210,8 @@ export class TenantsController {
     @Body() body: { periodDays?: number },
     @CurrentUser() user: AuthUser,
   ) {
-    return this.svc.convertToPaying(id, user.id, body?.periodDays ?? 30);
+    // Sin periodDays explícito → el servicio usa la periodicidad real del plan.
+    return this.svc.convertToPaying(id, user.id, body?.periodDays);
   }
 
   @Patch(':id/billing')
