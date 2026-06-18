@@ -173,6 +173,9 @@ export class MetricsService {
       recurringCustomers30,
       ratingsAgg,
       ratings30Agg,
+      stampRevToday,
+      stampRev30,
+      stampRev7,
     ] = await Promise.all([
       this.prisma.card.count({ where: { tenantId: tid } }),
       this.prisma.customer.count({ where: { tenantId: tid } }),
@@ -260,6 +263,23 @@ export class MetricsService {
         _avg: { rating: true },
         _count: { rating: true },
       }),
+      // #7: facturación de SELLOS de compra (STAMP/VISIT con monto, sin
+      // orderId para no duplicar con órdenes). Cada sello = una compra.
+      this.prisma.stamp.aggregate({
+        _sum: { purchaseAmount: true },
+        _count: { _all: true },
+        where: { tenantId: tid, orderId: null, action: { in: ['STAMP', 'VISIT'] }, purchaseAmount: { gt: 0 }, createdAt: { gte: today0 } },
+      }),
+      this.prisma.stamp.aggregate({
+        _sum: { purchaseAmount: true },
+        _count: { _all: true },
+        where: { tenantId: tid, orderId: null, action: { in: ['STAMP', 'VISIT'] }, purchaseAmount: { gt: 0 }, createdAt: { gte: since30 } },
+      }),
+      this.prisma.stamp.aggregate({
+        _sum: { purchaseAmount: true },
+        _count: { _all: true },
+        where: { tenantId: tid, orderId: null, action: { in: ['STAMP', 'VISIT'] }, purchaseAmount: { gt: 0 }, createdAt: { gte: since7 } },
+      }),
     ]);
 
     // Top productos (por timesOrdered si está poblado, sino por aggregations en items)
@@ -315,13 +335,17 @@ export class MetricsService {
       walletNone,
       stamps30,
       redemptions30,
-      // v2 — comercial
-      ordersToday,
-      revenueToday: Number(ordersTodayAgg._sum.total ?? 0),
-      orders30,
-      revenue30: Number(orders30Agg._sum.total ?? 0),
-      revenue7: Number(orders7Agg._sum.total ?? 0),
-      avgTicket: Number(orders30Agg._avg.total ?? 0),
+      // v2 — comercial. #7: facturación = órdenes + sellos de compra.
+      ordersToday: ordersToday + (stampRevToday._count._all ?? 0),
+      revenueToday: Number(ordersTodayAgg._sum.total ?? 0) + Number(stampRevToday._sum.purchaseAmount ?? 0),
+      orders30: orders30 + (stampRev30._count._all ?? 0),
+      revenue30: Number(orders30Agg._sum.total ?? 0) + Number(stampRev30._sum.purchaseAmount ?? 0),
+      revenue7: Number(orders7Agg._sum.total ?? 0) + Number(stampRev7._sum.purchaseAmount ?? 0),
+      avgTicket: (() => {
+        const totalRev = Number(orders30Agg._sum.total ?? 0) + Number(stampRev30._sum.purchaseAmount ?? 0);
+        const totalCount = orders30 + (stampRev30._count._all ?? 0);
+        return totalCount > 0 ? Math.round((totalRev / totalCount) * 100) / 100 : 0;
+      })(),
       pendingOrders,
       newCustomers30,
       recurringCustomers30,

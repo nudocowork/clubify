@@ -42,6 +42,9 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
   const pathname = usePathname();
   const [user, setUser] = useState<any>(null);
   const [badges, setBadges] = useState<Badges>({});
+  // #2: branding configurable del Master Admin (nombre/tagline/logo/color)
+  // desde /superadmin/configuracion. Sin hardcodes.
+  const [cfg, setCfg] = useState<{ name: string; tagline: string; logoUrl: string; primaryColor: string } | null>(null);
 
   useEffect(() => {
     const u = getUser();
@@ -53,10 +56,17 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
     api<Badges>('/superadmin/sidebar-badges')
       .then(setBadges)
       .catch(() => null);
+    api<{ name: string; tagline: string; logoUrl: string; primaryColor: string }>('/superadmin/config')
+      .then(setCfg)
+      .catch(() => null);
   }, [router]);
 
   if (!user) return null;
   const NAV_GROUPS = buildNavGroups(badges);
+  const brandName = cfg?.name || 'Fidelia';
+  const brandTagline = cfg?.tagline || 'Software de Fidelización · Super Admin';
+  const brandLogo = cfg?.logoUrl || '';
+  const pc = cfg?.primaryColor || '#22c55e';
 
   function isActive(href: string) {
     if (href === '/superadmin') return pathname === '/superadmin';
@@ -70,7 +80,9 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
         style={{
           width: 250,
           minHeight: '100vh',
-          background: 'linear-gradient(176deg, #1a5c38 0%, #11442a 46%, #0a2c1a 100%)',
+          // #2: gradiente derivado del color primario configurado (sin verde
+          // hardcodeado). color-mix oscurece el color para el degradado.
+          background: `linear-gradient(176deg, color-mix(in srgb, ${pc} 78%, #0a0a0f) 0%, color-mix(in srgb, ${pc} 32%, #0a0a0f) 55%, #0a0a0f 100%)`,
           color: 'white',
           position: 'sticky',
           top: 0,
@@ -80,16 +92,19 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
         <div className="px-5 pt-5 pb-4 border-b border-white/10">
           <div className="flex items-center gap-3">
             <div
-              className="w-10 h-10 rounded-xl flex items-center justify-center bg-white/15 text-base"
-              style={{ fontWeight: 800 }}
+              className="w-10 h-10 rounded-xl flex items-center justify-center text-base overflow-hidden"
+              style={{ fontWeight: 800, background: brandLogo ? '#fff' : 'rgba(255,255,255,.15)' }}
             >
-              🏠
+              {brandLogo ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={brandLogo} alt={brandName} className="w-full h-full object-contain" />
+              ) : (
+                brandName[0]?.toUpperCase() || '🏠'
+              )}
             </div>
             <div className="min-w-0">
-              <div className="font-extrabold text-base leading-tight">Fidelia</div>
-              <div className="text-[10.5px] opacity-70 leading-snug">
-                Software de Fidelización · Super Admin
-              </div>
+              <div className="font-extrabold text-base leading-tight truncate">{brandName}</div>
+              <div className="text-[10.5px] opacity-70 leading-snug">{brandTagline}</div>
             </div>
           </div>
         </div>
@@ -112,10 +127,10 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
                     style={
                       active
                         ? {
-                            background: '#22c55e',
+                            background: pc,
                             color: 'white',
                             fontWeight: 600,
-                            boxShadow: '0 6px 14px rgba(34,197,94,.35)',
+                            boxShadow: `0 6px 14px ${pc}59`,
                           }
                         : { color: 'rgba(255,255,255,0.88)' }
                     }

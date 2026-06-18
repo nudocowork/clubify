@@ -424,6 +424,34 @@ export class StampsService {
         where: { id: pass.id },
         data: passUpdateData,
       });
+
+      // #7/#8: cada sello de COMPRA (STAMP/VISIT con monto) cuenta como un
+      // pedido: para recibir el sello necesariamente hubo una compra. Alimenta
+      // facturación / ticket promedio / total gastado / historial del cliente.
+      // Guard: este path SIEMPRE crea stamps sin orderId (las órdenes generan
+      // sus sellos en otro flujo con orderId), así que no hay doble-conteo.
+      if (
+        (dto.action === 'STAMP' || dto.action === 'VISIT') &&
+        dto.purchaseAmount !== undefined &&
+        dto.purchaseAmount !== null &&
+        Number(dto.purchaseAmount) > 0 &&
+        pass.customerId
+      ) {
+        const now = new Date();
+        await tx.customer.update({
+          where: { id: pass.customerId },
+          data: {
+            totalOrdersCount: { increment: 1 },
+            totalOrdersAmount: { increment: new Prisma.Decimal(dto.purchaseAmount) },
+            lastOrderAt: now,
+          },
+        });
+        // firstOrderAt solo si todavía no tenía ninguna compra registrada.
+        await tx.customer.updateMany({
+          where: { id: pass.customerId, firstOrderAt: null },
+          data: { firstOrderAt: now },
+        });
+      }
       return [newStampRow, updated] as const;
     });
 
