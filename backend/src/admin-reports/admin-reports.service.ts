@@ -3,6 +3,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { SettingsService } from '../settings/settings.service';
 import { normalizePlanPeriod } from '../common/plan-period';
+import { WhiteLabelNotificationsService } from '../white-label-notifications/white-label-notifications.service';
 
 /**
  * Servicio de reportes/rankings/dashboard para SUPER_ADMIN.
@@ -33,6 +34,7 @@ export class AdminReportsService {
   constructor(
     private prisma: PrismaService,
     private settings: SettingsService,
+    private wlNotifications: WhiteLabelNotificationsService,
   ) {}
 
   // ============================================================
@@ -1649,10 +1651,16 @@ export class AdminReportsService {
       where: { id: wlId },
       select: { creditsAvailable: true },
     });
+    const available = after?.creditsAvailable ?? wl.creditsAvailable - 1;
+    // Notificaciones a la marca (best-effort): saldo bajo + recálculo de
+    // pendientes (este activación pudo haber vaciado la bandeja).
+    await this.wlNotifications.onCreditsConsumed(wlId, available).catch(() => null);
+    const pendingNow = await this.countPendingTenants(wlId).catch(() => 0);
+    await this.wlNotifications.onPendingClients(wlId, pendingNow).catch(() => null);
     return {
       ok: true,
       consumed: 1,
-      creditsAvailable: after?.creditsAvailable ?? wl.creditsAvailable - 1,
+      creditsAvailable: available,
       currentPeriodEnd: newPeriodEnd,
     };
   }

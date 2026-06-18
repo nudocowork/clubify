@@ -16,6 +16,7 @@ type WhiteLabel = {
   supportColor: string | null;
   instagram: string | null;
   contactEmail: string | null;
+  notifyPhone: string | null;
   initial: string | null;
   adminEmail: string | null;
   status: 'ACTIVE' | 'SUSPENDED';
@@ -593,6 +594,7 @@ function Drawer({
                   supportColor: w.supportColor,
                   instagram: w.instagram,
                   contactEmail: w.contactEmail,
+                  notifyPhone: w.notifyPhone,
                 }}
                 onSaved={(msg) => {
                   reloadAdmins();
@@ -1378,6 +1380,7 @@ function BrandingConfig({
     supportColor: string | null;
     instagram: string | null;
     contactEmail: string | null;
+    notifyPhone: string | null;
   };
   onSaved: (msg: string) => void;
 }) {
@@ -1389,6 +1392,7 @@ function BrandingConfig({
     supportColor: initial.supportColor ?? '',
     instagram: initial.instagram ?? '',
     contactEmail: initial.contactEmail ?? '',
+    notifyPhone: initial.notifyPhone ?? '',
   });
   const [busy, setBusy] = useState(false);
 
@@ -1405,6 +1409,7 @@ function BrandingConfig({
           supportColor: f.supportColor.trim() || null,
           instagram: f.instagram.trim() || null,
           contactEmail: f.contactEmail.trim() || null,
+          notifyPhone: f.notifyPhone.trim() || null,
         }),
       });
       onSaved('Branding actualizado');
@@ -1448,7 +1453,7 @@ function BrandingConfig({
 
   const textInput = (
     label: string,
-    key: 'logoUrl' | 'instagram' | 'contactEmail',
+    key: 'logoUrl' | 'instagram' | 'contactEmail' | 'notifyPhone',
     placeholder: string,
   ) => (
     <div>
@@ -1484,6 +1489,14 @@ function BrandingConfig({
         </div>
         {textInput('Instagram', 'instagram', '@marca')}
         {textInput('Email de contacto', 'contactEmail', 'hola@marca.com')}
+        {textInput(
+          'Teléfono notificaciones (SMS de créditos)',
+          'notifyPhone',
+          '+52 1 55 1234 5678',
+        )}
+        <p className="text-[11px]" style={{ color: '#9aa3ad', marginTop: -4 }}>
+          Recibe los avisos de créditos (compra, saldo bajo, pendientes).
+        </p>
         <button
           onClick={save}
           disabled={busy}

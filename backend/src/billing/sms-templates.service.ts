@@ -32,6 +32,7 @@ export class SmsTemplatesService {
         label: t.label,
         description: t.description,
         vars: t.vars,
+        group: t.group,
         default: t.default,
         text: override ?? t.default,
         isCustom: override != null,

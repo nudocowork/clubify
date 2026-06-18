@@ -23,6 +23,8 @@ class WhiteLabelBody {
   @IsOptional() @IsHexColor() supportColor?: string;
   @IsOptional() @IsString() @MaxLength(60) instagram?: string;
   @IsOptional() @IsEmail() contactEmail?: string;
+  // Teléfono al que la plataforma le manda los SMS de créditos a la marca.
+  @IsOptional() @IsString() @MaxLength(30) notifyPhone?: string;
 }
 
 class StatusBody {

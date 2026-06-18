@@ -14,9 +14,10 @@ import { EmailModule } from '../email/email.module';
 import { ReferralsModule } from '../referrals/referrals.module';
 import { AuthModule } from '../auth/auth.module';
 import { AdminModule } from '../admin/admin.module';
+import { WhiteLabelNotificationsModule } from '../white-label-notifications/white-label-notifications.module';
 
 @Module({
-  imports: [IntegrationsModule, EmailModule, ReferralsModule, AuthModule, AdminModule],
+  imports: [IntegrationsModule, EmailModule, ReferralsModule, AuthModule, AdminModule, WhiteLabelNotificationsModule],
   controllers: [
     BillingController,
     HotmartWebhookController,

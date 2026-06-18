@@ -4,6 +4,7 @@ import { Prisma, WhiteLabelStatus, CreditTransactionType, ModuleKey } from '@pri
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { EmailService } from '../email/email.service';
+import { WhiteLabelNotificationsService } from '../white-label-notifications/white-label-notifications.service';
 import * as argon2 from 'argon2';
 import { randomBytes, createHash } from 'crypto';
 
@@ -22,6 +23,7 @@ export type WhiteLabelDto = {
   supportColor?: string;
   instagram?: string;
   contactEmail?: string;
+  notifyPhone?: string;
 };
 
 export type HotmartLinkDto = {
@@ -56,6 +58,7 @@ export class SuperAdminService {
     private jwt: JwtService,
     private audit: AuditService,
     private email: EmailService,
+    private wlNotifications: WhiteLabelNotificationsService,
   ) {}
 
   /** PLATFORM_OWNER entra al panel de una marca blanca como su SUPER_ADMIN.
@@ -606,6 +609,7 @@ export class SuperAdminService {
           supportColor: dto.supportColor || null,
           instagram: dto.instagram?.trim() || null,
           contactEmail: dto.contactEmail?.trim().toLowerCase() || null,
+          notifyPhone: dto.notifyPhone?.trim() || null,
           initial: (dto.initial || dto.name.trim()[0] || 'M').toUpperCase().slice(0, 1),
           adminEmail: dto.adminEmail?.trim().toLowerCase() || null,
           creditsUnlimited: dto.creditsUnlimited ?? false,
@@ -649,6 +653,7 @@ export class SuperAdminService {
         supportColor: patch.supportColor === undefined ? undefined : patch.supportColor || null,
         instagram: patch.instagram === undefined ? undefined : patch.instagram?.trim() || null,
         contactEmail: patch.contactEmail === undefined ? undefined : patch.contactEmail?.trim().toLowerCase() || null,
+        notifyPhone: patch.notifyPhone === undefined ? undefined : patch.notifyPhone?.trim() || null,
         initial: patch.initial ? patch.initial.toUpperCase().slice(0, 1) : undefined,
         adminEmail: patch.adminEmail === undefined ? undefined : patch.adminEmail?.trim().toLowerCase() || null,
         creditsUnlimited: patch.creditsUnlimited === undefined ? undefined : patch.creditsUnlimited,
@@ -783,6 +788,12 @@ export class SuperAdminService {
       type: dto.type ?? (dto.amount > 0 ? 'PURCHASE' : 'ADJUSTMENT'),
       note: dto.note,
     });
+    // Ajuste positivo = créditos agregados → SMS a la marca (+ reset dedups).
+    if (dto.amount > 0 && !wl.creditsUnlimited) {
+      await this.wlNotifications
+        .onCreditsPurchased(dto.whiteLabelId, dto.amount, newAvailable)
+        .catch(() => null);
+    }
     return updated;
   }
 
@@ -867,6 +878,14 @@ export class SuperAdminService {
           },
         }),
       ]);
+      // SMS a la marca: créditos acreditados (+ resetea dedups de avisos).
+      const fresh = await this.prisma.whiteLabel.findUnique({
+        where: { id: whiteLabelId },
+        select: { creditsAvailable: true },
+      });
+      await this.wlNotifications
+        .onCreditsPurchased(whiteLabelId, purchase.credits, fresh?.creditsAvailable ?? purchase.credits)
+        .catch(() => null);
     }
     await this.logAction(actorId, 'superadmin.hotmart_purchase.assign', `hotmartPurchase:${purchaseId}`, {
       transactionId: purchase.transactionId,

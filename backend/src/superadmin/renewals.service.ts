@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { WhiteLabelNotificationsService } from '../white-label-notifications/white-label-notifications.service';
 
 /**
  * Cron de renovaciones automáticas (Fase 2 del Master Admin).
@@ -29,7 +30,10 @@ export class RenewalsService {
   private static readonly GRACE_DAYS = 5;
   private static readonly CYCLE_DAYS = 30;
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private wlNotifications: WhiteLabelNotificationsService,
+  ) {}
 
   /** Corre a las 02:00 UTC cada día. UTC-5 LATAM = 21:00 hora local. */
   @Cron(CronExpression.EVERY_DAY_AT_2AM)
@@ -41,8 +45,37 @@ export class RenewalsService {
       );
       const committed = await this.refreshCommittedCredits();
       this.logger.log(`Committed credits refreshed: ${committed.total} en ${committed.whiteLabels} marcas`);
+      await this.notifyBrandsCreditState();
     } catch (e) {
       this.logger.error(`Renewals cron falló: ${(e as Error).message}`);
+    }
+  }
+
+  /**
+   * Post-pass diario: por cada marca blanca con créditos (no ilimitada),
+   * avisa por SMS si quedó con saldo bajo (≤2) o si tiene negocios pendientes
+   * de activación por falta de créditos. Dedupe lo maneja el servicio
+   * (flags lowCreditsNotifiedAt / pendingClientsNotifiedAt). Best-effort.
+   */
+  async notifyBrandsCreditState() {
+    const now = new Date();
+    const brands = await this.prisma.whiteLabel.findMany({
+      where: { creditsUnlimited: false },
+      select: { id: true, creditsAvailable: true },
+    });
+    for (const b of brands) {
+      const pending = await this.prisma.tenant.count({
+        where: {
+          whiteLabelId: b.id,
+          OR: [
+            { status: 'SUSPENDED' },
+            { status: 'TRIAL', trialEndsAt: { lt: now } },
+            { status: 'ACTIVE', currentPeriodEnd: { lt: now } },
+          ],
+        },
+      });
+      await this.wlNotifications.onCreditsConsumed(b.id, b.creditsAvailable).catch(() => null);
+      await this.wlNotifications.onPendingClients(b.id, pending).catch(() => null);
     }
   }
 

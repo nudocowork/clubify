@@ -335,6 +335,7 @@ type SmsTpl = {
   label: string;
   description: string;
   vars: string[];
+  group: 'cliente' | 'marca';
   default: string;
   text: string;
   isCustom: boolean;
@@ -381,19 +382,10 @@ function SmsTemplatesSection({ onToast }: { onToast: (m: string) => void }) {
 
   if (tpls.length === 0) return null;
 
-  return (
-    <div className="mt-9">
-      <h2 className="m-0" style={{ fontSize: 20, fontWeight: 800, color: '#16241c' }}>
-        Plantillas de SMS
-      </h2>
-      <p className="text-sm mt-1 mb-4" style={{ color: '#6b7785' }}>
-        Textos que el sistema envía automáticamente (secuencia de cobro Hotmart).
-        Dejá el campo vacío para volver al texto por defecto. Usá las variables{' '}
-        <span className="font-mono">{'{token}'}</span> donde corresponda.
-      </p>
+  const clienteTpls = tpls.filter((t) => t.group !== 'marca');
+  const marcaTpls = tpls.filter((t) => t.group === 'marca');
 
-      <div className="space-y-4">
-        {tpls.map((t) => {
+  const renderCard = (t: SmsTpl) => {
           const draft = drafts[t.id] ?? '';
           const dirty = draft !== t.text;
           return (
@@ -474,8 +466,49 @@ function SmsTemplatesSection({ onToast }: { onToast: (m: string) => void }) {
               </div>
             </div>
           );
-        })}
-      </div>
+  };
+
+  const groupHeader = (title: string, subtitle: string) => (
+    <div className="mt-6 mb-3">
+      <h3 className="m-0" style={{ fontSize: 14, fontWeight: 800, color: '#16241c' }}>
+        {title}
+      </h3>
+      <p className="text-xs mt-0.5" style={{ color: '#6b7785' }}>
+        {subtitle}
+      </p>
+    </div>
+  );
+
+  return (
+    <div className="mt-9">
+      <h2 className="m-0" style={{ fontSize: 20, fontWeight: 800, color: '#16241c' }}>
+        Plantillas de SMS
+      </h2>
+      <p className="text-sm mt-1 mb-2" style={{ color: '#6b7785' }}>
+        Textos que el sistema envía automáticamente. Dejá el campo vacío para
+        volver al texto por defecto. Usá las variables{' '}
+        <span className="font-mono">{'{token}'}</span> donde corresponda.
+      </p>
+
+      {clienteTpls.length > 0 && (
+        <>
+          {groupHeader(
+            'Cliente final (cobro Hotmart)',
+            'Le llegan al negocio que paga directo a la pasarela.',
+          )}
+          <div className="space-y-4">{clienteTpls.map(renderCard)}</div>
+        </>
+      )}
+
+      {marcaTpls.length > 0 && (
+        <>
+          {groupHeader(
+            'Marca blanca (créditos)',
+            'Las envía Clubify a la marca blanca (a su teléfono de notificaciones).',
+          )}
+          <div className="space-y-4">{marcaTpls.map(renderCard)}</div>
+        </>
+      )}
     </div>
   );
 }

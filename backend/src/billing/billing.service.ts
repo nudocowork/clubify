@@ -326,6 +326,12 @@ export class BillingService {
       where: {
         status: 'ACTIVE',
         currentPeriodEnd: { gte: inOneDay, lt: inTwoDays },
+        // El recordatorio "revisa tu tarjeta en Hotmart" solo aplica a
+        // negocios que pagan DIRECTO a la pasarela (Clubify). Las marcas
+        // blancas se renuevan con créditos (cron de renovaciones) → no hay
+        // cobro Hotmart que recordar, así que las excluimos. Legacy con
+        // whiteLabelId null = Clubify.
+        OR: [{ whiteLabelId: null }, { whiteLabel: { slug: 'clubify' } }],
       },
       select: {
         id: true,

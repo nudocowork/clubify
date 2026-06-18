@@ -10,6 +10,7 @@ import { CommissionExceptionsService } from '../admin/commission-exceptions.serv
 import { monthKey } from '../common/period-key';
 import { COMMISSION_DEFAULTS } from '../common/commission-defaults';
 import { SmsTemplatesService } from './sms-templates.service';
+import { WhiteLabelNotificationsService } from '../white-label-notifications/white-label-notifications.service';
 import { fmtSmsDate } from './sms-templates';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -67,6 +68,7 @@ export class HotmartService {
     private alerts: PreregAlertsService,
     private commissionExceptions: CommissionExceptionsService,
     private smsTemplates: SmsTemplatesService,
+    private wlNotifications: WhiteLabelNotificationsService,
   ) {}
 
   /** Precio canónico del bundle en USD (68/150/278/500) según periodicidad,
@@ -460,6 +462,14 @@ export class HotmartService {
     this.logger.log(
       `Hotmart credit purchase ${transactionId}: ${creditLink.credits} créditos → marca ${whiteLabelId}`,
     );
+    // SMS a la marca: créditos acreditados (+ reset de dedups de avisos).
+    const fresh = await this.prisma.whiteLabel.findUnique({
+      where: { id: whiteLabelId },
+      select: { creditsAvailable: true },
+    });
+    await this.wlNotifications
+      .onCreditsPurchased(whiteLabelId, creditLink.credits, fresh?.creditsAvailable ?? creditLink.credits)
+      .catch(() => null);
     return 'credit_purchase_assigned';
   }
 
