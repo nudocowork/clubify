@@ -22,6 +22,18 @@ export class MetricsService {
     const since7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const in3Days = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
 
+    // Scope por marca blanca: si la sesión "entró" a una marca (PLATFORM_OWNER
+    // impersonando white-label), las métricas se limitan a sus tenants. Sin
+    // marca activa (null) → vista global de toda la plataforma (sin cambios).
+    const wlId = user.whiteLabelId ?? null;
+    const tenantWhere = wlId ? { whiteLabelId: wlId } : {};
+    // Modelos con tenantId directo (pass/customer/order) → filtro por relación.
+    const relWhere = wlId ? { tenant: { whiteLabelId: wlId } } : {};
+    // Commission no tiene tenantId: cuelga del tenant vía referralUse.
+    const commWhere = wlId
+      ? { referralUse: { tenant: { whiteLabelId: wlId } } }
+      : {};
+
     const [
       tenants,
       activeTenantsByPlan,
@@ -36,37 +48,54 @@ export class MetricsService {
       churnedLast30,
       activatedLast30,
     ] = await Promise.all([
-      this.prisma.tenant.count(),
+      this.prisma.tenant.count({ where: tenantWhere }),
       this.prisma.tenant.groupBy({
         by: ['planId'],
-        where: { status: 'ACTIVE' },
+        where: { status: 'ACTIVE', ...tenantWhere },
         _count: { _all: true },
       }),
-      this.prisma.tenant.count({ where: { status: 'TRIAL' } }),
-      this.prisma.tenant.count({ where: { status: 'SUSPENDED' } }),
+      this.prisma.tenant.count({ where: { status: 'TRIAL', ...tenantWhere } }),
+      this.prisma.tenant.count({
+        where: { status: 'SUSPENDED', ...tenantWhere },
+      }),
       this.prisma.tenant.count({
         where: {
           status: 'TRIAL',
           trialEndsAt: { gte: new Date(), lte: in3Days },
+          ...tenantWhere,
         },
       }),
-      this.prisma.pass.count(),
-      this.prisma.customer.count(),
+      this.prisma.pass.count({ where: relWhere }),
+      this.prisma.customer.count({ where: relWhere }),
       this.prisma.order.aggregate({
         _count: { _all: true },
         _sum: { total: true },
-        where: { createdAt: { gte: since30 }, status: { not: 'CANCELLED' } },
+        where: {
+          createdAt: { gte: since30 },
+          status: { not: 'CANCELLED' },
+          ...relWhere,
+        },
       }),
-      this.prisma.tenant.count({ where: { createdAt: { gte: since7 } } }),
+      this.prisma.tenant.count({
+        where: { createdAt: { gte: since7 }, ...tenantWhere },
+      }),
       this.prisma.commission.aggregate({
         _sum: { amount: true },
-        where: { status: 'PENDING' },
+        where: { status: 'PENDING', ...commWhere },
       }),
       this.prisma.tenant.count({
-        where: { status: 'SUSPENDED', suspendedAt: { gte: since30 } },
+        where: {
+          status: 'SUSPENDED',
+          suspendedAt: { gte: since30 },
+          ...tenantWhere,
+        },
       }),
       this.prisma.tenant.count({
-        where: { status: 'ACTIVE', lastPaymentAttemptAt: { gte: since30 } },
+        where: {
+          status: 'ACTIVE',
+          lastPaymentAttemptAt: { gte: since30 },
+          ...tenantWhere,
+        },
       }),
     ]);
 

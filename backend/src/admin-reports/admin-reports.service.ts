@@ -847,6 +847,17 @@ export class AdminReportsService {
   ) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
 
+    // Scope por marca blanca: si la sesión "entró" a una marca (PLATFORM_OWNER
+    // impersonando white-label), TODAS las métricas/series/mapa se limitan a
+    // los tenants de esa marca. Sin marca activa (null) → vista global (igual
+    // que antes). tenantWhere → modelos con whiteLabelId (Tenant); commWhere →
+    // Commission (cuelga del tenant vía referralUse).
+    const wlId = user.whiteLabelId ?? null;
+    const tenantWhere = wlId ? { whiteLabelId: wlId } : {};
+    const commWhere = wlId
+      ? { referralUse: { tenant: { whiteLabelId: wlId } } }
+      : {};
+
     const now = new Date();
     const { from, to } = resolveDateRange(opts.range, opts.from, opts.to, now);
     // Mes actual y anterior para la comparación de clientes nuevos
@@ -916,6 +927,7 @@ export class AdminReportsService {
             { currentPeriodEnd: null },
             { currentPeriodEnd: { gte: now } },
           ],
+          ...tenantWhere,
         },
         select: {
           id: true,
@@ -931,12 +943,14 @@ export class AdminReportsService {
         where: {
           status: 'ACTIVE',
           createdAt: { gte: startThisMonth, lte: now },
+          ...tenantWhere,
         },
       }),
       this.prisma.tenant.count({
         where: {
           status: 'ACTIVE',
           createdAt: { gte: startLastMonth, lte: endLastMonth },
+          ...tenantWhere,
         },
       }),
       // FIX 2026-06-16 (#14/#37): "pendiente por pagar a afiliados" =
@@ -944,14 +958,14 @@ export class AdminReportsService {
       // metía RETAINED (congelada, fuera de totales) y PAID en el pool →
       // divergía de Referidos/Comisiones. Definición canónica única.
       this.prisma.commission.aggregate({
-        where: { status: { in: ['PENDING', 'APPROVED'] } },
+        where: { status: { in: ['PENDING', 'APPROVED'] }, ...commWhere },
         _sum: { amount: true, amountPaid: true },
       }),
       this.prisma.tenant.groupBy({
         by: ['status'],
         // #13: excluye borrados para que los buckets de "Estado de clientes"
         // no se solapen con "Cancelados" (deletedAt != null).
-        where: { deletedAt: null },
+        where: { deletedAt: null, ...tenantWhere },
         _count: { _all: true },
       }),
       this.prisma.tenant.count({
@@ -961,16 +975,18 @@ export class AdminReportsService {
             { currentPeriodEnd: null },
             { currentPeriodEnd: { gte: now } },
           ],
+          ...tenantWhere,
         },
       }),
-      this.prisma.tenant.count({ where: { status: 'TRIAL' } }),
+      this.prisma.tenant.count({ where: { status: 'TRIAL', ...tenantWhere } }),
       // Cancellation rate: SUSPENDED total (Tenant no tiene suspendedAt;
       // aproximamos a "actualmente cancelados" sobre activos).
       this.prisma.tenant.count({
-        where: { status: 'SUSPENDED' },
+        where: { status: 'SUSPENDED', ...tenantWhere },
       }),
       // Últimos 10 tenants para "Últimos ingresos".
       this.prisma.tenant.findMany({
+        where: tenantWhere,
         orderBy: { createdAt: 'desc' },
         take: 10,
         select: {
@@ -984,6 +1000,7 @@ export class AdminReportsService {
         },
       }),
       this.prisma.commission.findMany({
+        where: commWhere,
         orderBy: { createdAt: 'desc' },
         take: 10,
         select: {
@@ -1000,7 +1017,10 @@ export class AdminReportsService {
         },
       }),
       this.prisma.location.findMany({
-        where: { isActive: true, tenant: { status: 'ACTIVE' } },
+        where: {
+          isActive: true,
+          tenant: { status: 'ACTIVE', ...tenantWhere },
+        },
         take: 200,
         select: {
           id: true,
@@ -1123,7 +1143,7 @@ export class AdminReportsService {
     );
     const [allTenantsForMrr, commForSeries, pastDueCount, cancelledCount] = await Promise.all([
       this.prisma.tenant.findMany({
-        where: { deletedAt: null, status: 'ACTIVE' },
+        where: { deletedAt: null, status: 'ACTIVE', ...tenantWhere },
         select: {
           createdAt: true,
           planPeriodicity: true,
@@ -1137,6 +1157,7 @@ export class AdminReportsService {
             { createdAt: { gte: firstMonthStart } },
             { paidAt: { gte: firstMonthStart } },
           ],
+          ...commWhere,
         },
         select: {
           amount: true,
@@ -1150,11 +1171,18 @@ export class AdminReportsService {
       // (past-due derivado, igual que billing.service.getStatus). Antes el
       // dashboard buscaba status 'PAYING' que NO existe en el enum → 0 fijo.
       this.prisma.tenant.count({
-        where: { deletedAt: null, status: 'ACTIVE', failedPaymentCount: { gt: 0 } },
+        where: {
+          deletedAt: null,
+          status: 'ACTIVE',
+          failedPaymentCount: { gt: 0 },
+          ...tenantWhere,
+        },
       }),
       // #13: "Cancelados" REAL = negocios borrados (soft-delete). Antes
       // buscaba status 'CANCELLED' que tampoco existe → 0 fijo.
-      this.prisma.tenant.count({ where: { deletedAt: { not: null } } }),
+      this.prisma.tenant.count({
+        where: { deletedAt: { not: null }, ...tenantWhere },
+      }),
     ]);
 
     const monthLabels = [
