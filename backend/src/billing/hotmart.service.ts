@@ -69,6 +69,84 @@ export class HotmartService {
     private smsTemplates: SmsTemplatesService,
   ) {}
 
+  /** Precio canónico del bundle en USD (68/150/278/500) según periodicidad,
+   *  con override por Setting `landing.plans.<period>.price`. Replica
+   *  CommissionRecalcService.getBundlePrice vía prisma para no acoplar este
+   *  módulo (evita ciclos de DI). Devuelve 0 si no se puede resolver. */
+  private async getCanonicalBundlePrice(
+    periodicity: string | null,
+  ): Promise<number> {
+    const DEFAULTS: Record<string, number> = {
+      MENSUAL: 68,
+      TRIMESTRAL: 150,
+      SEMESTRAL: 278,
+      ANUAL: 500,
+    };
+    const period = (periodicity ?? 'MENSUAL').toUpperCase();
+    const key = `landing.plans.${period.toLowerCase()}.price`;
+    const row = await this.prisma.setting.findUnique({ where: { key } });
+    const fromSetting = row?.value != null ? Number(row.value) : NaN;
+    if (Number.isFinite(fromSetting) && fromSetting > 0) return fromSetting;
+    return DEFAULTS[period] ?? 0;
+  }
+
+  /**
+   * Bug #10 (currency Hotmart): extrae el monto pagado en USD del payload,
+   * validándolo contra el precio canónico del plan.
+   *
+   * Hotmart manda `purchase.price.value` en la MONEDA del producto/oferta y
+   * en producción NO está enviando `currency_code` — así que el value puede
+   * venir en USD (148.55 ≈ 150) o en moneda local (541498 COP ≈ 150 USD,
+   * o ~2700 MXN, ~750 BRL). Tratarlo siempre como USD infla
+   * `subscriptionPriceUsd` y la base de comisiones (caso real: comisión de
+   * $54k sobre 541498).
+   *
+   * Política:
+   *  - currency_code explícito != USD → no es base USD (null).
+   *  - sin ancla canónica → guarda absoluta (ningún plan supera ~600 USD).
+   *  - con ancla canónica → aceptamos el value como USD solo si cae en una
+   *    banda razonable [0.3x, 1.6x] del canónico (cupón abajo / fees arriba).
+   *    Fuera de banda = moneda local → null (el caller usa el canónico).
+   */
+  private resolvePaidUsd(
+    payload: HotmartWebhookPayload,
+    ctx: string,
+    canonicalUsd: number,
+  ): number | null {
+    const price = payload?.data?.purchase?.price;
+    const value = price?.value;
+    if (typeof value !== 'number' || value <= 0) return null;
+
+    const ccy = (price?.currency_code || '').toUpperCase();
+    if (ccy && ccy !== 'USD') {
+      this.logger.warn(
+        `Hotmart ${ctx}: value=${value} en ${ccy} (no USD) — uso canónico ${canonicalUsd}.`,
+      );
+      return null;
+    }
+
+    if (canonicalUsd > 0) {
+      const lo = canonicalUsd * 0.3;
+      const hi = canonicalUsd * 1.6;
+      if (value < lo || value > hi) {
+        this.logger.warn(
+          `Hotmart ${ctx}: value=${value} fuera de banda USD [${lo.toFixed(0)},${hi.toFixed(0)}] del plan ${canonicalUsd} — probable moneda local, uso canónico.`,
+        );
+        return null;
+      }
+      return value;
+    }
+
+    // Sin ancla: ningún plan legítimo supera ~600 USD.
+    if (value > 600) {
+      this.logger.warn(
+        `Hotmart ${ctx}: value=${value} > 600 sin ancla canónica — probable moneda local, ignoro.`,
+      );
+      return null;
+    }
+    return value;
+  }
+
   /** Best-effort: manda SMS al dueño, no falla el webhook si no se puede.
    *  Usa el mismo resolver de billing (subcuenta global > creds tenant +
    *  override de teléfono + toggle billingAlertsEnabled). Si el owner
@@ -628,9 +706,20 @@ export class HotmartService {
     // 2026-06-15: precio REAL pagado en Hotmart → fuente de verdad para la
     // base de comisiones. Solo lo persistimos si vino un valor > 0 (no
     // pisamos con 0/undefined en eventos que no traen price).
-    const paidValue = payload.data?.purchase?.price?.value;
-    const realPriceUsd =
-      typeof paidValue === 'number' && paidValue > 0 ? paidValue : null;
+    // Bug #10: validamos el value contra el precio canónico del plan para
+    // descartar montos en moneda local (Hotmart no manda currency_code).
+    const planForBase = await this.prisma.tenant.findUnique({
+      where: { id: tenant.id },
+      select: { planPeriodicity: true },
+    });
+    const canonicalUsd = await this.getCanonicalBundlePrice(
+      planForBase?.planPeriodicity ?? null,
+    );
+    const realPriceUsd = this.resolvePaidUsd(
+      payload,
+      'activatePurchase',
+      canonicalUsd,
+    );
     await this.prisma.tenant.update({
       where: { id: tenant.id },
       data: {
@@ -686,16 +775,14 @@ export class HotmartService {
         select: { id: true },
       });
       if (vendorUse) {
-        // Precio: usamos el monto Hotmart real si vino, sino plan.
-        const planForRate = await this.prisma.tenant.findUnique({
-          where: { id: tenant.id },
-          select: { plan: { select: { priceMonthly: true } } },
-        });
-        const basePrice =
-          payload.data?.purchase?.price?.value &&
-          payload.data.purchase.price.value > 0
-            ? payload.data.purchase.price.value
-            : Number(planForRate?.plan?.priceMonthly ?? 0);
+        // Precio: monto Hotmart real (validado USD) si vino, sino el
+        // canónico del bundle (mismo que usa getCommissionBase).
+        const paidUsd = this.resolvePaidUsd(
+          payload,
+          'generateCommissionsForPayment',
+          canonicalUsd,
+        );
+        const basePrice = paidUsd ?? canonicalUsd;
         await this.referralsService.generateCommissionsForPayment({
           tenantId: tenant.id,
           paymentAmountUsd: basePrice,
@@ -704,7 +791,11 @@ export class HotmartService {
       } else {
         await this.generateReferralCommission({
           tenantId: tenant.id,
-          paidAmount: payload.data?.purchase?.price?.value ?? null,
+          paidAmount: this.resolvePaidUsd(
+            payload,
+            'generateReferralCommission',
+            canonicalUsd,
+          ),
           transactionId,
         });
       }
