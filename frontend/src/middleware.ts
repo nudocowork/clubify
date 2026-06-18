@@ -295,15 +295,18 @@ export async function middleware(req: NextRequest) {
     return NextResponse.rewrite(rewrite);
   }
 
-  // 1.5 Dominio propio de marca blanca (app.selleala.com → panel /admin).
+  // 1.5 Dominio propio de marca blanca. Convención:
+  //   - app.<marca>.com  → PANEL de administración (/admin)
+  //   - <marca>.com / www → LANDING de marketing (/<slug>, ej. /sellea)
   // Las rutas del sistema (/admin, /login, /_next, assets) ya salieron por el
-  // early-exit de arriba y se sirven normal en ese dominio; acá solo la raíz
-  // '/' se reescribe al panel.
+  // early-exit de arriba y se sirven normal en cualquiera de estos dominios;
+  // acá solo la raíz '/' se reescribe al destino que corresponde al host.
   const brandSlug = await resolveBrandHost(host);
   if (brandSlug) {
     if (url.pathname === '/' || url.pathname === '') {
       const rewrite = url.clone();
-      rewrite.pathname = '/admin';
+      // app.<marca> → panel; dominio de marketing (raíz/www) → landing /<slug>.
+      rewrite.pathname = host.startsWith('app.') ? '/admin' : `/${brandSlug}`;
       return NextResponse.rewrite(rewrite);
     }
     return NextResponse.next();
