@@ -406,4 +406,12 @@ export class SuperAdminPublicController {
   resolveHost(@Query('host') host: string) {
     return this.svc.resolveWhiteLabelByHost(host);
   }
+
+  // Branding (nombre + color) de una marca por slug, para pintar el panel
+  // /admin/<slug> en login directo sin pila de impersonación.
+  @Public()
+  @Get('white-labels/branding')
+  branding(@Query('slug') slug: string) {
+    return this.svc.getWhiteLabelBrandingBySlug(slug);
+  }
 }

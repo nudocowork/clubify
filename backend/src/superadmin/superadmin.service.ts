@@ -876,6 +876,19 @@ export class SuperAdminService {
     return { slug: match?.slug ?? null };
   }
 
+  /** Branding público de una marca blanca por slug (nombre + color), para que
+   *  el panel /admin/<slug> se pinte con la identidad de la marca incluso en
+   *  login directo (sin pila de impersonación). */
+  async getWhiteLabelBrandingBySlug(slug: string) {
+    const s = (slug ?? '').trim().toLowerCase();
+    if (!s) return null;
+    const wl = await this.prisma.whiteLabel.findFirst({
+      where: { slug: s, status: 'ACTIVE' },
+      select: { slug: true, name: true, primaryColor: true },
+    });
+    return wl ?? null;
+  }
+
   async createHotmartLink(dto: HotmartLinkDto, actorId?: string) {
     if (!dto.credits || dto.credits < 1) throw new BadRequestException('credits >= 1');
     if (!dto.label?.trim()) throw new BadRequestException('label requerido');

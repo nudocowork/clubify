@@ -22,6 +22,17 @@ import {
 } from '@/lib/business-categories';
 
 type IconName = Parameters<typeof Icon>[0]['name'];
+// Subrutas reales de /admin (carpetas en app/admin). Si el primer segmento
+// tras /admin NO es una de estas, se trata como slug de marca blanca
+// (/admin/<slug>). Debe coincidir con RESERVED_ADMIN_ROUTES del middleware.
+const ADMIN_ROUTE_SEGMENTS = new Set([
+  'accounting', 'affiliate-registration', 'ai-knowledge', 'audit', 'branding',
+  'business-categories', 'commissions', 'industries', 'integrations', 'lab',
+  'maintenance', 'map', 'payouts', 'rankings', 'referrals', 'reports',
+  'sales-leaderboard', 'sales-teams', 'support-materials', 'tenants', 'trials',
+  'users', 'ventas',
+]);
+
 type NavItem = {
   href: string;
   label: string;
@@ -87,6 +98,13 @@ export default function AppShell({
   const [navOpen, setNavOpen] = useState(false);
   const [impersonation, setImpersonation] = useState<ReturnType<typeof getImpersonationBackup>>(null);
   const [planName, setPlanName] = useState<string | null>(null);
+  // Branding de la marca activa resuelto por slug (para login directo a
+  // /admin/<slug> donde no hay pila de impersonación con el branding).
+  const [brandFetched, setBrandFetched] = useState<{
+    name: string;
+    color: string | null;
+    slug: string;
+  } | null>(null);
   const [tenantInfo, setTenantInfo] = useState<{
     brandName?: string;
     hotmartSubscriberCode?: string | null;
@@ -175,6 +193,39 @@ export default function AppShell({
   useEffect(() => {
     setImpersonation(getImpersonationBackup());
   }, [pathname]);
+
+  // Resuelve el branding de la marca activa por slug de la URL (/admin/<slug>)
+  // cuando NO hay pila de impersonación con el branding — caso login directo
+  // de un admin de marca. Si la impersonación ya trae el nombre, no fetchea.
+  useEffect(() => {
+    if (variant !== 'admin') {
+      setBrandFetched(null);
+      return;
+    }
+    const backup = getImpersonationBackup();
+    if (backup?.tenant?.brandName) {
+      setBrandFetched(null);
+      return;
+    }
+    const m = pathname.match(/^\/admin\/([^/]+)/);
+    const slug = m && !ADMIN_ROUTE_SEGMENTS.has(m[1]) ? m[1] : null;
+    if (!slug) {
+      setBrandFetched(null);
+      return;
+    }
+    let cancelled = false;
+    api<{ name: string; primaryColor: string; slug: string } | null>(
+      `/superadmin-public/white-labels/branding?slug=${encodeURIComponent(slug)}`,
+    )
+      .then((r) => {
+        if (!cancelled && r)
+          setBrandFetched({ name: r.name, color: r.primaryColor, slug: r.slug });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [variant, pathname]);
 
   useEffect(() => {
     const u = getUser();
@@ -497,16 +548,50 @@ export default function AppShell({
     // el countdown de días restantes.
   }
 
-  // Marca blanca activa: cuando un PLATFORM_OWNER "entró" a una marca, el
-  // tope de la pila de impersonación lleva su branding (nombre + color). El
-  // panel /admin debe pintarse con esa identidad, NO con la de Clubify.
+  // Marca blanca activa: branding desde la pila de impersonación (PLATFORM_OWNER
+  // que "entró" a una marca) o, en su defecto, resuelto por slug de la URL
+  // (login directo a /admin/<slug>). El panel /admin se pinta con esa
+  // identidad, NO con la de Clubify.
   const activeBrand =
-    variant === 'admin' && impersonation?.tenant?.brandName?.trim()
-      ? {
-          name: impersonation.tenant.brandName.trim(),
-          color: impersonation.tenant.primaryColor || null,
-        }
+    variant !== 'admin'
+      ? null
+      : impersonation?.tenant?.brandName?.trim()
+        ? {
+            name: impersonation.tenant.brandName.trim(),
+            color: impersonation.tenant.primaryColor || null,
+          }
+        : brandFetched
+          ? { name: brandFetched.name, color: brandFetched.color }
+          : null;
+
+  // Slug de la marca activa para prefijar los links del panel y mantener la
+  // URL /admin/<slug> al navegar.
+  const urlBrandMatch = pathname.match(/^\/admin\/([^/]+)/);
+  const urlBrandSlug =
+    urlBrandMatch && !ADMIN_ROUTE_SEGMENTS.has(urlBrandMatch[1])
+      ? urlBrandMatch[1]
       : null;
+  const brandSlug =
+    variant === 'admin'
+      ? impersonation?.tenant?.slug || urlBrandSlug || brandFetched?.slug || null
+      : null;
+
+  // Prefija un href de /admin con el slug de marca activo (/admin/tenants →
+  // /admin/<slug>/tenants). El middleware reescribe de vuelta a /admin.
+  const brandHref = (href: string) => {
+    if (!brandSlug) return href;
+    if (href === '/admin') return `/admin/${brandSlug}`;
+    if (href.startsWith('/admin/'))
+      return `/admin/${brandSlug}${href.slice('/admin'.length)}`;
+    return href;
+  };
+
+  // Pathname normalizado (sin el prefijo de marca) para detectar el item de
+  // nav activo contra los hrefs originales.
+  const navPathname =
+    brandSlug && pathname.startsWith(`/admin/${brandSlug}`)
+      ? '/admin' + pathname.slice(`/admin/${brandSlug}`.length)
+      : pathname;
 
   const brandTitle =
     variant === 'admin'
@@ -586,7 +671,7 @@ export default function AppShell({
           // Inline en lugar de useMemo porque groups se recalcula cada
           // render y la lista es chica (~30 items).
           const allHrefs = groups.flatMap((g) => g.items.map((n) => n.href));
-          bestActiveHrefRef.current = findBestActiveHref(allHrefs, pathname);
+          bestActiveHrefRef.current = findBestActiveHref(allHrefs, navPathname);
           return null;
         })()}
         {groups.map((g, gi) => {
@@ -641,7 +726,7 @@ export default function AppShell({
                     return (
                       <a
                         key={n.href}
-                        href={n.href}
+                        href={brandHref(n.href)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className={className}
@@ -658,7 +743,7 @@ export default function AppShell({
                   return (
                     <Link
                       key={n.href}
-                      href={n.href}
+                      href={brandHref(n.href)}
                       className={className}
                     >
                       <Icon
