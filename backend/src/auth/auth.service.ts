@@ -501,12 +501,35 @@ export class AuthService {
       const appUrl = this.appConfig.APP_URL;
       const resetUrl = `${appUrl}/reset/${rawToken}`;
 
+      // Marca blanca del usuario: el email de reset hereda su identidad
+      // (nombre + color + logo) en vez de mostrar Clubify. Los admins de marca
+      // la llevan en user.whiteLabelId; los dueños/staff de un negocio, vía su
+      // tenant.whiteLabel. Sin marca → branding Clubify default.
+      let brand:
+        | { name: string; primaryColor?: string | null; logoUrl?: string | null }
+        | null = null;
+      if (user.whiteLabelId) {
+        brand = await this.prisma.whiteLabel.findUnique({
+          where: { id: user.whiteLabelId },
+          select: { name: true, primaryColor: true, logoUrl: true },
+        });
+      } else if (user.tenantId) {
+        const t = await this.prisma.tenant.findUnique({
+          where: { id: user.tenantId },
+          select: {
+            whiteLabel: { select: { name: true, primaryColor: true, logoUrl: true } },
+          },
+        });
+        brand = t?.whiteLabel ?? null;
+      }
+
       this.email.send({
         to: user.email,
         ...passwordResetTemplate({
           fullName: user.fullName,
           resetUrl,
           expiresInMinutes: 30,
+          brand,
         }),
       });
     }

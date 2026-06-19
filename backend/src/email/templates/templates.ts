@@ -19,6 +19,9 @@ function shell(opts: {
   body: string;
   cta?: { label: string; href: string };
   footer?: string;
+  // Para emails de marca blanca, ocultamos el crédito "Hecho con Clubify"
+  // (la marca no debe mostrar Clubify). Default: visible.
+  platformCredit?: boolean;
 }) {
   const primary = opts.tenant.primaryColor ?? '#6366F1';
   const logo = opts.tenant.logoUrl
@@ -45,7 +48,11 @@ function shell(opts: {
       </td></tr>
       <tr><td style="padding:18px 28px;background:#F9FAFB;border-top:1px solid #E5E7EB;font-size:12px;color:#6B7280;text-align:center">
         ${opts.footer ? `${opts.footer}<br/>` : `Enviado por ${opts.tenant.brandName}<br/>`}
-        <span style="font-size:11px;color:#9CA3AF">Hecho con <a href="https://soyclubify.com" style="color:#6366F1;text-decoration:none;font-weight:600">Clubify</a></span>
+        ${
+          opts.platformCredit === false
+            ? ''
+            : `<span style="font-size:11px;color:#9CA3AF">Hecho con <a href="https://soyclubify.com" style="color:#6366F1;text-decoration:none;font-weight:600">Clubify</a></span>`
+        }
       </td></tr>
     </table>
   </td></tr>
@@ -159,24 +166,30 @@ export function passwordResetTemplate(args: {
   fullName: string;
   resetUrl: string;
   expiresInMinutes: number;
+  // Marca blanca del usuario (si la tiene): el email hereda su nombre, color y
+  // logo en vez de mostrar Clubify. Sin brand → branding Clubify default.
+  brand?: { name: string; primaryColor?: string | null; logoUrl?: string | null } | null;
 }) {
+  const brandName = args.brand?.name ?? 'Clubify';
+  const isBrand = !!args.brand;
   const tenant: Tenant = {
-    brandName: 'Clubify',
-    primaryColor: '#6366F1',
-    logoUrl: null,
+    brandName,
+    primaryColor: args.brand?.primaryColor ?? '#6366F1',
+    logoUrl: args.brand?.logoUrl ?? null,
     whatsappPhone: null,
     slug: 'clubify',
   };
   return {
-    subject: 'Restablece tu contraseña en Clubify',
+    subject: `Restablece tu contraseña en ${brandName}`,
     text: `Hola ${args.fullName},\nPara restablecer tu contraseña usa este link (vence en ${args.expiresInMinutes} min):\n${args.resetUrl}\nSi no solicitaste esto, ignora este email.`,
     html: shell({
       tenant,
+      platformCredit: !isBrand,
       preheader: `Link válido por ${args.expiresInMinutes} minutos`,
       body: `
         <h2 style="margin:0 0 12px;font-size:22px;font-weight:700">Restablece tu contraseña</h2>
         <p style="margin:0 0 14px;color:#374151;line-height:1.55">
-          Hola ${args.fullName}, recibimos una solicitud para cambiar la contraseña de tu cuenta en Clubify.
+          Hola ${args.fullName}, recibimos una solicitud para cambiar la contraseña de tu cuenta en ${brandName}.
         </p>
         <p style="margin:0 0 14px;color:#374151;line-height:1.55">
           Da clic en el botón de abajo para crear una nueva. El link vence en <b>${args.expiresInMinutes} minutos</b>.

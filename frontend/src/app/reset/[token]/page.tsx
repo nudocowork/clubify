@@ -3,10 +3,11 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '@/lib/api';
-import { Logo } from '@/components/Logo';
+import { useAuthBrand, BrandMark, BrandAuthTheme } from '@/components/AuthBrand';
 
 export default function ResetPage() {
   const router = useRouter();
+  const { brand } = useAuthBrand();
   const { token } = useParams<{ token: string }>();
   const [pwd, setPwd] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -40,10 +41,11 @@ export default function ResetPage() {
   }
 
   return (
-    <main className="min-h-screen bg-bg flex items-center justify-center px-4">
+    <main className={`min-h-screen bg-bg flex items-center justify-center px-4 ${brand ? 'brand-auth' : ''}`}>
+      <BrandAuthTheme brand={brand} />
       <div className="w-full max-w-md card card-pad">
         <Link href="/" className="flex items-center mb-5">
-          <Logo size={32} />
+          <BrandMark brand={brand} size={32} />
         </Link>
 
         {done ? (

@@ -40,6 +40,14 @@ export default function NewTenant() {
   // #10: si la marca activa NO tiene el módulo REFERRALS, ocultamos la
   // asignación a afiliados. null = sin marca (Clubify global) → se muestra.
   const [referralsEnabled, setReferralsEnabled] = useState(true);
+  // Créditos de la marca del admin. null = admin global (Clubify, sin créditos)
+  // → usa el flujo Hotmart. Objeto = admin de marca → activa con créditos y, al
+  // crear un negocio, aparece el popup OBLIGATORIO de activación.
+  type Credits = { available: number; unlimited: boolean; buyLinks: any[] };
+  const [credits, setCredits] = useState<Credits | null>(null);
+  const [creditsLoaded, setCreditsLoaded] = useState(false);
+  const [showCreditModal, setShowCreditModal] = useState(false);
+  const [activated, setActivated] = useState(false);
 
   useEffect(() => {
     api('/tenants').then((arr: any[]) => {
@@ -72,6 +80,21 @@ export default function NewTenant() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // Resolvemos si el admin opera con créditos (admin de marca). El endpoint
+  // 403ea para admins globales (Clubify) → credits queda null.
+  useEffect(() => {
+    api<any>('/admin/credits')
+      .then((c) =>
+        setCredits({
+          available: c?.available ?? 0,
+          unlimited: !!c?.unlimited,
+          buyLinks: c?.buyLinks ?? [],
+        }),
+      )
+      .catch(() => setCredits(null))
+      .finally(() => setCreditsLoaded(true));
   }, []);
 
   function set<K extends keyof typeof form>(k: K, v: typeof form[K]) {
@@ -120,6 +143,11 @@ export default function NewTenant() {
         }
       }
       setResult(res);
+      // Negocio creado por una marca blanca → nace BLOQUEADO. Forzamos el popup
+      // obligatorio de activación con créditos (usar o comprar).
+      if (res?.requiresCreditActivation) {
+        setShowCreditModal(true);
+      }
     } catch (e: any) {
       setErr(e.message);
     }
@@ -133,11 +161,54 @@ export default function NewTenant() {
     const email = result.tenant.email;
     const brand = result.tenant.brandName;
     const phone = form.phone;
+    const blocked = result.requiresCreditActivation && !activated;
     return (
       <div className="max-w-xl">
+        {showCreditModal && (
+          <CreditActivationModal
+            tenantId={result.tenant.id}
+            tenantName={brand}
+            credits={credits}
+            onActivated={(left) => {
+              setActivated(true);
+              setShowCreditModal(false);
+              setCredits((c) => (c ? { ...c, available: left } : c));
+            }}
+            onSkip={() => setShowCreditModal(false)}
+          />
+        )}
         <div className="page-head">
           <h1 className="page-title">Negocio creado</h1>
         </div>
+        {blocked && (
+          <div className="card card-pad mb-3 border-2 border-warn/40 bg-warn-soft/40">
+            <div className="flex items-start gap-2">
+              <span className="text-xl leading-none">🔒</span>
+              <div>
+                <div className="font-semibold text-warn-ink">
+                  Negocio bloqueado — falta activarlo
+                </div>
+                <p className="text-sm text-warn-ink/90 mt-1 mb-3">
+                  Este negocio no puede operar hasta que le asignes un crédito.
+                  El dueño verá la pantalla de bloqueo al ingresar.
+                </p>
+                <button
+                  className="btn-primary"
+                  onClick={() => setShowCreditModal(true)}
+                >
+                  Activar ahora
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {activated && (
+          <div className="card card-pad mb-3 border-2 border-ok/30 bg-ok-soft/40">
+            <div className="flex items-center gap-2 text-ok-ink font-semibold">
+              <Icon name="check" size={18} /> Negocio activado · 30 días
+            </div>
+          </div>
+        )}
         <div className="card card-pad">
           <div className="flex items-center gap-2 text-ok">
             <Icon name="check" size={22} />
@@ -353,7 +424,32 @@ export default function NewTenant() {
             </a>.
           </div>
         </div>
-        {/* Facturación / Hotmart */}
+        {/* Marca blanca: la activación es con créditos, no con Hotmart. */}
+        {creditsLoaded && credits && (
+          <div className="col-span-2 mt-2 border-t border-line2 pt-4">
+            <div className="rounded-lg bg-brand-soft/50 border border-brand/20 px-3 py-3 text-sm">
+              <div className="font-semibold text-brand-700">
+                Activación con créditos
+              </div>
+              <p className="text-[13px] text-mute mt-1 mb-0">
+                Al crear el negocio te pediremos asignarle{' '}
+                <strong>1 crédito</strong> para activarlo (o comprar más).
+                Hasta entonces queda bloqueado.{' '}
+                {credits.unlimited ? (
+                  <span className="text-ok-ink font-medium">
+                    Tu marca tiene créditos ilimitados — se activa solo.
+                  </span>
+                ) : (
+                  <span>
+                    Disponibles: <strong>{credits.available}</strong>.
+                  </span>
+                )}
+              </p>
+            </div>
+          </div>
+        )}
+        {/* Facturación / Hotmart — solo para Clubify (admin global, sin créditos). */}
+        {creditsLoaded && !credits && (
         <div className="col-span-2 mt-2 border-t border-line2 pt-4">
           <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-3">
             Facturación · Tipo de cuenta
@@ -478,6 +574,7 @@ export default function NewTenant() {
             </div>
           )}
         </div>
+        )}
 
         {err && (
           <div className="col-span-2 rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink">
@@ -490,6 +587,131 @@ export default function NewTenant() {
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+/**
+ * Popup OBLIGATORIO de activación tras crear un negocio en una marca blanca.
+ * El negocio nace bloqueado; el admin debe usar 1 crédito (activa +30d) o
+ * comprar más. No se puede cerrar por el backdrop — solo activando o eligiendo
+ * "activar después" (el negocio queda bloqueado, como pide el flujo).
+ */
+function CreditActivationModal({
+  tenantId,
+  tenantName,
+  credits,
+  onActivated,
+  onSkip,
+}: {
+  tenantId: string;
+  tenantName: string;
+  credits: { available: number; unlimited: boolean; buyLinks: any[] } | null;
+  onActivated: (creditsLeft: number) => void;
+  onSkip: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const canUseCredit = !!credits && (credits.unlimited || credits.available >= 1);
+  const buyLinks = credits?.buyLinks ?? [];
+
+  async function useCredit() {
+    if (busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await api<{ consumed: number; creditsAvailable: number }>(
+        `/admin/credits/activate/${tenantId}`,
+        { method: 'POST' },
+      );
+      onActivated(res?.creditsAvailable ?? 0);
+    } catch (e: any) {
+      setErr(e?.message ?? 'No se pudo activar');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center p-4"
+      style={{ background: 'rgba(15,30,22,.6)', backdropFilter: 'blur(4px)' }}
+    >
+      <div
+        className="w-full max-w-md rounded-[16px] bg-white p-6"
+        style={{ boxShadow: '0 20px 50px rgba(0,0,0,.3)' }}
+      >
+        <h3 className="m-0 text-lg font-bold text-ink">Activa {tenantName}</h3>
+        <p className="text-sm text-mute mt-1.5">
+          El negocio quedó <strong>bloqueado</strong>. Para que pueda operar,
+          asígnale 1 crédito o compra más. Sin esto, no podrá ingresar ni usar
+          ningún módulo.
+        </p>
+
+        {!credits?.unlimited && (
+          <div className="mt-4 rounded-lg bg-bg2/60 px-3 py-2.5 text-sm">
+            Créditos disponibles:{' '}
+            <strong>{credits?.available ?? 0}</strong>
+          </div>
+        )}
+
+        {err && (
+          <div className="mt-4 rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink">
+            {err}
+          </div>
+        )}
+
+        <button
+          onClick={useCredit}
+          disabled={!canUseCredit || busy}
+          className="btn-primary w-full justify-center mt-4 disabled:opacity-50"
+        >
+          {busy
+            ? 'Activando…'
+            : credits?.unlimited
+            ? 'Activar negocio'
+            : 'Usar 1 crédito y activar'}
+        </button>
+
+        {!canUseCredit && !credits?.unlimited && (
+          <p className="text-xs text-warn-ink mt-2 text-center">
+            No tienes créditos disponibles. Compra un pack para activar.
+          </p>
+        )}
+
+        {buyLinks.length > 0 && (
+          <div className="mt-5 border-t border-line pt-4">
+            <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
+              Comprar créditos
+            </div>
+            <div className="space-y-2">
+              {buyLinks.map((l: any) => (
+                <a
+                  key={l.id ?? l.url}
+                  href={l.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center justify-between rounded-lg border border-line px-3 py-2.5 text-sm hover:bg-bg2"
+                >
+                  <span className="font-medium">{l.label}</span>
+                  <span className="text-brand font-semibold">Comprar →</span>
+                </a>
+              ))}
+            </div>
+            <p className="text-[11px] text-mute mt-2">
+              Tras comprar, los créditos se acreditan automáticamente y puedes
+              activar este negocio desde <strong>Créditos → Pendientes</strong>.
+            </p>
+          </div>
+        )}
+
+        <button
+          onClick={onSkip}
+          disabled={busy}
+          className="block w-full text-center text-xs text-mute hover:text-ink mt-5"
+        >
+          Activar después — el negocio quedará bloqueado
+        </button>
+      </div>
     </div>
   );
 }

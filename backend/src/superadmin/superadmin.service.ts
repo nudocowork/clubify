@@ -422,6 +422,78 @@ export class SuperAdminService {
     return { id: invite.id, email, fullName, expiresAt };
   }
 
+  /** Crea un admin de marca DIRECTAMENTE (sin invitación): guarda la contraseña
+   *  cifrada y lo deja activo y listo para ingresar. Mismas defensas de
+   *  conflicto que el accept de invitación (no degradar PLATFORM_OWNER ni un
+   *  dueño de negocio, no robar un admin de otra marca). */
+  async createWhiteLabelAdmin(
+    whiteLabelId: string,
+    dto: { email: string; fullName: string; password: string },
+    actorId: string,
+  ) {
+    const wl = await this.prisma.whiteLabel.findUnique({ where: { id: whiteLabelId } });
+    if (!wl) throw new NotFoundException('Marca no encontrada');
+    const email = dto.email.trim().toLowerCase();
+    const fullName = dto.fullName.trim();
+    if (!email || !fullName) throw new BadRequestException('Email y nombre son requeridos');
+    if (!dto.password || dto.password.length < 8) {
+      throw new BadRequestException('La contraseña debe tener al menos 8 caracteres');
+    }
+
+    const existing = await this.prisma.user.findUnique({
+      where: { email },
+      select: { id: true, role: true, whiteLabelId: true, tenantId: true },
+    });
+    if (existing) {
+      if (existing.role === 'PLATFORM_OWNER') {
+        throw new ConflictException('Este email ya pertenece a un PLATFORM_OWNER');
+      }
+      if (existing.tenantId) {
+        throw new ConflictException(
+          'Este email ya está asociado a un negocio existente. Usa otro email para administrar la marca.',
+        );
+      }
+      if (existing.role === 'SUPER_ADMIN' && existing.whiteLabelId && existing.whiteLabelId !== whiteLabelId) {
+        throw new ConflictException('Este email ya administra otra marca blanca. Usa un email distinto.');
+      }
+    }
+
+    const passwordHash = await argon2.hash(dto.password, { type: argon2.argon2id });
+
+    const user = existing
+      ? await this.prisma.user.update({
+          where: { id: existing.id },
+          data: {
+            role: 'SUPER_ADMIN',
+            whiteLabelId,
+            tenantId: null,
+            isActive: true,
+            passwordHash,
+            passwordChangedAt: new Date(),
+            fullName,
+          },
+          select: { id: true, email: true, fullName: true },
+        })
+      : await this.prisma.user.create({
+          data: {
+            email,
+            fullName,
+            role: 'SUPER_ADMIN',
+            whiteLabelId,
+            passwordHash,
+            isActive: true,
+            passwordChangedAt: new Date(),
+          },
+          select: { id: true, email: true, fullName: true },
+        });
+
+    await this.logAction(actorId, 'superadmin.white_label_admin.create', `whiteLabel:${whiteLabelId}`, {
+      whiteLabelName: wl.name, email, fullName,
+    });
+
+    return { id: user.id, email: user.email, fullName: user.fullName };
+  }
+
   async revokeWhiteLabelAdminInvite(inviteId: string, actorId: string) {
     const invite = await this.prisma.whiteLabelAdminInvite.findUnique({ where: { id: inviteId } });
     if (!invite) throw new NotFoundException('Invitación no encontrada');
@@ -912,6 +984,17 @@ export class SuperAdminService {
       (w) => norm(w.appDomain) === h || norm(w.domain) === h,
     );
     return { slug: match?.slug ?? null };
+  }
+
+  /** Branding público de una marca por HOST (dominio propio). Lo usan las
+   *  pantallas de auth (login/recuperar/registro) servidas en el dominio de la
+   *  marca para heredar logo + colores sin pila de impersonación. Resuelve el
+   *  host → slug y reusa el branding por slug. Devuelve null si el host no es
+   *  de ninguna marca (→ el front cae al branding default Clubify). */
+  async getWhiteLabelBrandingByHost(host: string) {
+    const { slug } = await this.resolveWhiteLabelByHost(host);
+    if (!slug) return null;
+    return this.getWhiteLabelBrandingBySlug(slug);
   }
 
   /** Branding público de una marca blanca por slug (nombre + color), para que

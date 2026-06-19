@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { RefCapture } from '@/components/RefCapture';
-import { Logo } from '@/components/Logo';
+import { BrandLogoLink, BrandAuthShell } from '@/components/AuthBrand';
 import { LandingPricingCheckout } from '@/components/LandingPricingCheckout';
 import { fetchLandingPlans } from '@/lib/landing-plans';
 
@@ -27,13 +27,11 @@ export default async function SignupPage({
   const initial = (valid.includes(raw as PlanId) ? raw : 'anual') as PlanId;
 
   return (
-    <main className="min-h-screen bg-bg flex flex-col">
+    <BrandAuthShell className="min-h-screen bg-bg flex flex-col">
       <RefCapture />
       <header className="border-b border-line bg-white px-6 py-4">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <Link href="/" className="flex items-center">
-            <Logo size={32} />
-          </Link>
+          <BrandLogoLink href="/" size={32} />
           <Link href="/login" className="text-sm text-mute hover:text-ink">
             ¿Ya tienes cuenta? Ingresar →
           </Link>
@@ -66,6 +64,6 @@ export default async function SignupPage({
           </p>
         </div>
       </section>
-    </main>
+    </BrandAuthShell>
   );
 }

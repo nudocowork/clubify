@@ -3,7 +3,7 @@ import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api, setSession, clearSession } from '@/lib/api';
-import { Logo } from '@/components/Logo';
+import { useAuthBrand, BrandMark, BrandAuthTheme } from '@/components/AuthBrand';
 import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 
 export default function LoginPage() {
@@ -17,6 +17,7 @@ export default function LoginPage() {
 function LoginInner() {
   const router = useRouter();
   const params = useSearchParams();
+  const { brand } = useAuthBrand();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [err, setErr] = useState<string | null>(null);
@@ -90,10 +91,11 @@ function LoginInner() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-6 bg-bg">
+    <div className={`min-h-screen flex items-center justify-center px-6 bg-bg ${brand ? 'brand-auth' : ''}`}>
+      <BrandAuthTheme brand={brand} />
       <form onSubmit={submit} className="card card-pad w-full max-w-md">
         <div className="flex items-center mb-3">
-          <Logo size={32} />
+          <BrandMark brand={brand} size={32} />
         </div>
         <h2 className="text-[22px] font-bold m-0">Inicia sesión</h2>
         <p className="text-sm text-mute mt-1">Accede a tu panel de control.</p>

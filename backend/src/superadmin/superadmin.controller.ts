@@ -100,6 +100,12 @@ class InviteWhiteLabelAdminBody {
   @IsString() @MaxLength(120) fullName!: string;
 }
 
+class CreateWhiteLabelAdminBody {
+  @IsEmail() email!: string;
+  @IsString() @MaxLength(120) fullName!: string;
+  @IsString() @Length(8, 200) password!: string;
+}
+
 /**
  * Endpoints del MasterAdmin (Nivel 1 / Plataforma).
  *
@@ -360,6 +366,17 @@ export class SuperAdminController {
     return this.svc.inviteWhiteLabelAdmin(id, body, user.id);
   }
 
+  /** Creación DIRECTA de un admin de marca (sin invitación): el usuario queda
+   *  creado con su contraseña cifrada y listo para ingresar de inmediato. */
+  @Post('white-labels/:id/admins')
+  createWhiteLabelAdmin(
+    @Param('id') id: string,
+    @Body() body: CreateWhiteLabelAdminBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.createWhiteLabelAdmin(id, body, user.id);
+  }
+
   @Delete('white-label-admin-invites/:inviteId')
   revokeWhiteLabelAdminInvite(@Param('inviteId') inviteId: string, @CurrentUser() user: AuthUser) {
     return this.svc.revokeWhiteLabelAdminInvite(inviteId, user.id);
@@ -422,5 +439,13 @@ export class SuperAdminPublicController {
   @Get('white-labels/branding')
   branding(@Query('slug') slug: string) {
     return this.svc.getWhiteLabelBrandingBySlug(slug);
+  }
+
+  // Branding por dominio propio → lo usan las pantallas de auth servidas en el
+  // host de la marca (login/recuperar/registro) para heredar logo + colores.
+  @Public()
+  @Get('white-labels/branding-by-host')
+  brandingByHost(@Query('host') host: string) {
+    return this.svc.getWhiteLabelBrandingByHost(host);
   }
 }

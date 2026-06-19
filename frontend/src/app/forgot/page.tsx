@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '@/lib/api';
-import { Logo } from '@/components/Logo';
+import { useAuthBrand, BrandMark, BrandAuthTheme } from '@/components/AuthBrand';
 import { PhoneInput } from '@/components/PhoneInput';
 
 type Mode = 'email' | 'sms';
@@ -11,6 +11,7 @@ type SmsStep = 'request' | 'verify';
 
 export default function ForgotPage() {
   const router = useRouter();
+  const { brand } = useAuthBrand();
   const [mode, setMode] = useState<Mode>('email');
 
   // Email flow
@@ -84,10 +85,11 @@ export default function ForgotPage() {
   }
 
   return (
-    <main className="min-h-screen bg-bg flex items-center justify-center px-4">
+    <main className={`min-h-screen bg-bg flex items-center justify-center px-4 ${brand ? 'brand-auth' : ''}`}>
+      <BrandAuthTheme brand={brand} />
       <div className="w-full max-w-md card card-pad">
         <Link href="/" className="flex items-center mb-5">
-          <Logo size={32} />
+          <BrandMark brand={brand} size={32} />
         </Link>
 
         {/* Toggle Email / SMS — solo visible si no estamos en estado final */}

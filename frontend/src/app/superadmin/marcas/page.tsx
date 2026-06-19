@@ -651,7 +651,7 @@ function Drawer({
                       border: 'none',
                     }}
                   >
-                    + Invitar
+                    + Admin
                   </button>
                 </div>
                 {w.admins.length === 0 && invites.length === 0 ? (
@@ -802,10 +802,10 @@ function Drawer({
                 whiteLabelName={w.name}
                 primaryColor={w.primaryColor}
                 onClose={() => setInviteOpen(false)}
-                onCreated={() => {
+                onCreated={(msg) => {
                   setInviteOpen(false);
                   reloadAdmins();
-                  onChanged('Invitación enviada');
+                  onChanged(msg ?? 'Listo');
                 }}
               />
             )}
@@ -827,27 +827,55 @@ function InviteWhiteLabelAdminModal({
   whiteLabelName: string;
   primaryColor: string;
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: (message?: string) => void;
 }) {
+  // Default: creación DIRECTA con contraseña (queda listo para ingresar). La
+  // invitación por email es opcional (toggle).
+  const [mode, setMode] = useState<'password' | 'invite'>('password');
   const [email, setEmail] = useState('');
   const [fullName, setFullName] = useState('');
+  const [password, setPassword] = useState('');
   const [saving, setSaving] = useState(false);
 
+  const passwordValid = mode === 'invite' || password.trim().length >= 8;
+  const canSubmit = !!email.trim() && !!fullName.trim() && passwordValid;
+
   async function submit() {
-    if (!email.trim() || !fullName.trim()) return;
+    if (!canSubmit) return;
     setSaving(true);
     try {
-      await api(`/superadmin/white-labels/${whiteLabelId}/admin-invites`, {
-        method: 'POST',
-        body: JSON.stringify({ email: email.trim().toLowerCase(), fullName: fullName.trim() }),
-      });
-      onCreated();
+      if (mode === 'password') {
+        await api(`/superadmin/white-labels/${whiteLabelId}/admins`, {
+          method: 'POST',
+          body: JSON.stringify({
+            email: email.trim().toLowerCase(),
+            fullName: fullName.trim(),
+            password: password.trim(),
+          }),
+        });
+        onCreated('Administrador creado');
+      } else {
+        await api(`/superadmin/white-labels/${whiteLabelId}/admin-invites`, {
+          method: 'POST',
+          body: JSON.stringify({ email: email.trim().toLowerCase(), fullName: fullName.trim() }),
+        });
+        onCreated('Invitación enviada');
+      }
     } catch (e: any) {
       alert('Error: ' + (e?.message ?? e));
     } finally {
       setSaving(false);
     }
   }
+
+  const inputStyle = {
+    padding: '9px 12px',
+    borderRadius: 8,
+    border: '1px solid #d7dbe0',
+    fontSize: 13.5,
+    outline: 'none',
+    background: 'white',
+  } as const;
 
   return (
     <div
@@ -861,11 +889,36 @@ function InviteWhiteLabelAdminModal({
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="m-0" style={{ fontSize: 18, fontWeight: 800, color: '#16241c' }}>
-          Invitar admin de {whiteLabelName}
+          Nuevo admin de {whiteLabelName}
         </h3>
-        <p className="text-sm mt-1.5 mb-5" style={{ color: '#6b7785' }}>
-          Le va a llegar un email con un link para definir su contraseña. Una vez aceptado,
-          va a poder administrar los negocios de la marca. El link vence en 7 días.
+
+        {/* Toggle modo */}
+        <div className="flex gap-1 p-1 rounded-lg mt-4 mb-4" style={{ background: '#eef1f0' }}>
+          {(
+            [
+              { v: 'password', label: 'Crear con contraseña' },
+              { v: 'invite', label: 'Invitar por email' },
+            ] as const
+          ).map((opt) => (
+            <button
+              key={opt.v}
+              onClick={() => setMode(opt.v)}
+              className="flex-1 text-[12.5px] font-semibold py-2 rounded-md transition"
+              style={
+                mode === opt.v
+                  ? { background: 'white', color: '#16241c', boxShadow: '0 1px 2px rgba(0,0,0,.08)' }
+                  : { background: 'transparent', color: '#6b7785' }
+              }
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
+        <p className="text-sm mb-5" style={{ color: '#6b7785' }}>
+          {mode === 'password'
+            ? 'El admin queda creado y listo para ingresar de inmediato con esta contraseña.'
+            : 'Le llegará un email con un link para definir su contraseña. El link vence en 7 días.'}
         </p>
 
         <div className="space-y-3">
@@ -879,7 +932,7 @@ function InviteWhiteLabelAdminModal({
               placeholder="María Pérez"
               autoFocus
               className="w-full"
-              style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #d7dbe0', fontSize: 13.5, outline: 'none', background: 'white' }}
+              style={inputStyle}
             />
           </label>
           <label className="block">
@@ -892,9 +945,29 @@ function InviteWhiteLabelAdminModal({
               onChange={(e) => setEmail(e.target.value)}
               placeholder="maria@empresa.com"
               className="w-full"
-              style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #d7dbe0', fontSize: 13.5, outline: 'none', background: 'white' }}
+              style={inputStyle}
             />
           </label>
+          {mode === 'password' && (
+            <label className="block">
+              <div className="text-[11px] font-bold uppercase mb-1.5" style={{ letterSpacing: 0.6, color: '#6b7785' }}>
+                Contraseña
+              </div>
+              <input
+                type="text"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Mínimo 8 caracteres"
+                className="w-full"
+                style={inputStyle}
+              />
+              {password.length > 0 && password.length < 8 && (
+                <div className="text-[11px] mt-1" style={{ color: '#b91c1c' }}>
+                  Mínimo 8 caracteres.
+                </div>
+              )}
+            </label>
+          )}
         </div>
 
         <div className="flex items-center justify-end gap-2 mt-6">
@@ -908,17 +981,23 @@ function InviteWhiteLabelAdminModal({
           </button>
           <button
             onClick={submit}
-            disabled={!email.trim() || !fullName.trim() || saving}
+            disabled={!canSubmit || saving}
             className="text-sm font-semibold"
             style={{
               padding: '9px 18px',
               borderRadius: 9,
-              background: !email.trim() || !fullName.trim() ? '#cbd5d2' : primaryColor,
+              background: !canSubmit ? '#cbd5d2' : primaryColor,
               color: 'white',
               border: 'none',
             }}
           >
-            {saving ? 'Enviando…' : 'Enviar invitación'}
+            {saving
+              ? mode === 'password'
+                ? 'Creando…'
+                : 'Enviando…'
+              : mode === 'password'
+              ? 'Crear admin'
+              : 'Enviar invitación'}
           </button>
         </div>
       </div>

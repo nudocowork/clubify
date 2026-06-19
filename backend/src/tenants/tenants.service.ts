@@ -489,6 +489,33 @@ export class TenantsService {
       hotmartCode = dto.hotmartSubscriberCode.trim();
     }
 
+    // Marca blanca: la activación de sus negocios se hace con CRÉDITOS, no con
+    // los modos Hotmart (que son de Clubify). Un negocio creado por un admin de
+    // marca NACE BLOQUEADO (SUSPENDED) y el admin debe asignarle un crédito en
+    // el popup obligatorio post-creación (o comprar). Las marcas con créditos
+    // ILIMITADOS se activan solas (+30d) sin fricción. Clubify (sin marca) sigue
+    // el flujo Hotmart de arriba sin cambios.
+    const isBrandAdmin = !!user?.whiteLabelId;
+    let brandUnlimited = false;
+    if (isBrandAdmin) {
+      const wl = await this.prisma.whiteLabel.findUnique({
+        where: { id: user!.whiteLabelId! },
+        select: { creditsUnlimited: true },
+      });
+      brandUnlimited = !!wl?.creditsUnlimited;
+      if (brandUnlimited) {
+        status = 'ACTIVE';
+        hotmartCode = `wl-${nanoid(10)}`;
+        currentPeriodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+        trialEndsAt = null;
+      } else {
+        status = 'SUSPENDED';
+        hotmartCode = `wl-${nanoid(10)}`;
+        currentPeriodEnd = null;
+        trialEndsAt = null;
+      }
+    }
+
     const categorySlug =
       dto.businessCategorySlug && isValidCategorySlug(dto.businessCategorySlug)
         ? dto.businessCategorySlug
@@ -536,7 +563,13 @@ export class TenantsService {
       }
     }
 
-    return { tenant, ownerTempPassword: dto.ownerPassword ? undefined : tempPassword };
+    return {
+      tenant,
+      ownerTempPassword: dto.ownerPassword ? undefined : tempPassword,
+      // El front muestra el popup obligatorio de créditos cuando esto es true
+      // (negocio creado por marca blanca con créditos no-ilimitados → bloqueado).
+      requiresCreditActivation: isBrandAdmin && !brandUnlimited,
+    };
   }
 
   async update(id: string, dto: UpdateTenantDto) {
