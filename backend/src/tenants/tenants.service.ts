@@ -370,7 +370,11 @@ export class TenantsService {
       // El SUPER_ADMIN no debería ver tenants eliminados que conservaron
       // historial — la contabilidad sigue por separado vía AuditLog.
       where: { deletedAt: null, ...(wlId ? { whiteLabelId: wlId } : {}) },
-      include: { plan: true, _count: { select: { users: true, cards: true, customers: true } } },
+      include: {
+        plan: true,
+        businessGroup: { select: { id: true, name: true, status: true } },
+        _count: { select: { users: true, cards: true, customers: true } },
+      },
       orderBy: { createdAt: 'desc' },
     });
     if (tenants.length === 0) return [];

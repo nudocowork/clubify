@@ -317,7 +317,7 @@ export default function TenantsPage() {
         <table className="w-full text-[13.5px] min-w-[760px]">
           <thead className="bg-bg2">
             <tr>
-              {['Negocio', 'Plan', 'Estado', 'Trial', 'Pedidos 30d', 'Revenue 30d', 'Clientes', ''].map(
+              {['Negocio', 'Plan', 'Estado', 'Trial', 'Pedidos 30d', 'Revenue 30d', 'Clientes', 'Grupo', ''].map(
                 (h) => (
                   <th
                     key={h}
@@ -333,14 +333,14 @@ export default function TenantsPage() {
             {loading &&
               Array.from({ length: 4 }).map((_, i) => (
                 <tr key={`sk-${i}`} className="border-t border-line2">
-                  <td colSpan={8} className="px-4 py-3.5">
+                  <td colSpan={9} className="px-4 py-3.5">
                     <div className="h-6 bg-bg2 rounded animate-shimmer" />
                   </td>
                 </tr>
               ))}
             {!loading && visible.length === 0 && (
               <tr>
-                <td className="px-4 py-12 text-center" colSpan={8}>
+                <td className="px-4 py-12 text-center" colSpan={9}>
                   <div className="text-3xl mb-1">🏢</div>
                   <div className="font-semibold">
                     {hasActiveFilters
@@ -440,6 +440,18 @@ export default function TenantsPage() {
                   })}
                 </td>
                 <td className="px-4 py-3.5">{t._count?.customers ?? 0}</td>
+                <td className="px-4 py-3.5">
+                  {t.businessGroup?.name ? (
+                    <span
+                      className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-pill bg-bg2 text-ink2"
+                      title="Grupo Empresarial"
+                    >
+                      {t.businessGroup.name}
+                    </span>
+                  ) : (
+                    <span className="text-mute2 text-xs">Sin grupo</span>
+                  )}
+                </td>
                 <td
                   className="px-4 py-3.5 text-right whitespace-nowrap"
                   onClick={stop}

@@ -130,11 +130,14 @@ export class RenewalsService {
     const now = new Date();
     const graceCutoff = new Date(now.getTime() - RenewalsService.GRACE_DAYS * RenewalsService.DAY_MS);
 
-    // Candidatos: ACTIVE con currentPeriodEnd vencido
+    // Candidatos: ACTIVE con currentPeriodEnd vencido. Excluimos los negocios
+    // que pertenecen a un Grupo Empresarial: su ciclo de vida lo dicta el grupo
+    // (un solo pago), no su periodo individual. El barrido de grupos va aparte.
     const candidates = await this.prisma.tenant.findMany({
       where: {
         status: 'ACTIVE',
         currentPeriodEnd: { lte: now },
+        businessGroupId: null,
       },
       select: {
         id: true,
@@ -331,6 +334,40 @@ export class RenewalsService {
           reason: `Sin créditos + más de ${RenewalsService.GRACE_DAYS} días vencido`,
         });
       }
+    }
+
+    // ───────── Grupos Empresariales ─────────
+    // Un grupo cuyo periodo venció hace más que la gracia y no se recuperó
+    // (Hotmart no reactivó) → suspender el GRUPO y todos sus negocios en cascada.
+    const expiredGroups = await this.prisma.businessGroup.findMany({
+      where: {
+        deletedAt: null,
+        status: { not: 'SUSPENDED' },
+        currentPeriodEnd: { lte: graceCutoff },
+      },
+      select: { id: true, name: true },
+      take: 500,
+    });
+    for (const g of expiredGroups) {
+      if (!opts.dryRun) {
+        await this.prisma.$transaction([
+          this.prisma.businessGroup.update({
+            where: { id: g.id },
+            data: { status: 'SUSPENDED', suspendedAt: now },
+          }),
+          this.prisma.tenant.updateMany({
+            where: { businessGroupId: g.id, deletedAt: null },
+            data: { status: 'SUSPENDED', suspendedAt: now },
+          }),
+        ]);
+      }
+      summary.suspended++;
+      summary.details.push({
+        tenantId: `group:${g.id}`,
+        brandName: `Grupo: ${g.name}`,
+        action: 'SUSPENDED',
+        reason: `Grupo vencido + más de ${RenewalsService.GRACE_DAYS} días`,
+      });
     }
 
     return summary;

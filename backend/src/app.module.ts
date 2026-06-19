@@ -38,6 +38,7 @@ import { InfoLinksModule } from './info-links/info-links.module';
 import { CrmModule } from './crm/crm.module';
 import { SequencesModule } from './sequences/sequences.module';
 import { SalesTeamsModule } from './sales-teams/sales-teams.module';
+import { BusinessGroupsModule } from './business-groups/business-groups.module';
 import { EmailModule } from './email/email.module';
 import { JobsModule } from './jobs/jobs.module';
 import { AuditModule } from './audit/audit.module';
@@ -107,6 +108,7 @@ import { SuperAdminModule } from './superadmin/superadmin.module';
     CrmModule,
     SequencesModule,
     SalesTeamsModule,
+    BusinessGroupsModule,
     EmailModule,
     JobsModule,
     AuditModule,

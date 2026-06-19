@@ -75,7 +75,7 @@ function panelBrandCss(color: string): string {
 // (/admin/<slug>). Debe coincidir con RESERVED_ADMIN_ROUTES del middleware.
 const ADMIN_ROUTE_SEGMENTS = new Set([
   'accounting', 'affiliate-registration', 'ai-knowledge', 'audit', 'branding',
-  'business-categories', 'commissions', 'creditos', 'industries', 'integrations',
+  'business-categories', 'business-groups', 'commissions', 'creditos', 'industries', 'integrations',
   'lab', 'maintenance', 'map', 'payouts', 'rankings', 'referrals', 'reports',
   'sales-leaderboard', 'sales-teams', 'support-materials', 'tenants', 'trials',
   'users', 'ventas',
@@ -481,6 +481,7 @@ export default function AppShell({
               items: [
                 { href: '/admin', label: 'Dashboard', icon: 'grid' },
                 { href: '/admin/tenants', label: 'Negocios', icon: 'store' },
+                { href: '/admin/business-groups', label: 'Grupos Empresariales', icon: 'store', hideForMarketing: true },
                 { href: '/admin/map', label: 'Mapa', icon: 'pin', hideForMarketing: true },
                 { href: '/admin/trials', label: 'Trials', icon: 'gift' },
               ],

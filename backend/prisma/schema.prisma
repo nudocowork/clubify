@@ -333,6 +333,11 @@ model Tenant {
   /// asignan a la marca "Clubify" en la migration de 2026-06-13.
   whiteLabelId                String?
   whiteLabel                  WhiteLabel?          @relation(fields: [whiteLabelId], references: [id], onDelete: SetNull)
+  /// Grupo Empresarial al que pertenece (varios negocios, una sola suscripción
+  /// Hotmart). Null = sin grupo (negocio individual). El estado financiero del
+  /// grupo cascadea al status de sus negocios.
+  businessGroupId             String?
+  businessGroup               BusinessGroup?       @relation(fields: [businessGroupId], references: [id], onDelete: SetNull)
   name                        String
   brandName                   String
   slug                        String               @unique
@@ -3855,6 +3860,7 @@ model WhiteLabel {
   admins          User[]               @relation("WhiteLabelAdmin")
   adminInvites    WhiteLabelAdminInvite[]
   hotmartCreditPurchases HotmartCreditPurchase[]
+  businessGroups  BusinessGroup[]      @relation("WhiteLabelGroups")
 
   @@index([status])
 }
@@ -3862,6 +3868,45 @@ model WhiteLabel {
 enum WhiteLabelStatus {
   ACTIVE
   SUSPENDED
+}
+
+/// Estado financiero de un Grupo Empresarial.
+///  - ACTIVE: pago al día → todos sus negocios activos.
+///  - PAST_DUE: pago pendiente → negocios siguen funcionando en gracia.
+///  - SUSPENDED: pago no recuperado → todos sus negocios suspendidos.
+enum BusinessGroupStatus {
+  ACTIVE
+  PAST_DUE
+  SUSPENDED
+}
+
+/// Grupo Empresarial: agrupa varios Tenant (negocios) bajo un mismo cliente
+/// responsable y UNA sola suscripción Hotmart. El estado financiero del grupo
+/// cascadea al status de todos sus negocios. Aislado por marca (whiteLabelId).
+model BusinessGroup {
+  id                    String              @id @default(uuid())
+  /// Marca dueña del grupo. Null = Clubify (plataforma). Aislamiento estricto.
+  whiteLabelId          String?
+  whiteLabel            WhiteLabel?         @relation("WhiteLabelGroups", fields: [whiteLabelId], references: [id], onDelete: SetNull)
+  name                  String
+  responsibleName       String?
+  responsibleEmail      String?
+  responsiblePhone      String?
+  /// Código de suscripción Hotmart del grupo (fuente de verdad del cobro).
+  hotmartSubscriberCode String?
+  planPeriodicity       String?
+  currentPeriodEnd      DateTime?
+  status                BusinessGroupStatus @default(ACTIVE)
+  failedPaymentCount    Int                 @default(0)
+  suspendedAt           DateTime?
+  lastChargeAt          DateTime?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  deletedAt             DateTime?
+  tenants               Tenant[]
+
+  @@index([whiteLabelId])
+  @@index([hotmartSubscriberCode])
 }
 
 /// Módulos toggleables por marca blanca. Si está deshabilitado, los

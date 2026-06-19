@@ -12,6 +12,7 @@ import { COMMISSION_DEFAULTS } from '../common/commission-defaults';
 import { addPlanPeriod } from '../common/plan-period';
 import { SmsTemplatesService } from './sms-templates.service';
 import { WhiteLabelNotificationsService } from '../white-label-notifications/white-label-notifications.service';
+import { BusinessGroupsService } from '../business-groups/business-groups.service';
 import { fmtSmsDate } from './sms-templates';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -70,6 +71,7 @@ export class HotmartService {
     private commissionExceptions: CommissionExceptionsService,
     private smsTemplates: SmsTemplatesService,
     private wlNotifications: WhiteLabelNotificationsService,
+    private businessGroups: BusinessGroupsService,
   ) {}
 
   /** Precio canónico del bundle en USD (68/150/278/500) según periodicidad,
@@ -243,6 +245,26 @@ export class HotmartService {
       if (refundHandled) {
         return { ok: true, action: refundHandled };
       }
+    }
+
+    // Grupo Empresarial: si el subscriberCode (o el email del responsable en el
+    // primer pago) matchea un grupo, el cobro es del GRUPO → activamos/suspendemos
+    // el grupo y cascadea a TODOS sus negocios. No hay un tenant único.
+    const nextChargeRaw = payload.data?.subscription?.date_next_charge;
+    const groupAction = await this.businessGroups
+      .tryHandleHotmartEvent({
+        event,
+        subscriberCode,
+        buyerEmail,
+        nextChargeDate: nextChargeRaw ? new Date(nextChargeRaw) : null,
+      })
+      .catch((e) => {
+        this.logger.error(`group hotmart handler falló: ${(e as Error)?.message}`);
+        return null;
+      });
+    if (groupAction) {
+      this.logger.log(`Hotmart event ${event} → grupo: ${groupAction}`);
+      return { ok: true, action: groupAction };
     }
 
     // Localizar tenant por email del buyer (caso primer pago) o por subscriberCode (renovaciones).
