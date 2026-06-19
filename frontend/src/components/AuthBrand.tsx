@@ -197,16 +197,34 @@ export function BrandLogoLink({
  * marca. Mismo enfoque probado con `.sellea-theme` en la landing. Sin marca →
  * no inyecta nada (queda el verde default).
  */
+function darkenHex(hex: string, amount = 0.12): string {
+  const h = (hex || '').replace('#', '');
+  if (h.length !== 6) return hex;
+  const ch = (i: number) =>
+    Math.round(parseInt(h.slice(i, i + 2), 16) * (1 - amount))
+      .toString(16)
+      .padStart(2, '0');
+  return `#${ch(0)}${ch(2)}${ch(4)}`;
+}
+
 export function BrandAuthTheme({ brand }: { brand: AuthBrand }) {
   if (!brand) return null;
   const c = brand.primaryColor || '#16a34a';
+  const hover = darkenHex(c, 0.12);
+  // Importante: .btn-primary / .btn-link / .input:focus tienen el verde
+  // HORNEADO vía @apply (el elemento solo lleva esa clase, no `bg-brand`), así
+  // que un selector [class*="bg-brand"] NO los alcanza → hay que apuntarlos
+  // explícitamente.
   const css = `
 .brand-auth .text-brand,.brand-auth [class*="text-brand"]{color:${c}!important}
 .brand-auth [class*="bg-brand"]:not([class*="bg-brand-soft"]){background-color:${c}!important}
 .brand-auth [class*="bg-brand-soft"]{background-color:${c}1f!important}
 .brand-auth [class*="border-brand"]{border-color:${c}!important}
 .brand-auth .text-ok,.brand-auth [class*="text-ok"]{color:${c}!important}
-.brand-auth .hover\\:bg-brand-700:hover,.brand-auth .hover\\:border-brand-700:hover{background-color:${c}!important;border-color:${c}!important}
+.brand-auth .btn-primary{background-color:${c}!important;border-color:${c}!important}
+.brand-auth .btn-primary:hover{background-color:${hover}!important;border-color:${hover}!important}
+.brand-auth .btn-link{color:${c}!important}
+.brand-auth .input:focus{border-color:${c}!important;box-shadow:0 0 0 3px ${c}33!important}
 `;
   return <style dangerouslySetInnerHTML={{ __html: css }} />;
 }

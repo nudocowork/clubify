@@ -45,7 +45,8 @@ function panelBrandCss(color: string): string {
   const c = color;
   const sb = mixHex(c, 'black', 0.86); // fondo sidebar (oscuro)
   const sb2 = mixHex(c, 'black', 0.9);
-  const hover = mixHex(c, 'black', 0.72);
+  const hover = mixHex(c, 'black', 0.72); // hover del sidebar (oscuro)
+  const btnHover = mixHex(c, 'black', 0.12); // hover de botones (tono apenas más oscuro)
   const section = mixHex(c, 'white', 0.5); // labels de sección (claros)
   const soft = c + '24'; // ~14% alpha para *-soft
   return `
@@ -63,6 +64,10 @@ function panelBrandCss(color: string): string {
 .brand-panel [class~="bg-ok"]:not([class*="bg-ok-soft"]){background-color:${c}!important}
 .brand-panel [class*="bg-ok-soft"]{background-color:${soft}!important}
 .brand-panel [class~="border-ok"]{border-color:${c}!important}
+.brand-panel .btn-primary{background-color:${c}!important;border-color:${c}!important}
+.brand-panel .btn-primary:hover{background-color:${btnHover}!important;border-color:${btnHover}!important}
+.brand-panel .btn-link{color:${c}!important}
+.brand-panel .input:focus{border-color:${c}!important;box-shadow:0 0 0 3px ${soft}!important}
 `;
 }
 // Subrutas reales de /admin (carpetas en app/admin). Si el primer segmento

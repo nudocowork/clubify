@@ -94,11 +94,13 @@ function LoginInner() {
     <div className={`min-h-screen flex items-center justify-center px-6 bg-bg ${brand ? 'brand-auth' : ''}`}>
       <BrandAuthTheme brand={brand} />
       <form onSubmit={submit} className="card card-pad w-full max-w-md">
-        <div className="flex items-center mb-3">
-          <BrandMark brand={brand} size={32} />
+        <div className="flex justify-center mb-4">
+          <BrandMark brand={brand} size={brand ? 48 : 36} />
         </div>
-        <h2 className="text-[22px] font-bold m-0">Inicia sesión</h2>
-        <p className="text-sm text-mute mt-1">Accede a tu panel de control.</p>
+        <h2 className="text-[22px] font-bold m-0 text-center">Inicia sesión</h2>
+        <p className="text-sm text-mute mt-1 text-center">
+          Accede a tu panel de control.
+        </p>
 
         {justReset && (
           <div className="mt-4 rounded-lg bg-ok-soft px-3 py-2.5 text-sm text-ok">
