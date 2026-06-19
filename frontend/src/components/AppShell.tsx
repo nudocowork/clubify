@@ -331,6 +331,26 @@ export default function AppShell({
     }
   }, [pathname, user, variant, router]);
 
+  // #5 Route guard: las páginas de config de PLATAFORMA (Branding,
+  // Integraciones SMS) son solo de Clubify. Una marca blanca distinta no debe
+  // poder entrar ni por URL directa → redirige a /admin. El slug de marca se
+  // resuelve de la pila de impersonación o de la URL /admin/<slug>.
+  useEffect(() => {
+    if (!user || variant !== 'admin') return;
+    const m = pathname.match(/^\/admin\/([^/]+)/);
+    const urlSlug = m && !ADMIN_ROUTE_SEGMENTS.has(m[1]) ? m[1] : null;
+    const slug = getImpersonationBackup()?.tenant?.slug || urlSlug;
+    const isOtherBrand = !!slug && slug !== 'clubify';
+    if (!isOtherBrand) return;
+    const clubifyOnlyRoutes = ['/admin/branding', '/admin/integrations'];
+    const here = urlSlug
+      ? pathname.replace(`/admin/${urlSlug}`, '/admin')
+      : pathname;
+    if (clubifyOnlyRoutes.some((p) => here === p || here.startsWith(p + '/'))) {
+      router.replace(urlSlug ? `/admin/${urlSlug}` : '/admin');
+    }
+  }, [pathname, user, variant, router]);
+
   // Cargar plan del tenant para mostrar badges Pro en sidebar y detectar
   // si todavía falta verificar la tarjeta en Hotmart (lockscreen).
   useEffect(() => {
