@@ -13,6 +13,7 @@ import { AuditService } from '../audit/audit.service';
 import { invalidateTenantStatusCache } from '../common/guards/tenant-status.guard';
 import { ReferralsService } from '../referrals/referrals.service';
 import { addPlanPeriod } from '../common/plan-period';
+import { AuthUser } from '../common/decorators/current-user.decorator';
 import { QueueService } from '../jobs/queue.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { nanoid } from 'nanoid';
@@ -355,12 +356,18 @@ export class TenantsService {
     return rows;
   }
 
-  async list() {
+  async list(user?: AuthUser) {
+    // #6: aislamiento por MARCA BLANCA. Cada admin ve solo los negocios de su
+    // marca (user.whiteLabelId). whiteLabelId null = admin de plataforma
+    // (PLATFORM_OWNER / super-super) → ve todos. ⚠️ Para que Clubify NO vea
+    // Sellea, los admins de Clubify deben tener whiteLabelId = marca 'clubify'
+    // (backfill-clubify-admins-whitelabel.cjs).
+    const wlId = user?.whiteLabelId ?? null;
     const tenants = await this.prisma.tenant.findMany({
       // Bloque 5 (2026-06-12): excluir soft-deleted del listado admin.
       // El SUPER_ADMIN no debería ver tenants eliminados que conservaron
       // historial — la contabilidad sigue por separado vía AuditLog.
-      where: { deletedAt: null },
+      where: { deletedAt: null, ...(wlId ? { whiteLabelId: wlId } : {}) },
       include: { plan: true, _count: { select: { users: true, cards: true, customers: true } } },
       orderBy: { createdAt: 'desc' },
     });
@@ -414,15 +421,24 @@ export class TenantsService {
     });
   }
 
-  async create(dto: CreateTenantDto) {
-    const slug = dto.brandName
+  async create(dto: CreateTenantDto, user?: AuthUser) {
+    const base = dto.brandName
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(^-|-$)/g, '')
       .slice(0, 40) || `tenant-${nanoid(6)}`;
 
-    const exists = await this.prisma.tenant.findUnique({ where: { slug } });
-    if (exists) throw new BadRequestException('Slug already exists, pick another brandName');
+    // #3: el MISMO nombre puede existir en marcas blancas distintas (Clubify y
+    // Sellea pueden tener cada uno "Mi Restaurante"). El slug se mantiene
+    // ÚNICO GLOBAL (las URLs /m/<slug> y subdominios lo exigen), así que si
+    // choca, le agregamos un sufijo en vez de rechazar la creación.
+    let slug = base;
+    for (let n = 2; n <= 99; n++) {
+      const exists = await this.prisma.tenant.findUnique({ where: { slug } });
+      if (!exists) break;
+      slug = `${base.slice(0, 37)}-${n}`;
+      if (n === 99) slug = `${base.slice(0, 33)}-${nanoid(6)}`;
+    }
 
     // #9: si no se eligió plan (marca sin planes configurados, ej Sellea),
     // usamos el plan "Sin plan" (precio 0) que se asegura on-demand.
@@ -483,6 +499,9 @@ export class TenantsService {
         secondaryColor: dto.secondaryColor ?? '#2E7D5B',
         businessCategorySlug: categorySlug,
         planId,
+        // #2/#6: el negocio hereda la MARCA BLANCA del admin que lo crea, así
+        // aparece solo en esa marca y nunca en otra (Sellea→sellea, Clubify→clubify).
+        whiteLabelId: user?.whiteLabelId ?? null,
         planPeriodicity: dto.planPeriodicity ?? null,
         referredByCode: dto.referredByCode,
         status,

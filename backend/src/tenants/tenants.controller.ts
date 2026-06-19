@@ -107,8 +107,8 @@ export class TenantsController {
   ) {}
 
   @Get()
-  list() {
-    return this.svc.list();
+  list(@CurrentUser() user: AuthUser) {
+    return this.svc.list(user);
   }
 
   // #11 (2026-06-16): ranking de negocios por pases emitidos. Debe ir ANTES
@@ -138,8 +138,8 @@ export class TenantsController {
 
   @Post()
   @Roles('SUPER_ADMIN')
-  create(@Body() body: CreateTenantBody) {
-    return this.svc.create(body);
+  create(@Body() body: CreateTenantBody, @CurrentUser() user: AuthUser) {
+    return this.svc.create(body, user);
   }
 
   @Patch(':id')
