@@ -1222,29 +1222,24 @@ export class OrdersService {
       where: { cardId_customerId: { cardId: card.id, customerId } },
     });
     if (!pass) {
-      // Auto-emitir un pass para que el cliente vea la acumulación al instante
-      const { sign } = await import('jsonwebtoken');
+      // Auto-emitir un pass para que el cliente vea la acumulación al instante.
+      // FIX 2026-06-18 (scan VALMONT): el qrToken DEBE ser el token corto
+      // `QR-<nanoid>` (igual que passes.service.genQrToken), NO un JWT firmado.
+      // El JWT de ~200 chars dejaba el PDF417 del pase tan denso que la cámara
+      // no lo podía leer (pantalla negra / scan 400). El token corto es
+      // inadivinable y el scanner lo busca por qrToken @unique.
       const { nanoid } = await import('nanoid');
       const serial = `CLB-${nanoid(10).toUpperCase()}`;
       const authToken = nanoid(32);
-      const tmp = await this.prisma.pass.create({
+      pass = await this.prisma.pass.create({
         data: {
           tenantId,
           cardId: card.id,
           customerId,
           serialNumber: serial,
-          qrToken: 'placeholder',
+          qrToken: `QR-${nanoid(20)}`,
           authToken,
         },
-      });
-      const qrToken = sign(
-        { pid: tmp.id, tid: tenantId },
-        this.appConfig.QR_HMAC_SECRET,
-        { algorithm: 'HS256' },
-      );
-      pass = await this.prisma.pass.update({
-        where: { id: tmp.id },
-        data: { qrToken },
       });
     }
 
