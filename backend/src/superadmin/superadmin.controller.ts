@@ -18,6 +18,8 @@ class WhiteLabelBody {
   @IsOptional() @IsBoolean() creditsUnlimited?: boolean;
   // Identidad visual extendida (manual de marca).
   @IsOptional() @IsString() @MaxLength(500) logoUrl?: string;
+  @IsOptional() @IsString() @MaxLength(500) iconUrl?: string;
+  @IsOptional() @IsString() @MaxLength(500) faviconUrl?: string;
   @IsOptional() @IsHexColor() secondaryColor?: string;
   @IsOptional() @IsHexColor() backgroundColor?: string;
   @IsOptional() @IsHexColor() supportColor?: string;

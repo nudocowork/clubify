@@ -3789,8 +3789,13 @@ model WhiteLabel {
   /// Color hex del avatar / botones primarios de la marca.
   primaryColor    String          @default("#16a34a")
   /// Identidad visual extendida de la marca (manual de marca). Todos opcionales.
-  /// Logo del panel (si está, reemplaza el avatar de inicial).
+  /// Logo HEADER (lockup horizontal ~3:1) — landing, login y páginas públicas.
   logoUrl         String?
+  /// Logo DASHBOARD (cuadrado ~1:1) — sidebar/header del panel admin. Si no
+  /// hay, cae a logoUrl y, en última instancia, al avatar de inicial.
+  iconUrl         String?
+  /// Favicon (cuadrado) — pestaña del navegador + PWA. Cae a iconUrl/logoUrl.
+  faviconUrl      String?
   /// Color secundario / tinta (textos y fondos oscuros).
   secondaryColor  String?
   /// Color de fondos suaves (crema).

@@ -19,10 +19,12 @@ const CLUBIFY_FAVICON_ID = '__clubify_dynamic_favicon';
 export function DynamicFavicon() {
   const { faviconUrl } = useBranding();
   const { brand, loading } = useAuthBrand();
-  // En el dominio de una marca NO aplicamos el favicon global de Clubify. Si la
-  // marca tiene logo propio lo usamos; si no, dejamos el favicon del metadata
-  // SSR (que ya es el de la marca, nunca el verde de Clubify).
-  const effective = brand ? brand.logoUrl ?? null : faviconUrl;
+  // En el dominio de una marca NO aplicamos el favicon global de Clubify.
+  // Preferimos su favicon dedicado → icono dashboard → logo; si no tiene
+  // ninguno, dejamos el favicon del metadata SSR (nunca el verde de Clubify).
+  const effective = brand
+    ? brand.faviconUrl ?? brand.iconUrl ?? brand.logoUrl ?? null
+    : faviconUrl;
   useEffect(() => {
     if (typeof document === 'undefined') return;
     // Mientras resolvemos la marca por host, no tocamos nada (evita flash del

@@ -16,6 +16,36 @@ const PLAN_LABELS: Record<PlanId, { label: string; sub: string }> = {
   anual: { label: 'Anual', sub: 'Pago una vez al año' },
 };
 
+/** Tarjeta con las medidas recomendadas para cada logo (formato/tamaño/peso/uso). */
+function BrandGuide({
+  formato,
+  tamano,
+  ratio,
+  peso,
+  uso,
+}: {
+  formato: string;
+  tamano: string;
+  ratio?: string;
+  peso: string;
+  uso: string;
+}) {
+  return (
+    <div className="mt-2 text-[11px] leading-relaxed text-mute bg-bg2/60 border border-line rounded-lg px-3 py-2">
+      <span className="font-semibold text-ink">Formato:</span> {formato} ·{' '}
+      <span className="font-semibold text-ink">Tamaño:</span> {tamano}
+      {ratio ? (
+        <>
+          {' '}· <span className="font-semibold text-ink">Relación:</span> {ratio}
+        </>
+      ) : null}{' '}
+      · <span className="font-semibold text-ink">Peso máx:</span> {peso}
+      <br />
+      <span className="font-semibold text-ink">Uso:</span> {uso}
+    </div>
+  );
+}
+
 const PLAN_ORDER: PlanId[] = ['mensual', 'trimestral', 'semestral', 'anual'];
 
 const DEFAULT_PLANS: LandingPlans = {
@@ -123,14 +153,24 @@ export default function AdminBrandingPage() {
             <h2 className="text-base font-semibold m-0">Logo del panel</h2>
             <p className="text-xs text-mute mt-1 leading-relaxed">
               Aparece en el sidebar superior izquierdo del panel y como icono
-              principal de la marca Clubify dentro de la app. PNG cuadrado con
-              fondo transparente recomendado, mínimo 256×256.
+              principal de la marca Clubify dentro de la app.
             </p>
+            <BrandGuide
+              formato="PNG transparente"
+              tamano="512 × 512 px"
+              ratio="1:1"
+              peso="300 KB"
+              uso="Panel administrativo y menú lateral."
+            />
             <div className="mt-3.5">
               <ImageUploader
                 value={b.appLogoUrl}
                 onChange={(url) => setB({ ...b, appLogoUrl: url })}
                 folder="branding"
+                crop
+                aspect={1}
+                maxSizeMb={2}
+                minDimensionWarn={false}
               />
             </div>
           </div>
@@ -141,16 +181,24 @@ export default function AdminBrandingPage() {
             </h2>
             <p className="text-xs text-mute mt-1 leading-relaxed">
               Aparece en el header y footer de{' '}
-              <code className="bg-bg2 px-1 rounded">soyclubify.com</code>.
-              Reemplaza el logo lockup default de Clubify. Lockup horizontal
-              (Logo + texto) PNG con fondo transparente, ratio ~3.4:1
-              recomendado. Si lo dejas vacío se usa el logo Clubify default.
+              <code className="bg-bg2 px-1 rounded">soyclubify.com</code> y en el
+              login. Si lo dejas vacío se usa el logo Clubify default.
             </p>
+            <BrandGuide
+              formato="PNG transparente"
+              tamano="1200 × 400 px"
+              ratio="3:1"
+              peso="500 KB"
+              uso="Landing, login y páginas públicas."
+            />
             <div className="mt-3.5">
               <ImageUploader
                 value={b.landingLogoUrl}
                 onChange={(url) => setB({ ...b, landingLogoUrl: url })}
                 folder="branding"
+                crop={false}
+                maxSizeMb={2}
+                minDimensionWarn={false}
               />
             </div>
           </div>
@@ -158,14 +206,24 @@ export default function AdminBrandingPage() {
           <div className="card card-pad">
             <h2 className="text-base font-semibold m-0">Favicon</h2>
             <p className="text-xs text-mute mt-1 leading-relaxed">
-              Icono que aparece en la pestaña del navegador (junto al título de
-              la página). PNG cuadrado, ideal 64×64 px, máx 512×512.
+              Icono de la pestaña del navegador (junto al título) y de la PWA.
             </p>
+            <BrandGuide
+              formato="PNG / ICO / SVG / WEBP"
+              tamano="512 × 512 px"
+              ratio="1:1"
+              peso="200 KB"
+              uso="Pestaña del navegador y PWA."
+            />
             <div className="mt-3.5">
               <ImageUploader
                 value={b.faviconUrl}
                 onChange={(url) => setB({ ...b, faviconUrl: url })}
                 folder="branding"
+                crop
+                aspect={1}
+                maxSizeMb={1}
+                minDimensionWarn={false}
               />
             </div>
           </div>

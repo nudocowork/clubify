@@ -18,6 +18,8 @@ export type WhiteLabelDto = {
   adminEmail?: string;
   creditsUnlimited?: boolean;
   logoUrl?: string;
+  iconUrl?: string;
+  faviconUrl?: string;
   secondaryColor?: string;
   backgroundColor?: string;
   supportColor?: string;
@@ -720,6 +722,8 @@ export class SuperAdminService {
         appDomain: patch.appDomain === undefined ? undefined : patch.appDomain?.trim() || null,
         primaryColor: patch.primaryColor ?? undefined,
         logoUrl: patch.logoUrl === undefined ? undefined : patch.logoUrl?.trim() || null,
+        iconUrl: patch.iconUrl === undefined ? undefined : patch.iconUrl?.trim() || null,
+        faviconUrl: patch.faviconUrl === undefined ? undefined : patch.faviconUrl?.trim() || null,
         secondaryColor: patch.secondaryColor === undefined ? undefined : patch.secondaryColor || null,
         backgroundColor: patch.backgroundColor === undefined ? undefined : patch.backgroundColor || null,
         supportColor: patch.supportColor === undefined ? undefined : patch.supportColor || null,
@@ -1010,6 +1014,8 @@ export class SuperAdminService {
         name: true,
         primaryColor: true,
         logoUrl: true,
+        iconUrl: true,
+        faviconUrl: true,
         secondaryColor: true,
         backgroundColor: true,
         supportColor: true,
@@ -1026,6 +1032,8 @@ export class SuperAdminService {
       name: wl.name,
       primaryColor: wl.primaryColor,
       logoUrl: wl.logoUrl,
+      iconUrl: wl.iconUrl,
+      faviconUrl: wl.faviconUrl,
       secondaryColor: wl.secondaryColor,
       backgroundColor: wl.backgroundColor,
       supportColor: wl.supportColor,

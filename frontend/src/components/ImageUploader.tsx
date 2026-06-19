@@ -22,6 +22,9 @@ export function ImageUploader({
   // Tamaño máximo permitido en MB. Default 15. El backend acepta 25 para
   // los folders menu-book/menu-book-popup (menús de alta resolución).
   maxSizeMb = 15,
+  // Si true (default), avisa cuando la imagen es <1600px (pensado para slides
+  // full-screen). Para logos/favicons (que son chicos a propósito) pasar false.
+  minDimensionWarn = true,
 }: {
   value?: string | null;
   onChange: (url: string | null) => void;
@@ -30,6 +33,7 @@ export function ImageUploader({
   crop?: boolean;
   aspect?: number;
   maxSizeMb?: number;
+  minDimensionWarn?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -56,7 +60,7 @@ export function ImageUploader({
     try {
       const dims = await measureImage(file);
       const maxSide = Math.max(dims.w, dims.h);
-      if (maxSide < 1600) {
+      if (minDimensionWarn && maxSide < 1600) {
         const ok = window.confirm(
           `La imagen es de ${dims.w}×${dims.h} px (peso ${prettyBytes(
             file.size,

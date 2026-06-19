@@ -5,7 +5,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 /** Resuelve la marca blanca por host. null para Clubify/dev. */
 async function resolveBrand(host: string): Promise<{
   name: string;
-  logoUrl: string | null;
+  icon: string | null;
   primaryColor: string;
   slug: string;
 } | null> {
@@ -27,9 +27,11 @@ async function resolveBrand(host: string): Promise<{
     if (!r.ok) return null;
     const d = await r.json();
     if (!d || !d.slug || d.slug === 'clubify') return null;
+    // Icono PWA = favicon dedicado → icono dashboard → logo header.
+    const icon = d.faviconUrl ?? d.iconUrl ?? d.logoUrl ?? null;
     return {
       name: d.name,
-      logoUrl: d.logoUrl ?? null,
+      icon,
       primaryColor: d.primaryColor || '#111827',
       slug: d.slug,
     };
@@ -84,7 +86,8 @@ export async function GET() {
     });
   }
 
-  const icon = brand.logoUrl || brandIconSvg(brand.name, brand.primaryColor);
+  const icon = brand.icon || brandIconSvg(brand.name, brand.primaryColor);
+  const isImage = !!brand.icon;
   const manifest = {
     name: brand.name,
     short_name: brand.name,
@@ -104,7 +107,7 @@ export async function GET() {
       {
         src: icon,
         sizes: 'any',
-        type: brand.logoUrl ? 'image/png' : 'image/svg+xml',
+        type: isImage ? 'image/png' : 'image/svg+xml',
         purpose: 'any',
       },
     ],

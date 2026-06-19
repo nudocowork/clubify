@@ -12,6 +12,8 @@ type WhiteLabel = {
   appDomain: string | null;
   primaryColor: string;
   logoUrl: string | null;
+  iconUrl: string | null;
+  faviconUrl: string | null;
   secondaryColor: string | null;
   backgroundColor: string | null;
   supportColor: string | null;
@@ -589,6 +591,8 @@ function Drawer({
                 whiteLabelId={w.id}
                 initial={{
                   logoUrl: w.logoUrl,
+                  iconUrl: w.iconUrl,
+                  faviconUrl: w.faviconUrl,
                   primaryColor: w.primaryColor,
                   secondaryColor: w.secondaryColor,
                   backgroundColor: w.backgroundColor,
@@ -1454,6 +1458,8 @@ function BrandingConfig({
   whiteLabelId: string;
   initial: {
     logoUrl: string | null;
+    iconUrl: string | null;
+    faviconUrl: string | null;
     primaryColor: string;
     secondaryColor: string | null;
     backgroundColor: string | null;
@@ -1466,6 +1472,8 @@ function BrandingConfig({
 }) {
   const [f, setF] = useState({
     logoUrl: initial.logoUrl ?? '',
+    iconUrl: initial.iconUrl ?? '',
+    faviconUrl: initial.faviconUrl ?? '',
     primaryColor: initial.primaryColor ?? '#16a34a',
     secondaryColor: initial.secondaryColor ?? '',
     backgroundColor: initial.backgroundColor ?? '',
@@ -1483,6 +1491,8 @@ function BrandingConfig({
         method: 'PATCH',
         body: JSON.stringify({
           logoUrl: f.logoUrl.trim() || null,
+          iconUrl: f.iconUrl.trim() || null,
+          faviconUrl: f.faviconUrl.trim() || null,
           primaryColor: f.primaryColor || undefined,
           secondaryColor: f.secondaryColor.trim() || null,
           backgroundColor: f.backgroundColor.trim() || null,
@@ -1556,27 +1566,88 @@ function BrandingConfig({
     </div>
   );
 
+  const logoField = (
+    key: 'logoUrl' | 'iconUrl' | 'faviconUrl',
+    title: string,
+    guide: { formato: string; tamano: string; ratio?: string; peso: string; uso: string },
+    opts: { crop: boolean; aspect?: number },
+  ) => (
+    <div>
+      <label className="text-xs font-semibold" style={{ color: '#16241c' }}>
+        {title}
+      </label>
+      <div
+        className="text-[11px] mt-1 mb-1.5 rounded-lg"
+        style={{
+          background: '#f4f6f5',
+          border: '1px solid #e6eae8',
+          padding: '7px 10px',
+          color: '#6b7785',
+          lineHeight: 1.55,
+        }}
+      >
+        <b>Formato:</b> {guide.formato} · <b>Tamaño:</b> {guide.tamano}
+        {guide.ratio ? (
+          <>
+            {' '}· <b>Relación:</b> {guide.ratio}
+          </>
+        ) : null}{' '}
+        · <b>Peso máx:</b> {guide.peso}
+        <br />
+        <b>Uso:</b> {guide.uso}
+      </div>
+      <ImageUploader
+        value={f[key] || null}
+        onChange={(url) => setF((s) => ({ ...s, [key]: url ?? '' }))}
+        folder="branding"
+        crop={opts.crop}
+        aspect={opts.aspect ?? 1}
+        maxSizeMb={2}
+        minDimensionWarn={false}
+      />
+    </div>
+  );
+
   return (
     <div>
       <SectionTitle>Identidad visual</SectionTitle>
       <div className="mt-2 space-y-3">
-        <div>
-          <label className="text-xs font-semibold" style={{ color: '#6b7785' }}>
-            Logo
-          </label>
-          <p className="text-[11px] mb-1.5" style={{ color: '#9aa4af' }}>
-            Se usa en el login y el panel de la marca. PNG con fondo
-            transparente, idealmente horizontal.
-          </p>
-          <ImageUploader
-            value={f.logoUrl || null}
-            onChange={(url) => setF((s) => ({ ...s, logoUrl: url ?? '' }))}
-            folder="branding"
-            crop={false}
-            maxSizeMb={5}
-          />
-        </div>
-        {textInput('…o pegá una URL de logo', 'logoUrl', 'https://…/logo.png')}
+        {logoField(
+          'logoUrl',
+          'Logo header',
+          {
+            formato: 'PNG transparente',
+            tamano: '1200 × 400 px',
+            ratio: '3:1',
+            peso: '500 KB',
+            uso: 'Landing, login y páginas públicas.',
+          },
+          { crop: false },
+        )}
+        {logoField(
+          'iconUrl',
+          'Logo dashboard',
+          {
+            formato: 'PNG transparente',
+            tamano: '512 × 512 px',
+            ratio: '1:1',
+            peso: '300 KB',
+            uso: 'Panel administrativo y menú lateral.',
+          },
+          { crop: true, aspect: 1 },
+        )}
+        {logoField(
+          'faviconUrl',
+          'Favicon',
+          {
+            formato: 'PNG / ICO / SVG / WEBP',
+            tamano: '512 × 512 px',
+            ratio: '1:1',
+            peso: '200 KB',
+            uso: 'Pestaña del navegador y PWA.',
+          },
+          { crop: true, aspect: 1 },
+        )}
         <div className="space-y-2">
           {colorRow('Color principal', 'primaryColor')}
           {colorRow('Color secundario', 'secondaryColor')}

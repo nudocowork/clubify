@@ -157,6 +157,7 @@ export default function AppShell({
     name: string;
     color: string | null;
     logoUrl: string | null;
+    iconUrl: string | null;
     slug: string;
     modules: string[];
   } | null>(null);
@@ -275,6 +276,7 @@ export default function AppShell({
       name: string;
       primaryColor: string;
       logoUrl?: string | null;
+      iconUrl?: string | null;
       slug: string;
       modules?: string[];
     } | null;
@@ -290,6 +292,7 @@ export default function AppShell({
         name: r.name,
         color: r.primaryColor,
         logoUrl: r.logoUrl ?? null,
+        iconUrl: r.iconUrl ?? null,
         slug: r.slug,
         modules: r.modules ?? [],
       });
@@ -746,19 +749,24 @@ export default function AppShell({
   // que "entró" a una marca) o, en su defecto, resuelto por slug de la URL
   // (login directo a /admin/<slug>). El panel /admin se pinta con esa
   // identidad, NO con la de Clubify.
+  // `icon` = logo DASHBOARD cuadrado (preferido para el sidebar); `logo` = logo
+  // HEADER ancho (fallback). El render elige según cuál exista para no
+  // deformar un lockup ancho dentro de un cuadrado.
   const activeBrand =
     variant !== 'admin'
       ? null
       : impersonation?.tenant?.brandName?.trim()
         ? {
             name: impersonation.tenant.brandName.trim(),
-            color: impersonation.tenant.primaryColor || null,
+            color: impersonation.tenant.primaryColor || brandFetched?.color || null,
+            icon: brandFetched?.iconUrl ?? null,
             logo: brandFetched?.logoUrl ?? null,
           }
         : brandFetched
           ? {
               name: brandFetched.name,
               color: brandFetched.color,
+              icon: brandFetched.iconUrl,
               logo: brandFetched.logoUrl,
             }
           : null;
@@ -796,21 +804,32 @@ export default function AppShell({
       : tenantInfo?.brandName?.trim() || 'Mi Negocio';
 
   const renderBrandMark = (size: number) => {
-    // Marca activa con logo propio → su logo.
-    if (activeBrand?.logo) {
+    // 1) Logo DASHBOARD cuadrado → caja size×size (encaja perfecto, sin deformar).
+    if (activeBrand?.icon) {
       return (
         <img
-          src={activeBrand.logo}
+          src={activeBrand.icon}
           alt={activeBrand.name}
-          width={size}
-          height={size}
           className="bg-white rounded-input object-contain flex-none"
           style={{ width: size, height: size }}
         />
       );
     }
-    // Marca activa sin logo propio → avatar con su inicial y color (evita
-    // mostrar el logo de Clubify dentro del panel de otra marca).
+    // 2) Solo hay logo HEADER (ancho) → render por ALTURA con ancho automático
+    //    (NO lo metemos en un cuadrado: un lockup 3:1 se vería diminuto). Se
+    //    limita el ancho para no romper el layout del sidebar.
+    if (activeBrand?.logo) {
+      return (
+        <img
+          src={activeBrand.logo}
+          alt={activeBrand.name}
+          className="bg-white rounded-input object-contain flex-none"
+          style={{ height: size, width: 'auto', maxWidth: size * 3.4 }}
+        />
+      );
+    }
+    // 3) Marca activa sin logo → avatar con su inicial y color (nunca el logo
+    //    de Clubify dentro del panel de otra marca).
     if (activeBrand) {
       return (
         <div

@@ -16,6 +16,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 async function resolveBrandForHost(host: string): Promise<{
   name: string;
   logoUrl: string | null;
+  faviconUrl: string | null;
   primaryColor: string;
   slug: string;
 } | null> {
@@ -37,9 +38,12 @@ async function resolveBrandForHost(host: string): Promise<{
     if (!r.ok) return null;
     const d = await r.json();
     if (!d || !d.slug || d.slug === 'clubify') return null;
+    // Favicon = favicon dedicado → icono dashboard → logo header.
+    const favicon = d.faviconUrl ?? d.iconUrl ?? d.logoUrl ?? null;
     return {
       name: d.name,
       logoUrl: d.logoUrl ?? null,
+      faviconUrl: favicon,
       primaryColor: d.primaryColor || '#111827',
       slug: d.slug,
     };
@@ -68,7 +72,8 @@ export async function generateMetadata(): Promise<Metadata> {
 
   // ───────── Marca blanca (dominio propio) → metadata 100% de la marca ─────────
   if (brand) {
-    const icon = brand.logoUrl || brandFaviconDataUri(brand.name, brand.primaryColor);
+    const icon =
+      brand.faviconUrl || brandFaviconDataUri(brand.name, brand.primaryColor);
     const title = brand.name;
     const description = `${brand.name}: fideliza, vende y automatiza tu negocio en un solo lugar.`;
     return {

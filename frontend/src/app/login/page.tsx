@@ -95,7 +95,7 @@ function LoginInner() {
       <BrandAuthTheme brand={brand} />
       <form onSubmit={submit} className="card card-pad w-full max-w-md">
         <div className="flex justify-center mb-4">
-          <BrandMark brand={brand} size={brand ? 48 : 36} />
+          <BrandMark brand={brand} size={brand ? 56 : 36} />
         </div>
         <h2 className="text-[22px] font-bold m-0 text-center">Inicia sesión</h2>
         <p className="text-sm text-mute mt-1 text-center">

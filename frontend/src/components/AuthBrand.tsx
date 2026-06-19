@@ -9,6 +9,8 @@ export type AuthBrand = {
   slug: string;
   name: string;
   logoUrl: string | null;
+  iconUrl: string | null;
+  faviconUrl: string | null;
   primaryColor: string;
   secondaryColor: string | null;
 } | null;
@@ -90,6 +92,8 @@ export function useAuthBrand(): { brand: AuthBrand; loading: boolean } {
                 slug: v.slug,
                 name: v.name,
                 logoUrl: v.logoUrl ?? null,
+                iconUrl: v.iconUrl ?? null,
+                faviconUrl: v.faviconUrl ?? null,
                 primaryColor: v.primaryColor || '#16a34a',
                 secondaryColor: v.secondaryColor ?? null,
               }
@@ -131,7 +135,12 @@ export function BrandMark({
       <img
         src={brand.logoUrl}
         alt={brand.name}
-        style={{ height: size, width: 'auto', objectFit: 'contain' }}
+        style={{
+          height: size,
+          width: 'auto',
+          maxWidth: '100%',
+          objectFit: 'contain',
+        }}
       />
     );
   }
