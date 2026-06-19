@@ -261,7 +261,7 @@ export default function AdminBrandingPage() {
                   />
                 </div>
                 <div className="col-span-8 sm:col-span-7">
-                  <label className="label">Link de pago (Hotmart u otro)</label>
+                  <label className="label">Link de pago (pasarela)</label>
                   <input
                     type="url"
                     className="input"

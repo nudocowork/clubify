@@ -456,7 +456,7 @@ export default async function Landing() {
               },
               {
                 q: '¿Cómo se procesa el pago?',
-                a: 'Procesamos los pagos a través de Hotmart, una pasarela segura ampliamente usada en LATAM. Acepta tarjeta de crédito, débito y métodos locales (PSE, Mercado Pago, etc.) según tu país.',
+                a: 'Procesamos los pagos a través de una pasarela de pago segura ampliamente usada en LATAM. Acepta tarjeta de crédito, débito y métodos locales (PSE, Mercado Pago, etc.) según tu país.',
               },
               {
                 q: '¿Necesito Apple Developer Program para emitir tarjetas wallet?',

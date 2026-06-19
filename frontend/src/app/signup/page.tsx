@@ -51,7 +51,7 @@ export default async function SignupPage({
               Elige tu plan y empieza hoy
             </h1>
             <p className="text-mute mt-2 leading-relaxed">
-              Eliges tu plan, pagas seguro con Hotmart y creas tu cuenta en
+              Eliges tu plan, pagas seguro con nuestra pasarela de pago y creas tu cuenta en
               1 minuto. Apenas se confirma el pago entras al panel.
             </p>
           </div>

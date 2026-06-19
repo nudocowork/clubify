@@ -27,11 +27,11 @@ export const SMS_TEMPLATES: SmsTemplateDef[] = [
   {
     id: 'payment_reminder_tomorrow',
     label: 'Recordatorio de cobro (D-1)',
-    description: 'Se envía 1 día antes del cobro recurrente en Hotmart.',
+    description: 'Se envía 1 día antes del cobro recurrente en la pasarela de pago.',
     vars: ['brandName', 'chargeDate'],
     group: 'cliente',
     default:
-      'Clubify: Tu cobro de {brandName} es mañana ({chargeDate}). Verifica tu tarjeta en Hotmart si cambió.',
+      'Clubify: Tu cobro de {brandName} es mañana ({chargeDate}). Verifica tu tarjeta en la pasarela de pago si cambió.',
   },
   {
     id: 'payment_confirmed',
@@ -48,7 +48,7 @@ export const SMS_TEMPLATES: SmsTemplateDef[] = [
     vars: ['brandName'],
     group: 'cliente',
     default:
-      'Clubify: Tu pago de {brandName} falló. Actualiza tu tarjeta o reintenta en Hotmart para no pausar tu cuenta.',
+      'Clubify: Tu pago de {brandName} falló. Actualiza tu tarjeta o reintenta en la pasarela de pago para no pausar tu cuenta.',
   },
   {
     id: 'account_will_pause',
@@ -67,7 +67,7 @@ export const SMS_TEMPLATES: SmsTemplateDef[] = [
     vars: ['brandName'],
     group: 'cliente',
     default:
-      'Clubify: Tu cuenta de {brandName} quedó pausada por falta de pago. Reactiva en Hotmart para volver al instante.',
+      'Clubify: Tu cuenta de {brandName} quedó pausada por falta de pago. Reactiva en la pasarela de pago para volver al instante.',
   },
 
   // ───────── Marca blanca (notificaciones de créditos desde Clubify) ─────────
