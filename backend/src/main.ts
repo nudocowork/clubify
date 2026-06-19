@@ -26,6 +26,7 @@ import { timingSafeEqual } from 'crypto';
 // eslint-disable-next-line no-console
 console.log('[Boot] main.ts before AppModule import');
 import { AppModule } from './app.module';
+import { PrismaService } from './common/prisma/prisma.service';
 // eslint-disable-next-line no-console
 console.log('[Boot] main.ts after AppModule import');
 import { SentryExceptionFilter } from './common/sentry/sentry.filter';
@@ -39,6 +40,48 @@ import { SentryExceptionFilter } from './common/sentry/sentry.filter';
  *  - los customDomains de tenants se agregan a CORS_EXTRA_ORIGINS o se actualiza
  *    en redeploy (rotan rara vez, evita query DB en cada request)
  */
+// Hosts de dominios propios de marcas blancas (ej. selleala.com,
+// app.selleala.com) permitidos para CORS. Se refresca desde la DB al boot y
+// cada pocos minutos — así CUALQUIER WhiteLabel ACTIVE con domain/appDomain
+// queda habilitado automáticamente sin tocar env ni redeployar. Sin esto, el
+// login/panel servido en el dominio de la marca no puede llamar al API
+// (api.soyclubify.com) → "Failed to fetch" por CORS.
+const brandHosts = new Set<string>();
+function normHost(s?: string | null): string {
+  return (s ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/\/$/, '')
+    .split('/')[0];
+}
+async function refreshBrandHosts(prisma: PrismaService): Promise<void> {
+  try {
+    const wls = await prisma.whiteLabel.findMany({
+      where: { status: 'ACTIVE' },
+      select: { domain: true, appDomain: true },
+    });
+    const next = new Set<string>();
+    for (const wl of wls) {
+      for (const d of [wl.domain, wl.appDomain]) {
+        const h = normHost(d);
+        if (!h) continue;
+        next.add(h);
+        // El dominio de marketing suele servirse también con www.
+        if (!h.startsWith('www.')) next.add('www.' + h);
+      }
+    }
+    brandHosts.clear();
+    next.forEach((h) => brandHosts.add(h));
+    // eslint-disable-next-line no-console
+    console.log(`[CORS] brand hosts cargados: ${brandHosts.size}`);
+  } catch (e) {
+    // Si la query falla, conservamos el cache previo (no rompemos CORS).
+    // eslint-disable-next-line no-console
+    console.warn('[CORS] refreshBrandHosts falló:', (e as Error)?.message);
+  }
+}
+
 function isOriginAllowed(origin: string): boolean {
   try {
     const u = new URL(origin);
@@ -59,6 +102,8 @@ function isOriginAllowed(origin: string): boolean {
     if (extras.includes(origin.toLowerCase()) || extras.includes(host)) return true;
     if (root && (hostname === root || hostname.endsWith('.' + root))) return true;
     if (hostname === 'localhost' || hostname.endsWith('.localhost')) return true;
+    // Dominios propios de marcas blancas (refrescados desde la DB).
+    if (brandHosts.has(hostname)) return true;
 
     return false;
   } catch {
@@ -186,6 +231,18 @@ async function bootstrap() {
   app.useGlobalFilters(new SentryExceptionFilter(httpAdapter.httpAdapter));
 
   setupSwagger(app);
+
+  // Cargamos los dominios propios de marcas blancas para CORS antes de aceptar
+  // tráfico, y los refrescamos cada 3 min (una marca nueva queda habilitada
+  // sin redeploy).
+  try {
+    const prisma = app.get(PrismaService);
+    await refreshBrandHosts(prisma);
+    setInterval(() => void refreshBrandHosts(prisma), 3 * 60 * 1000);
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[CORS] no se pudo inicializar brand hosts:', (e as Error)?.message);
+  }
 
   // eslint-disable-next-line no-console
   console.log('[Boot] >>> NestFactory.create OK');

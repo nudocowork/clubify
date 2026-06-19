@@ -63,9 +63,12 @@ export class AdminUsersController {
   ) {}
 
   @Get()
-  async list() {
+  async list(@CurrentUser() user: AuthUser) {
+    // Aislamiento por marca: un admin de marca (whiteLabelId) ve SOLO los
+    // admins de su marca; Clubify (admin global, whiteLabelId null) ve los
+    // admins globales. Nunca se mezclan entre marcas.
     return this.prisma.user.findMany({
-      where: { role: { in: ADMIN_ROLES } },
+      where: { role: { in: ADMIN_ROLES }, whiteLabelId: user.whiteLabelId ?? null },
       orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
       select: {
         id: true,
@@ -82,7 +85,7 @@ export class AdminUsersController {
   }
 
   @Post()
-  async create(@Body() body: CreateAdminBody) {
+  async create(@CurrentUser() user: AuthUser, @Body() body: CreateAdminBody) {
     const email = body.email.toLowerCase().trim();
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) {
@@ -98,6 +101,9 @@ export class AdminUsersController {
         passwordHash,
         role: body.role ?? 'SUPER_ADMIN',
         tenantId: null,
+        // El admin nuevo hereda la marca del creador: admin de marca → admin de
+        // ESA marca; Clubify (null) → admin global. Mantiene el aislamiento.
+        whiteLabelId: user.whiteLabelId ?? null,
         isActive: true,
       },
       select: {
@@ -123,21 +129,30 @@ export class AdminUsersController {
     @Body() body: UpdateAdminBody,
   ) {
     const target = await this.prisma.user.findUnique({ where: { id } });
-    if (!target || !ADMIN_ROLES.includes(target.role as AdminRole)) {
+    if (
+      !target ||
+      !ADMIN_ROLES.includes(target.role as AdminRole) ||
+      (target.whiteLabelId ?? null) !== (user.whiteLabelId ?? null)
+    ) {
       throw new NotFoundException();
     }
     if (target.id === user.id && body.isActive === false) {
       throw new BadRequestException('No puedes desactivarte a ti mismo');
     }
     // Si desactivamos un SUPER_ADMIN, garantizamos que queda al menos otro
-    // SUPER_ADMIN activo (MARKETING no cuenta — no puede gestionar admins).
+    // SUPER_ADMIN activo de la MISMA marca (MARKETING no cuenta).
     if (
       body.isActive === false &&
       target.isActive &&
       target.role === 'SUPER_ADMIN'
     ) {
       const remainingActive = await this.prisma.user.count({
-        where: { role: 'SUPER_ADMIN', isActive: true, id: { not: id } },
+        where: {
+          role: 'SUPER_ADMIN',
+          isActive: true,
+          id: { not: id },
+          whiteLabelId: user.whiteLabelId ?? null,
+        },
       });
       if (remainingActive === 0) {
         throw new BadRequestException(
@@ -166,11 +181,16 @@ export class AdminUsersController {
 
   @Post(':id/reset-password')
   async resetPassword(
+    @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() body: ResetAdminPasswordBody,
   ) {
     const target = await this.prisma.user.findUnique({ where: { id } });
-    if (!target || !ADMIN_ROLES.includes(target.role as AdminRole)) {
+    if (
+      !target ||
+      !ADMIN_ROLES.includes(target.role as AdminRole) ||
+      (target.whiteLabelId ?? null) !== (user.whiteLabelId ?? null)
+    ) {
       throw new NotFoundException();
     }
     const tempPassword = body.newPassword?.trim() || genTempPassword();
@@ -188,14 +208,23 @@ export class AdminUsersController {
       throw new BadRequestException('No puedes eliminarte a ti mismo');
     }
     const target = await this.prisma.user.findUnique({ where: { id } });
-    if (!target || !ADMIN_ROLES.includes(target.role as AdminRole)) {
+    if (
+      !target ||
+      !ADMIN_ROLES.includes(target.role as AdminRole) ||
+      (target.whiteLabelId ?? null) !== (user.whiteLabelId ?? null)
+    ) {
       throw new NotFoundException();
     }
-    // Solo bloqueamos el delete si dejaría 0 SUPER_ADMIN activos. Eliminar
-    // un MARKETING no compromete el acceso al panel admin.
+    // Solo bloqueamos el delete si dejaría 0 SUPER_ADMIN activos de la MISMA
+    // marca. Eliminar un MARKETING no compromete el acceso al panel admin.
     if (target.role === 'SUPER_ADMIN') {
       const remainingActive = await this.prisma.user.count({
-        where: { role: 'SUPER_ADMIN', isActive: true, id: { not: id } },
+        where: {
+          role: 'SUPER_ADMIN',
+          isActive: true,
+          id: { not: id },
+          whiteLabelId: user.whiteLabelId ?? null,
+        },
       });
       if (remainingActive === 0) {
         throw new BadRequestException(
