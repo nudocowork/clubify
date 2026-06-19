@@ -148,8 +148,8 @@ export class TenantsService {
    * un SMS de prueba a los teléfonos configurados.
    */
   async sendDeliveryAlertTest(tenantId: string) {
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
+    const tenant = await this.prisma.tenant.findFirst({
+      where: { id: tenantId }, // aislado por marca (middleware)
       select: {
         brandName: true,
         whatsappDeliveryPhone: true,
@@ -277,7 +277,9 @@ export class TenantsService {
    * para implementadores que configuran cuentas de clientes.
    */
   async impersonate(tenantId: string, superAdminId: string) {
-    const tenant = await this.prisma.tenant.findUnique({
+    // Seguridad: findFirst (NO findUnique) → el middleware lo acota a la marca
+    // del admin. Un admin de otra marca NO puede impersonar este negocio.
+    const tenant = await this.prisma.tenant.findFirst({
       where: { id: tenantId },
       select: { id: true, brandName: true, slug: true, status: true },
     });
@@ -400,7 +402,11 @@ export class TenantsService {
   }
 
   async getById(id: string) {
-    const tenant = await this.prisma.tenant.findUnique({
+    // Aislamiento por marca: findFirst (NO findUnique) para que el middleware
+    // Prisma lo acote a los tenants de la marca activa (modo whiteLabel). Un
+    // admin de otra marca que pida un id ajeno recibe NotFound. update()/
+    // remove() llaman a getById primero, así que también quedan aislados.
+    const tenant = await this.prisma.tenant.findFirst({
       where: { id },
       include: { plan: true, locations: true, _count: { select: { cards: true, customers: true, passes: true } } },
     });
@@ -740,8 +746,8 @@ export class TenantsService {
   }
 
   async setStatus(id: string, status: TenantStatus, actorId: string) {
-    const previous = await this.prisma.tenant.findUnique({
-      where: { id },
+    const previous = await this.prisma.tenant.findFirst({
+      where: { id }, // findFirst → aislado por marca (middleware whiteLabel)
       select: { status: true, brandName: true, suspendedAt: true },
     });
     if (!previous) throw new NotFoundException('Tenant');
@@ -776,7 +782,7 @@ export class TenantsService {
    * afiliado vea su comisión.
    */
   async convertToPaying(id: string, actorId: string, periodDays?: number) {
-    const t = await this.prisma.tenant.findUnique({ where: { id } });
+    const t = await this.prisma.tenant.findFirst({ where: { id } }); // aislado por marca (middleware)
     if (!t) throw new NotFoundException('Tenant');
     const now = new Date();
     // Bug #1: por default el periodo se extiende según la periodicidad real
@@ -843,8 +849,8 @@ export class TenantsService {
     periodicity: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL',
     actorId: string,
   ) {
-    const t = await this.prisma.tenant.findUnique({
-      where: { id },
+    const t = await this.prisma.tenant.findFirst({
+      where: { id }, // aislado por marca (middleware)
       select: {
         id: true,
         planPeriodicity: true,
@@ -899,7 +905,7 @@ export class TenantsService {
 
   /** Extiende el trial agregando `days` al trialEndsAt actual (o desde hoy si no hay). */
   async extendTrial(id: string, days: number, actorId: string) {
-    const t = await this.prisma.tenant.findUnique({ where: { id } });
+    const t = await this.prisma.tenant.findFirst({ where: { id } }); // aislado por marca (middleware)
     if (!t) throw new NotFoundException('Tenant');
     const base = t.trialEndsAt && t.trialEndsAt.getTime() > Date.now() ? t.trialEndsAt : new Date();
     const newEnd = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
@@ -957,7 +963,7 @@ export class TenantsService {
       throw new BadRequestException('days fuera de rango (±3650 max)');
     }
 
-    const t = await this.prisma.tenant.findUnique({ where: { id } });
+    const t = await this.prisma.tenant.findFirst({ where: { id } }); // aislado por marca (middleware)
     if (!t) throw new NotFoundException('Tenant');
 
     // Guard 2026-06-08: si el tenant es cliente pagante (status=ACTIVE
@@ -1127,8 +1133,8 @@ export class TenantsService {
     tenantId: string,
     opts: { locked: boolean; reason?: string | null; actorId: string },
   ) {
-    const t = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
+    const t = await this.prisma.tenant.findFirst({
+      where: { id: tenantId }, // aislado por marca (middleware)
       select: { id: true, isLocked: true, brandName: true },
     });
     if (!t) throw new NotFoundException('Negocio no encontrado');
