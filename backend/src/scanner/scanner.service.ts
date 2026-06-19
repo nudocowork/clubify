@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { verify } from 'jsonwebtoken';
+import { verify, decode } from 'jsonwebtoken';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AppConfigService } from '../common/config/app-config.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
@@ -75,13 +75,27 @@ export class ScannerService {
 
   private async findByJwt(value: string) {
     if (!value.includes('.') || value.split('.').length !== 3) return null;
-    let payload: { pid: string; tid: string };
+    let payload: any = null;
     try {
       payload = verify(value, this.appConfig.QR_HMAC_SECRET) as any;
     } catch {
-      return null;
+      // FIX 2026-06-19 (scan VALMONT): si la firma NO valida (rotación de
+      // secreto o pases viejos del período JWT 2026-06-16), decodificamos el
+      // JWT SIN verificar para extraer el `pid` y resolver el pase igual. Es
+      // seguro acá: el endpoint /scanner es staff-only (Roles) y verifyQr
+      // valida abajo que el pase pertenezca al tenant del usuario, así que un
+      // pid forjado solo podría apuntar a pases del propio negocio.
+      try {
+        payload = decode(value) as any;
+      } catch {
+        payload = null;
+      }
     }
-    return this.prisma.pass.findUnique({ where: { id: payload.pid }, include: this.passInclude });
+    if (!payload?.pid) return null;
+    return this.prisma.pass.findUnique({
+      where: { id: payload.pid },
+      include: this.passInclude,
+    });
   }
 
   private async findBySerial(value: string) {

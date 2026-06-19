@@ -208,7 +208,11 @@ export default function ScanPage() {
         } catch {}
       }
     } catch (e: any) {
-      setErr(e.message);
+      // Diagnóstico (2026-06-19): si no resuelve, mostramos el valor leído
+      // (truncado) para identificar el formato del barcode del pase viejo.
+      const shown =
+        qrToken.length > 50 ? `${qrToken.slice(0, 50)}…(${qrToken.length})` : qrToken;
+      setErr(`${e.message}  ·  [código leído: ${shown}]`);
       playScanError();
       if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
         try {
