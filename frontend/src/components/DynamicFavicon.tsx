@@ -1,6 +1,7 @@
 'use client';
 import { useEffect } from 'react';
 import { useBranding } from '@/lib/useBranding';
+import { useAuthBrand } from '@/components/AuthBrand';
 
 /**
  * Reemplaza el `<link rel="icon">` del head con el favicon configurado en
@@ -17,12 +18,20 @@ const CLUBIFY_FAVICON_ID = '__clubify_dynamic_favicon';
 
 export function DynamicFavicon() {
   const { faviconUrl } = useBranding();
+  const { brand, loading } = useAuthBrand();
+  // En el dominio de una marca NO aplicamos el favicon global de Clubify. Si la
+  // marca tiene logo propio lo usamos; si no, dejamos el favicon del metadata
+  // SSR (que ya es el de la marca, nunca el verde de Clubify).
+  const effective = brand ? brand.logoUrl ?? null : faviconUrl;
   useEffect(() => {
     if (typeof document === 'undefined') return;
+    // Mientras resolvemos la marca por host, no tocamos nada (evita flash del
+    // favicon Clubify en el dominio de la marca).
+    if (loading) return;
     let link = document.getElementById(
       CLUBIFY_FAVICON_ID,
     ) as HTMLLinkElement | null;
-    if (!faviconUrl) {
+    if (!effective) {
       // Si no hay favicon custom, removemos el nuestro (no los de Next).
       if (link && link.parentNode) link.parentNode.removeChild(link);
       return;
@@ -34,7 +43,7 @@ export function DynamicFavicon() {
       link.type = 'image/png';
       document.head.appendChild(link);
     }
-    if (link.href !== faviconUrl) link.href = faviconUrl;
-  }, [faviconUrl]);
+    if (link.href !== effective) link.href = effective;
+  }, [effective, loading]);
   return null;
 }
