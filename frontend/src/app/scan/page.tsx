@@ -73,29 +73,46 @@ export default function ScanPage() {
           verbose: false,
         });
       }
-      await scannerRef.current.start(
-        { facingMode: 'environment' },
-        {
-          fps: 10,
-          qrbox: (vw: number, vh: number) => {
-            const minSide = Math.min(vw, vh);
-            const width = Math.min(vw - 30, Math.round(minSide * 1.1));
-            const height = Math.round(width * 0.4);
-            return { width, height };
-          },
-          aspectRatio: 1.5,
+      const scanConfig = {
+        fps: 10,
+        qrbox: (vw: number, vh: number) => {
+          const minSide = Math.min(vw, vh);
+          const width = Math.min(vw - 30, Math.round(minSide * 1.1));
+          const height = Math.round(width * 0.4);
+          return { width, height };
         },
-        async (text: string) => {
-          // Detener primero para evitar callbacks duplicados
-          try {
-            await scannerRef.current?.stop();
-          } catch {}
-          setScanning(false);
-          await verify(text);
-        },
-        () => {},
-      );
-      setScanning(true);
+        aspectRatio: 1.5,
+      };
+      const onScan = async (text: string) => {
+        // Detener primero para evitar callbacks duplicados
+        try {
+          await scannerRef.current?.stop();
+        } catch {}
+        setScanning(false);
+        await verify(text);
+      };
+      try {
+        // Preferimos la cámara TRASERA (caso normal: celular del local).
+        await scannerRef.current.start(
+          { facingMode: 'environment' },
+          scanConfig,
+          onScan,
+          () => {},
+        );
+        setScanning(true);
+      } catch (envErr: any) {
+        // Fallback (#scan 2026-06-19): en laptops/desktops sin cámara trasera,
+        // facingMode:'environment' falla y la cámara queda NEGRA. Probamos
+        // cualquier cámara disponible (getCameras → primer deviceId) antes de
+        // rendirnos, así el scanner también funciona en compu.
+        if (envErr?.name === 'NotAllowedError' || /permission/i.test(envErr?.message ?? '')) {
+          throw envErr; // permiso denegado: no insistir, mostrar el mensaje claro
+        }
+        const cams = await Html5Qrcode.getCameras();
+        if (!cams || cams.length === 0) throw envErr;
+        await scannerRef.current.start(cams[0].id, scanConfig, onScan, () => {});
+        setScanning(true);
+      }
     } catch (e: any) {
       const msg = e?.message ?? '';
       setErr(
@@ -377,7 +394,14 @@ export default function ScanPage() {
             className="mt-3 flex gap-2"
             onSubmit={(e) => {
               e.preventDefault();
-              verify(manual);
+              // Guard: no mandar el verify si está vacío (evita el 400
+              // "Código vacío" confuso cuando el campo quedó en blanco).
+              const v = manual.trim();
+              if (!v) {
+                setErr('Escaneá un código o pegá el código del pase (CLB-…).');
+                return;
+              }
+              verify(v);
             }}
           >
             <input

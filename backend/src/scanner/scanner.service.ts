@@ -40,7 +40,12 @@ export class ScannerService {
     let pass = await this.findByQrToken(value);
     if (!pass) pass = await this.findByJwt(value);
     if (!pass) pass = await this.findBySerial(value);
-    if (!pass) throw new NotFoundException('Pass');
+    if (!pass)
+      throw new NotFoundException(
+        'Pase no encontrado. El código del cliente puede estar desactualizado: ' +
+          'escribí el código del pase (CLB-…) en el campo de abajo, o pedile al ' +
+          'cliente que reinstale el pase en su billetera.',
+      );
 
     if (user.role !== 'SUPER_ADMIN' && user.tenantId !== pass.tenantId) {
       throw new ForbiddenException('Code belongs to another business');

@@ -17,10 +17,31 @@ const { PrismaClient } = require('@prisma/client');
     console.log(`\n████ ${t.brandName} | slug=${t.slug} | ${t.id.slice(0, 8)} | ${t.status}`);
     const passes = await prisma.pass.findMany({
       where: { tenantId: t.id },
-      select: { id: true, serialNumber: true, qrToken: true, status: true, createdAt: true },
-      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true, serialNumber: true, qrToken: true, status: true, issuedAt: true,
+        walletPlatform: true, walletInstalledAt: true,
+        googleObjectId: true, lastActivityAt: true,
+        _count: { select: { walletDevices: true } },
+      },
+      orderBy: { issuedAt: 'desc' },
     });
     console.log(`  pases: ${passes.length}`);
+    // Distribución por plataforma + cuántos tienen dispositivo registrado
+    // (sin device registrado, el push de refresh NO puede llegar al celular).
+    const plat = {}, withDev = { conDevice: 0, sinDevice: 0 };
+    // #valmont: ¿los pases Google tienen googleObjectId? Sin él, el refresh
+    // no puede patchear el barcode → queda viejo/ilegible.
+    const goog = passes.filter((p) => p.walletPlatform === 'GOOGLE');
+    const googObjId = { conObjId: 0, sinObjId: 0 };
+    for (const p of passes) {
+      const k = p.walletPlatform || 'sin-instalar';
+      plat[k] = (plat[k] || 0) + 1;
+      if (p._count.walletDevices > 0) withDev.conDevice++; else withDev.sinDevice++;
+    }
+    for (const p of goog) { if (p.googleObjectId) googObjId.conObjId++; else googObjId.sinObjId++; }
+    console.log('  plataforma:', JSON.stringify(plat));
+    console.log('  registro de dispositivo (para push):', JSON.stringify(withDev));
+    console.log('  Google con googleObjectId (para patchear barcode):', JSON.stringify(googObjId));
     const fmt = (qt) => {
       if (!qt) return 'NULL/vacío';
       if (qt === 'placeholder') return 'placeholder(sin firmar)';
@@ -31,9 +52,12 @@ const { PrismaClient } = require('@prisma/client');
     const dist = {};
     for (const p of passes) { const k = fmt(p.qrToken); dist[k] = (dist[k] || 0) + 1; }
     console.log('  distribución qrToken:', JSON.stringify(dist, null, 0));
-    console.log('  muestra (últimos 5):');
-    for (const p of passes.slice(0, 5)) {
-      console.log(`    ${p.serialNumber} | ${p.status} | qrToken=${(p.qrToken || '∅').slice(0, 24)}${(p.qrToken || '').length > 24 ? '…' : ''} [${fmt(p.qrToken)}]`);
+    console.log('  muestra (últimos 8 — mirá los MÁS VIEJOS abajo):');
+    const sample = [...passes.slice(0, 4), ...passes.slice(-4)];
+    for (const p of sample) {
+      const d = p.issuedAt ? new Date(p.issuedAt).toISOString().slice(0, 10) : '—';
+      const gObj = p.walletPlatform === 'GOOGLE' ? ` | objId=${p.googleObjectId || '∅'}` : '';
+      console.log(`    ${p.serialNumber} | ${d} | ${p.walletPlatform || 'no-inst'} | dev=${p._count.walletDevices} | tok=${p.qrToken}${gObj}`);
     }
   }
   await prisma.$disconnect();
