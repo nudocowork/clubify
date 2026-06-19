@@ -424,21 +424,27 @@ export class StampsService {
         where: { id: pass.id },
         data: passUpdateData,
       });
+      return [newStampRow, updated] as const;
+    });
 
-      // #7/#8: cada sello de COMPRA (STAMP/VISIT con monto) cuenta como un
-      // pedido: para recibir el sello necesariamente hubo una compra. Alimenta
-      // facturación / ticket promedio / total gastado / historial del cliente.
-      // Guard: este path SIEMPRE crea stamps sin orderId (las órdenes generan
-      // sus sellos en otro flujo con orderId), así que no hay doble-conteo.
-      if (
-        (dto.action === 'STAMP' || dto.action === 'VISIT') &&
-        dto.purchaseAmount !== undefined &&
-        dto.purchaseAmount !== null &&
-        Number(dto.purchaseAmount) > 0 &&
-        pass.customerId
-      ) {
+    // #7/#8: cada sello de COMPRA (STAMP/VISIT con monto) cuenta como un pedido
+    // (para recibir el sello necesariamente hubo una compra) → alimenta
+    // facturación / ticket / total gastado / historial del cliente.
+    // ⚠️ CRÍTICO: esto va DESPUÉS de la transacción del sello y es best-effort
+    // (try/catch). Si va dentro de la tx y el customer.update falla (cliente
+    // mergeado/borrado → P2025), Postgres aborta TODA la tx y el sello NO se
+    // guarda (bug Valmont: clientes no podían sumar sellos). Una métrica nunca
+    // debe romper el sello. Guard orderId implícito (este path no setea orderId).
+    if (
+      (dto.action === 'STAMP' || dto.action === 'VISIT') &&
+      dto.purchaseAmount !== undefined &&
+      dto.purchaseAmount !== null &&
+      Number(dto.purchaseAmount) > 0 &&
+      pass.customerId
+    ) {
+      try {
         const now = new Date();
-        await tx.customer.update({
+        await this.prisma.customer.update({
           where: { id: pass.customerId },
           data: {
             totalOrdersCount: { increment: 1 },
@@ -446,14 +452,16 @@ export class StampsService {
             lastOrderAt: now,
           },
         });
-        // firstOrderAt solo si todavía no tenía ninguna compra registrada.
-        await tx.customer.updateMany({
+        await this.prisma.customer.updateMany({
           where: { id: pass.customerId, firstOrderAt: null },
           data: { firstOrderAt: now },
         });
+      } catch (e) {
+        this.logger.warn(
+          `Customer metrics update falló para pass=${pass.id} customer=${pass.customerId}: ${(e as Error)?.message} — el sello SÍ se registró.`,
+        );
       }
-      return [newStampRow, updated] as const;
-    });
+    }
 
     // Encolar push al wallet. Si BullMQ tiene Redis, el worker lo consume
     // y llama wallet.pushPassUpdate(). Si Redis está offline, enqueue

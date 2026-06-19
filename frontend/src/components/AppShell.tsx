@@ -459,10 +459,11 @@ export default function AppShell({
               ],
             },
           ];
-          // #2: si la marca activa NO tiene el módulo REFERRALS, ocultar la
-          // sección "Programa" y "Comunidad" (Lab) por completo. brandModules
-          // null = marca sin resolver / global → mostrar todo (sin flicker).
-          const referralSections = new Set(['Programa', 'Comunidad']);
+          // #2/#4: si la marca activa NO tiene el módulo REFERRALS, ocultar las
+          // secciones "Programa", "Ventas" (Industrias/Equipos/Leaderboard/
+          // Difusión) y "Comunidad" (Lab) por completo. brandModules null =
+          // marca sin resolver / global → mostrar todo (sin flicker).
+          const referralSections = new Set(['Programa', 'Ventas', 'Comunidad']);
           const moduleAllowed = (g: NavGroup) =>
             !referralSections.has(g.section) ||
             !brandModules ||
