@@ -48,6 +48,9 @@ type NavItem = {
   external?: boolean;
   /** Contador opcional (ej negocios pendientes en Créditos). */
   badge?: string;
+  /** Solo visible para Clubify / plataforma (config global tipo Branding).
+   *  Se oculta cuando la marca activa es una marca blanca distinta. */
+  clubifyOnly?: boolean;
 };
 type NavGroup = { section: string; items: NavItem[]; badge?: string };
 
@@ -442,8 +445,12 @@ export default function AppShell({
                     ]
                   : []),
                 { href: '/admin/users', label: 'Administradores', icon: 'users', hideForMarketing: true },
-                { href: '/admin/branding', label: 'Branding', icon: 'spark' },
-                { href: '/admin/integrations', label: 'Integraciones SMS', icon: 'spark' },
+                // #5: Branding e Integraciones SMS son config de PLATAFORMA
+                // (landing de Clubify, tabla Setting global). Una marca blanca
+                // gestiona su identidad desde Master Admin → Marcas, no acá, así
+                // que se ocultan para marcas que no sean Clubify.
+                { href: '/admin/branding', label: 'Branding', icon: 'spark', clubifyOnly: true },
+                { href: '/admin/integrations', label: 'Integraciones SMS', icon: 'spark', clubifyOnly: true },
                 // #4: Categorías + IA Knowledge ocultos (no relevantes para
                 // el usuario final). #5: Mantenimiento + Audit movidos a
                 // Master Admin (/superadmin) exclusivamente.
@@ -468,13 +475,15 @@ export default function AppShell({
             !referralSections.has(g.section) ||
             !brandModules ||
             brandModules.includes('REFERRALS');
-          const gated = adminGroups.filter(moduleAllowed);
-          if (!isMarketing) return gated;
-          return gated
-            .map((g) => ({
-              ...g,
-              items: g.items.filter((it) => !it.hideForMarketing),
-            }))
+          // #5: marca blanca distinta de Clubify → ocultar items clubifyOnly
+          // (config de plataforma: Branding, Integraciones SMS).
+          const isOtherBrand = !!brandSlug && brandSlug !== 'clubify';
+          const visibleItem = (it: NavItem) =>
+            (!isOtherBrand || !it.clubifyOnly) &&
+            (!isMarketing || !it.hideForMarketing);
+          return adminGroups
+            .filter(moduleAllowed)
+            .map((g) => ({ ...g, items: g.items.filter(visibleItem) }))
             .filter((g) => g.items.length > 0);
         })()
       : (() => {
