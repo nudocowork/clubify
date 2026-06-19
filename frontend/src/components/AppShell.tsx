@@ -22,6 +22,49 @@ import {
 } from '@/lib/business-categories';
 
 type IconName = Parameters<typeof Icon>[0]['name'];
+
+// Mezcla un color hex hacia negro o blanco (amount 0..1). Usado para derivar
+// los tonos oscuros del sidebar a partir del color de la marca.
+function mixHex(hex: string, target: 'black' | 'white', amount: number): string {
+  const h = (hex || '').replace('#', '');
+  if (h.length !== 6) return hex;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  const t = target === 'black' ? 0 : 255;
+  const mix = (c: number) => Math.round(c + (t - c) * amount);
+  const to2 = (n: number) => n.toString(16).padStart(2, '0');
+  return `#${to2(mix(r))}${to2(mix(g))}${to2(mix(b))}`;
+}
+
+/** CSS scoped a `.brand-panel` que voltea TODO el verde Clubify del panel
+ *  (tokens brand/ok + verdes del sidebar) al color de la marca. Mismo enfoque
+ *  que `.sellea-theme`/`.brand-auth` porque los colores están fijos en el
+ *  tailwind.config (no son CSS vars). */
+function panelBrandCss(color: string): string {
+  const c = color;
+  const sb = mixHex(c, 'black', 0.86); // fondo sidebar (oscuro)
+  const sb2 = mixHex(c, 'black', 0.9);
+  const hover = mixHex(c, 'black', 0.72);
+  const section = mixHex(c, 'white', 0.5); // labels de sección (claros)
+  const soft = c + '24'; // ~14% alpha para *-soft
+  return `
+.brand-panel [class~="bg-sidebar-bg"]{background-color:${sb}!important}
+.brand-panel [class~="bg-sidebar-bg2"]{background-color:${sb2}!important}
+.brand-panel [class~="bg-sidebar-hover"],.brand-panel .hover\\:bg-sidebar-hover:hover{background-color:${hover}!important}
+.brand-panel [class~="bg-sidebar-active"],.brand-panel .hover\\:bg-sidebar-active:hover{background-color:${c}!important}
+.brand-panel [class~="text-sidebar-section"]{color:${section}!important}
+.brand-panel [class*="bg-brand"]:not([class*="bg-brand-soft"]){background-color:${c}!important}
+.brand-panel [class*="bg-brand-soft"]{background-color:${soft}!important}
+.brand-panel [class*="text-brand"]{color:${c}!important}
+.brand-panel [class*="border-brand"]{border-color:${c}!important}
+.brand-panel .hover\\:bg-brand-700:hover,.brand-panel .hover\\:border-brand-700:hover{background-color:${c}!important;border-color:${c}!important}
+.brand-panel [class~="text-ok"]{color:${c}!important}
+.brand-panel [class~="bg-ok"]:not([class*="bg-ok-soft"]){background-color:${c}!important}
+.brand-panel [class*="bg-ok-soft"]{background-color:${soft}!important}
+.brand-panel [class~="border-ok"]{border-color:${c}!important}
+`;
+}
 // Subrutas reales de /admin (carpetas en app/admin). Si el primer segmento
 // tras /admin NO es una de estas, se trata como slug de marca blanca
 // (/admin/<slug>). Debe coincidir con RESERVED_ADMIN_ROUTES del middleware.
@@ -222,31 +265,43 @@ export default function AppShell({
     const m = pathname.match(/^\/admin\/([^/]+)/);
     const urlSlug = m && !ADMIN_ROUTE_SEGMENTS.has(m[1]) ? m[1] : null;
     const slug = backup?.tenant?.slug || urlSlug;
-    if (!slug) {
-      setBrandFetched(null);
-      return;
-    }
     let cancelled = false;
-    api<{
+    type BrandResp = {
       name: string;
       primaryColor: string;
       logoUrl?: string | null;
       slug: string;
       modules?: string[];
-    } | null>(
-      `/superadmin-public/white-labels/branding?slug=${encodeURIComponent(slug)}`,
-    )
-      .then((r) => {
-        if (!cancelled && r)
-          setBrandFetched({
-            name: r.name,
-            color: r.primaryColor,
-            logoUrl: r.logoUrl ?? null,
-            slug: r.slug,
-            modules: r.modules ?? [],
-          });
-      })
-      .catch(() => {});
+    } | null;
+    const apply = (r: BrandResp) => {
+      if (cancelled || !r) return;
+      // Clubify NO se trata como "marca activa": deja el branding default y el
+      // panel global sin prefijo de slug.
+      if (r.slug === 'clubify') {
+        setBrandFetched(null);
+        return;
+      }
+      setBrandFetched({
+        name: r.name,
+        color: r.primaryColor,
+        logoUrl: r.logoUrl ?? null,
+        slug: r.slug,
+        modules: r.modules ?? [],
+      });
+    };
+    const req: Promise<BrandResp> = slug
+      ? api<BrandResp>(
+          `/superadmin-public/white-labels/branding?slug=${encodeURIComponent(slug)}`,
+        )
+      : // Login DIRECTO de un admin de marca por su dominio (ej.
+        // app.selleala.com): no hay slug en la URL ni pila de impersonación →
+        // resolvemos la marca por el host para pintar el panel con su identidad.
+        api<BrandResp>(
+          `/superadmin-public/white-labels/branding-by-host?host=${encodeURIComponent(
+            typeof window !== 'undefined' ? window.location.host : '',
+          )}`,
+        );
+    req.then(apply).catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -706,6 +761,13 @@ export default function AppShell({
   // (brandSlug + brandModules se declaran arriba, antes de `groups`, para
   // evitar el TDZ — ver comentario allí.)
 
+  // Color de tema del panel: solo para marcas distintas de Clubify con color
+  // propio. Inyecta el override que vuelve coral (o lo que sea) todo el verde.
+  const panelThemeColor =
+    variant === 'admin' && brandSlug && brandSlug !== 'clubify' && activeBrand?.color
+      ? activeBrand.color
+      : null;
+
   // Prefija un href de /admin con el slug de marca activo (/admin/tenants →
   // /admin/<slug>/tenants). El middleware reescribe de vuelta a /admin.
   const brandHref = (href: string) => {
@@ -934,7 +996,10 @@ export default function AppShell({
   );
 
   return (
-    <div className="min-h-screen bg-bg">
+    <div className={`min-h-screen bg-bg ${panelThemeColor ? 'brand-panel' : ''}`}>
+      {panelThemeColor && (
+        <style dangerouslySetInnerHTML={{ __html: panelBrandCss(panelThemeColor) }} />
+      )}
       {/* Sidebar fijo en lg+, drawer overlay en mobile */}
       <div className="hidden lg:flex fixed inset-y-0 left-0">{sidebar}</div>
 
