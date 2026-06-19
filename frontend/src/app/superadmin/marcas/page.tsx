@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { api, startImpersonation } from '@/lib/api';
+import { ImageUploader } from '@/components/ImageUploader';
 
 type WhiteLabel = {
   id: string;
@@ -1559,7 +1560,23 @@ function BrandingConfig({
     <div>
       <SectionTitle>Identidad visual</SectionTitle>
       <div className="mt-2 space-y-3">
-        {textInput('URL del logo', 'logoUrl', 'https://…/logo.png')}
+        <div>
+          <label className="text-xs font-semibold" style={{ color: '#6b7785' }}>
+            Logo
+          </label>
+          <p className="text-[11px] mb-1.5" style={{ color: '#9aa4af' }}>
+            Se usa en el login y el panel de la marca. PNG con fondo
+            transparente, idealmente horizontal.
+          </p>
+          <ImageUploader
+            value={f.logoUrl || null}
+            onChange={(url) => setF((s) => ({ ...s, logoUrl: url ?? '' }))}
+            folder="branding"
+            crop={false}
+            maxSizeMb={5}
+          />
+        </div>
+        {textInput('…o pegá una URL de logo', 'logoUrl', 'https://…/logo.png')}
         <div className="space-y-2">
           {colorRow('Color principal', 'primaryColor')}
           {colorRow('Color secundario', 'secondaryColor')}
