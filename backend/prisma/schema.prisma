@@ -150,6 +150,19 @@ enum CommissionStatus {
   // cliente disputó el pago, problema de KYC del afiliado). NO entra
   // en "Listo por pagar". Vuelve a APPROVED manual.
   RETAINED
+  // ADJUSTMENT — asiento negativo (clawback) por reembolso/contracargo de una
+  // comisión YA PAGADA. No modifica el histórico; se descuenta en el próximo
+  // corte del beneficiario. (Fase 7 — overhaul comisiones.)
+  ADJUSTMENT
+}
+
+/// Modo de reparto de la comisión del vendedor respecto al upline (embajador/
+/// influencer). Configurable por negocio (Fase 3 — overhaul comisiones).
+enum CommissionDistributionMode {
+  /// El % del vendedor SALE de la tajada del upline (no sube el costo total).
+  DISCOUNT_FROM_INFLUENCER
+  /// El % del vendedor es un costo ADICIONAL que asume la empresa (sube total).
+  ADDITIONAL_COMPANY_COMMISSION
 }
 
 // Método de pago elegido por el afiliado para recibir comisiones.
@@ -338,6 +351,10 @@ model Tenant {
   /// grupo cascadea al status de sus negocios.
   businessGroupId             String?
   businessGroup               BusinessGroup?       @relation(fields: [businessGroupId], references: [id], onDelete: SetNull)
+  /// Modo de reparto de comisión del vendedor (Fase 3). Default = descuento del
+  /// upline (comportamiento histórico). El modo se CONGELA en cada comisión al
+  /// generarla, así cambiarlo no altera comisiones pasadas.
+  commissionDistributionMode  CommissionDistributionMode @default(DISCOUNT_FROM_INFLUENCER)
   name                        String
   brandName                   String
   slug                        String               @unique
@@ -2237,6 +2254,12 @@ model Commission {
   // Monto efectivamente pagado al afiliado, para tracking de pagos
   // parciales. Sirve para reconciliación contable. Default 0.
   amountPaid           Decimal                 @default(0) @db.Decimal(10, 2)
+  // SNAPSHOT contable (Fase 4): se congelan al generar la comisión y NO se
+  // recalculan. Permiten auditar exactamente con qué se calculó. Nullable =
+  // comisiones legacy generadas antes del overhaul.
+  distributionMode     CommissionDistributionMode?
+  baseAmountUsd        Decimal?                @db.Decimal(10, 2)
+  appliedPercent       Decimal?                @db.Decimal(5, 2)
   // Recipient del 3-way split: el ReferralCode QUE RECIBE esta commission.
   // En un sale con vendedor, se generan 3 Commission rows pointing al
   // mismo referralUseId pero distinto recipientCodeId (uno por persona:

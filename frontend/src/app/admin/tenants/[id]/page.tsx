@@ -85,6 +85,8 @@ export default function TenantDetail() {
     }
   }
 
+  // Componente del selector de modo de reparto está al final del archivo.
+
   async function save() {
     setSaving(true);
     try {
@@ -536,6 +538,8 @@ export default function TenantDetail() {
 
         {isSuperAdmin && <ReferralAssignmentCard tenantId={t.id} />}
 
+        {isSuperAdmin && <CommissionModeCard tenant={t} onSaved={load} />}
+
         {/* #23 (2026-06-16): las secciones avanzadas se agrupan en acordeones
             colapsados para reducir el scroll. Info/Plan/Referidos quedan
             visibles arriba; el resto se despliega bajo demanda. */}
@@ -572,6 +576,125 @@ export default function TenantDetail() {
           </CollapsibleSection>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Selector "Modo de reparto de comisión" (Fase 3/12 overhaul comisiones).
+ * Define si la comisión del vendedor SALE del upline (no sube el costo) o es
+ * un costo ADICIONAL de la empresa. Muestra un ejemplo numérico en vivo.
+ * El modo se congela en cada comisión al generarla (no altera históricos).
+ */
+function CommissionModeCard({
+  tenant,
+  onSaved,
+}: {
+  tenant: any;
+  onSaved: () => void;
+}) {
+  type Mode = 'DISCOUNT_FROM_INFLUENCER' | 'ADDITIONAL_COMPANY_COMMISSION';
+  const initial: Mode =
+    tenant?.commissionDistributionMode === 'ADDITIONAL_COMPANY_COMMISSION'
+      ? 'ADDITIONAL_COMPANY_COMMISSION'
+      : 'DISCOUNT_FROM_INFLUENCER';
+  const [mode, setMode] = useState<Mode>(initial);
+  const [saving, setSaving] = useState(false);
+  const dirty = mode !== initial;
+
+  // Ejemplo ilustrativo en vivo (base 150, upline 25%, vendedor 10%).
+  const base = 150;
+  const uplinePct = 25;
+  const vendorPct = 10;
+  const additional = mode === 'ADDITIONAL_COMPANY_COMMISSION';
+  const uplineEffective = additional ? uplinePct : uplinePct - vendorPct;
+  const totalPct = additional ? uplinePct + vendorPct : uplinePct;
+  const money = (pct: number) => `$${((base * pct) / 100).toFixed(2)}`;
+
+  async function save() {
+    setSaving(true);
+    try {
+      await api(`/tenants/${tenant.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ commissionDistributionMode: mode }),
+      });
+      toast('Modo de reparto guardado', 'success');
+      onSaved();
+    } catch (e: any) {
+      toast(e?.message || 'No se pudo guardar', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const opt = (
+    value: Mode,
+    title: string,
+    desc: string,
+  ) => (
+    <button
+      type="button"
+      onClick={() => setMode(value)}
+      className={`text-left rounded-lg border-2 p-3 transition ${
+        mode === value
+          ? 'border-brand bg-brand-soft'
+          : 'border-line hover:border-brand/40'
+      }`}
+    >
+      <div className="text-sm font-semibold">{title}</div>
+      <div className="text-[11px] text-mute mt-1 leading-snug">{desc}</div>
+    </button>
+  );
+
+  return (
+    <div className="card card-pad">
+      <h3 className="text-base font-semibold m-0">Modo de reparto de comisión</h3>
+      <p className="text-xs text-mute mt-1 leading-relaxed">
+        Define cómo se paga al vendedor cuando hay uno en la cadena. El modo se
+        congela en cada comisión al generarla — cambiarlo no altera comisiones
+        ya creadas, solo las futuras.
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
+        {opt(
+          'DISCOUNT_FROM_INFLUENCER',
+          'Descontar del upline',
+          'El vendedor se paga con parte de la comisión del influencer/embajador. El costo total NO sube.',
+        )}
+        {opt(
+          'ADDITIONAL_COMPANY_COMMISSION',
+          'Comisión adicional empresa',
+          'El vendedor es un costo adicional que asume la empresa. El upline mantiene su % completo y el total sube.',
+        )}
+      </div>
+
+      {/* Ejemplo numérico en vivo */}
+      <div className="mt-3 rounded-lg bg-bg2/60 border border-line p-3 text-sm">
+        <div className="text-[11px] uppercase tracking-wide text-mute font-semibold mb-1.5">
+          Ejemplo · base {`$${base.toFixed(2)}`} · upline {uplinePct}% · vendedor {vendorPct}%
+        </div>
+        <div className="flex justify-between">
+          <span>Upline recibe</span>
+          <span className="font-medium">{uplineEffective}% · {money(uplineEffective)}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Vendedor recibe</span>
+          <span className="font-medium">{vendorPct}% · {money(vendorPct)}</span>
+        </div>
+        <div className="flex justify-between border-t border-line mt-1.5 pt-1.5 font-semibold">
+          <span>Costo total</span>
+          <span className={additional ? 'text-warn-ink' : 'text-ok'}>
+            {totalPct}% · {money(totalPct)}
+          </span>
+        </div>
+      </div>
+
+      <button
+        className="btn-primary mt-3"
+        disabled={saving || !dirty}
+        onClick={save}
+      >
+        {saving ? 'Guardando…' : 'Guardar modo'}
+      </button>
     </div>
   );
 }

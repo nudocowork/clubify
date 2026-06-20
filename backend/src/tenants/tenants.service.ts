@@ -77,6 +77,10 @@ export type UpdateTenantDto = Partial<{
   status: TenantStatus;
   planId: string;
   planPeriodicity: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL' | null;
+  // Modo de reparto de comisión del vendedor (Fase 3 overhaul comisiones).
+  commissionDistributionMode:
+    | 'DISCOUNT_FROM_INFLUENCER'
+    | 'ADDITIONAL_COMPANY_COMMISSION';
   // Precio real pagado en Hotmart — base de comisiones. null = limpiar
   // (vuelve al precio canónico del bundle).
   subscriptionPriceUsd: number | null;

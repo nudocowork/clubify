@@ -4057,14 +4057,25 @@ export class ReferralsService {
    * (generateCommissionsForPayment) COMO la auditoría (auditCommissions), para
    * que el "esperado" nunca se desincronice del cálculo en vivo.
    */
-  private async computeExpectedCommissionRows(tenantId: string, amount: number) {
+  private async computeExpectedCommissionRows(
+    tenantId: string,
+    amount: number,
+  ) {
     const chain = await this.getAttributionChain(tenantId);
     const rows: Array<{
       recipientCodeId: string;
       vendorCodeId: string | null;
       amount: number;
+      appliedPercent: number;
     }> = [];
-    if (!chain.sourceCodeId) return { chain, rows };
+    // Modo de reparto del negocio (Fase 3). Default histórico = descuento del
+    // upline. Se devuelve para congelarlo (snapshot) en cada comisión.
+    const tRow = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { commissionDistributionMode: true },
+    });
+    const mode = tRow?.commissionDistributionMode ?? 'DISCOUNT_FROM_INFLUENCER';
+    if (!chain.sourceCodeId) return { chain, rows, mode };
 
     // Cada nivel puede tener su propia excepción por tenant. Si no hay, cae al
     // % normal del ReferralCode (que vino en `chain`).
@@ -4089,28 +4100,36 @@ export class ReferralsService {
           chain.vendor.commissionPercent,
         )
       : 0;
-    // FIX 2026-06-16 (review #8): el % del vendedor sale de la tajada del
-    // embajador → NUNCA puede excederla. Una excepción de comisión sobre el
-    // vendor (validada solo 0-100) podía darle p.ej. 100% y dejar al
-    // embajador en 0 pero pagando de más a la empresa. Clampeamos al slice.
-    const vendorPct = chain.embajador
-      ? Math.min(vendorPctRaw, embajadorPct)
-      : vendorPctRaw;
+
+    const additional = mode === 'ADDITIONAL_COMPANY_COMMISSION';
+    // DISCOUNT (default): el % del vendedor SALE de la tajada del embajador →
+    // NUNCA puede excederla (clamp 2026-06-16) y el embajador recibe su % MENOS
+    // el del vendedor. Total a la chain = % del embajador (no sube el costo).
+    // ADDITIONAL: el vendedor es un costo ADICIONAL de la empresa → el embajador
+    // conserva su % completo y el vendedor cobra su % aparte (sube el total).
+    const vendorPct =
+      chain.embajador && !additional
+        ? Math.min(vendorPctRaw, embajadorPct)
+        : vendorPctRaw;
 
     if (chain.influencer && influencerPct > 0) {
       rows.push({
         recipientCodeId: chain.influencer.id,
         vendorCodeId: null,
         amount: Math.round(amount * influencerPct) / 100,
+        appliedPercent: influencerPct,
       });
     }
     if (chain.embajador) {
-      const embajadorEffectivePct = Math.max(0, embajadorPct - vendorPct);
+      const embajadorEffectivePct = additional
+        ? embajadorPct
+        : Math.max(0, embajadorPct - vendorPct);
       if (embajadorEffectivePct > 0) {
         rows.push({
           recipientCodeId: chain.embajador.id,
           vendorCodeId: null,
           amount: Math.round(amount * embajadorEffectivePct) / 100,
+          appliedPercent: embajadorEffectivePct,
         });
       }
     }
@@ -4119,9 +4138,10 @@ export class ReferralsService {
         recipientCodeId: chain.vendor.id,
         vendorCodeId: chain.vendor.id,
         amount: Math.round(amount * vendorPct) / 100,
+        appliedPercent: vendorPct,
       });
     }
-    return { chain, rows };
+    return { chain, rows, mode };
   }
 
   async generateCommissionsForPayment(args: {
@@ -4129,7 +4149,7 @@ export class ReferralsService {
     paymentAmountUsd: number;
     hotmartTransactionId?: string | null;
   }): Promise<{ generated: number; skipped: number }> {
-    const { chain, rows } = await this.computeExpectedCommissionRows(
+    const { chain, rows, mode } = await this.computeExpectedCommissionRows(
       args.tenantId,
       args.paymentAmountUsd,
     );
@@ -4187,6 +4207,10 @@ export class ReferralsService {
                 hotmartTransactionId: txId,
                 externalTxId: txId,
                 periodKey,
+                // Snapshot contable congelado (Fase 4).
+                distributionMode: mode,
+                baseAmountUsd: args.paymentAmountUsd,
+                appliedPercent: row.appliedPercent,
               },
             });
             g++;
