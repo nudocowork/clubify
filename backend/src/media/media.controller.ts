@@ -17,9 +17,11 @@ import { Public } from '../common/decorators/public.decorator';
 
 // Afiliados (INFLUENCER/AMBASSADOR/SOCIO) también suben archivos —
 // adjuntos de botones del CRM (folder=crm-buttons). MARKETING entra
-// para los assets de marketing que gestiona cross-tenant.
+// para los assets de marketing que gestiona cross-tenant. PLATFORM_OWNER
+// sube logo/favicon de las marcas blancas desde /superadmin/marcas.
 @Controller('media')
 @Roles(
+  'PLATFORM_OWNER',
   'TENANT_OWNER',
   'TENANT_STAFF',
   'SUPER_ADMIN',
