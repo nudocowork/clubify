@@ -581,13 +581,24 @@ export class TenantsService {
   }
 
   async update(id: string, dto: UpdateTenantDto) {
-    await this.getById(id);
+    const before = await this.getById(id);
     const updated = await this.prisma.tenant.update({
       where: { id },
       // `as any`: deliveryAlertsPhones/Events son columnas Json (string[]|null)
       // y Prisma no acepta el tipo directo. Mismo patrón que updateMine.
       data: dto as any,
     });
+    // Si cambió el modo de reparto de comisión, recalculamos las comisiones
+    // PENDIENTES/APROBADAS del negocio con el nuevo split (las PAGADAS quedan
+    // intactas). Best-effort: un fallo del recalc no rompe el update.
+    if (
+      dto.commissionDistributionMode !== undefined &&
+      dto.commissionDistributionMode !== (before as any).commissionDistributionMode
+    ) {
+      this.referrals
+        .recalcTenantSplit(id, null, 'distribution_mode_change')
+        .catch(() => undefined);
+    }
     // Mismo refresh de wallet que updateMine: si el admin cambió logo/colores/
     // nombre desde /admin/tenants/[id], re-pusheamos los passes.
     const walletVisualChanged = TenantsService.WALLET_VISUAL_FIELDS.some(

@@ -4144,6 +4144,86 @@ export class ReferralsService {
     return { chain, rows, mode };
   }
 
+  /**
+   * Recalcula las comisiones PENDING/APPROVED de un negocio aplicando el SPLIT
+   * actual (respeta el commissionDistributionMode + excepciones), usando la
+   * fuente única computeExpectedCommissionRows. Las PAGADAS NO se tocan
+   * (histórico). Se dispara al cambiar el modo de reparto del negocio para que
+   * las comisiones aún no pagadas reflejen el nuevo reparto.
+   */
+  async recalcTenantSplit(
+    tenantId: string,
+    actorId?: string | null,
+    reason?: string,
+  ): Promise<{ updated: number }> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { subscriptionPriceUsd: true, planPeriodicity: true },
+    });
+    if (!tenant) return { updated: 0 };
+    const base = await this.recalc.getCommissionBase(
+      tenant.subscriptionPriceUsd,
+      tenant.planPeriodicity ?? '',
+    );
+    if (base <= 0) return { updated: 0 };
+
+    const { rows, mode } = await this.computeExpectedCommissionRows(tenantId, base);
+    const expected = new Map(rows.map((r) => [r.recipientCodeId, r]));
+
+    const comms = await this.prisma.commission.findMany({
+      where: {
+        referralUse: { tenantId },
+        status: { in: ['PENDING', 'APPROVED'] },
+      },
+      select: {
+        id: true,
+        amount: true,
+        recipientCodeId: true,
+        referralUse: { select: { referralCodeId: true } },
+      },
+    });
+
+    let updated = 0;
+    for (const c of comms) {
+      const rid = c.recipientCodeId ?? c.referralUse?.referralCodeId ?? null;
+      if (!rid) continue;
+      const exp = expected.get(rid);
+      if (!exp) continue; // recipient fuera de la cadena actual → no tocar
+      const newAmount = exp.amount;
+      if (Number(c.amount) === newAmount && c.recipientCodeId === rid) continue;
+      await this.prisma.commission.update({
+        where: { id: c.id },
+        data: {
+          amount: newAmount,
+          recipientCodeId: rid,
+          distributionMode: mode,
+          appliedPercent: exp.appliedPercent,
+        },
+      });
+      updated += 1;
+      await this.audit
+        .log({
+          actorId: actorId ?? null,
+          tenantId,
+          action: 'commission.recalculated',
+          resource: `Commission:${c.id}`,
+          metadata: {
+            reason: reason ?? 'distribution_mode_change',
+            recipientCodeId: rid,
+            newAmount,
+            mode,
+          },
+        })
+        .catch(() => null);
+    }
+    if (updated > 0) {
+      this.logger.log(
+        `recalcTenantSplit tenant=${tenantId} mode=${mode} → ${updated} comisiones actualizadas`,
+      );
+    }
+    return { updated };
+  }
+
   async generateCommissionsForPayment(args: {
     tenantId: string;
     paymentAmountUsd: number;
@@ -4982,6 +5062,7 @@ export class ReferralsService {
             planPeriodicity: true,
             subscriptionPriceUsd: true,
             currentPeriodEnd: true,
+            hotmartSubscriberCode: true,
             plan: { select: { name: true } },
           },
         },
@@ -4989,10 +5070,19 @@ export class ReferralsService {
       orderBy: { createdAt: 'desc' },
     });
 
-    // Dedup: una atribución (la más reciente) por tenant.
+    // El reporte por empresa muestra SOLO negocios con suscripción REAL de
+    // Hotmart (tienen identificador de suscripción). Excluimos los códigos
+    // manuales/cortesía/marca/simulación (comp-/trial-/manual-/wl-/sim-) que no
+    // representan un cobro real de Hotmart.
+    const isRealHotmartCode = (code: string | null | undefined) =>
+      !!code && !/^(comp-|trial-|manual-|wl-|sim-)/i.test(code);
+
+    // Dedup: una atribución (la más reciente) por tenant. Solo tenants con
+    // suscripción Hotmart real.
     const byTenant = new Map<string, (typeof uses)[number]>();
     for (const u of uses) {
       if (!u.tenantId || !u.tenant) continue;
+      if (!isRealHotmartCode(u.tenant.hotmartSubscriberCode)) continue;
       if (!byTenant.has(u.tenantId)) byTenant.set(u.tenantId, u);
     }
     const tenantIds = [...byTenant.keys()];
