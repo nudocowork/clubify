@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { api, startImpersonation } from '@/lib/api';
 import { Icon } from '@/components/Icon';
@@ -62,6 +63,7 @@ function SectionSearchBar({
   resultCount?: number;
   totalCount?: number;
 }) {
+  const t = useTranslations('admin_referrals');
   const showCount =
     typeof resultCount === 'number' &&
     typeof totalCount === 'number' &&
@@ -86,7 +88,7 @@ function SectionSearchBar({
               type="button"
               onClick={() => onChange('')}
               className="text-mute hover:text-ink text-base leading-none"
-              aria-label="Limpiar búsqueda"
+              aria-label={t('clearSearch')}
             >
               ×
             </button>
@@ -106,6 +108,7 @@ async function enterAffiliatePanel(
   codeId: string,
   ownerName: string,
   router: ReturnType<typeof useRouter>,
+  t: (key: string, values?: Record<string, any>) => string,
 ) {
   try {
     const res = await api<any>(`/referrals/codes/${codeId}/impersonate`, {
@@ -116,18 +119,19 @@ async function enterAffiliatePanel(
       user: res.user,
       affiliate: res.affiliate,
     });
-    toast(`Entrando al panel de ${ownerName}…`, 'success');
+    toast(t('toastEnteringPanel', { name: ownerName }), 'success');
     router.push('/affiliate');
   } catch (e: any) {
-    toast(e.message || 'No se pudo entrar', 'error');
+    toast(e.message || t('errorCouldNotEnter'), 'error');
   }
 }
 
-const STATUS_LABEL: Record<string, { text: string; cls: string }> = {
-  SIGNED_UP: { text: 'Inscrito', cls: 'bg-bg2 text-mute' },
-  ACTIVE: { text: 'En trial', cls: 'bg-amber-100 text-amber-800' },
-  PAYING: { text: 'Pagando', cls: 'bg-ok-soft text-ok' },
-  CHURNED: { text: 'Canceló', cls: 'bg-red-100 text-red-800' },
+// Cada status mapea a su clase de color + key de traducción (admin_referrals).
+const STATUS_LABEL: Record<string, { key: string; cls: string }> = {
+  SIGNED_UP: { key: 'statusSignedUp', cls: 'bg-bg2 text-mute' },
+  ACTIVE: { key: 'statusInTrial', cls: 'bg-amber-100 text-amber-800' },
+  PAYING: { key: 'statusPaying', cls: 'bg-ok-soft text-ok' },
+  CHURNED: { key: 'statusChurned', cls: 'bg-red-100 text-red-800' },
 };
 
 type Tab =
@@ -198,14 +202,15 @@ function daysFromNow(d: string | Date) {
   return Math.ceil(diff);
 }
 
-const PAYOUT_STATUS: Record<PayoutItem['status'], { text: string; cls: string }> = {
-  PENDING: { text: 'En hold', cls: 'bg-amber-100 text-amber-800' },
-  APPROVED: { text: 'Disponible', cls: 'bg-ok-soft text-ok' },
-  PAID: { text: 'Pagado', cls: 'bg-bg2 text-mute' },
-  REJECTED: { text: 'Rechazado', cls: 'bg-red-100 text-red-800' },
+const PAYOUT_STATUS: Record<PayoutItem['status'], { key: string; cls: string }> = {
+  PENDING: { key: 'payoutStatusPending', cls: 'bg-amber-100 text-amber-800' },
+  APPROVED: { key: 'payoutStatusApproved', cls: 'bg-ok-soft text-ok' },
+  PAID: { key: 'payoutStatusPaid', cls: 'bg-bg2 text-mute' },
+  REJECTED: { key: 'payoutStatusRejected', cls: 'bg-red-100 text-red-800' },
 };
 
 export default function AdminReferrals() {
+  const t = useTranslations('admin_referrals');
   const [tab, setTab] = useState<Tab>('summary');
 
   // #10 (2026-06-16): la pestaña "Campañas" se eliminó del panel. El modelo
@@ -213,19 +218,19 @@ export default function AdminReferrals() {
   // vía parentCodeId), pero ya no se gestionan desde acá: los influencers se
   // crean directo (#36) y los embajadores se autoregistran por link (#35).
   const TABS: { id: Tab; label: string }[] = [
-    { id: 'summary', label: '📊 Resumen' },
-    { id: 'influencers', label: '🌟 Influencers' },
-    { id: 'ambassadors', label: '👥 Embajadores' },
-    { id: 'clients', label: '🏢 Negocios' },
-    { id: 'commissions', label: '💵 Comisiones' },
-    { id: 'payouts', label: '⏳ Pendientes por pagar' },
-    { id: 'config', label: '⚙️ Configuración' },
+    { id: 'summary', label: `📊 ${t('tabSummary')}` },
+    { id: 'influencers', label: `🌟 ${t('tabInfluencers')}` },
+    { id: 'ambassadors', label: `👥 ${t('tabAmbassadors')}` },
+    { id: 'clients', label: `🏢 ${t('tabClients')}` },
+    { id: 'commissions', label: `💵 ${t('tabCommissions')}` },
+    { id: 'payouts', label: `⏳ ${t('tabPayouts')}` },
+    { id: 'config', label: `⚙️ ${t('tabConfig')}` },
   ];
 
   return (
     <div>
       <div className="page-head">
-        <h1 className="page-title">Referidos</h1>
+        <h1 className="page-title">{t('pageTitle')}</h1>
       </div>
 
       <div className="tabs mb-5 flex-wrap">
@@ -258,6 +263,7 @@ export default function AdminReferrals() {
 // =============================================================
 
 function LeaderboardTab() {
+  const t = useTranslations('admin_referrals');
   const [rows, setRows] = useState<LeaderRow[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -266,7 +272,7 @@ function LeaderboardTab() {
     try {
       setRows(await api<LeaderRow[]>('/referrals/leaderboard'));
     } catch (e: any) {
-      toast(e.message || 'Error cargando leaderboard', 'error');
+      toast(e.message || t('errorLoadingLeaderboard'), 'error');
     } finally {
       setLoading(false);
     }
@@ -291,10 +297,10 @@ function LeaderboardTab() {
     <div>
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-        <Kpi label="Afiliados" value={totals.affiliates.toString()} />
-        <Kpi label="Inscritos totales" value={totals.referrals.toString()} />
-        <Kpi label="Conversiones pagas" value={totals.conversions.toString()} tone="ok" />
-        <Kpi label="Revenue generado" value={fmtUsd(totals.revenue)} tone="brand" />
+        <Kpi label={t('kpiAffiliates')} value={totals.affiliates.toString()} />
+        <Kpi label={t('kpiTotalSignups')} value={totals.referrals.toString()} />
+        <Kpi label={t('kpiPaidConversions')} value={totals.conversions.toString()} tone="ok" />
+        <Kpi label={t('kpiRevenueGenerated')} value={fmtUsd(totals.revenue)} tone="brand" />
       </div>
 
       <div className="card overflow-hidden p-0">
@@ -302,7 +308,7 @@ function LeaderboardTab() {
           <table className="w-full text-sm min-w-[760px]">
             <thead className="bg-bg2">
               <tr>
-                {['#', 'Afiliado', 'Inscritos', 'Conversiones', 'Revenue', 'Pagado', 'Pendiente'].map(
+                {['#', t('colAffiliate'), t('colSignups'), t('colConversions'), t('colRevenue'), t('colPaid'), t('colPending')].map(
                   (h) => (
                     <th
                       key={h}
@@ -327,9 +333,9 @@ function LeaderboardTab() {
                 <tr>
                   <td className="px-4 py-12 text-center text-mute" colSpan={7}>
                     <div className="text-3xl mb-2">🏁</div>
-                    <div className="font-semibold text-ink">Sin afiliados todavía</div>
+                    <div className="font-semibold text-ink">{t('emptyNoAffiliates')}</div>
                     <div className="text-xs mt-1">
-                      Cuando alguien se registre en /refer aparecerá en el ranking.
+                      {t('emptyNoAffiliatesHint')}
                     </div>
                   </td>
                 </tr>
@@ -356,7 +362,7 @@ function LeaderboardTab() {
                       <div className="text-xs text-mute">{r.ownerEmail}</div>
                       {r.codes.length > 1 && (
                         <div className="text-[10px] text-mute mt-0.5">
-                          {r.codes.length} códigos: {r.codes.join(', ')}
+                          {t('codesCountList', { count: r.codes.length, list: r.codes.join(', ') })}
                         </div>
                       )}
                     </td>
@@ -415,6 +421,7 @@ function Kpi({
 // =============================================================
 
 function PayoutsTab() {
+  const t = useTranslations('admin_referrals');
   const [data, setData] = useState<PayoutsResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<
@@ -442,7 +449,7 @@ function PayoutsTab() {
       const url = `/referrals/payouts${params.toString() ? `?${params}` : ''}`;
       setData(await api<PayoutsResp>(url));
     } catch (e: any) {
-      toast(e.message || 'Error cargando payouts', 'error');
+      toast(e.message || t('errorLoadingPayouts'), 'error');
     } finally {
       setLoading(false);
     }
@@ -471,7 +478,7 @@ function PayoutsTab() {
       c.tenantBrand,
       c.notes,
       String(c.amount ?? ''),
-      PAYOUT_STATUS[c.status]?.text,
+      PAYOUT_STATUS[c.status] ? t(PAYOUT_STATUS[c.status].key) : '',
       c.status,
       c.createdAt ? fmtDate(c.createdAt) : '',
       c.paidAt ? fmtDate(c.paidAt) : '',
@@ -487,22 +494,17 @@ function PayoutsTab() {
         method: 'PATCH',
         body: JSON.stringify({ status: 'PAID' }),
       });
-      toast('Comisión marcada como pagada', 'success');
+      toast(t('toastCommissionMarkedPaid'), 'success');
       load();
     } catch (e: any) {
-      toast(e.message || 'Error', 'error');
+      toast(e.message || t('errorGeneric'), 'error');
     } finally {
       setBusyId(null);
     }
   }
 
   async function reject(id: string) {
-    if (
-      !confirm(
-        '¿Anular esta venta? Se marcará REJECTED esta comisión y TODAS las de la misma venta ' +
-          '(influencer, embajador y vendedor del mismo cobro). Las ya pagadas no se tocan.',
-      )
-    )
+    if (!confirm(t('confirmVoidSale')))
       return;
     setBusyId(id);
     try {
@@ -510,11 +512,11 @@ function PayoutsTab() {
         method: 'PATCH',
         body: JSON.stringify({ status: 'REJECTED', cascade: true }),
       });
-      const extra = res?.cascaded ? ` (+${res.cascaded} de la misma venta)` : '';
-      toast(`Venta anulada${extra}`, 'success');
+      const extra = res?.cascaded ? t('saleVoidedExtra', { count: res.cascaded }) : '';
+      toast(t('toastSaleVoided', { extra }), 'success');
       load();
     } catch (e: any) {
-      toast(e.message || 'Error', 'error');
+      toast(e.message || t('errorGeneric'), 'error');
     } finally {
       setBusyId(null);
     }
@@ -525,22 +527,22 @@ function PayoutsTab() {
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-5">
         <Kpi
-          label="Disponible para pagar"
+          label={t('kpiAvailableToPay')}
           value={fmtUsd(data?.totals.availableUsd ?? 0)}
           tone="ok"
         />
         <Kpi
-          label="En hold (no llegó a 30d)"
+          label={t('kpiOnHold30d')}
           value={fmtUsd(data?.totals.pendingUsd ?? 0)}
           tone="warn"
         />
-        <Kpi label="Pagado histórico" value={fmtUsd(data?.totals.paidUsd ?? 0)} tone="brand" />
+        <Kpi label={t('kpiPaidHistoric')} value={fmtUsd(data?.totals.paidUsd ?? 0)} tone="brand" />
       </div>
 
       <SectionSearchBar
         value={q}
         onChange={setQ}
-        placeholder="Buscar pago pendiente…"
+        placeholder={t('phSearchPendingPayout')}
         resultCount={filtered.length}
         totalCount={itemsAfterDropdowns.length}
       />
@@ -548,21 +550,21 @@ function PayoutsTab() {
       {/* Filtros */}
       <div className="card card-pad mb-3 flex flex-wrap items-end gap-3">
         <div>
-          <label className="label">Estado</label>
+          <label className="label">{t('filterStatus')}</label>
           <select
             className="input"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as any)}
           >
-            <option value="AVAILABLE_OR_PENDING">Disponible + En hold</option>
-            <option value="APPROVED">Solo disponibles</option>
-            <option value="PENDING">Solo en hold</option>
-            <option value="PAID">Pagados</option>
-            <option value="ALL">Todos</option>
+            <option value="AVAILABLE_OR_PENDING">{t('filterAvailablePlusHold')}</option>
+            <option value="APPROVED">{t('filterOnlyAvailable')}</option>
+            <option value="PENDING">{t('filterOnlyHold')}</option>
+            <option value="PAID">{t('filterPaid')}</option>
+            <option value="ALL">{t('filterAll')}</option>
           </select>
         </div>
         <div>
-          <label className="label">Desde</label>
+          <label className="label">{t('filterFrom')}</label>
           <input
             type="date"
             className="input"
@@ -571,7 +573,7 @@ function PayoutsTab() {
           />
         </div>
         <div>
-          <label className="label">Hasta</label>
+          <label className="label">{t('filterTo')}</label>
           <input
             type="date"
             className="input"
@@ -580,13 +582,13 @@ function PayoutsTab() {
           />
         </div>
         <div>
-          <label className="label">Afiliado</label>
+          <label className="label">{t('filterAffiliate')}</label>
           <select
             className="input"
             value={affiliateFilter}
             onChange={(e) => setAffiliateFilter(e.target.value)}
           >
-            <option value="">Todos</option>
+            <option value="">{t('filterAll')}</option>
             {Array.from(
               new Set((data?.items ?? []).map((i) => i.ownerEmail).filter(Boolean)),
             ).map((email) => {
@@ -600,13 +602,13 @@ function PayoutsTab() {
           </select>
         </div>
         <div>
-          <label className="label">Cliente</label>
+          <label className="label">{t('filterClient')}</label>
           <select
             className="input"
             value={clientFilter}
             onChange={(e) => setClientFilter(e.target.value)}
           >
-            <option value="">Todos</option>
+            <option value="">{t('filterAll')}</option>
             {Array.from(
               new Set((data?.items ?? []).map((i) => i.tenantBrand).filter((b) => b && b !== '—')),
             ).map((brand) => (
@@ -619,8 +621,7 @@ function PayoutsTab() {
       </div>
 
       <div className="text-xs text-mute mb-2">
-        🛈 Hold de {data?.holdDays ?? 30} días desde la creación de la comisión —
-        después pasa automáticamente a "Disponible para pagar".
+        🛈 {t('holdNote', { days: data?.holdDays ?? 30 })}
       </div>
 
       <div className="card overflow-hidden p-0">
@@ -628,7 +629,7 @@ function PayoutsTab() {
           <table className="w-full text-sm min-w-[860px]">
             <thead className="bg-bg2">
               <tr>
-                {['Afiliado', 'Negocio', 'Monto', 'Estado', 'Creada', 'Disponible', 'Pagada', ''].map(
+                {[t('colAffiliate'), t('colBusiness'), t('colAmount'), t('colStatus'), t('colCreated'), t('colAvailable'), t('colPaidDate'), ''].map(
                   (h) => (
                     <th
                       key={h}
@@ -654,7 +655,7 @@ function PayoutsTab() {
                   <td className="px-4 py-12 text-center text-mute" colSpan={8}>
                     <div className="text-3xl mb-2">💸</div>
                     <div className="font-semibold text-ink">
-                      Sin comisiones con estos filtros
+                      {t('emptyNoCommissionsFilters')}
                     </div>
                   </td>
                 </tr>
@@ -682,7 +683,7 @@ function PayoutsTab() {
                         <span
                           className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${st.cls}`}
                         >
-                          {st.text}
+                          {t(st.key)}
                         </span>
                       </td>
                       <td className="px-4 py-3.5 text-xs text-mute">
@@ -692,7 +693,7 @@ function PayoutsTab() {
                         {fmtDate(c.availableAt)}
                         {c.status === 'PENDING' && dayDiff > 0 && (
                           <div className="text-[10px] text-amber-700">
-                            en {dayDiff}d
+                            {t('inDays', { days: dayDiff })}
                           </div>
                         )}
                       </td>
@@ -705,8 +706,8 @@ function PayoutsTab() {
                           className="text-xs text-mute hover:text-ink mr-2"
                           title={
                             c.notes
-                              ? `Nota: ${c.notes.slice(0, 60)}${c.notes.length > 60 ? '…' : ''}`
-                              : 'Agregar nota interna'
+                              ? t('noteTooltip', { note: `${c.notes.slice(0, 60)}${c.notes.length > 60 ? '…' : ''}` })
+                              : t('addInternalNote')
                           }
                         >
                           {c.notes ? '📝' : '＋'}
@@ -714,9 +715,9 @@ function PayoutsTab() {
                         {c.clientContactedAt && (
                           <span
                             className="text-[10px] text-ok mr-2"
-                            title={`Contactado: ${fmtDate(c.clientContactedAt)}`}
+                            title={t('contactedTooltip', { date: fmtDate(c.clientContactedAt) })}
                           >
-                            ✓ contactado
+                            ✓ {t('contacted')}
                           </span>
                         )}
                         {(c.status === 'APPROVED' || c.status === 'PENDING') && (
@@ -727,18 +728,18 @@ function PayoutsTab() {
                               className="btn-link text-xs disabled:opacity-30 disabled:cursor-not-allowed"
                               title={
                                 c.status === 'PENDING'
-                                  ? 'Esperando que cumpla 30 días'
-                                  : 'Marcar como pagada'
+                                  ? t('waitingHold')
+                                  : t('markAsPaid')
                               }
                             >
-                              ✓ Pagar
+                              ✓ {t('btnPay')}
                             </button>
                             <button
                               disabled={busyId === c.id}
                               onClick={() => reject(c.id)}
                               className="ml-2 text-bad underline text-xs"
                             >
-                              Rechazar
+                              {t('btnReject')}
                             </button>
                           </>
                         )}
@@ -777,6 +778,7 @@ function CommissionNotesModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations('admin_referrals');
   const [notes, setNotes] = useState(item.notes ?? '');
   const [contacted, setContacted] = useState(!!item.clientContactedAt);
   const [busy, setBusy] = useState(false);
@@ -791,10 +793,10 @@ function CommissionNotesModal({
           markContacted: contacted,
         }),
       });
-      toast('Nota guardada', 'success');
+      toast(t('toastNoteSaved'), 'success');
       onSaved();
     } catch (e: any) {
-      toast(e.message || 'Error', 'error');
+      toast(e.message || t('errorGeneric'), 'error');
     } finally {
       setBusy(false);
     }
@@ -810,18 +812,18 @@ function CommissionNotesModal({
         className="bg-white rounded-2xl shadow-xl max-w-md w-full p-5"
       >
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold m-0">Nota interna</h2>
+          <h2 className="text-lg font-semibold m-0">{t('internalNote')}</h2>
           <button onClick={onClose} className="text-mute hover:text-ink text-xl leading-none">
             ×
           </button>
         </div>
         <div className="text-xs text-mute mb-3">
-          Comisión de <strong>{item.ownerName}</strong> · {fmtUsd(item.amount)} ·{' '}
-          cliente <strong>{item.tenantBrand}</strong>
+          {t('commissionOf')} <strong>{item.ownerName}</strong> · {fmtUsd(item.amount)} ·{' '}
+          {t('clientLower')} <strong>{item.tenantBrand}</strong>
         </div>
         <textarea
           className="input min-h-[120px] mb-3"
-          placeholder="Ej: Pagado vía Wise · Cliente prometió pagar el 15 ·…"
+          placeholder={t('phInternalNote')}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
         />
@@ -832,14 +834,14 @@ function CommissionNotesModal({
             onChange={(e) => setContacted(e.target.checked)}
             className="accent-brand"
           />
-          <span>Cliente fue contactado por pago</span>
+          <span>{t('clientContactedForPayment')}</span>
         </label>
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="btn-ghost" disabled={busy}>
-            Cancelar
+            {t('btnCancel')}
           </button>
           <button onClick={save} className="btn-primary" disabled={busy}>
-            {busy ? 'Guardando…' : 'Guardar'}
+            {busy ? t('saving') : t('save')}
           </button>
         </div>
       </div>
@@ -852,6 +854,7 @@ function CommissionNotesModal({
 // =============================================================
 
 function CodesTab() {
+  const t = useTranslations('admin_referrals');
   const [list, setList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [commissionFor, setCommissionFor] = useState<{
@@ -872,9 +875,9 @@ function CodesTab() {
   async function copyCaptureLink() {
     try {
       await navigator.clipboard.writeText(captureLink);
-      toast('Link copiado al portapapeles', 'success');
+      toast(t('toastLinkCopied'), 'success');
     } catch {
-      toast('No se pudo copiar — selecciona y copia manualmente', 'error');
+      toast(t('toastCopyFailed'), 'error');
     }
   }
 
@@ -883,7 +886,7 @@ function CodesTab() {
       setLoading(true);
       setList(await api('/referrals'));
     } catch (e: any) {
-      toast(e.message || 'Error cargando referidos', 'error');
+      toast(e.message || t('errorLoadingReferrals'), 'error');
     } finally {
       setLoading(false);
     }
@@ -896,7 +899,7 @@ function CodesTab() {
     if (!commissionFor) return;
     const n = Number(amount);
     if (!n || n <= 0) {
-      toast('Monto inválido', 'error');
+      toast(t('invalidAmount'), 'error');
       return;
     }
     setSaving(true);
@@ -905,12 +908,12 @@ function CodesTab() {
         method: 'POST',
         body: JSON.stringify({ amount: n }),
       });
-      toast(`Comisión de USD ${n} agregada`, 'success');
+      toast(t('toastCommissionAdded', { amount: n }), 'success');
       setCommissionFor(null);
       setAmount('');
       load();
     } catch (e: any) {
-      toast(e.message || 'No se pudo agregar la comisión', 'error');
+      toast(e.message || t('errorCouldNotAddCommission'), 'error');
     } finally {
       setSaving(false);
     }
@@ -918,13 +921,7 @@ function CodesTab() {
 
   async function setStatus(commId: string, status: string) {
     // #4: rechazar anula toda la venta (cascada en backend). Avisar.
-    if (
-      status === 'REJECTED' &&
-      !confirm(
-        '¿Anular esta venta? Se rechazarán también las comisiones de los otros ' +
-          'actores del mismo cobro (influencer/embajador/vendedor). Las pagadas no se tocan.',
-      )
-    )
+    if (status === 'REJECTED' && !confirm(t('confirmVoidSaleCodes')))
       return;
     try {
       const res = await api<{ cascaded?: number }>(`/referrals/commissions/${commId}`, {
@@ -932,27 +929,32 @@ function CodesTab() {
         body: JSON.stringify({ status }),
       });
       if (status === 'REJECTED') {
-        const extra = res?.cascaded ? ` (+${res.cascaded} de la misma venta)` : '';
-        toast(`Venta anulada${extra}`, 'success');
+        const extra = res?.cascaded ? t('saleVoidedExtra', { count: res.cascaded }) : '';
+        toast(t('toastSaleVoided', { extra }), 'success');
       } else {
-        toast(`Comisión marcada como ${status === 'PAID' ? 'pagada' : status}`, 'success');
+        toast(
+          status === 'PAID'
+            ? t('toastCommissionMarkedPaid')
+            : t('toastCommissionMarkedAs', { status }),
+          'success',
+        );
       }
       load();
     } catch (e: any) {
-      toast(e.message || 'No se pudo actualizar', 'error');
+      toast(e.message || t('errorCouldNotUpdate'), 'error');
     }
   }
 
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <div className="text-mute text-sm">{list.length} códigos generados</div>
+        <div className="text-mute text-sm">{t('codesGenerated', { count: list.length })}</div>
         <button
           type="button"
           className="btn-primary"
           onClick={() => setShowLinkGen(true)}
         >
-          <Icon name="plus" /> Generar link de captación
+          <Icon name="plus" /> {t('generateCaptureLink')}
         </button>
       </div>
 
@@ -971,10 +973,9 @@ function CodesTab() {
         {!loading && list.length === 0 && (
           <div className="card card-pad text-center py-12">
             <div className="text-4xl mb-2">🔗</div>
-            <div className="font-semibold">Aún no hay códigos de referido</div>
+            <div className="font-semibold">{t('emptyNoCodes')}</div>
             <p className="text-sm text-mute mt-1.5 max-w-md mx-auto">
-              Cuando un usuario genere su código en /refer aparecerá aquí con
-              sus inscritos y comisiones acumuladas.
+              {t('emptyNoCodesHint')}
             </p>
           </div>
         )}
@@ -995,32 +996,31 @@ function CodesTab() {
                 </div>
                 <div className="text-sm flex items-center gap-2 flex-wrap">
                   <span className="badge badge-info">
-                    {Number(r.commissionPercent)}% comisión
+                    {t('percentCommission', { percent: Number(r.commissionPercent) })}
                   </span>
                   {r.source && (
                     <span
                       className="badge badge-mute text-[11px]"
-                      title="Origen del afiliado (?source en el link de captación)"
+                      title={t('affiliateSourceTooltip')}
                     >
                       📣 {r.source}
                     </span>
                   )}
                   <span className="text-xs text-mute">
-                    {r.uses.length} inscritos
+                    {t('signupsCount', { count: r.uses.length })}
                   </span>
                 </div>
               </div>
               <div className="mt-3 divide-y divide-line2">
                 {r.uses.length === 0 && (
                   <div className="py-3 text-sm text-mute italic">
-                    Sin conversiones aún.
+                    {t('noConversionsYet')}
                   </div>
                 )}
                 {r.uses.map((u: any) => {
-                  const st = STATUS_LABEL[u.status] ?? {
-                    text: u.status,
-                    cls: 'bg-bg2 text-mute',
-                  };
+                  const stMap = STATUS_LABEL[u.status];
+                  const stText = stMap ? t(stMap.key) : u.status;
+                  const stCls = stMap ? stMap.cls : 'bg-bg2 text-mute';
                   return (
                     <div
                       key={u.id}
@@ -1030,14 +1030,14 @@ function CodesTab() {
                         {u.tenant?.brandName ?? '—'}
                       </div>
                       <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${st.cls}`}
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${stCls}`}
                       >
-                        {st.text}
+                        {stText}
                       </span>
                       <div className="flex flex-wrap gap-1.5 flex-1">
                         {u.commissions.length === 0 && (
                           <span className="text-mute text-xs">
-                            Sin comisiones
+                            {t('noCommissions')}
                           </span>
                         )}
                         {u.commissions.map((c: any) => (
@@ -1055,7 +1055,7 @@ function CodesTab() {
                                 className="underline hover:no-underline"
                                 onClick={() => setStatus(c.id, 'PAID')}
                               >
-                                marcar pagada
+                                {t('markPaidShort')}
                               </button>
                             )}
                           </span>
@@ -1070,7 +1070,7 @@ function CodesTab() {
                           })
                         }
                       >
-                        + comisión
+                        + {t('commissionLower')}
                       </button>
                     </div>
                   );
@@ -1088,13 +1088,13 @@ function CodesTab() {
             onClick={() => !saving && setCommissionFor(null)}
           />
           <div className="relative bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
-            <h2 className="font-bold text-lg">Agregar comisión</h2>
+            <h2 className="font-bold text-lg">{t('addCommission')}</h2>
             <p className="text-sm text-mute mt-1">
-              Para inscrito en{' '}
+              {t('forSignupIn')}{' '}
               <b className="text-ink">{commissionFor.tenantBrand}</b>.
             </p>
             <div className="mt-4">
-              <label className="label">Monto (USD)</label>
+              <label className="label">{t('amountUsd')}</label>
               <input
                 type="number"
                 inputMode="decimal"
@@ -1108,8 +1108,7 @@ function CodesTab() {
                 onKeyDown={(e) => e.key === 'Enter' && submitCommission()}
               />
               <p className="text-xs text-mute mt-1.5">
-                La comisión queda en estado PENDING. A los 30 días pasa
-                automáticamente a "Disponible" para pagar.
+                {t('commissionPendingHint')}
               </p>
             </div>
             <div className="mt-5 flex gap-2 justify-end">
@@ -1118,14 +1117,14 @@ function CodesTab() {
                 disabled={saving}
                 className="btn-ghost text-sm"
               >
-                Cancelar
+                {t('btnCancel')}
               </button>
               <button
                 onClick={submitCommission}
                 disabled={saving || !amount}
                 className="btn-primary text-sm disabled:opacity-50"
               >
-                {saving ? 'Guardando…' : 'Agregar'}
+                {saving ? t('saving') : t('btnAdd')}
               </button>
             </div>
           </div>
@@ -1140,30 +1139,29 @@ function CodesTab() {
             onClick={() => setShowLinkGen(false)}
           />
           <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
-            <h2 className="font-bold text-lg">Link de captación de afiliados</h2>
+            <h2 className="font-bold text-lg">{t('captureLinkTitle')}</h2>
             <p className="text-sm text-mute mt-1.5 leading-relaxed">
-              Comparte este link con quien quieras invitar al programa. Cuando
-              se registre obtiene <b className="text-ink">su propio código y
-              link personalizado</b> para promocionar Clubify.
+              {t.rich('captureLinkDesc', {
+                b: (chunks) => <b className="text-ink">{chunks}</b>,
+              })}
             </p>
 
             <div className="mt-4">
-              <label className="label">Etiqueta de origen (opcional)</label>
+              <label className="label">{t('sourceLabelOptional')}</label>
               <input
                 type="text"
                 value={linkSource}
                 onChange={(e) => setLinkSource(e.target.value)}
                 className="input"
-                placeholder="instagram, podcast-mayo, evento-X…"
+                placeholder={t('phSourceLabel')}
               />
               <p className="text-xs text-mute mt-1.5">
-                Útil para saber por qué canal llegó cada afiliado. Solo letras,
-                números y guiones.
+                {t('sourceLabelHint')}
               </p>
             </div>
 
             <div className="mt-4">
-              <label className="label">Tu link</label>
+              <label className="label">{t('yourLink')}</label>
               <div className="flex items-stretch gap-2">
                 <input
                   readOnly
@@ -1176,19 +1174,19 @@ function CodesTab() {
                   onClick={copyCaptureLink}
                   className="btn-primary text-sm whitespace-nowrap"
                 >
-                  Copiar
+                  {t('btnCopy')}
                 </button>
               </div>
               <div className="mt-2 flex flex-wrap gap-2">
                 <a
                   href={`https://wa.me/?text=${encodeURIComponent(
-                    `Te invito a unirte al programa de afiliados de Clubify y ganar comisiones por cada negocio que registres. Regístrate aquí: ${captureLink}`,
+                    t('whatsappInviteMessage', { link: captureLink }),
                   )}`}
                   target="_blank"
                   rel="noreferrer"
                   className="text-xs btn-ghost"
                 >
-                  💬 Compartir por WhatsApp
+                  💬 {t('shareViaWhatsApp')}
                 </a>
                 <a
                   href={captureLink}
@@ -1196,7 +1194,7 @@ function CodesTab() {
                   rel="noreferrer"
                   className="text-xs btn-ghost"
                 >
-                  ↗ Abrir página
+                  ↗ {t('openPage')}
                 </a>
               </div>
             </div>
@@ -1209,7 +1207,7 @@ function CodesTab() {
                 }}
                 className="btn-ghost text-sm"
               >
-                Cerrar
+                {t('btnClose')}
               </button>
             </div>
           </div>
@@ -1236,13 +1234,14 @@ type CampaignSummary = {
   ambassadorCommissionsUsd: number;
 };
 
-const STATUS_PILL: Record<CampaignSummary['status'], { text: string; cls: string }> = {
-  ACTIVE: { text: 'Activa', cls: 'bg-ok-soft text-ok' },
-  PAUSED: { text: 'Pausada', cls: 'bg-amber-100 text-amber-800' },
-  FINISHED: { text: 'Finalizada', cls: 'bg-bg2 text-mute' },
+const STATUS_PILL: Record<CampaignSummary['status'], { key: string; cls: string }> = {
+  ACTIVE: { key: 'campaignStatusActive', cls: 'bg-ok-soft text-ok' },
+  PAUSED: { key: 'campaignStatusPaused', cls: 'bg-amber-100 text-amber-800' },
+  FINISHED: { key: 'campaignStatusFinished', cls: 'bg-bg2 text-mute' },
 };
 
 function CampaignsTab() {
+  const t = useTranslations('admin_referrals');
   const [list, setList] = useState<CampaignSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -1254,7 +1253,7 @@ function CampaignsTab() {
     try {
       setList(await api<CampaignSummary[]>('/campaigns'));
     } catch (e: any) {
-      toast(e.message || 'Error cargando campañas', 'error');
+      toast(e.message || t('errorLoadingCampaigns'), 'error');
     } finally {
       setLoading(false);
     }
@@ -1269,7 +1268,7 @@ function CampaignsTab() {
       c.ownerCode?.code,
       c.ownerCode?.ownerName,
       c.status,
-      STATUS_PILL[c.status]?.text,
+      STATUS_PILL[c.status] ? t(STATUS_PILL[c.status].key) : '',
       c.createdAt ? fmtDate(c.createdAt) : '',
     ]
       .filter(Boolean)
@@ -1280,11 +1279,10 @@ function CampaignsTab() {
     <div>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <div className="text-sm text-mute">
-          Cada campaña pertenece a un influencer. Los embajadores reciben 25%
-          y el influencer gana 5% por las ventas indirectas.
+          {t('campaignsIntro')}
         </div>
         <button onClick={() => setShowCreate(true)} className="btn-primary text-sm">
-          <Icon name="plus" /> Nueva campaña
+          <Icon name="plus" /> {t('newCampaign')}
         </button>
       </div>
 
@@ -1292,7 +1290,7 @@ function CampaignsTab() {
         <SectionSearchBar
           value={query}
           onChange={setQuery}
-          placeholder="Buscar campaña…"
+          placeholder={t('phSearchCampaign')}
           resultCount={filtered.length}
           totalCount={list.length}
         />
@@ -1309,9 +1307,9 @@ function CampaignsTab() {
       {!loading && list.length === 0 && (
         <div className="card card-pad text-center py-12">
           <div className="text-4xl mb-2">🎯</div>
-          <div className="font-semibold">Aún no hay campañas</div>
+          <div className="font-semibold">{t('emptyNoCampaigns')}</div>
           <div className="text-sm text-mute mt-1">
-            Crea la primera para asignar un influencer y sumar embajadores.
+            {t('emptyNoCampaignsHint')}
           </div>
         </div>
       )}
@@ -1319,9 +1317,9 @@ function CampaignsTab() {
       {!loading && list.length > 0 && filtered.length === 0 && (
         <div className="card card-pad text-center py-10">
           <div className="text-3xl mb-2">🔎</div>
-          <div className="font-semibold">Sin coincidencias</div>
+          <div className="font-semibold">{t('noMatches')}</div>
           <div className="text-sm text-mute mt-1">
-            Ninguna campaña coincide con "{query}".
+            {t('noCampaignMatches', { query })}
           </div>
         </div>
       )}
@@ -1341,7 +1339,7 @@ function CampaignsTab() {
               <span
                 className={`text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded ${STATUS_PILL[c.status].cls}`}
               >
-                {STATUS_PILL[c.status].text}
+                {t(STATUS_PILL[c.status].key)}
               </span>
             </div>
             <div className="bg-bg2 rounded-lg px-3 py-2 mb-3 font-mono text-sm font-bold">
@@ -1352,15 +1350,15 @@ function CampaignsTab() {
             </div>
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div className="bg-bg2/50 rounded p-2">
-                <div className="text-mute">Embajadores</div>
+                <div className="text-mute">{t('cardAmbassadors')}</div>
                 <div className="font-bold text-base">{c.ambassadorsCount}</div>
               </div>
               <div className="bg-bg2/50 rounded p-2">
-                <div className="text-mute">Clientes activos</div>
+                <div className="text-mute">{t('cardActiveClients')}</div>
                 <div className="font-bold text-base">{c.totalActiveClients}</div>
               </div>
               <div className="bg-bg2/50 rounded p-2 col-span-2">
-                <div className="text-mute">Comisiones embajadores</div>
+                <div className="text-mute">{t('cardAmbassadorCommissions')}</div>
                 <div className="font-bold text-base text-brand">
                   {fmtUsd(c.ambassadorCommissionsUsd)}
                 </div>
@@ -1399,6 +1397,7 @@ function CreateCampaignModal({
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const t = useTranslations('admin_referrals');
   const [form, setForm] = useState({
     name: '',
     influencerName: '',
@@ -1427,13 +1426,13 @@ function CreateCampaignModal({
       });
       if (res?.affiliateCredentials) {
         setCredentials(res.affiliateCredentials);
-        toast('Campaña creada — copia las credenciales del influencer', 'success');
+        toast(t('toastCampaignCreatedCreds'), 'success');
       } else {
-        toast('Campaña creada', 'success');
+        toast(t('toastCampaignCreated'), 'success');
         onCreated();
       }
     } catch (e: any) {
-      setErr(e.message || 'No se pudo crear');
+      setErr(e.message || t('errorCouldNotCreate'));
     } finally {
       setBusy(false);
     }
@@ -1445,7 +1444,7 @@ function CreateCampaignModal({
     return (
       <AffiliateCredentialsModal
         credentials={credentials}
-        whoLabel={`influencer ${form.influencerName}`}
+        whoLabel={t('whoLabelInfluencer', { name: form.influencerName })}
         whatsapp={form.influencerWhatsapp}
         onClose={() => {
           setCredentials(null);
@@ -1466,27 +1465,27 @@ function CreateCampaignModal({
         className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-5"
       >
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold m-0">Nueva campaña</h2>
+          <h2 className="text-lg font-semibold m-0">{t('newCampaign')}</h2>
           <button type="button" onClick={onClose} className="text-mute hover:text-ink text-xl leading-none">
             ×
           </button>
         </div>
         <div className="space-y-3">
           <div>
-            <label className="label">Nombre de campaña</label>
+            <label className="label">{t('campaignName')}</label>
             <input
               className="input"
               required
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="Ej: Campaña Influencer Juan"
+              placeholder={t('phCampaignName')}
             />
           </div>
           <div className="pt-2 border-t border-line text-xs uppercase tracking-wider text-mute font-semibold">
-            Influencer titular
+            {t('headInfluencerHolder')}
           </div>
           <div>
-            <label className="label">Nombre</label>
+            <label className="label">{t('fieldName')}</label>
             <input
               className="input"
               required
@@ -1496,7 +1495,7 @@ function CreateCampaignModal({
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="label">Email</label>
+              <label className="label">{t('fieldEmail')}</label>
               <input
                 className="input"
                 type="email"
@@ -1506,7 +1505,7 @@ function CreateCampaignModal({
               />
             </div>
             <div>
-              <label className="label">WhatsApp</label>
+              <label className="label">{t('fieldWhatsapp')}</label>
               <input
                 className="input"
                 required
@@ -1518,7 +1517,7 @@ function CreateCampaignModal({
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="label">% Directo</label>
+              <label className="label">{t('fieldDirectPercent')}</label>
               <input
                 type="number"
                 min={0}
@@ -1534,7 +1533,7 @@ function CreateCampaignModal({
               />
             </div>
             <div>
-              <label className="label">Código (opcional)</label>
+              <label className="label">{t('fieldCodeOptional')}</label>
               <input
                 className="input"
                 placeholder="JUAN30"
@@ -1546,31 +1545,31 @@ function CreateCampaignModal({
             </div>
           </div>
           <div>
-            <label className="label">Contraseña de acceso</label>
+            <label className="label">{t('fieldAccessPassword')}</label>
             <input
               className="input"
               type="text"
               required
               minLength={8}
               maxLength={64}
-              placeholder="Mínimo 8 caracteres"
+              placeholder={t('phMin8Chars')}
               value={form.influencerPassword}
               onChange={(e) =>
                 setForm({ ...form, influencerPassword: e.target.value })
               }
             />
             <p className="text-xs text-mute mt-1">
-              Esta es la contraseña que el influencer va a usar para entrar en /login. Copiala y compartila junto al email.
+              {t('influencerPasswordHint')}
             </p>
           </div>
         </div>
         {err && <div className="mt-3 rounded-lg bg-bad-soft px-3 py-2 text-sm text-bad-ink">{err}</div>}
         <div className="flex justify-end gap-2 mt-5">
           <button type="button" className="btn-ghost" onClick={onClose} disabled={busy}>
-            Cancelar
+            {t('btnCancel')}
           </button>
           <button type="submit" className="btn-primary" disabled={busy}>
-            {busy ? 'Creando…' : 'Crear campaña'}
+            {busy ? t('creating') : t('btnCreateCampaign')}
           </button>
         </div>
       </form>
@@ -1587,6 +1586,7 @@ function CampaignDetailModal({
   onClose: () => void;
   onChanged: () => void;
 }) {
+  const t = useTranslations('admin_referrals');
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -1610,7 +1610,14 @@ function CampaignDetailModal({
       method: 'PATCH',
       body: JSON.stringify({ status }),
     });
-    toast(`Campaña ${status === 'ACTIVE' ? 'activada' : status === 'PAUSED' ? 'pausada' : 'finalizada'}`, 'success');
+    toast(
+      status === 'ACTIVE'
+        ? t('toastCampaignActivated')
+        : status === 'PAUSED'
+          ? t('toastCampaignPaused')
+          : t('toastCampaignFinished'),
+      'success',
+    );
     load();
     onChanged();
   }
@@ -1643,19 +1650,19 @@ function CampaignDetailModal({
           whatsapp: saved.whatsapp,
         });
       } else {
-        toast('Embajador agregado', 'success');
+        toast(t('toastAmbassadorAdded'), 'success');
       }
     } catch (e: any) {
-      toast(e.message || 'Error', 'error');
+      toast(e.message || t('errorGeneric'), 'error');
     } finally {
       setBusy(false);
     }
   }
 
   async function removeAmbassador(id: string) {
-    if (!confirm('¿Desactivar este embajador? El historial se conserva.')) return;
+    if (!confirm(t('confirmDeactivateAmbassador'))) return;
     await api(`/campaigns/ambassadors/${id}`, { method: 'DELETE' });
-    toast('Embajador desactivado', 'success');
+    toast(t('toastAmbassadorDeactivated'), 'success');
     load();
   }
 
@@ -1669,7 +1676,7 @@ function CampaignDetailModal({
         className="bg-white rounded-2xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-auto p-5"
       >
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold m-0">{loading ? 'Cargando…' : data?.name}</h2>
+          <h2 className="text-lg font-semibold m-0">{loading ? t('loading') : data?.name}</h2>
           <button onClick={onClose} className="text-mute hover:text-ink text-xl leading-none">
             ×
           </button>
@@ -1679,22 +1686,22 @@ function CampaignDetailModal({
           <>
             <div className="flex flex-wrap items-center gap-2 mb-4">
               <span className={`text-xs uppercase font-bold px-2 py-0.5 rounded ${STATUS_PILL[data.status as keyof typeof STATUS_PILL].cls}`}>
-                {STATUS_PILL[data.status as keyof typeof STATUS_PILL].text}
+                {t(STATUS_PILL[data.status as keyof typeof STATUS_PILL].key)}
               </span>
               <div className="ml-auto flex gap-1">
                 {data.status !== 'ACTIVE' && (
                   <button onClick={() => setStatus('ACTIVE')} className="btn-ghost text-xs">
-                    Activar
+                    {t('btnActivate')}
                   </button>
                 )}
                 {data.status !== 'PAUSED' && (
                   <button onClick={() => setStatus('PAUSED')} className="btn-ghost text-xs">
-                    Pausar
+                    {t('btnPause')}
                   </button>
                 )}
                 {data.status !== 'FINISHED' && (
                   <button onClick={() => setStatus('FINISHED')} className="btn-ghost text-xs">
-                    Finalizar
+                    {t('btnFinish')}
                   </button>
                 )}
               </div>
@@ -1702,22 +1709,22 @@ function CampaignDetailModal({
 
             <div className="card card-pad mb-4 bg-bg2/40">
               <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1">
-                Influencer titular
+                {t('headInfluencerHolder')}
               </div>
               <div className="font-semibold">{data.ownerCode.ownerName}</div>
               <div className="text-xs text-mute">{data.ownerCode.ownerEmail}</div>
               <div className="mt-2 font-mono font-bold text-lg bg-white px-3 py-2 rounded inline-block">
                 {data.ownerCode.code}{' '}
                 <span className="text-xs text-mute font-normal">
-                  · {Number(data.ownerCode.commissionPercent)}% directo
+                  · {t('percentDirect', { percent: Number(data.ownerCode.commissionPercent) })}
                 </span>
               </div>
             </div>
 
             <div className="flex items-center justify-between mb-2">
-              <h3 className="font-semibold m-0">Embajadores ({data.codes.length})</h3>
+              <h3 className="font-semibold m-0">{t('ambassadorsCount', { count: data.codes.length })}</h3>
               <button onClick={() => setShowAdd(!showAdd)} className="btn-ghost text-xs">
-                {showAdd ? 'Cancelar' : '+ Embajador'}
+                {showAdd ? t('btnCancel') : t('btnAddAmbassador')}
               </button>
             </div>
 
@@ -1726,7 +1733,7 @@ function CampaignDetailModal({
                 <div className="grid grid-cols-2 gap-2">
                   <input
                     className="input"
-                    placeholder="Nombre"
+                    placeholder={t('phName')}
                     required
                     value={addForm.fullName}
                     onChange={(e) => setAddForm({ ...addForm, fullName: e.target.value })}
@@ -1734,7 +1741,7 @@ function CampaignDetailModal({
                   <input
                     className="input"
                     type="email"
-                    placeholder="Email"
+                    placeholder={t('phEmail')}
                     required
                     value={addForm.email}
                     onChange={(e) => setAddForm({ ...addForm, email: e.target.value })}
@@ -1743,7 +1750,7 @@ function CampaignDetailModal({
                 <div className="grid grid-cols-3 gap-2">
                   <input
                     className="input"
-                    placeholder="WhatsApp"
+                    placeholder={t('phWhatsapp')}
                     required
                     value={addForm.whatsapp}
                     onChange={(e) => setAddForm({ ...addForm, whatsapp: e.target.value })}
@@ -1753,13 +1760,13 @@ function CampaignDetailModal({
                     type="number"
                     min={0}
                     max={100}
-                    placeholder="% comisión"
+                    placeholder={t('phCommissionPercent')}
                     value={addForm.commissionPercent}
                     onChange={(e) => setAddForm({ ...addForm, commissionPercent: Number(e.target.value) })}
                   />
                   <input
                     className="input"
-                    placeholder="Código (opcional)"
+                    placeholder={t('phCodeOptional')}
                     value={addForm.customCode}
                     onChange={(e) => setAddForm({ ...addForm, customCode: e.target.value.toUpperCase() })}
                   />
@@ -1770,19 +1777,19 @@ function CampaignDetailModal({
                   required
                   minLength={8}
                   maxLength={64}
-                  placeholder="Contraseña de acceso (mín 8 caracteres)"
+                  placeholder={t('phAccessPasswordMin8')}
                   value={addForm.password}
                   onChange={(e) => setAddForm({ ...addForm, password: e.target.value })}
                 />
                 <button type="submit" className="btn-primary text-sm w-full" disabled={busy}>
-                  {busy ? 'Agregando…' : 'Agregar embajador'}
+                  {busy ? t('adding') : t('btnAddAmbassadorFull')}
                 </button>
               </form>
             )}
 
             {data.codes.length === 0 ? (
               <div className="text-center py-8 text-mute text-sm">
-                Sin embajadores aún
+                {t('noAmbassadorsYet')}
               </div>
             ) : (
               <div className="space-y-2">
@@ -1801,13 +1808,13 @@ function CampaignDetailModal({
                       {amb.code}
                     </div>
                     <div className="text-xs text-mute whitespace-nowrap">
-                      {Number(amb.commissionPercent)}% · {amb.uses?.length ?? 0} clientes
+                      {t('percentClients', { percent: Number(amb.commissionPercent), clients: amb.uses?.length ?? 0 })}
                     </div>
                     {amb.isActive && (
                       <button
                         onClick={() => removeAmbassador(amb.id)}
                         className="text-mute hover:text-bad text-lg leading-none"
-                        aria-label="Desactivar"
+                        aria-label={t('deactivate')}
                       >
                         ×
                       </button>
@@ -1822,7 +1829,7 @@ function CampaignDetailModal({
       {ambassadorCredentials && (
         <AffiliateCredentialsModal
           credentials={ambassadorCredentials}
-          whoLabel={`embajador ${ambassadorCredentials.fullName}`}
+          whoLabel={t('whoLabelAmbassador', { name: ambassadorCredentials.fullName })}
           whatsapp={ambassadorCredentials.whatsapp}
           onClose={() => setAmbassadorCredentials(null)}
         />
@@ -1885,14 +1892,16 @@ type SummaryResp = {
 };
 
 function SummaryTab() {
+  const t = useTranslations('admin_referrals');
   const [data, setData] = useState<SummaryResp | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     api<SummaryResp>('/referrals/summary')
       .then(setData)
-      .catch((e) => toast(e.message || 'Error', 'error'))
+      .catch((e) => toast(e.message || t('errorGeneric'), 'error'))
       .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (loading) return <div className="card card-pad h-32 animate-shimmer" />;
@@ -1902,40 +1911,40 @@ function SummaryTab() {
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Kpi label="Influencers" value={k.influencerCount.toString()} />
-        <Kpi label="Embajadores" value={k.ambassadorCount.toString()} />
-        <Kpi label="Clientes referidos" value={k.totalReferredClients.toString()} />
-        <Kpi label="Clientes activos" value={k.activeClients.toString()} tone="ok" />
-        <Kpi label="En trial" value={k.trialClients.toString()} />
-        <Kpi label="Cancelados" value={k.churnedClients.toString()} />
-        <Kpi label="MRR (30d)" value={fmtUsd(k.mrrUsd)} tone="brand" />
+        <Kpi label={t('kpiInfluencers')} value={k.influencerCount.toString()} />
+        <Kpi label={t('kpiAmbassadors')} value={k.ambassadorCount.toString()} />
+        <Kpi label={t('kpiReferredClients')} value={k.totalReferredClients.toString()} />
+        <Kpi label={t('kpiActiveClients')} value={k.activeClients.toString()} tone="ok" />
+        <Kpi label={t('kpiInTrial')} value={k.trialClients.toString()} />
+        <Kpi label={t('kpiChurned')} value={k.churnedClients.toString()} />
+        <Kpi label={t('kpiMrr30d')} value={fmtUsd(k.mrrUsd)} tone="brand" />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div className="card card-pad">
           <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1">
-            Comisiones referidos
+            {t('referralCommissions')}
           </div>
           <div className="space-y-1.5">
-            <SumRow label="Pagadas" value={fmtUsd(k.commPaidUsd)} tone="ok" />
-            <SumRow label="Pendientes" value={fmtUsd(k.commPendingUsd)} tone="amber" />
-            <SumRow label="Rechazadas" value={fmtUsd(k.commRejectedUsd)} tone="muted" />
+            <SumRow label={t('sumPaid')} value={fmtUsd(k.commPaidUsd)} tone="ok" />
+            <SumRow label={t('sumPending')} value={fmtUsd(k.commPendingUsd)} tone="amber" />
+            <SumRow label={t('sumRejected')} value={fmtUsd(k.commRejectedUsd)} tone="muted" />
           </div>
         </div>
         <div className="card card-pad">
           <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1">
-            Comisión socio (10%)
+            {t('partnerCommission10')}
           </div>
           <div className="space-y-1.5">
-            <SumRow label="Pagado" value={fmtUsd(k.socioPaidUsd)} tone="ok" />
-            <SumRow label="Pendiente" value={fmtUsd(k.socioPendingUsd)} tone="amber" />
+            <SumRow label={t('sumPaidSingular')} value={fmtUsd(k.socioPaidUsd)} tone="ok" />
+            <SumRow label={t('sumPendingSingular')} value={fmtUsd(k.socioPendingUsd)} tone="amber" />
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <TopList title="🌟 Top influencers (revenue total)" rows={data.topInfluencers} />
-        <TopList title="👥 Top embajadores (revenue total)" rows={data.topAmbassadors} />
+        <TopList title={`🌟 ${t('topInfluencers')}`} rows={data.topInfluencers} />
+        <TopList title={`👥 ${t('topAmbassadors')}`} rows={data.topAmbassadors} />
       </div>
     </div>
   );
@@ -1948,11 +1957,12 @@ function TopList({
   title: string;
   rows: SummaryResp['topInfluencers'];
 }) {
+  const t = useTranslations('admin_referrals');
   return (
     <div className="card card-pad">
       <h3 className="font-semibold m-0 mb-3">{title}</h3>
       {rows.length === 0 ? (
-        <div className="text-center text-mute py-6 text-sm">Sin datos aún</div>
+        <div className="text-center text-mute py-6 text-sm">{t('noDataYet')}</div>
       ) : (
         <div className="space-y-2">
           {rows.map((r, i) => (
@@ -1963,7 +1973,7 @@ function TopList({
               <div className="flex-1 min-w-0">
                 <div className="font-semibold truncate">{r.ownerName}</div>
                 <div className="text-xs text-mute truncate">
-                  <span className="font-mono">{r.code}</span> · {r.activeClients}/{r.totalClients} activos · {r.conversionRate}% conv
+                  <span className="font-mono">{r.code}</span> · {t('activeOfTotalConv', { active: r.activeClients, total: r.totalClients, rate: r.conversionRate })}
                 </div>
               </div>
               <div className="font-bold text-brand whitespace-nowrap">{fmtUsd(r.revenueUsd)}</div>
@@ -2005,6 +2015,7 @@ function SumRow({
 // =============================================================
 
 function InfluencersTab() {
+  const t = useTranslations('admin_referrals');
   const router = useRouter();
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2035,7 +2046,7 @@ function InfluencersTab() {
       r.country,
       r.city,
       r.campaignName,
-      r.isActive === false ? 'inactivo' : 'activo',
+      r.isActive === false ? t('searchInactive') : t('searchActive'),
     ]
       .filter(Boolean)
       .join(' '),
@@ -2047,9 +2058,9 @@ function InfluencersTab() {
     <div>
       <div className="flex justify-end gap-2 mb-3">
         {/* #35: link de autoregistro de influencer (la persona crea su cuenta). */}
-        <SelfRegisterLinkButton role="influencer" label="🔗 Link registro influencer" />
+        <SelfRegisterLinkButton role="influencer" label={`🔗 ${t('linkRegisterInfluencer')}`} />
         <button onClick={() => setShowCreate(true)} className="btn-primary text-sm">
-          + Crear Influencer
+          + {t('btnCreateInfluencer')}
         </button>
       </div>
       {showCreate && (
@@ -2065,7 +2076,7 @@ function InfluencersTab() {
         <SectionSearchBar
           value={query}
           onChange={setQuery}
-          placeholder="Buscar influencer…"
+          placeholder={t('phSearchInfluencer')}
           resultCount={filtered.length}
           totalCount={rows.length}
         />
@@ -2075,7 +2086,7 @@ function InfluencersTab() {
         <table className="w-full text-sm min-w-[940px]">
           <thead className="bg-bg2">
             <tr>
-              {['Influencer', 'Código', '%', 'Campaña', 'Embajadores', 'Clientes', 'Pagado', 'Pendiente', ''].map(
+              {[t('colInfluencer'), t('colCode'), '%', t('colCampaign'), t('colAmbassadors'), t('colClients'), t('colPaid'), t('colPending'), ''].map(
                 (h, i) => (
                   <th
                     key={h || `col-${i}`}
@@ -2091,7 +2102,7 @@ function InfluencersTab() {
             {rows.length === 0 && (
               <tr>
                 <td colSpan={9} className="text-center py-12 text-mute">
-                  Aún no hay influencers
+                  {t('emptyNoInfluencers')}
                 </td>
               </tr>
             )}
@@ -2099,7 +2110,7 @@ function InfluencersTab() {
               <tr>
                 <td colSpan={9} className="text-center py-10 text-mute">
                   <div className="text-2xl mb-1">🔎</div>
-                  Sin influencers que coincidan con "{query}"
+                  {t('noInfluencerMatches', { query })}
                 </td>
               </tr>
             )}
@@ -2126,29 +2137,29 @@ function InfluencersTab() {
                     <button
                       onClick={() => setDemoteTarget(r)}
                       className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-rose-100 text-rose-700 hover:bg-rose-200 whitespace-nowrap"
-                      title="Convertir este influencer en embajador bajo otro influencer (preserva clientes y comisiones)"
+                      title={t('demoteInfluencerTooltip')}
                     >
-                      ↓ Bajar
+                      ↓ {t('btnDemote')}
                     </button>
                     <button
                       disabled={enteringId === r.id}
                       onClick={async () => {
                         setEnteringId(r.id);
-                        await enterAffiliatePanel(r.id, r.ownerName, router);
+                        await enterAffiliatePanel(r.id, r.ownerName, router, t);
                         setEnteringId(null);
                       }}
                       className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-violet-100 text-violet-700 hover:bg-violet-200 disabled:opacity-50 whitespace-nowrap"
-                      title="Entrar al panel /affiliate como este influencer (auditado en logs)"
+                      title={t('enterPanelInfluencerTooltip')}
                     >
-                      {enteringId === r.id ? 'Entrando…' : '→ Panel'}
+                      {enteringId === r.id ? t('entering') : `→ ${t('btnPanel')}`}
                     </button>
                     <AffiliatePasswordButton codeId={r.id} ownerName={r.ownerName} />
                     <button
                       onClick={() => setDeleteTarget(r)}
                       className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-red-100 text-red-700 hover:bg-red-200 whitespace-nowrap"
-                      title="Eliminar este influencer (valida que no tenga tenants ni embajadores activos)"
+                      title={t('deleteInfluencerTooltip')}
                     >
-                      🗑 Eliminar
+                      🗑 {t('btnDelete')}
                     </button>
                   </div>
                 </td>
@@ -2159,16 +2170,12 @@ function InfluencersTab() {
       </div>
       {deleteTarget && (
         <ConfirmDeleteModal
-          title={`Eliminar influencer "${deleteTarget.ownerName}"`}
+          title={t('deleteInfluencerTitle', { name: deleteTarget.ownerName })}
           description={
             <>
-              ¿Deseas eliminar este registro? Si tiene tenants atribuidos en
-              estado <strong>activo o pagando</strong>, embajadores debajo
-              suyo o una campaña activa,{' '}
-              <strong>no se podrá eliminar</strong> — recibirás un aviso. Si
-              no tiene historial, se borra por completo; si tenía clientes
-              cancelados o embajadores inactivos, queda desactivado para
-              preservar atribución histórica.
+              {t.rich('deleteInfluencerDesc', {
+                strong: (chunks) => <strong>{chunks}</strong>,
+              })}
               <label className="mt-4 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[13px] text-amber-900 cursor-pointer">
                 <input
                   type="checkbox"
@@ -2177,16 +2184,14 @@ function InfluencersTab() {
                   onChange={(e) => setVoidComm(e.target.checked)}
                 />
                 <span>
-                  <strong>Anular comisiones y eliminar</strong> (cuenta creada
-                  o atribuida por error). Marca como rechazadas las comisiones{' '}
-                  <strong>no pagadas</strong> para que no sumen, y desactiva la
-                  cuenta aunque tenga tenants activos. Las comisiones ya pagadas
-                  se conservan para no romper la caja.
+                  {t.rich('voidCommissionsAndDelete', {
+                    strong: (chunks) => <strong>{chunks}</strong>,
+                  })}
                 </span>
               </label>
             </>
           }
-          confirmLabel={voidComm ? 'Anular y eliminar' : 'Eliminar'}
+          confirmLabel={voidComm ? t('btnVoidAndDelete') : t('btnDelete')}
           onConfirm={async () => {
             try {
               const res = await api<any>(
@@ -2195,17 +2200,17 @@ function InfluencersTab() {
               );
               toast(
                 res?.voided != null
-                  ? `Influencer "${deleteTarget.ownerName}" eliminado · ${res.voided} comisión(es) anulada(s)${res.preservedPaid ? `, ${res.preservedPaid} pagada(s) conservada(s)` : ''}`
+                  ? t('toastInfluencerDeletedVoided', { name: deleteTarget.ownerName, voided: res.voided, preserved: res.preservedPaid ? t('preservedPaidExtra', { count: res.preservedPaid }) : '' })
                   : res?.mode === 'hard'
-                    ? `Influencer "${deleteTarget.ownerName}" eliminado`
-                    : `Influencer "${deleteTarget.ownerName}" desactivado (tenía historial)`,
+                    ? t('toastInfluencerDeleted', { name: deleteTarget.ownerName })
+                    : t('toastInfluencerDeactivated', { name: deleteTarget.ownerName }),
                 'success',
               );
               setDeleteTarget(null);
               setVoidComm(false);
               reload();
             } catch (e: any) {
-              toast(e.message || 'No se pudo eliminar', 'error');
+              toast(e.message || t('errorCouldNotDelete'), 'error');
             }
           }}
           onClose={() => {
@@ -2216,14 +2221,12 @@ function InfluencersTab() {
       )}
       {demoteTarget && (
         <InfluencerPickerModal
-          title={`Bajar a "${demoteTarget.ownerName}" a embajador`}
+          title={t('demoteTitle', { name: demoteTarget.ownerName })}
           description={
             <>
-              Pasa de <strong>INFLUENCER</strong> a <strong>AMBASSADOR</strong>{' '}
-              colgando de otro influencer. Sus <strong>clientes y
-              comisiones se preservan</strong> — solo cambia el rol y a
-              quién reporta. Las próximas comisiones generadas pagarán 5%
-              indirecto al nuevo influencer parent.
+              {t.rich('demoteDesc', {
+                strong: (chunks) => <strong>{chunks}</strong>,
+              })}
             </>
           }
           excludeId={demoteTarget.id}
@@ -2238,13 +2241,13 @@ function InfluencersTab() {
                 },
               );
               toast(
-                `${demoteTarget.ownerName} ahora es embajador bajo ${newParent.ownerName}`,
+                t('toastNowAmbassadorUnder', { name: demoteTarget.ownerName, parent: newParent.ownerName }),
                 'success',
               );
               setDemoteTarget(null);
               reload();
             } catch (e: any) {
-              toast(e.message || 'Error', 'error');
+              toast(e.message || t('errorGeneric'), 'error');
             }
           }}
         />
@@ -2255,6 +2258,7 @@ function InfluencersTab() {
 }
 
 function AmbassadorsTab() {
+  const t = useTranslations('admin_referrals');
   const router = useRouter();
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2287,8 +2291,8 @@ function AmbassadorsTab() {
       r.parentName,
       r.parentCode,
       r.campaignName,
-      r.isCompanyDirect ? 'directo empresa' : '',
-      r.isActive === false ? 'inactivo' : 'activo',
+      r.isCompanyDirect ? t('searchCompanyDirect') : '',
+      r.isActive === false ? t('searchInactive') : t('searchActive'),
     ]
       .filter(Boolean)
       .join(' '),
@@ -2304,22 +2308,25 @@ function AmbassadorsTab() {
     <div className="space-y-5">
       <div className="card card-pad flex items-center gap-3 flex-wrap">
         <div className="flex-1 min-w-[260px]">
-          <div className="font-semibold">Embajadores ({rows.length})</div>
+          <div className="font-semibold">{t('ambassadorsCount', { count: rows.length })}</div>
           <div className="text-xs text-mute leading-relaxed mt-1">
-            <strong>{companyDirect.length}</strong> directos de empresa ·{' '}
-            <strong>{linked.length}</strong> vinculados a influencer.
+            {t.rich('ambassadorsBreakdown', {
+              companyDirect: companyDirect.length,
+              linked: linked.length,
+              strong: (chunks) => <strong>{chunks}</strong>,
+            })}
           </div>
         </div>
         {/* #35 (2026-06-16): se reemplazó "+ Embajador Directo Empresa" por
             el link de autoregistro — la persona crea su cuenta sola. */}
-        <SelfRegisterLinkButton role="ambassador" label="🔗 Link registro embajador" />
+        <SelfRegisterLinkButton role="ambassador" label={`🔗 ${t('linkRegisterAmbassador')}`} />
       </div>
 
       {rows.length > 0 && (
         <SectionSearchBar
           value={query}
           onChange={setQuery}
-          placeholder="Buscar embajador…"
+          placeholder={t('phSearchAmbassador')}
           resultCount={filtered.length}
           totalCount={rows.length}
         />
@@ -2330,7 +2337,7 @@ function AmbassadorsTab() {
           <table className="w-full text-sm min-w-[1040px]">
             <thead className="bg-bg2">
               <tr>
-                {['Embajador', 'Código', '%', 'Reporta a', 'Campaña', 'Activos', 'Total', 'Vendedores', 'Pagado', 'Pendiente', ''].map(
+                {[t('colAmbassador'), t('colCode'), '%', t('colReportsTo'), t('colCampaign'), t('colActive'), t('colTotal'), t('colVendors'), t('colPaid'), t('colPending'), ''].map(
                   (h, i) => (
                     <th
                       key={h || `col-${i}`}
@@ -2346,7 +2353,7 @@ function AmbassadorsTab() {
               {rows.length === 0 && (
                 <tr>
                   <td colSpan={11} className="text-center py-12 text-mute">
-                    Aún no hay embajadores
+                    {t('emptyNoAmbassadors')}
                   </td>
                 </tr>
               )}
@@ -2354,7 +2361,7 @@ function AmbassadorsTab() {
                 <tr>
                   <td colSpan={11} className="text-center py-10 text-mute">
                     <div className="text-2xl mb-1">🔎</div>
-                    Sin embajadores que coincidan con "{query}"
+                    {t('noAmbassadorMatches', { query })}
                   </td>
                 </tr>
               )}
@@ -2368,7 +2375,7 @@ function AmbassadorsTab() {
                       {r.ownerName}
                       {r.isCompanyDirect && (
                         <span className="inline-flex items-center text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 whitespace-nowrap">
-                          🏢 Directo Empresa
+                          🏢 {t('badgeCompanyDirect')}
                         </span>
                       )}
                     </div>
@@ -2378,7 +2385,7 @@ function AmbassadorsTab() {
                   <td className="px-4 py-3">{r.commissionPercent}%</td>
                   <td className="px-4 py-3 text-xs">
                     {r.isCompanyDirect ? (
-                      <span className="text-violet-700 font-medium">Empresa</span>
+                      <span className="text-violet-700 font-medium">{t('company')}</span>
                     ) : r.parentName ? (
                       <>
                         {r.parentName}
@@ -2413,34 +2420,30 @@ function AmbassadorsTab() {
                     <div className="inline-flex items-center gap-1.5">
                       <button
                         onClick={async () => {
-                          if (
-                            !confirm(
-                              `¿Promover a "${r.ownerName}" de embajador a influencer?\n\nMantiene su historial, referidos y comisiones. Obtiene panel /affiliate completo con permiso para crear sus propios embajadores. La acción es reversible solo manualmente.`,
-                            )
-                          )
+                          if (!confirm(t('confirmPromoteAmbassador', { name: r.ownerName })))
                             return;
                           try {
                             await api(
                               `/referrals/ambassadors/${r.id}/promote-to-influencer`,
                               { method: 'POST' },
                             );
-                            toast(`${r.ownerName} ahora es influencer`, 'success');
+                            toast(t('toastNowInfluencer', { name: r.ownerName }), 'success');
                             reload();
                           } catch (e: any) {
-                            toast(e.message || 'Error', 'error');
+                            toast(e.message || t('errorGeneric'), 'error');
                           }
                         }}
                         className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-amber-100 text-amber-800 hover:bg-amber-200 whitespace-nowrap"
-                        title="Convertir este embajador en influencer (panel completo, puede crear embajadores)"
+                        title={t('promoteAmbassadorTooltip')}
                       >
-                        ↑ Promover
+                        ↑ {t('btnPromote')}
                       </button>
                       <button
                         onClick={() => setReassignTarget(r)}
                         className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-sky-100 text-sky-800 hover:bg-sky-200 whitespace-nowrap"
-                        title="Cambiar el influencer al que reporta este embajador (preserva clientes y comisiones)"
+                        title={t('changeInfluencerTooltip')}
                       >
-                        ↻ Cambiar influencer
+                        ↻ {t('btnChangeInfluencer')}
                       </button>
                       <button
                         onClick={() => setVendorConfigTarget(r)}
@@ -2449,29 +2452,29 @@ function AmbassadorsTab() {
                             ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
                             : 'bg-bg2 text-mute hover:bg-line2'
                         }`}
-                        title="Configurar módulo de vendedores (toggle + comisión máxima)"
+                        title={t('vendorsConfigTooltip')}
                       >
-                        👥 Vendedores
+                        👥 {t('btnVendors')}
                       </button>
                       <button
                         disabled={enteringId === r.id}
                         onClick={async () => {
                           setEnteringId(r.id);
-                          await enterAffiliatePanel(r.id, r.ownerName, router);
+                          await enterAffiliatePanel(r.id, r.ownerName, router, t);
                           setEnteringId(null);
                         }}
                         className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-violet-100 text-violet-700 hover:bg-violet-200 disabled:opacity-50 whitespace-nowrap"
-                        title="Entrar al panel /affiliate como este embajador (auditado en logs)"
+                        title={t('enterPanelAmbassadorTooltip')}
                       >
-                        {enteringId === r.id ? 'Entrando…' : '→ Panel'}
+                        {enteringId === r.id ? t('entering') : `→ ${t('btnPanel')}`}
                       </button>
                       <AffiliatePasswordButton codeId={r.id} ownerName={r.ownerName} />
                       <button
                         onClick={() => setDeleteTarget(r)}
                         className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-red-100 text-red-700 hover:bg-red-200 whitespace-nowrap"
-                        title="Eliminar este embajador (valida que no tenga tenants activos)"
+                        title={t('deleteAmbassadorTooltip')}
                       >
-                        🗑 Eliminar
+                        🗑 {t('btnDelete')}
                       </button>
                     </div>
                   </td>
@@ -2483,14 +2486,12 @@ function AmbassadorsTab() {
       </div>
       {deleteTarget && (
         <ConfirmDeleteModal
-          title={`Eliminar embajador "${deleteTarget.ownerName}"`}
+          title={t('deleteAmbassadorTitle', { name: deleteTarget.ownerName })}
           description={
             <>
-              ¿Deseas eliminar este registro? Si tiene tenants atribuidos en
-              estado <strong>activo o pagando</strong>,{' '}
-              <strong>no se podrá eliminar</strong> — recibirás un aviso con
-              la cantidad. Si tenía clientes cancelados queda desactivado
-              para preservar atribución histórica.
+              {t.rich('deleteAmbassadorDesc', {
+                strong: (chunks) => <strong>{chunks}</strong>,
+              })}
               <label className="mt-4 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[13px] text-amber-900 cursor-pointer">
                 <input
                   type="checkbox"
@@ -2499,16 +2500,14 @@ function AmbassadorsTab() {
                   onChange={(e) => setVoidComm(e.target.checked)}
                 />
                 <span>
-                  <strong>Anular comisiones y eliminar</strong> (cuenta creada
-                  o atribuida por error). Marca como rechazadas las comisiones{' '}
-                  <strong>no pagadas</strong> para que no sumen, y desactiva la
-                  cuenta aunque tenga tenants activos. Las comisiones ya pagadas
-                  se conservan para no romper la caja.
+                  {t.rich('voidCommissionsAndDelete', {
+                    strong: (chunks) => <strong>{chunks}</strong>,
+                  })}
                 </span>
               </label>
             </>
           }
-          confirmLabel={voidComm ? 'Anular y eliminar' : 'Eliminar'}
+          confirmLabel={voidComm ? t('btnVoidAndDelete') : t('btnDelete')}
           onConfirm={async () => {
             try {
               const res = await api<any>(
@@ -2517,17 +2516,17 @@ function AmbassadorsTab() {
               );
               toast(
                 res?.voided != null
-                  ? `Embajador "${deleteTarget.ownerName}" eliminado · ${res.voided} comisión(es) anulada(s)${res.preservedPaid ? `, ${res.preservedPaid} pagada(s) conservada(s)` : ''}`
+                  ? t('toastAmbassadorDeletedVoided', { name: deleteTarget.ownerName, voided: res.voided, preserved: res.preservedPaid ? t('preservedPaidExtra', { count: res.preservedPaid }) : '' })
                   : res?.mode === 'hard'
-                    ? `Embajador "${deleteTarget.ownerName}" eliminado`
-                    : `Embajador "${deleteTarget.ownerName}" desactivado (tenía historial)`,
+                    ? t('toastAmbassadorDeleted', { name: deleteTarget.ownerName })
+                    : t('toastAmbassadorDeactivated2', { name: deleteTarget.ownerName }),
                 'success',
               );
               setDeleteTarget(null);
               setVoidComm(false);
               reload();
             } catch (e: any) {
-              toast(e.message || 'No se pudo eliminar', 'error');
+              toast(e.message || t('errorCouldNotDelete'), 'error');
             }
           }}
           onClose={() => {
@@ -2538,18 +2537,20 @@ function AmbassadorsTab() {
       )}
       {reassignTarget && (
         <InfluencerPickerModal
-          title={`Cambiar influencer de "${reassignTarget.ownerName}"`}
+          title={t('reassignTitle', { name: reassignTarget.ownerName })}
           description={
             <>
-              Mueve este embajador a otro <strong>influencer parent</strong>.
-              Clientes y comisiones se preservan — solo cambia a quién
-              reporta. Las próximas comisiones indirectas (5%) van al nuevo
-              influencer; las históricas quedan donde están.
+              {t.rich('reassignDesc', {
+                strong: (chunks) => <strong>{chunks}</strong>,
+              })}
               {reassignTarget.parentName && (
                 <>
                   <br />
                   <span className="text-mute">
-                    Actualmente bajo: <strong>{reassignTarget.parentName}</strong>
+                    {t.rich('currentlyUnder', {
+                      name: reassignTarget.parentName,
+                      strong: (chunks) => <strong>{chunks}</strong>,
+                    })}
                   </span>
                 </>
               )}
@@ -2567,13 +2568,13 @@ function AmbassadorsTab() {
                 },
               );
               toast(
-                `${reassignTarget.ownerName} ahora reporta a ${newParent.ownerName}`,
+                t('toastNowReportsTo', { name: reassignTarget.ownerName, parent: newParent.ownerName }),
                 'success',
               );
               setReassignTarget(null);
               reload();
             } catch (e: any) {
-              toast(e.message || 'Error', 'error');
+              toast(e.message || t('errorGeneric'), 'error');
             }
           }}
         />
@@ -2606,6 +2607,7 @@ function VendorConfigModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations('admin_referrals');
   const [allowVendors, setAllowVendors] = useState<boolean>(
     !!embajador.allowVendors,
   );
@@ -2635,22 +2637,18 @@ function VendorConfigModal({
   }, [embajador.id]);
 
   async function promoteVendor(v: any) {
-    if (
-      !confirm(
-        `¿Promover al vendedor "${v.ownerName}" a INFLUENCER de la empresa?\n\nDeja de depender del embajador y obtiene panel /affiliate completo (puede crear sus propios embajadores). Mantiene su historial y comisiones.`,
-      )
-    )
+    if (!confirm(t('confirmPromoteVendor', { name: v.ownerName })))
       return;
     setPromoting(v.id);
     try {
       await api(`/referrals/ambassadors/${v.id}/promote-to-influencer`, {
         method: 'POST',
       });
-      toast(`${v.ownerName} ahora es influencer de la empresa`, 'success');
+      toast(t('toastNowCompanyInfluencer', { name: v.ownerName }), 'success');
       await loadVendors();
       onSaved();
     } catch (e: any) {
-      toast(e.message || 'No se pudo promover', 'error');
+      toast(e.message || t('errorCouldNotPromote'), 'error');
     } finally {
       setPromoting(null);
     }
@@ -2664,14 +2662,11 @@ function VendorConfigModal({
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (maxPct <= 0 || maxPct > 100) {
-      toast('La comisión máxima debe ser > 0 y <= 100', 'error');
+      toast(t('maxCommissionRange'), 'error');
       return;
     }
     if (ownPct > 0 && maxPct > ownPct) {
-      toast(
-        `La comisión máxima para vendedores no puede superar la comisión del embajador (${ownPct}%) — el vendedor cobra de ahí.`,
-        'error',
-      );
+      toast(t('maxCommissionExceedsOwn', { percent: ownPct }), 'error');
       return;
     }
     setBusy(true);
@@ -2683,10 +2678,10 @@ function VendorConfigModal({
           maxCommissionPercent: maxPct,
         }),
       });
-      toast(`Configuración actualizada para ${embajador.ownerName}`, 'success');
+      toast(t('toastConfigUpdatedFor', { name: embajador.ownerName }), 'success');
       onSaved();
     } catch (e: any) {
-      toast(e.message || 'Error al guardar', 'error');
+      toast(e.message || t('errorSaving'), 'error');
     } finally {
       setBusy(false);
     }
@@ -2698,18 +2693,17 @@ function VendorConfigModal({
         <div className="px-5 py-4 border-b border-line2 flex items-center justify-between">
           <div>
             <div className="font-semibold text-base">
-              Módulo vendedores · {embajador.ownerName}
+              {t('vendorModuleTitle', { name: embajador.ownerName })}
             </div>
             <div className="text-[11px] text-mute mt-0.5">
-              Permite al embajador armar su equipo y repartir parte de su
-              comisión.
+              {t('vendorModuleSubtitle')}
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
             className="text-mute hover:text-ink text-xl leading-none"
-            aria-label="Cerrar"
+            aria-label={t('btnClose')}
           >
             ×
           </button>
@@ -2724,17 +2718,16 @@ function VendorConfigModal({
             />
             <div className="flex-1">
               <div className="font-semibold text-sm">
-                Permitir vendedores
+                {t('allowVendors')}
               </div>
               <div className="text-[11px] text-mute leading-snug mt-0.5">
-                Habilita la página /affiliate/team del embajador para que
-                pueda crear y gestionar sus propios vendedores.
+                {t('allowVendorsHint')}
               </div>
             </div>
           </label>
 
           <div>
-            <label className="label">Comisión máxima %</label>
+            <label className="label">{t('maxCommissionPercent')}</label>
             <input
               className="input"
               type="number"
@@ -2746,13 +2739,14 @@ function VendorConfigModal({
               onChange={(e) => setMaxPct(Number(e.target.value) || 0)}
             />
             <div className="text-[11px] text-mute mt-1 leading-snug">
-              Tope que cada vendedor puede cobrar (individual por venta).
+              {t('maxCommissionHint')}
               {ownPct > 0 && (
                 <>
                   {' '}
-                  No puede superar la comisión del embajador (
-                  <strong>{ownPct}%</strong>), porque el vendedor cobra de su
-                  propia tajada.
+                  {t.rich('maxCommissionCannotExceed', {
+                    percent: ownPct,
+                    strong: (chunks) => <strong>{chunks}</strong>,
+                  })}
                 </>
               )}
             </div>
@@ -2760,18 +2754,17 @@ function VendorConfigModal({
 
           {activeCount > 0 && !allowVendors && (
             <div className="text-[11px] rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900 leading-snug">
-              ⚠ Este embajador tiene <strong>{activeCount}</strong>{' '}
-              vendedor(es) activo(s). Si desactivas el módulo, dejará de
-              poder administrarlos desde su panel — pero los vendedores y
-              sus comisiones históricas se preservan. Puedes re-activar el
-              módulo cuando quieras sin perder nada.
+              ⚠ {t.rich('activeVendorsWarning', {
+                count: activeCount,
+                strong: (chunks) => <strong>{chunks}</strong>,
+              })}
             </div>
           )}
 
           {vendors.length > 0 && (
             <div className="border-t border-line2 pt-3">
               <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
-                Vendedores · promover a influencer de la empresa
+                {t('vendorsPromoteHeader')}
               </div>
               <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
                 {vendors.map((v) => (
@@ -2783,12 +2776,12 @@ function VendorConfigModal({
                       <div className="text-sm font-medium truncate">
                         {v.ownerName}{' '}
                         <span className="text-[11px] text-mute">
-                          ({v.commissionPercent}% · {v.salesCount} ventas)
+                          ({t('percentSales', { percent: v.commissionPercent, sales: v.salesCount })})
                         </span>
                       </div>
                       <div className="text-[10px] text-mute font-mono">
                         {v.code}
-                        {!v.isActive && ' · inactivo'}
+                        {!v.isActive && ` · ${t('inactiveLower')}`}
                       </div>
                     </div>
                     <div className="shrink-0 flex items-center gap-1.5">
@@ -2798,9 +2791,9 @@ function VendorConfigModal({
                         onClick={() => promoteVendor(v)}
                         disabled={promoting === v.id}
                         className="text-[11px] px-2.5 py-1 rounded-md bg-amber-100 text-amber-800 font-semibold hover:bg-amber-200 transition disabled:opacity-50"
-                        title="Convertir este vendedor en influencer de la empresa (panel completo)"
+                        title={t('promoteVendorTooltip')}
                       >
-                        {promoting === v.id ? '…' : '↑ Influencer'}
+                        {promoting === v.id ? '…' : `↑ ${t('influencer')}`}
                       </button>
                     </div>
                   </div>
@@ -2816,14 +2809,14 @@ function VendorConfigModal({
               className="btn-ghost text-sm"
               disabled={busy}
             >
-              Cancelar
+              {t('btnCancel')}
             </button>
             <button
               type="submit"
               className="btn-primary text-sm"
               disabled={busy}
             >
-              {busy ? 'Guardando…' : 'Guardar'}
+              {busy ? t('saving') : t('save')}
             </button>
           </div>
         </form>
@@ -2845,6 +2838,7 @@ function InfluencerPickerModal({
   onClose: () => void;
   onPick: (influencer: { id: string; ownerName: string; code: string }) => void;
 }) {
+  const t = useTranslations('admin_referrals');
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -2882,17 +2876,17 @@ function InfluencerPickerModal({
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar influencer por nombre, código o email…"
+            placeholder={t('phSearchInfluencerPicker')}
             className="w-full px-3 py-2 text-sm rounded-md border border-line2 focus:outline-none focus:ring-2 focus:ring-violet-400"
             autoFocus
           />
         </div>
         <div className="flex-1 overflow-y-auto">
           {loading ? (
-            <div className="p-6 text-center text-mute text-sm">Cargando…</div>
+            <div className="p-6 text-center text-mute text-sm">{t('loading')}</div>
           ) : filtered.length === 0 ? (
             <div className="p-6 text-center text-mute text-sm">
-              {q ? 'Sin resultados' : 'No hay otros influencers disponibles'}
+              {q ? t('noResults') : t('noOtherInfluencers')}
             </div>
           ) : (
             <ul className="divide-y divide-line2">
@@ -2910,7 +2904,7 @@ function InfluencerPickerModal({
                         <div className="text-xs text-mute truncate">
                           {r.ownerEmail}
                           {r.campaignName && (
-                            <> · Campaña: <strong>{r.campaignName}</strong></>
+                            <> · {t('campaignLabel')}: <strong>{r.campaignName}</strong></>
                           )}
                         </div>
                       </div>
@@ -2930,7 +2924,7 @@ function InfluencerPickerModal({
             className="text-sm px-3 py-2 rounded-md hover:bg-bg2"
             disabled={busy}
           >
-            Cancelar
+            {t('btnCancel')}
           </button>
           <button
             disabled={!picked || busy}
@@ -2945,7 +2939,7 @@ function InfluencerPickerModal({
             }}
             className="btn-primary text-sm disabled:opacity-50"
           >
-            {busy ? 'Aplicando…' : picked ? `Asignar a ${picked.ownerName}` : 'Elige un influencer'}
+            {busy ? t('applying') : picked ? t('assignTo', { name: picked.ownerName }) : t('chooseInfluencer')}
           </button>
         </div>
       </div>
@@ -2964,19 +2958,20 @@ function SelfRegisterLinkButton({
   role: 'influencer' | 'ambassador';
   label: string;
 }) {
+  const t = useTranslations('admin_referrals');
   async function copy() {
     const origin =
       typeof window !== 'undefined' ? window.location.origin : '';
     const link = `${origin}/registro-afiliado?role=${role}`;
     try {
       await navigator.clipboard.writeText(link);
-      toast('Link de registro copiado · compártelo', 'success');
+      toast(t('toastRegisterLinkCopied'), 'success');
     } catch {
       toast(link, 'info');
     }
   }
   return (
-    <button onClick={copy} className="btn-primary text-sm whitespace-nowrap" title="Copiar link de autoregistro">
+    <button onClick={copy} className="btn-primary text-sm whitespace-nowrap" title={t('copySelfRegisterTooltip')}>
       {label}
     </button>
   );
@@ -3012,11 +3007,12 @@ function AffiliatePasswordFields({
   onPasswordChange: (v: string) => void;
   onConfirmChange: (v: string) => void;
 }) {
+  const t = useTranslations('admin_referrals');
   const mismatch = confirmPassword.length > 0 && confirmPassword !== password;
   return (
     <div className="mt-3 rounded-lg border border-line p-3 bg-bg2/40">
       <div className="flex items-center justify-between">
-        <label className="label mb-0">Contraseña de acceso</label>
+        <label className="label mb-0">{t('fieldAccessPassword')}</label>
         <button
           type="button"
           className="text-xs font-semibold text-brand hover:underline"
@@ -3026,12 +3022,11 @@ function AffiliatePasswordFields({
             onConfirmChange(p);
           }}
         >
-          Generar automática
+          {t('generateAuto')}
         </button>
       </div>
       <p className="text-[11px] text-mute leading-relaxed mt-0.5 mb-2">
-        Mínimo 8 caracteres. Si la dejas vacía, se enviará una invitación por
-        email para que el afiliado cree su propia contraseña.
+        {t('passwordFieldHint')}
       </p>
       <input
         className="input font-mono"
@@ -3040,7 +3035,7 @@ function AffiliatePasswordFields({
         onChange={(e) => onPasswordChange(e.target.value)}
         minLength={8}
         maxLength={64}
-        placeholder="Dejar vacío = invitación por email"
+        placeholder={t('phEmptyInvite')}
         autoComplete="new-password"
       />
       {password.length > 0 && (
@@ -3052,11 +3047,11 @@ function AffiliatePasswordFields({
             onChange={(e) => onConfirmChange(e.target.value)}
             minLength={8}
             maxLength={64}
-            placeholder="Confirmar contraseña"
+            placeholder={t('phConfirmPassword')}
             autoComplete="new-password"
           />
           {mismatch && (
-            <p className="text-[11px] text-bad-ink mt-1">Las contraseñas no coinciden</p>
+            <p className="text-[11px] text-bad-ink mt-1">{t('passwordsDoNotMatch')}</p>
           )}
         </>
       )}
@@ -3074,6 +3069,7 @@ function AffiliatePasswordButton({
   codeId: string;
   ownerName: string;
 }) {
+  const t = useTranslations('admin_referrals');
   const [open, setOpen] = useState(false);
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -3094,11 +3090,11 @@ function AffiliatePasswordButton({
   async function submit() {
     const pwd = password.trim();
     if (pwd.length < 8) {
-      toast('La contraseña debe tener al menos 8 caracteres', 'error');
+      toast(t('passwordMin8'), 'error');
       return;
     }
     if (pwd !== confirm.trim()) {
-      toast('Las contraseñas no coinciden', 'error');
+      toast(t('passwordsDoNotMatch'), 'error');
       return;
     }
     setBusy(true);
@@ -3112,9 +3108,9 @@ function AffiliatePasswordButton({
         body: JSON.stringify({ password: pwd }),
       });
       setDone(res ?? { email: '', password: pwd, loginUrl: '' });
-      toast('Contraseña actualizada', 'success');
+      toast(t('toastPasswordUpdated'), 'success');
     } catch (e: unknown) {
-      toast((e as Error)?.message || 'Error al cambiar contraseña', 'error');
+      toast((e as Error)?.message || t('errorChangingPassword'), 'error');
     } finally {
       setBusy(false);
     }
@@ -3129,9 +3125,9 @@ function AffiliatePasswordButton({
           setOpen(true);
         }}
         className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-sky-100 text-sky-700 hover:bg-sky-200 whitespace-nowrap"
-        title="Crear o cambiar la contraseña de acceso de este afiliado"
+        title={t('passwordButtonTooltip')}
       >
-        🔑 Contraseña
+        🔑 {t('btnPassword')}
       </button>
       {open && (
         <div
@@ -3142,11 +3138,11 @@ function AffiliatePasswordButton({
             className="bg-white rounded-xl w-full max-w-md p-5 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-lg font-bold mb-1">Contraseña de {ownerName}</h3>
+            <h3 className="text-lg font-bold mb-1">{t('passwordOf', { name: ownerName })}</h3>
             {done ? (
               <div className="mt-3 space-y-2 text-sm">
                 <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3">
-                  <div>✅ Contraseña actualizada. Compartí estas credenciales:</div>
+                  <div>✅ {t('passwordUpdatedShareCreds')}</div>
                   <div className="mt-2 font-mono text-xs break-all space-y-0.5">
                     <div>📧 {done.email}</div>
                     <div>🔑 {done.password}</div>
@@ -3159,15 +3155,14 @@ function AffiliatePasswordButton({
                     className="btn-primary text-sm"
                     onClick={() => setOpen(false)}
                   >
-                    Listo
+                    {t('btnDone')}
                   </button>
                 </div>
               </div>
             ) : (
               <>
                 <p className="text-xs text-mute">
-                  Crea o reemplaza la contraseña de acceso del afiliado al panel
-                  /affiliate. Mínimo 8 caracteres.
+                  {t('passwordModalHint')}
                 </p>
                 <AffiliatePasswordFields
                   password={password}
@@ -3182,7 +3177,7 @@ function AffiliatePasswordButton({
                     disabled={busy}
                     onClick={() => setOpen(false)}
                   >
-                    Cancelar
+                    {t('btnCancel')}
                   </button>
                   <button
                     type="button"
@@ -3190,7 +3185,7 @@ function AffiliatePasswordButton({
                     disabled={busy || password.trim().length < 8}
                     onClick={submit}
                   >
-                    {busy ? 'Guardando…' : 'Guardar contraseña'}
+                    {busy ? t('saving') : t('btnSavePassword')}
                   </button>
                 </div>
               </>
@@ -3210,6 +3205,7 @@ function CreateInfluencerModal({
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const t = useTranslations('admin_referrals');
   const [form, setForm] = useState({
     fullName: '',
     email: '',
@@ -3231,11 +3227,11 @@ function CreateInfluencerModal({
     const pwd = form.password.trim();
     if (pwd) {
       if (pwd.length < 8) {
-        toast('La contraseña debe tener al menos 8 caracteres', 'error');
+        toast(t('passwordMin8'), 'error');
         return;
       }
       if (pwd !== form.confirmPassword.trim()) {
-        toast('Las contraseñas no coinciden', 'error');
+        toast(t('passwordsDoNotMatch'), 'error');
         return;
       }
     }
@@ -3256,13 +3252,13 @@ function CreateInfluencerModal({
       if (res?.credentials) {
         // No cerramos: mostramos las credenciales una sola vez.
         setCredentials(res.credentials);
-        toast('Influencer creado · credenciales listas para compartir', 'success');
+        toast(t('toastInfluencerCreatedCreds'), 'success');
       } else {
-        toast('Influencer creado · invitación enviada por email', 'success');
+        toast(t('toastInfluencerCreatedInvite'), 'success');
         onCreated();
       }
     } catch (e: any) {
-      toast(e.message || 'No se pudo crear', 'error');
+      toast(e.message || t('errorCouldNotCreate'), 'error');
       setBusy(false);
     }
   }
@@ -3271,7 +3267,7 @@ function CreateInfluencerModal({
     return (
       <AffiliateCredentialsModal
         credentials={credentials}
-        whoLabel={`influencer ${form.fullName.trim()}`}
+        whoLabel={t('whoLabelInfluencer', { name: form.fullName.trim() })}
         whatsapp={form.whatsapp.trim()}
         onClose={() => {
           setCredentials(null);
@@ -3292,7 +3288,7 @@ function CreateInfluencerModal({
         className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl max-h-[90vh] overflow-y-auto"
       >
         <div className="flex items-start justify-between mb-1">
-          <h3 className="text-lg font-bold">🌟 Crear Influencer</h3>
+          <h3 className="text-lg font-bold">🌟 {t('btnCreateInfluencer')}</h3>
           <button
             type="button"
             onClick={onClose}
@@ -3302,11 +3298,12 @@ function CreateInfluencerModal({
           </button>
         </div>
         <p className="text-xs text-mute leading-relaxed mb-4">
-          El influencer puede traer negocios directo y tener embajadores/
-          vendedores debajo. Panel propio en <code>/affiliate</code>.
+          {t.rich('createInfluencerDesc', {
+            code: (chunks) => <code>{chunks}</code>,
+          })}
         </p>
 
-        <label className="label">Nombre completo</label>
+        <label className="label">{t('fieldFullName')}</label>
         <input
           className="input"
           value={form.fullName}
@@ -3315,7 +3312,7 @@ function CreateInfluencerModal({
           minLength={2}
         />
 
-        <label className="label mt-3">Email</label>
+        <label className="label mt-3">{t('fieldEmail')}</label>
         <input
           className="input"
           type="email"
@@ -3324,7 +3321,7 @@ function CreateInfluencerModal({
           required
         />
 
-        <label className="label mt-3">WhatsApp (con código país)</label>
+        <label className="label mt-3">{t('fieldWhatsappCountry')}</label>
         <input
           className="input"
           value={form.whatsapp}
@@ -3335,7 +3332,7 @@ function CreateInfluencerModal({
 
         <div className="grid grid-cols-2 gap-3 mt-3">
           <div>
-            <label className="label">Comisión %</label>
+            <label className="label">{t('fieldCommissionPercent')}</label>
             <input
               className="input"
               type="number"
@@ -3349,7 +3346,7 @@ function CreateInfluencerModal({
             />
           </div>
           <div>
-            <label className="label">Código custom (opcional)</label>
+            <label className="label">{t('fieldCustomCodeOptional')}</label>
             <input
               className="input font-mono uppercase"
               value={form.customCode}
@@ -3376,14 +3373,14 @@ function CreateInfluencerModal({
             className="btn-ghost text-sm"
             disabled={busy}
           >
-            Cancelar
+            {t('btnCancel')}
           </button>
           <button
             type="submit"
             disabled={busy}
             className="btn-primary text-sm disabled:opacity-50"
           >
-            {busy ? 'Creando…' : form.password.trim() ? 'Crear influencer' : 'Crear y enviar invitación'}
+            {busy ? t('creating') : form.password.trim() ? t('btnCreateInfluencerSubmit') : t('btnCreateAndInvite')}
           </button>
         </div>
       </form>
@@ -3398,6 +3395,7 @@ function CompanyDirectAmbassadorModal({
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const t = useTranslations('admin_referrals');
   const [form, setForm] = useState({
     fullName: '',
     email: '',
@@ -3419,11 +3417,11 @@ function CompanyDirectAmbassadorModal({
     const pwd = form.password.trim();
     if (pwd) {
       if (pwd.length < 8) {
-        toast('La contraseña debe tener al menos 8 caracteres', 'error');
+        toast(t('passwordMin8'), 'error');
         return;
       }
       if (pwd !== form.confirmPassword.trim()) {
-        toast('Las contraseñas no coinciden', 'error');
+        toast(t('passwordsDoNotMatch'), 'error');
         return;
       }
     }
@@ -3443,16 +3441,13 @@ function CompanyDirectAmbassadorModal({
       });
       if (res?.credentials) {
         setCredentials(res.credentials);
-        toast('Embajador creado · credenciales listas para compartir', 'success');
+        toast(t('toastAmbassadorCreatedCreds'), 'success');
       } else {
-        toast(
-          'Embajador Directo Empresa creado · invitación enviada por email',
-          'success',
-        );
+        toast(t('toastCompanyDirectCreatedInvite'), 'success');
         onCreated();
       }
     } catch (e: any) {
-      toast(e.message || 'No se pudo crear', 'error');
+      toast(e.message || t('errorCouldNotCreate'), 'error');
       setBusy(false);
     }
   }
@@ -3461,7 +3456,7 @@ function CompanyDirectAmbassadorModal({
     return (
       <AffiliateCredentialsModal
         credentials={credentials}
-        whoLabel={`embajador ${form.fullName.trim()}`}
+        whoLabel={t('whoLabelAmbassador', { name: form.fullName.trim() })}
         whatsapp={form.whatsapp.trim()}
         onClose={() => {
           setCredentials(null);
@@ -3482,7 +3477,7 @@ function CompanyDirectAmbassadorModal({
         className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl max-h-[90vh] overflow-y-auto"
       >
         <div className="flex items-start justify-between mb-1">
-          <h3 className="text-lg font-bold">🏢 Embajador Directo Empresa</h3>
+          <h3 className="text-lg font-bold">🏢 {t('companyDirectAmbassadorTitle')}</h3>
           <button
             type="button"
             onClick={onClose}
@@ -3492,12 +3487,12 @@ function CompanyDirectAmbassadorModal({
           </button>
         </div>
         <p className="text-xs text-mute leading-relaxed mb-4">
-          Reporta directo a Clubify (sin influencer parent). Mismo % de comisión
-          que un embajador normal; el 5% indirecto se queda con la empresa.
-          Panel propio en <code>/affiliate</code>.
+          {t.rich('companyDirectAmbassadorDesc', {
+            code: (chunks) => <code>{chunks}</code>,
+          })}
         </p>
 
-        <label className="label">Nombre completo</label>
+        <label className="label">{t('fieldFullName')}</label>
         <input
           className="input"
           value={form.fullName}
@@ -3506,7 +3501,7 @@ function CompanyDirectAmbassadorModal({
           minLength={2}
         />
 
-        <label className="label mt-3">Email</label>
+        <label className="label mt-3">{t('fieldEmail')}</label>
         <input
           className="input"
           type="email"
@@ -3515,7 +3510,7 @@ function CompanyDirectAmbassadorModal({
           required
         />
 
-        <label className="label mt-3">WhatsApp (con código país)</label>
+        <label className="label mt-3">{t('fieldWhatsappCountry')}</label>
         <input
           className="input"
           value={form.whatsapp}
@@ -3526,7 +3521,7 @@ function CompanyDirectAmbassadorModal({
 
         <div className="grid grid-cols-2 gap-3 mt-3">
           <div>
-            <label className="label">Comisión %</label>
+            <label className="label">{t('fieldCommissionPercent')}</label>
             <input
               className="input"
               type="number"
@@ -3540,7 +3535,7 @@ function CompanyDirectAmbassadorModal({
             />
           </div>
           <div>
-            <label className="label">Código custom (opcional)</label>
+            <label className="label">{t('fieldCustomCodeOptional')}</label>
             <input
               className="input font-mono uppercase"
               value={form.customCode}
@@ -3567,14 +3562,14 @@ function CompanyDirectAmbassadorModal({
             className="btn-ghost text-sm"
             disabled={busy}
           >
-            Cancelar
+            {t('btnCancel')}
           </button>
           <button
             type="submit"
             disabled={busy}
             className="btn-primary text-sm disabled:opacity-50"
           >
-            {busy ? 'Creando…' : form.password.trim() ? 'Crear embajador' : 'Crear y enviar invitación'}
+            {busy ? t('creating') : form.password.trim() ? t('btnCreateAmbassador') : t('btnCreateAndInvite')}
           </button>
         </div>
       </form>
@@ -3582,14 +3577,15 @@ function CompanyDirectAmbassadorModal({
   );
 }
 
-const CLIENT_STATUS: Record<string, { text: string; cls: string }> = {
-  SIGNED_UP: { text: 'Inscrito', cls: 'bg-bg2 text-mute' },
-  ACTIVE: { text: 'Activo', cls: 'bg-ok-soft text-ok' },
-  PAYING: { text: 'Pagando', cls: 'bg-ok-soft text-ok' },
-  CHURNED: { text: 'Canceló', cls: 'bg-red-100 text-red-800' },
+const CLIENT_STATUS: Record<string, { key: string; cls: string }> = {
+  SIGNED_UP: { key: 'clientStatusSignedUp', cls: 'bg-bg2 text-mute' },
+  ACTIVE: { key: 'clientStatusActive', cls: 'bg-ok-soft text-ok' },
+  PAYING: { key: 'clientStatusPaying', cls: 'bg-ok-soft text-ok' },
+  CHURNED: { key: 'clientStatusChurned', cls: 'bg-red-100 text-red-800' },
 };
 
 function ClientsTab() {
+  const t = useTranslations('admin_referrals');
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'active' | 'churned' | 'trial'>('all');
@@ -3623,7 +3619,7 @@ function ClientsTab() {
       r.attribution?.parentName,
       r.attribution?.parentCode,
       r.attribution?.role,
-      CLIENT_STATUS[r.status]?.text,
+      CLIENT_STATUS[r.status] ? t(CLIENT_STATUS[r.status].key) : '',
     ]
       .filter(Boolean)
       .join(' '),
@@ -3637,7 +3633,7 @@ function ClientsTab() {
         <SectionSearchBar
           value={query}
           onChange={setQuery}
-          placeholder="Buscar negocio…"
+          placeholder={t('phSearchBusiness')}
           resultCount={visible.length}
           totalCount={byStatus.length}
         />
@@ -3662,7 +3658,7 @@ function ClientsTab() {
                   : 'bg-white border-line text-mute hover:text-ink'
               }`}
             >
-              {f === 'all' ? 'Todos' : f === 'active' ? 'Activos' : f === 'trial' ? 'En trial' : 'Cancelados'}{' '}
+              {f === 'all' ? t('filterClientAll') : f === 'active' ? t('filterClientActive') : f === 'trial' ? t('filterClientTrial') : t('filterClientChurned')}{' '}
               ({count})
             </button>
           );
@@ -3674,7 +3670,7 @@ function ClientsTab() {
           <table className="w-full text-sm min-w-[920px]">
             <thead className="bg-bg2">
               <tr>
-                {['Negocio', 'Plan', 'Atribución', 'Tipo', 'Estado', 'Inscrito', 'Comisiones'].map(
+                {[t('colBusiness'), t('colPlan'), t('colAttribution'), t('colType'), t('colStatus'), t('colSignedUp'), t('colCommissions')].map(
                   (h) => (
                     <th
                       key={h}
@@ -3690,7 +3686,7 @@ function ClientsTab() {
               {visible.length === 0 && (
                 <tr>
                   <td colSpan={7} className="text-center py-12 text-mute">
-                    Sin negocios en este filtro
+                    {t('emptyNoBusinessesFilter')}
                   </td>
                 </tr>
               )}
@@ -3711,7 +3707,7 @@ function ClientsTab() {
                       <div className="text-mute font-mono">{r.attribution?.code ?? ''}</div>
                       {r.attribution?.parentCode && (
                         <div className="text-mute text-[10px] mt-0.5">
-                          via {r.attribution.parentName}
+                          {t('viaName', { name: r.attribution.parentName })}
                         </div>
                       )}
                     </td>
@@ -3722,7 +3718,7 @@ function ClientsTab() {
                     </td>
                     <td className="px-4 py-3">
                       <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${s.cls}`}>
-                        {s.text}
+                        {t(s.key)}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-xs text-mute">{fmtDate(r.signedUpAt)}</td>
@@ -3747,6 +3743,7 @@ function ClientsTab() {
 function CommissionsTab() {
   // Reusa /referrals/payouts pero sin filtro de status — muestra TODAS.
   // PayoutsTab ya filtra por defecto a APPROVED, este muestra el ledger completo.
+  const t = useTranslations('admin_referrals');
   const [data, setData] = useState<PayoutsResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
@@ -3783,7 +3780,7 @@ function CommissionsTab() {
       c.tenantBrand,
       c.notes,
       String(c.amount ?? ''),
-      PAYOUT_STATUS[c.status]?.text,
+      PAYOUT_STATUS[c.status] ? t(PAYOUT_STATUS[c.status].key) : '',
       c.status,
       c.createdAt ? fmtDate(c.createdAt) : '',
       c.paidAt ? fmtDate(c.paidAt) : '',
@@ -3798,17 +3795,17 @@ function CommissionsTab() {
   return (
     <div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-        <Kpi label="Disponible" value={fmtUsd(data.totals.availableUsd)} tone="ok" />
-        <Kpi label="En hold" value={fmtUsd(data.totals.pendingUsd)} />
-        <Kpi label="Pagado" value={fmtUsd(data.totals.paidUsd)} tone="brand" />
-        <Kpi label="Total registros" value={data.totals.count.toString()} />
+        <Kpi label={t('kpiAvailable')} value={fmtUsd(data.totals.availableUsd)} tone="ok" />
+        <Kpi label={t('kpiOnHold')} value={fmtUsd(data.totals.pendingUsd)} />
+        <Kpi label={t('kpiPaid')} value={fmtUsd(data.totals.paidUsd)} tone="brand" />
+        <Kpi label={t('kpiTotalRecords')} value={data.totals.count.toString()} />
       </div>
 
       {items.length > 0 && (
         <SectionSearchBar
           value={query}
           onChange={setQuery}
-          placeholder="Buscar comisión…"
+          placeholder={t('phSearchCommission')}
           resultCount={filtered.length}
           totalCount={byStatus.length}
         />
@@ -3818,10 +3815,10 @@ function CommissionsTab() {
         <div className="flex gap-1 mb-3 flex-wrap">
           {(
             [
-              { id: 'all', label: 'Todas' },
-              { id: 'pending', label: 'Pendiente' },
-              { id: 'paid', label: 'Pagada' },
-              { id: 'partial', label: 'Parcial' },
+              { id: 'all', label: t('chipAll') },
+              { id: 'pending', label: t('chipPending') },
+              { id: 'paid', label: t('chipPaid') },
+              { id: 'partial', label: t('chipPartial') },
             ] as const
           ).map((chip) => {
             const active = statusChip === chip.id;
@@ -3847,7 +3844,7 @@ function CommissionsTab() {
           <table className="w-full text-sm min-w-[820px]">
             <thead className="bg-bg2">
               <tr>
-                {['Beneficiario', 'Código', 'Cliente', 'Monto', 'Estado', 'Creada', 'Pagada'].map(
+                {[t('colBeneficiary'), t('colCode'), t('colClient'), t('colAmount'), t('colStatus'), t('colCreated'), t('colPaidDate')].map(
                   (h) => (
                     <th
                       key={h}
@@ -3863,7 +3860,7 @@ function CommissionsTab() {
               {items.length === 0 && (
                 <tr>
                   <td colSpan={7} className="text-center py-12 text-mute">
-                    Sin comisiones todavía
+                    {t('emptyNoCommissionsYet')}
                   </td>
                 </tr>
               )}
@@ -3871,7 +3868,7 @@ function CommissionsTab() {
                 <tr>
                   <td colSpan={7} className="text-center py-10 text-mute">
                     <div className="text-2xl mb-1">🔎</div>
-                    Sin comisiones que coincidan con los filtros
+                    {t('emptyNoCommissionsMatch')}
                   </td>
                 </tr>
               )}
@@ -3888,7 +3885,7 @@ function CommissionsTab() {
                     <td className="px-4 py-3 font-bold">{fmtUsd(c.amount)}</td>
                     <td className="px-4 py-3">
                       <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${s.cls}`}>
-                        {s.text}
+                        {t(s.key)}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-xs text-mute">{fmtDate(c.createdAt)}</td>
@@ -3924,6 +3921,7 @@ type ConfigResp = {
 };
 
 function ConfigTab() {
+  const t = useTranslations('admin_referrals');
   const [cfg, setCfg] = useState<ConfigResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -3967,9 +3965,9 @@ function ConfigTab() {
         }),
       });
       setCfg(updated);
-      toast('Configuración guardada', 'success');
+      toast(t('toastConfigSaved'), 'success');
     } catch (e: any) {
-      toast(e.message || 'Error', 'error');
+      toast(e.message || t('errorGeneric'), 'error');
     } finally {
       setSaving(false);
     }
@@ -3983,13 +3981,13 @@ function ConfigTab() {
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
       <div className="card card-pad space-y-4">
         <div>
-          <h3 className="font-semibold m-0 mb-1">Comisiones por defecto</h3>
+          <h3 className="font-semibold m-0 mb-1">{t('defaultCommissions')}</h3>
           <div className="text-xs text-mute mb-3">
-            Aplican cuando se crea un nuevo influencer/embajador sin un % específico.
+            {t('defaultCommissionsHint')}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label">Influencer directo</label>
+              <label className="label">{t('influencerDirect')}</label>
               <input
                 type="number"
                 min={0}
@@ -4002,7 +4000,7 @@ function ConfigTab() {
               />
             </div>
             <div>
-              <label className="label">Embajador</label>
+              <label className="label">{t('ambassador')}</label>
               <input
                 type="number"
                 min={0}
@@ -4016,7 +4014,7 @@ function ConfigTab() {
             </div>
           </div>
           <div className="mt-3">
-            <label className="label">Influencer indirecto (cuando lo usa un embajador)</label>
+            <label className="label">{t('influencerIndirect')}</label>
             <input
               type="number"
               min={0}
@@ -4031,10 +4029,9 @@ function ConfigTab() {
 
       <div className="card card-pad space-y-4">
         <div>
-          <h3 className="font-semibold m-0 mb-1">Socio global</h3>
+          <h3 className="font-semibold m-0 mb-1">{t('globalPartner')}</h3>
           <div className="text-xs text-mute mb-3">
-            El socio recibe el 10% de TODAS las ventas de Clubify, no depende
-            de qué código se use. Solo códigos con rol SOCIO aparecen aquí.
+            {t('globalPartnerHint')}
           </div>
           {socioOptions.length > 0 && (
             <select
@@ -4042,7 +4039,7 @@ function ConfigTab() {
               value={cfg.socioCodeId}
               onChange={(e) => setCfg({ ...cfg, socioCodeId: e.target.value })}
             >
-              <option value="">— Sin socio configurado —</option>
+              <option value="">{t('noPartnerConfigured')}</option>
               {socioOptions.map((r: any) => (
                 <option key={r.id} value={r.id}>
                   {r.ownerName} ({r.code}) — {Number(r.commissionPercent)}%
@@ -4054,10 +4051,10 @@ function ConfigTab() {
         </div>
 
         <div>
-          <h3 className="font-semibold m-0 mb-1">Pagos</h3>
+          <h3 className="font-semibold m-0 mb-1">{t('payments')}</h3>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label">Días de hold</label>
+              <label className="label">{t('holdDays')}</label>
               <input
                 type="number"
                 min={0}
@@ -4067,7 +4064,7 @@ function ConfigTab() {
               />
             </div>
             <div>
-              <label className="label">Mínimo para pagar (USD)</label>
+              <label className="label">{t('minPayoutUsd')}</label>
               <input
                 type="number"
                 min={0}
@@ -4082,21 +4079,20 @@ function ConfigTab() {
 
       <div className="card card-pad lg:col-span-2 space-y-3">
         <div>
-          <h3 className="font-semibold m-0 mb-1">👥 Embajadores (permisos)</h3>
+          <h3 className="font-semibold m-0 mb-1">👥 {t('ambassadorsPermissions')}</h3>
           <div className="text-xs text-mute mb-3">
-            Controla si los influencers pueden crear sus propios embajadores
-            desde su panel y si esos requieren aprobación tuya.
+            {t('ambassadorsPermissionsHint')}
           </div>
         </div>
         <NotifToggle
-          label="Permitir que influencers creen embajadores"
-          description="Cuando está activo, el influencer ve un botón '+ Embajador' en su panel."
+          label={t('allowInfluencersCreateAmbassadors')}
+          description={t('allowInfluencersCreateAmbassadorsDesc')}
           checked={cfg.allowInfluencerCreatesAmbassadors}
           onChange={(v) => setCfg({ ...cfg, allowInfluencerCreatesAmbassadors: v })}
         />
         <NotifToggle
-          label="Requerir aprobación manual de embajadores"
-          description="Los embajadores creados por influencers quedan pendientes hasta que los apruebes aquí."
+          label={t('requireAmbassadorApproval')}
+          description={t('requireAmbassadorApprovalDesc')}
           checked={cfg.requireAmbassadorApproval}
           onChange={(v) => setCfg({ ...cfg, requireAmbassadorApproval: v })}
         />
@@ -4105,43 +4101,42 @@ function ConfigTab() {
 
       <div className="card card-pad lg:col-span-2 space-y-3">
         <div>
-          <h3 className="font-semibold m-0 mb-1">🔔 Notificaciones automáticas</h3>
+          <h3 className="font-semibold m-0 mb-1">🔔 {t('autoNotifications')}</h3>
           <div className="text-xs text-mute mb-3">
-            Avisos por WhatsApp a la cadena de atribución (embajador →
-            influencer → admin) cuando un cliente referido falla un pago o
-            cancela. El admin recibe el aviso al WhatsApp configurado en
-            Settings (key <code className="bg-bg2 px-1 rounded">salesWhatsapp</code>).
+            {t.rich('autoNotificationsHint', {
+              code: (chunks) => <code className="bg-bg2 px-1 rounded">{chunks}</code>,
+            })}
           </div>
         </div>
         <NotifToggle
-          label="Pago fallido"
-          description="Hotmart reportó pago atrasado, billete pendiente o protesto."
+          label={t('notifyPaymentFailed')}
+          description={t('notifyPaymentFailedDesc')}
           checked={cfg.notifyPaymentFailed}
           onChange={(v) => setCfg({ ...cfg, notifyPaymentFailed: v })}
         />
         <NotifToggle
-          label="Cliente canceló o reembolso"
-          description="Cuando un cliente referido se da de baja, refund o chargeback."
+          label={t('notifyChurn')}
+          description={t('notifyChurnDesc')}
           checked={cfg.notifyChurn}
           onChange={(v) => setCfg({ ...cfg, notifyChurn: v })}
         />
         <div className="pt-2 border-t border-line">
-          <label className="label">Canal de envío</label>
+          <label className="label">{t('sendChannel')}</label>
           <select
             className="input"
             value={cfg.notifyChannel}
             onChange={(e) => setCfg({ ...cfg, notifyChannel: e.target.value as any })}
           >
-            <option value="SMS">📱 Solo SMS / WhatsApp</option>
-            <option value="EMAIL">📧 Solo email</option>
-            <option value="BOTH">📱 + 📧 Ambos</option>
+            <option value="SMS">📱 {t('channelSmsOnly')}</option>
+            <option value="EMAIL">📧 {t('channelEmailOnly')}</option>
+            <option value="BOTH">📱 + 📧 {t('channelBoth')}</option>
           </select>
         </div>
       </div>
 
       <div className="lg:col-span-2 flex justify-end">
         <button onClick={save} disabled={saving} className="btn-primary">
-          {saving ? 'Guardando…' : 'Guardar configuración'}
+          {saving ? t('saving') : t('btnSaveConfig')}
         </button>
       </div>
     </div>
@@ -4159,6 +4154,7 @@ function NotifToggle({
   checked: boolean;
   onChange: (v: boolean) => void;
 }) {
+  const t = useTranslations('admin_referrals');
   return (
     <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-bg2/40">
       <div className="min-w-0">
@@ -4171,7 +4167,7 @@ function NotifToggle({
         className={`relative w-10 h-5 rounded-full transition shrink-0 ${
           checked ? 'bg-brand' : 'bg-bg2 border border-line'
         }`}
-        aria-label={`Toggle ${label}`}
+        aria-label={t('toggleAria', { label })}
       >
         <span
           className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition ${
@@ -4184,6 +4180,7 @@ function NotifToggle({
 }
 
 function PendingAmbassadorsList() {
+  const t = useTranslations('admin_referrals');
   const [pending, setPending] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -4201,13 +4198,13 @@ function PendingAmbassadorsList() {
 
   async function approve(id: string) {
     await api(`/referrals/ambassadors/${id}/approve`, { method: 'POST' });
-    toast('Embajador aprobado', 'success');
+    toast(t('toastAmbassadorApproved'), 'success');
     load();
   }
   async function reject(id: string) {
-    if (!confirm('¿Rechazar este embajador? Quedará desactivado.')) return;
+    if (!confirm(t('confirmRejectAmbassador'))) return;
     await api(`/referrals/ambassadors/${id}/reject`, { method: 'POST' });
-    toast('Embajador rechazado', 'success');
+    toast(t('toastAmbassadorRejected'), 'success');
     load();
   }
 
@@ -4217,7 +4214,7 @@ function PendingAmbassadorsList() {
   return (
     <div className="border-t border-line pt-3 mt-2">
       <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
-        Pendientes de aprobación ({pending.length})
+        {t('pendingApprovalCount', { count: pending.length })}
       </div>
       <div className="space-y-2">
         {pending.map((p) => (
@@ -4233,16 +4230,16 @@ function PendingAmbassadorsList() {
               </div>
               {p.parentCode && (
                 <div className="text-[11px] text-mute mt-0.5">
-                  Creado por {p.parentCode.ownerName} ({p.parentCode.code})
+                  {t('createdBy', { name: p.parentCode.ownerName, code: p.parentCode.code })}
                 </div>
               )}
             </div>
             <div className="flex gap-1 shrink-0">
               <button onClick={() => approve(p.id)} className="text-xs text-ok hover:underline">
-                ✓ Aprobar
+                ✓ {t('btnApprove')}
               </button>
               <button onClick={() => reject(p.id)} className="text-xs text-bad hover:underline">
-                Rechazar
+                {t('btnReject')}
               </button>
             </div>
           </div>
@@ -4253,6 +4250,7 @@ function PendingAmbassadorsList() {
 }
 
 function SocioInviteForm({ onCreated }: { onCreated: () => void }) {
+  const t = useTranslations('admin_referrals');
   const [show, setShow] = useState(false);
   const [form, setForm] = useState({
     fullName: '',
@@ -4271,12 +4269,12 @@ function SocioInviteForm({ onCreated }: { onCreated: () => void }) {
         method: 'POST',
         body: JSON.stringify(form),
       });
-      toast('Socio creado e invitado por email', 'success');
+      toast(t('toastPartnerCreated'), 'success');
       setForm({ fullName: '', email: '', whatsapp: '', commissionPercent: 10, customCode: '' });
       setShow(false);
       onCreated();
     } catch (e: any) {
-      toast(e.message || 'Error', 'error');
+      toast(e.message || t('errorGeneric'), 'error');
     } finally {
       setBusy(false);
     }
@@ -4286,14 +4284,14 @@ function SocioInviteForm({ onCreated }: { onCreated: () => void }) {
     <div>
       {!show ? (
         <button onClick={() => setShow(true)} className="btn-ghost text-xs w-full">
-          + Crear / invitar socio nuevo
+          + {t('btnCreateInvitePartner')}
         </button>
       ) : (
         <form onSubmit={submit} className="border border-line rounded-lg p-3 space-y-2 bg-bg2/30">
           <div className="grid grid-cols-2 gap-2">
             <input
               className="input"
-              placeholder="Nombre completo"
+              placeholder={t('phFullName')}
               required
               value={form.fullName}
               onChange={(e) => setForm({ ...form, fullName: e.target.value })}
@@ -4301,7 +4299,7 @@ function SocioInviteForm({ onCreated }: { onCreated: () => void }) {
             <input
               className="input"
               type="email"
-              placeholder="Email"
+              placeholder={t('phEmail')}
               required
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
@@ -4310,7 +4308,7 @@ function SocioInviteForm({ onCreated }: { onCreated: () => void }) {
           <div className="grid grid-cols-3 gap-2">
             <input
               className="input"
-              placeholder="WhatsApp"
+              placeholder={t('phWhatsapp')}
               required
               value={form.whatsapp}
               onChange={(e) => setForm({ ...form, whatsapp: e.target.value })}
@@ -4320,23 +4318,23 @@ function SocioInviteForm({ onCreated }: { onCreated: () => void }) {
               min={0}
               max={100}
               className="input"
-              placeholder="% global"
+              placeholder={t('phGlobalPercent')}
               value={form.commissionPercent}
               onChange={(e) => setForm({ ...form, commissionPercent: Number(e.target.value) })}
             />
             <input
               className="input"
-              placeholder="Código (opcional)"
+              placeholder={t('phCodeOptional')}
               value={form.customCode}
               onChange={(e) => setForm({ ...form, customCode: e.target.value.toUpperCase() })}
             />
           </div>
           <div className="flex gap-2">
             <button type="button" onClick={() => setShow(false)} className="btn-ghost text-xs flex-1">
-              Cancelar
+              {t('btnCancel')}
             </button>
             <button type="submit" disabled={busy} className="btn-primary text-xs flex-1">
-              {busy ? 'Creando…' : 'Crear y enviar invite'}
+              {busy ? t('creating') : t('btnCreateSendInvite')}
             </button>
           </div>
         </form>

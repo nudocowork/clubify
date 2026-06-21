@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { QRCodeSVG } from 'qrcode.react';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
@@ -94,14 +95,15 @@ type Pass = {
   customer: { id: string; fullName: string };
 };
 
-const STATUS_LABEL: Record<string, string> = {
-  ACTIVE: 'Activa',
-  COMPLETED: 'Completada',
-  EXPIRED: 'Expirada',
-  REVOKED: 'Revocada',
+const STATUS_LABEL_KEY: Record<string, string> = {
+  ACTIVE: 'statusActive',
+  COMPLETED: 'statusCompleted',
+  EXPIRED: 'statusExpired',
+  REVOKED: 'statusRevoked',
 };
 
 export default function CardDetail() {
+  const t = useTranslations('app_cards_id');
   const { id } = useParams<{ id: string }>();
   const [card, setCard] = useState<Card | null>(null);
   const [tenant, setTenant] = useState<TenantInfo | null>(null);
@@ -124,7 +126,7 @@ export default function CardDetail() {
       setAllPasses(ps);
       setTenant(t);
     } catch (e: any) {
-      toast(e.message || 'Error cargando tarjeta', 'error');
+      toast(e.message || t('loadError'), 'error');
     }
   }
   useEffect(() => {
@@ -139,10 +141,10 @@ export default function CardDetail() {
         body: JSON.stringify({ cardId: id, customerId }),
       });
       setIssuedPass(p);
-      toast('Pase emitido', 'success');
+      toast(t('passIssued'), 'success');
       load();
     } catch (e: any) {
-      toast(e.message || 'No se pudo emitir el pase', 'error');
+      toast(e.message || t('passIssueFailed'), 'error');
     } finally {
       setIssuing(false);
     }
@@ -152,8 +154,8 @@ export default function CardDetail() {
     if (!issuedPass) return;
     const url = `${window.location.origin}/w/${issuedPass.id}`;
     navigator.clipboard.writeText(url).then(
-      () => toast('Link copiado', 'success'),
-      () => toast('No se pudo copiar', 'error'),
+      () => toast(t('linkCopied'), 'success'),
+      () => toast(t('copyFailed'), 'error'),
     );
   }
 
@@ -182,13 +184,13 @@ export default function CardDetail() {
     const payload: Record<string, unknown> = { passId, action, amount };
     if (action === 'STAMP') {
       const raw = window.prompt(
-        'Monto de la compra (en $) para registrar el sello:',
+        t('stampPurchasePrompt'),
         '',
       );
       if (raw === null) return; // cancelado
       const purchaseAmount = Number(raw.replace(',', '.'));
       if (!Number.isFinite(purchaseAmount) || purchaseAmount <= 0) {
-        toast('Monto inválido — debe ser un número mayor a 0', 'error');
+        toast(t('invalidAmount'), 'error');
         return;
       }
       payload.purchaseAmount = purchaseAmount;
@@ -199,10 +201,10 @@ export default function CardDetail() {
         method: 'POST',
         body: JSON.stringify(payload),
       });
-      toast(action === 'STAMP' ? '+1 sello' : '−1 sello', 'success');
+      toast(action === 'STAMP' ? t('stampPlusOne') : t('stampMinusOne'), 'success');
       load();
     } catch (e: any) {
-      toast(e.message || 'No se pudo actualizar', 'error');
+      toast(e.message || t('updateFailed'), 'error');
     } finally {
       setStampingPassId(null);
     }
@@ -235,7 +237,7 @@ export default function CardDetail() {
       });
   }, [customers, issuedCustomerIds, search]);
 
-  if (!card) return <div className="text-mute">Cargando…</div>;
+  if (!card) return <div className="text-mute">{t('loading')}</div>;
   const required = card.stampsRequired ?? 10;
 
   return (
@@ -243,7 +245,7 @@ export default function CardDetail() {
       <div className="page-head">
         <h1 className="page-title">
           <Link href="/app/cards" className="text-mute hover:text-ink">
-            Tarjetas
+            {t('cards')}
           </Link>{' '}
           <span className="page-crumb">/ {card.name}</span>
         </h1>
@@ -251,15 +253,15 @@ export default function CardDetail() {
           <span
             className={`badge ${card.isActive ? 'badge-ok' : 'badge-mute'}`}
           >
-            {card.isActive ? 'Activa' : 'Pausada'}
+            {card.isActive ? t('statusActive') : t('statusPaused')}
           </span>
           <button
             type="button"
             onClick={() => setEditing(true)}
             className="btn"
-            title="Editar nombre, descripción, recompensa, etc."
+            title={t('editTitle')}
           >
-            <Icon name="edit" /> Editar
+            <Icon name="edit" /> {t('edit')}
           </button>
           <ToggleActiveButton card={card} onChange={load} />
         </div>
@@ -268,10 +270,10 @@ export default function CardDetail() {
       {/* Tabs */}
       <div className="flex items-center gap-1 mb-5 border-b border-line">
         <TabBtn active={activeTab === 'detail'} onClick={() => setActiveTab('detail')}>
-          📋 Detalle
+          📋 {t('tabDetail')}
         </TabBtn>
         <TabBtn active={activeTab === 'analytics'} onClick={() => setActiveTab('analytics')}>
-          📊 Analytics
+          📊 {t('tabAnalytics')}
         </TabBtn>
       </div>
 
@@ -281,10 +283,10 @@ export default function CardDetail() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-        <Kpi label="Pases emitidos" value={stats.total} />
-        <Kpi label="Activos" value={stats.active} accent="brand" />
-        <Kpi label="Completados" value={stats.completed} accent="ok" />
-        <Kpi label="Sellos totales" value={stats.stampsTotal} accent="amber" />
+        <Kpi label={t('kpiPassesIssued')} value={stats.total} />
+        <Kpi label={t('kpiActive')} value={stats.active} accent="brand" />
+        <Kpi label={t('kpiCompleted')} value={stats.completed} accent="ok" />
+        <Kpi label={t('kpiTotalStamps')} value={stats.stampsTotal} accent="amber" />
       </div>
 
       <EnrollLinkCard cardId={String(id)} cardName={card.name} />
@@ -298,7 +300,7 @@ export default function CardDetail() {
                 tenant?.brandName ||
                 card.businessName ||
                 card.name.split('—')[0].trim() ||
-                'Tu marca'
+                t('yourBrand')
               }
               brandLogoUrl={tenant?.walletLogoUrl ?? tenant?.logoUrl ?? null}
               primaryColor={card.primaryColor}
@@ -326,7 +328,7 @@ export default function CardDetail() {
           {card.terms && (
             <div className="card card-pad text-xs text-mute leading-relaxed">
               <div className="text-[10px] uppercase tracking-wider font-semibold text-ink mb-2">
-                Términos y condiciones
+                {t('termsAndConditions')}
               </div>
               {card.terms}
             </div>
@@ -335,14 +337,14 @@ export default function CardDetail() {
           {/* Pases recientes — con buscador y +/- sellos */}
           <div className="card card-pad">
             <div className="font-semibold mb-2 text-sm">
-              Pases ({passesOfCard.length})
+              {t('passesCount', { count: passesOfCard.length })}
             </div>
             {passesOfCard.length > 0 && (
               <div className="flex items-center gap-2 bg-white border border-line rounded-pill px-3 py-1.5 mb-2.5">
                 <Icon name="search" size={14} className="text-mute" />
                 <input
                   className="border-0 outline-none text-sm flex-1 bg-transparent"
-                  placeholder="Buscar cliente…"
+                  placeholder={t('searchCustomer')}
                   value={passSearch}
                   onChange={(e) => setPassSearch(e.target.value)}
                 />
@@ -350,7 +352,7 @@ export default function CardDetail() {
             )}
             {passesOfCard.length === 0 ? (
               <div className="text-xs text-mute italic py-3 text-center">
-                Aún no se ha emitido ninguno.
+                {t('noPassesIssued')}
               </div>
             ) : (
               <div className="space-y-1.5 max-h-80 overflow-auto">
@@ -382,7 +384,7 @@ export default function CardDetail() {
                             onClick={() => changeStamps(p.id, 'REFUND', 1)}
                             disabled={busyRow || p.stampsCount <= 0}
                             className="w-7 h-7 rounded-full border border-line text-mute hover:text-bad hover:border-bad disabled:opacity-30"
-                            title="Quitar 1 sello"
+                            title={t('removeStampTitle')}
                           >
                             −
                           </button>
@@ -391,7 +393,7 @@ export default function CardDetail() {
                             onClick={() => changeStamps(p.id, 'STAMP', 1)}
                             disabled={busyRow}
                             className="w-7 h-7 rounded-full bg-ok text-white hover:bg-ok/90 disabled:opacity-50"
-                            title="Sumar 1 sello"
+                            title={t('addStampTitle')}
                           >
                             +
                           </button>
@@ -406,14 +408,14 @@ export default function CardDetail() {
                             : 'badge-mute'
                         }`}
                       >
-                        {STATUS_LABEL[p.status] ?? p.status}
+                        {STATUS_LABEL_KEY[p.status] ? t(STATUS_LABEL_KEY[p.status]) : p.status}
                       </span>
                     </div>
                   );
                 })}
                 {filteredPasses.length === 0 && passSearch && (
                   <div className="text-xs text-mute italic py-3 text-center">
-                    Sin resultados para "{passSearch}"
+                    {t('noResultsFor', { query: passSearch })}
                   </div>
                 )}
               </div>
@@ -423,17 +425,16 @@ export default function CardDetail() {
 
         {/* Emitir pase */}
         <div className="card card-pad">
-          <h2 className="text-base font-semibold m-0">Emitir nuevo pase</h2>
+          <h2 className="text-base font-semibold m-0">{t('issueNewPass')}</h2>
           <p className="text-sm text-mute mt-1">
-            Selecciona un cliente para emitirle esta tarjeta. Los que ya la
-            tienen no aparecen.
+            {t('issueNewPassHelp')}
           </p>
 
           <div className="mt-3 flex items-center gap-2 bg-white border border-line rounded-pill px-3 py-1.5">
             <Icon name="search" size={14} className="text-mute" />
             <input
               className="border-0 outline-none text-sm flex-1 bg-transparent"
-              placeholder="Buscar cliente…"
+              placeholder={t('searchCustomer')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -451,17 +452,17 @@ export default function CardDetail() {
             {filteredCustomers.length === 0 && (
               <div className="p-6 text-sm text-center text-mute">
                 {customers.length === 0 ? (
-                  <>
-                    No tienes clientes aún.{' '}
-                    <Link className="text-brand hover:underline" href="/app/customers">
-                      Crea uno
-                    </Link>
-                    .
-                  </>
+                  t.rich('noCustomersYet', {
+                    link: (chunks) => (
+                      <Link className="text-brand hover:underline" href="/app/customers">
+                        {chunks}
+                      </Link>
+                    ),
+                  })
                 ) : search ? (
-                  `Sin resultados para "${search}"`
+                  t('noResultsFor', { query: search })
                 ) : (
-                  'Todos los clientes ya tienen esta tarjeta. 🎉'
+                  t('allCustomersHaveCard')
                 )}
               </div>
             )}
@@ -481,7 +482,7 @@ export default function CardDetail() {
                   </span>
                 </span>
                 <span className="text-brand text-xs font-medium ml-2 whitespace-nowrap">
-                  Emitir →
+                  {t('issueArrow')}
                 </span>
               </button>
             ))}
@@ -490,10 +491,10 @@ export default function CardDetail() {
           {issuedPass && (
             <div className="mt-5 rounded-lg bg-ok-soft px-4 py-3 text-sm">
               <div className="flex items-center gap-2 font-semibold text-ok-ink">
-                <Icon name="check" /> Pase emitido a {issuedPass.customer?.fullName ?? 'cliente'}
+                <Icon name="check" /> {t('passIssuedTo', { name: issuedPass.customer?.fullName ?? t('customerFallback') })}
               </div>
               <div className="mt-2 text-ok-ink text-xs">
-                Comparte este link por WhatsApp para que lo guarden en su Wallet:
+                {t('shareLinkHelp')}
               </div>
               <div className="mt-2 flex items-center gap-2">
                 <code className="flex-1 text-[11px] bg-white/60 px-2 py-1.5 rounded truncate">
@@ -503,14 +504,14 @@ export default function CardDetail() {
                   onClick={copyLink}
                   className="btn-ghost text-xs whitespace-nowrap"
                 >
-                  Copiar
+                  {t('copy')}
                 </button>
                 <a
                   href={`/w/${issuedPass.id}`}
                   target="_blank"
                   className="btn-primary text-xs whitespace-nowrap"
                 >
-                  Abrir
+                  {t('open')}
                 </a>
               </div>
             </div>
@@ -565,6 +566,7 @@ function Kpi({
 // ============================================================
 
 function EnrollLinkCard({ cardId, cardName }: { cardId: string; cardName: string }) {
+  const t = useTranslations('app_cards_id');
   const [appUrl, setAppUrl] = useState('');
   useEffect(() => {
     if (typeof window !== 'undefined') setAppUrl(window.location.origin);
@@ -574,8 +576,8 @@ function EnrollLinkCard({ cardId, cardName }: { cardId: string; cardName: string
   function copy() {
     if (!enrollUrl || typeof navigator === 'undefined') return;
     navigator.clipboard.writeText(enrollUrl).then(
-      () => toast('Link copiado', 'success'),
-      () => toast('No se pudo copiar', 'error'),
+      () => toast(t('linkCopied'), 'success'),
+      () => toast(t('copyFailed'), 'error'),
     );
   }
 
@@ -625,10 +627,10 @@ function EnrollLinkCard({ cardId, cardName }: { cardId: string; cardName: string
         </div>
         <div className="min-w-0 flex-1 text-center sm:text-left">
           <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-1">
-            QR de inscripción
+            {t('enrollQr')}
           </div>
           <h3 className="font-semibold text-sm sm:text-base text-ink leading-snug">
-            Link para que los clientes obtengan esta tarjeta
+            {t('enrollLinkTitle')}
           </h3>
           <div className="mt-3 flex items-center gap-2 bg-bg2 border border-line rounded-input px-3 py-2 text-[11px] sm:text-xs font-mono text-mute overflow-hidden">
             <span className="truncate flex-1 text-left" title={enrollUrl}>
@@ -640,13 +642,13 @@ function EnrollLinkCard({ cardId, cardName }: { cardId: string; cardName: string
               onClick={copy}
               className="btn-ghost text-xs justify-center px-2"
             >
-              Copiar
+              {t('copy')}
             </button>
             <button
               onClick={downloadQR}
               className="btn-ghost text-xs justify-center px-2"
             >
-              QR PNG
+              {t('qrPng')}
             </button>
             <a
               href={enrollUrl}
@@ -654,7 +656,7 @@ function EnrollLinkCard({ cardId, cardName }: { cardId: string; cardName: string
               rel="noreferrer"
               className="btn-ghost text-xs justify-center px-2"
             >
-              Previa
+              {t('preview')}
             </a>
           </div>
         </div>
@@ -670,14 +672,13 @@ function ToggleActiveButton({
   card: { id: string; isActive: boolean; name: string };
   onChange: () => void;
 }) {
+  const t = useTranslations('app_cards_id');
   const [busy, setBusy] = useState(false);
   async function toggle() {
     const next = !card.isActive;
     if (
       !next &&
-      !confirm(
-        `Pausar "${card.name}": deja de aparecer en el storefront público y los clientes no podrán inscribirse a nuevas tarjetas. Los pases existentes siguen activos. ¿Continuar?`,
-      )
+      !confirm(t('pauseConfirm', { name: card.name }))
     ) {
       return;
     }
@@ -687,10 +688,10 @@ function ToggleActiveButton({
         method: 'PATCH',
         body: JSON.stringify({ isActive: next }),
       });
-      toast(next ? 'Tarjeta activada' : 'Tarjeta pausada', 'success');
+      toast(next ? t('cardActivated') : t('cardPaused'), 'success');
       onChange();
     } catch (e: any) {
-      toast(e.message || 'Error', 'error');
+      toast(e.message || t('genericError'), 'error');
     } finally {
       setBusy(false);
     }
@@ -702,7 +703,7 @@ function ToggleActiveButton({
       disabled={busy}
       className={card.isActive ? 'btn' : 'btn-primary'}
     >
-      {busy ? '…' : card.isActive ? '⏸ Pausar' : '▶ Activar'}
+      {busy ? '…' : card.isActive ? t('pauseBtn') : t('activateBtn')}
     </button>
   );
 }
@@ -716,6 +717,7 @@ function EditCardModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations('app_cards_id');
   const [form, setForm] = useState({
     name: card.name,
     // #24 (2026-06-16): nombre de marca mostrado en el pase (independiente del
@@ -820,10 +822,10 @@ function EditCardModal({
         method: 'PATCH',
         body: JSON.stringify(payload),
       });
-      toast('Tarjeta actualizada', 'success');
+      toast(t('cardUpdated'), 'success');
       onSaved();
     } catch (e: any) {
-      setErr(e.message || 'No se pudo guardar');
+      setErr(e.message || t('saveFailed'));
     } finally {
       setBusy(false);
     }
@@ -868,7 +870,7 @@ function EditCardModal({
         className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-auto p-5"
       >
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold m-0">Editar tarjeta</h2>
+          <h2 className="text-lg font-semibold m-0">{t('editCard')}</h2>
           <button type="button" onClick={onClose} className="text-mute hover:text-ink text-xl leading-none">
             ×
           </button>
@@ -876,7 +878,7 @@ function EditCardModal({
 
         <div className="space-y-3">
           <div>
-            <label className="label">Nombre</label>
+            <label className="label">{t('labelName')}</label>
             <input
               className="input"
               value={form.name}
@@ -889,25 +891,24 @@ function EditCardModal({
               nombre del negocio (que se mantiene para el dashboard). */}
           <div>
             <label className="label">
-              Nombre en la tarjeta (wallet)
-              <span className="text-mute font-normal ml-1">(opcional)</span>
+              {t('labelWalletBrandName')}
+              <span className="text-mute font-normal ml-1">{t('optional')}</span>
             </label>
             <input
               className="input"
               value={form.walletBrandName}
               onChange={(e) => setForm({ ...form, walletBrandName: e.target.value })}
-              placeholder="Si lo dejas vacío, usa el nombre del negocio"
+              placeholder={t('walletBrandNamePlaceholder')}
             />
             <p className="text-[11px] text-mute mt-1">
-              Es la marca que aparece en el pase de Apple/Google Wallet. El
-              nombre del negocio del dashboard no cambia.
+              {t('walletBrandNameHelp')}
             </p>
           </div>
 
           <div>
             <label className="label">
-              Sede / Ubicación
-              <span className="text-mute font-normal ml-1">(opcional)</span>
+              {t('labelLocation')}
+              <span className="text-mute font-normal ml-1">{t('optional')}</span>
             </label>
             <select
               className="input"
@@ -916,7 +917,7 @@ function EditCardModal({
                 setForm({ ...form, locationId: e.target.value || null })
               }
             >
-              <option value="">Todas las sedes</option>
+              <option value="">{t('allLocations')}</option>
               {locations.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.name}
@@ -926,16 +927,16 @@ function EditCardModal({
           </div>
 
           <div>
-            <label className="label">Descripción</label>
+            <label className="label">{t('labelDescription')}</label>
             <textarea
               className="input min-h-[80px]"
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
-              placeholder="Texto interno o explicativo de la tarjeta"
+              placeholder={t('descriptionPlaceholder')}
             />
           </div>
           <div>
-            <label className="label">Recompensa</label>
+            <label className="label">{t('labelReward')}</label>
             <input
               className="input"
               value={form.rewardText}
@@ -946,7 +947,7 @@ function EditCardModal({
           {card.type === 'STAMPS' && (
             <>
               <div>
-                <label className="label">Sellos requeridos</label>
+                <label className="label">{t('labelStampsRequired')}</label>
                 <input
                   type="number"
                   min={1}
@@ -960,14 +961,14 @@ function EditCardModal({
               </div>
               <div>
                 <label className="label">
-                  Monto mínimo por sello
-                  <span className="text-mute font-normal ml-1">(opcional)</span>
+                  {t('labelMinAmountPerStamp')}
+                  <span className="text-mute font-normal ml-1">{t('optional')}</span>
                 </label>
                 <input
                   type="number"
                   min={0}
                   step={1000}
-                  placeholder="Vacío = sin mínimo"
+                  placeholder={t('minAmountPlaceholder')}
                   className="input max-w-[200px]"
                   value={form.minAmountPerStamp ?? ''}
                   onChange={(e) => {
@@ -979,12 +980,11 @@ function EditCardModal({
                   }}
                 />
                 <div className="text-[11px] text-mute mt-1">
-                  El scanner solo otorga sello si la compra es mayor o igual
-                  a este monto.
+                  {t('minAmountHelp')}
                 </div>
               </div>
               <div>
-                <label className="label">Icono del sello</label>
+                <label className="label">{t('labelStampIcon')}</label>
                 <StampIconPicker
                   value={form.stampIcon}
                   onSelect={(icon) => setForm({ ...form, stampIcon: icon })}
@@ -992,12 +992,10 @@ function EditCardModal({
               </div>
               <div>
                 <label className="label">
-                  📸 Imagen de portada de la tarjeta
+                  {t('labelHeroImage')}
                 </label>
                 <p className="text-xs text-mute leading-relaxed -mt-1 mb-2.5">
-                  Foto de fondo en Apple y Google Wallet. Los sellos van encima
-                  con overlay oscuro. Recomendado <b>800×400 px</b> o más.
-                  Si la quitas, vuelve al gradiente con tus colores.
+                  {t.rich('heroImageHelp', { b: (chunks) => <b>{chunks}</b> })}
                 </p>
                 <ImageUploader
                   value={form.heroImageUrl}
@@ -1008,12 +1006,12 @@ function EditCardModal({
               </div>
               <div>
                 <label className="label">
-                  Recompensas intermedias
-                  <span className="text-mute font-normal ml-1">(opcional)</span>
+                  {t('labelIntermediateRewards')}
+                  <span className="text-mute font-normal ml-1">{t('optional')}</span>
                 </label>
                 <input
                   className="input"
-                  placeholder="Ej: 5:5% off, 10:10% off"
+                  placeholder={t('intermediateRewardsPlaceholder')}
                   value={multiRewardsRaw}
                   onChange={(e) => {
                     const raw = e.target.value;
@@ -1034,7 +1032,9 @@ function EditCardModal({
                   }}
                 />
                 <div className="text-[11px] text-mute mt-1">
-                  Sintaxis: <code className="bg-bg2 px-1 rounded">N:premio</code> separados por coma.
+                  {t.rich('intermediateRewardsSyntax', {
+                    code: (chunks) => <code className="bg-bg2 px-1 rounded">{chunks}</code>,
+                  })}
                 </div>
               </div>
             </>
@@ -1042,7 +1042,7 @@ function EditCardModal({
 
           {card.type === 'DISCOUNT' && (
             <div>
-              <label className="label">% de descuento</label>
+              <label className="label">{t('labelDiscountPercent')}</label>
               <input
                 type="number"
                 min={1}
@@ -1058,7 +1058,7 @@ function EditCardModal({
 
           {card.type === 'POINTS' && (
             <div>
-              <label className="label">Puntos por cada $1.000 de compra</label>
+              <label className="label">{t('labelPointsPerCurrency')}</label>
               <input
                 type="number"
                 step={0.1}
@@ -1078,7 +1078,7 @@ function EditCardModal({
 
           <div className="pt-1">
             <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-2">
-              ✨ Estilos pre-armados
+              ✨ {t('presetStyles')}
             </div>
             <WalletStylesGallery
               current={{
@@ -1105,7 +1105,7 @@ function EditCardModal({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label">Color principal</label>
+              <label className="label">{t('labelPrimaryColor')}</label>
               <input
                 type="color"
                 className="input h-11 p-1"
@@ -1114,7 +1114,7 @@ function EditCardModal({
               />
             </div>
             <div>
-              <label className="label">Color secundario</label>
+              <label className="label">{t('labelSecondaryColor')}</label>
               <input
                 type="color"
                 className="input h-11 p-1"
@@ -1131,27 +1131,27 @@ function EditCardModal({
             onClick={() => setShowAdvancedColors((v) => !v)}
             className="text-xs text-brand hover:underline"
           >
-            {showAdvancedColors ? '▲ Ocultar' : '▼ Colores avanzados'}
+            {showAdvancedColors ? t('hideAdvancedColors') : t('showAdvancedColors')}
           </button>
           {showAdvancedColors && (
             <div className="grid grid-cols-2 gap-3 p-3 rounded-lg bg-bg2/40">
               <ModalAdvancedColor
-                label="Sello activo"
+                label={t('colorStampActive')}
                 value={form.stampActiveColor}
                 onChange={(v) => setForm({ ...form, stampActiveColor: v })}
               />
               <ModalAdvancedColor
-                label="Sello inactivo"
+                label={t('colorStampInactive')}
                 value={form.stampInactiveColor}
                 onChange={(v) => setForm({ ...form, stampInactiveColor: v })}
               />
               <ModalAdvancedColor
-                label="Contorno"
+                label={t('colorContour')}
                 value={form.stampContourColor}
                 onChange={(v) => setForm({ ...form, stampContourColor: v })}
               />
               <ModalAdvancedColor
-                label="Fondo central"
+                label={t('colorCenterBg')}
                 value={form.centerBgColor}
                 onChange={(v) => setForm({ ...form, centerBgColor: v })}
               />
@@ -1160,14 +1160,14 @@ function EditCardModal({
 
           <div className="pt-3 border-t border-line">
             <div className="flex items-center justify-between">
-              <label className="label m-0">Términos y condiciones</label>
+              <label className="label m-0">{t('termsAndConditions')}</label>
               <button
                 type="button"
                 onClick={() => setForm({ ...form, termsEnabled: !form.termsEnabled })}
                 className={`relative w-10 h-5 rounded-full transition ${
                   form.termsEnabled ? 'bg-brand' : 'bg-bg2 border border-line'
                 }`}
-                aria-label="Toggle T&C"
+                aria-label={t('toggleTermsAria')}
               >
                 <span
                   className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition ${
@@ -1181,11 +1181,11 @@ function EditCardModal({
                 className="input min-h-[80px] mt-2"
                 value={form.terms}
                 onChange={(e) => setForm({ ...form, terms: e.target.value })}
-                placeholder="Lo que ven los clientes en el reverso de la tarjeta wallet"
+                placeholder={t('termsPlaceholder')}
               />
             ) : (
               <div className="text-xs text-mute mt-2">
-                Esta tarjeta no muestra términos.
+                {t('noTermsShown')}
               </div>
             )}
           </div>
@@ -1208,7 +1208,7 @@ function EditCardModal({
 
           <div className="pt-3 border-t border-line space-y-2">
             <div className="text-xs uppercase tracking-wider text-mute font-semibold">
-              Información (reverso)
+              {t('infoBack')}
             </div>
             {(() => {
               const isCoupon =
@@ -1221,8 +1221,8 @@ function EditCardModal({
                     className="input"
                     placeholder={
                       isCoupon
-                        ? 'Cómo canjear un cupón'
-                        : 'Cómo ganar un sello'
+                        ? t('howToEarnCouponPlaceholder')
+                        : t('howToEarnStampPlaceholder')
                     }
                     value={form.howToEarnText}
                     onChange={(e) =>
@@ -1231,7 +1231,7 @@ function EditCardModal({
                   />
                   <input
                     className="input"
-                    placeholder="Nombre de empresa"
+                    placeholder={t('businessNamePlaceholder')}
                     value={form.businessName}
                     onChange={(e) =>
                       setForm({ ...form, businessName: e.target.value })
@@ -1239,7 +1239,7 @@ function EditCardModal({
                   />
                   <input
                     className="input"
-                    placeholder="Descripción de la recompensa"
+                    placeholder={t('rewardDescPlaceholder')}
                     value={form.rewardDescText}
                     onChange={(e) =>
                       setForm({ ...form, rewardDescText: e.target.value })
@@ -1250,7 +1250,7 @@ function EditCardModal({
                   {!isCoupon && (
                     <input
                       className="input"
-                      placeholder="Mensaje de sello ganado (usa [#] para sellos restantes)"
+                      placeholder={t('stampEarnedMessagePlaceholder')}
                       value={form.stampEarnedMessage}
                       onChange={(e) =>
                         setForm({
@@ -1264,8 +1264,8 @@ function EditCardModal({
                     className="input"
                     placeholder={
                       isCoupon
-                        ? '¡Felicidades por canjear tu cupón! Empieza a acumular sellos para seguir obteniendo recompensas.'
-                        : 'Mensaje de recompensa ganada'
+                        ? t('rewardEarnedCouponPlaceholder')
+                        : t('rewardEarnedMessagePlaceholder')
                     }
                     value={form.rewardEarnedMessage}
                     onChange={(e) =>
@@ -1282,7 +1282,7 @@ function EditCardModal({
 
           <div className="pt-3 border-t border-line">
             <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
-              Enlaces activos
+              {t('activeLinks')}
             </div>
             {form.activeLinks.map((link, i) => (
               <div key={i} className="grid grid-cols-[100px_1fr_1fr_24px] gap-2 mb-2 items-center">
@@ -1291,10 +1291,10 @@ function EditCardModal({
                   value={link.type}
                   onChange={(e) => updateLink(i, { type: e.target.value })}
                 >
-                  <option value="URL">URL</option>
-                  <option value="PHONE">Tel</option>
-                  <option value="EMAIL">Email</option>
-                  <option value="ADDRESS">Dirección</option>
+                  <option value="URL">{t('linkTypeUrl')}</option>
+                  <option value="PHONE">{t('linkTypePhone')}</option>
+                  <option value="EMAIL">{t('linkTypeEmail')}</option>
+                  <option value="ADDRESS">{t('linkTypeAddress')}</option>
                 </select>
                 <input
                   className="input"
@@ -1304,7 +1304,7 @@ function EditCardModal({
                 />
                 <input
                   className="input"
-                  placeholder="Etiqueta"
+                  placeholder={t('linkLabelPlaceholder')}
                   value={link.label}
                   onChange={(e) => updateLink(i, { label: e.target.value })}
                 />
@@ -1312,20 +1312,20 @@ function EditCardModal({
                   type="button"
                   onClick={() => removeLink(i)}
                   className="text-mute hover:text-bad"
-                  aria-label="Quitar"
+                  aria-label={t('removeAria')}
                 >
                   ×
                 </button>
               </div>
             ))}
             <button type="button" onClick={addLink} className="btn-ghost w-full text-sm">
-              + Añadir enlace
+              {t('addLink')}
             </button>
           </div>
 
           <div className="pt-3 border-t border-line">
             <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
-              Enlaces UTM (campañas)
+              {t('utmLinks')}
             </div>
             <UtmManager
               cardId={card.id}
@@ -1344,10 +1344,10 @@ function EditCardModal({
 
         <div className="flex justify-end gap-2 mt-5">
           <button type="button" className="btn-ghost" onClick={onClose} disabled={busy}>
-            Cancelar
+            {t('cancel')}
           </button>
           <button type="submit" className="btn-primary" disabled={busy}>
-            <Icon name="check" /> {busy ? 'Guardando…' : 'Guardar cambios'}
+            <Icon name="check" /> {busy ? t('saving') : t('saveChanges')}
           </button>
         </div>
       </form>
@@ -1364,6 +1364,7 @@ function ModalAdvancedColor({
   value: string | null;
   onChange: (v: string | null) => void;
 }) {
+  const t = useTranslations('app_cards_id');
   const enabled = value != null;
   return (
     <div>
@@ -1374,7 +1375,7 @@ function ModalAdvancedColor({
           onClick={() => onChange(enabled ? null : '#000000')}
           className="text-[10px] text-brand hover:underline"
         >
-          {enabled ? 'Limpiar' : 'Usar custom'}
+          {enabled ? t('clear') : t('useCustom')}
         </button>
       </div>
       <input
@@ -1399,6 +1400,7 @@ function UtmManager({
   onAdd: (source: string, welcomeStamps: number | null, welcomePoints: number | null) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }) {
+  const t = useTranslations('app_cards_id');
   const [source, setSource] = useState('');
   const [stamps, setStamps] = useState<string>('');
   const [points, setPoints] = useState<string>('');
@@ -1427,8 +1429,7 @@ function UtmManager({
   return (
     <div className="space-y-2">
       <div className="text-[11px] text-mute">
-        Crea links únicos por canal (Facebook, IG, TikTok, etc) y asigna sellos
-        o puntos de bienvenida que el cliente recibe al inscribirse.
+        {t('utmHelp')}
       </div>
       {links.map((u) => (
         <div
@@ -1446,17 +1447,17 @@ function UtmManager({
               {baseUrl}{u.slug}
             </a>
             <div className="text-mute mt-0.5">
-              Bonus: {u.welcomeStamps ? `${u.welcomeStamps} sellos ` : ''}
-              {u.welcomePoints ? `${u.welcomePoints} puntos ` : ''}
-              {!u.welcomeStamps && !u.welcomePoints && 'sin bonus'} ·{' '}
-              {u.useCount} usos
+              {t('bonusLabel')} {u.welcomeStamps ? t('bonusStamps', { count: u.welcomeStamps }) + ' ' : ''}
+              {u.welcomePoints ? t('bonusPoints', { count: u.welcomePoints }) + ' ' : ''}
+              {!u.welcomeStamps && !u.welcomePoints && t('noBonus')} ·{' '}
+              {t('usesCount', { count: u.useCount })}
             </div>
           </div>
           <button
             type="button"
             onClick={() => onDelete(u.id)}
             className="text-mute hover:text-bad text-lg leading-none"
-            aria-label="Eliminar UTM"
+            aria-label={t('deleteUtmAria')}
           >
             ×
           </button>
@@ -1465,13 +1466,13 @@ function UtmManager({
       <div className="grid grid-cols-[1fr_70px_70px_auto] gap-2">
         <input
           className="input"
-          placeholder="Origen (Ej: Facebook)"
+          placeholder={t('utmSourcePlaceholder')}
           value={source}
           onChange={(e) => setSource(e.target.value)}
         />
         <input
           className="input"
-          placeholder="Sellos"
+          placeholder={t('utmStampsPlaceholder')}
           type="number"
           min={1}
           value={stamps}
@@ -1479,7 +1480,7 @@ function UtmManager({
         />
         <input
           className="input"
-          placeholder="Puntos"
+          placeholder={t('utmPointsPlaceholder')}
           type="number"
           min={1}
           value={points}
@@ -1578,6 +1579,7 @@ type CardMetrics = {
 };
 
 function CardAnalytics({ cardId }: { cardId: string }) {
+  const t = useTranslations('app_cards_id');
   const [data, setData] = useState<CardMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -1586,7 +1588,7 @@ function CardAnalytics({ cardId }: { cardId: string }) {
     setLoading(true);
     api<CardMetrics>(`/metrics/cards/${cardId}`)
       .then(setData)
-      .catch((e) => setErr(e.message || 'Error cargando analytics'))
+      .catch((e) => setErr(e.message || t('analyticsLoadError')))
       .finally(() => setLoading(false));
   }, [cardId]);
 
@@ -1611,7 +1613,7 @@ function CardAnalytics({ cardId }: { cardId: string }) {
   if (err || !data) {
     return (
       <div className="card card-pad text-center text-mute">
-        {err || 'Sin datos.'}
+        {err || t('noData')}
       </div>
     );
   }
@@ -1628,24 +1630,24 @@ function CardAnalytics({ cardId }: { cardId: string }) {
     <div className="space-y-5">
       {/* KPIs principales */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <Kpi2 label="Pases emitidos" value={k.totalPasses} sub={`${k.newLast7} nuevos esta semana`} />
+        <Kpi2 label={t('kpiPassesIssued')} value={k.totalPasses} sub={t('subNewThisWeek', { count: k.newLast7 })} />
         <Kpi2
-          label="Activos"
+          label={t('kpiActive')}
           value={k.activeLast30}
           accent="ok"
-          sub={`${retentionRate}% retención 30d`}
+          sub={t('subRetention30d', { rate: retentionRate })}
         />
         <Kpi2
-          label="Inactivos 30d"
+          label={t('kpiInactive30d')}
           value={k.inactiveLast30}
           accent={k.inactiveLast30 > k.activeLast30 ? 'warn' : undefined}
-          sub="Riesgo de churn"
+          sub={t('subChurnRisk')}
         />
         <Kpi2
-          label="Redenciones"
+          label={t('kpiRedemptions')}
           value={k.redemptions}
           accent="brand"
-          sub={`${k.totalScans} scans totales`}
+          sub={t('subTotalScans', { count: k.totalScans })}
         />
       </div>
 
@@ -1653,16 +1655,16 @@ function CardAnalytics({ cardId }: { cardId: string }) {
       <div className="card card-pad">
         <div className="flex items-center justify-between mb-3">
           <div>
-            <h3 className="text-sm font-semibold m-0">📈 Actividad últimos 30 días</h3>
+            <h3 className="text-sm font-semibold m-0">📈 {t('activity30d')}</h3>
             <p className="text-xs text-mute mt-0.5">
-              Scans totales · Promedio {k.avgScansPerCustomer} scans/cliente activo
+              {t('activity30dSub', { avg: k.avgScansPerCustomer })}
             </p>
           </div>
           <div className="text-xs text-mute">
             <span className="inline-block w-2 h-2 rounded-full bg-brand mr-1.5" />
-            Scans
+            {t('legendScans')}
             <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 ml-3 mr-1.5" />
-            Pases nuevos
+            {t('legendNewPasses')}
           </div>
         </div>
         <DualBarChart
@@ -1676,32 +1678,31 @@ function CardAnalytics({ cardId }: { cardId: string }) {
         <div className="card card-pad">
           <div className="flex items-center justify-between mb-3">
             <div>
-              <h3 className="text-sm font-semibold m-0">💵 Facturación generada</h3>
+              <h3 className="text-sm font-semibold m-0">💵 {t('revenueGenerated')}</h3>
               <p className="text-xs text-mute mt-0.5">
-                Monto registrado por el operador en cada scan. Solo informativo —
-                no afecta la cantidad de sellos.
+                {t('revenueGeneratedHelp')}
               </p>
             </div>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
             <Kpi2
-              label="Facturación 30d"
+              label={t('revenue30d')}
               value={`$${data.revenue.last30.toLocaleString('es-CO')}`}
               accent="ok"
             />
             <Kpi2
-              label="Facturación total"
+              label={t('revenueTotal')}
               value={`$${data.revenue.total.toLocaleString('es-CO')}`}
             />
             <Kpi2
-              label="Ticket promedio"
+              label={t('avgTicket')}
               value={`$${data.revenue.avgTicket.toLocaleString('es-CO')}`}
               accent="brand"
             />
             <Kpi2
-              label="Compras registradas"
+              label={t('registeredPurchases')}
               value={data.revenue.scansWithPurchase}
-              sub="con monto"
+              sub={t('subWithAmount')}
             />
           </div>
           <RevenueBarChart data={data.revenueByDay} />
@@ -1712,7 +1713,7 @@ function CardAnalytics({ cardId }: { cardId: string }) {
       {data.topByRevenue && data.topByRevenue.length > 0 && (
         <div className="card card-pad">
           <h3 className="text-sm font-semibold m-0 mb-3">
-            💎 Top clientes por facturación
+            💎 {t('topByRevenue')}
           </h3>
           <div className="space-y-1.5">
             {data.topByRevenue.map((c, i) => (
@@ -1727,7 +1728,7 @@ function CardAnalytics({ cardId }: { cardId: string }) {
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold text-sm truncate">{c.fullName}</div>
                   <div className="text-[11px] text-mute">
-                    {c.scans} {c.scans === 1 ? 'scan' : 'scans'}
+                    {t('scansCount', { count: c.scans })}
                   </div>
                 </div>
                 <div className="text-right shrink-0">
@@ -1744,7 +1745,7 @@ function CardAnalytics({ cardId }: { cardId: string }) {
       {/* Embudo (solo progress types) */}
       {isProgressType && data.funnel.length > 0 && (
         <div className="card card-pad">
-          <h3 className="text-sm font-semibold m-0 mb-3">🎯 Embudo de fidelización</h3>
+          <h3 className="text-sm font-semibold m-0 mb-3">🎯 {t('loyaltyFunnel')}</h3>
           <div className="space-y-2">
             {data.funnel.map((stage, i) => (
               <div key={stage.key}>
@@ -1768,7 +1769,7 @@ function CardAnalytics({ cardId }: { cardId: string }) {
             <div className="mt-4 pt-3 border-t border-line grid grid-cols-2 gap-3 text-sm">
               <div>
                 <div className="text-mute text-[11px] uppercase tracking-wider font-semibold">
-                  Completion rate
+                  {t('completionRate')}
                 </div>
                 <div className="text-lg font-bold mt-1">
                   {data.byType.progress.completionRate}%
@@ -1776,11 +1777,11 @@ function CardAnalytics({ cardId }: { cardId: string }) {
               </div>
               <div>
                 <div className="text-mute text-[11px] uppercase tracking-wider font-semibold">
-                  Tiempo promedio
+                  {t('avgTime')}
                 </div>
                 <div className="text-lg font-bold mt-1">
                   {data.byType.progress.avgDaysToComplete != null
-                    ? `${data.byType.progress.avgDaysToComplete} días`
+                    ? t('daysCount', { count: data.byType.progress.avgDaysToComplete })
                     : '—'}
                 </div>
               </div>
@@ -1792,22 +1793,22 @@ function CardAnalytics({ cardId }: { cardId: string }) {
       {/* Stats por tipo */}
       {data.byType.cashback && (
         <div className="card card-pad">
-          <h3 className="text-sm font-semibold m-0 mb-3">💰 Cashback</h3>
+          <h3 className="text-sm font-semibold m-0 mb-3">💰 {t('cashback')}</h3>
           <div className="grid grid-cols-3 gap-3">
             <Kpi2
-              label="Total emitido"
+              label={t('totalIssued')}
               value={`$${data.byType.cashback.totalAdded.toLocaleString('es-CO')}`}
             />
             <Kpi2
-              label="Canjeado"
+              label={t('redeemed')}
               value={`$${data.byType.cashback.totalRedeemed.toLocaleString('es-CO')}`}
               accent="ok"
             />
             <Kpi2
-              label="Saldo cliente"
+              label={t('customerBalance')}
               value={`$${data.byType.cashback.balanceOutstanding.toLocaleString('es-CO')}`}
               accent="amber"
-              sub="Pasivo pendiente"
+              sub={t('outstandingLiability')}
             />
           </div>
         </div>
@@ -1815,16 +1816,16 @@ function CardAnalytics({ cardId }: { cardId: string }) {
 
       {data.byType.points && (
         <div className="card card-pad">
-          <h3 className="text-sm font-semibold m-0 mb-3">⭐ Puntos</h3>
+          <h3 className="text-sm font-semibold m-0 mb-3">⭐ {t('points')}</h3>
           <div className="grid grid-cols-3 gap-3">
-            <Kpi2 label="Emitidos" value={data.byType.points.totalAdded} />
+            <Kpi2 label={t('issued')} value={data.byType.points.totalAdded} />
             <Kpi2
-              label="Canjeados"
+              label={t('redeemedPlural')}
               value={data.byType.points.totalRedeemed}
               accent="ok"
             />
             <Kpi2
-              label="Saldo cliente"
+              label={t('customerBalance')}
               value={data.byType.points.balanceOutstanding}
               accent="amber"
             />
@@ -1834,9 +1835,12 @@ function CardAnalytics({ cardId }: { cardId: string }) {
 
       {data.byType.membership && (
         <div className="card card-pad">
-          <h3 className="text-sm font-semibold m-0 mb-1">👑 Distribución por tier</h3>
+          <h3 className="text-sm font-semibold m-0 mb-1">👑 {t('tierDistribution')}</h3>
           <p className="text-xs text-mute mb-3">
-            Progreso promedio acumulado: <strong>{data.byType.membership.avgTierProgress}</strong>
+            {t.rich('avgTierProgress', {
+              value: data.byType.membership.avgTierProgress,
+              strong: (chunks) => <strong>{chunks}</strong>,
+            })}
           </p>
           <div className="space-y-2">
             {data.byType.membership.distribution.map((d) => {
@@ -1849,7 +1853,7 @@ function CardAnalytics({ cardId }: { cardId: string }) {
                 <div key={d.name}>
                   <div className="flex items-center justify-between text-xs mb-1">
                     <span className="font-semibold">{d.name}</span>
-                    <span className="text-mute">{d.count} clientes</span>
+                    <span className="text-mute">{t('customersCount', { count: d.count })}</span>
                   </div>
                   <div className="h-2 bg-bg2 rounded-full overflow-hidden">
                     <div
@@ -1866,10 +1870,10 @@ function CardAnalytics({ cardId }: { cardId: string }) {
 
       {/* Top clientes */}
       <div className="card card-pad">
-        <h3 className="text-sm font-semibold m-0 mb-3">🏆 Top 10 clientes</h3>
+        <h3 className="text-sm font-semibold m-0 mb-3">🏆 {t('top10Customers')}</h3>
         {data.topCustomers.length === 0 ? (
           <div className="text-sm text-mute text-center py-6">
-            Aún no hay actividad registrada.
+            {t('noActivityYet')}
           </div>
         ) : (
           <div className="space-y-1.5">
@@ -1886,14 +1890,14 @@ function CardAnalytics({ cardId }: { cardId: string }) {
                   <div className="font-semibold text-sm truncate">{c.fullName}</div>
                   <div className="text-[11px] text-mute">
                     {c.lastVisit
-                      ? `Última visita ${formatRelative(c.lastVisit)}`
-                      : 'Sin actividad'}
+                      ? t('lastVisit', { when: formatRelative(c.lastVisit, t) })
+                      : t('noActivity')}
                   </div>
                 </div>
                 <div className="text-right shrink-0">
                   <div className="text-base font-bold">{c.scans}</div>
                   <div className="text-[10px] uppercase tracking-wider text-mute">
-                    scans
+                    {t('scansLabel')}
                   </div>
                 </div>
               </Link>
@@ -1913,6 +1917,7 @@ function DualBarChart({
   scans: Array<{ date: string; count: number }>;
   newPasses: Array<{ date: string; count: number }>;
 }) {
+  const t = useTranslations('app_cards_id');
   const max = Math.max(
     ...scans.map((s) => s.count),
     ...newPasses.map((p) => p.count),
@@ -1941,7 +1946,7 @@ function DualBarChart({
           <div
             key={date}
             className="flex-1 flex flex-col items-center gap-0.5 group relative"
-            title={`${date} · ${vals.scans} scans · ${vals.newPasses} pases`}
+            title={t('chartBarTooltip', { date, scans: vals.scans, passes: vals.newPasses })}
           >
             <div className="flex items-end gap-px h-full w-full">
               <div
@@ -1994,14 +1999,17 @@ function Kpi2({
   );
 }
 
-function formatRelative(iso: string): string {
+function formatRelative(
+  iso: string,
+  t: (key: string, values?: Record<string, string | number>) => string,
+): string {
   const d = new Date(iso);
   const ms = Date.now() - d.getTime();
   const hours = ms / (1000 * 60 * 60);
-  if (hours < 1) return 'hace unos minutos';
-  if (hours < 24) return `hace ${Math.floor(hours)}h`;
+  if (hours < 1) return t('relMinutesAgo');
+  if (hours < 24) return t('relHoursAgo', { hours: Math.floor(hours) });
   const days = Math.floor(hours / 24);
-  if (days < 30) return `hace ${days}d`;
+  if (days < 30) return t('relDaysAgo', { days });
   return d.toLocaleDateString('es-CO');
 }
 
