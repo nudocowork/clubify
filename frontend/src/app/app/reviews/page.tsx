@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
@@ -37,6 +38,8 @@ type ReviewLocation = {
 };
 
 export default function ReviewsPage() {
+  const t = useTranslations('app_reviews');
+  const tc = useTranslations('common');
   const [data, setData] = useState<Resp | null>(null);
   const [loading, setLoading] = useState(true);
   const [tenant, setTenant] = useState<any>(null);
@@ -65,7 +68,7 @@ export default function ReviewsPage() {
       setUrlInput(me?.googleReviewUrl ?? '');
       setReviewLocations(locs.filter((l) => l.isActive));
     } catch (e: any) {
-      toast(e.message || 'Error cargando reseñas', 'error');
+      toast(e.message || t('errorLoading'), 'error');
     } finally {
       setLoading(false);
     }
@@ -102,11 +105,11 @@ export default function ReviewsPage() {
         method: 'PATCH',
         body: JSON.stringify({ googleReviewUrl: urlInput.trim() || null }),
       });
-      toast('Link de Google guardado', 'success');
+      toast(t('googleLinkSaved'), 'success');
       setEditingUrl(false);
       load();
     } catch (e: any) {
-      toast(e.message || 'No se pudo guardar', 'error');
+      toast(e.message || t('couldNotSave'), 'error');
     } finally {
       setSavingUrl(false);
     }
@@ -116,9 +119,9 @@ export default function ReviewsPage() {
     if (!publicUrl) return;
     try {
       await navigator.clipboard.writeText(publicUrl);
-      toast('Link copiado · pégalo donde quieras compartirlo', 'success');
+      toast(t('linkCopied'), 'success');
     } catch {
-      toast('No se pudo copiar — selecciona el link manualmente', 'error');
+      toast(t('couldNotCopy'), 'error');
     }
   }
 
@@ -130,12 +133,12 @@ export default function ReviewsPage() {
   }
 
   async function remove(id: string) {
-    if (!confirm('¿Eliminar este feedback?')) return;
+    if (!confirm(t('confirmDeleteFeedback'))) return;
     try {
       await api(`/reviews/${id}`, { method: 'DELETE' });
       load();
     } catch (e: any) {
-      toast(e.message || 'No se pudo eliminar', 'error');
+      toast(e.message || t('couldNotDelete'), 'error');
     }
   }
 
@@ -143,28 +146,28 @@ export default function ReviewsPage() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Reseña de Google{' '}
+          {t('pageTitle')}{' '}
           {data && (
             <span className="page-crumb">
-              / {data.stats.total} respuestas · ⭐ {data.stats.avg ?? '—'}
+              {t('headerCrumb', { count: data.stats.total, avg: data.stats.avg ?? '—' })}
             </span>
           )}
         </h1>
         <Link href="/app/reviews/locations" className="btn-ghost text-sm">
-          🏢 Gestionar sedes (multi-ubicación)
+          {t('manageLocations')}
         </Link>
       </div>
 
       {/* Fase F: selector de sede que cambia link + QR mostrados abajo. */}
       {reviewLocations.length > 0 && (
         <div className="card card-pad mb-4 flex items-center gap-3 flex-wrap">
-          <div className="font-semibold text-sm">📍 Sede:</div>
+          <div className="font-semibold text-sm">{t('locationLabel')}</div>
           <select
             className="input text-sm py-1.5 max-w-xs"
             value={selectedLocationId}
             onChange={(e) => setSelectedLocationId(e.target.value)}
           >
-            <option value="">Genérico (todas las sedes)</option>
+            <option value="">{t('locationGeneric')}</option>
             {reviewLocations.map((l) => (
               <option key={l.id} value={l.id}>
                 {l.name}
@@ -173,29 +176,25 @@ export default function ReviewsPage() {
           </select>
           <div className="text-xs text-mute flex-1 min-w-[200px]">
             {selectedLocation
-              ? 'Link, QR, estadísticas y feedback abajo filtrados a esta sede.'
-              : 'Mostrando link genérico (el cliente elige sede al abrir). Stats consolidadas de todas las sedes.'}
+              ? t('locationSelectedHint')
+              : t('locationGenericHint')}
           </div>
         </div>
       )}
 
       <div className="card card-pad mb-5">
         <h3 className="text-base font-semibold m-0 flex items-center gap-2">
-          ⭐ ¿Cómo funciona?
+          {t('howItWorksTitle')}
         </h3>
         <p className="text-sm text-mute mt-2 leading-relaxed">
-          Comparte un único link con tus clientes (en el menú, recibo, QR de
-          mesa, WhatsApp). Cuando lo abren, eligen entre 1-5 estrellas:
+          {t('howItWorksIntro')}
         </p>
         <ul className="text-sm text-mute mt-2 leading-relaxed space-y-1.5 list-disc pl-5">
           <li>
-            <b>4 o 5 estrellas</b> · los redirigimos a tu link de Google Reviews
-            (la reseña se publica en Google).
+            {t.rich('howItWorksHigh', { b: (c) => <b>{c}</b> })}
           </li>
           <li>
-            <b>1, 2 o 3 estrellas</b> · capturamos el feedback aquí privado, no
-            llega a Google. Lo ves abajo y reaccionas antes de que se vuelva
-            público.
+            {t.rich('howItWorksLow', { b: (c) => <b>{c}</b> })}
           </li>
         </ul>
       </div>
@@ -203,36 +202,35 @@ export default function ReviewsPage() {
       {/* Configuración */}
       <div className="card card-pad mb-4">
         <h3 className="text-base font-semibold m-0">
-          🔗 {selectedLocation
-            ? `Link de Google Reviews · ${selectedLocation.name}`
-            : 'Tu link de Google Reviews'}
+          {selectedLocation
+            ? t('googleLinkTitleLocation', { name: selectedLocation.name })
+            : t('googleLinkTitleGeneric')}
         </h3>
         <p className="text-xs text-mute mt-1 leading-relaxed">
           {selectedLocation ? (
-            <>
-              Este link se edita en{' '}
-              <Link
-                href="/app/reviews/locations"
-                className="text-brand hover:underline"
-              >
-                Gestionar sedes
-              </Link>
-              .
-            </>
+            t.rich('googleLinkHintLocation', {
+              a: (c) => (
+                <Link
+                  href="/app/reviews/locations"
+                  className="text-brand hover:underline"
+                >
+                  {c}
+                </Link>
+              ),
+            })
           ) : (
-            <>
-              Lo encuentras en{' '}
-              <a
-                href="https://business.google.com"
-                target="_blank"
-                rel="noreferrer"
-                className="text-brand hover:underline"
-              >
-                Google Business Profile
-              </a>{' '}
-              → "Pide más reseñas" → "Compartir formulario". Sin esto, los
-              clientes felices ven un mensaje pero no pueden dejar reseña.
-            </>
+            t.rich('googleLinkHintGeneric', {
+              a: (c) => (
+                <a
+                  href="https://business.google.com"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-brand hover:underline"
+                >
+                  {c}
+                </a>
+              ),
+            })
           )}
         </p>
         {selectedLocation ? (
@@ -243,14 +241,14 @@ export default function ReviewsPage() {
               </code>
             ) : (
               <span className="text-sm text-amber-700 italic">
-                Sin configurar para esta sede.
+                {t('notConfiguredForLocation')}
               </span>
             )}
             <Link
               href="/app/reviews/locations"
               className="btn-ghost text-sm"
             >
-              <Icon name="edit" /> Editar
+              <Icon name="edit" /> {tc('edit')}
             </Link>
           </div>
         ) : editingUrl ? (
@@ -267,7 +265,7 @@ export default function ReviewsPage() {
               disabled={savingUrl}
               className="btn-primary text-sm"
             >
-              {savingUrl ? 'Guardando…' : 'Guardar'}
+              {savingUrl ? tc('saving') : tc('save')}
             </button>
             <button
               onClick={() => {
@@ -276,7 +274,7 @@ export default function ReviewsPage() {
               }}
               className="btn-ghost text-sm"
             >
-              Cancelar
+              {tc('cancel')}
             </button>
           </div>
         ) : (
@@ -287,15 +285,14 @@ export default function ReviewsPage() {
               </code>
             ) : (
               <span className="text-sm text-amber-700 italic">
-                Sin configurar — los clientes 4-5⭐ ven un aviso pero no pueden
-                ir a Google.
+                {t('notConfiguredGeneric')}
               </span>
             )}
             <button
               onClick={() => setEditingUrl(true)}
               className="btn-ghost text-sm"
             >
-              <Icon name="edit" /> {tenant?.googleReviewUrl ? 'Cambiar' : 'Configurar'}
+              <Icon name="edit" /> {tenant?.googleReviewUrl ? t('change') : t('configure')}
             </button>
           </div>
         )}
@@ -310,18 +307,17 @@ export default function ReviewsPage() {
       {/* Link público para compartir */}
       <div className="card card-pad mb-5">
         <h3 className="text-base font-semibold m-0">
-          📣 Link para compartir con tus clientes
+          {t('shareLinkTitle')}
         </h3>
         <p className="text-xs text-mute mt-1 leading-relaxed">
-          Imprímelo como QR en tu local, mándalo por WhatsApp después de un
-          pedido, o pégalo en el ticket.
+          {t('shareLinkHint')}
         </p>
         <div className="mt-3 flex items-center gap-2 flex-wrap">
           <code className="text-xs bg-bg2 rounded-input px-3 py-2 flex-1 break-all min-w-0">
             {publicUrl}
           </code>
           <button onClick={copyShareLink} className="btn-primary text-sm">
-            📋 Copiar
+            {t('copy')}
           </button>
           {publicUrl && (
             <a
@@ -330,7 +326,7 @@ export default function ReviewsPage() {
               rel="noreferrer"
               className="btn-ghost text-sm"
             >
-              ↗ Probar
+              {t('test')}
             </a>
           )}
           {publicUrl && (
@@ -339,7 +335,7 @@ export default function ReviewsPage() {
               download={`qr-review-${tenant?.slug ?? 'clubify'}.png`}
               className="btn-ghost text-sm"
             >
-              ⬇ QR
+              {t('qr')}
             </a>
           )}
         </div>
@@ -348,18 +344,18 @@ export default function ReviewsPage() {
       {/* KPIs */}
       {data && data.stats.total > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-          <Kpi label="Promedio" value={`⭐ ${data.stats.avg ?? '—'}`} />
+          <Kpi label={t('kpiAverage')} value={`⭐ ${data.stats.avg ?? '—'}`} />
           <Kpi
-            label="Fueron a Google"
+            label={t('kpiWentToGoogle')}
             value={data.stats.goneToGoogle.toString()}
             tone="ok"
           />
           <Kpi
-            label="Feedback privado"
+            label={t('kpiPrivateFeedback')}
             value={data.stats.privateCount.toString()}
             tone={data.stats.privateCount > 0 ? 'warn' : undefined}
           />
-          <Kpi label="Sin leer" value={data.stats.unread.toString()} tone={data.stats.unread > 0 ? 'warn' : undefined} />
+          <Kpi label={t('kpiUnread')} value={data.stats.unread.toString()} tone={data.stats.unread > 0 ? 'warn' : undefined} />
         </div>
       )}
 
@@ -367,7 +363,7 @@ export default function ReviewsPage() {
       {data && data.stats.total > 0 && (
         <div className="card card-pad mb-5">
           <div className="text-[10px] uppercase tracking-[0.16em] text-mute font-semibold mb-3">
-            Distribución
+            {t('distribution')}
           </div>
           {([5, 4, 3, 2, 1] as const).map((star) => {
             const count = data.stats.ratings[String(star) as '1'];
@@ -392,7 +388,7 @@ export default function ReviewsPage() {
 
       {/* Feedback */}
       <h2 className="text-base font-semibold mt-2 mb-3">
-        Respuestas recibidas
+        {t('responsesReceived')}
       </h2>
       {loading ? (
         <div className="card card-pad">
@@ -402,10 +398,9 @@ export default function ReviewsPage() {
       ) : !data || data.items.length === 0 ? (
         <div className="card card-pad text-center py-10">
           <div className="text-4xl mb-2">📭</div>
-          <div className="font-semibold">Sin respuestas todavía</div>
+          <div className="font-semibold">{t('emptyTitle')}</div>
           <p className="text-sm text-mute mt-1.5 max-w-md mx-auto">
-            Comparte el link de arriba con tus clientes y las respuestas
-            empezarán a aparecer aquí.
+            {t('emptyHint')}
           </p>
         </div>
       ) : (
@@ -444,11 +439,11 @@ export default function ReviewsPage() {
                       </span>
                       {f.redirectedToGoogle ? (
                         <span className="badge badge-ok text-[10px]">
-                          Fue a Google
+                          {t('badgeWentToGoogle')}
                         </span>
                       ) : !f.isRead ? (
                         <span className="badge badge-warn text-[10px]">
-                          Nueva
+                          {t('badgeNew')}
                         </span>
                       ) : null}
                       <span className="text-[10px] text-mute">
@@ -467,7 +462,7 @@ export default function ReviewsPage() {
                     )}
                     {(f.customerName || f.customerPhone) && (
                       <div className="text-xs text-mute mt-1.5">
-                        {f.customerName ?? 'Sin nombre'}
+                        {f.customerName ?? t('noName')}
                         {f.customerPhone && (
                           <>
                             {' · '}
@@ -491,14 +486,14 @@ export default function ReviewsPage() {
                       onClick={() => markRead(f.id)}
                       className="btn-ghost text-xs"
                     >
-                      ✓ Marcar leído
+                      {t('markRead')}
                     </button>
                   )}
                   <button
                     onClick={() => remove(f.id)}
                     className="text-xs text-bad underline"
                   >
-                    Eliminar
+                    {tc('delete')}
                   </button>
                 </div>
               </div>
@@ -535,6 +530,8 @@ function ReviewAlertsCard({
   tenant: any;
   onSaved: () => void;
 }) {
+  const t = useTranslations('app_reviews');
+  const tc = useTranslations('common');
   // Estado local sin guardar — se commitea con el botón "Guardar".
   const [enabled, setEnabled] = useState<boolean>(false);
   const [threshold, setThreshold] = useState<number>(3);
@@ -571,10 +568,10 @@ function ReviewAlertsCard({
           reviewAlertsTemplate: template.trim() || null,
         }),
       });
-      toast('Alertas de reseñas guardadas', 'success');
+      toast(t('reviewAlertsSaved'), 'success');
       onSaved();
     } catch (e: any) {
-      toast(e.message || 'No se pudo guardar', 'error');
+      toast(e.message || t('couldNotSave'), 'error');
     } finally {
       setSaving(false);
     }
@@ -588,15 +585,15 @@ function ReviewAlertsCard({
         { method: 'POST' },
       );
       if (res.ok) {
-        toast(`SMS de prueba enviado a ${res.toPhone}`, 'success');
+        toast(t('testSmsSent', { phone: res.toPhone }), 'success');
       } else {
         toast(
-          `Falló: ${res.response?.message || 'sin detalle'}`,
+          t('testSmsFailed', { detail: res.response?.message || t('noDetail') }),
           'error',
         );
       }
     } catch (e: any) {
-      toast(e.message || 'No se pudo probar', 'error');
+      toast(e.message || t('couldNotTest'), 'error');
     } finally {
       setTesting(false);
     }
@@ -607,7 +604,11 @@ function ReviewAlertsCard({
   }
 
   const ratingThresholdLabel =
-    threshold === 1 ? '1 ⭐' : threshold === 2 ? '1 y 2 ⭐' : '1, 2 y 3 ⭐';
+    threshold === 1
+      ? t('thresholdLabel1')
+      : threshold === 2
+      ? t('thresholdLabel2')
+      : t('thresholdLabel3');
 
   return (
     <div className="card card-pad mb-5">
@@ -618,20 +619,19 @@ function ReviewAlertsCard({
       >
         <div>
           <h3 className="text-base font-semibold m-0 flex items-center gap-2">
-            📲 Alertas SMS por reseñas negativas
+            {t('smsAlertsTitle')}
             {tenant?.reviewAlertsEnabled ? (
               <span className="text-[10px] font-bold uppercase tracking-wider bg-ok/15 text-ok px-2 py-0.5 rounded-full">
-                Activo
+                {t('statusActive')}
               </span>
             ) : (
               <span className="text-[10px] font-bold uppercase tracking-wider bg-bg2 text-mute px-2 py-0.5 rounded-full">
-                Inactivo
+                {t('statusInactive')}
               </span>
             )}
           </h3>
           <p className="text-xs text-mute mt-1 leading-relaxed">
-            Recibí un SMS al instante cuando un cliente deje una reseña baja —
-            puedes contactarlo antes de que se vuelva pública.
+            {t('smsAlertsDesc')}
           </p>
         </div>
         <span
@@ -647,8 +647,7 @@ function ReviewAlertsCard({
         <div className="mt-4 space-y-4 pt-4 border-t border-line">
           {!growConnected && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-900 leading-snug">
-              ⚠ Grow Business no está conectado para tu negocio. Pídele al
-              super admin que active la integración antes de probar.
+              {t('growNotConnected')}
             </div>
           )}
 
@@ -660,17 +659,16 @@ function ReviewAlertsCard({
               className="w-5 h-5 accent-brand"
             />
             <div>
-              <div className="font-semibold text-sm">Activar alertas SMS</div>
+              <div className="font-semibold text-sm">{t('enableSmsAlerts')}</div>
               <div className="text-[11px] text-mute leading-snug">
-                Si está prendido, cada reseña con {ratingThresholdLabel} dispara
-                un SMS automático.
+                {t('enableSmsAlertsHint', { rating: ratingThresholdLabel })}
               </div>
             </div>
           </label>
 
           <div>
             <label className="label">
-              Disparar para reseñas con rating menor o igual a
+              {t('triggerThresholdLabel')}
             </label>
             <div className="flex items-center gap-2">
               {[1, 2, 3].map((n) => (
@@ -684,7 +682,7 @@ function ReviewAlertsCard({
                       : 'border-line bg-white text-mute hover:border-mute'
                   }`}
                 >
-                  {n} ⭐ {n > 1 ? `y menos` : 'solamente'}
+                  {n} ⭐ {n > 1 ? t('andLess') : t('onlyThis')}
                 </button>
               ))}
             </div>
@@ -692,9 +690,9 @@ function ReviewAlertsCard({
 
           <div>
             <label className="label">
-              Teléfono destino del SMS
+              {t('smsTargetPhone')}
               <span className="text-mute font-normal ml-2 text-[10px]">
-                (opcional · default: tu teléfono de WhatsApp)
+                {t('smsTargetPhoneHint')}
               </span>
             </label>
             <input
@@ -709,9 +707,9 @@ function ReviewAlertsCard({
 
           <div>
             <label className="label">
-              Mensaje del SMS
+              {t('smsMessageLabel')}
               <span className="text-mute font-normal ml-2 text-[10px]">
-                (opcional · default: plantilla Clubify)
+                {t('smsMessageHint')}
               </span>
             </label>
             <textarea
@@ -723,7 +721,7 @@ function ReviewAlertsCard({
             />
             <div className="flex gap-1 flex-wrap mt-2">
               <span className="text-[10px] uppercase tracking-wider text-mute font-semibold self-center mr-1">
-                Insertar:
+                {t('insert')}
               </span>
               {TOKENS.map((t) => (
                 <button
@@ -746,11 +744,11 @@ function ReviewAlertsCard({
               className="btn-ghost text-sm disabled:opacity-50"
               title={
                 !growConnected
-                  ? 'Necesita Grow Business conectado'
-                  : 'Manda un SMS de prueba ya mismo'
+                  ? t('needsGrowConnected')
+                  : t('sendTestSmsNow')
               }
             >
-              {testing ? 'Enviando…' : '📤 Probar SMS'}
+              {testing ? t('sending') : t('testSms')}
             </button>
             <button
               type="button"
@@ -758,7 +756,7 @@ function ReviewAlertsCard({
               disabled={saving}
               className="btn-primary text-sm"
             >
-              {saving ? 'Guardando…' : 'Guardar cambios'}
+              {saving ? tc('saving') : t('saveChanges')}
             </button>
           </div>
         </div>
@@ -809,6 +807,8 @@ function WhatsappFeedbackCard({
   tenant: any;
   onSaved: () => void;
 }) {
+  const t = useTranslations('app_reviews');
+  const tc = useTranslations('common');
   const [enabled, setEnabled] = useState<boolean>(false);
   const [phone, setPhone] = useState<string>('');
   const [message, setMessage] = useState<string>('');
@@ -825,7 +825,7 @@ function WhatsappFeedbackCard({
 
   async function save() {
     if (enabled && !phone.trim()) {
-      toast('Agrega un número antes de activar el botón', 'error');
+      toast(t('addNumberBeforeEnabling'), 'error');
       return;
     }
     setSaving(true);
@@ -838,10 +838,10 @@ function WhatsappFeedbackCard({
           whatsappFeedbackMessage: message.trim() || null,
         }),
       });
-      toast('WhatsApp de feedback guardado', 'success');
+      toast(t('whatsappFeedbackSaved'), 'success');
       onSaved();
     } catch (e: any) {
-      toast(e.message || 'No se pudo guardar', 'error');
+      toast(e.message || t('couldNotSave'), 'error');
     } finally {
       setSaving(false);
     }
@@ -850,13 +850,13 @@ function WhatsappFeedbackCard({
   function test() {
     const num = phone.trim().replace(/\D/g, '');
     if (!num || num.length < 6) {
-      toast('Agrega un número válido antes de probar', 'error');
+      toast(t('addValidNumberBeforeTest'), 'error');
       return;
     }
     const tpl = message.trim() || WSP_DEFAULT_MESSAGE;
     const rendered = tpl
       .replace(/\{businessName\}/g, tenant?.brandName ?? '—')
-      .replace(/\{customerName\}/g, 'Cliente de prueba')
+      .replace(/\{customerName\}/g, t('testCustomerName'))
       .replace(/\{rating\}/g, '3');
     const url = `https://wa.me/${num}?text=${encodeURIComponent(rendered)}`;
     window.open(url, '_blank', 'noopener');
@@ -875,21 +875,19 @@ function WhatsappFeedbackCard({
       >
         <div>
           <h3 className="text-base font-semibold m-0 flex items-center gap-2">
-            💬 WhatsApp para feedback (al final de la reseña baja)
+            {t('whatsappFeedbackTitle')}
             {tenant?.whatsappFeedbackEnabled ? (
               <span className="text-[10px] font-bold uppercase tracking-wider bg-ok/15 text-ok px-2 py-0.5 rounded-full">
-                Activo
+                {t('statusActive')}
               </span>
             ) : (
               <span className="text-[10px] font-bold uppercase tracking-wider bg-bg2 text-mute px-2 py-0.5 rounded-full">
-                Inactivo
+                {t('statusInactive')}
               </span>
             )}
           </h3>
           <p className="text-xs text-mute mt-1 leading-relaxed">
-            Cuando un cliente termina una reseña privada (1-3 ⭐), aparece un
-            botón "Hablar por WhatsApp" para que te escriba directo y puedas
-            resolver el problema antes de que se vuelva pública.
+            {t('whatsappFeedbackDesc')}
           </p>
         </div>
         <span
@@ -911,15 +909,15 @@ function WhatsappFeedbackCard({
               className="w-5 h-5 accent-brand"
             />
             <div>
-              <div className="font-semibold text-sm">Mostrar botón de WhatsApp</div>
+              <div className="font-semibold text-sm">{t('showWhatsappButton')}</div>
               <div className="text-[11px] text-mute leading-snug">
-                Sin esto, el cliente solo ve "Gracias por tu feedback" al final.
+                {t('showWhatsappButtonHint')}
               </div>
             </div>
           </label>
 
           <div>
-            <label className="label">Número de WhatsApp</label>
+            <label className="label">{t('whatsappNumber')}</label>
             <input
               type="tel"
               className="input"
@@ -929,16 +927,15 @@ function WhatsappFeedbackCard({
               maxLength={40}
             />
             <div className="text-[10px] text-mute mt-1">
-              Usa formato internacional con +. Solo dígitos del número (sin
-              espacios) se mantienen en el link wa.me.
+              {t('whatsappNumberHint')}
             </div>
           </div>
 
           <div>
             <label className="label">
-              Mensaje predeterminado
+              {t('defaultMessageLabel')}
               <span className="text-mute font-normal ml-2 text-[10px]">
-                (opcional · default: "Hola, acabo de dejar una reseña…")
+                {t('defaultMessageHint')}
               </span>
             </label>
             <textarea
@@ -950,7 +947,7 @@ function WhatsappFeedbackCard({
             />
             <div className="flex gap-1 flex-wrap mt-2">
               <span className="text-[10px] uppercase tracking-wider text-mute font-semibold self-center mr-1">
-                Insertar:
+                {t('insert')}
               </span>
               {WSP_TOKENS.map((t) => (
                 <button
@@ -973,11 +970,11 @@ function WhatsappFeedbackCard({
               className="btn-ghost text-sm disabled:opacity-50"
               title={
                 !phone.trim()
-                  ? 'Agrega un número antes de probar'
-                  : 'Abre WhatsApp con el número y mensaje configurados'
+                  ? t('addNumberBeforeTest')
+                  : t('opensWhatsappWithConfig')
               }
             >
-              📤 Enviar mensaje de prueba
+              {t('sendTestMessage')}
             </button>
             <button
               type="button"
@@ -985,7 +982,7 @@ function WhatsappFeedbackCard({
               disabled={saving}
               className="btn-primary text-sm"
             >
-              {saving ? 'Guardando…' : 'Guardar cambios'}
+              {saving ? tc('saving') : t('saveChanges')}
             </button>
           </div>
         </div>
