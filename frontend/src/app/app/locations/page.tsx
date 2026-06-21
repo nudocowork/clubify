@@ -1,5 +1,6 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import dynamic from 'next/dynamic';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
@@ -27,6 +28,7 @@ type Suggestion = {
 };
 
 export default function LocationsPage() {
+  const t = useTranslations('app_locations');
   const [list, setList] = useState<any[]>([]);
   const [form, setForm] = useState({
     name: '',
@@ -60,7 +62,7 @@ export default function LocationsPage() {
     try {
       setList(await api('/locations'));
     } catch (e: any) {
-      toast(e.message || 'Error cargando ubicaciones', 'error');
+      toast(e.message || t('errorLoading'), 'error');
     }
   }
   useEffect(() => {
@@ -71,7 +73,7 @@ export default function LocationsPage() {
     e.preventDefault();
     setErr(null);
     if (!picked) {
-      setErr('Busca tu negocio en el mapa primero');
+      setErr(t('errSearchFirst'));
       return;
     }
     try {
@@ -91,20 +93,20 @@ export default function LocationsPage() {
       });
       setPicked(null);
       load();
-      toast('Ubicación agregada', 'success');
+      toast(t('toastAdded'), 'success');
     } catch (e: any) {
       setErr(e.message);
     }
   }
 
   async function remove(id: string) {
-    if (!confirm('¿Eliminar ubicación?')) return;
+    if (!confirm(t('confirmRemove'))) return;
     try {
       await api(`/locations/${id}`, { method: 'DELETE' });
       load();
-      toast('Ubicación eliminada', 'success');
+      toast(t('toastRemoved'), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo eliminar', 'error');
+      toast(e.message || t('errorCouldNotRemove'), 'error');
     }
   }
 
@@ -112,17 +114,20 @@ export default function LocationsPage() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Ubicaciones <span className="page-crumb">/ {list.length} configuradas</span>
+          {t('title')}{' '}
+          <span className="page-crumb">
+            {t('configuredCount', { count: list.length })}
+          </span>
         </h1>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <form onSubmit={create} className="card card-pad">
-          <h2 className="text-base font-semibold m-0">Nueva ubicación</h2>
+          <h2 className="text-base font-semibold m-0">{t('newLocation')}</h2>
 
           {/* Map picker estilo Google Maps */}
           <div className="mt-4">
-            <label className="label">📍 Encontrá tu negocio en el mapa</label>
+            <label className="label">{t('findOnMap')}</label>
             <MapPicker
               picked={picked}
               onPick={handlePick}
@@ -133,7 +138,7 @@ export default function LocationsPage() {
           {picked && (
             <>
               <div className="mt-3">
-                <label className="label">Nombre del local</label>
+                <label className="label">{t('localName')}</label>
                 <input
                   className="input"
                   value={form.name}
@@ -142,7 +147,7 @@ export default function LocationsPage() {
                 />
               </div>
               <div className="mt-3">
-                <label className="label">Dirección</label>
+                <label className="label">{t('address')}</label>
                 <input
                   className="input"
                   value={form.address}
@@ -151,7 +156,7 @@ export default function LocationsPage() {
               </div>
 
               <div className="mt-3">
-                <label className="label">Link de Google Maps (exacto, opcional)</label>
+                <label className="label">{t('mapsUrlLabelOptional')}</label>
                 <input
                   className="input"
                   value={form.mapsUrl}
@@ -159,8 +164,7 @@ export default function LocationsPage() {
                   placeholder="https://maps.app.goo.gl/…"
                 />
                 <p className="text-[11px] text-mute mt-1 leading-snug">
-                  Compartir → Copiar enlace en Google Maps. Hace que los botones
-                  “Dirección” abran exactamente esta sede.
+                  {t('mapsUrlHint')}
                 </p>
               </div>
 
@@ -168,16 +172,16 @@ export default function LocationsPage() {
                   negativa de esta sede en vez del administrador general. */}
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <div>
-                  <label className="label">Administrador de sede (opcional)</label>
+                  <label className="label">{t('siteAdminOptional')}</label>
                   <input
                     className="input"
                     value={form.adminName}
                     onChange={(e) => setForm({ ...form, adminName: e.target.value })}
-                    placeholder="Nombre"
+                    placeholder={t('namePlaceholder')}
                   />
                 </div>
                 <div>
-                  <label className="label">Teléfono del administrador</label>
+                  <label className="label">{t('adminPhone')}</label>
                   <input
                     className="input"
                     value={form.adminPhone}
@@ -186,24 +190,23 @@ export default function LocationsPage() {
                   />
                 </div>
                 <p className="text-[11px] text-mute -mt-1 col-span-2 leading-snug">
-                  Si una reseña queda por debajo de tu umbral, la alerta se envía
-                  a este teléfono (de la sede) en vez del general del negocio.
+                  {t('siteAdminHint')}
                 </p>
               </div>
 
               {/* Sedes por estado — ruteo de pedidos de domicilio */}
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <div>
-                  <label className="label">Estado / región de la sede</label>
+                  <label className="label">{t('stateRegionOfSite')}</label>
                   <input
                     className="input"
                     value={form.state}
                     onChange={(e) => setForm({ ...form, state: e.target.value })}
-                    placeholder="Ej: Caracas, Nueva Esparta, Táchira"
+                    placeholder={t('stateRegionPlaceholder')}
                   />
                 </div>
                 <div>
-                  <label className="label">WhatsApp de pedidos de la sede</label>
+                  <label className="label">{t('siteOrdersWhatsapp')}</label>
                   <input
                     className="input"
                     value={form.ordersWhatsappPhone}
@@ -214,9 +217,7 @@ export default function LocationsPage() {
                   />
                 </div>
                 <p className="text-[11px] text-mute -mt-1 col-span-2 leading-snug">
-                  Los pedidos de domicilio del cliente que elige este estado se
-                  envían a este número. Debe coincidir con el estado que el
-                  cliente selecciona en el checkout.
+                  {t('siteOrdersHint')}
                 </p>
               </div>
 
@@ -226,12 +227,12 @@ export default function LocationsPage() {
                 onClick={() => setShowAdvanced((v) => !v)}
                 className="text-[11px] text-mute hover:text-ink mt-3"
               >
-                {showAdvanced ? '▲' : '▼'} Coordenadas exactas (avanzado)
+                {showAdvanced ? '▲' : '▼'} {t('exactCoordinatesAdvanced')}
               </button>
               {showAdvanced && (
                 <div className="mt-2 grid grid-cols-2 gap-3">
                   <div>
-                    <label className="label">Latitud</label>
+                    <label className="label">{t('latitude')}</label>
                     <input
                       type="number"
                       step="0.000001"
@@ -243,7 +244,7 @@ export default function LocationsPage() {
                     />
                   </div>
                   <div>
-                    <label className="label">Longitud</label>
+                    <label className="label">{t('longitude')}</label>
                     <input
                       type="number"
                       step="0.000001"
@@ -260,7 +261,7 @@ export default function LocationsPage() {
           )}
 
           <div className="mt-3">
-            <label className="label">Radio de geolocalización</label>
+            <label className="label">{t('geoRadius')}</label>
             <select
               className="input"
               value={form.radiusMeters}
@@ -268,20 +269,19 @@ export default function LocationsPage() {
                 setForm({ ...form, radiusMeters: Number(e.target.value) })
               }
             >
-              <option value={100}>100 m</option>
-              <option value={300}>⭐ Recomendado: 300 m</option>
+              <option value={100}>{t('radius100')}</option>
+              <option value={300}>{t('radius300Recommended')}</option>
             </select>
             <p className="text-[11px] text-mute mt-1 leading-relaxed">
-              Apple Wallet muestra la tarjeta del cliente en el lock screen
-              cuando esté a esta distancia o menos del local.
+              {t('geoRadiusHint')}
             </p>
           </div>
           <div className="mt-3">
-            <label className="label">📱 Texto del push wallet</label>
+            <label className="label">{t('walletPushText')}</label>
             <div className="flex items-stretch gap-2">
               <input
                 className="input flex-1"
-                placeholder="Estás cerca de nuestro local · ¡pasa a sellar!"
+                placeholder={t('walletPushPlaceholder')}
                 value={form.walletRelevantText}
                 onChange={(e) =>
                   setForm({ ...form, walletRelevantText: e.target.value })
@@ -296,13 +296,11 @@ export default function LocationsPage() {
                   }))
                 }
                 size="sm"
-                placeholder="Agregar emoji"
+                placeholder={t('addEmoji')}
               />
             </div>
             <p className="text-[11px] text-mute mt-1 leading-relaxed">
-              Mensaje que aparece en el lock screen del iPhone cuando el
-              cliente entra al radio. Si lo dejas vacío, usa "Estás cerca
-              de [tu marca]".
+              {t('walletPushHint')}
             </p>
           </div>
           {err && (
@@ -313,22 +311,21 @@ export default function LocationsPage() {
           <button
             className="btn-primary mt-4 w-full justify-center"
             disabled={!picked}
-            title={!picked ? 'Busca tu negocio primero' : ''}
+            title={!picked ? t('searchBusinessFirst') : ''}
           >
-            <Icon name="plus" /> Agregar ubicación
+            <Icon name="plus" /> {t('addLocation')}
           </button>
         </form>
 
         <div>
-          <h2 className="text-base font-semibold m-0 mb-3">Tus ubicaciones</h2>
+          <h2 className="text-base font-semibold m-0 mb-3">{t('yourLocations')}</h2>
           <div className="space-y-2.5">
             {list.length === 0 && (
               <div className="card card-pad text-center py-8">
                 <div className="text-3xl mb-1">📍</div>
-                <div className="font-semibold text-sm">Aún sin ubicaciones</div>
+                <div className="font-semibold text-sm">{t('emptyTitle')}</div>
                 <p className="text-xs text-mute mt-1 max-w-md mx-auto">
-                  Agrega tus locales para activar notificaciones por geo
-                  (cuando un cliente pase cerca, recibe un push).
+                  {t('emptyHint')}
                 </p>
               </div>
             )}
@@ -356,6 +353,8 @@ function LocationCard({
   onRemove: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations('app_locations');
+  const tc = useTranslations('common');
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const lat = Number(loc.latitude);
@@ -378,7 +377,8 @@ function LocationCard({
             <div className="font-medium truncate">{loc.name}</div>
             <div className="text-xs text-mute truncate">{loc.address}</div>
             <div className="text-xs text-mute mt-0.5">
-              {lat.toFixed(4)}, {lng.toFixed(4)} · radio {radius} m
+              {lat.toFixed(4)}, {lng.toFixed(4)} ·{' '}
+              {t('radiusMeters', { radius })}
             </div>
           </div>
         </div>
@@ -386,30 +386,30 @@ function LocationCard({
           <button
             onClick={() => setOpen((v) => !v)}
             className="btn-ghost text-xs"
-            title="Mostrar en mapa"
+            title={t('showOnMap')}
           >
-            🗺 {open ? 'Ocultar' : 'Ver'} mapa
+            🗺 {open ? t('hideMap') : t('viewMap')}
           </button>
           <button
             onClick={() => setEditing(true)}
             className="btn-ghost text-xs"
-            title="Editar dirección, radio y mensaje"
+            title={t('editTooltip')}
           >
-            <Icon name="edit" /> Editar
+            <Icon name="edit" /> {tc('edit')}
           </button>
           <a
             href={`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`}
             target="_blank"
             rel="noreferrer"
             className="btn-ghost text-xs"
-            title="Cómo llegar"
+            title={t('howToGet')}
           >
-            🧭 Ir
+            🧭 {t('go')}
           </a>
           <button
             className="btn-danger"
             onClick={onRemove}
-            title="Eliminar"
+            title={t('remove')}
           >
             <Icon name="trash" />
           </button>
@@ -429,7 +429,7 @@ function LocationCard({
         <div className="border-t border-line2">
           <iframe
             src={embedSrc}
-            title={`Mapa ${loc.name}`}
+            title={t('mapOf', { name: loc.name })}
             className="w-full"
             style={{ height: 280, border: 0 }}
             loading="lazy"
@@ -441,7 +441,7 @@ function LocationCard({
               rel="noreferrer"
               className="text-brand hover:underline"
             >
-              Abrir en OpenStreetMap →
+              {t('openInOsm')}
             </a>
           </div>
         </div>
@@ -460,6 +460,8 @@ function EditLocationModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations('app_locations');
+  const tc = useTranslations('common');
   const [form, setForm] = useState({
     name: loc.name ?? '',
     address: loc.address ?? '',
@@ -483,10 +485,10 @@ function EditLocationModal({
         method: 'PATCH',
         body: JSON.stringify(form),
       });
-      toast('Ubicación actualizada', 'success');
+      toast(t('toastUpdated'), 'success');
       onSaved();
     } catch (e: any) {
-      setErr(e.message || 'Error');
+      setErr(e.message || tc('error'));
     } finally {
       setSaving(false);
     }
@@ -503,7 +505,7 @@ function EditLocationModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-base m-0">📍 Editar ubicación</h3>
+          <h3 className="font-semibold text-base m-0">{t('editLocation')}</h3>
           <button
             type="button"
             onClick={onClose}
@@ -514,7 +516,7 @@ function EditLocationModal({
         </div>
 
         <div>
-          <label className="label">Nombre del local</label>
+          <label className="label">{t('localName')}</label>
           <input
             className="input"
             value={form.name}
@@ -524,17 +526,17 @@ function EditLocationModal({
         </div>
 
         <div>
-          <label className="label">Dirección</label>
+          <label className="label">{t('address')}</label>
           <input
             className="input"
             value={form.address}
             onChange={(e) => setForm({ ...form, address: e.target.value })}
-            placeholder="Calle 123 #45-67, Bogotá"
+            placeholder={t('addressPlaceholder')}
           />
         </div>
 
         <div>
-          <label className="label">Link de Google Maps (exacto)</label>
+          <label className="label">{t('mapsUrlLabel')}</label>
           <input
             className="input"
             value={form.mapsUrl}
@@ -542,24 +544,22 @@ function EditLocationModal({
             placeholder="https://maps.app.goo.gl/…"
           />
           <p className="text-[11px] text-mute mt-1 leading-snug">
-            Pegá el link del lugar exacto desde Google Maps (botón Compartir →
-            Copiar enlace). Si lo cargás, los botones “Dirección” abren
-            exactamente esta sede en vez de una búsqueda aproximada.
+            {t('mapsUrlHintEdit')}
           </p>
         </div>
 
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <label className="label">Estado / región</label>
+            <label className="label">{t('stateRegion')}</label>
             <input
               className="input"
               value={form.state}
               onChange={(e) => setForm({ ...form, state: e.target.value })}
-              placeholder="Ej: Caracas"
+              placeholder={t('stateRegionPlaceholderShort')}
             />
           </div>
           <div>
-            <label className="label">WhatsApp de pedidos</label>
+            <label className="label">{t('ordersWhatsapp')}</label>
             <input
               className="input"
               value={form.ordersWhatsappPhone}
@@ -570,14 +570,13 @@ function EditLocationModal({
             />
           </div>
           <p className="text-[11px] text-mute -mt-1 col-span-2 leading-snug">
-            Los pedidos de domicilio del estado seleccionado por el cliente se
-            rutean a este número.
+            {t('ordersHintEdit')}
           </p>
         </div>
 
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <label className="label">Latitud</label>
+            <label className="label">{t('latitude')}</label>
             <input
               type="number"
               step="0.000001"
@@ -589,7 +588,7 @@ function EditLocationModal({
             />
           </div>
           <div>
-            <label className="label">Longitud</label>
+            <label className="label">{t('longitude')}</label>
             <input
               type="number"
               step="0.000001"
@@ -603,7 +602,7 @@ function EditLocationModal({
         </div>
 
         <div>
-          <label className="label">Radio de geolocalización</label>
+          <label className="label">{t('geoRadius')}</label>
           <select
             className="input"
             value={form.radiusMeters}
@@ -611,16 +610,16 @@ function EditLocationModal({
               setForm({ ...form, radiusMeters: Number(e.target.value) })
             }
           >
-            <option value={100}>100 m</option>
-            <option value={300}>⭐ Recomendado: 300 m</option>
+            <option value={100}>{t('radius100')}</option>
+            <option value={300}>{t('radius300Recommended')}</option>
           </select>
         </div>
 
         <div>
-          <label className="label">📱 Texto del push wallet (GeoPush)</label>
+          <label className="label">{t('walletPushTextGeoPush')}</label>
           <input
             className="input"
-            placeholder="Estás cerca de nuestro local · ¡pasa a sellar!"
+            placeholder={t('walletPushPlaceholder')}
             value={form.walletRelevantText}
             onChange={(e) =>
               setForm({ ...form, walletRelevantText: e.target.value })
@@ -628,8 +627,7 @@ function EditLocationModal({
             maxLength={120}
           />
           <p className="text-[11px] text-mute mt-1 leading-snug">
-            Aparece en el lock screen del iPhone cuando el cliente entra al
-            radio. Vacío = "Estás cerca de [tu marca]" por default.
+            {t('walletPushHintEdit')}
           </p>
         </div>
 
@@ -641,10 +639,10 @@ function EditLocationModal({
 
         <div className="flex gap-2 pt-2">
           <button type="submit" className="btn-primary flex-1" disabled={saving}>
-            {saving ? 'Guardando…' : 'Guardar cambios'}
+            {saving ? tc('saving') : t('saveChanges')}
           </button>
           <button type="button" onClick={onClose} className="btn-ghost">
-            Cancelar
+            {tc('cancel')}
           </button>
         </div>
       </form>
