@@ -8,7 +8,52 @@ const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 // no tenga que re-loguearse cada hora.
 const REFRESH_MAX_AGE = 30 * 24 * 60 * 60; // 30d, igual al backend
 
+// ── Overlay de sesión POR PESTAÑA (sessionStorage) ──────────────────────────
+// La sesión base (login) vive en cookie + localStorage = COMPARTIDA entre todas
+// las pestañas (la necesita el middleware SSR). El problema multi-pestaña: al
+// "Entrar como" un negocio en una 2ª pestaña, antes se pisaba esa cookie
+// compartida → las otras pestañas cambiaban de subcuenta y se perdían cambios.
+// Solución: la IMPERSONACIÓN se guarda solo en sessionStorage (aislado por
+// pestaña). El backend autentica por el header Bearer (no por la cookie), así
+// que cada pestaña manda su propio token sin afectar a las demás.
+const TAB_TOKEN = 'clubify_tab_token';
+const TAB_USER = 'clubify_tab_user';
+const TAB_STACK = 'clubify_tab_backup';
+
+function ssGet(k: string): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.sessionStorage.getItem(k);
+  } catch {
+    return null;
+  }
+}
+function ssSet(k: string, v: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(k, v);
+  } catch {
+    /* sessionStorage no disponible */
+  }
+}
+function ssDel(k: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.removeItem(k);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** True si ESTA pestaña está impersonando (tiene overlay propio). */
+export function isImpersonating(): boolean {
+  return !!ssGet(TAB_TOKEN);
+}
+
 export function getToken() {
+  // Overlay por pestaña (impersonación) tiene prioridad sobre la cookie base.
+  const tab = ssGet(TAB_TOKEN);
+  if (tab) return tab;
   if (typeof document === 'undefined') return null;
   const m = document.cookie.match(/(^|;\s*)clubify_token=([^;]+)/);
   return m ? decodeURIComponent(m[2]) : null;
@@ -50,18 +95,25 @@ export function clearSession() {
   document.cookie = 'clubify_refresh=; path=/; max-age=0';
   localStorage.removeItem('clubify_user');
   localStorage.removeItem('clubify_admin_backup');
+  // Limpia también el overlay de impersonación de ESTA pestaña.
+  ssDel(TAB_TOKEN);
+  ssDel(TAB_USER);
+  ssDel(TAB_STACK);
 }
 
 export function getUser() {
   if (typeof window === 'undefined') return null;
-  const raw = localStorage.getItem('clubify_user');
+  // Overlay por pestaña (impersonación) primero, luego la base compartida.
+  const rawTab = ssGet(TAB_USER);
+  const raw = rawTab ?? localStorage.getItem('clubify_user');
   if (!raw) return null;
   try {
     return JSON.parse(raw);
   } catch {
-    // localStorage corrupto (rare pero pasa post-crash) — limpiar y forzar
+    // Storage corrupto (rare pero pasa post-crash) — limpiar y forzar
     // re-login en lugar de crashear toda la app.
-    localStorage.removeItem('clubify_user');
+    if (rawTab) ssDel(TAB_USER);
+    else localStorage.removeItem('clubify_user');
     return null;
   }
 }
@@ -83,27 +135,28 @@ type ImpersonationBackup = {
 // era un único backup que se pisaba al anidar (perdías la vuelta a Fidelia).
 // Compat: si encuentra el formato viejo (objeto único) lo envuelve como pila
 // de 1. Se persiste en la MISMA key `clubify_admin_backup`.
+// La pila de impersonación vive en sessionStorage (POR PESTAÑA) — así dos
+// pestañas pueden estar en negocios distintos sin pisarse. (Antes en
+// localStorage = compartida → causaba el salto de subcuenta entre pestañas.)
 function readImpersonationStack(): ImpersonationBackup[] {
-  if (typeof window === 'undefined') return [];
-  const raw = localStorage.getItem('clubify_admin_backup');
+  const raw = ssGet(TAB_STACK);
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) return parsed;
-    // Formato viejo (objeto único) → pila de 1.
     if (parsed && parsed.token) return [parsed];
     return [];
   } catch {
-    localStorage.removeItem('clubify_admin_backup');
+    ssDel(TAB_STACK);
     return [];
   }
 }
 
 function writeImpersonationStack(stack: ImpersonationBackup[]) {
   if (stack.length === 0) {
-    localStorage.removeItem('clubify_admin_backup');
+    ssDel(TAB_STACK);
   } else {
-    localStorage.setItem('clubify_admin_backup', JSON.stringify(stack));
+    ssSet(TAB_STACK, JSON.stringify(stack));
   }
 }
 
@@ -134,11 +187,13 @@ export function startImpersonation(opts: {
     });
     writeImpersonationStack(stack);
   }
-  // Borrar refresh actual: el access que recibimos de impersonate NO viene
-  // con un refresh propio del owner impersonado, así que dejar el del super
-  // admin haría que el refresh-on-401 cambie el contexto al super admin.
-  document.cookie = 'clubify_refresh=; path=/; max-age=0';
-  setSession(opts.accessToken, opts.user);
+  // La impersonación se escribe SOLO en el overlay de esta pestaña
+  // (sessionStorage), NO en la cookie/localStorage compartidos. Así las otras
+  // pestañas conservan su propia sesión. No tocamos la cookie refresh (es de la
+  // sesión base, compartida); el refresh-on-401 se desactiva mientras hay
+  // overlay (ver apiWithRefresh).
+  ssSet(TAB_TOKEN, opts.accessToken);
+  ssSet(TAB_USER, JSON.stringify(opts.user));
 }
 
 /** Devuelve el TOPE de la pila (el nivel al que se vuelve), o null. */
@@ -157,9 +212,16 @@ export function stopImpersonation() {
   const backup = stack.pop();
   if (!backup) return false;
   writeImpersonationStack(stack);
-  setSession(backup.token, backup.user, {
-    refreshToken: backup.refreshToken ?? undefined,
-  });
+  if (stack.length === 0) {
+    // Volvimos al nivel base (la sesión original de login, en cookie/local).
+    // Quitamos el overlay de la pestaña para usar de nuevo la sesión base.
+    ssDel(TAB_TOKEN);
+    ssDel(TAB_USER);
+  } else {
+    // Seguimos anidados: el nivel previo pasa a ser el overlay activo.
+    ssSet(TAB_TOKEN, backup.token);
+    ssSet(TAB_USER, JSON.stringify(backup.user));
+  }
   return true;
 }
 
@@ -250,15 +312,21 @@ async function apiWithRefresh<T>(
       !path.startsWith('/auth/refresh') &&
       !path.startsWith('/auth/login')
     ) {
-      const refreshed = await refreshAccessToken();
-      if (refreshed) {
-        return apiWithRefresh<T>(path, init, false);
-      }
-      const onLogin = window.location.pathname.startsWith('/login');
-      const hadSession = !!token || !!localStorage.getItem('clubify_user');
-      if (hadSession && !onLogin) {
-        clearSession();
-        window.location.href = '/login?expired=1';
+      // Si ESTA pestaña está impersonando, el token vive en su overlay y NO es
+      // refrescable (el refresh cookie es de la sesión base). No refrescamos ni
+      // limpiamos la sesión base (rompería las otras pestañas): dejamos que el
+      // error suba para que el caller lo maneje (re-entrar al negocio).
+      if (!isImpersonating()) {
+        const refreshed = await refreshAccessToken();
+        if (refreshed) {
+          return apiWithRefresh<T>(path, init, false);
+        }
+        const onLogin = window.location.pathname.startsWith('/login');
+        const hadSession = !!token || !!localStorage.getItem('clubify_user');
+        if (hadSession && !onLogin) {
+          clearSession();
+          window.location.href = '/login?expired=1';
+        }
       }
     }
 

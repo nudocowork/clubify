@@ -92,7 +92,9 @@ export class PayoutsService {
       const rows = await this.prisma.commission.findMany({
         where: {
           recipientCodeId: { in: myCodeIds },
-          status: CommissionStatus.APPROVED,
+          // APPROVED (positivas) + ADJUSTMENT (clawbacks negativos) → el saldo
+          // disponible ya descuenta los reembolsos de comisiones pagadas.
+          status: { in: [CommissionStatus.APPROVED, CommissionStatus.ADJUSTMENT] },
           payoutItem: null,
         },
         select: { amount: true },
@@ -303,7 +305,7 @@ export class PayoutsService {
       const sumRows = await this.prisma.commission.findMany({
         where: {
           recipientCodeId: { in: codeIds },
-          status: CommissionStatus.APPROVED,
+          status: { in: [CommissionStatus.APPROVED, CommissionStatus.ADJUSTMENT] },
           payoutItem: null,
         },
         select: { amount: true },
@@ -420,7 +422,9 @@ export class PayoutsService {
     const commissions = await this.prisma.commission.findMany({
       where: {
         recipientCodeId: { in: codeIds },
-        status: CommissionStatus.APPROVED,
+        // Incluye ADJUSTMENT (clawbacks negativos) para que el corte los netee
+        // y queden saldados (pasan a PAID junto con las positivas).
+        status: { in: [CommissionStatus.APPROVED, CommissionStatus.ADJUSTMENT] },
         payoutItem: null,
       },
       select: { id: true, amount: true },

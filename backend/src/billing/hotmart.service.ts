@@ -633,6 +633,7 @@ export class HotmartService {
       case 'PURCHASE_REFUNDED':
       case 'PURCHASE_CHARGEBACK':
       case 'SUBSCRIPTION_CANCELLATION': {
+        const transactionId = payload.data?.purchase?.transaction;
         await this.prisma.tenant.update({
           where: { id: tenant.id },
           data: {
@@ -648,6 +649,7 @@ export class HotmartService {
         await this.churnReferral({
           tenantId: tenant.id,
           rejectLastCommission: isRefundOrChargeback,
+          transactionId: transactionId ?? null,
         }).catch((e) =>
           this.logger.warn(`churnReferral falló: ${(e as Error).message}`),
         );
@@ -1517,6 +1519,7 @@ export class HotmartService {
   private async churnReferral(opts: {
     tenantId: string;
     rejectLastCommission: boolean;
+    transactionId?: string | null;
   }) {
     // Fix audit 2026-06-07: con 3-way split (influencer + embajador +
     // vendor + opcional SOCIO) hay MÚLTIPLES referralUse rows por
@@ -1550,6 +1553,66 @@ export class HotmartService {
           where: { id: { in: lastCommissionIds } },
           data: { status: 'REJECTED' },
         });
+      }
+
+      // Fase 7 (clawback contable): si la comisión YA fue PAGADA no se toca el
+      // histórico — se crea un asiento NEGATIVO (ADJUSTMENT) ligado a la misma
+      // transacción, que se descuenta en el próximo corte del beneficiario.
+      // Solo clawback de las comisiones PAID que matchean la tx del refund
+      // (precisión + trazabilidad). periodKey `adj-<id>` da idempotencia vía
+      // el UNIQUE(referralUseId, recipientCodeId, periodKey): el mismo refund
+      // reenviado no duplica el asiento.
+      if (opts.transactionId) {
+        const paid = await this.prisma.commission.findMany({
+          where: {
+            referralUse: { tenantId: opts.tenantId },
+            hotmartTransactionId: opts.transactionId,
+            status: 'PAID',
+          },
+          select: {
+            id: true,
+            referralUseId: true,
+            recipientCodeId: true,
+            vendorCodeId: true,
+            amount: true,
+            currency: true,
+            hotmartTransactionId: true,
+            externalTxId: true,
+            distributionMode: true,
+            baseAmountUsd: true,
+            appliedPercent: true,
+          },
+        });
+        for (const c of paid) {
+          try {
+            await this.prisma.commission.create({
+              data: {
+                referralUseId: c.referralUseId,
+                recipientCodeId: c.recipientCodeId,
+                vendorCodeId: c.vendorCodeId,
+                amount: c.amount.negated(),
+                currency: c.currency,
+                status: 'ADJUSTMENT',
+                paymentStatus: 'PENDING',
+                amountPaid: 0,
+                hotmartTransactionId: c.hotmartTransactionId,
+                externalTxId: c.externalTxId,
+                periodKey: `adj-${c.id}`,
+                distributionMode: c.distributionMode,
+                baseAmountUsd: c.baseAmountUsd,
+                appliedPercent: c.appliedPercent,
+                notes: `Clawback por refund/chargeback (tx ${opts.transactionId}). Comisión original PAGADA ${c.id} — no se modifica el histórico; este asiento negativo se descuenta en el próximo corte.`,
+              },
+            });
+          } catch (e: any) {
+            // P2002 = ya existe el asiento (refund reenviado) → idempotente.
+            if (e?.code !== 'P2002') {
+              this.logger.warn(
+                `Clawback ADJUSTMENT falló para commission ${c.id}: ${(e as Error).message}`,
+              );
+            }
+          }
+        }
       }
     }
   }
