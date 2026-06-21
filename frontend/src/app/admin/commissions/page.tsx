@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 
@@ -71,40 +72,40 @@ type CommissionsResp = {
 function lifecycleBadge(
   status: string,
   paymentStatus: PaymentStatus,
-): { label: string; cls: string } {
+): { key: string; cls: string } {
   if (status === 'REJECTED')
-    return { label: 'Cancelada', cls: 'bg-red-100 text-red-700' };
+    return { key: 'lifecycleCancelled', cls: 'bg-red-100 text-red-700' };
   if (status === 'RETAINED')
-    return { label: 'Retenida', cls: 'bg-slate-200 text-slate-700' };
+    return { key: 'lifecycleRetained', cls: 'bg-slate-200 text-slate-700' };
   if (status === 'PAID' || paymentStatus === 'PAID')
-    return { label: 'Pagada', cls: 'bg-emerald-100 text-emerald-700' };
+    return { key: 'lifecyclePaid', cls: 'bg-emerald-100 text-emerald-700' };
   if (paymentStatus === 'PARTIAL')
-    return { label: 'Pago parcial', cls: 'bg-blue-100 text-blue-700' };
+    return { key: 'lifecyclePartial', cls: 'bg-blue-100 text-blue-700' };
   if (status === 'APPROVED')
-    return { label: 'Disponible', cls: 'bg-indigo-100 text-indigo-700' };
+    return { key: 'lifecycleAvailable', cls: 'bg-indigo-100 text-indigo-700' };
   // PENDING: todavía dentro del bloqueo de 15 días.
-  return { label: 'Bloqueada', cls: 'bg-amber-100 text-amber-700' };
+  return { key: 'lifecycleBlocked', cls: 'bg-amber-100 text-amber-700' };
 }
 
-const BUCKET_LABEL: Record<Bucket, string> = {
-  pending_approval: 'Pendiente por aprobar',
-  available: 'Disponible para pagar',
-  paid: 'Pagadas',
-  rejected: 'Rechazadas',
+const BUCKET_LABEL_KEY: Record<Bucket, string> = {
+  pending_approval: 'bucketPendingApproval',
+  available: 'bucketAvailable',
+  paid: 'bucketPaid',
+  rejected: 'bucketRejected',
 };
 
-const ROLE_LABEL: Record<RecipientRole, string> = {
-  INFLUENCER: 'Influencer',
-  AMBASSADOR: 'Embajador',
-  VENDOR: 'Vendedor',
-  SOCIO: 'Socio',
+const ROLE_LABEL_KEY: Record<RecipientRole, string> = {
+  INFLUENCER: 'roleInfluencer',
+  AMBASSADOR: 'roleAmbassador',
+  VENDOR: 'roleVendor',
+  SOCIO: 'roleSocio',
 };
 
-const PERIODICITY_LABEL: Record<string, string> = {
-  MENSUAL: 'Mensual',
-  TRIMESTRAL: 'Trimestral',
-  SEMESTRAL: 'Semestral',
-  ANUAL: 'Anual',
+const PERIODICITY_LABEL_KEY: Record<string, string> = {
+  MENSUAL: 'periodicityMonthly',
+  TRIMESTRAL: 'periodicityQuarterly',
+  SEMESTRAL: 'periodicitySemiannual',
+  ANUAL: 'periodicityAnnual',
 };
 
 function fmtUsd(n: number) {
@@ -121,6 +122,7 @@ function fmtDate(d: string | null | undefined) {
 }
 
 export default function AdminCommissionsPage() {
+  const t = useTranslations('admin_commissions');
   const [data, setData] = useState<CommissionsResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [dateFrom, setDateFrom] = useState('');
@@ -144,7 +146,7 @@ export default function AdminCommissionsPage() {
       const url = `/admin/commissions${params.toString() ? `?${params}` : ''}`;
       setData(await api<CommissionsResp>(url));
     } catch (e: any) {
-      toast(e?.message ?? 'Error cargando comisiones', 'error');
+      toast(e?.message ?? t('errorLoading'), 'error');
     } finally {
       setLoading(false);
     }
@@ -160,21 +162,21 @@ export default function AdminCommissionsPage() {
   async function enableCommission(c: CommissionRow) {
     if (
       !confirm(
-        `¿Habilitar esta comisión de ${fmtUsd(c.amount)}? Se eliminan los ${c.daysRemaining} día(s) restantes y queda disponible para el próximo ciclo de pago.`,
+        t('confirmEnable', { amount: fmtUsd(c.amount), days: c.daysRemaining }),
       )
     )
       return;
-    const reason = window.prompt('Motivo (opcional):') ?? undefined;
+    const reason = window.prompt(t('promptReason')) ?? undefined;
     setEnabling(c.id);
     try {
       await api(`/admin/commissions/${c.id}/enable`, {
         method: 'PATCH',
         body: JSON.stringify({ reason }),
       });
-      toast('Comisión habilitada — disponible para pagar', 'success');
+      toast(t('toastEnabled'), 'success');
       load();
     } catch (e: any) {
-      toast(e?.message ?? 'No se pudo habilitar', 'error');
+      toast(e?.message ?? t('errorCouldNotEnable'), 'error');
     } finally {
       setEnabling(null);
     }
@@ -201,24 +203,24 @@ export default function AdminCommissionsPage() {
 
   function exportCsv() {
     if (!data?.items.length) {
-      toast('Sin filas para exportar', 'info');
+      toast(t('noRowsToExport'), 'info');
       return;
     }
     const headers = [
-      'Fecha',
-      'Negocio',
-      'Plan',
-      'Periodicidad',
-      'Próx. renovación',
-      'Recipient',
-      'Rol',
-      'Email',
-      'Código',
-      'Monto',
-      'Pagado',
-      'Pendiente',
-      'Estado',
-      'Hotmart TX',
+      t('csvDate'),
+      t('csvBusiness'),
+      t('csvPlan'),
+      t('csvPeriodicity'),
+      t('csvNextRenewal'),
+      t('csvRecipient'),
+      t('csvRole'),
+      t('csvEmail'),
+      t('csvCode'),
+      t('csvAmount'),
+      t('csvPaid'),
+      t('csvOutstanding'),
+      t('csvStatus'),
+      t('csvHotmartTx'),
     ];
     const rows = data.items.map((c) => [
       fmtDate(c.createdAt),
@@ -227,13 +229,17 @@ export default function AdminCommissionsPage() {
       c.tenant?.planPeriodicity ?? '',
       fmtDate(c.tenant?.currentPeriodEnd ?? null),
       c.recipient?.ownerName ?? '',
-      c.recipient ? ROLE_LABEL[c.recipient.role] ?? c.recipient.role : '',
+      c.recipient
+        ? ROLE_LABEL_KEY[c.recipient.role]
+          ? t(ROLE_LABEL_KEY[c.recipient.role])
+          : c.recipient.role
+        : '',
       c.recipient?.ownerEmail ?? '',
       c.recipient?.code ?? '',
       c.amount.toFixed(2),
       c.amountPaid.toFixed(2),
       c.outstanding.toFixed(2),
-      lifecycleBadge(c.status, c.paymentStatus).label,
+      t(lifecycleBadge(c.status, c.paymentStatus).key),
       c.hotmartTransactionId ?? '',
     ]);
     const csv = [headers, ...rows]
@@ -261,26 +267,26 @@ export default function AdminCommissionsPage() {
     <div className="max-w-7xl">
       <div className="page-head flex flex-wrap items-center justify-between gap-3">
         <h1 className="page-title">
-          Comisiones <span className="page-crumb">/ Panel contable</span>
+          {t('pageTitle')} <span className="page-crumb">{t('pageCrumb')}</span>
         </h1>
         <div className="flex flex-wrap items-center gap-2">
           <Link
             href="/admin/accounting"
             className="text-sm px-3.5 py-2 rounded-pill border border-slate-300 bg-white text-slate-700 font-semibold hover:bg-slate-50 transition"
           >
-            🧮 Contabilidad
+            🧮 {t('navAccounting')}
           </Link>
           <Link
             href="/admin/commissions/report"
             className="text-sm px-3.5 py-2 rounded-pill border border-slate-300 bg-white text-slate-700 font-semibold hover:bg-slate-50 transition"
           >
-            📊 Reporte por empresa
+            📊 {t('navReportByCompany')}
           </Link>
           <Link
             href="/admin/commissions/payments"
             className="text-sm px-3.5 py-2 rounded-pill bg-brand text-white font-semibold hover:opacity-90 transition"
           >
-            Vista por persona pendientes
+            {t('navViewByPerson')}
           </Link>
         </div>
       </div>
@@ -295,32 +301,32 @@ export default function AdminCommissionsPage() {
           [
             {
               key: 'pending_approval' as Bucket,
-              label: `Pendiente por aprobar`,
-              hint: `en hold ${data?.holdDays ?? 30} días`,
+              label: t('bucketPendingApproval'),
+              hint: t('bucketHintOnHold', { days: data?.holdDays ?? 30 }),
               total: data?.byBucket.pendingApproval,
               ring: 'ring-amber-400',
               dot: 'bg-amber-400',
             },
             {
               key: 'available' as Bucket,
-              label: 'Disponible para pagar',
-              hint: 'aprobadas, listas',
+              label: t('bucketAvailable'),
+              hint: t('bucketHintReady'),
               total: data?.byBucket.available,
               ring: 'ring-indigo-400',
               dot: 'bg-indigo-500',
             },
             {
               key: 'paid' as Bucket,
-              label: 'Pagadas',
-              hint: 'liquidadas',
+              label: t('bucketPaid'),
+              hint: t('bucketHintSettled'),
               total: data?.byBucket.paid,
               ring: 'ring-emerald-400',
               dot: 'bg-emerald-500',
             },
             {
               key: 'rejected' as Bucket,
-              label: 'Rechazadas',
-              hint: 'anuladas',
+              label: t('bucketRejected'),
+              hint: t('bucketHintVoided'),
               total: data?.byBucket.rejected,
               ring: 'ring-red-400',
               dot: 'bg-red-400',
@@ -347,7 +353,7 @@ export default function AdminCommissionsPage() {
                 {fmtUsd(b.total?.amount ?? 0)}
               </div>
               <div className="text-[11px] text-mute mt-0.5">
-                {b.total?.count ?? 0} {(b.total?.count ?? 0) === 1 ? 'comisión' : 'comisiones'} · {b.hint}
+                {t('commissionsCount', { count: b.total?.count ?? 0 })} · {b.hint}
               </div>
             </button>
           );
@@ -355,13 +361,17 @@ export default function AdminCommissionsPage() {
       </div>
       {bucket && (
         <div className="text-xs text-mute mb-3 -mt-2">
-          Filtrando por <b>{BUCKET_LABEL[bucket]}</b> ·{' '}
+          {t.rich('filteringBy', {
+            label: t(BUCKET_LABEL_KEY[bucket]),
+            b: (chunks) => <b>{chunks}</b>,
+          })}{' '}
+          ·{' '}
           <button
             type="button"
             onClick={() => setBucket('')}
             className="text-brand font-semibold underline"
           >
-            ver todas las activas
+            {t('viewAllActive')}
           </button>
         </div>
       )}
@@ -369,7 +379,7 @@ export default function AdminCommissionsPage() {
       {/* Filtros */}
       <div className="card card-pad mb-3 flex flex-wrap items-end gap-3">
         <div>
-          <label className="label">Desde</label>
+          <label className="label">{t('filterFrom')}</label>
           <input
             type="date"
             className="input"
@@ -378,7 +388,7 @@ export default function AdminCommissionsPage() {
           />
         </div>
         <div>
-          <label className="label">Hasta</label>
+          <label className="label">{t('filterTo')}</label>
           <input
             type="date"
             className="input"
@@ -387,41 +397,41 @@ export default function AdminCommissionsPage() {
           />
         </div>
         <div>
-          <label className="label">Estado</label>
+          <label className="label">{t('filterStatus')}</label>
           <select
             className="input"
             value={bucket}
             onChange={(e) => setBucket(e.target.value as any)}
           >
-            <option value="">Todas las activas</option>
-            <option value="pending_approval">Pendiente por aprobar</option>
-            <option value="available">Disponible para pagar</option>
-            <option value="paid">Pagadas</option>
-            <option value="rejected">Rechazadas</option>
+            <option value="">{t('filterAllActive')}</option>
+            <option value="pending_approval">{t('bucketPendingApproval')}</option>
+            <option value="available">{t('bucketAvailable')}</option>
+            <option value="paid">{t('bucketPaid')}</option>
+            <option value="rejected">{t('bucketRejected')}</option>
           </select>
         </div>
         <div>
-          <label className="label">Rol recipient</label>
+          <label className="label">{t('filterRole')}</label>
           <select
             className="input"
             value={role}
             onChange={(e) => setRole(e.target.value as any)}
           >
-            <option value="">Todos</option>
-            <option value="INFLUENCER">Influencer</option>
-            <option value="AMBASSADOR">Embajador</option>
-            <option value="VENDOR">Vendedor</option>
-            <option value="SOCIO">Socio</option>
+            <option value="">{t('filterAll')}</option>
+            <option value="INFLUENCER">{t('roleInfluencer')}</option>
+            <option value="AMBASSADOR">{t('roleAmbassador')}</option>
+            <option value="VENDOR">{t('roleVendor')}</option>
+            <option value="SOCIO">{t('roleSocio')}</option>
           </select>
         </div>
         <div>
-          <label className="label">Negocio</label>
+          <label className="label">{t('filterBusiness')}</label>
           <select
             className="input"
             value={tenantId}
             onChange={(e) => setTenantId(e.target.value)}
           >
-            <option value="">Todos</option>
+            <option value="">{t('filterAll')}</option>
             {tenantOptions.map(([id, name]) => (
               <option key={id} value={id}>
                 {name}
@@ -430,13 +440,13 @@ export default function AdminCommissionsPage() {
           </select>
         </div>
         <div>
-          <label className="label">Embajador</label>
+          <label className="label">{t('filterAmbassador')}</label>
           <select
             className="input"
             value={codeId}
             onChange={(e) => setCodeId(e.target.value)}
           >
-            <option value="">Todos</option>
+            <option value="">{t('filterAll')}</option>
             {embajadorOptions.map(([id, name]) => (
               <option key={id} value={id}>
                 {name}
@@ -456,13 +466,13 @@ export default function AdminCommissionsPage() {
             }}
             className="text-xs text-mute hover:text-ink underline"
           >
-            Limpiar filtros
+            {t('clearFilters')}
           </button>
           <button
             onClick={exportCsv}
             className="text-sm px-3 py-1.5 rounded-md border border-line2 bg-bg2 hover:bg-bg3 transition"
           >
-            ⬇ Exportar CSV
+            ⬇ {t('exportCsv')}
           </button>
         </div>
       </div>
@@ -473,16 +483,16 @@ export default function AdminCommissionsPage() {
           <table className="w-full text-sm min-w-[1100px]">
             <thead className="bg-bg2 text-left text-mute text-[11px] uppercase tracking-wider">
               <tr>
-                <th className="px-4 py-3 font-semibold">Fecha</th>
-                <th className="px-4 py-3 font-semibold">Negocio</th>
-                <th className="px-4 py-3 font-semibold">Plan</th>
-                <th className="px-4 py-3 font-semibold">Recipient</th>
-                <th className="px-4 py-3 font-semibold text-right">Monto</th>
-                <th className="px-4 py-3 font-semibold text-right">Pagado</th>
-                <th className="px-4 py-3 font-semibold text-right">Pendiente</th>
-                <th className="px-4 py-3 font-semibold">Estado</th>
-                <th className="px-4 py-3 font-semibold text-center">Días rest.</th>
-                <th className="px-4 py-3 font-semibold">Próx. pago</th>
+                <th className="px-4 py-3 font-semibold">{t('thDate')}</th>
+                <th className="px-4 py-3 font-semibold">{t('thBusiness')}</th>
+                <th className="px-4 py-3 font-semibold">{t('thPlan')}</th>
+                <th className="px-4 py-3 font-semibold">{t('thRecipient')}</th>
+                <th className="px-4 py-3 font-semibold text-right">{t('thAmount')}</th>
+                <th className="px-4 py-3 font-semibold text-right">{t('thPaid')}</th>
+                <th className="px-4 py-3 font-semibold text-right">{t('thOutstanding')}</th>
+                <th className="px-4 py-3 font-semibold">{t('thStatus')}</th>
+                <th className="px-4 py-3 font-semibold text-center">{t('thDaysLeft')}</th>
+                <th className="px-4 py-3 font-semibold">{t('thNextPayout')}</th>
                 <th className="px-4 py-3 font-semibold"></th>
               </tr>
             </thead>
@@ -490,7 +500,7 @@ export default function AdminCommissionsPage() {
               {loading && (
                 <tr>
                   <td colSpan={11} className="px-4 py-10 text-center text-mute">
-                    Cargando…
+                    {t('loading')}
                   </td>
                 </tr>
               )}
@@ -498,7 +508,7 @@ export default function AdminCommissionsPage() {
                 <tr>
                   <td colSpan={11} className="px-4 py-12 text-center text-mute">
                     <div className="text-3xl mb-2">💸</div>
-                    Sin comisiones con estos filtros.
+                    {t('emptyNoCommissions')}
                   </td>
                 </tr>
               )}
@@ -528,8 +538,9 @@ export default function AdminCommissionsPage() {
                         <div>{c.tenant?.planName ?? '—'}</div>
                         {c.tenant?.planPeriodicity && (
                           <div className="text-mute">
-                            {PERIODICITY_LABEL[c.tenant.planPeriodicity] ??
-                              c.tenant.planPeriodicity}
+                            {PERIODICITY_LABEL_KEY[c.tenant.planPeriodicity]
+                              ? t(PERIODICITY_LABEL_KEY[c.tenant.planPeriodicity])
+                              : c.tenant.planPeriodicity}
                           </div>
                         )}
                       </td>
@@ -540,7 +551,9 @@ export default function AdminCommissionsPage() {
                               {c.recipient.ownerName}
                             </div>
                             <div className="text-[10px] text-mute">
-                              {ROLE_LABEL[c.recipient.role] ?? c.recipient.role}
+                              {ROLE_LABEL_KEY[c.recipient.role]
+                                ? t(ROLE_LABEL_KEY[c.recipient.role])
+                                : c.recipient.role}
                               {' · '}
                               <span className="font-mono">
                                 {c.recipient.code}
@@ -564,11 +577,11 @@ export default function AdminCommissionsPage() {
                         <span
                           className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${badge.cls}`}
                         >
-                          {badge.label}
+                          {t(badge.key)}
                         </span>
                         {inHold && (
                           <div className="text-[10px] text-mute mt-1 whitespace-nowrap">
-                            disponible el {fmtDate(c.availableAt)}
+                            {t('availableOn', { date: fmtDate(c.availableAt) })}
                           </div>
                         )}
                       </td>
@@ -607,7 +620,7 @@ export default function AdminCommissionsPage() {
               <tfoot className="bg-bg2">
                 <tr className="border-t-2 border-line2 font-semibold">
                   <td colSpan={4} className="px-4 py-3 text-right text-xs">
-                    TOTAL ({data.totals.count} filas)
+                    {t('totalRows', { count: data.totals.count })}
                   </td>
                   <td className="px-4 py-3 text-right">
                     {fmtUsd(data.totals.totalAmount)}
@@ -649,6 +662,7 @@ function PayCommissionModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations('admin_commissions');
   const [amount, setAmount] = useState(item.outstanding.toFixed(2));
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
@@ -656,12 +670,12 @@ function PayCommissionModal({
   async function submit() {
     const n = parseFloat(amount);
     if (!Number.isFinite(n) || n <= 0) {
-      toast('Monto inválido', 'error');
+      toast(t('invalidAmount'), 'error');
       return;
     }
     if (n > item.outstanding + 0.001) {
       toast(
-        `El monto excede el saldo pendiente (${fmtUsd(item.outstanding)})`,
+        t('amountExceedsOutstanding', { amount: fmtUsd(item.outstanding) }),
         'error',
       );
       return;
@@ -674,13 +688,13 @@ function PayCommissionModal({
       });
       toast(
         n >= item.outstanding - 0.001
-          ? 'Comisión marcada como pagada'
-          : 'Pago parcial registrado',
+          ? t('toastMarkedPaid')
+          : t('toastPartialPayment'),
         'success',
       );
       onSaved();
     } catch (e: any) {
-      toast(e?.message ?? 'Error al registrar pago', 'error');
+      toast(e?.message ?? t('errorRegisteringPayment'), 'error');
     } finally {
       setSaving(false);
     }
@@ -695,27 +709,27 @@ function PayCommissionModal({
         className="bg-bg1 rounded-xl max-w-md w-full p-6 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-lg font-bold mb-4">Marcar comisión como pagada</h2>
+        <h2 className="text-lg font-bold mb-4">{t('modalPayTitle')}</h2>
 
         <div className="bg-bg2 rounded-lg p-3 mb-4 text-sm">
           <div className="flex justify-between mb-1">
-            <span className="text-mute">Recipient</span>
+            <span className="text-mute">{t('modalRecipient')}</span>
             <span className="font-medium">{item.recipient?.ownerName ?? '—'}</span>
           </div>
           <div className="flex justify-between mb-1">
-            <span className="text-mute">Negocio</span>
+            <span className="text-mute">{t('modalBusiness')}</span>
             <span className="font-medium">{item.tenant?.brandName ?? '—'}</span>
           </div>
           <div className="flex justify-between mb-1">
-            <span className="text-mute">Monto total</span>
+            <span className="text-mute">{t('modalTotalAmount')}</span>
             <span className="font-semibold">{fmtUsd(item.amount)}</span>
           </div>
           <div className="flex justify-between mb-1">
-            <span className="text-mute">Ya pagado</span>
+            <span className="text-mute">{t('modalAlreadyPaid')}</span>
             <span className="text-ok">{fmtUsd(item.amountPaid)}</span>
           </div>
           <div className="flex justify-between border-t border-line2 pt-2 mt-2">
-            <span className="text-mute font-semibold">Pendiente</span>
+            <span className="text-mute font-semibold">{t('modalOutstanding')}</span>
             <span className="text-amber-700 font-bold">
               {fmtUsd(item.outstanding)}
             </span>
@@ -723,7 +737,7 @@ function PayCommissionModal({
         </div>
 
         <div className="mb-3">
-          <label className="label">Cantidad pagada (USD)</label>
+          <label className="label">{t('modalAmountPaidUsd')}</label>
           <input
             type="number"
             step="0.01"
@@ -735,15 +749,15 @@ function PayCommissionModal({
             autoFocus
           />
           <div className="text-[11px] text-mute mt-1">
-            Si pagas menos que el pendiente, queda como "Parcial".
+            {t('partialHint')}
           </div>
         </div>
 
         <div className="mb-4">
-          <label className="label">Referencia / nota (opcional)</label>
+          <label className="label">{t('modalReferenceNote')}</label>
           <input
             type="text"
-            placeholder="ej: Wise tx 4f3a, Nequi, transferencia BBVA"
+            placeholder={t('phReferenceNote')}
             className="input w-full"
             value={note}
             onChange={(e) => setNote(e.target.value)}
@@ -756,14 +770,14 @@ function PayCommissionModal({
             disabled={saving}
             className="text-sm px-4 py-2 rounded-md bg-bg2 hover:bg-bg3 transition"
           >
-            Cancelar
+            {t('btnCancel')}
           </button>
           <button
             onClick={submit}
             disabled={saving}
             className="text-sm px-4 py-2 rounded-md bg-brand text-white font-semibold hover:opacity-90 transition disabled:opacity-50 select-none active:scale-[0.97] [-webkit-tap-highlight-color:transparent]"
           >
-            {saving ? 'Guardando…' : 'Confirmar pago'}
+            {saving ? t('saving') : t('btnConfirmPayment')}
           </button>
         </div>
       </div>
@@ -819,6 +833,7 @@ function RowActions({
   onEnable: () => void;
   onPay: () => void;
 }) {
+  const t = useTranslations('admin_commissions');
   const [open, setOpen] = useState(false);
   const canPay = c.paymentStatus !== 'PAID' && c.status !== 'REJECTED';
   const hasActions = inHold || canPay;
@@ -837,8 +852,8 @@ function RowActions({
         onClick={() => setOpen((o) => !o)}
         disabled={enabling}
         className="text-base px-2.5 py-1 rounded-md bg-bg2 text-ink font-semibold hover:bg-line transition select-none active:scale-[0.97] [-webkit-tap-highlight-color:transparent] disabled:opacity-50"
-        title="Acciones"
-        aria-label="Acciones"
+        title={t('actions')}
+        aria-label={t('actions')}
       >
         {enabling ? '…' : '⋯'}
       </button>
@@ -853,9 +868,9 @@ function RowActions({
                   onEnable();
                 }}
                 className="w-full text-left px-3 py-2 text-sm hover:bg-bg2 flex items-center gap-2"
-                title="Adelantar el desbloqueo de esta comisión"
+                title={t('enableNowTooltip')}
               >
-                🔓 Habilitar ahora
+                🔓 {t('enableNow')}
               </button>
             )}
             {canPay && (
@@ -866,7 +881,7 @@ function RowActions({
                 }}
                 className="w-full text-left px-3 py-2 text-sm hover:bg-bg2 flex items-center gap-2 text-brand"
               >
-                💵 Marcar pagado
+                💵 {t('markPaid')}
               </button>
             )}
           </div>
@@ -902,14 +917,15 @@ type AuditResult = {
   findings: AuditFinding[];
 };
 
-const AUDIT_BADGE: Record<AuditFinding['type'], { label: string; cls: string }> =
+const AUDIT_BADGE: Record<AuditFinding['type'], { key: string; cls: string }> =
   {
-    WRONG_AMOUNT: { label: 'Monto incorrecto', cls: 'bg-amber-100 text-amber-700' },
-    DUPLICATE: { label: 'Duplicado', cls: 'bg-red-100 text-red-700' },
-    PHANTOM: { label: 'Fantasma', cls: 'bg-slate-200 text-slate-700' },
+    WRONG_AMOUNT: { key: 'auditWrongAmount', cls: 'bg-amber-100 text-amber-700' },
+    DUPLICATE: { key: 'auditDuplicate', cls: 'bg-red-100 text-red-700' },
+    PHANTOM: { key: 'auditPhantom', cls: 'bg-slate-200 text-slate-700' },
   };
 
 function CommissionAuditPanel() {
+  const t = useTranslations('admin_commissions');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AuditResult | null>(null);
   const [open, setOpen] = useState(false);
@@ -921,7 +937,7 @@ function CommissionAuditPanel() {
       setResult(res ?? null);
       setOpen(true);
     } catch (e: unknown) {
-      toast((e as Error)?.message || 'Error al auditar comisiones', 'error');
+      toast((e as Error)?.message || t('errorAuditing'), 'error');
     } finally {
       setLoading(false);
     }
@@ -936,11 +952,9 @@ function CommissionAuditPanel() {
     <div className="card card-pad mb-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="font-semibold">🔍 Auditoría avanzada de comisiones</div>
+          <div className="font-semibold">🔍 {t('auditTitle')}</div>
           <div className="text-xs text-mute">
-            Recalcula el split desde la fuente original (influencer / embajador /
-            vendedor) y detecta montos incorrectos, duplicados y comisiones
-            fantasma. No modifica nada.
+            {t('auditDescription')}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -950,7 +964,7 @@ function CommissionAuditPanel() {
               onClick={() => setOpen((o) => !o)}
               className="text-sm px-3 py-2 rounded-pill border border-slate-300 bg-white text-slate-700 font-semibold hover:bg-slate-50 transition"
             >
-              {open ? 'Ocultar' : 'Ver resultados'}
+              {open ? t('hide') : t('viewResults')}
             </button>
           )}
           <button
@@ -959,7 +973,7 @@ function CommissionAuditPanel() {
             disabled={loading}
             className="text-sm px-3.5 py-2 rounded-pill bg-brand text-white font-semibold hover:opacity-90 transition disabled:opacity-50"
           >
-            {loading ? 'Auditando…' : 'Auditar comisiones'}
+            {loading ? t('auditing') : t('runAudit')}
           </button>
         </div>
       </div>
@@ -968,38 +982,40 @@ function CommissionAuditPanel() {
         <div className="mt-4">
           <div className="flex flex-wrap gap-2 text-xs mb-3">
             <span className="px-2.5 py-1 rounded-pill bg-bg2 text-mute">
-              {s.auditedTenants} negocios · {s.liveCommissions} comisiones vivas
+              {t('auditSummaryTenants', {
+                tenants: s.auditedTenants,
+                live: s.liveCommissions,
+              })}
             </span>
             <span className="px-2.5 py-1 rounded-pill bg-amber-100 text-amber-700">
-              {s.wrongAmount} montos incorrectos
+              {t('auditSummaryWrongAmount', { count: s.wrongAmount })}
             </span>
             <span className="px-2.5 py-1 rounded-pill bg-red-100 text-red-700">
-              {s.duplicates} duplicados
+              {t('auditSummaryDuplicates', { count: s.duplicates })}
             </span>
             <span className="px-2.5 py-1 rounded-pill bg-slate-200 text-slate-700">
-              {s.phantom} fantasmas
+              {t('auditSummaryPhantom', { count: s.phantom })}
             </span>
             <span className="px-2.5 py-1 rounded-pill bg-bg2 text-mute">
-              Δ ${s.deltaUsd.toFixed(2)} (actual − esperado)
+              {t('auditSummaryDelta', { delta: s.deltaUsd.toFixed(2) })}
             </span>
           </div>
 
           {clean ? (
             <div className="text-sm text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2">
-              ✅ Sin inconsistencias — todas las comisiones vivas cuadran con la
-              fuente original.
+              ✅ {t('auditClean')}
             </div>
           ) : (
             <div className="overflow-x-auto rounded-lg border border-line">
               <table className="w-full text-sm">
                 <thead className="bg-bg2 text-mute text-xs">
                   <tr>
-                    <th className="text-left px-3 py-2">Tipo</th>
-                    <th className="text-left px-3 py-2">Negocio</th>
-                    <th className="text-left px-3 py-2">Recipiente</th>
-                    <th className="text-left px-3 py-2">Periodo</th>
-                    <th className="text-right px-3 py-2">Actual</th>
-                    <th className="text-right px-3 py-2">Esperado</th>
+                    <th className="text-left px-3 py-2">{t('auditThType')}</th>
+                    <th className="text-left px-3 py-2">{t('auditThBusiness')}</th>
+                    <th className="text-left px-3 py-2">{t('auditThRecipient')}</th>
+                    <th className="text-left px-3 py-2">{t('auditThPeriod')}</th>
+                    <th className="text-right px-3 py-2">{t('auditThActual')}</th>
+                    <th className="text-right px-3 py-2">{t('auditThExpected')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1011,7 +1027,7 @@ function CommissionAuditPanel() {
                           <span
                             className={`px-2 py-0.5 rounded-pill text-xs font-semibold ${badge.cls}`}
                           >
-                            {badge.label}
+                            {t(badge.key)}
                           </span>
                           {f.reason && (
                             <span className="text-mute text-xs"> · {f.reason}</span>
