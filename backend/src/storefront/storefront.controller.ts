@@ -137,4 +137,11 @@ export class PublicStorefrontController {
     const r = await this.svc.resolveHost(host);
     return r ?? { slug: null };
   }
+
+  /** Sedes activas del negocio para el ruteo de pedidos por estado (checkout). */
+  @Public()
+  @Get('locations')
+  async locations(@Query('slug') slug: string) {
+    return this.svc.publicLocations(slug);
+  }
 }

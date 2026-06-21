@@ -16,6 +16,9 @@ class LocationBody {
   // #3 (2026-06-18): administrador de sede (alertas de reseña negativa).
   @IsOptional() @IsString() @MaxLength(80) adminName?: string;
   @IsOptional() @IsString() @MaxLength(30) adminPhone?: string;
+  // Sedes por estado (2026-06-21): estado/región + número de pedidos de la sede.
+  @IsOptional() @IsString() @MaxLength(80) state?: string;
+  @IsOptional() @IsString() @MaxLength(30) ordersWhatsappPhone?: string;
 }
 
 @Controller('locations')

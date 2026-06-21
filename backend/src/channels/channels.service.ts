@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
-import { ChannelType, MessageDirection, Order, Tenant, Customer } from '@prisma/client';
+import { ChannelType, MessageDirection, Order, Tenant, Customer, Location } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 
@@ -15,11 +15,21 @@ export class ChannelsService {
 
   constructor(private prisma: PrismaService) {}
 
-  /** Genera un link wa.me para que el cliente abra WhatsApp con un mensaje pre-llenado al dueño/caja. */
-  generateWaMeOwner(tenant: Tenant, order: Order, customer: Customer): string {
-    // Prioriza el número específico de pedidos (Pro feature). Fallback al
-    // whatsappPhone genérico, luego al phone del tenant.
+  /** Genera un link wa.me para que el cliente abra WhatsApp con un mensaje
+   *  pre-llenado al dueño/caja. Si el pedido tiene una SEDE asignada, rutea al
+   *  número de pedidos de esa sede (cae a su adminPhone, luego al número del
+   *  negocio). Nunca se pierde el pedido: siempre hay un fallback. */
+  generateWaMeOwner(
+    tenant: Tenant,
+    order: Order,
+    customer: Customer,
+    location?: Location | null,
+  ): string {
+    // Prioridad: número de pedidos de la SEDE → adminPhone de la sede →
+    // número de pedidos del negocio → whatsappPhone → phone.
     const phone = (
+      location?.ordersWhatsappPhone ??
+      location?.adminPhone ??
       tenant.whatsappOrdersPhone ??
       tenant.whatsappPhone ??
       tenant.phone ??
@@ -68,8 +78,13 @@ export class ChannelsService {
           ].filter(Boolean)
         : [];
 
+    const sedeLine = location
+      ? `🏢 Sede: ${location.name}${location.state ? ` — ${location.state}` : ''}`
+      : '';
+
     const lines = [
       `🆕 *Pedido #${order.code}*`,
+      sedeLine,
       `${customer.fullName} · ${customer.phone}`,
       '',
       items,

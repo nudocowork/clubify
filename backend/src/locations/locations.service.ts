@@ -14,6 +14,9 @@ export type LocationDto = {
   // #3: administrador de sede (recibe alertas de reseña negativa de esta sede).
   adminName?: string;
   adminPhone?: string;
+  // Sedes por estado: estado/región (llave de ruteo) + número de pedidos.
+  state?: string;
+  ordersWhatsappPhone?: string;
 };
 
 @Injectable()
@@ -58,6 +61,8 @@ export class LocationsService {
         mapsUrl: dto.mapsUrl?.trim() || null,
         adminName: dto.adminName?.trim() || null,
         adminPhone: dto.adminPhone?.trim() || null,
+        state: dto.state?.trim() || null,
+        ordersWhatsappPhone: dto.ordersWhatsappPhone?.trim() || null,
       },
     });
   }
@@ -73,6 +78,9 @@ export class LocationsService {
     const data: any = { ...dto };
     if ('adminName' in dto) data.adminName = dto.adminName?.trim() || null;
     if ('adminPhone' in dto) data.adminPhone = dto.adminPhone?.trim() || null;
+    if ('state' in dto) data.state = dto.state?.trim() || null;
+    if ('ordersWhatsappPhone' in dto)
+      data.ordersWhatsappPhone = dto.ordersWhatsappPhone?.trim() || null;
     return this.prisma.location.update({ where: { id }, data });
   }
 

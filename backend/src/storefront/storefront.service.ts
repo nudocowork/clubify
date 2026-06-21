@@ -241,6 +241,24 @@ export class StorefrontService {
   }
 
   /** Resuelve un host (Host header) al slug del tenant correspondiente. */
+  /** Sedes activas de un tenant (por slug) para el ruteo de pedidos por estado
+   *  en el checkout público. Devuelve solo lo necesario para el selector. */
+  async publicLocations(slug: string) {
+    const s = (slug ?? '').trim().toLowerCase();
+    if (!s) return [];
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { slug: s },
+      select: { id: true },
+    });
+    if (!tenant) return [];
+    const locations = await this.prisma.location.findMany({
+      where: { tenantId: tenant.id, isActive: true },
+      select: { id: true, name: true, state: true, address: true },
+      orderBy: { name: 'asc' },
+    });
+    return locations;
+  }
+
   async resolveHost(host: string) {
     const normalized = this.normalizeDomain(host);
     if (!normalized) return null;

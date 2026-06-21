@@ -1614,6 +1614,19 @@ function CheckoutSheet({
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // Sedes por estado: ruteo del pedido a la sede del estado del cliente con
+  // confirmación. Si el negocio tiene 0/1 sede, no se muestra nada (compat).
+  type Sede = { id: string; name: string; state: string | null; address: string };
+  const [sedes, setSedes] = useState<Sede[]>([]);
+  const [sedeId, setSedeId] = useState('');
+  const [changingSede, setChangingSede] = useState(false);
+  useEffect(() => {
+    fetch(`${API}/api/public/storefront/locations?slug=${slug}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((arr) => setSedes(Array.isArray(arr) ? arr : []))
+      .catch(() => {});
+  }, [slug]);
+
   // Dataset de regiones según el país del tenant. Si el país no tiene
   // regiones curadas (cae al fallback genérico), se usa input libre.
   const regionsData = regionsForCountry(country);
@@ -1624,6 +1637,27 @@ function CheckoutSheet({
       ? form.municipioOtro.trim()
       : form.municipio;
 
+  // Ruteo por sede: el negocio con ≥2 sedes rutea el pedido a la sede del
+  // estado del cliente (con confirmación). 0/1 sede = comportamiento actual.
+  const normTxt = (x: string | null | undefined) =>
+    (x ?? '').trim().toLowerCase();
+  const matchingSedes = sedes.filter(
+    (s) => s.state && normTxt(s.state) === normTxt(form.departamento),
+  );
+  const routingActive = form.fulfillment === 'DELIVERY' && sedes.length >= 2;
+  // Sede auto-asignada cuando es inequívoca (1 sede total, o 1 en el estado).
+  const autoSede =
+    sedes.length === 1
+      ? sedes[0]
+      : matchingSedes.length === 1
+        ? matchingSedes[0]
+        : null;
+  const effectiveSedeId = sedeId || autoSede?.id || '';
+  const effectiveSede = sedes.find((s) => s.id === effectiveSedeId) ?? null;
+  // Lista del selector: las sedes del estado del cliente; si no hay ninguna,
+  // todas (fallback para que el cliente elija manualmente — nunca se bloquea).
+  const sedeOptions = matchingSedes.length ? matchingSedes : sedes;
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
@@ -1632,6 +1666,12 @@ function CheckoutSheet({
     if (form.fulfillment === 'DELIVERY') {
       if (!form.departamento || !municipioFinal || !form.direccion.trim()) {
         setErr(tt('checkout.error_address'));
+        return;
+      }
+      // Si hay varias sedes, el cliente debe tener una sede destino resuelta
+      // (auto o elegida) antes de enviar — nunca se envía a sede equivocada.
+      if (routingActive && !effectiveSedeId) {
+        setErr('Elegí la sede a la que enviar tu pedido.');
         return;
       }
     }
@@ -1671,6 +1711,9 @@ function CheckoutSheet({
           tableNumber: form.tableNumber || undefined,
           deliveryAddress,
           customerNote: form.customerNote || undefined,
+          // Sede destino (ruteo por estado). undefined = sin sede → número del
+          // negocio (fallback). Para 1 sola sede igual se manda (rutea a ella).
+          locationId: effectiveSedeId || undefined,
           mode: orderModeFor(mode),
         }),
       });
@@ -1919,6 +1962,55 @@ function CheckoutSheet({
                     required
                   />
                 </div>
+
+                {/* Sede destino (ruteo por estado). Solo si hay ≥2 sedes. */}
+                {sedes.length >= 2 && (
+                  <div className="rounded-lg border-2 border-line bg-white p-3 space-y-2">
+                    {effectiveSede && !changingSede ? (
+                      <>
+                        <div className="text-sm">
+                          📍 Tu pedido se enviará a:{' '}
+                          <span className="font-semibold">
+                            {effectiveSede.name}
+                          </span>
+                          {effectiveSede.state ? ` — ${effectiveSede.state}` : ''}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setChangingSede(true)}
+                          className="text-xs font-semibold underline"
+                          style={{ color: primary }}
+                        >
+                          Cambiar sede
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <label className="label">
+                          {matchingSedes.length
+                            ? 'Confirmá la sede de tu pedido'
+                            : 'No hay sede en tu estado — elegí dónde pedir'}
+                        </label>
+                        <select
+                          className="input"
+                          value={effectiveSedeId}
+                          onChange={(e) => {
+                            setSedeId(e.target.value);
+                            setChangingSede(false);
+                          }}
+                        >
+                          <option value="">Elegir sede…</option>
+                          {sedeOptions.map((s) => (
+                            <option key={s.id} value={s.id}>
+                              {s.name}
+                              {s.state ? ` — ${s.state}` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

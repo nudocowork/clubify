@@ -1320,6 +1320,13 @@ model Location {
   // del administrador general del negocio. Null = usa el destino global.
   adminName          String?
   adminPhone         String?
+  // Sedes por estado (2026-06-21): estado/región de la sede → llave de ruteo
+  // de pedidos de domicilio (matchea el `departamento` que elige el cliente en
+  // el checkout). Null = sede sin estado (no entra al ruteo por estado).
+  state              String?
+  // Número de WhatsApp donde llegan los PEDIDOS de esta sede. Si null, el
+  // ruteo cae a adminPhone → número de pedidos del negocio → fallback.
+  ordersWhatsappPhone String?
   isActive           Boolean  @default(true)
   createdAt          DateTime @default(now())
 

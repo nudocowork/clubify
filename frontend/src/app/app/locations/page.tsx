@@ -38,6 +38,8 @@ export default function LocationsPage() {
     mapsUrl: '',
     adminName: '',
     adminPhone: '',
+    state: '',
+    ordersWhatsappPhone: '',
   });
   const [picked, setPicked] = useState<MapPickResult | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -84,6 +86,8 @@ export default function LocationsPage() {
         mapsUrl: '',
         adminName: '',
         adminPhone: '',
+        state: '',
+        ordersWhatsappPhone: '',
       });
       setPicked(null);
       load();
@@ -184,6 +188,35 @@ export default function LocationsPage() {
                 <p className="text-[11px] text-mute -mt-1 col-span-2 leading-snug">
                   Si una reseña queda por debajo de tu umbral, la alerta se envía
                   a este teléfono (de la sede) en vez del general del negocio.
+                </p>
+              </div>
+
+              {/* Sedes por estado — ruteo de pedidos de domicilio */}
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Estado / región de la sede</label>
+                  <input
+                    className="input"
+                    value={form.state}
+                    onChange={(e) => setForm({ ...form, state: e.target.value })}
+                    placeholder="Ej: Caracas, Nueva Esparta, Táchira"
+                  />
+                </div>
+                <div>
+                  <label className="label">WhatsApp de pedidos de la sede</label>
+                  <input
+                    className="input"
+                    value={form.ordersWhatsappPhone}
+                    onChange={(e) =>
+                      setForm({ ...form, ordersWhatsappPhone: e.target.value })
+                    }
+                    placeholder="+58 412 000 0000"
+                  />
+                </div>
+                <p className="text-[11px] text-mute -mt-1 col-span-2 leading-snug">
+                  Los pedidos de domicilio del cliente que elige este estado se
+                  envían a este número. Debe coincidir con el estado que el
+                  cliente selecciona en el checkout.
                 </p>
               </div>
 
@@ -435,6 +468,8 @@ function EditLocationModal({
     radiusMeters: Number(loc.radiusMeters ?? 300),
     walletRelevantText: loc.walletRelevantText ?? '',
     mapsUrl: loc.mapsUrl ?? '',
+    state: loc.state ?? '',
+    ordersWhatsappPhone: loc.ordersWhatsappPhone ?? '',
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -510,6 +545,33 @@ function EditLocationModal({
             Pegá el link del lugar exacto desde Google Maps (botón Compartir →
             Copiar enlace). Si lo cargás, los botones “Dirección” abren
             exactamente esta sede en vez de una búsqueda aproximada.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="label">Estado / región</label>
+            <input
+              className="input"
+              value={form.state}
+              onChange={(e) => setForm({ ...form, state: e.target.value })}
+              placeholder="Ej: Caracas"
+            />
+          </div>
+          <div>
+            <label className="label">WhatsApp de pedidos</label>
+            <input
+              className="input"
+              value={form.ordersWhatsappPhone}
+              onChange={(e) =>
+                setForm({ ...form, ordersWhatsappPhone: e.target.value })
+              }
+              placeholder="+58 412 000 0000"
+            />
+          </div>
+          <p className="text-[11px] text-mute -mt-1 col-span-2 leading-snug">
+            Los pedidos de domicilio del estado seleccionado por el cliente se
+            rutean a este número.
           </p>
         </div>
 

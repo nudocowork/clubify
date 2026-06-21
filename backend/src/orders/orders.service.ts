@@ -509,8 +509,18 @@ export class OrdersService {
     // Decrementar stock + auto-deshabilitar productos agotados (best-effort)
     await this.decrementStock(items as any[]).catch(() => null);
 
-    // Generar wa.me link al dueño
-    const link = this.channels.generateWaMeOwner(tenant, order, customer);
+    // Sede asignada (ruteo por estado): el pedido va al número de esa sede.
+    // best-effort — si falla, el link cae al número del negocio.
+    const location = order.locationId
+      ? await this.prisma.location
+          .findFirst({
+            where: { id: order.locationId, tenantId: tenant.id },
+          })
+          .catch(() => null)
+      : null;
+
+    // Generar wa.me link al dueño / sede
+    const link = this.channels.generateWaMeOwner(tenant, order, customer, location);
     await this.prisma.order.update({
       where: { id: order.id },
       data: { whatsappLink: link },
