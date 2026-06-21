@@ -34,6 +34,14 @@ class SimulateWebhookDto {
   event!: (typeof SIMULATABLE_EVENTS)[number];
 }
 
+class SimulateGroupWebhookDto {
+  @IsUUID()
+  groupId!: string;
+
+  @IsIn(SIMULATABLE_EVENTS as unknown as string[])
+  event!: (typeof SIMULATABLE_EVENTS)[number];
+}
+
 /**
  * Simulador de webhooks Hotmart para QA. Solo SUPER_ADMIN.
  * Construye un payload válido contra el tenant indicado y lo pasa por el
@@ -116,6 +124,73 @@ export class HotmartSimulatorController {
       ok: true,
       simulated: dto.event,
       buyerEmail: owner.email,
+      payload,
+      handlerResult: result,
+    };
+  }
+
+  /**
+   * Simula un cobro Hotmart de un GRUPO EMPRESARIAL. Pasa por el mismo
+   * handleEvent → el hook de grupos matchea por subscriberCode (o email del
+   * responsable) y cascadea el estado a TODOS los negocios del grupo. Sirve
+   * para validar el flujo pago/refund del grupo sin Hotmart real.
+   */
+  @Roles('SUPER_ADMIN', 'PLATFORM_OWNER')
+  @Post('simulate-group-webhook')
+  async simulateGroup(@Body() dto: SimulateGroupWebhookDto) {
+    const group = await this.prisma.businessGroup.findUnique({
+      where: { id: dto.groupId },
+      select: {
+        id: true,
+        name: true,
+        hotmartSubscriberCode: true,
+        responsibleEmail: true,
+        planPeriodicity: true,
+        deletedAt: true,
+      },
+    });
+    if (!group || group.deletedAt) throw new NotFoundException('Grupo no existe');
+
+    // El hook de grupos matchea por subscriberCode o por email del responsable.
+    // Si el grupo no tiene código, le asignamos uno de simulación y lo
+    // persistimos para que el match funcione (y futuros cobros reales también).
+    let subscriberCode = group.hotmartSubscriberCode;
+    if (!subscriberCode) {
+      subscriberCode = `sim-group-${group.id.slice(0, 8)}`;
+      await this.prisma.businessGroup.update({
+        where: { id: group.id },
+        data: { hotmartSubscriberCode: subscriberCode },
+      });
+    }
+    const buyerEmail =
+      group.responsibleEmail ?? `sim-group-${group.id.slice(0, 8)}@example.com`;
+    const transactionId = `SIMTX-GRP-${Date.now().toString(36).toUpperCase()}`;
+    const nextChargeMs = addPlanPeriod(new Date(), group.planPeriodicity).getTime();
+
+    const payload: HotmartWebhookPayload = {
+      id: `sim-grp-${Date.now()}`,
+      event: dto.event,
+      data: {
+        buyer: { email: buyerEmail },
+        subscription: {
+          subscriber: { code: subscriberCode },
+          date_next_charge: nextChargeMs,
+          status: dto.event === 'SUBSCRIPTION_CANCELLATION' ? 'CANCELLED' : 'ACTIVE',
+        },
+        purchase: {
+          transaction: transactionId,
+          status: dto.event === 'PURCHASE_APPROVED' ? 'APPROVED' : undefined,
+          approved_date: Date.now(),
+        },
+      },
+    };
+
+    const result = await this.hotmart.handleEvent(payload);
+    return {
+      ok: true,
+      simulated: dto.event,
+      groupId: group.id,
+      subscriberCode,
       payload,
       handlerResult: result,
     };

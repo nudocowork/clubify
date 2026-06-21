@@ -376,6 +376,24 @@ function GroupDetailModal({
     }
   }
 
+  async function simulate(event: string, label: string) {
+    if (!confirm(`Simular "${label}" para este grupo (QA)? Cascadea a todos sus negocios.`)) return;
+    setBusy(true);
+    try {
+      await api('/admin/billing/hotmart/simulate-group-webhook', {
+        method: 'POST',
+        body: JSON.stringify({ groupId, event }),
+      });
+      toast('Simulación aplicada', 'success');
+      await reload();
+      onChanged();
+    } catch (e: any) {
+      toast(e?.message || 'No se pudo simular', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function removeGroup() {
     if (!confirm('¿Eliminar el grupo? Los negocios NO se borran, quedan individuales.')) return;
     setBusy(true);
@@ -480,7 +498,41 @@ function GroupDetailModal({
               </div>
             )}
 
-            <div className="flex justify-between items-center pt-3 border-t border-line">
+            {/* Simulador QA: ejercita la cascada Hotmart→grupo sin cobro real */}
+            <div className="mt-2 rounded-lg border border-dashed border-line p-3">
+              <div className="text-[11px] uppercase tracking-wide text-mute font-semibold mb-2">
+                Simular cobro (QA)
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  className="btn-ghost text-xs"
+                  disabled={busy}
+                  onClick={() => simulate('PURCHASE_APPROVED', 'pago aprobado')}
+                >
+                  ✅ Pago aprobado
+                </button>
+                <button
+                  className="btn-ghost text-xs"
+                  disabled={busy}
+                  onClick={() => simulate('PURCHASE_DELAYED', 'pago atrasado')}
+                >
+                  ⏳ Pago atrasado
+                </button>
+                <button
+                  className="btn-ghost text-xs"
+                  disabled={busy}
+                  onClick={() => simulate('PURCHASE_REFUNDED', 'reembolso')}
+                >
+                  ↩️ Reembolso
+                </button>
+              </div>
+              <p className="text-[11px] text-mute mt-2">
+                Pago aprobado → activa el grupo + negocios. Atrasado → pago
+                pendiente. Reembolso → suspende todo. (Solo pruebas.)
+              </p>
+            </div>
+
+            <div className="flex justify-between items-center pt-3 border-t border-line mt-3">
               <button className="btn-ghost text-sm text-bad-ink" disabled={busy} onClick={removeGroup}>
                 Eliminar grupo
               </button>
