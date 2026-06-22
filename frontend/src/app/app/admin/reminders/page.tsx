@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
@@ -20,12 +21,20 @@ type Reminder = {
 };
 type Staff = { id: string; fullName: string; phone: string | null };
 
-const DAYS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+const DAY_KEYS = [
+  'daySunday',
+  'dayMonday',
+  'dayTuesday',
+  'dayWednesday',
+  'dayThursday',
+  'dayFriday',
+  'daySaturday',
+];
 
-const RECURRENCE_LABEL: Record<Recurrence, string> = {
-  DAILY: 'Diario',
-  WEEKLY: 'Semanal',
-  MONTHLY: 'Mensual',
+const RECURRENCE_LABEL_KEY: Record<Recurrence, string> = {
+  DAILY: 'recurrenceDaily',
+  WEEKLY: 'recurrenceWeekly',
+  MONTHLY: 'recurrenceMonthly',
 };
 
 const empty = {
@@ -40,6 +49,7 @@ const empty = {
 };
 
 export default function RemindersPage() {
+  const t = useTranslations('app_admin_reminders');
   const [list, setList] = useState<Reminder[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [loading, setLoading] = useState(true);
@@ -60,7 +70,7 @@ export default function RemindersPage() {
       setList(rs);
       setStaff(st);
     } catch (e: any) {
-      toast(e.message || 'Error cargando', 'error');
+      toast(e.message || t('errorLoading'), 'error');
     } finally {
       setLoading(false);
     }
@@ -90,7 +100,7 @@ export default function RemindersPage() {
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (!form.employeeName.trim() || !form.employeePhone.trim() || !form.message.trim()) {
-      toast('Faltan datos obligatorios', 'error');
+      toast(t('errorMissingRequired'), 'error');
       return;
     }
     setBusy(true);
@@ -111,18 +121,18 @@ export default function RemindersPage() {
           method: 'PATCH',
           body: JSON.stringify(payload),
         });
-        toast('Recordatorio actualizado', 'success');
+        toast(t('toastUpdated'), 'success');
       } else {
         await api('/admin/reminders', {
           method: 'POST',
           body: JSON.stringify(payload),
         });
-        toast('Recordatorio creado', 'success');
+        toast(t('toastCreated'), 'success');
       }
       setShowForm(false);
       await load();
     } catch (e: any) {
-      toast(e.message || 'Error guardando', 'error');
+      toast(e.message || t('errorSaving'), 'error');
     } finally {
       setBusy(false);
     }
@@ -134,28 +144,28 @@ export default function RemindersPage() {
         method: 'PATCH',
         body: JSON.stringify({ isActive: !r.isActive }),
       });
-      toast(r.isActive ? 'Pausado' : 'Activado', 'success');
+      toast(r.isActive ? t('toastPaused') : t('toastActivated'), 'success');
       await load();
     } catch (e: any) {
-      toast(e.message || 'Error', 'error');
+      toast(e.message || t('error'), 'error');
     }
   }
 
   async function remove(r: Reminder) {
-    if (!confirm(`¿Eliminar el recordatorio de ${r.employeeName}?`)) return;
+    if (!confirm(t('confirmDelete', { name: r.employeeName }))) return;
     try {
       await api(`/admin/reminders/${r.id}`, { method: 'DELETE' });
-      toast('Eliminado', 'success');
+      toast(t('toastDeleted'), 'success');
       await load();
     } catch (e: any) {
-      toast(e.message || 'Error', 'error');
+      toast(e.message || t('error'), 'error');
     }
   }
 
   async function sendOne(e: React.FormEvent) {
     e.preventDefault();
     if (!sendForm.phone.trim() || !sendForm.message.trim()) {
-      toast('Faltan datos', 'error');
+      toast(t('errorMissingData'), 'error');
       return;
     }
     setBusy(true);
@@ -164,11 +174,11 @@ export default function RemindersPage() {
         method: 'POST',
         body: JSON.stringify(sendForm),
       });
-      toast('Mensaje enviado', 'success');
+      toast(t('toastMessageSent'), 'success');
       setShowSend(false);
       setSendForm({ phone: '', message: '' });
     } catch (e: any) {
-      toast(e.message || 'Error enviando', 'error');
+      toast(e.message || t('errorSending'), 'error');
     } finally {
       setBusy(false);
     }
@@ -184,46 +194,45 @@ export default function RemindersPage() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Recordatorios <span className="page-crumb">/ Mensajes recurrentes a empleados</span>
+          {t('title')} <span className="page-crumb">{t('subtitle')}</span>
         </h1>
         <div className="flex gap-2">
           <button className="btn" onClick={() => setShowSend(true)}>
-            <Icon name="send" /> Enviar mensaje
+            <Icon name="send" /> {t('sendMessage')}
           </button>
           <button className="btn-primary" onClick={openCreate}>
-            <Icon name="plus" /> Nuevo recordatorio
+            <Icon name="plus" /> {t('newReminder')}
           </button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
-        <Kpi label="Total" value={stats.total} />
-        <Kpi label="Activos" value={stats.active} accent="ok" />
-        <Kpi label="Pausados" value={stats.paused} accent="warn" />
+        <Kpi label={t('kpiTotal')} value={stats.total} />
+        <Kpi label={t('kpiActive')} value={stats.active} accent="ok" />
+        <Kpi label={t('kpiPaused')} value={stats.paused} accent="warn" />
       </div>
 
       <div className="card overflow-hidden">
         <div className="grid grid-cols-[1.4fr_1.2fr_2fr_0.8fr_0.9fr_auto] gap-3 px-4 py-3 text-[11px] uppercase tracking-wider text-mute font-semibold border-b border-line">
-          <div>Equipo</div>
-          <div>Recurrencia</div>
-          <div>Mensaje</div>
-          <div>Estado</div>
-          <div>Último envío</div>
+          <div>{t('colTeam')}</div>
+          <div>{t('colRecurrence')}</div>
+          <div>{t('colMessage')}</div>
+          <div>{t('colStatus')}</div>
+          <div>{t('colLastSent')}</div>
           <div></div>
         </div>
         {loading && (
-          <div className="p-6 text-center text-mute text-sm">Cargando…</div>
+          <div className="p-6 text-center text-mute text-sm">{t('loading')}</div>
         )}
         {!loading && list.length === 0 && (
           <div className="p-12 text-center">
             <div className="text-5xl mb-3">📋</div>
-            <div className="font-semibold">No hay recordatorios todavía</div>
+            <div className="font-semibold">{t('emptyTitle')}</div>
             <div className="text-sm text-mute mt-1.5 max-w-md mx-auto">
-              Programa mensajes que se envían automáticamente a tus empleados
-              por WhatsApp diaria, semanal o mensualmente.
+              {t('emptyDesc')}
             </div>
             <button className="btn-primary mt-4" onClick={openCreate}>
-              <Icon name="plus" /> Crear el primero
+              <Icon name="plus" /> {t('createFirst')}
             </button>
           </div>
         )}
@@ -237,26 +246,28 @@ export default function RemindersPage() {
               <div>
                 <div className="inline-flex items-center gap-1.5">
                   <span className="badge-info text-[10px] uppercase">
-                    {RECURRENCE_LABEL[r.recurrence]}
+                    {t(RECURRENCE_LABEL_KEY[r.recurrence])}
                   </span>
                   <span className="text-xs text-mute">
-                    {r.recurrence === 'DAILY' && 'Cada día'}
+                    {r.recurrence === 'DAILY' && t('scheduleEveryDay')}
                     {r.recurrence === 'WEEKLY' &&
-                      `Cada ${DAYS[r.dayOfWeek ?? 1]}`}
+                      t('scheduleEveryWeekday', {
+                        day: t(DAY_KEYS[r.dayOfWeek ?? 1]),
+                      })}
                     {r.recurrence === 'MONTHLY' &&
-                      `Día ${r.dayOfMonth} del mes`}
+                      t('scheduleDayOfMonth', { day: r.dayOfMonth ?? 1 })}
                   </span>
                 </div>
                 <div className="text-[11px] text-mute mt-0.5">
-                  a las {r.timeOfDay}
+                  {t('atTime', { time: r.timeOfDay })}
                 </div>
               </div>
               <div className="text-sm text-ink/85 line-clamp-2">{r.message}</div>
               <div>
                 {r.isActive ? (
-                  <span className="badge-ok">Activo</span>
+                  <span className="badge-ok">{t('statusActive')}</span>
                 ) : (
-                  <span className="badge-warn">Pausado</span>
+                  <span className="badge-warn">{t('statusPaused')}</span>
                 )}
               </div>
               <div className="text-xs text-mute">
@@ -267,7 +278,7 @@ export default function RemindersPage() {
               <div className="flex items-center gap-2 text-mute">
                 <button
                   type="button"
-                  title={r.isActive ? 'Pausar' : 'Activar'}
+                  title={r.isActive ? t('pause') : t('activate')}
                   onClick={() => togglePause(r)}
                   className="hover:text-ink"
                 >
@@ -275,7 +286,7 @@ export default function RemindersPage() {
                 </button>
                 <button
                   type="button"
-                  title="Editar"
+                  title={t('edit')}
                   onClick={() => openEdit(r)}
                   className="hover:text-ink"
                 >
@@ -283,7 +294,7 @@ export default function RemindersPage() {
                 </button>
                 <button
                   type="button"
-                  title="Eliminar"
+                  title={t('delete')}
                   onClick={() => remove(r)}
                   className="hover:text-red-500"
                 >
@@ -295,17 +306,14 @@ export default function RemindersPage() {
       </div>
 
       <p className="text-[11px] text-mute mt-4 leading-relaxed">
-        Los recordatorios activos se envían automáticamente una vez al día
-        por nuestro cron. Diarios → todos los días. Semanales → el día de
-        la semana elegido. Mensuales → el día del mes elegido (1–28). El
-        SMS sale por Grow Business al WhatsApp del empleado.
+        {t('footerNote')}
       </p>
 
       {/* ─────────── Modal: crear / editar ─────────── */}
       {showForm && (
-        <Modal title={editing ? 'Editar recordatorio' : 'Nuevo recordatorio'} onClose={() => setShowForm(false)}>
+        <Modal title={editing ? t('editReminder') : t('newReminder')} onClose={() => setShowForm(false)}>
           <form onSubmit={save} className="space-y-4">
-            <Field label="Miembro del equipo">
+            <Field label={t('fieldTeamMember')}>
               <select
                 className="input"
                 value={form.employeeId}
@@ -320,7 +328,7 @@ export default function RemindersPage() {
                   }));
                 }}
               >
-                <option value="">— Otro / manual —</option>
+                <option value="">{t('optionOtherManual')}</option>
                 {staff.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.fullName} {s.phone ? `· ${s.phone}` : ''}
@@ -329,14 +337,14 @@ export default function RemindersPage() {
               </select>
             </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Nombre">
+              <Field label={t('fieldName')}>
                 <input
                   className="input"
                   value={form.employeeName}
                   onChange={(e) => setForm({ ...form, employeeName: e.target.value })}
                 />
               </Field>
-              <Field label="WhatsApp / SMS">
+              <Field label={t('fieldWhatsappSms')}>
                 <input
                   className="input"
                   placeholder="+57 300 000 0000"
@@ -347,31 +355,31 @@ export default function RemindersPage() {
             </div>
 
             <div className="grid grid-cols-3 gap-3">
-              <Field label="Recurrencia">
+              <Field label={t('fieldRecurrence')}>
                 <select
                   className="input"
                   value={form.recurrence}
                   onChange={(e) => setForm({ ...form, recurrence: e.target.value as Recurrence })}
                 >
-                  <option value="DAILY">Diario</option>
-                  <option value="WEEKLY">Semanal</option>
-                  <option value="MONTHLY">Mensual</option>
+                  <option value="DAILY">{t('recurrenceDaily')}</option>
+                  <option value="WEEKLY">{t('recurrenceWeekly')}</option>
+                  <option value="MONTHLY">{t('recurrenceMonthly')}</option>
                 </select>
               </Field>
 
               {form.recurrence === 'WEEKLY' && (
-                <Field label="Día">
+                <Field label={t('fieldDay')}>
                   <select
                     className="input"
                     value={form.dayOfWeek}
                     onChange={(e) => setForm({ ...form, dayOfWeek: Number(e.target.value) })}
                   >
-                    {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                    {DAY_KEYS.map((d, i) => <option key={i} value={i}>{t(d)}</option>)}
                   </select>
                 </Field>
               )}
               {form.recurrence === 'MONTHLY' && (
-                <Field label="Día del mes (1-28)">
+                <Field label={t('fieldDayOfMonth')}>
                   <input
                     type="number"
                     min={1}
@@ -382,7 +390,7 @@ export default function RemindersPage() {
                   />
                 </Field>
               )}
-              <Field label="Hora">
+              <Field label={t('fieldTime')}>
                 <input
                   type="time"
                   className="input"
@@ -392,21 +400,21 @@ export default function RemindersPage() {
               </Field>
             </div>
 
-            <Field label="Mensaje">
+            <Field label={t('fieldMessage')}>
               <textarea
                 className="input min-h-[100px]"
                 value={form.message}
                 onChange={(e) => setForm({ ...form, message: e.target.value })}
-                placeholder="Hola [nombre], no olvides…"
+                placeholder={t('placeholderMessage')}
               />
             </Field>
 
             <div className="flex justify-end gap-2 pt-2">
               <button type="button" className="btn" onClick={() => setShowForm(false)}>
-                Cancelar
+                {t('cancel')}
               </button>
               <button type="submit" className="btn-primary" disabled={busy}>
-                {busy ? 'Guardando…' : editing ? 'Guardar' : 'Crear'}
+                {busy ? t('saving') : editing ? t('save') : t('create')}
               </button>
             </div>
           </form>
@@ -415,9 +423,9 @@ export default function RemindersPage() {
 
       {/* ─────────── Modal: enviar one-off ─────────── */}
       {showSend && (
-        <Modal title="Enviar mensaje" onClose={() => setShowSend(false)}>
+        <Modal title={t('sendMessage')} onClose={() => setShowSend(false)}>
           <form onSubmit={sendOne} className="space-y-4">
-            <Field label="Teléfono / WhatsApp">
+            <Field label={t('fieldPhoneWhatsapp')}>
               <input
                 className="input"
                 placeholder="+57 300 000 0000"
@@ -425,7 +433,7 @@ export default function RemindersPage() {
                 onChange={(e) => setSendForm({ ...sendForm, phone: e.target.value })}
               />
             </Field>
-            <Field label="Mensaje">
+            <Field label={t('fieldMessage')}>
               <textarea
                 className="input min-h-[120px]"
                 value={sendForm.message}
@@ -434,10 +442,10 @@ export default function RemindersPage() {
             </Field>
             <div className="flex justify-end gap-2 pt-2">
               <button type="button" className="btn" onClick={() => setShowSend(false)}>
-                Cancelar
+                {t('cancel')}
               </button>
               <button type="submit" className="btn-primary" disabled={busy}>
-                {busy ? 'Enviando…' : 'Enviar ahora'}
+                {busy ? t('sending') : t('sendNow')}
               </button>
             </div>
           </form>

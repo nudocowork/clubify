@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
@@ -27,27 +28,28 @@ type TemplateBackend = {
 };
 
 const TRIGGERS = [
-  { type: 'ORDER_CREATED', label: 'Pedido recibido' },
-  { type: 'ORDER_CONFIRMED', label: 'Pedido confirmado' },
-  { type: 'ORDER_DELIVERED', label: 'Pedido entregado' },
-  { type: 'PASS_CREATED', label: 'Cliente recibe nueva tarjeta' },
-  { type: 'PASS_COMPLETED', label: 'Tarjeta completada (recompensa lista)' },
-  { type: 'STAMP_ADDED', label: 'Sello agregado' },
-  { type: 'NEAR_REWARD', label: 'Cliente cerca de la recompensa (1-2 sellos)' },
-  { type: 'REWARD_REDEEMED', label: 'Premio canjeado' },
-  { type: 'COUPON_REDEEMED', label: 'Cupón de bienvenida redimido (empieza fidelización)' },
-  { type: 'INACTIVITY', label: 'Cliente inactivo X días' },
-  { type: 'BIRTHDAY', label: 'Cumpleaños del cliente' },
-  { type: 'GEO_ENTER', label: 'Cliente cerca del local' },
+  { type: 'ORDER_CREATED', labelKey: 'triggerOrderCreated' },
+  { type: 'ORDER_CONFIRMED', labelKey: 'triggerOrderConfirmed' },
+  { type: 'ORDER_DELIVERED', labelKey: 'triggerOrderDelivered' },
+  { type: 'PASS_CREATED', labelKey: 'triggerPassCreated' },
+  { type: 'PASS_COMPLETED', labelKey: 'triggerPassCompleted' },
+  { type: 'STAMP_ADDED', labelKey: 'triggerStampAdded' },
+  { type: 'NEAR_REWARD', labelKey: 'triggerNearReward' },
+  { type: 'REWARD_REDEEMED', labelKey: 'triggerRewardRedeemed' },
+  { type: 'COUPON_REDEEMED', labelKey: 'triggerCouponRedeemed' },
+  { type: 'INACTIVITY', labelKey: 'triggerInactivity' },
+  { type: 'BIRTHDAY', labelKey: 'triggerBirthday' },
+  { type: 'GEO_ENTER', labelKey: 'triggerGeoEnter' },
 ];
 
-const CATEGORY_LABEL: Record<TemplateBackend['category'], string> = {
-  fidelizacion: '💚 Fidelización',
-  reactivacion: '💌 Reactivación',
-  ocasion: '🎂 Ocasiones especiales',
+const CATEGORY_LABEL_KEY: Record<TemplateBackend['category'], string> = {
+  fidelizacion: 'categoryFidelizacion',
+  reactivacion: 'categoryReactivacion',
+  ocasion: 'categoryOcasion',
 };
 
 export default function AutomationsPage() {
+  const t = useTranslations('app_automations');
   const [list, setList] = useState<Rule[]>([]);
   const [templates, setTemplates] = useState<TemplateBackend[]>([]);
   const [showTemplates, setShowTemplates] = useState(false);
@@ -67,17 +69,17 @@ export default function AutomationsPage() {
     load();
   }, []);
 
-  async function createFromTemplate(t: TemplateBackend) {
+  async function createFromTemplate(tpl: TemplateBackend) {
     try {
-      await api(`/automations/from-template/${t.id}`, {
+      await api(`/automations/from-template/${tpl.id}`, {
         method: 'POST',
         body: JSON.stringify({}),
       });
-      toast(`Regla "${t.name}" creada y activada`, 'success');
+      toast(t('toastRuleCreated', { name: tpl.name }), 'success');
       setShowTemplates(false);
       load();
     } catch (e: any) {
-      toast(e.message || 'Error', 'error');
+      toast(e.message || t('error'), 'error');
     }
   }
 
@@ -114,7 +116,7 @@ export default function AutomationsPage() {
   }
 
   async function remove(id: string) {
-    if (!confirm('¿Eliminar regla?')) return;
+    if (!confirm(t('confirmDelete'))) return;
     await api(`/automations/${id}`, { method: 'DELETE' });
     load();
   }
@@ -123,14 +125,15 @@ export default function AutomationsPage() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Automatizaciones <span className="page-crumb">/ {list.length} reglas</span>
+          {t('title')}{' '}
+          <span className="page-crumb">{t('crumbRules', { count: list.length })}</span>
         </h1>
         <div className="flex gap-2">
           <button
             className="btn-ghost"
             onClick={() => setShowTemplates(true)}
           >
-            <Icon name="spark" /> Plantillas
+            <Icon name="spark" /> {t('templates')}
           </button>
           <button
             className="btn-primary"
@@ -145,7 +148,7 @@ export default function AutomationsPage() {
               })
             }
           >
-            <Icon name="plus" /> Nueva regla
+            <Icon name="plus" /> {t('newRule')}
           </button>
         </div>
       </div>
@@ -156,17 +159,16 @@ export default function AutomationsPage() {
             <span className="text-2xl">⚡</span>
             <div className="flex-1">
               <h3 className="text-base font-semibold m-0">
-                Empieza con una plantilla pre-armada
+                {t('starterTitle')}
               </h3>
               <p className="text-mute text-sm mt-1">
-                {templates.length} mensajes automáticos listos para activar con un
-                click — bienvenida, cumpleaños, reactivación, premio listo, y más.
+                {t('starterDesc', { count: templates.length })}
               </p>
               <button
                 className="btn-primary mt-3"
                 onClick={() => setShowTemplates(true)}
               >
-                Ver {templates.length} plantillas →
+                {t('starterCta', { count: templates.length })}
               </button>
             </div>
           </div>
@@ -185,7 +187,7 @@ export default function AutomationsPage() {
                 <div className="text-xs text-mute mt-1">{r.description}</div>
                 <div className="flex flex-wrap gap-2 mt-3 text-xs">
                   <span className="badge badge-info">
-                    Cuando: {r.trigger.type}
+                    {t('whenPrefix')}: {r.trigger.type}
                     {r.trigger.days ? ` (${r.trigger.days}d)` : ''}
                   </span>
                   {r.actions.map((a, i) => (
@@ -194,7 +196,7 @@ export default function AutomationsPage() {
                     </span>
                   ))}
                   <span className="badge badge-mute">
-                    {r.stats?.runs ?? 0} ejecuciones
+                    {t('runsCount', { count: r.stats?.runs ?? 0 })}
                   </span>
                 </div>
               </div>
@@ -202,22 +204,22 @@ export default function AutomationsPage() {
                 <span
                   className={`badge ${r.isActive ? 'badge-ok' : 'badge-mute'}`}
                 >
-                  {r.isActive ? 'Activa' : 'Pausa'}
+                  {r.isActive ? t('statusActive') : t('statusPaused')}
                 </span>
               </div>
             </div>
             <div className="mt-3 flex gap-3 text-xs">
               <button className="btn-link" onClick={() => setEditing(r)}>
-                Editar
+                {t('edit')}
               </button>
               <button className="btn-link" onClick={() => toggle(r)}>
-                {r.isActive ? 'Pausar' : 'Activar'}
+                {r.isActive ? t('pause') : t('activate')}
               </button>
               <button
                 className="text-bad underline ml-auto"
                 onClick={() => remove(r.id)}
               >
-                Eliminar
+                {t('delete')}
               </button>
             </div>
           </div>
@@ -252,11 +254,12 @@ function TemplatesModal({
 }: {
   templates: TemplateBackend[];
   existingTriggers: Set<string>;
-  onPick: (t: TemplateBackend) => void;
+  onPick: (tpl: TemplateBackend) => void;
   onClose: () => void;
 }) {
-  const grouped = templates.reduce<Record<string, TemplateBackend[]>>((acc, t) => {
-    (acc[t.category] = acc[t.category] || []).push(t);
+  const t = useTranslations('app_automations');
+  const grouped = templates.reduce<Record<string, TemplateBackend[]>>((acc, tpl) => {
+    (acc[tpl.category] = acc[tpl.category] || []).push(tpl);
     return acc;
   }, {});
   return (
@@ -270,9 +273,9 @@ function TemplatesModal({
       >
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-lg font-bold m-0">Plantillas pre-armadas</h2>
+            <h2 className="text-lg font-bold m-0">{t('templatesModalTitle')}</h2>
             <p className="text-xs text-mute mt-0.5">
-              Activa con un click. Después puedes editar el texto y los canales.
+              {t('templatesModalSubtitle')}
             </p>
           </div>
           <button onClick={onClose} className="text-mute hover:text-ink text-xl leading-none">
@@ -283,24 +286,26 @@ function TemplatesModal({
           {Object.entries(grouped).map(([cat, items]) => (
             <div key={cat}>
               <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
-                {CATEGORY_LABEL[cat as TemplateBackend['category']] ?? cat}
+                {CATEGORY_LABEL_KEY[cat as TemplateBackend['category']]
+                  ? t(CATEGORY_LABEL_KEY[cat as TemplateBackend['category']])
+                  : cat}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {items.map((t) => {
-                  const exists = existingTriggers.has(t.trigger.type);
+                {items.map((tpl) => {
+                  const exists = existingTriggers.has(tpl.trigger.type);
                   return (
                     <div
-                      key={t.id}
+                      key={tpl.id}
                       className="card p-3 flex items-start gap-3"
                     >
-                      <div className="text-2xl shrink-0">{t.emoji}</div>
+                      <div className="text-2xl shrink-0">{tpl.emoji}</div>
                       <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-sm">{t.name}</div>
+                        <div className="font-semibold text-sm">{tpl.name}</div>
                         <div className="text-xs text-mute mt-0.5 leading-snug">
-                          {t.description}
+                          {tpl.description}
                         </div>
                         <button
-                          onClick={() => onPick(t)}
+                          onClick={() => onPick(tpl)}
                           disabled={exists}
                           className={`text-xs mt-2 font-semibold ${
                             exists
@@ -308,7 +313,7 @@ function TemplatesModal({
                               : 'text-brand hover:underline'
                           }`}
                         >
-                          {exists ? '✓ Ya tienes una con este trigger' : 'Activar →'}
+                          {exists ? t('alreadyHasTrigger') : t('activate')}
                         </button>
                       </div>
                     </div>
@@ -332,6 +337,7 @@ function RuleDrawer({
   onCancel: () => void;
   onSave: (r: Partial<Rule>) => void;
 }) {
+  const t = useTranslations('app_automations');
   const [form, setForm] = useState<Partial<Rule>>(value);
 
   function update<K extends keyof Rule>(k: K, v: any) {
@@ -354,7 +360,7 @@ function RuleDrawer({
       <div className="w-full max-w-md bg-white h-full overflow-auto p-6 shadow-2xl">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">
-            {form.id ? 'Editar regla' : 'Nueva regla'}
+            {form.id ? t('editRule') : t('newRule')}
           </h2>
           <button onClick={onCancel} className="text-mute hover:text-ink">
             ✕
@@ -363,7 +369,7 @@ function RuleDrawer({
 
         <div className="space-y-4">
           <div>
-            <label className="label">Nombre</label>
+            <label className="label">{t('labelName')}</label>
             <input
               className="input"
               value={form.name ?? ''}
@@ -371,7 +377,7 @@ function RuleDrawer({
             />
           </div>
           <div>
-            <label className="label">Descripción</label>
+            <label className="label">{t('labelDescription')}</label>
             <input
               className="input"
               value={form.description ?? ''}
@@ -380,15 +386,15 @@ function RuleDrawer({
           </div>
 
           <div>
-            <label className="label">Cuando ocurra...</label>
+            <label className="label">{t('labelWhenHappens')}</label>
             <select
               className="input"
               value={form.trigger?.type ?? 'ORDER_CONFIRMED'}
               onChange={(e) => setTrigger(e.target.value)}
             >
-              {TRIGGERS.map((t) => (
-                <option key={t.type} value={t.type}>
-                  {t.label}
+              {TRIGGERS.map((trg) => (
+                <option key={trg.type} value={trg.type}>
+                  {t(trg.labelKey)}
                 </option>
               ))}
             </select>
@@ -396,7 +402,7 @@ function RuleDrawer({
               <input
                 type="number"
                 className="input mt-2"
-                placeholder="Días de inactividad"
+                placeholder={t('placeholderInactivityDays')}
                 value={form.trigger?.days ?? 7}
                 onChange={(e) =>
                   update('trigger', {
@@ -409,7 +415,7 @@ function RuleDrawer({
           </div>
 
           <div>
-            <label className="label">Acciones</label>
+            <label className="label">{t('labelActions')}</label>
             {(form.actions ?? []).map((a, i) => (
               <div key={i} className="border border-line2 rounded-lg p-3 mb-2">
                 <select
@@ -417,20 +423,20 @@ function RuleDrawer({
                   value={a.type}
                   onChange={(e) => updateAction(i, { type: e.target.value })}
                 >
-                  <option value="SEND_PUSH">Enviar push a Wallet</option>
-                  <option value="ADD_STAMPS">Sumar sellos</option>
+                  <option value="SEND_PUSH">{t('actionSendPush')}</option>
+                  <option value="ADD_STAMPS">{t('actionAddStamps')}</option>
                 </select>
                 {a.type === 'SEND_PUSH' && (
                   <>
                     <input
                       className="input mb-2"
-                      placeholder="Título"
+                      placeholder={t('placeholderTitle')}
                       value={a.title ?? ''}
                       onChange={(e) => updateAction(i, { title: e.target.value })}
                     />
                     <textarea
                       className="input"
-                      placeholder="Cuerpo"
+                      placeholder={t('placeholderBody')}
                       value={a.body ?? ''}
                       onChange={(e) => updateAction(i, { body: e.target.value })}
                     />
@@ -440,7 +446,7 @@ function RuleDrawer({
                   <input
                     type="number"
                     className="input"
-                    placeholder="Cantidad de sellos"
+                    placeholder={t('placeholderStampCount')}
                     value={a.amount ?? 1}
                     onChange={(e) =>
                       updateAction(i, { amount: Number(e.target.value) })
@@ -458,20 +464,20 @@ function RuleDrawer({
                 ])
               }
             >
-              + acción
+              {t('addAction')}
             </button>
           </div>
         </div>
 
         <div className="mt-6 flex gap-2">
           <button className="btn-ghost flex-1 justify-center" onClick={onCancel}>
-            Cancelar
+            {t('cancel')}
           </button>
           <button
             className="btn-primary flex-1 justify-center"
             onClick={() => onSave(form)}
           >
-            <Icon name="check" /> Guardar
+            <Icon name="check" /> {t('save')}
           </button>
         </div>
       </div>

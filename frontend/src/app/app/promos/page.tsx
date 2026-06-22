@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
@@ -20,15 +21,16 @@ type Promo = {
   isActive: boolean;
 };
 
-const TYPE_LABEL: Record<string, string> = {
-  DISCOUNT_PCT: '% Descuento',
-  DISCOUNT_AMOUNT: '$ Descuento',
-  BUY_X_GET_Y: '2x1',
-  COMBO: 'Combo',
-  FREE_ITEM: 'Producto gratis',
+const TYPE_LABEL_KEY: Record<string, string> = {
+  DISCOUNT_PCT: 'typeDiscountPct',
+  DISCOUNT_AMOUNT: 'typeDiscountAmount',
+  BUY_X_GET_Y: 'typeBuyXGetY',
+  COMBO: 'typeCombo',
+  FREE_ITEM: 'typeFreeItem',
 };
 
 export default function PromosPage() {
+  const t = useTranslations('app_promos');
   const [list, setList] = useState<Promo[]>([]);
   const [editing, setEditing] = useState<Partial<Promo> | null>(null);
 
@@ -36,7 +38,7 @@ export default function PromosPage() {
     try {
       setList(await api('/promotions'));
     } catch (e: any) {
-      toast(e.message || 'Error cargando promociones', 'error');
+      toast(e.message || t('errorLoading'), 'error');
     }
   }
   useEffect(() => {
@@ -73,9 +75,9 @@ export default function PromosPage() {
       }
       setEditing(null);
       load();
-      toast(p.id ? 'Promoción actualizada' : 'Promoción creada', 'success');
+      toast(p.id ? t('toastUpdated') : t('toastCreated'), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo guardar', 'error');
+      toast(e.message || t('errorCouldNotSave'), 'error');
     }
   }
 
@@ -87,18 +89,18 @@ export default function PromosPage() {
       });
       load();
     } catch (e: any) {
-      toast(e.message || 'No se pudo actualizar', 'error');
+      toast(e.message || t('errorCouldNotUpdate'), 'error');
     }
   }
 
   async function remove(id: string) {
-    if (!confirm('¿Eliminar promoción?')) return;
+    if (!confirm(t('confirmDelete'))) return;
     try {
       await api(`/promotions/${id}`, { method: 'DELETE' });
       load();
-      toast('Promoción eliminada', 'success');
+      toast(t('toastDeleted'), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo eliminar', 'error');
+      toast(e.message || t('errorCouldNotDelete'), 'error');
     }
   }
 
@@ -108,11 +110,12 @@ export default function PromosPage() {
         href="/app/menu"
         className="text-xs text-mute hover:text-brand inline-flex items-center gap-1 mb-2"
       >
-        ← Menú
+        ← {t('breadcrumbMenu')}
       </Link>
       <div className="page-head">
         <h1 className="page-title">
-          Promociones <span className="page-crumb">/ {list.length} configuradas</span>
+          {t('title')}{' '}
+          <span className="page-crumb">{t('crumbConfigured', { count: list.length })}</span>
         </h1>
         <button
           className="btn-primary"
@@ -129,7 +132,7 @@ export default function PromosPage() {
             })
           }
         >
-          <Icon name="plus" /> Nueva promoción
+          <Icon name="plus" /> {t('newPromo')}
         </button>
       </div>
 
@@ -137,11 +140,9 @@ export default function PromosPage() {
         {list.length === 0 && (
           <div className="card card-pad text-center py-12 md:col-span-2 lg:col-span-3">
             <div className="text-4xl mb-2">🎁</div>
-            <div className="font-semibold">Aún no tienes promociones</div>
+            <div className="font-semibold">{t('emptyTitle')}</div>
             <p className="text-sm text-mute mt-1.5 max-w-md mx-auto">
-              Crea una promoción para incentivar pedidos: descuentos %,
-              cupones, 2x1, o subtotal mínimo. Se aplican automáticamente al
-              carrito en el storefront.
+              {t('emptyDesc')}
             </p>
             <button
               className="btn-primary mt-4 inline-flex"
@@ -156,7 +157,7 @@ export default function PromosPage() {
                 })
               }
             >
-              <Icon name="plus" /> Crear mi primera promoción
+              <Icon name="plus" /> {t('createFirst')}
             </button>
           </div>
         )}
@@ -170,7 +171,7 @@ export default function PromosPage() {
               <span
                 className={`badge ${p.isActive ? 'badge-ok' : 'badge-mute'}`}
               >
-                {p.isActive ? 'Activa' : 'Pausa'}
+                {p.isActive ? t('statusActive') : t('statusPaused')}
               </span>
             </div>
             {p.imageUrl && (
@@ -194,21 +195,23 @@ export default function PromosPage() {
             </div>
             {p.validUntil && (
               <div className="text-xs text-mute mt-1">
-                Hasta {new Date(p.validUntil).toLocaleDateString('es-CO')}
+                {t('validUntil', {
+                  date: new Date(p.validUntil).toLocaleDateString('es-CO'),
+                })}
               </div>
             )}
             <div className="mt-4 flex gap-2">
               <button className="btn-link text-xs" onClick={() => setEditing(p)}>
-                Editar
+                {t('edit')}
               </button>
               <button className="btn-link text-xs" onClick={() => toggle(p)}>
-                {p.isActive ? 'Pausar' : 'Activar'}
+                {p.isActive ? t('pause') : t('activate')}
               </button>
               <button
                 className="text-bad text-xs underline ml-auto"
                 onClick={() => remove(p.id)}
               >
-                Eliminar
+                {t('delete')}
               </button>
             </div>
           </div>
@@ -235,6 +238,7 @@ function PromoDrawer({
   onCancel: () => void;
   onSave: (p: Partial<Promo>) => void;
 }) {
+  const t = useTranslations('app_promos');
   const [form, setForm] = useState<Partial<Promo>>(value);
 
   function update<K extends keyof Promo>(k: K, v: any) {
@@ -251,7 +255,7 @@ function PromoDrawer({
       <div className="w-full max-w-md bg-white h-full overflow-auto p-6 shadow-2xl">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">
-            {form.id ? 'Editar promoción' : 'Nueva promoción'}
+            {form.id ? t('editPromo') : t('newPromo')}
           </h2>
           <button onClick={onCancel} className="text-mute hover:text-ink">
             ✕
@@ -260,7 +264,7 @@ function PromoDrawer({
 
         <div className="space-y-3">
           <div>
-            <label className="label">Nombre</label>
+            <label className="label">{t('labelName')}</label>
             <input
               className="input"
               value={form.name ?? ''}
@@ -268,33 +272,33 @@ function PromoDrawer({
             />
           </div>
           <div>
-            <label className="label">Descripción</label>
+            <label className="label">{t('labelDescription')}</label>
             <textarea
               className="input"
               rows={2}
-              placeholder="Ej: 2 latte por el precio de 1, todos los miércoles."
+              placeholder={t('placeholderDescription')}
               value={form.description ?? ''}
               onChange={(e) => update('description', e.target.value)}
             />
           </div>
           <div>
-            <label className="label">Foto de la promoción</label>
+            <label className="label">{t('labelPhoto')}</label>
             <ImageUploader
               value={form.imageUrl ?? null}
               onChange={(url) => update('imageUrl', url)}
               folder="promotions"
             />
             <p className="text-[11px] text-mute mt-1">
-              Aparece en el menú del cliente. Recomendado 1:1 (cuadrada).
+              {t('hintPhoto')}
             </p>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="label">Precio regular</label>
+              <label className="label">{t('labelRegularPrice')}</label>
               <input
                 type="number"
                 className="input"
-                placeholder="$ antes"
+                placeholder={t('placeholderBefore')}
                 value={form.originalPrice ?? ''}
                 onChange={(e) =>
                   update(
@@ -304,45 +308,44 @@ function PromoDrawer({
                 }
               />
               <p className="text-[11px] text-mute mt-1">
-                Aparece tachado al lado del precio promo.
+                {t('hintRegularPrice')}
               </p>
             </div>
             <div>
-              <label className="label">Precio promo</label>
+              <label className="label">{t('labelPromoPrice')}</label>
               <input
                 type="number"
                 className="input"
-                placeholder="$ con descuento"
+                placeholder={t('placeholderDiscounted')}
                 value={form.value ?? 0}
                 onChange={(e) => update('value', Number(e.target.value))}
               />
               <p className="text-[11px] text-mute mt-1">
-                El precio final que paga el cliente.
+                {t('hintPromoPrice')}
               </p>
             </div>
           </div>
 
           <details className="text-xs">
             <summary className="cursor-pointer text-mute hover:text-ink">
-              Opciones avanzadas (tipo, condiciones)
+              {t('advancedOptions')}
             </summary>
             <div className="mt-3 space-y-3">
               <div>
-                <label className="label">Tipo de promoción</label>
+                <label className="label">{t('labelPromoType')}</label>
                 <select
                   className="input"
                   value={form.type ?? 'DISCOUNT_AMOUNT'}
                   onChange={(e) => update('type', e.target.value)}
                 >
-                  {Object.entries(TYPE_LABEL).map(([k, v]) => (
+                  {Object.entries(TYPE_LABEL_KEY).map(([k, labelKey]) => (
                     <option key={k} value={k}>
-                      {v}
+                      {t(labelKey)}
                     </option>
                   ))}
                 </select>
                 <p className="text-[11px] text-mute mt-1">
-                  Default "$ Descuento" para producto con precio promo. Otros
-                  tipos aplican al carrito completo.
+                  {t('hintPromoType')}
                 </p>
               </div>
             </div>
@@ -350,10 +353,10 @@ function PromoDrawer({
 
           <fieldset className="border border-line rounded-lg p-3">
             <legend className="px-1 text-xs font-semibold text-mute">
-              Condiciones (opcional)
+              {t('conditionsOptional')}
             </legend>
             <div>
-              <label className="label">Subtotal mínimo</label>
+              <label className="label">{t('labelMinSubtotal')}</label>
               <input
                 type="number"
                 className="input"
@@ -367,10 +370,10 @@ function PromoDrawer({
               />
             </div>
             <div className="mt-3">
-              <label className="label">Días de la semana (0=Dom, 6=Sáb)</label>
+              <label className="label">{t('labelDaysOfWeek')}</label>
               <input
                 className="input"
-                placeholder="ej: 1,2,3 (lun, mar, mié)"
+                placeholder={t('placeholderDaysOfWeek')}
                 value={(form.conditions?.daysOfWeek ?? []).join(',')}
                 onChange={(e) =>
                   updateCond(
@@ -387,7 +390,7 @@ function PromoDrawer({
 
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="label">Vigencia desde</label>
+              <label className="label">{t('labelValidFrom')}</label>
               <input
                 type="date"
                 className="input"
@@ -396,7 +399,7 @@ function PromoDrawer({
               />
             </div>
             <div>
-              <label className="label">Vigencia hasta</label>
+              <label className="label">{t('labelValidUntil')}</label>
               <input
                 type="date"
                 className="input"
@@ -409,13 +412,13 @@ function PromoDrawer({
 
         <div className="mt-6 flex gap-2">
           <button className="btn-ghost flex-1 justify-center" onClick={onCancel}>
-            Cancelar
+            {t('cancel')}
           </button>
           <button
             className="btn-primary flex-1 justify-center"
             onClick={() => onSave(form)}
           >
-            <Icon name="check" /> Guardar
+            <Icon name="check" /> {t('save')}
           </button>
         </div>
       </div>
