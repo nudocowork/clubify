@@ -24,7 +24,7 @@ export async function generateMetadata({
     });
     if (!res.ok) {
       return {
-        title: 'Negocio · Clubify',
+        title: 'Negocio',
         description: 'Pide directo desde tu mesa o lleva tu pedido.',
       };
     }
@@ -33,8 +33,18 @@ export async function generateMetadata({
     const description =
       t.description ||
       `Menú digital de ${t.brandName}. Ordena por WhatsApp y suma sellos en tu tarjeta wallet.`;
-    const image = t.heroImageUrl || t.logoUrl || `${SITE_URL}/og-image.png`;
-    const url = `${SITE_URL}/m/${params.slug}`;
+    // Base de URL = web de la marca blanca del negocio (no Clubify por defecto).
+    const siteBase = t.brand?.websiteUrl || SITE_URL;
+    const image = t.heroImageUrl || t.logoUrl || `${siteBase}/og-image.png`;
+    const url = `${siteBase}/m/${params.slug}`;
+    // Favicon: logo del negocio → favicon/icono/logo de SU marca blanca →
+    // (último recurso) iconos estáticos. Antes caía SIEMPRE al icono Clubify.
+    const brandFavicon =
+      t.logoUrl ||
+      t.brand?.faviconUrl ||
+      t.brand?.iconUrl ||
+      t.brand?.logoUrl ||
+      null;
 
     return {
       title,
@@ -65,8 +75,8 @@ export async function generateMetadata({
       // del storefront. Si no, explícitamente declaramos el cascade Clubify
       // (Next 14 no hereda metadata.icons del root layout cuando se devuelve
       // undefined desde un child generateMetadata).
-      icons: t.logoUrl
-        ? { icon: t.logoUrl, apple: t.logoUrl }
+      icons: brandFavicon
+        ? { icon: brandFavicon, apple: brandFavicon }
         : {
             icon: [
               { url: '/icons/icon.svg', type: 'image/svg+xml' },
@@ -77,12 +87,12 @@ export async function generateMetadata({
             ],
             apple: [{ url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }],
           },
-      themeColor: t.primaryColor || '#22C55E',
+      themeColor: t.primaryColor || t.brand?.primaryColor || '#22C55E',
       alternates: { canonical: url },
     };
   } catch {
     return {
-      title: 'Negocio · Clubify',
+      title: 'Negocio',
       description: 'Pide directo desde tu mesa o lleva tu pedido.',
     };
   }
