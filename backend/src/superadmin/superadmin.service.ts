@@ -1,12 +1,39 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { Prisma, WhiteLabelStatus, CreditTransactionType, ModuleKey } from '@prisma/client';
+import { Prisma, WhiteLabelStatus, CreditTransactionType, ModuleKey, PaymentGateway, PaymentLinkPeriodicity } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { EmailService } from '../email/email.service';
 import { WhiteLabelNotificationsService } from '../white-label-notifications/white-label-notifications.service';
+import { encryptSecret, maskSecret, isEncrypted } from '../common/crypto/secret-box';
 import * as argon2 from 'argon2';
 import { randomBytes, createHash } from 'crypto';
+
+/** Campos de `paymentConfig` que son SECRETOS: se guardan cifrados y se
+ *  devuelven enmascarados. El resto (publishableKey, urls, ids) va en plano. */
+const PAYMENT_SECRET_FIELDS = new Set([
+  'apiKey',
+  'clientSecret',
+  'webhookSecret',
+  'secretKey',
+]);
+
+export type PaymentConfigDto = {
+  gateway?: PaymentGateway;
+  config?: Record<string, any>;
+};
+
+export type PaymentLinkDto = {
+  gateway: PaymentGateway;
+  name: string;
+  periodicity?: PaymentLinkPeriodicity;
+  amountUsd: number;
+  url?: string | null;
+  active?: boolean;
+  sortOrder?: number;
+  stripePriceId?: string | null;
+  stripeProductId?: string | null;
+};
 
 export type WhiteLabelDto = {
   name: string;
@@ -740,6 +767,187 @@ export class SuperAdminService {
       changes: patch,
     });
     return updated;
+  }
+
+  // ============================================================
+  //          PASARELA DE PAGO POR MARCA (Hotmart/Stripe/Manual)
+  // ============================================================
+
+  /** Serializa un link a JSON-friendly (Decimal → number). */
+  private serializePaymentLink(l: {
+    id: string;
+    gateway: PaymentGateway;
+    name: string;
+    periodicity: PaymentLinkPeriodicity;
+    amountUsd: Prisma.Decimal;
+    url: string | null;
+    active: boolean;
+    sortOrder: number;
+    stripePriceId: string | null;
+    stripeProductId: string | null;
+  }) {
+    return { ...l, amountUsd: Number(l.amountUsd) };
+  }
+
+  /** Enmascara la config para la UI: secretos → sk_live_••••1234 (+ flag
+   *  `<campo>_set`); no-secretos en plano. Nunca expone el plano ni el
+   *  ciphertext. */
+  private maskPaymentConfig(raw: any): Record<string, any> {
+    const cfg = (raw && typeof raw === 'object' ? raw : {}) as Record<string, any>;
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(cfg)) {
+      if (PAYMENT_SECRET_FIELDS.has(k)) {
+        out[k] = v ? maskSecret(v as string) : null;
+        out[`${k}_set`] = !!v;
+      } else {
+        out[k] = v;
+      }
+    }
+    return out;
+  }
+
+  async getPaymentConfig(id: string) {
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        paymentGateway: true,
+        paymentConfig: true,
+        paymentLinks: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] },
+      },
+    });
+    if (!wl) throw new NotFoundException();
+    return {
+      gateway: wl.paymentGateway,
+      config: this.maskPaymentConfig(wl.paymentConfig),
+      links: wl.paymentLinks.map((l) => this.serializePaymentLink(l)),
+    };
+  }
+
+  /** Actualiza pasarela + config. Los secretos solo se reemplazan si llega un
+   *  valor NUEVO en plano; si viene vacío, enmascarado o ya cifrado, se
+   *  conserva el existente (evita pisar un secreto al re-guardar el form). */
+  async updatePaymentConfig(id: string, dto: PaymentConfigDto, actorId?: string) {
+    const existing = await this.prisma.whiteLabel.findUnique({
+      where: { id },
+      select: { id: true, name: true, paymentConfig: true },
+    });
+    if (!existing) throw new NotFoundException();
+
+    const merged: Record<string, any> = {
+      ...((existing.paymentConfig as Record<string, any>) || {}),
+    };
+    const touchedKeys: string[] = [];
+    if (dto.config && typeof dto.config === 'object') {
+      for (const [k, rawV] of Object.entries(dto.config)) {
+        if (rawV === undefined) continue;
+        const v = typeof rawV === 'string' ? rawV.trim() : rawV;
+        if (PAYMENT_SECRET_FIELDS.has(k)) {
+          // Vacío / enmascarado / ya cifrado = "sin cambios" → conservar.
+          if (v == null || v === '') continue;
+          if (typeof v === 'string' && (isEncrypted(v) || v.includes('•'))) continue;
+          merged[k] = encryptSecret(String(v));
+          touchedKeys.push(k);
+        } else {
+          merged[k] = v === '' ? null : v;
+          touchedKeys.push(k);
+        }
+      }
+    }
+
+    const updated = await this.prisma.whiteLabel.update({
+      where: { id },
+      data: {
+        paymentGateway: dto.gateway ?? undefined,
+        paymentConfig: merged as Prisma.InputJsonValue,
+      },
+      select: { paymentGateway: true, paymentConfig: true },
+    });
+    // Audit: NUNCA logueamos valores de secretos, solo las claves tocadas.
+    await this.logAction(actorId, 'superadmin.white_label.payment_config', `whiteLabel:${id}`, {
+      whiteLabelName: existing.name,
+      gateway: dto.gateway,
+      changedFields: touchedKeys,
+    });
+    return {
+      gateway: updated.paymentGateway,
+      config: this.maskPaymentConfig(updated.paymentConfig),
+    };
+  }
+
+  // -------- Links de pago por marca (CRUD) --------
+
+  async listPaymentLinks(whiteLabelId: string) {
+    const wl = await this.prisma.whiteLabel.findUnique({ where: { id: whiteLabelId }, select: { id: true } });
+    if (!wl) throw new NotFoundException();
+    const links = await this.prisma.whiteLabelPaymentLink.findMany({
+      where: { whiteLabelId },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+    return links.map((l) => this.serializePaymentLink(l));
+  }
+
+  async createPaymentLink(whiteLabelId: string, dto: PaymentLinkDto, actorId?: string) {
+    const wl = await this.prisma.whiteLabel.findUnique({ where: { id: whiteLabelId }, select: { id: true, name: true } });
+    if (!wl) throw new NotFoundException();
+    if (!dto.name?.trim()) throw new BadRequestException('Nombre del plan requerido');
+    const created = await this.prisma.whiteLabelPaymentLink.create({
+      data: {
+        whiteLabelId,
+        gateway: dto.gateway,
+        name: dto.name.trim(),
+        periodicity: dto.periodicity ?? 'MENSUAL',
+        amountUsd: new Prisma.Decimal(dto.amountUsd ?? 0),
+        url: dto.url?.trim() || null,
+        active: dto.active ?? true,
+        sortOrder: dto.sortOrder ?? 0,
+        stripePriceId: dto.stripePriceId?.trim() || null,
+        stripeProductId: dto.stripeProductId?.trim() || null,
+      },
+    });
+    await this.logAction(actorId, 'superadmin.white_label.payment_link.create', `whiteLabel:${whiteLabelId}`, {
+      whiteLabelName: wl.name,
+      linkId: created.id,
+      name: created.name,
+      gateway: created.gateway,
+    });
+    return this.serializePaymentLink(created);
+  }
+
+  async updatePaymentLink(whiteLabelId: string, linkId: string, dto: Partial<PaymentLinkDto>, actorId?: string) {
+    const link = await this.prisma.whiteLabelPaymentLink.findFirst({ where: { id: linkId, whiteLabelId } });
+    if (!link) throw new NotFoundException('Link no encontrado');
+    const updated = await this.prisma.whiteLabelPaymentLink.update({
+      where: { id: linkId },
+      data: {
+        gateway: dto.gateway ?? undefined,
+        name: dto.name === undefined ? undefined : dto.name.trim(),
+        periodicity: dto.periodicity ?? undefined,
+        amountUsd: dto.amountUsd === undefined ? undefined : new Prisma.Decimal(dto.amountUsd),
+        url: dto.url === undefined ? undefined : dto.url?.trim() || null,
+        active: dto.active === undefined ? undefined : dto.active,
+        sortOrder: dto.sortOrder === undefined ? undefined : dto.sortOrder,
+        stripePriceId: dto.stripePriceId === undefined ? undefined : dto.stripePriceId?.trim() || null,
+        stripeProductId: dto.stripeProductId === undefined ? undefined : dto.stripeProductId?.trim() || null,
+      },
+    });
+    await this.logAction(actorId, 'superadmin.white_label.payment_link.update', `whiteLabel:${whiteLabelId}`, {
+      linkId,
+      changes: Object.keys(dto),
+    });
+    return this.serializePaymentLink(updated);
+  }
+
+  async removePaymentLink(whiteLabelId: string, linkId: string, actorId?: string) {
+    const link = await this.prisma.whiteLabelPaymentLink.findFirst({ where: { id: linkId, whiteLabelId } });
+    if (!link) throw new NotFoundException('Link no encontrado');
+    await this.prisma.whiteLabelPaymentLink.delete({ where: { id: linkId } });
+    await this.logAction(actorId, 'superadmin.white_label.payment_link.delete', `whiteLabel:${whiteLabelId}`, {
+      linkId,
+      name: link.name,
+    });
+    return { ok: true };
   }
 
   /** Suspende o reactiva la marca. Las marcas NO se eliminan (regla PRD). */

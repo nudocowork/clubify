@@ -619,6 +619,8 @@ function Drawer({
                 }}
               />
 
+              <PaymentGatewayConfig whiteLabelId={w.id} onSaved={onChanged} />
+
               <div>
                 <SectionTitle>Módulos activos</SectionTitle>
                 <div className="mt-2 space-y-1.5">
@@ -1294,6 +1296,415 @@ function BrandRowActions({
         </>
       )}
     </ActionsMenu>
+  );
+}
+
+// ── Pasarela de pago por marca ──────────────────────────────────────────────
+
+type PayLink = {
+  id: string;
+  gateway: string;
+  name: string;
+  periodicity: string;
+  amountUsd: number;
+  url: string | null;
+  active: boolean;
+  sortOrder: number;
+  stripePriceId: string | null;
+  stripeProductId: string | null;
+};
+
+const GATEWAYS = [
+  { key: 'HOTMART', label: 'Hotmart' },
+  { key: 'STRIPE', label: 'Stripe' },
+  { key: 'MANUAL', label: 'Manual' },
+];
+// Campos secretos (deben coincidir con PAYMENT_SECRET_FIELDS del backend): se
+// muestran enmascarados y se mandan solo si el usuario tipea uno nuevo.
+const PAYMENT_SECRET_UI = new Set(['apiKey', 'clientSecret', 'webhookSecret', 'secretKey']);
+const PERIODICITIES = ['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL', 'CUSTOM'];
+
+// Campos por pasarela: secret = se cifra (input vacío conserva el actual),
+// plain = editable directo.
+const GATEWAY_FIELDS: Record<string, { secret: { key: string; label: string }[]; plain: { key: string; label: string; placeholder?: string }[] }> = {
+  HOTMART: {
+    secret: [
+      { key: 'apiKey', label: 'API Key' },
+      { key: 'clientSecret', label: 'Client Secret' },
+      { key: 'webhookSecret', label: 'Webhook Secret (HOTTOK)' },
+    ],
+    plain: [
+      { key: 'clientId', label: 'Client ID' },
+      { key: 'productCode', label: 'Código de producto' },
+      { key: 'webhookUrl', label: 'URL Webhook', placeholder: 'https://api…/webhooks/hotmart/<slug>' },
+    ],
+  },
+  STRIPE: {
+    secret: [
+      { key: 'secretKey', label: 'Secret Key (sk_live…)' },
+      { key: 'webhookSecret', label: 'Webhook Secret (whsec…)' },
+    ],
+    plain: [
+      { key: 'publishableKey', label: 'Publishable Key (pk_live…)' },
+      { key: 'customerPortalUrl', label: 'Customer Portal URL' },
+      { key: 'webhookUrl', label: 'URL Webhook', placeholder: 'https://api…/webhooks/stripe/<slug>' },
+    ],
+  },
+  MANUAL: { secret: [], plain: [] },
+};
+
+const payInput = {
+  width: '100%',
+  marginTop: 4,
+  padding: '9px 12px',
+  borderRadius: 8,
+  border: '1px solid #d7dbe0',
+  background: 'white',
+  color: '#16241c',
+  fontSize: 13,
+} as const;
+
+/** Sección "Pasarela de pago": selector Hotmart/Stripe/Manual, campos por
+ *  pasarela (secretos cifrados server-side, enmascarados al volver) y gestor
+ *  de links de pago. Todo aislado por marca. */
+function PaymentGatewayConfig({
+  whiteLabelId,
+  onSaved,
+}: {
+  whiteLabelId: string;
+  onSaved: (msg: string) => void;
+}) {
+  const [loading, setLoading] = useState(true);
+  const [gateway, setGateway] = useState<string>('HOTMART');
+  const [plain, setPlain] = useState<Record<string, string>>({});
+  const [secretSet, setSecretSet] = useState<Record<string, boolean>>({});
+  const [secretMasked, setSecretMasked] = useState<Record<string, string>>({});
+  const [secretNew, setSecretNew] = useState<Record<string, string>>({});
+  const [links, setLinks] = useState<PayLink[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const d = await api(`/superadmin/white-labels/${whiteLabelId}/payment-config`);
+      if (d) {
+        setGateway(d.gateway ?? 'HOTMART');
+        const cfg = (d.config ?? {}) as Record<string, any>;
+        const p: Record<string, string> = {};
+        const sSet: Record<string, boolean> = {};
+        const sMask: Record<string, string> = {};
+        for (const [k, v] of Object.entries(cfg)) {
+          if (k.endsWith('_set')) {
+            sSet[k.slice(0, -4)] = !!v;
+          } else if (PAYMENT_SECRET_UI.has(k)) {
+            sMask[k] = (v as string) ?? '';
+          } else {
+            p[k] = (v as string) ?? '';
+          }
+        }
+        setPlain(p);
+        setSecretSet(sSet);
+        setSecretMasked(sMask);
+        setSecretNew({});
+        setLinks((d.links ?? []) as PayLink[]);
+      }
+    } catch {
+      /* noop */
+    } finally {
+      setLoading(false);
+    }
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [whiteLabelId]);
+
+  async function saveConfig() {
+    setBusy(true);
+    try {
+      const config: Record<string, any> = { ...plain };
+      // Solo mandamos secretos con valor nuevo (vacío = conservar el actual).
+      for (const [k, v] of Object.entries(secretNew)) {
+        if (v && v.trim()) config[k] = v.trim();
+      }
+      const d = await api(`/superadmin/white-labels/${whiteLabelId}/payment-config`, {
+        method: 'PATCH',
+        body: JSON.stringify({ gateway, config }),
+      });
+      onSaved('Pasarela actualizada');
+      if (d) await load();
+    } catch (e: any) {
+      onSaved(e.message ?? 'Error al guardar pasarela');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addLink() {
+    setBusy(true);
+    try {
+      await api(`/superadmin/white-labels/${whiteLabelId}/payment-links`, {
+        method: 'POST',
+        body: JSON.stringify({
+          gateway: gateway === 'MANUAL' ? 'HOTMART' : gateway,
+          name: 'Nuevo plan',
+          periodicity: 'MENSUAL',
+          amountUsd: 0,
+          active: true,
+          sortOrder: links.length,
+        }),
+      });
+      await load();
+      onSaved('Link agregado');
+    } catch (e: any) {
+      onSaved(e.message ?? 'Error al agregar link');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveLink(l: PayLink) {
+    setBusy(true);
+    try {
+      await api(`/superadmin/white-labels/${whiteLabelId}/payment-links/${l.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          gateway: l.gateway,
+          name: l.name,
+          periodicity: l.periodicity,
+          amountUsd: Number(l.amountUsd) || 0,
+          url: l.url,
+          active: l.active,
+          stripePriceId: l.stripePriceId,
+          stripeProductId: l.stripeProductId,
+        }),
+      });
+      onSaved('Link guardado');
+      await load();
+    } catch (e: any) {
+      onSaved(e.message ?? 'Error al guardar link');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteLink(id: string) {
+    if (!confirm('¿Eliminar este link de pago?')) return;
+    setBusy(true);
+    try {
+      await api(`/superadmin/white-labels/${whiteLabelId}/payment-links/${id}`, { method: 'DELETE' });
+      await load();
+      onSaved('Link eliminado');
+    } catch (e: any) {
+      onSaved(e.message ?? 'Error al eliminar');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function patchLink(id: string, patch: Partial<PayLink>) {
+    setLinks((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+  }
+
+  if (loading) {
+    return (
+      <div>
+        <SectionTitle>Pasarela de pago</SectionTitle>
+        <div className="mt-2 text-sm" style={{ color: '#9aa4af' }}>Cargando…</div>
+      </div>
+    );
+  }
+
+  const fields = GATEWAY_FIELDS[gateway] ?? GATEWAY_FIELDS.MANUAL;
+
+  return (
+    <div>
+      <SectionTitle>Pasarela de pago</SectionTitle>
+      <div className="mt-2 space-y-3">
+        {/* Selector de método de cobro */}
+        <Field label="Método de cobro">
+          <div className="flex gap-2">
+            {GATEWAYS.map((g) => (
+              <button
+                key={g.key}
+                onClick={() => setGateway(g.key)}
+                className="flex-1 text-sm font-semibold rounded-[9px] py-2 transition"
+                style={{
+                  border: gateway === g.key ? '2px solid #16a34a' : '1px solid #d7dbe0',
+                  background: gateway === g.key ? '#f0fdf4' : 'white',
+                  color: gateway === g.key ? '#15803d' : '#4b5563',
+                }}
+              >
+                {g.label}
+              </button>
+            ))}
+          </div>
+        </Field>
+
+        {gateway === 'MANUAL' && (
+          <div
+            className="rounded-lg p-3 text-xs"
+            style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e' }}
+          >
+            Esta Marca Blanca no tiene cobro automático conectado. Las
+            activaciones, suspensiones y renovaciones deberán gestionarse
+            manualmente.
+          </div>
+        )}
+
+        {/* Campos no-secretos */}
+        {fields.plain.map((f) => (
+          <Field key={f.key} label={f.label}>
+            <input
+              value={plain[f.key] ?? ''}
+              onChange={(e) => setPlain((p) => ({ ...p, [f.key]: e.target.value }))}
+              placeholder={f.placeholder}
+              className="font-mono"
+              style={payInput}
+            />
+          </Field>
+        ))}
+
+        {/* Campos secretos: vacío = conservar el actual */}
+        {fields.secret.map((f) => (
+          <Field key={f.key} label={f.label}>
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={secretNew[f.key] ?? ''}
+              onChange={(e) => setSecretNew((s) => ({ ...s, [f.key]: e.target.value }))}
+              placeholder={
+                secretSet[f.key]
+                  ? `${secretMasked[f.key] || '••••'} — vacío para conservar`
+                  : 'Sin configurar'
+              }
+              className="font-mono"
+              style={payInput}
+            />
+          </Field>
+        ))}
+
+        {gateway !== 'MANUAL' && (
+          <button
+            onClick={saveConfig}
+            disabled={busy}
+            className="w-full text-sm font-bold text-white rounded-[10px]"
+            style={{
+              padding: '10px',
+              background: busy ? '#9ca3af' : 'linear-gradient(180deg, #28c95f, #16a34a)',
+              cursor: busy ? 'default' : 'pointer',
+            }}
+          >
+            {busy ? 'Guardando…' : 'Guardar pasarela'}
+          </button>
+        )}
+
+        {/* Links de pago */}
+        <div className="pt-1">
+          <div className="flex items-center justify-between mb-2">
+            <SectionTitle>Links de pago ({links.length})</SectionTitle>
+            <button
+              onClick={addLink}
+              disabled={busy}
+              className="text-xs font-semibold"
+              style={{ padding: '6px 11px', borderRadius: 8, background: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0' }}
+            >
+              + Agregar link
+            </button>
+          </div>
+
+          {links.length === 0 && (
+            <div className="text-xs" style={{ color: '#9aa4af' }}>
+              Sin links todavía. Agregá uno (mensual, anual, personalizado…).
+            </div>
+          )}
+
+          <div className="space-y-2.5">
+            {links.map((l) => (
+              <div key={l.id} className="rounded-[10px] p-2.5" style={{ border: '1px solid #e5e7eb', background: '#fcfdfc' }}>
+                <div className="flex gap-2">
+                  <input
+                    value={l.name}
+                    onChange={(e) => patchLink(l.id, { name: e.target.value })}
+                    placeholder="Nombre del plan"
+                    style={{ ...payInput, flex: 2, marginTop: 0 }}
+                  />
+                  <select
+                    value={l.periodicity}
+                    onChange={(e) => patchLink(l.id, { periodicity: e.target.value })}
+                    style={{ ...payInput, flex: 1, marginTop: 0 }}
+                  >
+                    {PERIODICITIES.map((p) => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex gap-2 mt-2">
+                  <input
+                    type="number"
+                    value={l.amountUsd}
+                    onChange={(e) => patchLink(l.id, { amountUsd: Number(e.target.value) })}
+                    placeholder="USD"
+                    style={{ ...payInput, flex: 1, marginTop: 0 }}
+                  />
+                  <input
+                    value={l.url ?? ''}
+                    onChange={(e) => patchLink(l.id, { url: e.target.value })}
+                    placeholder="URL de pago"
+                    className="font-mono"
+                    style={{ ...payInput, flex: 3, marginTop: 0 }}
+                  />
+                </div>
+                {gateway === 'STRIPE' && (
+                  <div className="flex gap-2 mt-2">
+                    <input
+                      value={l.stripePriceId ?? ''}
+                      onChange={(e) => patchLink(l.id, { stripePriceId: e.target.value })}
+                      placeholder="price_…"
+                      className="font-mono"
+                      style={{ ...payInput, flex: 1, marginTop: 0 }}
+                    />
+                    <input
+                      value={l.stripeProductId ?? ''}
+                      onChange={(e) => patchLink(l.id, { stripeProductId: e.target.value })}
+                      placeholder="prod_…"
+                      className="font-mono"
+                      style={{ ...payInput, flex: 1, marginTop: 0 }}
+                    />
+                  </div>
+                )}
+                <div className="flex items-center justify-between mt-2">
+                  <label className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: '#4b5563' }}>
+                    <input
+                      type="checkbox"
+                      checked={l.active}
+                      onChange={(e) => patchLink(l.id, { active: e.target.checked })}
+                    />
+                    Activo
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => saveLink(l)}
+                      disabled={busy}
+                      className="text-xs font-semibold"
+                      style={{ padding: '5px 12px', borderRadius: 7, background: '#16a34a', color: 'white' }}
+                    >
+                      Guardar
+                    </button>
+                    <button
+                      onClick={() => deleteLink(l.id)}
+                      disabled={busy}
+                      className="text-xs font-semibold"
+                      style={{ padding: '5px 10px', borderRadius: 7, background: 'white', color: '#b91c1c', border: '1px solid #fecaca' }}
+                    >
+                      Eliminar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

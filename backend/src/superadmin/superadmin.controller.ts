@@ -33,6 +33,24 @@ class StatusBody {
   @IsIn(['ACTIVE', 'SUSPENDED']) status!: WhiteLabelStatus;
 }
 
+class PaymentConfigBody {
+  @IsOptional() @IsIn(['HOTMART', 'STRIPE', 'MANUAL']) gateway?: 'HOTMART' | 'STRIPE' | 'MANUAL';
+  // Config libre por gateway: secretos se cifran server-side, no-secretos plano.
+  @IsOptional() @IsObject() config?: Record<string, any>;
+}
+
+class PaymentLinkBody {
+  @IsIn(['HOTMART', 'STRIPE', 'MANUAL']) gateway!: 'HOTMART' | 'STRIPE' | 'MANUAL';
+  @IsString() @MaxLength(120) name!: string;
+  @IsOptional() @IsIn(['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL', 'CUSTOM']) periodicity?: any;
+  @IsNumber() @Min(0) amountUsd!: number;
+  @IsOptional() @IsString() @MaxLength(600) url?: string | null;
+  @IsOptional() @IsBoolean() active?: boolean;
+  @IsOptional() @IsInt() @Min(0) sortOrder?: number;
+  @IsOptional() @IsString() @MaxLength(120) stripePriceId?: string | null;
+  @IsOptional() @IsString() @MaxLength(120) stripeProductId?: string | null;
+}
+
 class AdjustCreditsBody {
   @IsString() whiteLabelId!: string;
   @IsInt() @Min(-1000000) @Max(1000000) amount!: number;
@@ -156,6 +174,43 @@ export class SuperAdminController {
   @Patch('white-labels/:id/status')
   setStatus(@Param('id') id: string, @Body() body: StatusBody, @CurrentUser() user: AuthUser) {
     return this.svc.setStatus(id, body.status, user.id);
+  }
+
+  // -------- Pasarela de pago por marca --------
+
+  @Get('white-labels/:id/payment-config')
+  getPaymentConfig(@Param('id') id: string) {
+    return this.svc.getPaymentConfig(id);
+  }
+
+  @Patch('white-labels/:id/payment-config')
+  updatePaymentConfig(@Param('id') id: string, @Body() body: PaymentConfigBody, @CurrentUser() user: AuthUser) {
+    return this.svc.updatePaymentConfig(id, body, user.id);
+  }
+
+  @Get('white-labels/:id/payment-links')
+  listPaymentLinks(@Param('id') id: string) {
+    return this.svc.listPaymentLinks(id);
+  }
+
+  @Post('white-labels/:id/payment-links')
+  createPaymentLink(@Param('id') id: string, @Body() body: PaymentLinkBody, @CurrentUser() user: AuthUser) {
+    return this.svc.createPaymentLink(id, body, user.id);
+  }
+
+  @Patch('white-labels/:id/payment-links/:linkId')
+  updatePaymentLink(
+    @Param('id') id: string,
+    @Param('linkId') linkId: string,
+    @Body() body: Partial<PaymentLinkBody>,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.updatePaymentLink(id, linkId, body, user.id);
+  }
+
+  @Delete('white-labels/:id/payment-links/:linkId')
+  removePaymentLink(@Param('id') id: string, @Param('linkId') linkId: string, @CurrentUser() user: AuthUser) {
+    return this.svc.removePaymentLink(id, linkId, user.id);
   }
 
   /** PLATFORM_OWNER entra al panel de la marca como su SUPER_ADMIN. */
