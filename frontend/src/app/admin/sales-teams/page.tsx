@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 
@@ -44,16 +45,17 @@ type TeamDetail = {
 };
 
 export default function SalesTeamsPage() {
+  const t = useTranslations('admin_sales_teams');
   const [teams, setTeams] = useState<Team[] | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
   async function load() {
     try {
-      const t = await api<Team[]>('/admin/sales-teams');
-      setTeams(t);
+      const rows = await api<Team[]>('/admin/sales-teams');
+      setTeams(rows);
     } catch (e: any) {
-      toast(e?.message || 'Error cargando equipos', 'error');
+      toast(e?.message || t('toastLoadError'), 'error');
     }
   }
 
@@ -73,39 +75,38 @@ export default function SalesTeamsPage() {
   return (
     <div className="max-w-5xl">
       <div className="page-head">
-        <h1 className="page-title">Equipos de Ventas</h1>
+        <h1 className="page-title">{t('title')}</h1>
         <button className="btn-primary text-sm" onClick={() => setCreating(true)}>
-          ＋ Nuevo equipo
+          ＋ {t('newTeam')}
         </button>
       </div>
 
       {teams.length === 0 ? (
         <div className="card card-pad text-center text-mute py-12">
           <div className="text-3xl mb-2">👥</div>
-          <div className="font-semibold mb-1">Aún no hay equipos</div>
+          <div className="font-semibold mb-1">{t('emptyTitle')}</div>
           <div className="text-sm">
-            Crea un equipo para agrupar afiliados (Equipo Colombia, Equipo
-            Closers, etc.).
+            {t('emptyHint')}
           </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {teams.map((t) => (
+          {teams.map((team) => (
             <button
-              key={t.id}
-              onClick={() => setEditingId(t.id)}
+              key={team.id}
+              onClick={() => setEditingId(team.id)}
               className="card card-pad text-left hover:border-ink/30 transition group"
             >
-              <div className="font-semibold mb-1">{t.name}</div>
+              <div className="font-semibold mb-1">{team.name}</div>
               <div className="text-xs text-mute">
-                {t.memberCount} miembro{t.memberCount === 1 ? '' : 's'}
+                {t('memberCount', { count: team.memberCount })}
               </div>
-              {t.leadUser ? (
+              {team.leadUser ? (
                 <div className="text-xs text-mute mt-1">
-                  Lead: {t.leadUser.fullName}
+                  {t('leadPrefix', { name: team.leadUser.fullName })}
                 </div>
               ) : (
-                <div className="text-xs text-mute/60 mt-1">Sin lead</div>
+                <div className="text-xs text-mute/60 mt-1">{t('noLead')}</div>
               )}
             </button>
           ))}
@@ -148,6 +149,7 @@ function TeamFormModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations('admin_sales_teams');
   const [name, setName] = useState('');
   const [leadUserId, setLeadUserId] = useState('');
   const [eligibleUsers, setEligibleUsers] = useState<User[]>([]);
@@ -171,39 +173,40 @@ function TeamFormModal({
           leadUserId: leadUserId || null,
         }),
       });
-      toast('Equipo creado', 'success');
+      toast(t('toastCreated'), 'success');
       onSaved();
     } catch (err: any) {
-      toast(err?.message || 'No se pudo crear', 'error');
+      toast(err?.message || t('toastCreateError'), 'error');
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <ModalShell title="Nuevo equipo" onClose={onClose}>
+    <ModalShell title={t('newTeam')} onClose={onClose}>
       <form onSubmit={submit} className="space-y-3">
         <div>
-          <label className="label">Nombre del equipo</label>
+          <label className="label">{t('teamNameLabel')}</label>
           <input
             className="input"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Ej: Equipo Colombia"
+            placeholder={t('teamNamePlaceholder')}
             autoFocus
             maxLength={80}
           />
         </div>
         <div>
           <label className="label">
-            Lead del equipo <span className="text-mute font-normal">— opcional</span>
+            {t('teamLeadLabel')}{' '}
+            <span className="text-mute font-normal">{t('optionalSuffix')}</span>
           </label>
           <select
             className="input"
             value={leadUserId}
             onChange={(e) => setLeadUserId(e.target.value)}
           >
-            <option value="">— Sin lead —</option>
+            <option value="">{t('noLeadOption')}</option>
             {eligibleUsers.map((u) => (
               <option key={u.id} value={u.id}>
                 {u.fullName} · {u.email}
@@ -211,16 +214,15 @@ function TeamFormModal({
             ))}
           </select>
           <p className="text-[11px] text-mute mt-1">
-            El lead va a poder ver métricas agregadas del equipo. Puedes
-            cambiarlo después.
+            {t('leadHint')}
           </p>
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" className="btn-ghost" onClick={onClose}>
-            Cancelar
+            {t('cancel')}
           </button>
           <button type="submit" className="btn-primary" disabled={saving}>
-            {saving ? 'Creando…' : 'Crear equipo'}
+            {saving ? t('creating') : t('createTeam')}
           </button>
         </div>
       </form>
@@ -243,6 +245,7 @@ function TeamDetailModal({
   onChanged: () => void;
   onDeleted: () => void;
 }) {
+  const t = useTranslations('admin_sales_teams');
   const [team, setTeam] = useState<TeamDetail | null>(null);
   const [eligible, setEligible] = useState<User[]>([]);
   const [name, setName] = useState('');
@@ -251,13 +254,13 @@ function TeamDetailModal({
   const [saving, setSaving] = useState(false);
 
   async function load() {
-    const [t, el] = await Promise.all([
+    const [detail, el] = await Promise.all([
       api<TeamDetail>(`/admin/sales-teams/${teamId}`),
       api<User[]>(`/admin/sales-teams/eligible-users?teamId=${teamId}`),
     ]);
-    setTeam(t);
-    setName(t.name);
-    setLeadUserId(t.leadUser?.id ?? '');
+    setTeam(detail);
+    setName(detail.name);
+    setLeadUserId(detail.leadUser?.id ?? '');
     setEligible(el);
   }
 
@@ -276,11 +279,11 @@ function TeamDetailModal({
           leadUserId: leadUserId || null,
         }),
       });
-      toast('Equipo actualizado', 'success');
+      toast(t('toastUpdated'), 'success');
       await load();
       onChanged();
     } catch (err: any) {
-      toast(err?.message || 'No se pudo guardar', 'error');
+      toast(err?.message || t('toastSaveError'), 'error');
     } finally {
       setSaving(false);
     }
@@ -288,18 +291,13 @@ function TeamDetailModal({
 
   async function del() {
     if (!team) return;
-    if (
-      !confirm(
-        `¿Borrar el equipo "${team.name}"? Los miembros NO se borran, solo se quitan del equipo.`,
-      )
-    )
-      return;
+    if (!confirm(t('confirmDelete', { name: team.name }))) return;
     try {
       await api(`/admin/sales-teams/${team.id}`, { method: 'DELETE' });
-      toast('Equipo borrado', 'success');
+      toast(t('toastDeleted'), 'success');
       onDeleted();
     } catch (err: any) {
-      toast(err?.message || 'No se pudo borrar', 'error');
+      toast(err?.message || t('toastDeleteError'), 'error');
     }
   }
 
@@ -314,13 +312,13 @@ function TeamDetailModal({
       await load();
       onChanged();
     } catch (err: any) {
-      toast(err?.message || 'No se pudo agregar', 'error');
+      toast(err?.message || t('toastAddError'), 'error');
     }
   }
 
   async function removeMember(userId: string, userName: string) {
     if (!team) return;
-    if (!confirm(`¿Quitar a "${userName}" del equipo?`)) return;
+    if (!confirm(t('confirmRemove', { name: userName }))) return;
     try {
       await api(`/admin/sales-teams/${team.id}/members/${userId}`, {
         method: 'DELETE',
@@ -328,20 +326,20 @@ function TeamDetailModal({
       await load();
       onChanged();
     } catch (err: any) {
-      toast(err?.message || 'No se pudo quitar', 'error');
+      toast(err?.message || t('toastRemoveError'), 'error');
     }
   }
 
   return (
-    <ModalShell title={team?.name ?? 'Equipo'} onClose={onClose} wide>
+    <ModalShell title={team?.name ?? t('teamFallback')} onClose={onClose} wide>
       {!team ? (
-        <div className="text-mute text-sm">Cargando…</div>
+        <div className="text-mute text-sm">{t('loading')}</div>
       ) : (
         <div className="space-y-5">
           {/* Edición de campos */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="label">Nombre</label>
+              <label className="label">{t('nameLabel')}</label>
               <input
                 className="input"
                 value={name}
@@ -350,19 +348,19 @@ function TeamDetailModal({
               />
             </div>
             <div>
-              <label className="label">Lead</label>
+              <label className="label">{t('leadLabel')}</label>
               <select
                 className="input"
                 value={leadUserId}
                 onChange={(e) => setLeadUserId(e.target.value)}
               >
-                <option value="">— Sin lead —</option>
+                <option value="">{t('noLeadOption')}</option>
                 {/* Mostramos el lead actual + miembros eligible. Si el
                     lead no está en eligible (raro pero posible si fue
                     asignado fuera del flow) lo incluimos manualmente. */}
                 {team.leadUser && (
                   <option value={team.leadUser.id}>
-                    {team.leadUser.fullName} (actual)
+                    {t('leadCurrent', { name: team.leadUser.fullName })}
                   </option>
                 )}
                 {eligible
@@ -379,12 +377,12 @@ function TeamDetailModal({
           {/* Miembros */}
           <div>
             <h3 className="font-semibold text-sm mb-2">
-              Miembros ({team.members.length})
+              {t('membersHeading', { count: team.members.length })}
             </h3>
             <div className="space-y-1.5">
               {team.members.length === 0 && (
                 <div className="text-xs text-mute italic">
-                  Aún no hay miembros en este equipo.
+                  {t('noMembers')}
                 </div>
               )}
               {team.members.map((m) => (
@@ -405,7 +403,7 @@ function TeamDetailModal({
                     onClick={() => removeMember(m.userId, m.user.fullName)}
                     className="text-bad text-xs hover:underline whitespace-nowrap"
                   >
-                    Quitar
+                    {t('remove')}
                   </button>
                 </div>
               ))}
@@ -416,7 +414,7 @@ function TeamDetailModal({
                 value={addUserId}
                 onChange={(e) => setAddUserId(e.target.value)}
               >
-                <option value="">— Elige un afiliado —</option>
+                <option value="">{t('chooseAffiliate')}</option>
                 {eligible.map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.fullName} · {u.email}
@@ -429,7 +427,7 @@ function TeamDetailModal({
                 onClick={addMember}
                 disabled={!addUserId}
               >
-                Agregar
+                {t('add')}
               </button>
             </div>
           </div>
@@ -437,11 +435,11 @@ function TeamDetailModal({
           {/* Footer actions */}
           <div className="flex items-center justify-between pt-2 flex-wrap gap-2 border-t border-line">
             <button type="button" className="btn-ghost text-bad" onClick={del}>
-              Borrar equipo
+              {t('deleteTeam')}
             </button>
             <div className="flex gap-2">
               <button type="button" className="btn-ghost" onClick={onClose}>
-                Cerrar
+                {t('close')}
               </button>
               <button
                 type="button"
@@ -449,7 +447,7 @@ function TeamDetailModal({
                 onClick={save}
                 disabled={saving}
               >
-                {saving ? 'Guardando…' : 'Guardar cambios'}
+                {saving ? t('saving') : t('saveChanges')}
               </button>
             </div>
           </div>
@@ -474,6 +472,7 @@ function ModalShell({
   children: React.ReactNode;
   wide?: boolean;
 }) {
+  const t = useTranslations('admin_sales_teams');
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose();
@@ -502,7 +501,7 @@ function ModalShell({
             type="button"
             onClick={onClose}
             className="text-mute hover:text-ink text-2xl leading-none w-9 h-9 flex items-center justify-center -mr-2"
-            aria-label="Cerrar"
+            aria-label={t('close')}
           >
             ×
           </button>

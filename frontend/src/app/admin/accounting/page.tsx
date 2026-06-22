@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 
@@ -61,11 +62,11 @@ const usd = (n: number) =>
     maximumFractionDigits: 2,
   })}`;
 
-const SOURCE_LABEL: Record<string, string> = {
-  REVENUE: 'Ingreso',
-  SOCIO_ACCRUAL: 'Socio 10%',
-  COMMISSION_ACCRUAL: 'Devengo comisión',
-  COMMISSION_PAYOUT: 'Pago comisión',
+const SOURCE_LABEL_KEY: Record<string, string> = {
+  REVENUE: 'sourceRevenue',
+  SOCIO_ACCRUAL: 'sourceSocio',
+  COMMISSION_ACCRUAL: 'sourceCommissionAccrual',
+  COMMISSION_PAYOUT: 'sourceCommissionPayout',
 };
 
 const SOURCE_TONE: Record<string, string> = {
@@ -82,16 +83,18 @@ const fmtDate = (s: string) =>
     year: 'numeric',
   });
 
-const fmtPeriod = (p: string) => {
+const fmtPeriod = (p: string, t: (k: string) => string) => {
   const [y, m] = p.split('-');
   const months = [
-    'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
-    'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic',
+    t('monthJan'), t('monthFeb'), t('monthMar'), t('monthApr'),
+    t('monthMay'), t('monthJun'), t('monthJul'), t('monthAug'),
+    t('monthSep'), t('monthOct'), t('monthNov'), t('monthDec'),
   ];
   return `${months[Number(m) - 1] ?? m} ${y}`;
 };
 
 export default function AccountingPage() {
+  const t = useTranslations('admin_accounting');
   const [data, setData] = useState<Report | null>(null);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('');
@@ -104,7 +107,7 @@ export default function AccountingPage() {
       }`;
       setData(await api<Report>(url));
     } catch (e: any) {
-      toast(e?.message ?? 'Error cargando contabilidad', 'error');
+      toast(e?.message ?? t('toastLoadError'), 'error');
     } finally {
       setLoading(false);
     }
@@ -121,25 +124,27 @@ export default function AccountingPage() {
 
   function exportCsv() {
     if (!data?.ledger.length) {
-      toast('Sin asientos para exportar', 'info');
+      toast(t('toastNothingToExport'), 'info');
       return;
     }
     const headers = [
-      'Fecha',
-      'Tipo',
-      'Memo',
-      'Negocio',
-      'Cuenta',
-      'Nombre cuenta',
-      'Debe',
-      'Haber',
+      t('csvDate'),
+      t('csvType'),
+      t('csvMemo'),
+      t('csvBusiness'),
+      t('csvAccount'),
+      t('csvAccountName'),
+      t('csvDebit'),
+      t('csvCredit'),
     ];
     const rows: string[][] = [];
     for (const e of data.ledger) {
       for (const l of e.lines) {
         rows.push([
           fmtDate(e.date),
-          SOURCE_LABEL[e.sourceType] ?? e.sourceType,
+          SOURCE_LABEL_KEY[e.sourceType]
+            ? t(SOURCE_LABEL_KEY[e.sourceType])
+            : e.sourceType,
           e.memo,
           e.tenantName ?? '',
           l.account,
@@ -176,8 +181,8 @@ export default function AccountingPage() {
     <div className="max-w-7xl">
       <div className="page-head flex flex-wrap items-center justify-between gap-3">
         <h1 className="page-title">
-          Contabilidad{' '}
-          <span className="page-crumb">/ Asientos y balance</span>
+          {t('title')}{' '}
+          <span className="page-crumb">{t('crumb')}</span>
         </h1>
         <div className="flex flex-wrap items-center gap-2">
           <select
@@ -185,10 +190,10 @@ export default function AccountingPage() {
             onChange={(e) => setPeriod(e.target.value)}
             className="text-sm px-3 py-2 rounded-pill border border-slate-300 bg-white"
           >
-            <option value="">Todo el histórico</option>
+            <option value="">{t('allHistory')}</option>
             {periodOptions.map((p) => (
               <option key={p} value={p}>
-                {fmtPeriod(p)}
+                {fmtPeriod(p, t)}
               </option>
             ))}
           </select>
@@ -196,13 +201,13 @@ export default function AccountingPage() {
             href="/admin/commissions/report"
             className="text-sm px-3.5 py-2 rounded-pill border border-slate-300 bg-white text-slate-700 font-semibold hover:bg-slate-50 transition"
           >
-            Reporte por empresa
+            {t('reportByCompany')}
           </Link>
           <button
             onClick={exportCsv}
             className="text-sm px-3.5 py-2 rounded-pill bg-brand text-white font-semibold hover:opacity-90 transition"
           >
-            Exportar asientos CSV
+            {t('exportCsv')}
           </button>
         </div>
       </div>
@@ -219,50 +224,49 @@ export default function AccountingPage() {
           {data.totals.balanced ? '✓' : '⚠️'}
           <span>
             {data.totals.balanced
-              ? `Balance cuadrado — Σ Debe = Σ Haber = ${usd(
-                  data.totals.totalDebit,
-                )}`
-              : `DESCUADRE — Debe ${usd(data.totals.totalDebit)} ≠ Haber ${usd(
-                  data.totals.totalCredit,
-                )}`}
+              ? t('balanced', { total: usd(data.totals.totalDebit) })
+              : t('unbalanced', {
+                  debit: usd(data.totals.totalDebit),
+                  credit: usd(data.totals.totalCredit),
+                })}
           </span>
         </div>
       )}
 
       {/* Resumen */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-        <KpiCard label="Ingresos suscripciones" value={s ? usd(s.ingresos) : '—'} tone="emerald" />
-        <KpiCard label="Gasto comisiones" value={s ? usd(s.gastoComisiones) : '—'} tone="amber" />
-        <KpiCard label={`Socio (${s?.socioPercent ?? 10}%)`} value={s ? usd(s.gastoSocio) : '—'} tone="violet" />
-        <KpiCard label="Resultado neto" value={s ? usd(s.resultado) : '—'} tone="indigo" />
+        <KpiCard label={t('kpiSubscriptionIncome')} value={s ? usd(s.ingresos) : '—'} tone="emerald" />
+        <KpiCard label={t('kpiCommissionExpense')} value={s ? usd(s.gastoComisiones) : '—'} tone="amber" />
+        <KpiCard label={t('kpiSocio', { percent: s?.socioPercent ?? 10 })} value={s ? usd(s.gastoSocio) : '—'} tone="violet" />
+        <KpiCard label={t('kpiNetResult')} value={s ? usd(s.resultado) : '—'} tone="indigo" />
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        <KpiCard label="Comisiones por pagar" value={s ? usd(s.comisionesPorPagar) : '—'} tone="slate" sub="saldo cuenta 2000" />
-        <KpiCard label="Socio por pagar" value={s ? usd(s.socioPorPagar) : '—'} tone="slate" sub="saldo cuenta 2100" />
-        <KpiCard label="Pagos liquidados" value={s ? usd(s.pagos) : '—'} tone="slate" sub="débitos a 2000" />
-        <KpiCard label="Asientos" value={data ? String(data.ledgerCount) : '—'} tone="slate" />
+        <KpiCard label={t('kpiCommissionsPayable')} value={s ? usd(s.comisionesPorPagar) : '—'} tone="slate" sub={t('subBalanceAccount', { account: 2000 })} />
+        <KpiCard label={t('kpiSocioPayable')} value={s ? usd(s.socioPorPagar) : '—'} tone="slate" sub={t('subBalanceAccount', { account: 2100 })} />
+        <KpiCard label={t('kpiPaymentsSettled')} value={s ? usd(s.pagos) : '—'} tone="slate" sub={t('subDebitsTo', { account: 2000 })} />
+        <KpiCard label={t('kpiEntries')} value={data ? String(data.ledgerCount) : '—'} tone="slate" />
       </div>
 
       {loading ? (
-        <div className="text-sm text-slate-400 py-10 text-center">Cargando…</div>
+        <div className="text-sm text-slate-400 py-10 text-center">{t('loading')}</div>
       ) : !data || data.ledger.length === 0 ? (
         <div className="text-sm text-slate-400 py-10 text-center">
-          Sin movimientos contables todavía.
+          {t('emptyLedger')}
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           {/* Balance de comprobación */}
           <div className="lg:col-span-1">
             <h2 className="text-sm font-semibold text-slate-700 mb-2">
-              Balance de comprobación
+              {t('trialBalanceTitle')}
             </h2>
             <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-[11px] uppercase tracking-wide text-slate-500 bg-slate-50 border-b border-slate-200">
-                    <th className="px-3 py-2">Cuenta</th>
-                    <th className="px-3 py-2 text-right">Debe</th>
-                    <th className="px-3 py-2 text-right">Haber</th>
+                    <th className="px-3 py-2">{t('thAccount')}</th>
+                    <th className="px-3 py-2 text-right">{t('thDebit')}</th>
+                    <th className="px-3 py-2 text-right">{t('thCredit')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -285,7 +289,7 @@ export default function AccountingPage() {
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-slate-200 bg-slate-50 font-semibold text-slate-800">
-                    <td className="px-3 py-2">Totales</td>
+                    <td className="px-3 py-2">{t('totals')}</td>
                     <td className="px-3 py-2 text-right">
                       {usd(data.totals.totalDebit)}
                     </td>
@@ -301,10 +305,10 @@ export default function AccountingPage() {
           {/* Libro de asientos */}
           <div className="lg:col-span-2">
             <h2 className="text-sm font-semibold text-slate-700 mb-2">
-              Libro de asientos{' '}
+              {t('ledgerTitle')}{' '}
               {data.truncated && (
                 <span className="text-[11px] font-normal text-amber-500">
-                  (mostrando 500 de {data.ledgerCount})
+                  {t('ledgerTruncated', { shown: 500, total: data.ledgerCount })}
                 </span>
               )}
             </h2>
@@ -320,7 +324,9 @@ export default function AccountingPage() {
                         SOURCE_TONE[e.sourceType] ?? 'bg-slate-100 text-slate-600'
                       }`}
                     >
-                      {SOURCE_LABEL[e.sourceType] ?? e.sourceType}
+                      {SOURCE_LABEL_KEY[e.sourceType]
+                        ? t(SOURCE_LABEL_KEY[e.sourceType])
+                        : e.sourceType}
                     </span>
                     <span className="text-[11px] text-slate-400">
                       {fmtDate(e.date)}
@@ -349,7 +355,9 @@ export default function AccountingPage() {
                               : 'text-slate-500'
                           }
                         >
-                          {l.debit ? `Dr ${usd(l.debit)}` : `Cr ${usd(l.credit)}`}
+                          {l.debit
+                            ? t('drAmount', { amount: usd(l.debit) })
+                            : t('crAmount', { amount: usd(l.credit) })}
                         </span>
                       </div>
                     ))}

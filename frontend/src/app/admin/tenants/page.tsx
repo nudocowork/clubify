@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { createPortal } from 'react-dom';
 import { api, getUser, startImpersonation } from '@/lib/api';
 import { Icon } from '@/components/Icon';
@@ -61,6 +62,7 @@ function searchHaystack(t: any): string {
 }
 
 export default function TenantsPage() {
+  const t = useTranslations('admin_tenants');
   const router = useRouter();
   const [list, setList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -83,20 +85,20 @@ export default function TenantsPage() {
     return () => clearTimeout(id);
   }, [searchRaw]);
 
-  async function enterTenant(t: any) {
+  async function enterTenant(tn: any) {
     if (enteringId) return;
-    setEnteringId(t.id);
+    setEnteringId(tn.id);
     try {
-      const res = await api(`/tenants/${t.id}/impersonate`, { method: 'POST' });
+      const res = await api(`/tenants/${tn.id}/impersonate`, { method: 'POST' });
       startImpersonation({
         accessToken: res.accessToken,
         user: res.user,
         tenant: { id: res.tenant.id, brandName: res.tenant.brandName },
       });
-      toast(`Entrando a ${res.tenant.brandName}…`, 'success');
+      toast(t('toastEntering', { name: res.tenant.brandName }), 'success');
       router.push('/app');
     } catch (e: any) {
-      toast(e.message || 'No se pudo entrar al negocio', 'error');
+      toast(e.message || t('toastEnterError'), 'error');
       setEnteringId(null);
     }
   }
@@ -106,7 +108,7 @@ export default function TenantsPage() {
     try {
       setList(await api('/tenants'));
     } catch (e: any) {
-      toast(e.message || 'Error cargando negocios', 'error');
+      toast(e.message || t('toastLoadError'), 'error');
     } finally {
       setLoading(false);
     }
@@ -122,26 +124,26 @@ export default function TenantsPage() {
         body: JSON.stringify({ status }),
       });
       toast(
-        status === 'ACTIVE' ? 'Negocio reactivado' : 'Negocio suspendido',
+        status === 'ACTIVE' ? t('toastReactivated') : t('toastSuspended'),
         'success',
       );
       load();
     } catch (e: any) {
-      toast(e.message || 'No se pudo cambiar el estado', 'error');
+      toast(e.message || t('toastStatusError'), 'error');
     }
   }
 
   // Genera y dispara la descarga de un JSON con los datos del tenant que
   // tenemos en memoria (sin pegarle al backend de nuevo). Útil para
   // auditorías rápidas, soporte y handover.
-  function downloadTenant(t: any) {
+  function downloadTenant(tn: any) {
     try {
-      const safeName = (t.brandName || t.slug || 'negocio')
+      const safeName = (tn.brandName || tn.slug || 'negocio')
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/(^-|-$)/g, '');
       const date = new Date().toISOString().slice(0, 10);
-      const blob = new Blob([JSON.stringify(t, null, 2)], {
+      const blob = new Blob([JSON.stringify(tn, null, 2)], {
         type: 'application/json',
       });
       const url = URL.createObjectURL(blob);
@@ -152,9 +154,9 @@ export default function TenantsPage() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      toast('Descarga lista', 'success');
+      toast(t('toastDownloadReady'), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo descargar', 'error');
+      toast(e.message || t('toastDownloadError'), 'error');
     }
   }
 
@@ -164,20 +166,22 @@ export default function TenantsPage() {
    * preservan (Order/Commission/ReferralUse) y el tenant desaparece de
    * los listados. keepHistory=false → hard delete con cascade.
    */
-  async function deleteTenant(t: any, opts: { keepHistory: boolean }) {
+  async function deleteTenant(tn: any, opts: { keepHistory: boolean }) {
     try {
-      await api(`/tenants/${t.id}`, {
+      await api(`/tenants/${tn.id}`, {
         method: 'DELETE',
         body: JSON.stringify({ keepHistory: opts.keepHistory }),
       });
       toast(
-        `${t.brandName} eliminado${opts.keepHistory ? ' (historial conservado)' : ''}`,
+        opts.keepHistory
+          ? t('toastDeletedKept', { name: tn.brandName })
+          : t('toastDeleted', { name: tn.brandName }),
         'success',
       );
       setDeleteTarget(null);
       load();
     } catch (e: any) {
-      toast(e.message || 'No se pudo eliminar el negocio', 'error');
+      toast(e.message || t('toastDeleteError'), 'error');
     }
   }
 
@@ -186,20 +190,20 @@ export default function TenantsPage() {
       .toLowerCase()
       .split(/\s+/)
       .filter(Boolean);
-    return list.filter((t) => {
-      if (statusFilter !== 'ALL' && t.status !== statusFilter) return false;
+    return list.filter((tn) => {
+      if (statusFilter !== 'ALL' && tn.status !== statusFilter) return false;
       if (planFilter !== 'ALL') {
-        const name = (t.plan?.name ?? '').toString().toUpperCase();
+        const name = (tn.plan?.name ?? '').toString().toUpperCase();
         if (name !== planFilter) return false;
       }
       if (periodFilter !== 'ALL') {
         // Sin periodicidad explícita el backend la trata como MENSUAL
         // (ver periodLabel) — replicamos esa convención al filtrar.
-        const p = (t.planPeriodicity ?? 'MENSUAL').toString().toUpperCase();
+        const p = (tn.planPeriodicity ?? 'MENSUAL').toString().toUpperCase();
         if (p !== periodFilter) return false;
       }
       if (keywords.length === 0) return true;
-      const hay = searchHaystack(t);
+      const hay = searchHaystack(tn);
       return keywords.every((k) => hay.includes(k));
     });
   }, [list, statusFilter, planFilter, periodFilter, searchDebounced]);
@@ -222,7 +226,10 @@ export default function TenantsPage() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Negocios <span className="page-crumb">/ {list.length} registros</span>
+          {t('title')}{' '}
+          <span className="page-crumb">
+            {t('crumbRecords', { count: list.length })}
+          </span>
         </h1>
         <div className="flex gap-2 flex-wrap">
           <button
@@ -230,11 +237,11 @@ export default function TenantsPage() {
             className="btn-ghost"
             onClick={() => setShowRanking(true)}
           >
-            🏆 Ranking
+            🏆 {t('ranking')}
           </button>
           {!isMarketing && (
             <Link className="btn-primary" href="/admin/tenants/new">
-              <Icon name="plus" /> Nuevo negocio
+              <Icon name="plus" /> {t('newBusiness')}
             </Link>
           )}
         </div>
@@ -249,7 +256,7 @@ export default function TenantsPage() {
             type="search"
             value={searchRaw}
             onChange={(e) => setSearchRaw(e.target.value)}
-            placeholder="Buscar negocio, cliente, correo, teléfono…"
+            placeholder={t('searchPlaceholder')}
             className="flex-1 bg-transparent text-sm outline-none placeholder:text-mute2"
           />
           {searchRaw && (
@@ -257,7 +264,7 @@ export default function TenantsPage() {
               type="button"
               onClick={() => setSearchRaw('')}
               className="text-mute hover:text-ink text-lg leading-none shrink-0"
-              aria-label="Limpiar búsqueda"
+              aria-label={t('clearSearch')}
             >
               ×
             </button>
@@ -269,17 +276,17 @@ export default function TenantsPage() {
             onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
             className="bg-white border border-line rounded-pill px-3 py-2 text-sm cursor-pointer hover:bg-bg2"
           >
-            <option value="ALL">Estado: Todos</option>
-            <option value="ACTIVE">Activos</option>
-            <option value="TRIAL">Trial</option>
-            <option value="SUSPENDED">Suspendidos</option>
+            <option value="ALL">{t('statusAll')}</option>
+            <option value="ACTIVE">{t('statusActive')}</option>
+            <option value="TRIAL">{t('statusTrial')}</option>
+            <option value="SUSPENDED">{t('statusSuspended')}</option>
           </select>
           <select
             value={planFilter}
             onChange={(e) => setPlanFilter(e.target.value as PlanFilter)}
             className="bg-white border border-line rounded-pill px-3 py-2 text-sm cursor-pointer hover:bg-bg2"
           >
-            <option value="ALL">Plan: Todos</option>
+            <option value="ALL">{t('planAll')}</option>
             <option value="ELITE">Elite</option>
           </select>
           <select
@@ -287,11 +294,11 @@ export default function TenantsPage() {
             onChange={(e) => setPeriodFilter(e.target.value as PeriodFilter)}
             className="bg-white border border-line rounded-pill px-3 py-2 text-sm cursor-pointer hover:bg-bg2"
           >
-            <option value="ALL">Periodicidad: Todas</option>
-            <option value="MENSUAL">Mensual</option>
-            <option value="TRIMESTRAL">Trimestral</option>
-            <option value="SEMESTRAL">Semestral</option>
-            <option value="ANUAL">Anual</option>
+            <option value="ALL">{t('periodAll')}</option>
+            <option value="MENSUAL">{t('periodMonthly')}</option>
+            <option value="TRIMESTRAL">{t('periodQuarterly')}</option>
+            <option value="SEMESTRAL">{t('periodSemiannual')}</option>
+            <option value="ANUAL">{t('periodAnnual')}</option>
           </select>
         </div>
       </div>
@@ -299,15 +306,19 @@ export default function TenantsPage() {
       {hasActiveFilters && (
         <div className="mb-3 flex items-center gap-3 text-xs text-mute">
           <span>
-            <strong className="text-ink">{visible.length}</strong>{' '}
-            {visible.length === 1 ? 'negocio' : 'negocios'}
+            {t.rich('filteredCount', {
+              count: visible.length,
+              strong: (chunks) => (
+                <strong className="text-ink">{chunks}</strong>
+              ),
+            })}
           </span>
           <button
             type="button"
             onClick={clearFilters}
             className="text-brand hover:underline"
           >
-            Limpiar filtros
+            {t('clearFilters')}
           </button>
         </div>
       )}
@@ -317,7 +328,7 @@ export default function TenantsPage() {
         <table className="w-full text-[13.5px] min-w-[760px]">
           <thead className="bg-bg2">
             <tr>
-              {['Negocio', 'Plan', 'Estado', 'Trial', 'Pedidos 30d', 'Revenue 30d', 'Clientes', 'Grupo', ''].map(
+              {[t('thBusiness'), t('thPlan'), t('thStatus'), t('thTrial'), t('thOrders30'), t('thRevenue30'), t('thCustomers'), t('thGroup'), ''].map(
                 (h) => (
                   <th
                     key={h}
@@ -344,25 +355,25 @@ export default function TenantsPage() {
                   <div className="text-3xl mb-1">🏢</div>
                   <div className="font-semibold">
                     {hasActiveFilters
-                      ? 'Sin resultados con esos filtros'
-                      : 'Sin negocios todavía'}
+                      ? t('emptyFilteredTitle')
+                      : t('emptyTitle')}
                   </div>
                   <div className="text-mute text-xs mt-1">
                     {hasActiveFilters
-                      ? 'Prueba a limpiar la búsqueda o ajustar los filtros.'
-                      : 'Cuando alguien haga signup aparecerá aquí.'}
+                      ? t('emptyFilteredHint')
+                      : t('emptyHint')}
                   </div>
                 </td>
               </tr>
             )}
-            {visible.map((t) => {
+            {visible.map((tn) => {
               const canEnter =
-                !isMarketing && t.status !== 'SUSPENDED' && enteringId !== t.id;
+                !isMarketing && tn.status !== 'SUSPENDED' && enteringId !== tn.id;
               const stop = (e: React.MouseEvent) => e.stopPropagation();
               return (
               <tr
-                key={t.id}
-                onClick={() => canEnter && enterTenant(t)}
+                key={tn.id}
+                onClick={() => canEnter && enterTenant(tn)}
                 className={`border-t border-line2 transition group ${
                   canEnter
                     ? 'hover:bg-brand-soft/40 cursor-pointer'
@@ -370,86 +381,86 @@ export default function TenantsPage() {
                 }`}
                 title={
                   isMarketing
-                    ? 'Solo lectura · sin impersonación'
-                    : t.status === 'SUSPENDED'
-                      ? 'Reactiva el negocio para entrar'
-                      : `Entrar como ${t.brandName}`
+                    ? t('rowTitleReadOnly')
+                    : tn.status === 'SUSPENDED'
+                      ? t('rowTitleReactivate')
+                      : t('rowTitleEnter', { name: tn.brandName })
                 }
               >
                 <td className="px-4 py-3.5">
                   <div className="flex items-center gap-2.5">
                     <span
-                      className={`avatar w-8 h-8 text-xs ${avatarClass(t.brandName)}`}
+                      className={`avatar w-8 h-8 text-xs ${avatarClass(tn.brandName)}`}
                     >
-                      {initials(t.brandName)}
+                      {initials(tn.brandName)}
                     </span>
                     <div>
                       <div className="font-medium group-hover:text-brand transition">
-                        {t.brandName}
+                        {tn.brandName}
                       </div>
-                      <div className="text-mute text-xs">{t.email}</div>
+                      <div className="text-mute text-xs">{tn.email}</div>
                     </div>
                   </div>
                 </td>
                 <td className="px-4 py-3.5">
-                  <div className="font-medium">{t.plan?.name ?? 'Elite'}</div>
+                  <div className="font-medium">{tn.plan?.name ?? 'Elite'}</div>
                   <div className="text-[11px] text-mute">
-                    {periodLabel(t.planPeriodicity as PlanPeriodicity | null)}
+                    {periodLabel(tn.planPeriodicity as PlanPeriodicity | null)}
                   </div>
                 </td>
                 <td className="px-4 py-3.5">
                   <span
                     className={`badge ${
-                      t.status === 'ACTIVE'
+                      tn.status === 'ACTIVE'
                         ? 'badge-ok'
-                        : t.status === 'TRIAL'
+                        : tn.status === 'TRIAL'
                         ? 'badge-warn'
                         : 'badge-bad'
                     }`}
                   >
-                    {t.status === 'ACTIVE'
-                      ? 'Activo'
-                      : t.status === 'TRIAL'
-                      ? 'Trial'
-                      : 'Suspendido'}
+                    {tn.status === 'ACTIVE'
+                      ? t('badgeActive')
+                      : tn.status === 'TRIAL'
+                      ? t('badgeTrial')
+                      : t('badgeSuspended')}
                   </span>
                 </td>
                 <td className="px-4 py-3.5">
-                  {t.daysLeftInTrial !== null ? (
+                  {tn.daysLeftInTrial !== null ? (
                     <span
                       className={
-                        t.daysLeftInTrial <= 2
+                        tn.daysLeftInTrial <= 2
                           ? 'text-bad font-medium'
-                          : t.daysLeftInTrial <= 5
+                          : tn.daysLeftInTrial <= 5
                           ? 'text-warn font-medium'
                           : 'text-mute'
                       }
                     >
-                      {t.daysLeftInTrial}d
+                      {t('daysShort', { count: tn.daysLeftInTrial })}
                     </span>
                   ) : (
                     <span className="text-mute2">—</span>
                   )}
                 </td>
-                <td className="px-4 py-3.5 font-medium">{t.orders30 ?? 0}</td>
+                <td className="px-4 py-3.5 font-medium">{tn.orders30 ?? 0}</td>
                 <td className="px-4 py-3.5 font-medium">
-                  {(t.revenue30 ?? 0).toLocaleString('es-CO', {
+                  {(tn.revenue30 ?? 0).toLocaleString('es-CO', {
                     style: 'currency',
-                    currency: t.currency ?? 'COP',
+                    currency: tn.currency ?? 'COP',
                     maximumFractionDigits: 0,
                   })}
                 </td>
-                <td className="px-4 py-3.5">{t._count?.customers ?? 0}</td>
+                <td className="px-4 py-3.5">{tn._count?.customers ?? 0}</td>
                 <td className="px-4 py-3.5">
-                  {t.businessGroup?.name ? (
+                  {tn.businessGroup?.name ? (
                     <span
                       className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-pill bg-bg2 text-ink2"
-                      title="Grupo Empresarial"
+                      title={t('businessGroupTitle')}
                     >
-                      {t.businessGroup.name}
+                      {tn.businessGroup.name}
                     </span>
                   ) : (
-                    <span className="text-mute2 text-xs">Sin grupo</span>
+                    <span className="text-mute2 text-xs">{t('noGroup')}</span>
                   )}
                 </td>
                 <td
@@ -459,17 +470,17 @@ export default function TenantsPage() {
                   <ActionsMenu
                     canEnter={canEnter}
                     canManage={!isMarketing}
-                    isEntering={enteringId === t.id}
-                    status={t.status}
-                    onEnter={() => enterTenant(t)}
-                    onView={() => router.push(`/admin/tenants/${t.id}`)}
-                    onDownload={() => downloadTenant(t)}
+                    isEntering={enteringId === tn.id}
+                    status={tn.status}
+                    onEnter={() => enterTenant(tn)}
+                    onView={() => router.push(`/admin/tenants/${tn.id}`)}
+                    onDownload={() => downloadTenant(tn)}
                     onToggleStatus={() =>
-                      setStatus(t.id, t.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE')
+                      setStatus(tn.id, tn.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE')
                     }
-                    onManageTrial={() => setTrialTarget(t)}
-                    onDuplicate={() => setDuplicateTarget(t)}
-                    onDelete={() => setDeleteTarget(t)}
+                    onManageTrial={() => setTrialTarget(tn)}
+                    onDuplicate={() => setDuplicateTarget(tn)}
+                    onDelete={() => setDeleteTarget(tn)}
                   />
                 </td>
               </tr>
@@ -523,6 +534,7 @@ export default function TenantsPage() {
  * con botón para invertir). Modal sobre la lista de negocios.
  */
 function PassesRankingModal({ onClose }: { onClose: () => void }) {
+  const t = useTranslations('admin_tenants');
   const [order, setOrder] = useState<'desc' | 'asc'>('desc');
   const [rows, setRows] = useState<
     { id: string; brandName: string; status: string; passCount: number }[]
@@ -547,7 +559,7 @@ function PassesRankingModal({ onClose }: { onClose: () => void }) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-4 border-b border-line">
-          <h3 className="text-lg font-bold">🏆 Ranking por pases emitidos</h3>
+          <h3 className="text-lg font-bold">🏆 {t('rankingTitle')}</h3>
           <button
             onClick={onClose}
             className="text-mute hover:text-ink text-xl leading-none"
@@ -557,20 +569,23 @@ function PassesRankingModal({ onClose }: { onClose: () => void }) {
         </div>
         <div className="px-4 py-2 border-b border-line flex items-center justify-between">
           <span className="text-xs text-mute">
-            {rows.length} negocios · orden {order === 'desc' ? 'mayor → menor' : 'menor → mayor'}
+            {t('rankingCount', { count: rows.length })} ·{' '}
+            {order === 'desc'
+              ? t('rankingOrderDesc')
+              : t('rankingOrderAsc')}
           </span>
           <button
             className="btn-ghost text-xs"
             onClick={() => setOrder((o) => (o === 'desc' ? 'asc' : 'desc'))}
           >
-            ⇅ Invertir
+            ⇅ {t('rankingInvert')}
           </button>
         </div>
         <div className="overflow-y-auto p-2">
           {loading ? (
-            <div className="text-center text-mute text-sm py-8">Cargando…</div>
+            <div className="text-center text-mute text-sm py-8">{t('loading')}</div>
           ) : rows.length === 0 ? (
-            <div className="text-center text-mute text-sm py-8">Sin datos.</div>
+            <div className="text-center text-mute text-sm py-8">{t('noData')}</div>
           ) : (
             <div className="divide-y divide-line">
               {rows.map((r, i) => (
@@ -589,7 +604,7 @@ function PassesRankingModal({ onClose }: { onClose: () => void }) {
                     <div className="text-[11px] text-mute">{r.status}</div>
                   </div>
                   <div className="font-bold text-brand whitespace-nowrap">
-                    {r.passCount.toLocaleString()} pases
+                    {t('passesCount', { count: r.passCount })}
                   </div>
                 </Link>
               ))}
@@ -631,6 +646,7 @@ function ActionsMenu({
   onDuplicate: () => void;
   onDelete: () => void;
 }) {
+  const t = useTranslations('admin_tenants');
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -716,22 +732,22 @@ function ActionsMenu({
         zIndex: 9999,
       }}
     >
-      <MenuItem icon="📥" label="Descargar" onClick={run(onDownload)} />
+      <MenuItem icon="📥" label={t('actionDownload')} onClick={run(onDownload)} />
       {canEnter && (
-        <MenuItem icon="🏢" label="Ir al panel" onClick={run(onEnter)} />
+        <MenuItem icon="🏢" label={t('actionEnter')} onClick={run(onEnter)} />
       )}
-      <MenuItem icon="👁" label="Ver detalle" onClick={run(onView)} />
+      <MenuItem icon="👁" label={t('actionView')} onClick={run(onView)} />
       {canManage && (
         <MenuItem
           icon={status === 'ACTIVE' ? '⏸' : '▶'}
-          label={status === 'ACTIVE' ? 'Suspender negocio' : 'Activar negocio'}
+          label={status === 'ACTIVE' ? t('actionSuspend') : t('actionActivate')}
           onClick={run(onToggleStatus)}
         />
       )}
       {canManage && (
         <MenuItem
           icon="⏱"
-          label="Gestionar Trial"
+          label={t('actionManageTrial')}
           onClick={run(onManageTrial)}
         />
       )}
@@ -740,12 +756,12 @@ function ActionsMenu({
           <div className="my-1 border-t border-line2" />
           <MenuItem
             icon="📋"
-            label="Duplicar negocio"
+            label={t('actionDuplicate')}
             onClick={run(onDuplicate)}
           />
           <MenuItem
             icon="🗑️"
-            label="Eliminar negocio"
+            label={t('actionDelete')}
             danger
             onClick={run(onDelete)}
           />
@@ -764,7 +780,7 @@ function ActionsMenu({
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        {isEntering ? '… Entrando' : 'Acciones ▾'}
+        {isEntering ? t('actionsEntering') : t('actionsMenu')}
       </button>
       {menu && createPortal(menu, document.body)}
     </div>
@@ -810,6 +826,7 @@ function DeleteTenantModal({
   onClose: () => void;
   onConfirm: (opts: { keepHistory: boolean }) => Promise<void> | void;
 }) {
+  const t = useTranslations('admin_tenants');
   const [mode, setMode] = useState<'choose' | 'confirmHard'>('choose');
   const [confirmText, setConfirmText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -841,7 +858,7 @@ function DeleteTenantModal({
             🗑
           </div>
           <div className="flex-1 min-w-0">
-            <div className="font-semibold text-base">Eliminar negocio</div>
+            <div className="font-semibold text-base">{t('deleteTitle')}</div>
             <div className="text-xs text-mute mt-0.5">{tenant.brandName}</div>
           </div>
         </div>
@@ -849,7 +866,7 @@ function DeleteTenantModal({
         {mode === 'choose' && (
           <div className="px-5 py-4 space-y-3">
             <p className="text-sm text-ink">
-              Elige cómo quieres eliminar este negocio:
+              {t('deleteChoosePrompt')}
             </p>
 
             {/* Opción 1: Conservar historial (recomendada) */}
@@ -863,16 +880,13 @@ function DeleteTenantModal({
                 <div className="text-lg">📚</div>
                 <div className="flex-1">
                   <div className="font-semibold text-sm">
-                    Conservar historial{' '}
+                    {t('deleteKeepTitle')}{' '}
                     <span className="text-[10px] uppercase tracking-wider bg-brand text-white px-1.5 py-0.5 rounded ml-1">
-                      recomendado
+                      {t('deleteRecommended')}
                     </span>
                   </div>
                   <div className="text-xs text-mute mt-0.5 leading-snug">
-                    El negocio queda inaccesible pero las relaciones (pedidos,
-                    comisiones, referidos) se preservan para auditoría
-                    contable. Las comisiones PAID al afiliado se mantienen
-                    intactas.
+                    {t('deleteKeepDesc')}
                   </div>
                 </div>
               </div>
@@ -889,12 +903,10 @@ function DeleteTenantModal({
                 <div className="text-lg">⚠️</div>
                 <div className="flex-1">
                   <div className="font-semibold text-sm text-bad">
-                    Eliminar todo (irreversible)
+                    {t('deleteAllTitle')}
                   </div>
                   <div className="text-xs text-mute mt-0.5 leading-snug">
-                    Borra el negocio + clientes + tarjetas + pedidos +
-                    comisiones + referidos. Usar solo si la cuenta no tiene
-                    actividad crítica (duplicado accidental).
+                    {t('deleteAllDesc')}
                   </div>
                 </div>
               </div>
@@ -905,20 +917,22 @@ function DeleteTenantModal({
         {mode === 'confirmHard' && (
           <div className="px-5 py-4 space-y-3">
             <p className="text-sm text-ink">
-              Vas a <strong>borrar todo</strong> el historial de este negocio.
-              Esta acción NO se puede deshacer.
+              {t.rich('deleteHardWarning', {
+                strong: (chunks) => <strong>{chunks}</strong>,
+              })}
             </p>
             <p className="text-xs text-mute leading-relaxed">
-              Se eliminarán: información del negocio, configuraciones, menús,
-              tarjetas, clientes, CRM, estadísticas, comisiones y referrals.
+              {t('deleteHardDetail')}
             </p>
             <div>
               <label className="block text-xs text-mute mb-1.5">
-                Escribe{' '}
-                <span className="font-mono font-semibold text-ink bg-bg2 px-1.5 py-0.5 rounded">
-                  123
-                </span>{' '}
-                para confirmar
+                {t.rich('deleteHardTypeLabel', {
+                  token: (chunks) => (
+                    <span className="font-mono font-semibold text-ink bg-bg2 px-1.5 py-0.5 rounded">
+                      {chunks}
+                    </span>
+                  ),
+                })}
               </label>
               <input
                 type="text"
@@ -944,7 +958,7 @@ function DeleteTenantModal({
               disabled={busy}
               className="btn-ghost text-sm min-h-[44px] disabled:opacity-50"
             >
-              ← Volver
+              {t('back')}
             </button>
           )}
           <button
@@ -953,7 +967,7 @@ function DeleteTenantModal({
             disabled={busy}
             className="btn-ghost text-sm justify-center min-h-[44px] disabled:opacity-50"
           >
-            Cancelar
+            {t('cancel')}
           </button>
           {mode === 'confirmHard' && (
             <button
@@ -962,7 +976,7 @@ function DeleteTenantModal({
               disabled={busy || confirmText.trim() !== '123'}
               className="text-sm font-semibold px-4 py-2 rounded-md bg-bad text-white hover:bg-bad/90 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
             >
-              {busy ? 'Eliminando…' : 'Eliminar todo definitivamente'}
+              {busy ? t('deleting') : t('deleteAllConfirm')}
             </button>
           )}
         </div>
