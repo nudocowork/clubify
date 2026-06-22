@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
@@ -18,6 +19,23 @@ import {
   fmtLongDate,
 } from './_shared';
 
+const STATUS_LABEL_KEY: Record<string, string> = {
+  PENDING: 'statusPending',
+  CONFIRMED: 'statusConfirmed',
+  SEATED: 'statusSeated',
+  COMPLETED: 'statusCompleted',
+  CANCELLED: 'statusCancelled',
+  NO_SHOW: 'statusNoShow',
+};
+
+const CHANNEL_LABEL_KEY: Record<string, string> = {
+  WEB: 'channelWeb',
+  WHATSAPP: 'channelWhatsapp',
+  PHONE: 'channelPhone',
+  QR: 'channelQr',
+  IN_PERSON: 'channelInPerson',
+};
+
 type DailyKpis = {
   date: string;
   reservations: { count: number; delta: number };
@@ -27,6 +45,7 @@ type DailyKpis = {
 };
 
 export default function AgendaPage() {
+  const t = useTranslations('app_reservations');
   const [date, setDate] = useState(todayISO());
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [kpis, setKpis] = useState<DailyKpis | null>(null);
@@ -70,7 +89,7 @@ export default function AgendaPage() {
       setTables(tb);
       if (locations.length === 0) setLocations(locs);
     } catch (e: any) {
-      toast(e.message || 'Error cargando agenda', 'error');
+      toast(e.message || t('errorLoadingAgenda'), 'error');
     }
   }
   useEffect(() => {
@@ -96,16 +115,16 @@ export default function AgendaPage() {
     try {
       await api(`/reservations/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
       loadAll();
-      toast(`Reserva marcada como ${STATUS_META[status].label.toLowerCase()}`, 'success');
+      toast(t('toastReservationMarked', { status: t(STATUS_LABEL_KEY[status]).toLowerCase() }), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo actualizar', 'error');
+      toast(e.message || t('errorCouldNotUpdate'), 'error');
     }
   }
 
   async function submitWalkIn(e: React.FormEvent) {
     e.preventDefault();
     if (!walkIn.customerName.trim()) {
-      toast('Nombre requerido', 'error');
+      toast(t('errorNameRequired'), 'error');
       return;
     }
     setWalkInBusy(true);
@@ -131,12 +150,12 @@ export default function AgendaPage() {
       loadAll();
       toast(
         hadPhone
-          ? 'Walk-in registrado · sello asignado al cliente'
-          : 'Walk-in registrado (sin teléfono → no se le pudo asignar sello)',
+          ? t('toastWalkInWithStamp')
+          : t('toastWalkInNoPhone'),
         'success',
       );
     } catch (err: any) {
-      toast(err.message || 'No se pudo registrar', 'error');
+      toast(err.message || t('errorCouldNotRegister'), 'error');
     } finally {
       setWalkInBusy(false);
     }
@@ -145,7 +164,7 @@ export default function AgendaPage() {
   async function submitNew(e: React.FormEvent) {
     e.preventDefault();
     if (!newForm.customerName.trim() || !newForm.customerPhone.trim()) {
-      toast('Nombre y teléfono son obligatorios', 'error');
+      toast(t('errorNamePhoneRequired'), 'error');
       return;
     }
     setNewBusy(true);
@@ -163,9 +182,9 @@ export default function AgendaPage() {
       setNewForm({ customerName: '', customerPhone: '', party: 2, time: '21:00', notes: '', zoneId: '' });
       setNewOpen(false);
       loadAll();
-      toast('Reserva creada', 'success');
+      toast(t('toastReservationCreated'), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo crear', 'error');
+      toast(e.message || t('errorCouldNotCreate'), 'error');
     } finally {
       setNewBusy(false);
     }
@@ -190,9 +209,9 @@ export default function AgendaPage() {
       <div className="flex items-start justify-between gap-3 mb-5 flex-wrap">
         <div>
           <h1 className="page-title m-0">
-            Reservas <span className="page-crumb text-mute font-normal">/ {fmtLongDate(date)}</span>
+            {t('pageTitle')} <span className="page-crumb text-mute font-normal">/ {fmtLongDate(date)}</span>
           </h1>
-          <p className="text-xs text-mute mt-1">Agenda y operación del servicio de hoy</p>
+          <p className="text-xs text-mute mt-1">{t('subtitle')}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-ok-soft text-ok-ink text-xs font-semibold">
@@ -200,7 +219,7 @@ export default function AgendaPage() {
               <span className="absolute inset-0 rounded-full bg-ok animate-ping opacity-75" />
               <span className="absolute inset-0 rounded-full bg-ok" />
             </span>
-            Tiempo real
+            {t('realTime')}
           </div>
           {locations.length > 1 && (
             <select
@@ -209,7 +228,7 @@ export default function AgendaPage() {
               className="input text-sm"
               style={{ width: 'auto' }}
             >
-              <option value="">📍 Todas las sedes</option>
+              <option value="">📍 {t('allLocations')}</option>
               {locations.map((loc) => (
                 <option key={loc.id} value={loc.id}>
                   📍 {loc.name}
@@ -221,7 +240,7 @@ export default function AgendaPage() {
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar"
+            placeholder={t('searchPlaceholder')}
             className="input text-sm"
             style={{ width: 160 }}
           />
@@ -229,12 +248,12 @@ export default function AgendaPage() {
             onClick={() => setWalkInOpen(true)}
             className="text-sm font-semibold px-3 py-2 rounded-pill text-white"
             style={{ background: '#1d4ed8' }}
-            title="Cliente sin reserva previa"
+            title={t('walkInTooltip')}
           >
-            🚶 Walk-in
+            🚶 {t('walkIn')}
           </button>
           <button onClick={() => setNewOpen(true)} className="btn-primary text-sm">
-            + Nueva reserva
+            {t('newReservationBtn')}
           </button>
           <input
             type="date"
@@ -249,35 +268,37 @@ export default function AgendaPage() {
       {/* KPI cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         <KpiCard
-          label="Reservas hoy"
+          label={t('kpiReservationsToday')}
           value={kpis?.reservations.count ?? 0}
           valueColor="#15803d"
           sub={
             kpis && kpis.reservations.delta !== 0
-              ? `${kpis.reservations.delta > 0 ? '+' : ''}${kpis.reservations.delta} vs. ayer`
-              : 'Sin cambio vs. ayer'
+              ? t('kpiDeltaVsYesterday', {
+                  delta: `${kpis.reservations.delta > 0 ? '+' : ''}${kpis.reservations.delta}`,
+                })
+              : t('kpiNoChangeVsYesterday')
           }
           icon="📅"
         />
         <KpiCard
-          label="Comensales"
+          label={t('kpiDiners')}
           value={kpis?.pax.expected ?? 0}
           valueColor="#1d4ed8"
-          sub="Pax esperados"
+          sub={t('kpiExpectedPax')}
           icon="👥"
         />
         <KpiCard
-          label="Ocupación"
+          label={t('kpiOccupancy')}
           value={`${kpis?.occupancy.percent ?? 0}%`}
           valueColor="#b45309"
-          sub={kpis?.occupancy.peakHour ? `Pico ${kpis.occupancy.peakHour}` : 'Sin picos calculados'}
+          sub={kpis?.occupancy.peakHour ? t('kpiPeak', { hour: kpis.occupancy.peakHour }) : t('kpiNoPeaks')}
           icon="📈"
         />
         <KpiCard
-          label="Ausencias"
+          label={t('kpiAbsences')}
           value={kpis?.noShow.count ?? 0}
           valueColor="#dc2626"
-          sub={`${kpis?.noShow.percent ?? 0}% del total`}
+          sub={t('kpiPercentOfTotal', { percent: kpis?.noShow.percent ?? 0 })}
           icon="⏰"
         />
       </div>
@@ -288,18 +309,18 @@ export default function AgendaPage() {
           <div className="flex items-start justify-between mb-3 flex-wrap gap-2">
             <div>
               <div className="text-[10px] text-mute font-semibold tracking-[0.18em] uppercase">
-                Reservas del día
+                {t('reservationsOfDay')}
               </div>
               <h2 className="text-lg font-bold m-0 mt-0.5">
-                Agenda · {filtered.length} reserva{filtered.length === 1 ? '' : 's'}
+                {t('agendaCount', { count: filtered.length })}
               </h2>
             </div>
             <div className="flex gap-1 bg-bg2 p-1 rounded-lg text-xs">
               {([
-                { v: 'todos' as const, label: 'Todos', count: reservations.length },
-                { v: 'diurno' as const, label: 'Diurno', count: shiftCounts.diurno },
-                { v: 'tarde' as const, label: 'Tarde', count: shiftCounts.tarde },
-                { v: 'noche' as const, label: 'Noche', count: shiftCounts.noche },
+                { v: 'todos' as const, label: t('shiftAll'), count: reservations.length },
+                { v: 'diurno' as const, label: t('shiftDaytime'), count: shiftCounts.diurno },
+                { v: 'tarde' as const, label: t('shiftAfternoon'), count: shiftCounts.tarde },
+                { v: 'noche' as const, label: t('shiftNight'), count: shiftCounts.noche },
               ]).map((s) => (
                 <button
                   key={s.v}
@@ -320,16 +341,16 @@ export default function AgendaPage() {
           {filtered.length === 0 ? (
             <p className="text-sm text-mute py-10 text-center">
               {reservations.length === 0
-                ? 'Sin reservas para este día. Las nuevas reservas del flujo público aparecerán aquí.'
-                : 'Sin resultados con los filtros actuales.'}
+                ? t('emptyDayReservations')
+                : t('emptyNoResults')}
             </p>
           ) : (
             <div className="hidden md:grid grid-cols-[80px_1fr_60px_120px_140px] gap-3 text-[10px] uppercase tracking-wider text-mute font-bold border-b border-line2 pb-2 mb-2">
-              <span>Hora</span>
-              <span>Cliente</span>
-              <span className="text-center">Pax</span>
-              <span>Mesa</span>
-              <span className="text-right">Estado</span>
+              <span>{t('thTime')}</span>
+              <span>{t('thCustomer')}</span>
+              <span className="text-center">{t('thPax')}</span>
+              <span>{t('thTable')}</span>
+              <span className="text-right">{t('thStatus')}</span>
             </div>
           )}
 
@@ -337,6 +358,7 @@ export default function AgendaPage() {
             {filtered.map((r) => {
               const sm = STATUS_META[r.status];
               const ch = channelMeta(r.channel);
+              const chLabel = CHANNEL_LABEL_KEY[r.channel] ? t(CHANNEL_LABEL_KEY[r.channel]) : ch.label;
               const primaryLabel = r.labels?.[0];
               return (
                 <div
@@ -347,7 +369,7 @@ export default function AgendaPage() {
                     <div className="font-bold">{r.time}</div>
                     <div className="text-[10px] text-mute flex items-center gap-1">
                       <span>{ch.icon}</span>
-                      <span className="truncate">{ch.label}</span>
+                      <span className="truncate">{chLabel}</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 min-w-0">
@@ -377,10 +399,10 @@ export default function AgendaPage() {
                       )}
                     </div>
                   </div>
-                  <div className="text-sm text-center">{r.party} pax</div>
+                  <div className="text-sm text-center">{t('paxCount', { count: r.party })}</div>
                   <div className="text-sm truncate">
-                    {r.table?.number ? `Mesa ${r.table.number}` : (
-                      <span className="text-mute italic">Sin asignar</span>
+                    {r.table?.number ? t('tableLabel', { number: r.table.number }) : (
+                      <span className="text-mute italic">{t('unassigned')}</span>
                     )}
                   </div>
                   <div className="flex items-center justify-end gap-2">
@@ -389,16 +411,16 @@ export default function AgendaPage() {
                         className="w-2 h-2 rounded-full"
                         style={{ background: sm.dot }}
                       />
-                      <span style={{ color: sm.fg }}>{sm.label}</span>
+                      <span style={{ color: sm.fg }}>{t(STATUS_LABEL_KEY[r.status])}</span>
                     </span>
                     <select
                       value={r.status}
                       onChange={(e) => changeStatus(r.id, e.target.value as Reservation['status'])}
                       className="text-[10px] border border-line rounded px-1.5 py-0.5 bg-white"
-                      title="Cambiar estado"
+                      title={t('changeStatus')}
                     >
-                      {Object.entries(STATUS_META).map(([v, m]) => (
-                        <option key={v} value={v}>{m.label}</option>
+                      {Object.keys(STATUS_META).map((v) => (
+                        <option key={v} value={v}>{t(STATUS_LABEL_KEY[v])}</option>
                       ))}
                     </select>
                   </div>
@@ -415,34 +437,33 @@ export default function AgendaPage() {
             style={{ background: 'linear-gradient(155deg, #064e3b, #022c1f)' }}
           >
             <div className="text-[10px] font-bold tracking-[0.18em] uppercase opacity-80 flex items-center gap-1">
-              💬 Aviso al negocio
+              💬 {t('noticeTitle')}
             </div>
-            <div className="font-semibold text-sm mt-2 opacity-95">Reservas avisadas hoy</div>
+            <div className="font-semibold text-sm mt-2 opacity-95">{t('noticedReservationsToday')}</div>
             <div className="flex items-baseline gap-2 mt-1">
               <span className="text-4xl font-extrabold">{whatsappCount}</span>
-              <span className="text-sm opacity-80">por WhatsApp</span>
+              <span className="text-sm opacity-80">{t('byWhatsapp')}</span>
             </div>
             <p className="text-xs opacity-80 mt-2 leading-relaxed">
-              El cliente <strong>no recibe SMS</strong> hasta que tu equipo confirma manualmente. El
-              aviso con los datos llega a tu WhatsApp configurado.
+              {t.rich('noticeDesc', { strong: (chunks) => <strong>{chunks}</strong> })}
             </p>
             <Link
               href="/app/settings"
               className="block mt-3 text-center bg-white/15 hover:bg-white/25 backdrop-blur rounded-lg py-2 text-sm font-semibold transition"
             >
-              Configurar número receptor
+              {t('configureReceiverNumber')}
             </Link>
           </div>
 
           <div className="card card-pad">
             <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-mute mb-3">
-              Cómo se confirma
+              {t('howItConfirms')}
             </div>
             <ol className="space-y-3 text-sm">
               {[
-                'El cliente reserva online desde la web de Clubify.',
-                'Tu negocio recibe el aviso por WhatsApp y push con todos los datos.',
-                'Tu equipo confirma y contacta al cliente manualmente.',
+                t('confirmStep1'),
+                t('confirmStep2'),
+                t('confirmStep3'),
               ].map((step, i) => (
                 <li key={i} className="flex items-start gap-3">
                   <span className="w-6 h-6 rounded-full bg-ok-soft text-ok-ink text-xs font-bold flex items-center justify-center shrink-0">
@@ -458,49 +479,48 @@ export default function AgendaPage() {
 
       {/* Modal Walk-in */}
       {walkInOpen && (
-        <Modal title="🚶 Registrar walk-in" onClose={() => setWalkInOpen(false)}>
+        <Modal title={`🚶 ${t('walkInRegisterTitle')}`} onClose={() => setWalkInOpen(false)}>
           <p className="text-xs text-mute mb-3">
-            Cliente llegó sin reserva previa. Queda como <strong>SEATED</strong> al instante y
-            recibe sello de fidelización si tiene teléfono.
+            {t.rich('walkInRegisterDesc', { strong: (chunks) => <strong>{chunks}</strong> })}
           </p>
           <form onSubmit={submitWalkIn} className="space-y-2">
             <Input
-              label="Nombre"
+              label={t('fieldName')}
               required
               value={walkIn.customerName}
               onChange={(v) => setWalkIn({ ...walkIn, customerName: v })}
             />
             <Input
-              label="Teléfono (opcional)"
+              label={t('fieldPhoneOptional')}
               value={walkIn.customerPhone}
               onChange={(v) => setWalkIn({ ...walkIn, customerPhone: v })}
             />
             <div className="grid grid-cols-2 gap-2">
               <NumberInput
-                label="Pax"
+                label={t('fieldPax')}
                 min={1}
                 max={20}
                 value={walkIn.party}
                 onChange={(v) => setWalkIn({ ...walkIn, party: v })}
               />
               <div>
-                <label className="label">Mesa</label>
+                <label className="label">{t('fieldTable')}</label>
                 <select
                   className="input"
                   value={walkIn.tableId}
                   onChange={(e) => setWalkIn({ ...walkIn, tableId: e.target.value })}
                 >
-                  <option value="">Sin asignar</option>
-                  {tables.filter((t) => !t.isBlocked).map((t) => (
-                    <option key={t.id} value={t.id}>
-                      Mesa {t.number} · {t.seats}p
+                  <option value="">{t('unassigned')}</option>
+                  {tables.filter((tbl) => !tbl.isBlocked).map((tbl) => (
+                    <option key={tbl.id} value={tbl.id}>
+                      {t('tableOption', { number: tbl.number, seats: tbl.seats })}
                     </option>
                   ))}
                 </select>
               </div>
             </div>
             <button className="btn-primary w-full justify-center" disabled={walkInBusy}>
-              {walkInBusy ? 'Sentando…' : 'Sentar walk-in'}
+              {walkInBusy ? t('seating') : t('seatWalkIn')}
             </button>
           </form>
         </Modal>
@@ -508,19 +528,19 @@ export default function AgendaPage() {
 
       {/* Modal Nueva reserva */}
       {newOpen && (
-        <Modal title="+ Nueva reserva" onClose={() => setNewOpen(false)}>
+        <Modal title={t('newReservationTitle')} onClose={() => setNewOpen(false)}>
           <p className="text-xs text-mute mb-3">
-            Carga manual desde el panel. Pasa al estado <strong>Confirmada</strong>.
+            {t.rich('newReservationDesc', { strong: (chunks) => <strong>{chunks}</strong> })}
           </p>
           <form onSubmit={submitNew} className="space-y-2">
             <Input
-              label="Nombre"
+              label={t('fieldName')}
               required
               value={newForm.customerName}
               onChange={(v) => setNewForm({ ...newForm, customerName: v })}
             />
             <Input
-              label="Teléfono"
+              label={t('fieldPhone')}
               required
               value={newForm.customerPhone}
               onChange={(v) => setNewForm({ ...newForm, customerPhone: v })}
@@ -528,14 +548,14 @@ export default function AgendaPage() {
             />
             <div className="grid grid-cols-2 gap-2">
               <NumberInput
-                label="Pax"
+                label={t('fieldPax')}
                 min={1}
                 max={20}
                 value={newForm.party}
                 onChange={(v) => setNewForm({ ...newForm, party: v })}
               />
               <div>
-                <label className="label">Hora</label>
+                <label className="label">{t('fieldTime')}</label>
                 <input
                   type="time"
                   className="input"
@@ -546,13 +566,13 @@ export default function AgendaPage() {
             </div>
             {zones.length > 0 && (
               <div>
-                <label className="label">Zona (opcional)</label>
+                <label className="label">{t('fieldZoneOptional')}</label>
                 <select
                   className="input"
                   value={newForm.zoneId}
                   onChange={(e) => setNewForm({ ...newForm, zoneId: e.target.value })}
                 >
-                  <option value="">Asignación automática</option>
+                  <option value="">{t('autoAssignment')}</option>
                   {zones.map((z) => (
                     <option key={z.id} value={z.id}>{z.name}</option>
                   ))}
@@ -560,7 +580,7 @@ export default function AgendaPage() {
               </div>
             )}
             <div>
-              <label className="label">Notas (opcional)</label>
+              <label className="label">{t('fieldNotesOptional')}</label>
               <textarea
                 className="input"
                 rows={2}
@@ -569,7 +589,7 @@ export default function AgendaPage() {
               />
             </div>
             <button className="btn-primary w-full justify-center" disabled={newBusy}>
-              {newBusy ? 'Creando…' : 'Crear reserva'}
+              {newBusy ? t('creating') : t('createReservation')}
             </button>
           </form>
         </Modal>

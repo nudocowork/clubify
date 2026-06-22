@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
@@ -11,6 +12,7 @@ type Tenant = {
 };
 
 export default function ReservaOnlinePage() {
+  const t = useTranslations('app_reservations_online');
   const [tenant, setTenant] = useState<Tenant | null>(null);
 
   useEffect(() => {
@@ -24,8 +26,8 @@ export default function ReservaOnlinePage() {
   function copyLink() {
     if (!publicUrl) return;
     navigator.clipboard.writeText(publicUrl).then(
-      () => toast('Enlace copiado', 'success'),
-      () => toast('No se pudo copiar', 'error'),
+      () => toast(t('toastLinkCopied'), 'success'),
+      () => toast(t('toastCouldNotCopy'), 'error'),
     );
   }
 
@@ -34,54 +36,52 @@ export default function ReservaOnlinePage() {
       <div className="flex items-start justify-between gap-3 mb-5 flex-wrap">
         <div>
           <h1 className="page-title m-0">
-            Reserva online <span className="page-crumb text-mute font-normal">/ {fmtLongDate(todayISO())}</span>
+            {t('pageTitle')} <span className="page-crumb text-mute font-normal">/ {fmtLongDate(todayISO())}</span>
           </h1>
-          <p className="text-xs text-mute mt-1">Experiencia de reserva del cliente</p>
+          <p className="text-xs text-mute mt-1">{t('subtitle')}</p>
         </div>
         <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-ok-soft text-ok-ink text-xs font-semibold">
           <span className="relative inline-block w-2 h-2">
             <span className="absolute inset-0 rounded-full bg-ok animate-ping opacity-75" />
             <span className="absolute inset-0 rounded-full bg-ok" />
           </span>
-          Tiempo real
+          {t('realTime')}
         </div>
       </div>
 
       <div className="grid lg:grid-cols-[1fr_360px] gap-8 items-start">
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-ok-soft text-ok-ink text-xs font-semibold mb-3">
-            📱 Experiencia del cliente
+            📱 {t('customerExperience')}
           </div>
           <h2 className="text-3xl font-extrabold m-0 leading-tight">
-            Reserva online, dentro de la web de Clubify
+            {t('heroTitle')}
           </h2>
           <p className="text-sm text-mute mt-3 leading-relaxed max-w-md">
-            Sin apps externas. El cliente reserva en 4 pasos; tu negocio recibe el aviso al
-            instante por WhatsApp y confirma manualmente. El pase digital queda con QR para
-            mostrar al llegar.
+            {t('heroBody')}
           </p>
 
           <div className="space-y-4 mt-6 max-w-md">
             {[
               {
                 icon: '📐',
-                title: 'Disponibilidad real',
-                body: 'Validación de capacidad sincronizada con el plano admin al segundo.',
+                title: t('feature1Title'),
+                body: t('feature1Body'),
               },
               {
                 icon: '💬',
-                title: 'Aviso al negocio',
-                body: 'El negocio recibe la reserva al instante por WhatsApp y contacta al cliente.',
+                title: t('feature2Title'),
+                body: t('feature2Body'),
               },
               {
                 icon: '🎟',
-                title: 'Pase digital con QR',
-                body: 'El cliente confirmado recibe link al pase web con su QR. Próximamente Apple/Google Wallet.',
+                title: t('feature3Title'),
+                body: t('feature3Body'),
               },
               {
                 icon: '👥',
-                title: 'Alimenta el CRM',
-                body: 'Cada reserva crea o enriquece la ficha del cliente con tag "reserva" y stamps.',
+                title: t('feature4Title'),
+                body: t('feature4Body'),
               },
             ].map((f) => (
               <div key={f.title} className="flex items-start gap-3">
@@ -105,9 +105,9 @@ export default function ReservaOnlinePage() {
                 <span className="text-xl">🔳</span>
               </div>
               <div className="flex-1 min-w-0">
-                <div className="font-semibold text-sm">Comparte por QR o enlace directo</div>
+                <div className="font-semibold text-sm">{t('shareTitle')}</div>
                 <div className="text-xs text-mute leading-snug mt-0.5">
-                  Pégalo en mesas, redes o el menú digital. Cada sede tiene su propio enlace.
+                  {t('shareBody')}
                 </div>
                 {publicUrl && (
                   <div className="mt-3 flex items-center gap-2">
@@ -115,7 +115,7 @@ export default function ReservaOnlinePage() {
                       {publicUrl}
                     </code>
                     <button onClick={copyLink} className="btn-ghost text-xs px-3 py-1.5">
-                      Copiar
+                      {t('copy')}
                     </button>
                     <a
                       href={publicUrl}
@@ -123,7 +123,7 @@ export default function ReservaOnlinePage() {
                       rel="noreferrer"
                       className="btn-primary text-xs px-3 py-1.5"
                     >
-                      Abrir
+                      {t('open')}
                     </a>
                   </div>
                 )}
@@ -144,8 +144,8 @@ export default function ReservaOnlinePage() {
             >
               <div className="px-5 py-4 border-b border-line">
                 <div className="text-xs text-mute">21:04</div>
-                <div className="font-bold text-base mt-1">{tenant?.brandName ?? 'Tu negocio'}</div>
-                <div className="text-[11px] text-mute mt-0.5">Reserva una mesa</div>
+                <div className="font-bold text-base mt-1">{tenant?.brandName ?? t('yourBusiness')}</div>
+                <div className="text-[11px] text-mute mt-0.5">{t('bookATable')}</div>
                 <div className="flex gap-1 mt-3">
                   <div className="flex-1 h-1 rounded-full bg-ok" />
                   <div className="flex-1 h-1 rounded-full bg-line" />
@@ -154,7 +154,7 @@ export default function ReservaOnlinePage() {
                 </div>
               </div>
               <div className="p-4">
-                <div className="text-xs font-semibold mb-2">¿Cuántas personas?</div>
+                <div className="text-xs font-semibold mb-2">{t('howManyPeople')}</div>
                 <div className="grid grid-cols-4 gap-1.5 mb-4">
                   {[1, 2, 3, 4, 5, 6, 7, '8+'].map((p, i) => (
                     <div
@@ -169,7 +169,7 @@ export default function ReservaOnlinePage() {
                     </div>
                   ))}
                 </div>
-                <div className="text-xs font-semibold mb-2">Fecha</div>
+                <div className="text-xs font-semibold mb-2">{t('dateLabel')}</div>
                 <div className="flex gap-1.5 mb-4 overflow-x-auto">
                   {['VIE 12', 'SÁB 13', 'DOM 14', 'LUN 15', 'MAR 16'].map((d, i) => (
                     <div
@@ -182,10 +182,10 @@ export default function ReservaOnlinePage() {
                     </div>
                   ))}
                 </div>
-                <div className="text-xs font-semibold mb-2">Hora disponible</div>
+                <div className="text-xs font-semibold mb-2">{t('availableTime')}</div>
                 <MockSlots />
                 <div className="mt-5 text-center py-2.5 rounded-xl text-white font-bold text-sm bg-ok">
-                  Continuar
+                  {t('continue')}
                 </div>
               </div>
             </div>
@@ -197,6 +197,7 @@ export default function ReservaOnlinePage() {
 }
 
 function MockSlots() {
+  const t = useTranslations('app_reservations_online');
   const [slots, setSlots] = useState<string[]>([]);
   useEffect(() => {
     api<{ slots: string[] }>(`/reservations/config/slots`)
@@ -206,9 +207,9 @@ function MockSlots() {
   const shown = slots.slice(0, 6);
   return (
     <div className="grid grid-cols-3 gap-1.5">
-      {shown.map((t, i) => (
+      {shown.map((slot, i) => (
         <div
-          key={t}
+          key={slot}
           className={`text-center py-1.5 rounded-lg text-[10px] font-semibold border ${
             i === 0
               ? 'bg-ink text-white border-ink'
@@ -217,12 +218,12 @@ function MockSlots() {
               : 'border-line'
           }`}
         >
-          {to12h(t)}
+          {to12h(slot)}
         </div>
       ))}
       {shown.length === 0 && (
         <div className="col-span-3 text-center text-[10px] text-mute italic py-2">
-          Sin horarios configurados
+          {t('noSlotsConfigured')}
         </div>
       )}
     </div>
@@ -230,6 +231,7 @@ function MockSlots() {
 }
 
 function SlotsConfigCard() {
+  const t = useTranslations('app_reservations_online');
   const [slots, setSlots] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -266,9 +268,9 @@ function SlotsConfigCard() {
         method: 'PATCH',
         body: JSON.stringify({ slots }),
       });
-      toast('Horarios guardados', 'success');
+      toast(t('toastSlotsSaved'), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo guardar', 'error');
+      toast(e.message || t('toastCouldNotSave'), 'error');
     } finally {
       setBusy(false);
     }
@@ -290,7 +292,7 @@ function SlotsConfigCard() {
   if (!loaded) {
     return (
       <div className="card card-pad mt-6 max-w-md">
-        <div className="text-sm text-mute">Cargando horarios…</div>
+        <div className="text-sm text-mute">{t('loadingSlots')}</div>
       </div>
     );
   }
@@ -302,10 +304,9 @@ function SlotsConfigCard() {
           <span className="text-xl">🕐</span>
         </div>
         <div className="flex-1 min-w-0">
-          <div className="font-semibold text-sm">Horarios disponibles</div>
+          <div className="font-semibold text-sm">{t('availableSlotsTitle')}</div>
           <div className="text-xs text-mute leading-snug mt-0.5">
-            Elige las horas en que aceptas reservas online. El cliente solo verá estos
-            horarios al reservar (en formato 12h).
+            {t('availableSlotsDesc')}
           </div>
         </div>
       </div>
@@ -318,12 +319,12 @@ function SlotsConfigCard() {
             className="text-[11px] font-semibold px-2.5 py-1 rounded-full border border-line text-mute hover:text-ink"
           >
             {p === 'almuerzo'
-              ? '🍽 Solo almuerzo'
+              ? `🍽 ${t('presetLunchOnly')}`
               : p === 'cena'
-              ? '🍷 Solo cena'
+              ? `🍷 ${t('presetDinnerOnly')}`
               : p === 'completo'
-              ? '☀️🌙 Completo'
-              : '↺ Default'}
+              ? `☀️🌙 ${t('presetFull')}`
+              : `↺ ${t('presetDefault')}`}
           </button>
         ))}
       </div>
@@ -339,7 +340,7 @@ function SlotsConfigCard() {
               <button
                 onClick={() => toggleSlot(s)}
                 className="text-base leading-none opacity-60 hover:opacity-100"
-                title="Quitar"
+                title={t('remove')}
               >
                 ×
               </button>
@@ -348,8 +349,7 @@ function SlotsConfigCard() {
         </div>
       ) : (
         <p className="text-xs text-mute italic mb-3 px-2">
-          Sin horarios configurados. Si guardas vacío, el cliente verá los 7 horarios por
-          defecto (almuerzo + cena).
+          {t('noSlotsHint')}
         </p>
       )}
 
@@ -357,7 +357,7 @@ function SlotsConfigCard() {
         onClick={() => setShowAll((v) => !v)}
         className="text-xs font-semibold text-ok-ink hover:underline mb-2"
       >
-        {showAll ? '▴ Ocultar' : '▾ Elegir horarios uno por uno'}
+        {showAll ? `▴ ${t('hide')}` : `▾ ${t('chooseSlotsOneByOne')}`}
       </button>
 
       {showAll && (
@@ -382,7 +382,7 @@ function SlotsConfigCard() {
       )}
 
       <button onClick={save} disabled={busy} className="btn-primary w-full justify-center text-sm">
-        {busy ? 'Guardando…' : 'Guardar horarios'}
+        {busy ? t('saving') : t('saveSlots')}
       </button>
     </div>
   );
