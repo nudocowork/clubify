@@ -8,6 +8,7 @@ import { validateEnv } from './common/config/env.validation';
 import { TenantModule } from './common/tenant/tenant.module';
 import { RetentionModule } from './common/retention/retention.module';
 import { PrismaModule } from './common/prisma/prisma.module';
+import { WhitelabelModule } from './whitelabel/whitelabel.module';
 import { AuthModule } from './auth/auth.module';
 import { TenantsModule } from './tenants/tenants.module';
 import { CardsModule } from './cards/cards.module';
@@ -78,6 +79,7 @@ import { SuperAdminModule } from './superadmin/superadmin.module';
     ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
     PrismaModule,
+    WhitelabelModule,
     AuthModule,
     TenantsModule,
     CardsModule,

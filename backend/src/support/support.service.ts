@@ -8,6 +8,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { VoyageService } from './voyage.service';
+import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 
 export type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
@@ -22,6 +23,7 @@ export class SupportService {
   constructor(
     private prisma: PrismaService,
     private voyage: VoyageService,
+    private brand: WhitelabelBrandService,
   ) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     // review: timeout + sin reintentos automáticos colgados en el request.
@@ -252,22 +254,12 @@ export class SupportService {
     if (q.length > 1000)
       throw new BadRequestException('Pregunta muy larga (máx 1000 caracteres)');
 
-    // Identidad por marca: el asistente se identifica con la marca blanca del
-    // usuario (Sellea, Clubify, …), nunca con otra. Si no hay marca (legacy),
-    // cae a Clubify.
-    let brandName = 'Clubify';
-    let brandSite = 'clubify.app';
-    if (whiteLabelId) {
-      const wl = await this.prisma.whiteLabel
-        .findUnique({
-          where: { id: whiteLabelId },
-          select: { name: true, domain: true, appDomain: true },
-        })
-        .catch(() => null);
-      if (wl?.name) brandName = wl.name;
-      if (wl?.domain) brandSite = wl.domain;
-      else if (wl?.appDomain) brandSite = wl.appDomain;
-    }
+    // Identidad por marca (fuente única WhitelabelBrandService): el asistente se
+    // identifica con la marca blanca del usuario (Sellea, Clubify, …), nunca con
+    // otra. Sin marca (legacy) → row clubify.
+    const resolved = await this.brand.resolveByWhiteLabelId(whiteLabelId);
+    const brandName = resolved.name;
+    const brandSite = resolved.websiteUrl.replace(/^https?:\/\//, '');
 
     if (!this.client) {
       return {
@@ -292,6 +284,12 @@ export class SupportService {
           where: {
             isActive: true,
             audience: { in: audienceFilter as any },
+            // Knowledge por marca: entradas de ESTA marca + las compartidas
+            // (whiteLabelId null). Nunca mezcla con otra marca.
+            OR: [
+              { whiteLabelId: null },
+              ...(resolved.id ? [{ whiteLabelId: resolved.id }] : []),
+            ],
           },
           orderBy: { category: 'asc' },
         }),

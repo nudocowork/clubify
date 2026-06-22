@@ -2335,10 +2335,16 @@ model KnowledgeEntry {
   embedding      Json?
   embeddingModel String?
   tokenCount     Int?
+  // Marca blanca dueña de esta entrada de knowledge. null = COMPARTIDA (sirve
+  // de fallback a todas las marcas). El asistente filtra por [marca, null] para
+  // que cada marca responda con SUS datos sin mezclar con otras.
+  whiteLabelId   String?
+  whiteLabel     WhiteLabel?        @relation("WhiteLabelKnowledge", fields: [whiteLabelId], references: [id], onDelete: Cascade)
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
 
   @@index([isActive, audience])
+  @@index([whiteLabelId, isActive, audience])
   @@index([documentId])
 }
 
@@ -3886,6 +3892,7 @@ model WhiteLabel {
   // Relaciones — todo lo "scoped" a una marca blanca cuelga de acá.
   tenants         Tenant[]
   modules         WhiteLabelModule[]
+  knowledgeEntries KnowledgeEntry[]    @relation("WhiteLabelKnowledge")
   referralCodes   ReferralCode[]       @relation("WhiteLabelReferralCodes")
   creditTransactions CreditTransaction[]
   /// Users con role SUPER_ADMIN vinculados directamente a esta marca
@@ -3964,6 +3971,9 @@ enum ModuleKey {
   ORDERS
   GROW_BUSINESS_SMS
   REVIEWS
+  // Sección Comunidad / Lab / Tutoriales. Habilitado solo para Clubify por
+  // ahora; cada marca blanca lo enciende/apaga por config (sin tocar código).
+  COMMUNITY
 }
 
 /// Ledger de movimientos de créditos por marca blanca. Cada compra,
