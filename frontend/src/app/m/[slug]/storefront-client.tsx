@@ -22,7 +22,7 @@ import {
   ProductBadge,
   PrimaryProductBadge,
 } from '@/components/storefront/ProductBadge';
-import { ClubifyBadge } from '@/components/ClubifyBadge';
+import { BrandBadge, type BrandBadgeBrand } from '@/components/BrandBadge';
 import { isDarkBackground } from '@/lib/contrast';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { CO_LOCATIONS, OTRO_MUNICIPIO } from '@/lib/co-locations';
@@ -64,9 +64,24 @@ type BackButtonConfig = {
   size?: number;          // px, default 40
 };
 
+type StorefrontBrand = {
+  name: string;
+  slug: string;
+  websiteUrl: string;
+  logoUrl: string | null;
+  iconUrl: string | null;
+  faviconUrl: string | null;
+  primaryColor: string;
+  initial: string;
+  attribution: { madeWith: string; createdBy: string; poweredBy: string };
+};
+
 type Storefront = {
   id: string;
   brandName: string;
+  /** Marca blanca del negocio (atribución/web/logo). El badge "Hecho con X"
+   *  hereda de acá — nunca Clubify por defecto. */
+  brand?: StorefrontBrand | null;
   logoUrl: string | null;
   primaryColor: string;
   secondaryColor: string;
@@ -1039,9 +1054,21 @@ function StorefrontPublicInner() {
       {/* Popup del menú: prioriza popups programados (#5), cae al legacy single. */}
       <StorefrontPopup menuPopups={s.menuPopups} legacy={s.popup} slug={slug} />
 
-      {/* Marca Clubify — siempre visible, no removible. Auto-adapta light/
-          dark según el brillo del fondo configurado por el dueño. */}
-      <ClubifyBadge variant="auto" dark={pageIsDark} />
+      {/* Marca del negocio (per marca blanca) — siempre visible. Hereda de
+          s.brand; fallback Clubify mientras el backend propaga el deploy. */}
+      <BrandBadge
+        brand={
+          (s.brand as BrandBadgeBrand | undefined) ?? {
+            name: 'Clubify',
+            websiteUrl: 'https://soyclubify.com',
+            initial: 'C',
+            primaryColor: '#22C55E',
+            attribution: { madeWith: 'Hecho con Clubify' },
+          }
+        }
+        variant="auto"
+        dark={pageIsDark}
+      />
       <LanguageSwitcher />
     </div>
   );

@@ -17,6 +17,10 @@ const PUBLIC_CACHE =
   'public, max-age=30, s-maxage=180, stale-while-revalidate=600';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
+import {
+  WhitelabelBrandService,
+  ResolvedBrand,
+} from '../whitelabel/whitelabel-brand.service';
 import { Public } from '../common/decorators/public.decorator';
 import { resolveMainSectionLabel } from '../common/business-categories';
 import {
@@ -62,6 +66,7 @@ export class PublicMenuController {
   constructor(
     private prisma: PrismaService,
     private translation: TranslationService,
+    private brand: WhitelabelBrandService,
   ) {}
 
   @Public()
@@ -78,6 +83,10 @@ export class PublicMenuController {
     });
     if (!t || t.status === 'SUSPENDED')
       throw new NotFoundException('Negocio no disponible');
+
+    // Marca blanca del negocio (fuente única). Hereda atribución/logo/favicon
+    // /web de SU marca — nunca de otra ni de Clubify por defecto.
+    const brand = await this.brand.resolveByWhiteLabelId(t.whiteLabelId);
 
     const promotions = await this.prisma.promotion.findMany({
       where: {
@@ -161,11 +170,11 @@ export class PublicMenuController {
           if (p.description)
             p.description = get('promotion', p.id, 'description', p.description);
         }
-        return this.buildStorefrontResponse(t, newDescription, locations, promotionsOut);
+        return this.buildStorefrontResponse(t, newDescription, locations, promotionsOut, brand);
       }
     }
 
-    return this.buildStorefrontResponse(t, description, locations, promotionsOut);
+    return this.buildStorefrontResponse(t, description, locations, promotionsOut, brand);
   }
 
   private buildStorefrontResponse(
@@ -173,11 +182,25 @@ export class PublicMenuController {
     description: string,
     locations: PublicLocation[],
     promotions: PublicPromotion[],
+    brand: ResolvedBrand,
   ) {
     return {
       id: t.id,
       slug: t.slug,
       brandName: t.brandName,
+      // Marca blanca del negocio (atribución/logo/favicon/web). El storefront
+      // muestra "Hecho con {brand.name}" y nunca branding de otra marca.
+      brand: {
+        name: brand.name,
+        slug: brand.slug,
+        websiteUrl: brand.websiteUrl,
+        logoUrl: brand.logoUrl,
+        iconUrl: brand.iconUrl,
+        faviconUrl: brand.faviconUrl,
+        primaryColor: brand.primaryColor,
+        initial: brand.initial,
+        attribution: brand.attribution,
+      },
       logoUrl: t.logoUrl,
       primaryColor: t.primaryColor,
       secondaryColor: t.secondaryColor,
