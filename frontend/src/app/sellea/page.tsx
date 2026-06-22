@@ -3,7 +3,6 @@ import { headers } from 'next/headers';
 import Link from 'next/link';
 import { Icon } from '@/components/Icon';
 import { FadeIn } from '@/components/FadeIn';
-import { HeroTrio } from '@/components/HeroTrio';
 import { HeroBanner } from '@/components/HeroBanner';
 import { InfoLinksBanner } from '@/components/InfoLinksBanner';
 import { LandingPricingCheckout } from '@/components/LandingPricingCheckout';
@@ -202,7 +201,15 @@ export default async function SelleaLandingPage() {
               </div>
             </div>
             <div className="relative flex justify-center lg:justify-end">
-              <HeroTrio />
+              {/* Hero visual de Sellea: foto del perro con los 2 teléfonos
+                  (reemplaza el HeroTrio de 3 iPhones). PNG transparente. */}
+              <img
+                src="/sellea-hero-perro.webp"
+                alt="Sellea — fidelización digital en el wallet del cliente"
+                width={1120}
+                height={921}
+                className="w-full max-w-[560px] h-auto object-contain drop-shadow-2xl"
+              />
             </div>
           </div>
         </div>
