@@ -5165,5 +5165,30 @@
     "notAllowed": "No permitido",
     "commissionPct": "% Comisión",
     "commissionHint": "% sobre cada venta del afiliado"
+  },
+  "app_marketing_edit_id": {
+    "loading": "Cargando…",
+    "loadError": "No se pudo cargar el cartel",
+    "backToMarketing": "Volver a Marketing",
+    "marketing": "Marketing",
+    "typeMenu": "QR Menú",
+    "typeCounter": "QR Mostrador",
+    "typeDiscount": "QR Descuento",
+    "typeReviews": "QR Reseñas",
+    "defaultBrandName": "Mi Negocio",
+    "intro": "Editas una variante de <strong>{label}</strong>. Cada variante tiene su propio diseño y se guarda automáticamente. El nombre lo cambias desde la lista en <link>Marketing</link>.",
+    "reviewsVenueLabel": "Sede del QR",
+    "reviewsNoTargets": "No tienes targets multi-sede aún. Crea uno en <link>Targets de reseñas</link> — mientras tanto el QR apunta al link genérico del negocio.",
+    "reviewsGenericOption": "— Link genérico (sede principal) —",
+    "reviewsVenueHint": "Cada sede puede tener su propio QR con su Google Reviews y umbral. Edítalos en <link>Targets de reseñas</link>.",
+    "counterTargetLabel": "Tarjeta destino",
+    "counterNoCards": "Aún no tienes tarjetas. Crea una en <link>Tarjetas</link> — mientras tanto el QR apunta al menú.",
+    "discountCouponCardLabel": "Tarjeta de cupón (recomendado)",
+    "discountNoCouponCards": "No tienes tarjetas de cupón aún. Crea una en <link>Tarjetas → Cupón</link> para que el QR inscriba directo al cliente.",
+    "discountNoneOption": "— Ninguna · usar código promo —",
+    "discountCouponCardHint": "Si eliges una tarjeta de cupón, el QR redirige a <code>/c/&lt;id&gt;</code> para inscribir al cliente automáticamente al escanear.",
+    "discountPromoCodeLabel": "O código promocional libre",
+    "discountPromoCodePlaceholder": "Ej: BIENVENIDA10",
+    "discountPromoCodeHint": "Si no usas tarjeta de cupón, el QR aplica este código sobre el carrito. Dálo de alta en <link>Promociones</link>."
   }
 }

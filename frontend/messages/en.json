@@ -5165,5 +5165,30 @@
     "notAllowed": "Not allowed",
     "commissionPct": "% Commission",
     "commissionHint": "% on each affiliate sale"
+  },
+  "app_marketing_edit_id": {
+    "loading": "Loading…",
+    "loadError": "Couldn’t load the poster",
+    "backToMarketing": "Back to Marketing",
+    "marketing": "Marketing",
+    "typeMenu": "Menu QR",
+    "typeCounter": "Counter QR",
+    "typeDiscount": "Discount QR",
+    "typeReviews": "Reviews QR",
+    "defaultBrandName": "My Business",
+    "intro": "You are editing a variant of <strong>{label}</strong>. Each variant has its own design and saves automatically. You can change the name from the list in <link>Marketing</link>.",
+    "reviewsVenueLabel": "QR venue",
+    "reviewsNoTargets": "You don’t have multi-venue targets yet. Create one in <link>Review targets</link> — meanwhile the QR points to the business’ generic link.",
+    "reviewsGenericOption": "— Generic link (main venue) —",
+    "reviewsVenueHint": "Each venue can have its own QR with its Google Reviews and threshold. Edit them in <link>Review targets</link>.",
+    "counterTargetLabel": "Target card",
+    "counterNoCards": "You don’t have any cards yet. Create one in <link>Cards</link> — meanwhile the QR points to the menu.",
+    "discountCouponCardLabel": "Coupon card (recommended)",
+    "discountNoCouponCards": "You don’t have coupon cards yet. Create one in <link>Cards → Coupon</link> so the QR enrolls the customer directly.",
+    "discountNoneOption": "— None · use promo code —",
+    "discountCouponCardHint": "If you choose a coupon card, the QR redirects to <code>/c/&lt;id&gt;</code> to enroll the customer automatically on scan.",
+    "discountPromoCodeLabel": "Or free promo code",
+    "discountPromoCodePlaceholder": "E.g.: WELCOME10",
+    "discountPromoCodeHint": "If you don’t use a coupon card, the QR applies this code to the cart. Set it up in <link>Promotions</link>."
   }
 }

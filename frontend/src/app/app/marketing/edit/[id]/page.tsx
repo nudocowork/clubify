@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 
 const QrPosterEditor = dynamic(
@@ -32,11 +33,11 @@ type ReviewTarget = {
   isActive: boolean;
 };
 
-const TYPE_META: Record<QrPosterType, { label: string; emoji: string }> = {
-  MENU: { label: 'QR Menú', emoji: '🍽' },
-  COUNTER: { label: 'QR Mostrador', emoji: '🪪' },
-  DISCOUNT: { label: 'QR Descuento', emoji: '🎁' },
-  REVIEWS: { label: 'QR Reseñas', emoji: '⭐' },
+const TYPE_META: Record<QrPosterType, { labelKey: string; emoji: string }> = {
+  MENU: { labelKey: 'typeMenu', emoji: '🍽' },
+  COUNTER: { labelKey: 'typeCounter', emoji: '🪪' },
+  DISCOUNT: { labelKey: 'typeDiscount', emoji: '🎁' },
+  REVIEWS: { labelKey: 'typeReviews', emoji: '⭐' },
 };
 
 /**
@@ -47,6 +48,7 @@ const TYPE_META: Record<QrPosterType, { label: string; emoji: string }> = {
  * editar el cartel "principal" de cada tipo.
  */
 export default function EditQrPosterPage() {
+  const t = useTranslations('app_marketing_edit_id');
   const { id } = useParams<{ id: string }>();
   const [poster, setPoster] = useState<QrPoster | null>(null);
   const [tenant, setTenant] = useState<any>(null);
@@ -77,24 +79,24 @@ export default function EditQrPosterPage() {
           ),
         )
         .catch(() => setReviewTargets([])),
-    ]).catch((e) => setErr(e?.message || 'No se pudo cargar el cartel'));
-  }, [id]);
+    ]).catch((e) => setErr(e?.message || t('loadError')));
+  }, [id, t]);
 
   if (err) {
     return (
       <div className="card card-pad max-w-lg mx-auto mt-8 text-center space-y-3">
         <div className="text-3xl">⚠️</div>
-        <div className="font-semibold">No se pudo cargar el cartel</div>
+        <div className="font-semibold">{t('loadError')}</div>
         <div className="text-sm text-mute break-words">{err}</div>
         <Link href="/app/marketing" className="btn-primary inline-block">
-          Volver a Marketing
+          {t('backToMarketing')}
         </Link>
       </div>
     );
   }
 
   if (!poster || !tenant) {
-    return <div className="text-mute">Cargando…</div>;
+    return <div className="text-mute">{t('loading')}</div>;
   }
 
   const slug = tenant.slug ?? 'demo';
@@ -104,6 +106,7 @@ export default function EditQrPosterPage() {
       : 'https://soyclubify.com';
 
   const meta = TYPE_META[poster.type];
+  const metaLabel = t(meta.labelKey);
 
   // Construye qrUrl y metaSlot según el tipo del cartel — replica la
   // lógica de los editores legacy.
@@ -127,18 +130,20 @@ export default function EditQrPosterPage() {
     metaSlot = (m, setM) => (
       <div className="card card-pad space-y-2">
         <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
-          Sede del QR
+          {t('reviewsVenueLabel')}
         </div>
         {activeTargets.length === 0 ? (
           <div className="text-[11px] text-mute leading-relaxed">
-            No tienes targets multi-sede aún. Crea uno en{' '}
-            <Link
-              href="/app/marketing/review-targets"
-              className="text-brand underline"
-            >
-              Targets de reseñas
-            </Link>{' '}
-            — mientras tanto el QR apunta al link genérico del negocio.
+            {t.rich('reviewsNoTargets', {
+              link: (chunks) => (
+                <Link
+                  href="/app/marketing/review-targets"
+                  className="text-brand underline"
+                >
+                  {chunks}
+                </Link>
+              ),
+            })}
           </div>
         ) : (
           <select
@@ -146,25 +151,26 @@ export default function EditQrPosterPage() {
             onChange={(e) => setM({ ...m, reviewTargetId: e.target.value })}
             className="input text-sm"
           >
-            <option value="">— Link genérico (sede principal) —</option>
-            {activeTargets.map((t) => (
-              <option key={t.id} value={t.id}>
-                ⭐ {t.name}
-                {t.location ? ` · ${t.location.name}` : ''}
+            <option value="">{t('reviewsGenericOption')}</option>
+            {activeTargets.map((rt) => (
+              <option key={rt.id} value={rt.id}>
+                ⭐ {rt.name}
+                {rt.location ? ` · ${rt.location.name}` : ''}
               </option>
             ))}
           </select>
         )}
         <div className="text-[11px] text-mute leading-relaxed">
-          Cada sede puede tener su propio QR con su Google Reviews y
-          umbral. Edítalos en{' '}
-          <Link
-            href="/app/marketing/review-targets"
-            className="text-brand underline"
-          >
-            Targets de reseñas
-          </Link>
-          .
+          {t.rich('reviewsVenueHint', {
+            link: (chunks) => (
+              <Link
+                href="/app/marketing/review-targets"
+                className="text-brand underline"
+              >
+                {chunks}
+              </Link>
+            ),
+          })}
         </div>
       </div>
     );
@@ -176,15 +182,17 @@ export default function EditQrPosterPage() {
     metaSlot = (m, setM) => (
       <div className="card card-pad space-y-2">
         <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
-          Tarjeta destino
+          {t('counterTargetLabel')}
         </div>
         {cards.length === 0 ? (
           <div className="text-[11px] text-mute leading-relaxed">
-            Aún no tienes tarjetas. Crea una en{' '}
-            <Link href="/app/cards/new" className="text-brand underline">
-              Tarjetas
-            </Link>{' '}
-            — mientras tanto el QR apunta al menú.
+            {t.rich('counterNoCards', {
+              link: (chunks) => (
+                <Link href="/app/cards/new" className="text-brand underline">
+                  {chunks}
+                </Link>
+              ),
+            })}
           </div>
         ) : (
           <select
@@ -227,15 +235,17 @@ export default function EditQrPosterPage() {
       <div className="card card-pad space-y-3">
         <div>
           <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-1.5">
-            Tarjeta de cupón (recomendado)
+            {t('discountCouponCardLabel')}
           </div>
           {couponCards.length === 0 ? (
             <div className="text-[11px] text-mute leading-relaxed">
-              No tienes tarjetas de cupón aún. Crea una en{' '}
-              <Link href="/app/cards/new" className="text-brand underline">
-                Tarjetas → Cupón
-              </Link>{' '}
-              para que el QR inscriba directo al cliente.
+              {t.rich('discountNoCouponCards', {
+                link: (chunks) => (
+                  <Link href="/app/cards/new" className="text-brand underline">
+                    {chunks}
+                  </Link>
+                ),
+              })}
             </div>
           ) : (
             <select
@@ -243,7 +253,7 @@ export default function EditQrPosterPage() {
               onChange={(e) => setM({ ...m, cardId: e.target.value })}
               className="input text-sm"
             >
-              <option value="">— Ninguna · usar código promo —</option>
+              <option value="">{t('discountNoneOption')}</option>
               {couponCards.map((c) => (
                 <option key={c.id} value={c.id}>
                   🎁 {c.name}
@@ -252,14 +262,16 @@ export default function EditQrPosterPage() {
             </select>
           )}
           <div className="text-[11px] text-mute mt-1.5 leading-snug">
-            Si eliges una tarjeta de cupón, el QR redirige a{' '}
-            <code className="text-[10px]">/c/&lt;id&gt;</code> para
-            inscribir al cliente automáticamente al escanear.
+            {t.rich('discountCouponCardHint', {
+              code: (chunks) => (
+                <code className="text-[10px]">{chunks}</code>
+              ),
+            })}
           </div>
         </div>
         <div className={m?.cardId ? 'opacity-50 pointer-events-none' : ''}>
           <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-1.5">
-            O código promocional libre
+            {t('discountPromoCodeLabel')}
           </div>
           <input
             type="text"
@@ -267,18 +279,19 @@ export default function EditQrPosterPage() {
             onChange={(e) =>
               setM({ ...m, promoCode: e.target.value.toUpperCase() })
             }
-            placeholder="Ej: BIENVENIDA10"
+            placeholder={t('discountPromoCodePlaceholder')}
             maxLength={32}
             className="input text-sm uppercase tracking-wider"
             disabled={!!m?.cardId}
           />
           <div className="text-[11px] text-mute mt-1.5 leading-relaxed">
-            Si no usas tarjeta de cupón, el QR aplica este código sobre
-            el carrito. Dálo de alta en{' '}
-            <Link href="/app/promos" className="text-brand underline">
-              Promociones
-            </Link>
-            .
+            {t.rich('discountPromoCodeHint', {
+              link: (chunks) => (
+                <Link href="/app/promos" className="text-brand underline">
+                  {chunks}
+                </Link>
+              ),
+            })}
           </div>
         </div>
       </div>
@@ -290,29 +303,31 @@ export default function EditQrPosterPage() {
       <div className="page-head">
         <h1 className="page-title">
           <Link href="/app/marketing" className="text-mute hover:text-ink">
-            Marketing
+            {t('marketing')}
           </Link>{' '}
           <span className="page-crumb">
-            / {meta.emoji} {poster.name?.trim() || meta.label}
+            / {meta.emoji} {poster.name?.trim() || metaLabel}
           </span>
         </h1>
       </div>
 
       <p className="text-sm text-mute max-w-2xl mb-5 leading-relaxed">
-        Editas una variante de <strong>{meta.label}</strong>. Cada variante
-        tiene su propio diseño y se guarda automáticamente. El nombre lo
-        cambias desde la lista en{' '}
-        <Link href="/app/marketing" className="text-brand underline">
-          Marketing
-        </Link>
-        .
+        {t.rich('intro', {
+          label: metaLabel,
+          strong: (chunks) => <strong>{chunks}</strong>,
+          link: (chunks) => (
+            <Link href="/app/marketing" className="text-brand underline">
+              {chunks}
+            </Link>
+          ),
+        })}
       </p>
 
       <QrPosterEditor
         type={poster.type}
         posterId={poster.id}
         qrUrl={qrUrl}
-        brandName={tenant.brandName ?? 'Mi Negocio'}
+        brandName={tenant.brandName ?? t('defaultBrandName')}
         logoUrl={tenant.walletLogoUrl || tenant.logoUrl || null}
         metaSlot={metaSlot}
       />

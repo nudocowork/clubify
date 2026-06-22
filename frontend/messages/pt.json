@@ -5165,5 +5165,30 @@
     "notAllowed": "Não permitido",
     "commissionPct": "% Comissão",
     "commissionHint": "% sobre cada venda do afiliado"
+  },
+  "app_marketing_edit_id": {
+    "loading": "Carregando…",
+    "loadError": "Não foi possível carregar o cartaz",
+    "backToMarketing": "Voltar ao Marketing",
+    "marketing": "Marketing",
+    "typeMenu": "QR Cardápio",
+    "typeCounter": "QR Balcão",
+    "typeDiscount": "QR Desconto",
+    "typeReviews": "QR Avaliações",
+    "defaultBrandName": "Meu Negócio",
+    "intro": "Você está editando uma variante de <strong>{label}</strong>. Cada variante tem seu próprio design e é salva automaticamente. O nome você altera na lista em <link>Marketing</link>.",
+    "reviewsVenueLabel": "Sede do QR",
+    "reviewsNoTargets": "Você ainda não tem destinos multi-sede. Crie um em <link>Destinos de avaliações</link> — enquanto isso o QR aponta para o link genérico do negócio.",
+    "reviewsGenericOption": "— Link genérico (sede principal) —",
+    "reviewsVenueHint": "Cada sede pode ter seu próprio QR com seu Google Reviews e limite. Edite-os em <link>Destinos de avaliações</link>.",
+    "counterTargetLabel": "Cartão de destino",
+    "counterNoCards": "Você ainda não tem cartões. Crie um em <link>Cartões</link> — enquanto isso o QR aponta para o cardápio.",
+    "discountCouponCardLabel": "Cartão de cupom (recomendado)",
+    "discountNoCouponCards": "Você ainda não tem cartões de cupom. Crie um em <link>Cartões → Cupom</link> para que o QR inscreva o cliente diretamente.",
+    "discountNoneOption": "— Nenhum · usar código promocional —",
+    "discountCouponCardHint": "Se escolher um cartão de cupom, o QR redireciona para <code>/c/&lt;id&gt;</code> para inscrever o cliente automaticamente ao escanear.",
+    "discountPromoCodeLabel": "Ou código promocional livre",
+    "discountPromoCodePlaceholder": "Ex: BEMVINDO10",
+    "discountPromoCodeHint": "Se não usar cartão de cupom, o QR aplica este código no carrinho. Cadastre-o em <link>Promoções</link>."
   }
 }
