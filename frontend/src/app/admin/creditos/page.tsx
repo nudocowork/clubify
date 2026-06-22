@@ -11,6 +11,7 @@
  * globales (Clubify) el endpoint da 403 → mostramos un aviso.
  */
 import { useEffect, useState, useCallback } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 
@@ -53,12 +54,12 @@ type Pending = {
   createdAt: string;
 };
 
-const TX_LABEL: Record<Tx['type'], string> = {
-  PURCHASE: 'Compra',
-  CONSUME: 'Consumo',
-  COMMIT: 'Comprometido',
-  REFUND: 'Reembolso',
-  ADJUSTMENT: 'Ajuste',
+const TX_LABEL_KEY: Record<Tx['type'], string> = {
+  PURCHASE: 'txPurchase',
+  CONSUME: 'txConsume',
+  COMMIT: 'txCommit',
+  REFUND: 'txRefund',
+  ADJUSTMENT: 'txAdjustment',
 };
 
 function Kpi({
@@ -85,6 +86,7 @@ function Kpi({
 }
 
 export default function CreditsPage() {
+  const t = useTranslations('admin_creditos');
   const [data, setData] = useState<Credits | null>(null);
   const [pending, setPending] = useState<Pending[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,58 +104,49 @@ export default function CreditsPage() {
       setPending(p ?? []);
     } catch (e: any) {
       if (e?.status === 403) setForbidden(true);
-      else toast(e?.message ?? 'No se pudo cargar', 'error');
+      else toast(e?.message ?? t('errorLoad'), 'error');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  async function activate(t: Pending) {
+  async function activate(item: Pending) {
     if (activatingId) return;
-    if (
-      !confirm(
-        `Activar "${t.brandName}" consume 1 crédito y le extiende 30 días. ¿Continuar?`,
-      )
-    )
-      return;
-    setActivatingId(t.id);
+    if (!confirm(t('confirmActivate', { brand: item.brandName }))) return;
+    setActivatingId(item.id);
     try {
       const res = await api<{ consumed: number; creditsAvailable: number }>(
-        `/admin/credits/activate/${t.id}`,
+        `/admin/credits/activate/${item.id}`,
         { method: 'POST' },
       );
       toast(
         res.consumed > 0
-          ? `Activado · ${res.creditsAvailable} créditos restantes`
-          : 'Activado',
+          ? t('activatedWithCredits', { credits: res.creditsAvailable })
+          : t('activated'),
         'success',
       );
       await load();
     } catch (e: any) {
-      toast(e?.message ?? 'No se pudo activar', 'error');
+      toast(e?.message ?? t('errorActivate'), 'error');
     } finally {
       setActivatingId(null);
     }
   }
 
   if (loading) {
-    return <div className="p-6 text-gray-500">Cargando créditos…</div>;
+    return <div className="p-6 text-gray-500">{t('loading')}</div>;
   }
 
   if (forbidden || !data) {
     return (
       <div className="p-6">
         <div className="max-w-lg rounded-2xl border border-gray-200 bg-white p-6">
-          <h1 className="text-lg font-bold text-gray-900">Créditos</h1>
-          <p className="mt-2 text-sm text-gray-600">
-            Esta sección es para administradores de una marca blanca. Tu cuenta
-            opera a nivel plataforma (Clubify), donde los créditos se gestionan
-            desde Master Admin → Créditos.
-          </p>
+          <h1 className="text-lg font-bold text-gray-900">{t('pageTitle')}</h1>
+          <p className="mt-2 text-sm text-gray-600">{t('forbiddenNote')}</p>
         </div>
       </div>
     );
@@ -163,26 +156,26 @@ export default function CreditsPage() {
     <div className="p-4 sm:p-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Créditos</h1>
+          <h1 className="text-xl font-bold text-gray-900">{t('pageTitle')}</h1>
           <p className="text-sm text-gray-500">
-            1 crédito = 30 días de servicio para un negocio de {data.whiteLabel.name}.
+            {t('subtitle', { brand: data.whiteLabel.name })}
           </p>
         </div>
         <button
           onClick={load}
           className="text-sm px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-50"
         >
-          Actualizar
+          {t('refresh')}
         </button>
       </div>
 
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5">
-        <Kpi label="Disponibles" value={data.available} tone="good" />
-        <Kpi label="Comprometidos (30d)" value={data.committed} />
-        <Kpi label="Usados (histórico)" value={data.used} />
+        <Kpi label={t('kpiAvailable')} value={data.available} tone="good" />
+        <Kpi label={t('kpiCommitted')} value={data.committed} />
+        <Kpi label={t('kpiUsed')} value={data.used} />
         <Kpi
-          label="Negocios pendientes"
+          label={t('kpiPendingBusinesses')}
           value={data.pendingTenants}
           tone={data.pendingTenants > 0 ? 'warn' : 'default'}
         />
@@ -192,13 +185,12 @@ export default function CreditsPage() {
       {data.buyLinks.length > 0 && (
         <section className="mt-7">
           <h2 className="text-sm font-bold text-gray-700 mb-2">
-            Comprar créditos
+            {t('buyCreditsTitle')}
           </h2>
           <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-900">
-            <span className="font-bold">Importante:</span> compra los créditos
-            usando <span className="font-bold">exactamente el mismo correo</span>{' '}
-            registrado en tu marca para que la acreditación sea automática. Si
-            usas otro correo, el pago queda pendiente de asignación manual.
+            {t.rich('buyCreditsWarning', {
+              b: (chunks) => <span className="font-bold">{chunks}</span>,
+            })}
           </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {data.buyLinks.map((l) => (
@@ -213,7 +205,7 @@ export default function CreditsPage() {
                   {l.label}
                 </div>
                 <div className="text-[12px] text-gray-500 mt-0.5">
-                  {l.credits} crédito{l.credits === 1 ? '' : 's'}
+                  {t('creditsCount', { count: l.credits })}
                 </div>
                 {l.price != null && (
                   <div className="text-base font-bold text-gray-900 mt-2">
@@ -221,7 +213,7 @@ export default function CreditsPage() {
                   </div>
                 )}
                 <div className="text-[12px] text-emerald-600 font-semibold mt-2">
-                  Comprar →
+                  {t('buyArrow')}
                 </div>
               </a>
             ))}
@@ -232,39 +224,43 @@ export default function CreditsPage() {
       {/* Negocios pendientes de activación */}
       <section className="mt-7">
         <h2 className="text-sm font-bold text-gray-700 mb-2">
-          Negocios pendientes de activación
+          {t('pendingBusinessesTitle')}
         </h2>
         {pending.length === 0 ? (
           <div className="rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-500">
-            No hay negocios pendientes. Todo al día ✅
+            {t('noPendingBusinesses')}
           </div>
         ) : (
           <div className="rounded-2xl border border-gray-200 bg-white divide-y divide-gray-100 overflow-hidden">
-            {pending.map((t) => (
+            {pending.map((item) => (
               <div
-                key={t.id}
+                key={item.id}
                 className="flex items-center justify-between gap-3 p-3.5 flex-wrap"
               >
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-gray-900 truncate">
-                    {t.brandName}
+                    {item.brandName}
                   </div>
                   <div className="text-[12px] text-gray-500">
-                    {t.reason}
-                    {t.overdueDays > 0 ? ` · hace ${t.overdueDays}d` : ''}
+                    {item.reason}
+                    {item.overdueDays > 0
+                      ? t('overdueSuffix', { days: item.overdueDays })
+                      : ''}
                   </div>
                 </div>
                 <button
-                  disabled={activatingId === t.id || data.available < 1}
-                  onClick={() => activate(t)}
+                  disabled={activatingId === item.id || data.available < 1}
+                  onClick={() => activate(item)}
                   className="text-[13px] font-semibold px-3 py-2 rounded-lg bg-gray-900 text-white hover:bg-black disabled:opacity-40 disabled:cursor-not-allowed"
                   title={
                     data.available < 1
-                      ? 'Sin créditos disponibles'
-                      : 'Consume 1 crédito'
+                      ? t('noCreditsTitle')
+                      : t('consumesOneCreditTitle')
                   }
                 >
-                  {activatingId === t.id ? 'Activando…' : 'Activar · 1 crédito'}
+                  {activatingId === item.id
+                    ? t('activating')
+                    : t('activateOneCredit')}
                 </button>
               </div>
             ))}
@@ -272,7 +268,7 @@ export default function CreditsPage() {
         )}
         {data.available < 1 && pending.length > 0 && (
           <p className="text-[12px] text-amber-600 mt-2">
-            No tienes créditos disponibles. Compra un pack arriba para activar.
+            {t('noCreditsHint')}
           </p>
         )}
       </section>
@@ -281,7 +277,7 @@ export default function CreditsPage() {
       {data.history.length > 0 && (
         <section className="mt-7">
           <h2 className="text-sm font-bold text-gray-700 mb-2">
-            Movimientos recientes
+            {t('recentMovementsTitle')}
           </h2>
           <div className="rounded-2xl border border-gray-200 bg-white divide-y divide-gray-100 overflow-hidden">
             {data.history.map((tx) => (
@@ -291,7 +287,7 @@ export default function CreditsPage() {
               >
                 <div className="min-w-0">
                   <span className="font-medium text-gray-800">
-                    {TX_LABEL[tx.type]}
+                    {t(TX_LABEL_KEY[tx.type])}
                   </span>
                   {tx.note && (
                     <span className="text-gray-500 ml-2 text-[12px]">

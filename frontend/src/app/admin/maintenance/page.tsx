@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
@@ -83,7 +84,7 @@ function levelClasses(level: Level) {
       text: 'text-red-700',
       bg: 'bg-red-50',
       border: 'border-red-200',
-      label: 'Crítico',
+      labelKey: 'levelCrit',
       dot: 'bg-red-500',
     };
   if (level === 'warn')
@@ -92,7 +93,7 @@ function levelClasses(level: Level) {
       text: 'text-amber-700',
       bg: 'bg-amber-50',
       border: 'border-amber-200',
-      label: 'Advertencia',
+      labelKey: 'levelWarn',
       dot: 'bg-amber-500',
     };
   return {
@@ -100,12 +101,13 @@ function levelClasses(level: Level) {
     text: 'text-emerald-700',
     bg: 'bg-emerald-50',
     border: 'border-emerald-200',
-    label: 'Óptimo',
+    labelKey: 'levelOk',
     dot: 'bg-emerald-500',
   };
 }
 
 export default function MaintenancePage() {
+  const t = useTranslations('admin_maintenance');
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -116,7 +118,7 @@ export default function MaintenancePage() {
       const data = await api<Snapshot>('/admin/system-health');
       setSnap(data);
     } catch (e: any) {
-      toast(e.message || 'Error cargando métricas', 'error');
+      toast(e.message || t('errorLoadingMetrics'), 'error');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -126,32 +128,34 @@ export default function MaintenancePage() {
   useEffect(() => {
     load();
     // Auto-refresh cada 30s para vista tipo SaaS dashboard
-    const t = setInterval(() => load(false), 30_000);
-    return () => clearInterval(t);
+    const timer = setInterval(() => load(false), 30_000);
+    return () => clearInterval(timer);
   }, []);
 
   return (
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Mantenimiento{' '}
+          {t('pageTitle')}{' '}
           <span className="page-crumb">
-            / Salud y capacidad de la plataforma
+            {t('pageCrumb')}
           </span>
         </h1>
         <div className="flex items-center gap-2">
           {snap && (
             <span className="text-xs text-mute">
-              Actualizado: {new Date(snap.generatedAt).toLocaleTimeString('es-CO')}
+              {t('updatedAt', {
+                time: new Date(snap.generatedAt).toLocaleTimeString('es-CO'),
+              })}
             </span>
           )}
           <button
             onClick={() => load(true)}
             disabled={refreshing}
             className="btn-ghost"
-            title="Refrescar ahora"
+            title={t('refreshNow')}
           >
-            <Icon name="history" /> {refreshing ? 'Cargando…' : 'Refrescar'}
+            <Icon name="history" /> {refreshing ? t('loadingShort') : t('refresh')}
           </button>
         </div>
       </div>
@@ -177,34 +181,43 @@ export default function MaintenancePage() {
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
             <CapacityCard
               icon="🗄"
-              title="Base de datos"
-              subtitle={`${snap.db.pretty} en uso`}
+              title={t('cardDatabaseTitle')}
+              subtitle={t('cardDatabaseSubtitle', { size: snap.db.pretty })}
               percent={snap.indicators.database.percent}
               level={snap.indicators.database.level}
-              limitText={`Capacidad: ${prettyBytes(snap.indicators.database.limitBytes)}`}
+              limitText={t('cardCapacity', {
+                value: prettyBytes(snap.indicators.database.limitBytes),
+              })}
             />
             <CapacityCard
               icon="🧠"
-              title="Memoria del proceso"
+              title={t('cardMemoryTitle')}
               subtitle={`${prettyBytes(snap.indicators.memory.usedBytes)} / ${prettyBytes(snap.indicators.memory.limitBytes)}`}
               percent={snap.indicators.memory.percent}
               level={snap.indicators.memory.level}
-              limitText={`RSS: ${prettyBytes(snap.process.memory.rss)}`}
+              limitText={t('cardRss', {
+                value: prettyBytes(snap.process.memory.rss),
+              })}
             />
             <CapacityCard
               icon="☁"
-              title="Storage (estimado)"
-              subtitle={`${snap.storage.estimatePretty} · ${snap.storage.fileCount} archivos`}
+              title={t('cardStorageTitle')}
+              subtitle={t('cardStorageSubtitle', {
+                size: snap.storage.estimatePretty,
+                files: snap.storage.fileCount,
+              })}
               percent={snap.indicators.storage.percent}
               level={snap.indicators.storage.level}
-              limitText={`Plan: ${prettyBytes(snap.indicators.storage.limitBytes)}`}
+              limitText={t('cardPlan', {
+                value: prettyBytes(snap.indicators.storage.limitBytes),
+              })}
             />
             <StatusCard
               icon="⚙"
-              title="Cola de jobs"
+              title={t('cardJobsTitle')}
               level={snap.indicators.jobs.level}
               valueText={snap.indicators.jobs.backlog.toString()}
-              caption="Notificaciones pendientes"
+              caption={t('cardJobsCaption')}
             />
           </div>
 
@@ -212,7 +225,7 @@ export default function MaintenancePage() {
           {snap.recommendations.length > 0 && (
             <div className="card card-pad mb-6">
               <h3 className="text-base font-semibold m-0 mb-3 flex items-center gap-2">
-                <span>💡</span> Recomendaciones automáticas
+                <span>💡</span> {t('autoRecommendations')}
               </h3>
               <div className="space-y-2">
                 {snap.recommendations.map((r, i) => {
@@ -241,16 +254,21 @@ export default function MaintenancePage() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
             <div className="card lg:col-span-2 overflow-hidden p-0">
               <div className="card-h">
-                <h3 className="m-0">📊 Top tablas por tamaño</h3>
+                <h3 className="m-0">{t('topTablesTitle')}</h3>
                 <span className="badge badge-mute text-[11px]">
-                  {snap.db.topTables.length} tablas
+                  {t('tablesCount', { count: snap.db.topTables.length })}
                 </span>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm min-w-[520px]">
                   <thead className="bg-bg2">
                     <tr>
-                      {['Tabla', 'Tamaño', 'Filas (~)', '% del total'].map((h) => (
+                      {[
+                        t('thTable'),
+                        t('thSize'),
+                        t('thRows'),
+                        t('thPercentTotal'),
+                      ].map((h) => (
                         <th
                           key={h}
                           className="text-left px-4 py-2.5 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
@@ -261,14 +279,14 @@ export default function MaintenancePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {snap.db.topTables.map((t) => {
-                      const pct = snap.db.bytes > 0 ? (t.bytes / snap.db.bytes) * 100 : 0;
+                    {snap.db.topTables.map((tbl) => {
+                      const pct = snap.db.bytes > 0 ? (tbl.bytes / snap.db.bytes) * 100 : 0;
                       return (
-                        <tr key={t.name} className="border-t border-line2">
-                          <td className="px-4 py-2.5 font-mono text-xs">{t.name}</td>
-                          <td className="px-4 py-2.5 font-medium">{t.pretty}</td>
+                        <tr key={tbl.name} className="border-t border-line2">
+                          <td className="px-4 py-2.5 font-mono text-xs">{tbl.name}</td>
+                          <td className="px-4 py-2.5 font-medium">{tbl.pretty}</td>
                           <td className="px-4 py-2.5 text-mute text-xs">
-                            {t.rows.toLocaleString('es-CO')}
+                            {tbl.rows.toLocaleString('es-CO')}
                           </td>
                           <td className="px-4 py-2.5">
                             <div className="flex items-center gap-2">
@@ -292,14 +310,14 @@ export default function MaintenancePage() {
             </div>
 
             <div className="card card-pad">
-              <h3 className="text-base font-semibold m-0 mb-3">🖥 Proceso</h3>
+              <h3 className="text-base font-semibold m-0 mb-3">{t('processTitle')}</h3>
               <dl className="text-sm space-y-2">
-                <Row label="Uptime" value={uptimeText(snap.process.uptimeSeconds)} />
-                <Row label="Node" value={snap.process.nodeVersion} />
-                <Row label="Entorno" value={snap.process.env} />
-                <Row label="Heap usado" value={prettyBytes(snap.process.memory.heapUsed)} />
-                <Row label="Heap total" value={prettyBytes(snap.process.memory.heapTotal)} />
-                <Row label="RSS" value={prettyBytes(snap.process.memory.rss)} />
+                <Row label={t('processUptime')} value={uptimeText(snap.process.uptimeSeconds)} />
+                <Row label={t('processNode')} value={snap.process.nodeVersion} />
+                <Row label={t('processEnv')} value={snap.process.env} />
+                <Row label={t('processHeapUsed')} value={prettyBytes(snap.process.memory.heapUsed)} />
+                <Row label={t('processHeapTotal')} value={prettyBytes(snap.process.memory.heapTotal)} />
+                <Row label={t('processRss')} value={prettyBytes(snap.process.memory.rss)} />
               </dl>
             </div>
           </div>
@@ -307,29 +325,33 @@ export default function MaintenancePage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
             {/* Contadores de negocio */}
             <div className="card card-pad">
-              <h3 className="text-base font-semibold m-0 mb-3">📈 Contadores</h3>
+              <h3 className="text-base font-semibold m-0 mb-3">{t('countersTitle')}</h3>
               <div className="grid grid-cols-2 gap-2.5">
-                <Stat label="Tenants" value={snap.counts.tenants} />
+                <Stat label={t('statTenants')} value={snap.counts.tenants} />
                 <Stat
-                  label="Activos"
+                  label={t('statActive')}
                   value={snap.counts.tenantsActive}
                   tone="ok"
                 />
-                <Stat label="Clientes" value={snap.counts.customers} />
-                <Stat label="Productos" value={snap.counts.products} />
-                <Stat label="Pedidos 30d" value={snap.counts.orders30d} tone="brand" />
-                <Stat label="Pases wallet" value={snap.counts.passes} />
-                <Stat label="Sellos 30d" value={snap.counts.stamps30d} />
-                <Stat label="Audit 30d" value={snap.counts.audits30d} />
+                <Stat label={t('statCustomers')} value={snap.counts.customers} />
+                <Stat label={t('statProducts')} value={snap.counts.products} />
+                <Stat label={t('statOrders30d')} value={snap.counts.orders30d} tone="brand" />
+                <Stat label={t('statWalletPasses')} value={snap.counts.passes} />
+                <Stat label={t('statStamps30d')} value={snap.counts.stamps30d} />
+                <Stat label={t('statAudit30d')} value={snap.counts.audits30d} />
               </div>
             </div>
 
             {/* Storage breakdown */}
             <div className="card card-pad">
-              <h3 className="text-base font-semibold m-0 mb-1">☁ Storage R2</h3>
+              <h3 className="text-base font-semibold m-0 mb-1">{t('storageR2Title')}</h3>
               <div className="text-xs text-mute mb-3">
-                Bucket: <span className="font-mono">{snap.storage.bucket}</span> ·
-                Estimación basada en {snap.storage.fileCount} referencias × ~{prettyBytes(snap.storage.avgBytesPerFile)}
+                {t.rich('storageR2Desc', {
+                  bucket: snap.storage.bucket,
+                  files: snap.storage.fileCount,
+                  avg: prettyBytes(snap.storage.avgBytesPerFile),
+                  mono: (chunks) => <span className="font-mono">{chunks}</span>,
+                })}
               </div>
               <dl className="text-sm space-y-1.5">
                 {Object.entries(snap.storage.breakdown).map(([k, v]) => (
@@ -345,15 +367,14 @@ export default function MaintenancePage() {
                 ))}
               </dl>
               <div className="border-t border-line2 mt-3 pt-3 flex justify-between font-semibold">
-                <span>Total estimado</span>
+                <span>{t('totalEstimated')}</span>
                 <span className="text-brand">{snap.storage.estimatePretty}</span>
               </div>
             </div>
           </div>
 
           <div className="text-center text-[11px] text-mute mt-4">
-            Métricas se refrescan cada 30s automáticamente. Storage es una
-            estimación (no se llama ListObjectsV2 a R2 para evitar costo).
+            {t('autoRefreshNote')}
           </div>
         </>
       )}
@@ -380,6 +401,7 @@ function CapacityCard({
   level: Level;
   limitText: string;
 }) {
+  const t = useTranslations('admin_maintenance');
   const c = levelClasses(level);
   return (
     <div className={`card card-pad border ${c.border}`}>
@@ -396,7 +418,7 @@ function CapacityCard({
           <span
             className={`inline-block w-1.5 h-1.5 rounded-full mr-1 ${c.dot}`}
           />
-          {c.label}
+          {t(c.labelKey)}
         </span>
       </div>
       <div className="mt-3">
@@ -428,6 +450,7 @@ function StatusCard({
   valueText: string;
   caption: string;
 }) {
+  const t = useTranslations('admin_maintenance');
   const c = levelClasses(level);
   return (
     <div className={`card card-pad border ${c.border}`}>
@@ -445,7 +468,7 @@ function StatusCard({
           <span
             className={`inline-block w-1.5 h-1.5 rounded-full mr-1 ${c.dot}`}
           />
-          {c.label}
+          {t(c.labelKey)}
         </span>
       </div>
     </div>
@@ -497,6 +520,7 @@ type MaintenanceStatus = {
  * desactivar desde aquí cuando termina el deploy.
  */
 function MaintenanceToggleCard() {
+  const t = useTranslations('admin_maintenance');
   const [status, setStatus] = useState<MaintenanceStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -522,7 +546,7 @@ function MaintenanceToggleCard() {
         setUntilLocal('');
       }
     } catch (e: any) {
-      toast(e?.message || 'No se pudo cargar el estado', 'error');
+      toast(e?.message || t('errorLoadStatus'), 'error');
     } finally {
       setLoading(false);
     }
@@ -532,13 +556,7 @@ function MaintenanceToggleCard() {
   }, []);
 
   async function save(nextEnabled: boolean) {
-    if (
-      nextEnabled &&
-      !confirm(
-        'Vas a ACTIVAR el modo mantenimiento. Todos los clientes verán la página "Volvemos en un rato". Solo tú (SUPER_ADMIN) vas a poder seguir navegando. ¿Continuar?',
-      )
-    )
-      return;
+    if (nextEnabled && !confirm(t('confirmActivate'))) return;
     setSaving(true);
     try {
       let untilIso: string | null = null;
@@ -557,12 +575,12 @@ function MaintenanceToggleCard() {
       setStatus(next);
       toast(
         nextEnabled
-          ? '🛠 Modo mantenimiento ACTIVADO'
-          : '✅ Modo mantenimiento DESACTIVADO',
+          ? t('toastActivated')
+          : t('toastDeactivated'),
         'success',
       );
     } catch (e: any) {
-      toast(e?.message || 'No se pudo guardar', 'error');
+      toast(e?.message || t('errorSave'), 'error');
     } finally {
       setSaving(false);
     }
@@ -588,35 +606,33 @@ function MaintenanceToggleCard() {
         <div className="text-3xl flex-none">{enabled ? '🛠' : '✅'}</div>
         <div className="flex-1 min-w-0">
           <h2 className="text-base font-semibold m-0 flex items-center gap-2">
-            Modo mantenimiento{' '}
+            {t('maintenanceModeTitle')}{' '}
             {enabled ? (
-              <span className="badge badge-warn text-[10px]">ACTIVO</span>
+              <span className="badge badge-warn text-[10px]">{t('badgeActive')}</span>
             ) : (
-              <span className="badge badge-info text-[10px]">Apagado</span>
+              <span className="badge badge-info text-[10px]">{t('badgeOff')}</span>
             )}
           </h2>
           <p className="text-sm text-mute mt-2 leading-relaxed">
-            {enabled
-              ? 'Los clientes ven la página "Volvemos en un rato". Tú sigues navegando normal porque eres SUPER_ADMIN. Desactiva cuando termines el deploy.'
-              : 'Presiona "Activar" antes de hacer un deploy con migración pesada o downtime. Los clientes ven una página estática mientras tanto.'}
+            {enabled ? t('maintenanceDescOn') : t('maintenanceDescOff')}
           </p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
         <div>
-          <label className="label">Mensaje para el cliente</label>
+          <label className="label">{t('clientMessageLabel')}</label>
           <textarea
             className="input"
             rows={3}
             value={message}
             onChange={(e) => setMessage(e.target.value)}
-            placeholder="Estamos actualizando el sistema. Volvemos en unos minutos."
+            placeholder={t('clientMessagePlaceholder')}
             maxLength={500}
           />
         </div>
         <div>
-          <label className="label">Tiempo estimado de vuelta (opcional)</label>
+          <label className="label">{t('etaLabel')}</label>
           <input
             type="datetime-local"
             className="input"
@@ -624,8 +640,7 @@ function MaintenanceToggleCard() {
             onChange={(e) => setUntilLocal(e.target.value)}
           />
           <div className="text-[11px] text-mute mt-1 leading-relaxed">
-            Si lo dejas vacío, no se muestra countdown. Si lo pones, los
-            clientes ven "Volvemos en X minutos".
+            {t('etaHint')}
           </div>
         </div>
       </div>
@@ -637,7 +652,7 @@ function MaintenanceToggleCard() {
             disabled={saving}
             className="btn-primary"
           >
-            {saving ? 'Guardando…' : '✅ Desactivar mantenimiento'}
+            {saving ? t('saving') : t('deactivateMaintenance')}
           </button>
         ) : (
           <>
@@ -645,16 +660,16 @@ function MaintenanceToggleCard() {
               onClick={() => save(false)}
               disabled={saving}
               className="btn-ghost"
-              title="Guarda mensaje/ETA sin activar"
+              title={t('saveDraftTitle')}
             >
-              Guardar borrador
+              {t('saveDraft')}
             </button>
             <button
               onClick={() => save(true)}
               disabled={saving}
               className="btn-primary bg-amber-500 hover:bg-amber-600 border-amber-500"
             >
-              {saving ? 'Guardando…' : '🛠 Activar mantenimiento'}
+              {saving ? t('saving') : t('activateMaintenance')}
             </button>
           </>
         )}

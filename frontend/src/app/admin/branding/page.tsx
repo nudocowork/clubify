@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { ImageUploader } from '@/components/ImageUploader';
 import { Icon } from '@/components/Icon';
@@ -9,11 +10,11 @@ type PlanId = 'mensual' | 'trimestral' | 'semestral' | 'anual';
 type LandingPlan = { price: number; checkoutUrl: string | null };
 type LandingPlans = Record<PlanId, LandingPlan>;
 
-const PLAN_LABELS: Record<PlanId, { label: string; sub: string }> = {
-  mensual: { label: 'Mensual', sub: 'Pago cada mes' },
-  trimestral: { label: 'Trimestral', sub: 'Pago cada 3 meses' },
-  semestral: { label: 'Semestral', sub: 'Pago cada 6 meses' },
-  anual: { label: 'Anual', sub: 'Pago una vez al año' },
+const PLAN_LABEL_KEY: Record<PlanId, { label: string; sub: string }> = {
+  mensual: { label: 'planMensualLabel', sub: 'planMensualSub' },
+  trimestral: { label: 'planTrimestralLabel', sub: 'planTrimestralSub' },
+  semestral: { label: 'planSemestralLabel', sub: 'planSemestralSub' },
+  anual: { label: 'planAnualLabel', sub: 'planAnualSub' },
 };
 
 /** Tarjeta con las medidas recomendadas para cada logo (formato/tamaño/peso/uso). */
@@ -30,18 +31,19 @@ function BrandGuide({
   peso: string;
   uso: string;
 }) {
+  const t = useTranslations('admin_branding');
   return (
     <div className="mt-2 text-[11px] leading-relaxed text-mute bg-bg2/60 border border-line rounded-lg px-3 py-2">
-      <span className="font-semibold text-ink">Formato:</span> {formato} ·{' '}
-      <span className="font-semibold text-ink">Tamaño:</span> {tamano}
+      <span className="font-semibold text-ink">{t('guideFormat')}</span> {formato} ·{' '}
+      <span className="font-semibold text-ink">{t('guideSize')}</span> {tamano}
       {ratio ? (
         <>
-          {' '}· <span className="font-semibold text-ink">Relación:</span> {ratio}
+          {' '}· <span className="font-semibold text-ink">{t('guideRatio')}</span> {ratio}
         </>
       ) : null}{' '}
-      · <span className="font-semibold text-ink">Peso máx:</span> {peso}
+      · <span className="font-semibold text-ink">{t('guideMaxWeight')}</span> {peso}
       <br />
-      <span className="font-semibold text-ink">Uso:</span> {uso}
+      <span className="font-semibold text-ink">{t('guideUsage')}</span> {uso}
     </div>
   );
 }
@@ -71,6 +73,7 @@ type Branding = {
 };
 
 export default function AdminBrandingPage() {
+  const t = useTranslations('admin_branding');
   const [b, setB] = useState<Branding>({
     appLogoUrl: null,
     landingLogoUrl: null,
@@ -100,7 +103,7 @@ export default function AdminBrandingPage() {
       setB(data);
       setPlans(plansData);
     } catch (e: any) {
-      toast(e.message || 'Error cargando branding', 'error');
+      toast(e.message || t('errorLoading'), 'error');
     } finally {
       setLoading(false);
     }
@@ -123,9 +126,9 @@ export default function AdminBrandingPage() {
           body: JSON.stringify(plans),
         }),
       ]);
-      toast('Branding guardado', 'success');
+      toast(t('savedSuccess'), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo guardar', 'error');
+      toast(e.message || t('saveError'), 'error');
     } finally {
       setSaving(false);
     }
@@ -135,10 +138,10 @@ export default function AdminBrandingPage() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Branding global <span className="page-crumb">/ Super Admin</span>
+          {t('pageTitle')} <span className="page-crumb">{t('pageCrumb')}</span>
         </h1>
         <button className="btn-primary" onClick={save} disabled={saving || loading}>
-          <Icon name="check" /> {saving ? 'Guardando…' : 'Guardar cambios'}
+          <Icon name="check" /> {saving ? t('saving') : t('saveChanges')}
         </button>
       </div>
 
@@ -150,17 +153,16 @@ export default function AdminBrandingPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <div className="card card-pad">
-            <h2 className="text-base font-semibold m-0">Logo del panel</h2>
+            <h2 className="text-base font-semibold m-0">{t('panelLogoTitle')}</h2>
             <p className="text-xs text-mute mt-1 leading-relaxed">
-              Aparece en el sidebar superior izquierdo del panel y como icono
-              principal de la marca Clubify dentro de la app.
+              {t('panelLogoDesc')}
             </p>
             <BrandGuide
-              formato="PNG transparente"
+              formato={t('formatPngTransparent')}
               tamano="512 × 512 px"
               ratio="1:1"
               peso="300 KB"
-              uso="Panel administrativo y menú lateral."
+              uso={t('panelLogoUsage')}
             />
             <div className="mt-3.5">
               <ImageUploader
@@ -177,19 +179,21 @@ export default function AdminBrandingPage() {
 
           <div className="card card-pad">
             <h2 className="text-base font-semibold m-0">
-              Logo de la landing pública
+              {t('landingLogoTitle')}
             </h2>
             <p className="text-xs text-mute mt-1 leading-relaxed">
-              Aparece en el header y footer de{' '}
-              <code className="bg-bg2 px-1 rounded">soyclubify.com</code> y en el
-              login. Si lo dejas vacío se usa el logo Clubify default.
+              {t.rich('landingLogoDesc', {
+                code: (chunks) => (
+                  <code className="bg-bg2 px-1 rounded">{chunks}</code>
+                ),
+              })}
             </p>
             <BrandGuide
-              formato="PNG transparente"
+              formato={t('formatPngTransparent')}
               tamano="1200 × 400 px"
               ratio="3:1"
               peso="500 KB"
-              uso="Landing, login y páginas públicas."
+              uso={t('landingLogoUsage')}
             />
             <div className="mt-3.5">
               <ImageUploader
@@ -204,16 +208,16 @@ export default function AdminBrandingPage() {
           </div>
 
           <div className="card card-pad">
-            <h2 className="text-base font-semibold m-0">Favicon</h2>
+            <h2 className="text-base font-semibold m-0">{t('faviconTitle')}</h2>
             <p className="text-xs text-mute mt-1 leading-relaxed">
-              Icono de la pestaña del navegador (junto al título) y de la PWA.
+              {t('faviconDesc')}
             </p>
             <BrandGuide
               formato="PNG / ICO / SVG / WEBP"
               tamano="512 × 512 px"
               ratio="1:1"
               peso="200 KB"
-              uso="Pestaña del navegador y PWA."
+              uso={t('faviconUsage')}
             />
             <div className="mt-3.5">
               <ImageUploader
@@ -232,18 +236,18 @@ export default function AdminBrandingPage() {
 
       <div className="card card-pad mt-5">
         <h2 className="text-base font-semibold m-0">
-          📞 Contacto comercial (landing pública)
+          {t('commercialContactTitle')}
         </h2>
         <p className="text-xs text-mute mt-1 leading-relaxed">
-          Datos que se usan en los botones de la landing{' '}
-          <code className="bg-bg2 px-1 rounded">soyclubify.com</code> —
-          "Agendar una Demo" (Calendly), botón de email y botón de
-          Instagram. Si dejas un campo vacío, el botón correspondiente
-          se oculta automáticamente.
+          {t.rich('commercialContactDesc', {
+            code: (chunks) => (
+              <code className="bg-bg2 px-1 rounded">{chunks}</code>
+            ),
+          })}
         </p>
         <div className="mt-3.5 grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
-            <label className="label">WhatsApp ventas</label>
+            <label className="label">{t('salesWhatsappLabel')}</label>
             <input
               type="text"
               className="input"
@@ -253,7 +257,7 @@ export default function AdminBrandingPage() {
             />
           </div>
           <div>
-            <label className="label">Email ventas</label>
+            <label className="label">{t('salesEmailLabel')}</label>
             <input
               type="email"
               className="input"
@@ -263,7 +267,7 @@ export default function AdminBrandingPage() {
             />
           </div>
           <div>
-            <label className="label">Instagram</label>
+            <label className="label">{t('salesInstagramLabel')}</label>
             <input
               type="text"
               className="input"
@@ -277,18 +281,18 @@ export default function AdminBrandingPage() {
 
       <div className="card card-pad mt-5">
         <h2 className="text-base font-semibold m-0">
-          💳 Planes de la landing pública
+          {t('landingPlansTitle')}
         </h2>
         <p className="text-xs text-mute mt-1 leading-relaxed">
-          Precio en USD + link de pago para cada plan. Los 4 se muestran
-          en el selector de la landing{' '}
-          <code className="bg-bg2 px-1 rounded">soyclubify.com</code>.
-          Si dejas un link vacío, el botón "Pagar ahora" del plan queda
-          deshabilitado hasta que lo configures.
+          {t.rich('landingPlansDesc', {
+            code: (chunks) => (
+              <code className="bg-bg2 px-1 rounded">{chunks}</code>
+            ),
+          })}
         </p>
         <div className="mt-4 space-y-3">
           {PLAN_ORDER.map((id) => {
-            const meta = PLAN_LABELS[id];
+            const meta = PLAN_LABEL_KEY[id];
             const plan = plans[id];
             return (
               <div
@@ -296,11 +300,11 @@ export default function AdminBrandingPage() {
                 className="grid grid-cols-12 gap-3 items-end border border-line2 rounded-lg p-3"
               >
                 <div className="col-span-12 sm:col-span-3">
-                  <div className="font-semibold text-sm">{meta.label}</div>
-                  <div className="text-[11px] text-mute">{meta.sub}</div>
+                  <div className="font-semibold text-sm">{t(meta.label)}</div>
+                  <div className="text-[11px] text-mute">{t(meta.sub)}</div>
                 </div>
                 <div className="col-span-4 sm:col-span-2">
-                  <label className="label">Precio USD</label>
+                  <label className="label">{t('priceUsdLabel')}</label>
                   <input
                     type="number"
                     min={0}
@@ -319,7 +323,7 @@ export default function AdminBrandingPage() {
                   />
                 </div>
                 <div className="col-span-8 sm:col-span-7">
-                  <label className="label">Link de pago (pasarela)</label>
+                  <label className="label">{t('checkoutLinkLabel')}</label>
                   <input
                     type="url"
                     className="input"
@@ -344,18 +348,18 @@ export default function AdminBrandingPage() {
 
       <div className="card card-pad mt-5">
         <h2 className="text-base font-semibold m-0">
-          📊 Stats de la landing pública
+          {t('landingStatsTitle')}
         </h2>
         <p className="text-xs text-mute mt-1 leading-relaxed">
-          Contadores que se muestran en la sección de números de{' '}
-          <code className="bg-bg2 px-1 rounded">soyclubify.com</code>.
-          Editables sin redeploy. Si dejas un campo vacío, se usa el valor
-          por defecto. Aceptan cualquier texto (ej: <code>+150</code>,{' '}
-          <code>30K+</code>, <code>4.9 / 5</code>).
+          {t.rich('landingStatsDesc', {
+            code: (chunks) => (
+              <code className="bg-bg2 px-1 rounded">{chunks}</code>
+            ),
+          })}
         </p>
         <div className="mt-3.5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div>
-            <label className="label">Negocios activos</label>
+            <label className="label">{t('statBusinessesLabel')}</label>
             <input
               type="text"
               className="input"
@@ -368,7 +372,7 @@ export default function AdminBrandingPage() {
             />
           </div>
           <div>
-            <label className="label">Clientes con tarjeta wallet</label>
+            <label className="label">{t('statWalletCustomersLabel')}</label>
             <input
               type="text"
               className="input"
@@ -381,7 +385,7 @@ export default function AdminBrandingPage() {
             />
           </div>
           <div>
-            <label className="label">Pedidos / mes</label>
+            <label className="label">{t('statOrdersLabel')}</label>
             <input
               type="text"
               className="input"
@@ -394,7 +398,7 @@ export default function AdminBrandingPage() {
             />
           </div>
           <div>
-            <label className="label">Calificación</label>
+            <label className="label">{t('statRatingLabel')}</label>
             <input
               type="text"
               className="input"
@@ -411,21 +415,21 @@ export default function AdminBrandingPage() {
 
       <div className="card card-pad mt-5">
         <h2 className="text-base font-semibold m-0">
-          🔐 PIN del escáner
+          {t('scannerPinTitle')}
         </h2>
         <p className="text-xs text-mute mt-1 leading-relaxed">
-          PIN que el cajero/staff debe ingresar en <code>/scan</code> cuando
-          quiere agregar <b>más de 1 sello</b> en una sola escaneada (anti-abuso).
-          Cada escaneada normal agrega 1 sello sin pedir nada. Si dejas vacío,
-          se permite agregar cualquier cantidad sin PIN. Recomendado: 4–6 dígitos.
+          {t.rich('scannerPinDesc', {
+            code: (chunks) => <code>{chunks}</code>,
+            b: (chunks) => <b>{chunks}</b>,
+          })}
         </p>
         <div className="mt-3.5 max-w-sm">
-          <label className="label">PIN (visible solo para super admin)</label>
+          <label className="label">{t('scannerPinLabel')}</label>
           <input
             type="text"
             inputMode="numeric"
             className="input font-mono tracking-widest"
-            placeholder="ej: 1234"
+            placeholder={t('scannerPinPlaceholder')}
             value={b.scannerStaffPin ?? ''}
             onChange={(e) =>
               setB({ ...b, scannerStaffPin: e.target.value })
@@ -436,15 +440,13 @@ export default function AdminBrandingPage() {
 
       <div className="card card-pad mt-5">
         <h2 className="text-base font-semibold m-0">
-          📞 Dudas por WhatsApp (soporte)
+          {t('supportWhatsappTitle')}
         </h2>
         <p className="text-xs text-mute mt-1 leading-relaxed">
-          Número al que llegan los clicks en el botón "Tengo dudas" de los
-          lockscreens Pro, billing, y CTAs de soporte en el panel y la
-          landing. Si está vacío, esos botones se ocultan automáticamente.
+          {t('supportWhatsappDesc')}
         </p>
         <div className="mt-3.5 max-w-sm">
-          <label className="label">Número (con prefijo país)</label>
+          <label className="label">{t('supportWhatsappLabel')}</label>
           <input
             type="text"
             className="input"
@@ -458,20 +460,11 @@ export default function AdminBrandingPage() {
       </div>
 
       <div className="card card-pad mt-5 bg-brand-soft border-brand/30">
-        <h3 className="text-sm font-semibold m-0">¿Cómo se aplica?</h3>
+        <h3 className="text-sm font-semibold m-0">{t('howAppliedTitle')}</h3>
         <ul className="text-xs text-mute mt-2 leading-relaxed space-y-1.5 list-disc pl-4">
-          <li>
-            Al guardar, los cambios se reflejan instantáneamente en todos los
-            paneles de tenants (no requiere redeploy).
-          </li>
-          <li>
-            El favicon puede tardar unos segundos en aparecer porque el
-            navegador cachea iconos. Refrescar (Cmd/Ctrl+Shift+R) lo fuerza.
-          </li>
-          <li>
-            Si dejas un campo vacío, se usan los defaults de Clubify
-            (clubify-logo.png y favicon.png en /public).
-          </li>
+          <li>{t('howAppliedItem1')}</li>
+          <li>{t('howAppliedItem2')}</li>
+          <li>{t('howAppliedItem3')}</li>
         </ul>
       </div>
     </div>
