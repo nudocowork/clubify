@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { ImageUploader } from '@/components/ImageUploader';
@@ -85,6 +86,7 @@ type CardOption = {
 // ─────────────────────────────────────────────────────────────────────
 
 export default function MenuBookAdminPage() {
+  const t = useTranslations('app_menu_book');
   const [sections, setSections] = useState<BookSection[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -101,7 +103,7 @@ export default function MenuBookAdminPage() {
 
   useEffect(() => {
     api<any>('/tenants/me')
-      .then((t) => setTenantSlug(t?.slug ?? null))
+      .then((tenant) => setTenantSlug(tenant?.slug ?? null))
       .catch(() => {});
     api<any>('/storefront')
       .then((sf) => {
@@ -146,9 +148,9 @@ export default function MenuBookAdminPage() {
         }),
       });
       setBookPopup(next);
-      toast('Popup global guardado', 'success');
+      toast(t('toastGlobalPopupSaved'), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo guardar', 'error');
+      toast(e.message || t('errorCouldNotSave'), 'error');
     }
   }
 
@@ -162,13 +164,13 @@ export default function MenuBookAdminPage() {
       });
       toast(
         next === 'VERTICAL'
-          ? 'Menú libro: deslizar arriba/abajo'
-          : 'Menú libro: deslizar izquierda/derecha',
+          ? t('toastDirectionVertical')
+          : t('toastDirectionHorizontal'),
         'success',
       );
     } catch (e: any) {
       setBookDirection(prev);
-      toast(e.message || 'No se pudo actualizar', 'error');
+      toast(e.message || t('errorCouldNotUpdate'), 'error');
     }
   }
 
@@ -180,9 +182,9 @@ export default function MenuBookAdminPage() {
         body: JSON.stringify({ bookMenuEnabled: next }),
       });
       setBookMenuEnabled(next);
-      toast(next ? 'Menú libro activado' : 'Menú libro desactivado', 'success');
+      toast(next ? t('toastBookEnabled') : t('toastBookDisabled'), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo actualizar', 'error');
+      toast(e.message || t('errorCouldNotUpdate'), 'error');
     } finally {
       setTogglingBook(false);
     }
@@ -197,7 +199,7 @@ export default function MenuBookAdminPage() {
       const data = await api<BookSection[]>('/catalog/menu-book');
       setSections(data);
     } catch (e: any) {
-      toast(e.message || 'Error cargando menú libro', 'error');
+      toast(e.message || t('errorLoadingBook'), 'error');
     } finally {
       setLoading(false);
     }
@@ -218,7 +220,7 @@ export default function MenuBookAdminPage() {
       setNewTitle('');
       reload();
     } catch (e: any) {
-      toast(e.message || 'Error creando sección', 'error');
+      toast(e.message || t('errorCreatingSection'), 'error');
     } finally {
       setCreating(false);
     }
@@ -232,7 +234,7 @@ export default function MenuBookAdminPage() {
         body: JSON.stringify({ ids: next.map((s) => s.id) }),
       });
     } catch (e: any) {
-      toast(e.message || 'Error reordenando', 'error');
+      toast(e.message || t('errorReordering'), 'error');
       reload();
     }
   }
@@ -242,13 +244,14 @@ export default function MenuBookAdminPage() {
       <header className="flex items-start justify-between gap-3 flex-wrap">
         <div className="flex-1 min-w-[260px]">
           <h1 className="text-2xl font-bold m-0 flex items-center gap-2">
-            <Icon name="book" size={22} /> Menú Libro
+            <Icon name="book" size={22} /> {t('title')}
           </h1>
           <p className="text-sm text-mute mt-1 max-w-xl leading-relaxed">
-            Menú visual tipo libro / flipbook. Organizá las páginas-imagen
-            por sección. Vive en su propia URL pública{' '}
-            <code className="text-[12px] px-1 py-0.5 bg-bg2 rounded">/book/&lt;negocio&gt;</code>{' '}
-            — independiente del menú digital tradicional.
+            {t.rich('intro', {
+              code: (chunks) => (
+                <code className="text-[12px] px-1 py-0.5 bg-bg2 rounded">{chunks}</code>
+              ),
+            })}
           </p>
           {bookMenuEnabled !== null && (
             <div className="mt-3 flex items-center gap-3">
@@ -261,12 +264,15 @@ export default function MenuBookAdminPage() {
                   className="accent-brand"
                 />
                 <span className="text-sm font-semibold">
-                  Activar menú libro en el público
+                  {t('enableBookPublic')}
                 </span>
               </label>
               {!bookMenuEnabled && (
                 <span className="text-xs text-mute">
-                  Cuando esté apagado, <code>/book/{tenantSlug ?? '...'}</code> no abre.
+                  {t.rich('whenOffHint', {
+                    slug: tenantSlug ?? '...',
+                    code: (chunks) => <code>{chunks}</code>,
+                  })}
                 </span>
               )}
             </div>
@@ -275,7 +281,7 @@ export default function MenuBookAdminPage() {
           {bookMenuEnabled && (
             <div className="mt-3">
               <div className="text-xs font-semibold text-mute mb-1.5">
-                Dirección del deslizamiento
+                {t('swipeDirection')}
               </div>
               <div className="inline-flex rounded-lg border border-line overflow-hidden">
                 <button
@@ -287,7 +293,7 @@ export default function MenuBookAdminPage() {
                       : 'bg-white text-mute hover:bg-bg2'
                   }`}
                 >
-                  ↔ Horizontal
+                  ↔ {t('horizontal')}
                 </button>
                 <button
                   type="button"
@@ -298,7 +304,7 @@ export default function MenuBookAdminPage() {
                       : 'bg-white text-mute hover:bg-bg2'
                   }`}
                 >
-                  ↕ Vertical
+                  ↕ {t('vertical')}
                 </button>
               </div>
             </div>
@@ -310,9 +316,9 @@ export default function MenuBookAdminPage() {
             target="_blank"
             rel="noopener noreferrer"
             className="btn-primary text-sm whitespace-nowrap inline-flex items-center gap-2"
-            title="Abre el menú libro público en otra pestaña"
+            title={t('viewBookTooltip')}
           >
-            👀 Ver menú libro
+            👀 {t('viewBook')}
           </a>
         )}
       </header>
@@ -322,12 +328,12 @@ export default function MenuBookAdminPage() {
       )}
 
       <div className="card card-pad">
-        <div className="text-sm font-semibold mb-2">Crear nueva sección</div>
+        <div className="text-sm font-semibold mb-2">{t('createNewSection')}</div>
         <div className="flex gap-2">
           <input
             value={newTitle}
             onChange={(e) => setNewTitle(e.target.value)}
-            placeholder="Ej: Entradas frías, Carnes, Postres…"
+            placeholder={t('phSectionTitle')}
             className="flex-1 px-3 py-2 text-sm rounded-md border border-line2 focus:outline-none focus:ring-2 focus:ring-brand"
             onKeyDown={(e) => {
               if (e.key === 'Enter') createSection();
@@ -339,7 +345,7 @@ export default function MenuBookAdminPage() {
             disabled={creating || !newTitle.trim()}
             className="btn-primary text-sm whitespace-nowrap disabled:opacity-50"
           >
-            {creating ? 'Creando…' : '+ Sección'}
+            {creating ? t('creating') : t('addSection')}
           </button>
         </div>
       </div>
@@ -349,10 +355,9 @@ export default function MenuBookAdminPage() {
       ) : sections.length === 0 ? (
         <div className="card card-pad text-center text-mute py-12">
           <div className="text-3xl mb-2">📖</div>
-          <div className="font-medium text-ink">Aún no hay secciones</div>
+          <div className="font-medium text-ink">{t('emptyNoSections')}</div>
           <div className="text-xs mt-1">
-            Empieza creando una sección arriba (ej: "Entradas frías"). Después
-            subes imágenes-página dentro.
+            {t('emptyNoSectionsHint')}
           </div>
         </div>
       ) : (
@@ -415,6 +420,7 @@ function SectionCard({
   onOpenPopup: (page: BookPage) => void;
   onOpenSectionPopup: () => void;
 }) {
+  const t = useTranslations('app_menu_book');
   const [editingTitle, setEditingTitle] = useState(false);
   const [title, setTitle] = useState(section.title);
   const [adding, setAdding] = useState(false);
@@ -433,7 +439,7 @@ function SectionCard({
       setEditingTitle(false);
       onChange();
     } catch (e: any) {
-      toast(e.message || 'Error', 'error');
+      toast(e.message || t('error'), 'error');
     }
   }
 
@@ -445,14 +451,14 @@ function SectionCard({
       });
       onChange();
     } catch (e: any) {
-      toast(e.message || 'Error', 'error');
+      toast(e.message || t('error'), 'error');
     }
   }
 
   async function deleteSection() {
     if (
       !confirm(
-        `¿Eliminar la sección "${section.title}" y sus ${section.pages.length} página(s)? No se puede deshacer.`,
+        t('confirmDeleteSection', { title: section.title, count: section.pages.length }),
       )
     )
       return;
@@ -462,7 +468,7 @@ function SectionCard({
       });
       onChange();
     } catch (e: any) {
-      toast(e.message || 'Error', 'error');
+      toast(e.message || t('error'), 'error');
     }
   }
 
@@ -476,7 +482,7 @@ function SectionCard({
       });
       onChange();
     } catch (e: any) {
-      toast(e.message || 'Error subiendo página', 'error');
+      toast(e.message || t('errorUploadingPage'), 'error');
     } finally {
       setAdding(false);
     }
@@ -490,7 +496,7 @@ function SectionCard({
       });
       onChange();
     } catch (e: any) {
-      toast(e.message || 'Error reordenando', 'error');
+      toast(e.message || t('errorReordering'), 'error');
     }
   }
 
@@ -518,13 +524,13 @@ function SectionCard({
           <button
             onClick={() => setEditingTitle(true)}
             className="flex-1 text-left font-semibold hover:text-brand transition"
-            title="Click para renombrar"
+            title={t('clickToRename')}
           >
             {section.title}
           </button>
         )}
         <span className="text-xs text-mute">
-          {section.pages.length} pág{section.pages.length === 1 ? '' : 's'}
+          {t('pagesCount', { count: section.pages.length })}
         </span>
         <button
           onClick={toggleActive}
@@ -533,9 +539,9 @@ function SectionCard({
               ? 'bg-ok-soft text-ok-ink hover:bg-ok-soft/70'
               : 'bg-bg3 text-mute hover:bg-line2'
           }`}
-          title={section.isActive ? 'Sección visible en el público' : 'Sección oculta'}
+          title={section.isActive ? t('sectionVisibleTooltip') : t('sectionHiddenTooltip')}
         >
-          {section.isActive ? '● Activa' : '○ Inactiva'}
+          {section.isActive ? `● ${t('active')}` : `○ ${t('inactive')}`}
         </button>
         <button
           onClick={onOpenSectionPopup}
@@ -544,14 +550,14 @@ function SectionCard({
               ? 'bg-brand text-white hover:opacity-90'
               : 'bg-bg3 text-mute hover:bg-line2'
           }`}
-          title="Popup que aparece al entrar a esta sección"
+          title={t('sectionPopupTooltip')}
         >
-          🎁 Popup{section.popupEnabled ? ' ON' : ''}
+          🎁 {t('popup')}{section.popupEnabled ? ' ON' : ''}
         </button>
         <button
           onClick={deleteSection}
           className="text-xs font-semibold p-1.5 rounded-md text-bad-ink hover:bg-bad-soft"
-          title="Eliminar sección"
+          title={t('deleteSection')}
         >
           <Icon name="trash" size={14} />
         </button>
@@ -560,7 +566,7 @@ function SectionCard({
       <div className="p-4">
         {section.pages.length === 0 ? (
           <div className="text-center text-mute text-sm py-6">
-            Aún no hay páginas en esta sección. Sube la primera abajo.
+            {t('emptyNoPages')}
           </div>
         ) : (
           <SortableList
@@ -581,7 +587,7 @@ function SectionCard({
 
         <div className="mt-3">
           <div className="text-xs font-medium text-mute mb-1.5">
-            Agregar página (recomendado mínimo 1080px de ancho)
+            {t('addPageHint')}
           </div>
           <ImageUploader
             folder="menu-book"
@@ -590,7 +596,7 @@ function SectionCard({
             onChange={uploadPage}
             value={null}
           />
-          {adding && <div className="text-xs text-mute mt-1">Guardando…</div>}
+          {adding && <div className="text-xs text-mute mt-1">{t('saving')}</div>}
         </div>
       </div>
     </div>
@@ -612,6 +618,7 @@ function PageCard({
   onChange: () => void;
   onOpenPopup: () => void;
 }) {
+  const t = useTranslations('app_menu_book');
   async function toggleActive() {
     try {
       await api(`/catalog/menu-book/pages/${page.id}`, {
@@ -620,17 +627,17 @@ function PageCard({
       });
       onChange();
     } catch (e: any) {
-      toast(e.message || 'Error', 'error');
+      toast(e.message || t('error'), 'error');
     }
   }
 
   async function deletePage() {
-    if (!confirm('¿Eliminar esta página? No se puede deshacer.')) return;
+    if (!confirm(t('confirmDeletePage'))) return;
     try {
       await api(`/catalog/menu-book/pages/${page.id}`, { method: 'DELETE' });
       onChange();
     } catch (e: any) {
-      toast(e.message || 'Error', 'error');
+      toast(e.message || t('error'), 'error');
     }
   }
 
@@ -648,7 +655,7 @@ function PageCard({
       />
       {page.popupEnabled && (
         <div className="absolute top-1.5 left-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 shadow-sm">
-          🔔 Popup
+          🔔 {t('popup')}
         </div>
       )}
       <div className="absolute top-1.5 right-1.5">
@@ -661,21 +668,21 @@ function PageCard({
         <button
           onClick={onOpenPopup}
           className="text-[10px] font-semibold px-2 py-1 rounded-md bg-white/90 hover:bg-white"
-          title="Editar popup"
+          title={t('editPopup')}
         >
-          🔔 Popup
+          🔔 {t('popup')}
         </button>
         <button
           onClick={toggleActive}
           className="text-[10px] font-semibold px-2 py-1 rounded-md bg-white/90 hover:bg-white"
-          title={page.isActive ? 'Ocultar página' : 'Activar página'}
+          title={page.isActive ? t('hidePage') : t('activatePage')}
         >
           {page.isActive ? '○' : '●'}
         </button>
         <button
           onClick={deletePage}
           className="text-[10px] font-semibold px-2 py-1 rounded-md bg-rose-500/90 hover:bg-rose-500 text-white ml-auto"
-          title="Eliminar página"
+          title={t('deletePage')}
         >
           <Icon name="trash" size={11} />
         </button>
@@ -697,6 +704,7 @@ function PopupEditorModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations('app_menu_book');
   const [form, setForm] = useState<PopupFormState>(() => popupStateFromPage(page));
   const [busy, setBusy] = useState(false);
   const cards = useTenantCards();
@@ -708,10 +716,10 @@ function PopupEditorModal({
         method: 'PATCH',
         body: JSON.stringify(popupPatchPayload(form)),
       });
-      toast('Popup actualizado', 'success');
+      toast(t('toastPopupUpdated'), 'success');
       onSaved();
     } catch (e: any) {
-      toast(e.message || 'Error guardando', 'error');
+      toast(e.message || t('errorSaving'), 'error');
     } finally {
       setBusy(false);
     }
@@ -721,7 +729,7 @@ function PopupEditorModal({
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
         <div className="px-5 py-4 border-b border-line2 flex items-center justify-between">
-          <div className="font-semibold text-base">🔔 Popup de esta página</div>
+          <div className="font-semibold text-base">🔔 {t('pagePopupTitle')}</div>
           <button
             onClick={onClose}
             className="text-mute hover:text-ink text-xl leading-none"
@@ -741,7 +749,7 @@ function PopupEditorModal({
               className="w-4 h-4 accent-brand"
             />
             <span className="text-sm font-medium">
-              Activar popup al hacer tap en esta imagen
+              {t('enablePopupOnTap')}
             </span>
           </label>
 
@@ -754,14 +762,14 @@ function PopupEditorModal({
             disabled={busy}
             className="text-sm px-3 py-2 rounded-md hover:bg-bg3"
           >
-            Cancelar
+            {t('cancel')}
           </button>
           <button
             onClick={save}
             disabled={busy}
             className="btn-primary text-sm disabled:opacity-50"
           >
-            {busy ? 'Guardando…' : 'Guardar popup'}
+            {busy ? t('saving') : t('savePopup')}
           </button>
         </div>
       </div>
@@ -784,6 +792,7 @@ function SectionPopupModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations('app_menu_book');
   const [form, setForm] = useState<PopupFormState>(() =>
     popupStateFromSection(section),
   );
@@ -797,10 +806,10 @@ function SectionPopupModal({
         method: 'PATCH',
         body: JSON.stringify(popupPatchPayload(form)),
       });
-      toast('Popup de sección actualizado', 'success');
+      toast(t('toastSectionPopupUpdated'), 'success');
       onSaved();
     } catch (e: any) {
-      toast(e.message || 'Error guardando', 'error');
+      toast(e.message || t('errorSaving'), 'error');
     } finally {
       setBusy(false);
     }
@@ -811,7 +820,7 @@ function SectionPopupModal({
       <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
         <div className="px-5 py-4 border-b border-line2 flex items-center justify-between">
           <div className="font-semibold text-base">
-            🎁 Popup de sección · {section.title}
+            🎁 {t('sectionPopupTitle', { title: section.title })}
           </div>
           <button
             onClick={onClose}
@@ -832,7 +841,7 @@ function SectionPopupModal({
               className="w-4 h-4 accent-brand"
             />
             <span className="text-sm font-medium">
-              Mostrar popup al entrar a esta sección
+              {t('showPopupOnSectionEnter')}
             </span>
           </label>
 
@@ -845,14 +854,14 @@ function SectionPopupModal({
             disabled={busy}
             className="text-sm px-3 py-2 rounded-md hover:bg-bg3"
           >
-            Cancelar
+            {t('cancel')}
           </button>
           <button
             onClick={save}
             disabled={busy}
             className="btn-primary text-sm disabled:opacity-50"
           >
-            {busy ? 'Guardando…' : 'Guardar popup'}
+            {busy ? t('saving') : t('savePopup')}
           </button>
         </div>
       </div>
@@ -873,6 +882,7 @@ function BookGlobalPopupCard({
   popup: BookGlobalPopup;
   onSave: (next: BookGlobalPopup) => Promise<void> | void;
 }) {
+  const t = useTranslations('app_menu_book');
   // Mapeamos al shape común para reusar PopupBody. Los campos `bookPopup*`
   // siguen siendo lo que vive en DB; este state es solo para el editor.
   const [form, setForm] = useState<PopupFormState>(() => ({
@@ -923,9 +933,11 @@ function BookGlobalPopupCard({
         <div className="flex items-center gap-2">
           <span className="text-base">🎁</span>
           <div>
-            <div className="text-sm font-semibold">Popup global del Menú Libro</div>
+            <div className="text-sm font-semibold">{t('globalPopupTitle')}</div>
             <div className="text-[11px] text-mute">
-              Aparece al abrir <code>/book/&lt;negocio&gt;</code> después de unos segundos
+              {t.rich('globalPopupSubtitle', {
+                code: (chunks) => <code>{chunks}</code>,
+              })}
             </div>
           </div>
         </div>
@@ -943,7 +955,7 @@ function BookGlobalPopupCard({
             onClick={() => setExpanded((v) => !v)}
             className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-white border border-line2 hover:bg-bg2"
           >
-            {expanded ? 'Cerrar' : 'Configurar'}
+            {expanded ? t('closeWord') : t('configure')}
           </button>
         </div>
       </div>
@@ -959,7 +971,7 @@ function BookGlobalPopupCard({
               className="w-4 h-4 accent-brand"
             />
             <span className="text-sm font-medium">
-              Mostrar este popup global al abrir el menú libro
+              {t('showGlobalPopup')}
             </span>
           </label>
 
@@ -971,7 +983,7 @@ function BookGlobalPopupCard({
             }
           >
             <label className="block text-xs font-medium mb-1">
-              Retraso en segundos
+              {t('delaySeconds')}
             </label>
             <input
               type="number"
@@ -982,7 +994,7 @@ function BookGlobalPopupCard({
               className="w-full sm:w-32 px-3 py-2 text-sm rounded-md border border-line2"
             />
             <div className="text-[11px] text-mute mt-1">
-              Cuánto espera antes de aparecer (0-120s). Default 5s.
+              {t('delaySecondsHint')}
             </div>
           </div>
 
@@ -992,7 +1004,7 @@ function BookGlobalPopupCard({
               disabled={busy}
               className="btn-primary text-sm disabled:opacity-50"
             >
-              {busy ? 'Guardando…' : 'Guardar popup global'}
+              {busy ? t('saving') : t('saveGlobalPopup')}
             </button>
           </div>
         </div>
@@ -1031,27 +1043,27 @@ function useTenantCards() {
 
 const POPUP_TYPE_OPTIONS: Array<{
   value: PopupType;
-  label: string;
+  labelKey: string;
   icon: string;
-  hint: string;
+  hintKey: string;
 }> = [
   {
     value: 'EXTERNAL_LINK',
-    label: 'Enlace externo',
+    labelKey: 'popupTypeExternalLabel',
     icon: '🔗',
-    hint: 'Botón que abre una URL (WhatsApp, web, reserva).',
+    hintKey: 'popupTypeExternalHint',
   },
   {
     value: 'CARD',
-    label: 'Tarjeta de fidelización',
+    labelKey: 'popupTypeCardLabel',
     icon: '🎁',
-    hint: 'Cliente se inscribe a una Card del negocio (sellos o cupones).',
+    hintKey: 'popupTypeCardHint',
   },
   {
     value: 'IMAGE',
-    label: 'Imagen promocional',
+    labelKey: 'popupTypeImageLabel',
     icon: '🖼️',
-    hint: 'Solo visualización: imagen grande + texto opcional, sin CTA.',
+    hintKey: 'popupTypeImageHint',
   },
 ];
 
@@ -1065,9 +1077,10 @@ function PopupTypePicker({
   onChange: (v: PopupType) => void;
   disabled?: boolean;
 }) {
+  const t = useTranslations('app_menu_book');
   return (
     <div>
-      <div className="text-xs font-semibold mb-1.5">Tipo de popup</div>
+      <div className="text-xs font-semibold mb-1.5">{t('popupTypeLabel')}</div>
       <div className="grid sm:grid-cols-3 gap-2">
         {POPUP_TYPE_OPTIONS.map((opt) => {
           const active = value === opt.value;
@@ -1085,10 +1098,10 @@ function PopupTypePicker({
             >
               <div className="flex items-center gap-1.5 text-sm font-semibold">
                 <span>{opt.icon}</span>
-                <span>{opt.label}</span>
+                <span>{t(opt.labelKey)}</span>
               </div>
               <div className="text-[11px] text-mute mt-0.5 leading-snug">
-                {opt.hint}
+                {t(opt.hintKey)}
               </div>
             </button>
           );
@@ -1129,6 +1142,7 @@ function PopupBody({
    *  externo. Default: mostrar. */
   showTitle?: boolean;
 }) {
+  const t = useTranslations('app_menu_book');
   return (
     <div className={form.popupEnabled ? 'space-y-4' : 'space-y-4 opacity-50 pointer-events-none'}>
       <PopupTypePicker
@@ -1139,13 +1153,13 @@ function PopupBody({
       {showTitle && (
         <div>
           <label className="block text-xs font-medium mb-1">
-            Título (opcional)
+            {t('fieldTitleOptional')}
           </label>
           <input
             value={form.popupTitle}
             onChange={(e) => setForm({ ...form, popupTitle: e.target.value })}
             maxLength={120}
-            placeholder="Ej: Recomendación del chef"
+            placeholder={t('phTitle')}
             className="w-full px-3 py-2 text-sm rounded-md border border-line2"
           />
         </div>
@@ -1153,7 +1167,7 @@ function PopupBody({
 
       <div>
         <label className="block text-xs font-medium mb-1">
-          Descripción (opcional)
+          {t('fieldDescriptionOptional')}
         </label>
         <textarea
           value={form.popupDescription}
@@ -1162,7 +1176,7 @@ function PopupBody({
           }
           maxLength={2000}
           rows={3}
-          placeholder="Texto del popup."
+          placeholder={t('phDescription')}
           className="w-full px-3 py-2 text-sm rounded-md border border-line2 resize-none"
         />
       </div>
@@ -1173,7 +1187,7 @@ function PopupBody({
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium mb-1">
-                Texto del botón
+                {t('fieldButtonText')}
               </label>
               <input
                 value={form.popupButtonText}
@@ -1181,13 +1195,13 @@ function PopupBody({
                   setForm({ ...form, popupButtonText: e.target.value })
                 }
                 maxLength={40}
-                placeholder="Ej: Pedir por WhatsApp"
+                placeholder={t('phButtonText')}
                 className="w-full px-3 py-2 text-sm rounded-md border border-line2"
               />
             </div>
             <div>
               <label className="block text-xs font-medium mb-1">
-                Link del botón
+                {t('fieldButtonLink')}
               </label>
               <input
                 value={form.popupButtonUrl}
@@ -1202,7 +1216,7 @@ function PopupBody({
           </div>
           <div>
             <label className="block text-xs font-medium mb-1">
-              Color del botón
+              {t('fieldButtonColor')}
             </label>
             <div className="flex items-center gap-2">
               <input
@@ -1226,7 +1240,7 @@ function PopupBody({
           </div>
           <div>
             <label className="block text-xs font-medium mb-1">
-              Imagen del popup (opcional)
+              {t('fieldPopupImageOptional')}
             </label>
             <ImageUploader
               folder="menu-book-popup"
@@ -1245,7 +1259,7 @@ function PopupBody({
         <div className="space-y-3">
           <div>
             <label className="block text-xs font-medium mb-1">
-              Tarjeta de fidelización
+              {t('fieldLoyaltyCard')}
             </label>
             <select
               value={form.popupCardId ?? ''}
@@ -1254,22 +1268,21 @@ function PopupBody({
               }
               className="w-full px-3 py-2 text-sm rounded-md border border-line2"
             >
-              <option value="">— Elegir tarjeta —</option>
+              <option value="">{t('chooseCard')}</option>
               {cards.map((c) => (
                 <option key={c.id} value={c.id} disabled={!c.isActive}>
                   {c.name} · {c.type}
-                  {!c.isActive ? ' · pausada' : ''}
+                  {!c.isActive ? ` · ${t('paused')}` : ''}
                 </option>
               ))}
             </select>
             <p className="text-[11px] text-mute mt-1 leading-relaxed">
-              Al tocar el botón, el cliente va a la inscripción de esta
-              tarjeta. Solo aparecen Cards de este negocio.
+              {t('cardPickerHint')}
             </p>
           </div>
           <div>
             <label className="block text-xs font-medium mb-1">
-              Texto del botón
+              {t('fieldButtonText')}
             </label>
             <input
               value={form.popupCardCtaLabel}
@@ -1277,16 +1290,16 @@ function PopupBody({
                 setForm({ ...form, popupCardCtaLabel: e.target.value })
               }
               maxLength={40}
-              placeholder="Reclamar mi tarjeta"
+              placeholder={t('phClaimCard')}
               className="w-full px-3 py-2 text-sm rounded-md border border-line2"
             />
             <p className="text-[11px] text-mute mt-1">
-              Default: "Reclamar mi tarjeta".
+              {t('claimCardDefaultHint')}
             </p>
           </div>
           <div>
             <label className="block text-xs font-medium mb-1">
-              Color del botón
+              {t('fieldButtonColor')}
             </label>
             <div className="flex items-center gap-2">
               <input
@@ -1310,7 +1323,7 @@ function PopupBody({
           </div>
           <div>
             <label className="block text-xs font-medium mb-1">
-              Imagen del popup (opcional)
+              {t('fieldPopupImageOptional')}
             </label>
             <ImageUploader
               folder="menu-book-popup"
@@ -1329,7 +1342,7 @@ function PopupBody({
         <div className="space-y-3">
           <div>
             <label className="block text-xs font-medium mb-1">
-              Imagen promocional <span className="text-bad-ink">*</span>
+              {t('fieldPromoImage')} <span className="text-bad-ink">*</span>
             </label>
             <ImageUploader
               folder="menu-book-popup"
@@ -1341,13 +1354,12 @@ function PopupBody({
               }
             />
             <p className="text-[11px] text-mute mt-1">
-              Vertical funciona mejor (~600×800). Sin botón CTA — el cliente
-              solo cierra con la X.
+              {t('promoImageHint')}
             </p>
           </div>
           <div>
             <label className="block text-xs font-medium mb-1">
-              Caption debajo de la imagen (opcional)
+              {t('fieldCaptionOptional')}
             </label>
             <input
               value={form.popupImageCaption}
@@ -1355,7 +1367,7 @@ function PopupBody({
                 setForm({ ...form, popupImageCaption: e.target.value })
               }
               maxLength={200}
-              placeholder="Ej: Promo válida hasta el domingo"
+              placeholder={t('phCaption')}
               className="w-full px-3 py-2 text-sm rounded-md border border-line2"
             />
           </div>

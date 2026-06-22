@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
@@ -17,6 +18,7 @@ function tableDims(t: { shape: string; seats: number; width?: number | null; hei
 }
 
 function ZoneAddForm({ onCreated, locationId }: { onCreated: () => void; locationId?: string | null }) {
+  const t = useTranslations('app_reservations_reportes');
   const [name, setName] = useState('');
   const [type, setType] = useState('INDOOR');
   const [busy, setBusy] = useState(false);
@@ -31,9 +33,9 @@ function ZoneAddForm({ onCreated, locationId }: { onCreated: () => void; locatio
       });
       setName('');
       onCreated();
-      toast('Zona creada', 'success');
+      toast(t('toastZoneCreated'), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo crear', 'error');
+      toast(e.message || t('errorCouldNotCreate'), 'error');
     } finally {
       setBusy(false);
     }
@@ -42,7 +44,7 @@ function ZoneAddForm({ onCreated, locationId }: { onCreated: () => void; locatio
     <form onSubmit={submit} className="flex gap-1 mt-2">
       <input
         className="input text-xs"
-        placeholder="Nueva zona"
+        placeholder={t('phNewZone')}
         value={name}
         onChange={(e) => setName(e.target.value)}
       />
@@ -52,10 +54,10 @@ function ZoneAddForm({ onCreated, locationId }: { onCreated: () => void; locatio
         onChange={(e) => setType(e.target.value)}
         style={{ width: 100 }}
       >
-        <option value="INDOOR">Indoor</option>
-        <option value="OUTDOOR">Terraza</option>
-        <option value="BAR">Barra</option>
-        <option value="PRIVATE">Privado</option>
+        <option value="INDOOR">{t('zoneTypeIndoor')}</option>
+        <option value="OUTDOOR">{t('zoneTypeOutdoor')}</option>
+        <option value="BAR">{t('zoneTypeBar')}</option>
+        <option value="PRIVATE">{t('zoneTypePrivate')}</option>
       </select>
       <button className="btn-primary text-xs px-3" disabled={busy}>+</button>
     </form>
@@ -94,13 +96,13 @@ type Reservation = {
   customer?: { id: string; fullName: string; tags: string[] } | null;
 };
 
-const STATUS_META: Record<string, { label: string; bg: string; fg: string }> = {
-  PENDING: { label: 'Pendiente', bg: '#fff7ed', fg: '#b45309' },
-  CONFIRMED: { label: 'Confirmada', bg: '#ecfdf3', fg: '#15803d' },
-  SEATED: { label: 'Sentada', bg: '#eff6ff', fg: '#1d4ed8' },
-  COMPLETED: { label: 'Completada', bg: '#f3f4f6', fg: '#6b7280' },
-  CANCELLED: { label: 'Cancelada', bg: '#f3f4f6', fg: '#6b7280' },
-  NO_SHOW: { label: 'Ausente', bg: '#fef2f2', fg: '#dc2626' },
+const STATUS_META: Record<string, { labelKey: string; bg: string; fg: string }> = {
+  PENDING: { labelKey: 'statusPending', bg: '#fff7ed', fg: '#b45309' },
+  CONFIRMED: { labelKey: 'statusConfirmed', bg: '#ecfdf3', fg: '#15803d' },
+  SEATED: { labelKey: 'statusSeated', bg: '#eff6ff', fg: '#1d4ed8' },
+  COMPLETED: { labelKey: 'statusCompleted', bg: '#f3f4f6', fg: '#6b7280' },
+  CANCELLED: { labelKey: 'statusCancelled', bg: '#f3f4f6', fg: '#6b7280' },
+  NO_SHOW: { labelKey: 'statusNoShow', bg: '#fef2f2', fg: '#dc2626' },
 };
 
 function todayISO() {
@@ -109,6 +111,7 @@ function todayISO() {
 }
 
 export default function ReportesPage() {
+  const t = useTranslations('app_reservations_reportes');
   const [tab] = useState<'agenda' | 'plano' | 'metricas'>('metricas');
   const setTab = (_: any) => {};
   const [date, setDate] = useState(todayISO());
@@ -143,7 +146,7 @@ export default function ReportesPage() {
       setTables(tb);
       if (locations.length === 0) setLocations(locs);
     } catch (e: any) {
-      toast(e.message || 'Error cargando reservas', 'error');
+      toast(e.message || t('errorLoadingReservations'), 'error');
     }
   }
 
@@ -161,16 +164,16 @@ export default function ReportesPage() {
     try {
       await api(`/reservations/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
       loadAll();
-      toast(`Reserva marcada como ${STATUS_META[status].label.toLowerCase()}`, 'success');
+      toast(t('toastReservationMarked', { status: t(STATUS_META[status].labelKey).toLowerCase() }), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo actualizar', 'error');
+      toast(e.message || t('errorCouldNotUpdate'), 'error');
     }
   }
 
   async function submitReservation(e: React.FormEvent) {
     e.preventDefault();
     if (!form.customerName.trim() || !form.customerPhone.trim()) {
-      toast('Nombre y teléfono son obligatorios', 'error');
+      toast(t('errorNamePhoneRequired'), 'error');
       return;
     }
     setCreating(true);
@@ -186,9 +189,9 @@ export default function ReportesPage() {
       });
       setForm({ customerName: '', customerPhone: '', party: 2, time: '21:00', notes: '' });
       loadAll();
-      toast('Reserva creada', 'success');
+      toast(t('toastReservationCreated'), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo crear', 'error');
+      toast(e.message || t('errorCouldNotCreate'), 'error');
     } finally {
       setCreating(false);
     }
@@ -202,7 +205,7 @@ export default function ReportesPage() {
   async function submitWalkIn(e: React.FormEvent) {
     e.preventDefault();
     if (!walkIn.customerName.trim()) {
-      toast('Nombre requerido', 'error');
+      toast(t('errorNameRequired'), 'error');
       return;
     }
     setWalkInSubmitting(true);
@@ -231,12 +234,12 @@ export default function ReportesPage() {
       loadAll();
       toast(
         hadPhone
-          ? 'Walk-in registrado · sello asignado al cliente'
-          : 'Walk-in registrado (sin teléfono → no se le pudo asignar sello)',
+          ? t('toastWalkInWithStamp')
+          : t('toastWalkInNoPhone'),
         'success',
       );
     } catch (err: any) {
-      toast(err.message || 'No se pudo registrar', 'error');
+      toast(err.message || t('errorCouldNotRegister'), 'error');
     } finally {
       setWalkInSubmitting(false);
     }
@@ -251,7 +254,7 @@ export default function ReportesPage() {
   async function createTable(e: React.FormEvent) {
     e.preventDefault();
     if (!newTable.number.trim()) {
-      toast('Número de mesa requerido', 'error');
+      toast(t('errorTableNumberRequired'), 'error');
       return;
     }
     try {
@@ -270,36 +273,36 @@ export default function ReportesPage() {
       setNewTable({ number: '', seats: 4, shape: 'ROUND', zoneId: '' });
       setShowAddTable(false);
       loadAll();
-      toast('Mesa creada', 'success');
+      toast(t('toastTableCreated'), 'success');
     } catch (err: any) {
-      toast(err.message || 'No se pudo crear', 'error');
+      toast(err.message || t('errorCouldNotCreate'), 'error');
     }
   }
 
   async function patchTable(id: string, patch: Partial<Table>) {
     // Optimistic update
-    setTables((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+    setTables((prev) => prev.map((tbl) => (tbl.id === id ? { ...tbl, ...patch } : tbl)));
     try {
       await api(`/reservations/tables/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
     } catch (e: any) {
-      toast(e.message || 'No se pudo actualizar', 'error');
+      toast(e.message || t('errorCouldNotUpdate'), 'error');
       loadAll();
     }
   }
 
-  async function toggleBlock(t: Table) {
-    patchTable(t.id, { isBlocked: !t.isBlocked });
+  async function toggleBlock(tbl: Table) {
+    patchTable(tbl.id, { isBlocked: !tbl.isBlocked });
   }
 
-  async function deleteTable(t: Table) {
-    if (!confirm(`Eliminar mesa "${t.number}"? Las reservas asociadas no se borran.`)) return;
+  async function deleteTable(tbl: Table) {
+    if (!confirm(t('confirmDeleteTable', { number: tbl.number }))) return;
     try {
-      await api(`/reservations/tables/${t.id}`, { method: 'DELETE' });
+      await api(`/reservations/tables/${tbl.id}`, { method: 'DELETE' });
       setSelectedTableId(null);
       loadAll();
-      toast('Mesa eliminada', 'success');
+      toast(t('toastTableDeleted'), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo eliminar', 'error');
+      toast(e.message || t('errorCouldNotDelete'), 'error');
     }
   }
 
@@ -315,40 +318,40 @@ export default function ReportesPage() {
   function handlePointerMove(e: React.PointerEvent) {
     if (!dragRef.current || !canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
-    const t = tables.find((x) => x.id === dragRef.current!.id);
-    if (!t) return;
-    const dims = tableDims(t);
+    const tbl = tables.find((x) => x.id === dragRef.current!.id);
+    if (!tbl) return;
+    const dims = tableDims(tbl);
     const rawX = e.clientX - rect.left - dragRef.current.offsetX;
     const rawY = e.clientY - rect.top - dragRef.current.offsetY;
     const maxX = rect.width - dims.w;
     const maxY = CANVAS_H - dims.h;
     const x = Math.min(maxX, Math.max(0, snap(rawX)));
     const y = Math.min(maxY, Math.max(0, snap(rawY)));
-    setTables((prev) => prev.map((tt) => (tt.id === t.id ? { ...tt, posX: x, posY: y } : tt)));
+    setTables((prev) => prev.map((tt) => (tt.id === tbl.id ? { ...tt, posX: x, posY: y } : tt)));
   }
   function handlePointerUp(e: React.PointerEvent) {
     if (!dragRef.current) return;
     const id = dragRef.current.id;
     dragRef.current = null;
     (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
-    const t = tables.find((x) => x.id === id);
-    if (!t) return;
+    const tbl = tables.find((x) => x.id === id);
+    if (!tbl) return;
     // Persist final position
     api(`/reservations/tables/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ posX: t.posX, posY: t.posY }),
+      body: JSON.stringify({ posX: tbl.posX, posY: tbl.posY }),
     }).catch((err: any) => {
-      toast(err.message || 'No se pudo guardar la posición', 'error');
+      toast(err.message || t('errorCouldNotSavePosition'), 'error');
       loadAll();
     });
   }
 
-  const selectedTable = tables.find((t) => t.id === selectedTableId) || null;
+  const selectedTable = tables.find((tbl) => tbl.id === selectedTableId) || null;
 
   return (
     <div>
       <div className="page-head">
-        <h1 className="page-title">Reservas <span className="page-crumb">/ {date}</span></h1>
+        <h1 className="page-title">{t('pageTitle')} <span className="page-crumb">/ {date}</span></h1>
         <div className="flex gap-2 items-center flex-wrap">
           {locations.length > 1 && (
             <select
@@ -356,9 +359,9 @@ export default function ReportesPage() {
               onChange={(e) => setActiveLocationId(e.target.value)}
               className="input text-sm"
               style={{ width: 'auto' }}
-              title="Filtrar por sede"
+              title={t('filterByLocation')}
             >
-              <option value="">📍 Todas las sedes</option>
+              <option value="">📍 {t('allLocations')}</option>
               {locations.map((loc) => (
                 <option key={loc.id} value={loc.id}>
                   📍 {loc.name}
@@ -370,9 +373,9 @@ export default function ReportesPage() {
             onClick={() => setWalkInOpen(true)}
             className="btn-primary text-sm"
             style={{ background: '#1d4ed8' }}
-            title="Cliente que llegó sin reserva previa"
+            title={t('walkInTooltip')}
           >
-            🚶 Walk-in
+            🚶 {t('walkIn')}
           </button>
           <input
             type="date"
@@ -387,19 +390,17 @@ export default function ReportesPage() {
       {walkInOpen && (
         <div className="card card-pad mb-4 border-2" style={{ borderColor: '#1d4ed8' }}>
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-base font-semibold m-0">🚶 Registrar walk-in</h2>
+            <h2 className="text-base font-semibold m-0">🚶 {t('walkInRegisterTitle')}</h2>
             <button onClick={() => setWalkInOpen(false)} className="text-mute hover:text-ink">
               ✕
             </button>
           </div>
           <p className="text-xs text-mute mb-3">
-            Cliente llegó sin reserva previa. Queda marcado como{' '}
-            <strong>SEATED</strong> al toque y recibe sello de fidelización
-            automáticamente.
+            {t.rich('walkInRegisterDesc', { strong: (chunks) => <strong>{chunks}</strong> })}
           </p>
           <form onSubmit={submitWalkIn} className="grid grid-cols-1 md:grid-cols-5 gap-2 items-end">
             <div>
-              <label className="label">Nombre</label>
+              <label className="label">{t('fieldName')}</label>
               <input
                 className="input"
                 value={walkIn.customerName}
@@ -409,7 +410,7 @@ export default function ReportesPage() {
               />
             </div>
             <div>
-              <label className="label">Teléfono (opcional)</label>
+              <label className="label">{t('fieldPhoneOptional')}</label>
               <input
                 className="input"
                 value={walkIn.customerPhone}
@@ -418,7 +419,7 @@ export default function ReportesPage() {
               />
             </div>
             <div>
-              <label className="label">Pax</label>
+              <label className="label">{t('fieldPax')}</label>
               <input
                 type="number"
                 min={1}
@@ -429,22 +430,22 @@ export default function ReportesPage() {
               />
             </div>
             <div>
-              <label className="label">Mesa (opcional)</label>
+              <label className="label">{t('fieldTableOptional')}</label>
               <select
                 className="input"
                 value={walkIn.tableId}
                 onChange={(e) => setWalkIn({ ...walkIn, tableId: e.target.value })}
               >
-                <option value="">Sin asignar</option>
-                {tables.filter((t) => !t.isBlocked).map((t) => (
-                  <option key={t.id} value={t.id}>
-                    Mesa {t.number} · {t.seats}p
+                <option value="">{t('unassigned')}</option>
+                {tables.filter((tbl) => !tbl.isBlocked).map((tbl) => (
+                  <option key={tbl.id} value={tbl.id}>
+                    {t('tableOption', { number: tbl.number, seats: tbl.seats })}
                   </option>
                 ))}
               </select>
             </div>
             <button className="btn-primary text-sm justify-center" disabled={walkInSubmitting}>
-              {walkInSubmitting ? 'Sentando…' : 'Sentar walk-in'}
+              {walkInSubmitting ? t('seating') : t('seatWalkIn')}
             </button>
           </form>
         </div>
@@ -453,9 +454,9 @@ export default function ReportesPage() {
       {/* Tabs ocultos: la navegación se hace desde el sidebar */}
       <div className="hidden">
         {([
-          { v: 'agenda' as const, label: '📅 Agenda', count: stats.count },
-          { v: 'plano' as const, label: '🪑 Plano', count: tables.length },
-          { v: 'metricas' as const, label: '📊 Métricas', count: null as number | null },
+          { v: 'agenda' as const, label: `📅 ${t('tabAgenda')}`, count: stats.count },
+          { v: 'plano' as const, label: `🪑 ${t('tabFloorPlan')}`, count: tables.length },
+          { v: 'metricas' as const, label: `📊 ${t('tabMetrics')}`, count: null as number | null },
         ]).map((tb) => {
           const active = tab === tb.v;
           return (
@@ -474,16 +475,16 @@ export default function ReportesPage() {
         <div className="grid lg:grid-cols-[1fr_320px] gap-4">
           <div className="card card-pad">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-base font-semibold m-0">Reservas del día</h2>
+              <h2 className="text-base font-semibold m-0">{t('reservationsOfDay')}</h2>
               <div className="flex gap-3 text-xs text-mute">
-                <span><strong className="text-ink">{stats.count}</strong> reservas</span>
+                <span><strong className="text-ink">{stats.count}</strong> {t('reservationsLabel')}</span>
                 <span><strong className="text-ink">{stats.pax}</strong> pax</span>
-                <span><strong className="text-bad">{stats.cancelled}</strong> ausencias</span>
+                <span><strong className="text-bad">{stats.cancelled}</strong> {t('absencesLabel')}</span>
               </div>
             </div>
             {reservations.length === 0 ? (
               <p className="text-sm text-mute py-6 text-center">
-                Sin reservas para este día. Las nuevas reservas del flujo público aparecerán aquí.
+                {t('emptyDayReservations')}
               </p>
             ) : (
               <div className="space-y-2">
@@ -502,7 +503,7 @@ export default function ReportesPage() {
                         <div className="text-sm font-semibold truncate">{r.customerName}</div>
                         <div className="text-xs text-mute">
                           {r.party} pax · {r.customerPhone}
-                          {r.table?.number && ` · Mesa ${r.table.number}`}
+                          {r.table?.number && ` · ${t('tableLabel', { number: r.table.number })}`}
                           {r.zone?.name && ` · ${r.zone.name}`}
                         </div>
                         {r.notes && (
@@ -513,7 +514,7 @@ export default function ReportesPage() {
                         className="text-[11px] font-bold px-2 py-1 rounded"
                         style={{ background: sm.bg, color: sm.fg }}
                       >
-                        {sm.label}
+                        {t(sm.labelKey)}
                       </span>
                       <select
                         value={r.status}
@@ -521,7 +522,7 @@ export default function ReportesPage() {
                         className="text-[11px] border border-line rounded px-2 py-1 bg-white"
                       >
                         {Object.entries(STATUS_META).map(([v, m]) => (
-                          <option key={v} value={v}>{m.label}</option>
+                          <option key={v} value={v}>{t(m.labelKey)}</option>
                         ))}
                       </select>
                     </div>
@@ -532,11 +533,11 @@ export default function ReportesPage() {
           </div>
 
           <form onSubmit={submitReservation} className="card card-pad self-start">
-            <h2 className="text-base font-semibold m-0">Nueva reserva</h2>
-            <p className="text-xs text-mute mt-1">Carga manual desde el panel.</p>
+            <h2 className="text-base font-semibold m-0">{t('newReservation')}</h2>
+            <p className="text-xs text-mute mt-1">{t('manualLoadHint')}</p>
             <div className="mt-3 space-y-2">
               <div>
-                <label className="label">Nombre</label>
+                <label className="label">{t('fieldName')}</label>
                 <input
                   className="input"
                   value={form.customerName}
@@ -545,7 +546,7 @@ export default function ReportesPage() {
                 />
               </div>
               <div>
-                <label className="label">Teléfono</label>
+                <label className="label">{t('fieldPhone')}</label>
                 <input
                   className="input"
                   value={form.customerPhone}
@@ -556,7 +557,7 @@ export default function ReportesPage() {
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="label">Pax</label>
+                  <label className="label">{t('fieldPax')}</label>
                   <input
                     type="number"
                     min={1}
@@ -567,7 +568,7 @@ export default function ReportesPage() {
                   />
                 </div>
                 <div>
-                  <label className="label">Hora</label>
+                  <label className="label">{t('fieldTime')}</label>
                   <input
                     type="time"
                     className="input"
@@ -577,7 +578,7 @@ export default function ReportesPage() {
                 </div>
               </div>
               <div>
-                <label className="label">Notas (opcional)</label>
+                <label className="label">{t('fieldNotesOptional')}</label>
                 <textarea
                   className="input"
                   rows={2}
@@ -587,7 +588,7 @@ export default function ReportesPage() {
               </div>
             </div>
             <button className="btn-primary mt-3 w-full justify-center" disabled={creating}>
-              {creating ? 'Creando…' : 'Crear reserva'}
+              {creating ? t('creating') : t('createReservation')}
             </button>
           </form>
         </div>
@@ -598,20 +599,20 @@ export default function ReportesPage() {
           <div className="card card-pad">
             <div className="flex items-center justify-between mb-3">
               <div>
-                <h2 className="text-base font-semibold m-0">Plano de mesas</h2>
+                <h2 className="text-base font-semibold m-0">{t('floorPlanTitle')}</h2>
                 <p className="text-[11px] text-mute mt-0.5">
-                  Arrastrá las mesas para reorganizar el plano. Los cambios se guardan al soltar.
+                  {t('floorPlanHint')}
                 </p>
               </div>
               <button onClick={() => setShowAddTable((v) => !v)} className="btn-primary text-sm">
-                <Icon name="plus" /> Mesa
+                <Icon name="plus" /> {t('tableWord')}
               </button>
             </div>
 
             {showAddTable && (
               <form onSubmit={createTable} className="mb-3 p-3 bg-bg2/60 rounded-lg border border-line grid grid-cols-2 md:grid-cols-5 gap-2 items-end">
                 <div>
-                  <label className="label">Número/etiqueta</label>
+                  <label className="label">{t('fieldNumberLabel')}</label>
                   <input
                     className="input"
                     value={newTable.number}
@@ -621,7 +622,7 @@ export default function ReportesPage() {
                   />
                 </div>
                 <div>
-                  <label className="label">Capacidad</label>
+                  <label className="label">{t('fieldCapacity')}</label>
                   <input
                     type="number"
                     className="input"
@@ -632,37 +633,37 @@ export default function ReportesPage() {
                   />
                 </div>
                 <div>
-                  <label className="label">Forma</label>
+                  <label className="label">{t('fieldShape')}</label>
                   <select
                     className="input"
                     value={newTable.shape}
                     onChange={(e) => setNewTable({ ...newTable, shape: e.target.value as any })}
                   >
-                    <option value="ROUND">Redonda</option>
-                    <option value="RECT">Rectangular</option>
-                    <option value="BAR">Barra</option>
+                    <option value="ROUND">{t('shapeRound')}</option>
+                    <option value="RECT">{t('shapeRect')}</option>
+                    <option value="BAR">{t('shapeBar')}</option>
                   </select>
                 </div>
                 <div>
-                  <label className="label">Zona</label>
+                  <label className="label">{t('fieldZone')}</label>
                   <select
                     className="input"
                     value={newTable.zoneId}
                     onChange={(e) => setNewTable({ ...newTable, zoneId: e.target.value })}
                   >
-                    <option value="">Sin zona</option>
+                    <option value="">{t('noZone')}</option>
                     {zones.map((z) => (
                       <option key={z.id} value={z.id}>{z.name}</option>
                     ))}
                   </select>
                 </div>
-                <button className="btn-primary text-sm justify-center">Crear</button>
+                <button className="btn-primary text-sm justify-center">{t('createWord')}</button>
               </form>
             )}
 
             {tables.length === 0 ? (
               <p className="text-sm text-mute py-10 text-center">
-                Aún no hay mesas. Creá la primera con el botón de arriba.
+                {t('emptyNoTables')}
               </p>
             ) : (
               <div
@@ -717,12 +718,12 @@ export default function ReportesPage() {
           <div className="space-y-4 self-start">
           <div className="card card-pad">
             <h2 className="text-base font-semibold m-0">
-              {selectedTable ? `Mesa ${selectedTable.number}` : 'Detalles de mesa'}
+              {selectedTable ? t('tableLabel', { number: selectedTable.number }) : t('tableDetails')}
             </h2>
             {selectedTable ? (
               <div className="mt-3 space-y-3">
                 <div>
-                  <label className="label">Número/etiqueta</label>
+                  <label className="label">{t('fieldNumberLabel')}</label>
                   <input
                     className="input"
                     defaultValue={selectedTable.number}
@@ -735,7 +736,7 @@ export default function ReportesPage() {
                   />
                 </div>
                 <div>
-                  <label className="label">Capacidad (pax)</label>
+                  <label className="label">{t('fieldCapacityPax')}</label>
                   <input
                     type="number"
                     className="input"
@@ -746,65 +747,65 @@ export default function ReportesPage() {
                   />
                 </div>
                 <div>
-                  <label className="label">Forma</label>
+                  <label className="label">{t('fieldShape')}</label>
                   <select
                     className="input"
                     value={selectedTable.shape}
                     onChange={(e) => patchTable(selectedTable.id, { shape: e.target.value })}
                   >
-                    <option value="ROUND">Redonda</option>
-                    <option value="RECT">Rectangular</option>
-                    <option value="BAR">Barra</option>
+                    <option value="ROUND">{t('shapeRound')}</option>
+                    <option value="RECT">{t('shapeRect')}</option>
+                    <option value="BAR">{t('shapeBar')}</option>
                   </select>
                 </div>
                 <div>
-                  <label className="label">Zona</label>
+                  <label className="label">{t('fieldZone')}</label>
                   <select
                     className="input"
                     value={selectedTable.zoneId ?? ''}
                     onChange={(e) => patchTable(selectedTable.id, { zoneId: e.target.value || null })}
                   >
-                    <option value="">Sin zona</option>
+                    <option value="">{t('noZone')}</option>
                     {zones.map((z) => (
                       <option key={z.id} value={z.id}>{z.name}</option>
                     ))}
                   </select>
                 </div>
                 <div className="text-xs">
-                  Estado:{' '}
+                  {t('stateLabel')}{' '}
                   {selectedTable.isBlocked ? (
-                    <span className="text-bad font-semibold">Bloqueada</span>
+                    <span className="text-bad font-semibold">{t('stateBlocked')}</span>
                   ) : (
-                    <span className="text-ok font-semibold">Disponible</span>
+                    <span className="text-ok font-semibold">{t('stateAvailable')}</span>
                   )}
                 </div>
                 <button
                   onClick={() => toggleBlock(selectedTable)}
                   className="btn-ghost w-full justify-center text-sm"
                 >
-                  {selectedTable.isBlocked ? '▶ Desbloquear' : '⏸ Bloquear mesa'}
+                  {selectedTable.isBlocked ? `▶ ${t('unblock')}` : `⏸ ${t('blockTable')}`}
                 </button>
                 <button
                   onClick={() => deleteTable(selectedTable)}
                   className="w-full justify-center text-sm py-2 rounded-lg border border-bad text-bad hover:bg-bad-soft"
                 >
-                  🗑 Eliminar mesa
+                  🗑 {t('deleteTable')}
                 </button>
               </div>
             ) : (
               <p className="text-sm text-mute mt-2">
-                Tocá una mesa para ver sus detalles o arrastrala para reposicionarla.
+                {t('tapTableHint')}
               </p>
             )}
 
           </div>
           <div className="card card-pad">
-            <h3 className="text-sm font-semibold m-0">Zonas</h3>
+            <h3 className="text-sm font-semibold m-0">{t('zonesTitle')}</h3>
             <p className="text-[11px] text-mute mt-0.5 mb-2">
-              Salón, Terraza, Barra, VIP... el cliente puede elegir al reservar.
+              {t('zonesHint')}
             </p>
             {zones.length === 0 ? (
-              <p className="text-xs text-mute italic">Sin zonas todavía.</p>
+              <p className="text-xs text-mute italic">{t('noZonesYet')}</p>
             ) : (
               <ul className="space-y-1 mb-2">
                 {zones.map((z) => (
@@ -827,6 +828,7 @@ export default function ReportesPage() {
 }
 
 function MetricsTab() {
+  const t = useTranslations('app_reservations_reportes');
   const [stats, setStats] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [range, setRange] = useState<'7d' | '30d' | '90d'>('30d');
@@ -839,8 +841,8 @@ function MetricsTab() {
     const to = new Date(now);
     to.setDate(to.getDate() + 7); // incluye próximos 7 días
     const f = from.toISOString().slice(0, 10);
-    const t = to.toISOString().slice(0, 10);
-    api<any>(`/reservations/stats?from=${f}&to=${t}`)
+    const toStr = to.toISOString().slice(0, 10);
+    api<any>(`/reservations/stats?from=${f}&to=${toStr}`)
       .then(setStats)
       .catch((e: any) => setError(e.message || 'Error'));
   }, [range]);
@@ -849,10 +851,10 @@ function MetricsTab() {
     return <p className="text-sm text-bad py-6 text-center">{error}</p>;
   }
   if (!stats) {
-    return <p className="text-sm text-mute py-6 text-center">Cargando métricas…</p>;
+    return <p className="text-sm text-mute py-6 text-center">{t('loadingMetrics')}</p>;
   }
 
-  const DOW_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+  const DOW_LABELS = [t('dowSun'), t('dowMon'), t('dowTue'), t('dowWed'), t('dowThu'), t('dowFri'), t('dowSat')];
   const maxDow = Math.max(1, ...Object.values<number>(stats.byDow));
   const maxZone = Math.max(1, ...stats.zoneBreakdown.map((z: any) => z.pax));
 
@@ -860,8 +862,8 @@ function MetricsTab() {
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="text-sm text-mute">
-          Rango: <strong className="text-ink">{stats.range.from}</strong> →{' '}
-          <strong className="text-ink">{stats.range.to}</strong> ({stats.range.days} días)
+          {t('rangeLabel')} <strong className="text-ink">{stats.range.from}</strong> →{' '}
+          <strong className="text-ink">{stats.range.to}</strong> ({t('rangeDays', { days: stats.range.days })})
         </div>
         <div className="flex gap-1 bg-bg2 p-1 rounded-lg">
           {(['7d', '30d', '90d'] as const).map((r) => (
@@ -872,7 +874,7 @@ function MetricsTab() {
                 range === r ? 'bg-white text-ink shadow-sm' : 'text-mute'
               }`}
             >
-              {r === '7d' ? '7 días' : r === '30d' ? '30 días' : '90 días'}
+              {r === '7d' ? t('range7d') : r === '30d' ? t('range30d') : t('range90d')}
             </button>
           ))}
         </div>
@@ -881,39 +883,39 @@ function MetricsTab() {
       {/* KPI cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="card card-pad">
-          <div className="text-xs text-mute font-bold">RESERVAS</div>
+          <div className="text-xs text-mute font-bold">{t('kpiReservations')}</div>
           <div className="text-2xl font-extrabold mt-1">{stats.totals.reservations}</div>
-          <div className="text-xs text-mute mt-1">{stats.totals.pax} pax · {stats.totals.avgParty} prom</div>
+          <div className="text-xs text-mute mt-1">{t('kpiPaxAvg', { pax: stats.totals.pax, avg: stats.totals.avgParty })}</div>
         </div>
         <div className="card card-pad">
-          <div className="text-xs text-mute font-bold">COMPLETION</div>
+          <div className="text-xs text-mute font-bold">{t('kpiCompletion')}</div>
           <div className="text-2xl font-extrabold mt-1 text-ok">{stats.rates.completionRate}%</div>
-          <div className="text-xs text-mute mt-1">{stats.totals.completed} completadas</div>
+          <div className="text-xs text-mute mt-1">{t('kpiCompleted', { count: stats.totals.completed })}</div>
         </div>
         <div className="card card-pad">
-          <div className="text-xs text-mute font-bold">NO-SHOW</div>
+          <div className="text-xs text-mute font-bold">{t('kpiNoShow')}</div>
           <div className={`text-2xl font-extrabold mt-1 ${stats.rates.noShowRate > 15 ? 'text-bad' : ''}`}>
             {stats.rates.noShowRate}%
           </div>
-          <div className="text-xs text-mute mt-1">{stats.totals.noShow} ausentes</div>
+          <div className="text-xs text-mute mt-1">{t('kpiNoShowCount', { count: stats.totals.noShow })}</div>
         </div>
         <div className="card card-pad">
-          <div className="text-xs text-mute font-bold">CANCELACIONES</div>
+          <div className="text-xs text-mute font-bold">{t('kpiCancellations')}</div>
           <div className="text-2xl font-extrabold mt-1">{stats.rates.cancelRate}%</div>
-          <div className="text-xs text-mute mt-1">{stats.totals.cancelled} canceladas</div>
+          <div className="text-xs text-mute mt-1">{t('kpiCancelledCount', { count: stats.totals.cancelled })}</div>
         </div>
       </div>
 
       {/* Estado breakdown */}
       <div className="card card-pad">
-        <h3 className="text-sm font-semibold m-0 mb-3">Estado de las reservas</h3>
+        <h3 className="text-sm font-semibold m-0 mb-3">{t('reservationsStateTitle')}</h3>
         <div className="space-y-2">
           {[
-            { label: 'Pendientes', val: stats.totals.pending, color: '#b45309' },
-            { label: 'Confirmadas', val: stats.totals.confirmed, color: '#1d4ed8' },
-            { label: 'Completadas', val: stats.totals.completed, color: '#15803d' },
-            { label: 'Canceladas', val: stats.totals.cancelled, color: '#6b7280' },
-            { label: 'Ausentes', val: stats.totals.noShow, color: '#dc2626' },
+            { label: t('statePending'), val: stats.totals.pending, color: '#b45309' },
+            { label: t('stateConfirmed'), val: stats.totals.confirmed, color: '#1d4ed8' },
+            { label: t('stateCompleted'), val: stats.totals.completed, color: '#15803d' },
+            { label: t('stateCancelled'), val: stats.totals.cancelled, color: '#6b7280' },
+            { label: t('stateAbsent'), val: stats.totals.noShow, color: '#dc2626' },
           ].map((s) => {
             const pct = stats.totals.reservations > 0
               ? Math.round((s.val / stats.totals.reservations) * 100)
@@ -939,9 +941,9 @@ function MetricsTab() {
       <div className="grid md:grid-cols-2 gap-4">
         {/* Top horarios */}
         <div className="card card-pad">
-          <h3 className="text-sm font-semibold m-0 mb-3">Horarios más solicitados</h3>
+          <h3 className="text-sm font-semibold m-0 mb-3">{t('topHoursTitle')}</h3>
           {stats.topHours.length === 0 ? (
-            <p className="text-xs text-mute italic">Sin datos en este rango</p>
+            <p className="text-xs text-mute italic">{t('noDataInRange')}</p>
           ) : (
             <div className="space-y-2">
               {stats.topHours.map((h: any) => {
@@ -963,7 +965,7 @@ function MetricsTab() {
 
         {/* Día de la semana */}
         <div className="card card-pad">
-          <h3 className="text-sm font-semibold m-0 mb-3">Pax por día de la semana</h3>
+          <h3 className="text-sm font-semibold m-0 mb-3">{t('paxByDow')}</h3>
           <div className="grid grid-cols-7 gap-1 items-end h-32 mt-2">
             {[1, 2, 3, 4, 5, 6, 0].map((dow) => {
               const pax = stats.byDow[dow] || 0;
@@ -986,9 +988,9 @@ function MetricsTab() {
       {/* Zonas y canales */}
       <div className="grid md:grid-cols-2 gap-4">
         <div className="card card-pad">
-          <h3 className="text-sm font-semibold m-0 mb-3">Top zonas</h3>
+          <h3 className="text-sm font-semibold m-0 mb-3">{t('topZones')}</h3>
           {stats.zoneBreakdown.length === 0 ? (
-            <p className="text-xs text-mute italic">Sin datos</p>
+            <p className="text-xs text-mute italic">{t('noData')}</p>
           ) : (
             <div className="space-y-2">
               {stats.zoneBreakdown.map((z: any) => {
@@ -1010,7 +1012,7 @@ function MetricsTab() {
         </div>
 
         <div className="card card-pad">
-          <h3 className="text-sm font-semibold m-0 mb-3">Canal de origen</h3>
+          <h3 className="text-sm font-semibold m-0 mb-3">{t('channelTitle')}</h3>
           <div className="grid grid-cols-2 gap-2">
             {Object.entries(stats.byChannel).map(([ch, n]) => (
               <div key={ch} className="p-3 rounded-lg bg-bg2/60 text-center">
