@@ -1130,7 +1130,10 @@ export class TenantsService {
             slug: true,
             name: true,
             creditsUnlimited: true,
-            modules: { where: { module: 'REVIEWS' }, select: { enabled: true } },
+            modules: {
+              where: { module: { in: ['REVIEWS', 'COMMUNITY'] } },
+              select: { module: true, enabled: true },
+            },
           },
         },
         _count: { select: { cards: true, customers: true, products: true, locations: true } },
@@ -1140,11 +1143,19 @@ export class TenantsService {
     // Exponemos flags planos para el frontend. reviewsEnabled: el módulo
     // REVIEWS de la marca; sin registro (marcas viejas / sin marca) = true
     // para preservar el comportamiento actual (reseñas siempre activas).
-    const reviewsModule = t.whiteLabel?.modules?.[0];
+    const mods = t.whiteLabel?.modules ?? [];
+    const reviewsModule = mods.find((m) => m.module === 'REVIEWS');
+    const communityModule = mods.find((m) => m.module === 'COMMUNITY');
     return {
       ...t,
       whiteLabelCreditsUnlimited: t.whiteLabel?.creditsUnlimited ?? false,
       reviewsEnabled: reviewsModule ? reviewsModule.enabled : true,
+      // Módulo COMMUNITY (Comunidad/Lab). Marca con registro = su flag; marca
+      // sin registro de COMMUNITY = false (oculto). Sin marca (legacy) = true
+      // (los negocios legacy son de Clubify, que sí tiene Comunidad).
+      communityEnabled: t.whiteLabel
+        ? (communityModule?.enabled ?? false)
+        : true,
       // Slug de la marca del negocio. null (marcas viejas / sin marca) se trata
       // como 'clubify' en el frontend. Se usa para gatear secciones exclusivas
       // (Comunidad/Lab) por marca, sin filtrar branding de otra.

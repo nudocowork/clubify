@@ -189,11 +189,13 @@ export default function AppShell({
     // Módulo Reseñas de la marca (default true). Si la marca lo apaga, se
     // ocultan los items de reseñas del menú.
     reviewsEnabled?: boolean;
-    // Slug de la marca blanca del negocio (null = legacy → 'clubify'). Gatea
-    // secciones exclusivas de Clubify (Comunidad/Lab) en el panel del negocio.
+    // Slug de la marca blanca del negocio (null = legacy → 'clubify').
     whiteLabelSlug?: string | null;
     // Nombre de la marca blanca (identidad del asistente IA del panel).
     whiteLabelName?: string | null;
+    // Módulo COMMUNITY de la marca: gatea la sección Comunidad/Lab en el panel
+    // del negocio (genérico por marca). Default true mientras carga (sin flicker).
+    communityEnabled?: boolean;
   } | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
     new Set(),
@@ -445,6 +447,7 @@ export default function AppShell({
           reviewsEnabled: t?.reviewsEnabled ?? true,
           whiteLabelSlug: t?.whiteLabelSlug ?? null,
           whiteLabelName: t?.whiteLabelName ?? null,
+          communityEnabled: t?.communityEnabled ?? true,
         });
       })
       .catch(() => null);
@@ -556,22 +559,27 @@ export default function AppShell({
               items: [
                 // Item 13 sprint: review queue + métricas de las propuestas.
                 // Accesible a MARKETING (no requiere hideForMarketing).
-                // Comunidad/Lab es exclusivo de Clubify → clubifyOnly (oculto en
-                // Sellea y toda marca blanca). Wave 2 lo generaliza a módulo COMMUNITY.
-                { href: '/admin/lab', label: '🧪 Lab Admin', icon: 'spark', clubifyOnly: true },
-                { href: '/lab', label: 'Ver Lab público', icon: 'spark', clubifyOnly: true },
+                // Comunidad/Lab se gatea por el módulo COMMUNITY de la marca
+                // (Fase 4): visible solo si la marca lo tiene habilitado.
+                { href: '/admin/lab', label: '🧪 Lab Admin', icon: 'spark' },
+                { href: '/lab', label: 'Ver Lab público', icon: 'spark' },
               ],
             },
           ];
-          // #2/#4: si la marca activa NO tiene el módulo REFERRALS, ocultar las
-          // secciones "Programa", "Ventas" (Industrias/Equipos/Leaderboard/
-          // Difusión) y "Comunidad" (Lab) por completo. brandModules null =
-          // marca sin resolver / global → mostrar todo (sin flicker).
-          const referralSections = new Set(['Programa', 'Ventas', 'Comunidad']);
-          const moduleAllowed = (g: NavGroup) =>
-            !referralSections.has(g.section) ||
-            !brandModules ||
-            brandModules.includes('REFERRALS');
+          // #2/#4: gating de secciones por módulo de la marca. brandModules null
+          // = marca sin resolver / global (host propio) → mostrar todo (sin
+          // flicker). "Programa"/"Ventas" requieren REFERRALS; "Comunidad" (Lab)
+          // requiere el módulo COMMUNITY (genérico: cada marca lo habilita por
+          // config — solo Clubify lo tiene por defecto).
+          const referralSections = new Set(['Programa', 'Ventas']);
+          const moduleAllowed = (g: NavGroup) => {
+            if (!brandModules) return true;
+            if (g.section === 'Comunidad')
+              return brandModules.includes('COMMUNITY');
+            if (referralSections.has(g.section))
+              return brandModules.includes('REFERRALS');
+            return true;
+          };
           // #5: marca blanca distinta de Clubify → ocultar items clubifyOnly
           // (config de plataforma: Branding, Integraciones SMS).
           const isOtherBrand = !!brandSlug && brandSlug !== 'clubify';
@@ -667,10 +675,10 @@ export default function AppShell({
                 { href: '/app/referrals', label: 'Referidos', icon: 'gift' },
               ],
             },
-            // Comunidad (Clubify Lab + Tutoriales) es exclusivo de Clubify.
-            // Solo se muestra si el negocio es de la marca 'clubify' (null =
-            // legacy → clubify). Oculto para Sellea y toda marca blanca.
-            ...(!tenantInfo?.whiteLabelSlug || tenantInfo.whiteLabelSlug === 'clubify'
+            // Comunidad (Lab + Tutoriales) se gatea por el módulo COMMUNITY de
+            // la marca del negocio (Fase 4, genérico). Default true mientras
+            // carga. Oculto para marcas sin COMMUNITY (ej. Sellea).
+            ...(tenantInfo?.communityEnabled !== false
               ? [
                   {
                     section: 'Comunidad',
