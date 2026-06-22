@@ -7,7 +7,6 @@ import { HeroTrio } from '@/components/HeroTrio';
 import { HeroBanner } from '@/components/HeroBanner';
 import { InfoLinksBanner } from '@/components/InfoLinksBanner';
 import { LandingPricingCheckout } from '@/components/LandingPricingCheckout';
-import { fetchLandingPlans } from '@/lib/landing-plans';
 import { SelleaLogo } from '@/components/sellea/SelleaLogo';
 import { SelleaFidelizacionBanner } from '@/components/sellea/SelleaFidelizacionBanner';
 
@@ -107,19 +106,14 @@ async function fetchBrandLogoByHost(host: string): Promise<string | null> {
 
 export default async function SelleaLandingPage() {
   const host = headers().get('host') ?? '';
-  const [globalPlans, brandLogo] = await Promise.all([
-    fetchLandingPlans(),
-    fetchBrandLogoByHost(host),
-  ]);
+  const brandLogo = await fetchBrandLogoByHost(host);
 
   // Precios PROPIOS de Sellea: solo Mensual ($80) y Anual ($799) — sin
-  // Trimestral ni Semestral. Reusa el checkoutUrl global de cada periodo.
-  // ⚠️ El founder debe apuntar esos links a productos Hotmart de Sellea con
-  // estos precios (sino el cobro no coincide con lo mostrado).
-  const gp = (id: string) => globalPlans.find((p) => p.id === id);
+  // Trimestral ni Semestral. checkoutUrl null = botón "Próximamente" hasta
+  // integrar Stripe para Sellea. NO se reusan los links de Hotmart de Clubify.
   const landingPlans = [
-    { id: 'mensual' as const, name: 'Mensual', shortName: 'Mensual', months: 1, price: 80, checkoutUrl: gp('mensual')?.checkoutUrl ?? null, description: '' },
-    { id: 'anual' as const, name: 'Anual', shortName: 'Anual', months: 12, price: 799, checkoutUrl: gp('anual')?.checkoutUrl ?? null, description: '' },
+    { id: 'mensual' as const, name: 'Mensual', shortName: 'Mensual', months: 1, price: 80, checkoutUrl: null, description: '' },
+    { id: 'anual' as const, name: 'Anual', shortName: 'Anual', months: 12, price: 799, checkoutUrl: null, description: '' },
   ];
 
   return (
