@@ -1,8 +1,11 @@
+import { resolveLegalBrand } from '@/lib/legal-brand';
+
 export const metadata = {
   title: 'Política de privacidad',
 };
 
-export default function PrivacyPage() {
+export default async function PrivacyPage() {
+  const brand = await resolveLegalBrand();
   return (
     <>
       <h1 className="text-3xl font-bold tracking-tight mb-1">Política de privacidad</h1>
@@ -10,12 +13,12 @@ export default function PrivacyPage() {
 
       <section className="mt-8 space-y-5 text-sm leading-relaxed">
         <h2 className="text-lg font-semibold mt-6">Datos que recopilamos</h2>
-        <p>Cuando usas Clubify recopilamos:</p>
+        <p>Cuando usas {brand.brandName} recopilamos:</p>
         <ul className="list-disc pl-5 space-y-1">
           <li>
             <b>De ti (dueño del negocio):</b> nombre, email, teléfono,
             información de tu negocio (nombre comercial, logo, redes sociales),
-            datos de facturación procesados por Hotmart.
+            datos de facturación procesados por {brand.paymentProvider}.
           </li>
           <li>
             <b>De tus clientes finales:</b> nombre, teléfono, email opcional,
@@ -86,8 +89,8 @@ export default function PrivacyPage() {
         <p>
           Para ejercer tus derechos o cualquier duda sobre privacidad
           escríbenos a{' '}
-          <a href="mailto:privacidad@soyclubify.com" className="text-brand">
-            privacidad@soyclubify.com
+          <a href={`mailto:${brand.privacyEmail}`} className="text-brand">
+            {brand.privacyEmail}
           </a>
           .
         </p>

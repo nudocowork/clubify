@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { headers } from 'next/headers';
 import Link from 'next/link';
 import { Icon } from '@/components/Icon';
 import { FadeIn } from '@/components/FadeIn';
@@ -39,13 +40,13 @@ const STATS = [
 ];
 
 const TESTIMONIALS = [
-  { quote: 'En dos meses la gente empezó a volver mucho más. Ver el progreso en el wallet los engancha.', name: 'Carolina M.', role: 'Café del Día · Bogotá', avatar: '☕' },
-  { quote: 'Duplicamos nuestra base de clientes registrados. Ahora sé quién vuelve y les escribo directo.', name: 'Andrés R.', role: 'Burger Lab · CDMX', avatar: '🍔' },
-  { quote: 'Recuperé la inversión en menos de un mes. Lo configuré solo en un fin de semana, sin saber código.', name: 'Sofía L.', role: 'Bowls Saludables · Lima', avatar: '🥗' },
+  { quote: 'En dos meses la gente empezó a volver mucho más. Ver el progreso en el wallet los engancha.', name: 'Jesus G', role: 'Level Up Offroad · Venezuela', avatar: '🚙' },
+  { quote: 'Duplicamos nuestra base de clientes registrados. Ahora sé quién vuelve y les escribo directo.', name: 'Maria J', role: 'Oasis Nutrition · Miami', avatar: '🥗' },
+  { quote: 'Recuperé la inversión en menos de un mes. Lo configuré solo en un fin de semana, sin saber código.', name: 'Juan L', role: 'Nails Supplies · México', avatar: '💅' },
 ];
 
 const FAQS = [
-  { q: '¿Cuánto pago y en qué moneda?', a: 'Desde USD 68/mes en el plan mensual. Tenemos también Trimestral, Semestral y Anual con descuento por compromiso (el Anual te sale en USD ~42/mes equivalente). Te mostramos el equivalente en tu moneda local al cambio del día. Sin contratos — cancelas cuando quieras desde tu panel.' },
+  { q: '¿Cuánto pago y en qué moneda?', a: 'Desde USD 80/mes en el plan mensual. También tenemos el plan Anual por USD 799 (ahorras ~USD 160 frente al mensual). Te mostramos el equivalente en tu moneda local al cambio del día. Sin contratos — cancelas cuando quieras desde tu panel.' },
   { q: '¿Mis clientes necesitan descargar una app?', a: 'No. Las tarjetas se instalan directamente en su Wallet del teléfono (Apple Wallet en iPhone, Google Wallet en Android). Cero fricción.' },
   { q: '¿Funciona para negocios con pocos clientes o recién abiertos?', a: 'Sin duda. Un programa de fidelización al iniciar un negocio te ayuda a crear comunidad desde el primer momento, ayudando a crecer la marca y las ventas.' },
   { q: '¿Cómo se procesa el pago?', a: 'Procesamos los pagos a través de una pasarela de pago segura ampliamente usada en LATAM. Acepta tarjeta de crédito, débito y métodos locales según tu país.' },
@@ -74,8 +75,52 @@ const SELLEA_THEME_CSS = `
 .sellea-theme [class*="to-brand"]{--tw-gradient-to:#E63521 var(--tw-gradient-to-position)!important}
 `;
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
+
+/** Logo SUBIDO de la marca (WhiteLabel.logoUrl), resuelto por host — el mismo
+ *  que ya usan favicon y login. En el dominio Clubify (preview /sellea) o si la
+ *  marca no tiene logo, devuelve null → cae al SelleaLogo SVG. */
+async function fetchBrandLogoByHost(host: string): Promise<string | null> {
+  const h = (host || '').toLowerCase().split(':')[0];
+  if (
+    !h ||
+    h === 'localhost' ||
+    h.startsWith('127.') ||
+    h.endsWith('soyclubify.com') ||
+    h.endsWith('clubify.app')
+  ) {
+    return null;
+  }
+  try {
+    const r = await fetch(
+      `${API_URL}/api/superadmin-public/white-labels/branding-by-host?host=${encodeURIComponent(h)}`,
+      { next: { revalidate: 60 } },
+    );
+    if (!r.ok) return null;
+    const d = await r.json();
+    if (!d || !d.slug || d.slug === 'clubify') return null;
+    return d.logoUrl ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export default async function SelleaLandingPage() {
-  const landingPlans = await fetchLandingPlans();
+  const host = headers().get('host') ?? '';
+  const [globalPlans, brandLogo] = await Promise.all([
+    fetchLandingPlans(),
+    fetchBrandLogoByHost(host),
+  ]);
+
+  // Precios PROPIOS de Sellea: solo Mensual ($80) y Anual ($799) — sin
+  // Trimestral ni Semestral. Reusa el checkoutUrl global de cada periodo.
+  // ⚠️ El founder debe apuntar esos links a productos Hotmart de Sellea con
+  // estos precios (sino el cobro no coincide con lo mostrado).
+  const gp = (id: string) => globalPlans.find((p) => p.id === id);
+  const landingPlans = [
+    { id: 'mensual' as const, name: 'Mensual', shortName: 'Mensual', months: 1, price: 80, checkoutUrl: gp('mensual')?.checkoutUrl ?? null, description: '' },
+    { id: 'anual' as const, name: 'Anual', shortName: 'Anual', months: 12, price: 799, checkoutUrl: gp('anual')?.checkoutUrl ?? null, description: '' },
+  ];
 
   return (
     <main className="sellea-theme min-h-screen bg-white text-ink">
@@ -85,7 +130,11 @@ export default async function SelleaLandingPage() {
       <header className="sticky top-0 z-30 backdrop-blur-md bg-white/85 border-b border-line/80">
         <div className="mx-auto max-w-7xl px-6 flex items-center justify-between h-16">
           <Link href="/" className="flex items-center" aria-label="Sellea">
-            <SelleaLogo size={34} />
+            {brandLogo ? (
+              <img src={brandLogo} alt="Sellea" className="h-9 w-auto max-w-[180px] object-contain" />
+            ) : (
+              <SelleaLogo size={34} />
+            )}
           </Link>
           <nav className="hidden lg:flex items-center gap-8 text-[14px] text-mute">
             <a href="#clientes" className="hover:text-ink">Clientes</a>
@@ -229,7 +278,15 @@ export default async function SelleaLandingPage() {
               cancela cuando quieras desde tu panel.
             </p>
           </div>
-          <LandingPricingCheckout plans={landingPlans} />
+          <LandingPricingCheckout
+            plans={landingPlans}
+            footnote={
+              <span className="text-mute">
+                Costo de instalación $250 · precio promocional $180 (incluye el
+                primer mes).
+              </span>
+            }
+          />
         </div>
       </section>
 
@@ -263,7 +320,13 @@ export default async function SelleaLandingPage() {
         <div className="mx-auto max-w-7xl px-6 py-14">
           <div className="grid grid-cols-2 md:grid-cols-5 gap-8 text-sm">
             <div className="col-span-2">
-              <div className="flex items-center mb-3"><SelleaLogo size={30} /></div>
+              <div className="flex items-center mb-3">
+                {brandLogo ? (
+                  <img src={brandLogo} alt="Sellea" className="h-8 w-auto max-w-[160px] object-contain" />
+                ) : (
+                  <SelleaLogo size={30} />
+                )}
+              </div>
               <p className="text-mute text-sm leading-relaxed max-w-xs">
                 Sistema de fidelización digital para negocios de LATAM. Sellos,
                 menús, pedidos y CRM en una sola cuenta. Cada compra deja su sello.

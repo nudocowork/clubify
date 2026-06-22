@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 
 /**
  * Selector de planes tipo checkout en la landing pública (Preview 5).
@@ -47,10 +47,14 @@ function fmtUSDDec(n: number): string {
 export function LandingPricingCheckout({
   plans,
   initialPlan = 'anual',
+  footnote,
 }: {
   plans: LandingPlan[];
   /** Plan preseleccionado (ej. ?plan= del CTA de la landing). Default: anual. */
   initialPlan?: PlanId;
+  /** Texto al pie del checkout (gris, chico). Default: nota de Hotmart de
+   *  Clubify. Las marcas blancas pasan el suyo (ej. costo de instalación). */
+  footnote?: ReactNode;
 }) {
   const [selected, setSelected] = useState<PlanId>(initialPlan);
   const plan = plans.find((p) => p.id === selected) ?? plans[0];
@@ -161,7 +165,8 @@ export function LandingPricingCheckout({
           </button>
         )}
         <div className="text-center text-[11px] text-mute mt-3">
-          Pago seguro con Hotmart. Apenas pagas, creas tu cuenta en 1 minuto.
+          {footnote ??
+            'Pago seguro con Hotmart. Apenas pagas, creas tu cuenta en 1 minuto.'}
         </div>
       </div>
     </div>

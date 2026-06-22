@@ -405,7 +405,11 @@ export default function AppShell({
     const slug = getImpersonationBackup()?.tenant?.slug || urlSlug;
     const isOtherBrand = !!slug && slug !== 'clubify';
     if (!isOtherBrand) return;
-    const clubifyOnlyRoutes = ['/admin/branding', '/admin/integrations'];
+    const clubifyOnlyRoutes = [
+      '/admin/branding',
+      '/admin/integrations',
+      '/admin/business-groups',
+    ];
     const here = urlSlug
       ? pathname.replace(`/admin/${urlSlug}`, '/admin')
       : pathname;
@@ -481,7 +485,7 @@ export default function AppShell({
               items: [
                 { href: '/admin', label: 'Dashboard', icon: 'grid' },
                 { href: '/admin/tenants', label: 'Negocios', icon: 'store' },
-                { href: '/admin/business-groups', label: 'Grupos Empresariales', icon: 'store', hideForMarketing: true },
+                { href: '/admin/business-groups', label: 'Grupos Empresariales', icon: 'store', hideForMarketing: true, clubifyOnly: true },
                 { href: '/admin/map', label: 'Mapa', icon: 'pin', hideForMarketing: true },
                 { href: '/admin/trials', label: 'Trials', icon: 'gift' },
               ],
