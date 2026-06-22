@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 
@@ -27,11 +28,11 @@ type PendingResp = {
   };
 };
 
-const ROLE_LABEL: Record<Role, string> = {
-  INFLUENCER: 'Influencer',
-  AMBASSADOR: 'Embajador',
-  VENDOR: 'Vendedor',
-  SOCIO: 'Socio',
+const ROLE_LABEL_KEY: Record<Role, string> = {
+  INFLUENCER: 'roleInfluencer',
+  AMBASSADOR: 'roleAmbassador',
+  VENDOR: 'roleVendor',
+  SOCIO: 'roleSocio',
 };
 
 const ROLE_CLS: Record<Role, string> = {
@@ -62,6 +63,7 @@ function daysSince(d: string | null) {
 }
 
 export default function CommissionsPaymentsPage() {
+  const t = useTranslations('admin_commissions_payments');
   const [data, setData] = useState<PendingResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'' | Role>('');
@@ -73,7 +75,7 @@ export default function CommissionsPaymentsPage() {
     try {
       setData(await api<PendingResp>('/admin/commissions/payouts/pending'));
     } catch (e: any) {
-      toast(e?.message ?? 'Error cargando pendientes', 'error');
+      toast(e?.message ?? t('errorLoading'), 'error');
     } finally {
       setLoading(false);
     }
@@ -102,30 +104,30 @@ export default function CommissionsPaymentsPage() {
     <div className="max-w-6xl">
       <div className="page-head flex flex-wrap items-center justify-between gap-3">
         <h1 className="page-title">
-          Pagos pendientes <span className="page-crumb">/ Por persona</span>
+          {t('pageTitle')} <span className="page-crumb">{t('pageCrumb')}</span>
         </h1>
         <Link
           href="/admin/commissions"
           className="text-sm text-mute hover:text-ink underline"
         >
-          ← Volver al detalle de comisiones
+          {t('backToDetail')}
         </Link>
       </div>
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-5">
         <KpiCard
-          label="Personas pendientes"
+          label={t('kpiPendingPeople')}
           value={data?.totals.count ?? 0}
           accent="brand"
         />
         <KpiCard
-          label="Total a pagar"
+          label={t('kpiTotalToPay')}
           value={fmtUsd(data?.totals.grandTotalOutstanding ?? 0)}
           accent="warn"
         />
         <KpiCard
-          label="Promedio por persona"
+          label={t('kpiAveragePerPerson')}
           value={
             data && data.totals.count > 0
               ? fmtUsd(data.totals.grandTotalOutstanding / data.totals.count)
@@ -138,26 +140,26 @@ export default function CommissionsPaymentsPage() {
       {/* Filtros */}
       <div className="card card-pad mb-3 flex flex-wrap items-end gap-3">
         <div className="flex-1 min-w-[200px]">
-          <label className="label">Buscar</label>
+          <label className="label">{t('filterSearch')}</label>
           <input
             className="input"
-            placeholder="Nombre, email, código…"
+            placeholder={t('phSearch')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
         <div>
-          <label className="label">Rol</label>
+          <label className="label">{t('filterRole')}</label>
           <select
             className="input"
             value={filter}
             onChange={(e) => setFilter(e.target.value as any)}
           >
-            <option value="">Todos</option>
-            <option value="INFLUENCER">Influencer</option>
-            <option value="AMBASSADOR">Embajador</option>
-            <option value="VENDOR">Vendedor</option>
-            <option value="SOCIO">Socio</option>
+            <option value="">{t('filterAll')}</option>
+            <option value="INFLUENCER">{t('roleInfluencer')}</option>
+            <option value="AMBASSADOR">{t('roleAmbassador')}</option>
+            <option value="VENDOR">{t('roleVendor')}</option>
+            <option value="SOCIO">{t('roleSocio')}</option>
           </select>
         </div>
       </div>
@@ -167,18 +169,18 @@ export default function CommissionsPaymentsPage() {
           <table className="w-full text-sm min-w-[840px]">
             <thead className="bg-bg2 text-left text-mute text-[11px] uppercase tracking-wider">
               <tr>
-                <th className="px-4 py-3 font-semibold">Persona</th>
-                <th className="px-4 py-3 font-semibold">Rol</th>
+                <th className="px-4 py-3 font-semibold">{t('thPerson')}</th>
+                <th className="px-4 py-3 font-semibold">{t('thRole')}</th>
                 <th className="px-4 py-3 font-semibold text-right">
-                  Comisiones
+                  {t('thCommissions')}
                 </th>
                 <th className="px-4 py-3 font-semibold text-right">
-                  Pendiente
+                  {t('thOutstanding')}
                 </th>
                 <th className="px-4 py-3 font-semibold text-right">
-                  Histórico pagado
+                  {t('thHistoricalPaid')}
                 </th>
-                <th className="px-4 py-3 font-semibold">Más antigua</th>
+                <th className="px-4 py-3 font-semibold">{t('thOldest')}</th>
                 <th className="px-4 py-3 font-semibold"></th>
               </tr>
             </thead>
@@ -186,7 +188,7 @@ export default function CommissionsPaymentsPage() {
               {loading && (
                 <tr>
                   <td colSpan={7} className="px-4 py-10 text-center text-mute">
-                    Cargando…
+                    {t('loading')}
                   </td>
                 </tr>
               )}
@@ -195,10 +197,10 @@ export default function CommissionsPaymentsPage() {
                   <td colSpan={7} className="px-4 py-12 text-center text-mute">
                     <div className="text-3xl mb-2">🎉</div>
                     <div className="font-semibold text-ink">
-                      Sin pendientes por pagar
+                      {t('emptyTitle')}
                     </div>
                     <div className="text-xs mt-1">
-                      Todas las comisiones están al día.
+                      {t('emptyHint')}
                     </div>
                   </td>
                 </tr>
@@ -226,7 +228,9 @@ export default function CommissionsPaymentsPage() {
                             ROLE_CLS[p.role] ?? 'bg-bg3 text-ink'
                           }`}
                         >
-                          {ROLE_LABEL[p.role] ?? p.role}
+                          {ROLE_LABEL_KEY[p.role]
+                            ? t(ROLE_LABEL_KEY[p.role])
+                            : p.role}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right">
@@ -246,7 +250,7 @@ export default function CommissionsPaymentsPage() {
                               days > 30 ? 'text-bad' : 'text-mute'
                             }`}
                           >
-                            hace {days}d
+                            {t('daysAgo', { days })}
                           </div>
                         )}
                       </td>
@@ -255,7 +259,7 @@ export default function CommissionsPaymentsPage() {
                           onClick={() => setBulkTarget(p)}
                           className="text-xs px-3 py-1.5 rounded-md bg-brand text-white font-semibold hover:opacity-90 transition select-none active:scale-[0.97] [-webkit-tap-highlight-color:transparent]"
                         >
-                          Marcar todo pagado
+                          {t('markAllPaid')}
                         </button>
                       </td>
                     </tr>
@@ -267,9 +271,7 @@ export default function CommissionsPaymentsPage() {
       </div>
 
       <p className="text-[11px] text-mute mt-3">
-        🛈 Cada fila agrupa todas las comisiones PENDING + PARTIAL de la
-        persona. Al marcar todo pagado, todas pasan a PAID con la fecha
-        de hoy y se agrega una nota de auditoría.
+        🛈 {t('footnote')}
       </p>
 
       {bulkTarget && (
@@ -295,6 +297,7 @@ function BulkPayModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations('admin_commissions_payments');
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -312,12 +315,15 @@ function BulkPayModal({
         },
       );
       toast(
-        `${res.paidCount} comisiones marcadas como pagadas (${fmtUsd(res.totalPaid)})`,
+        t('toastBulkPaid', {
+          count: res.paidCount,
+          amount: fmtUsd(res.totalPaid),
+        }),
         'success',
       );
       onSaved();
     } catch (e: any) {
-      toast(e?.message ?? 'Error al marcar pagos', 'error');
+      toast(e?.message ?? t('errorMarkingPayments'), 'error');
     } finally {
       setSaving(false);
     }
@@ -333,31 +339,33 @@ function BulkPayModal({
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="text-lg font-bold mb-2">
-          Marcar todo pagado a {person.ownerName}
+          {t('modalTitle', { name: person.ownerName })}
         </h2>
         <p className="text-sm text-mute mb-4">
-          Vas a marcar {person.commissionsCount} comisiones como PAID por un
-          total de <strong className="text-ink">{fmtUsd(person.totalOutstanding)}</strong>.
-          Esta acción es irreversible — anota la referencia abajo.
+          {t.rich('modalDescription', {
+            count: person.commissionsCount,
+            total: fmtUsd(person.totalOutstanding),
+            b: (chunks) => <strong className="text-ink">{chunks}</strong>,
+          })}
         </p>
 
         <div className="bg-bg2 rounded-lg p-3 mb-4 text-sm">
           <div className="flex justify-between mb-1">
-            <span className="text-mute">Email</span>
+            <span className="text-mute">{t('modalEmail')}</span>
             <span className="font-medium">{person.ownerEmail}</span>
           </div>
           {person.ownerWhatsapp && (
             <div className="flex justify-between mb-1">
-              <span className="text-mute">WhatsApp</span>
+              <span className="text-mute">{t('modalWhatsapp')}</span>
               <span className="font-medium">{person.ownerWhatsapp}</span>
             </div>
           )}
           <div className="flex justify-between mb-1">
-            <span className="text-mute">Código</span>
+            <span className="text-mute">{t('modalCode')}</span>
             <span className="font-mono text-xs">{person.code}</span>
           </div>
           <div className="flex justify-between border-t border-line2 pt-2 mt-2">
-            <span className="text-mute font-semibold">Total a pagar</span>
+            <span className="text-mute font-semibold">{t('modalTotalToPay')}</span>
             <span className="text-amber-700 font-bold">
               {fmtUsd(person.totalOutstanding)}
             </span>
@@ -365,10 +373,10 @@ function BulkPayModal({
         </div>
 
         <div className="mb-4">
-          <label className="label">Referencia del pago (opcional)</label>
+          <label className="label">{t('modalReference')}</label>
           <input
             type="text"
-            placeholder="ej: Wise batch 2026-06-05, Nequi consolidado"
+            placeholder={t('phReference')}
             className="input w-full"
             value={note}
             onChange={(e) => setNote(e.target.value)}
@@ -382,14 +390,14 @@ function BulkPayModal({
             disabled={saving}
             className="text-sm px-4 py-2 rounded-md bg-bg2 hover:bg-bg3 transition"
           >
-            Cancelar
+            {t('btnCancel')}
           </button>
           <button
             onClick={submit}
             disabled={saving}
             className="text-sm px-4 py-2 rounded-md bg-brand text-white font-semibold hover:opacity-90 transition disabled:opacity-50 select-none active:scale-[0.97] [-webkit-tap-highlight-color:transparent]"
           >
-            {saving ? 'Procesando…' : 'Confirmar pago bulk'}
+            {saving ? t('processing') : t('btnConfirmBulk')}
           </button>
         </div>
       </div>

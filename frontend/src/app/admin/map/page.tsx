@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { setOptions, importLibrary } from '@googlemaps/js-api-loader';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
@@ -50,10 +51,10 @@ const STATUS_COLORS: Record<TenantStatus, string> = {
   SUSPENDED: '#6B7280', // gris
 };
 
-const STATUS_LABELS: Record<TenantStatus, string> = {
-  ACTIVE: 'Activo',
-  TRIAL: 'Trial',
-  SUSPENDED: 'Suspendido',
+const STATUS_LABEL_KEY: Record<TenantStatus, string> = {
+  ACTIVE: 'statusActive',
+  TRIAL: 'statusTrial',
+  SUSPENDED: 'statusSuspended',
 };
 
 const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
@@ -95,6 +96,7 @@ function inferCity(address: string | null | undefined): string | null {
 }
 
 export default function AdminBusinessMapPage() {
+  const t = useTranslations('admin_map');
   const [tenants, setTenants] = useState<MapTenant[] | null>(null);
   const [affiliates, setAffiliates] = useState<Affiliate[]>([]);
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -117,14 +119,14 @@ export default function AdminBusinessMapPage() {
   useEffect(() => {
     (async () => {
       try {
-        const [t, a] = await Promise.all([
+        const [tn, a] = await Promise.all([
           api<MapTenant[]>('/admin/business-map'),
           api<Affiliate[]>('/admin/business-map/affiliates'),
         ]);
-        setTenants(t);
+        setTenants(tn);
         setAffiliates(a);
       } catch (e: any) {
-        toast(e?.message ?? 'Error cargando mapa', 'error');
+        toast(e?.message ?? t('errorLoadingMap'), 'error');
         setTenants([]);
       }
     })();
@@ -149,7 +151,7 @@ export default function AdminBusinessMapPage() {
         infoWindowRef.current = new g.maps.InfoWindow();
         setReady(true);
       } catch (e: any) {
-        setLoadErr(e?.message ?? 'Error cargando Google Maps');
+        setLoadErr(e?.message ?? t('errorLoadingMaps'));
       }
     })();
     return () => {
@@ -160,26 +162,26 @@ export default function AdminBusinessMapPage() {
   // ─── Filtros derivados ───
   const filtered = useMemo(() => {
     if (!tenants) return [];
-    return tenants.filter((t) => {
-      if (filters.status !== 'all' && t.status !== filters.status) return false;
-      if (filters.category !== 'all' && t.businessCategorySlug !== filters.category) {
+    return tenants.filter((tn) => {
+      if (filters.status !== 'all' && tn.status !== filters.status) return false;
+      if (filters.category !== 'all' && tn.businessCategorySlug !== filters.category) {
         return false;
       }
       if (filters.ambassador !== 'all') {
-        const ref = t.assignedToCode;
+        const ref = tn.assignedToCode;
         if (!ref || ref.role !== 'AMBASSADOR' || ref.id !== filters.ambassador) {
           return false;
         }
       }
       if (filters.influencer !== 'all') {
-        const ref = t.assignedToCode;
+        const ref = tn.assignedToCode;
         if (!ref || ref.role !== 'INFLUENCER' || ref.id !== filters.influencer) {
           return false;
         }
       }
       if (filters.country !== 'all') {
         // Match contra país de cualquiera de sus locations.
-        const matches = t.locations.some(
+        const matches = tn.locations.some(
           (l) => inferCountry(l.address)?.toLowerCase() === filters.country.toLowerCase(),
         );
         if (!matches) return false;
@@ -192,8 +194,8 @@ export default function AdminBusinessMapPage() {
   const countries = useMemo(() => {
     if (!tenants) return [];
     const set = new Set<string>();
-    for (const t of tenants) {
-      for (const l of t.locations) {
+    for (const tn of tenants) {
+      for (const l of tn.locations) {
         const c = inferCountry(l.address);
         if (c) set.add(c);
       }
@@ -223,14 +225,14 @@ export default function AdminBusinessMapPage() {
     const bounds = new g.maps.LatLngBounds();
     let anyPoint = false;
 
-    for (const t of filtered) {
-      const color = STATUS_COLORS[t.status];
-      for (const loc of t.locations) {
+    for (const tn of filtered) {
+      const color = STATUS_COLORS[tn.status];
+      for (const loc of tn.locations) {
         const position = { lat: loc.latitude, lng: loc.longitude };
         const marker = new g.maps.Marker({
           position,
           map,
-          title: t.brandName,
+          title: tn.brandName,
           icon: {
             path: g.maps.SymbolPath.CIRCLE,
             scale: 9,
@@ -242,7 +244,7 @@ export default function AdminBusinessMapPage() {
         });
         marker.addListener('click', () => {
           if (!infoWindowRef.current) return;
-          infoWindowRef.current.setContent(buildInfoWindow(t, loc));
+          infoWindowRef.current.setContent(buildInfoWindow(tn, loc, t));
           infoWindowRef.current.open({ anchor: marker, map });
         });
         markersRef.current.push(marker);
@@ -269,11 +271,11 @@ export default function AdminBusinessMapPage() {
     const byAmbassador: Record<string, { name: string; count: number }> = {};
     const byInfluencer: Record<string, { name: string; count: number }> = {};
 
-    for (const t of filtered) {
-      counts[t.status] = (counts[t.status] || 0) + 1;
-      const cat = t.businessCategorySlug ?? 'other';
+    for (const tn of filtered) {
+      counts[tn.status] = (counts[tn.status] || 0) + 1;
+      const cat = tn.businessCategorySlug ?? 'other';
       byCategory[cat] = (byCategory[cat] || 0) + 1;
-      const ref = t.assignedToCode;
+      const ref = tn.assignedToCode;
       if (ref) {
         const bucket = ref.role === 'AMBASSADOR' ? byAmbassador : byInfluencer;
         if (!bucket[ref.id]) bucket[ref.id] = { name: ref.ownerName, count: 0 };
@@ -300,7 +302,7 @@ export default function AdminBusinessMapPage() {
   }, [filtered]);
 
   const totalLocations = useMemo(
-    () => filtered.reduce((acc, t) => acc + t.locations.length, 0),
+    () => filtered.reduce((acc, tn) => acc + tn.locations.length, 0),
     [filtered],
   );
 
@@ -308,30 +310,30 @@ export default function AdminBusinessMapPage() {
     <div className="max-w-7xl">
       <div className="page-head">
         <h1 className="page-title">
-          Mapa de negocios <span className="page-crumb">/ SuperAdmin</span>
+          {t('pageTitle')} <span className="page-crumb">{t('pageCrumb')}</span>
         </h1>
       </div>
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
         <KpiCard
-          label="Negocios"
+          label={t('kpiBusinesses')}
           value={filtered.length}
-          hint={`${totalLocations} sedes en mapa`}
+          hint={t('kpiLocationsOnMap', { count: totalLocations })}
           accent="brand"
         />
-        <KpiCard label="Activos" value={kpis.counts.ACTIVE} accent="ok" />
-        <KpiCard label="Trial" value={kpis.counts.TRIAL} accent="warn" />
-        <KpiCard label="Suspendidos" value={kpis.counts.SUSPENDED} accent="bad" />
+        <KpiCard label={t('kpiActive')} value={kpis.counts.ACTIVE} accent="ok" />
+        <KpiCard label={t('kpiTrial')} value={kpis.counts.TRIAL} accent="warn" />
+        <KpiCard label={t('kpiSuspended')} value={kpis.counts.SUSPENDED} accent="bad" />
         <KpiCard
-          label="Sin sede"
+          label={t('kpiNoLocation')}
           value={
             tenants
               ? Math.max(0, tenants.length - filtered.length)
               : 0
           }
           accent="mute"
-          hint="excluidos por filtros"
+          hint={t('kpiExcludedByFilters')}
         />
       </div>
 
@@ -341,30 +343,31 @@ export default function AdminBusinessMapPage() {
         kpis.topInfluencers.length > 0) && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
           <TopList
-            title="Top categorías"
+            title={t('topCategories')}
             items={kpis.topCategories.map((c) => ({
               key: c.slug,
               label: c.label,
               value: c.count,
             }))}
+            emptyHint={t('noData')}
           />
           <TopList
-            title="Top embajadores"
+            title={t('topAmbassadors')}
             items={kpis.topAmbassadors.map((a) => ({
               key: a.id,
               label: a.name,
               value: a.count,
             }))}
-            emptyHint="Sin atribución a embajadores"
+            emptyHint={t('noAmbassadorAttribution')}
           />
           <TopList
-            title="Top influencers"
+            title={t('topInfluencers')}
             items={kpis.topInfluencers.map((i) => ({
               key: i.id,
               label: i.name,
               value: i.count,
             }))}
-            emptyHint="Sin atribución a influencers"
+            emptyHint={t('noInfluencerAttribution')}
           />
         </div>
       )}
@@ -372,23 +375,23 @@ export default function AdminBusinessMapPage() {
       <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4">
         {/* Sidebar filtros */}
         <aside className="card card-pad self-start lg:sticky lg:top-4">
-          <h2 className="text-base font-semibold m-0">Filtros</h2>
+          <h2 className="text-base font-semibold m-0">{t('filtersTitle')}</h2>
           <div className="mt-3 flex flex-col gap-3 text-sm">
             <FilterSelect
-              label="País"
+              label={t('filterCountry')}
               value={filters.country}
               onChange={(v) => setFilters((f) => ({ ...f, country: v }))}
               options={[
-                { value: 'all', label: 'Todos' },
+                { value: 'all', label: t('optionAll') },
                 ...countries.map((c) => ({ value: c, label: c })),
               ]}
             />
             <FilterSelect
-              label="Tipo de negocio"
+              label={t('filterBusinessType')}
               value={filters.category}
               onChange={(v) => setFilters((f) => ({ ...f, category: v }))}
               options={[
-                { value: 'all', label: 'Todos' },
+                { value: 'all', label: t('optionAll') },
                 ...BUSINESS_CATEGORIES.map((c) => ({
                   value: c.slug,
                   label: `${c.emoji} ${c.name}`,
@@ -396,11 +399,11 @@ export default function AdminBusinessMapPage() {
               ]}
             />
             <FilterSelect
-              label="Embajador"
+              label={t('filterAmbassador')}
               value={filters.ambassador}
               onChange={(v) => setFilters((f) => ({ ...f, ambassador: v }))}
               options={[
-                { value: 'all', label: 'Todos' },
+                { value: 'all', label: t('optionAll') },
                 ...ambassadors.map((a) => ({
                   value: a.id,
                   label: a.ownerName,
@@ -408,11 +411,11 @@ export default function AdminBusinessMapPage() {
               ]}
             />
             <FilterSelect
-              label="Influencer"
+              label={t('filterInfluencer')}
               value={filters.influencer}
               onChange={(v) => setFilters((f) => ({ ...f, influencer: v }))}
               options={[
-                { value: 'all', label: 'Todos' },
+                { value: 'all', label: t('optionAll') },
                 ...influencers.map((i) => ({
                   value: i.id,
                   label: i.ownerName,
@@ -420,16 +423,16 @@ export default function AdminBusinessMapPage() {
               ]}
             />
             <FilterSelect
-              label="Estado"
+              label={t('filterStatus')}
               value={filters.status}
               onChange={(v) =>
                 setFilters((f) => ({ ...f, status: v as typeof filters.status }))
               }
               options={[
-                { value: 'all', label: 'Todos' },
-                { value: 'ACTIVE', label: 'Activos' },
-                { value: 'TRIAL', label: 'Trial' },
-                { value: 'SUSPENDED', label: 'Suspendidos' },
+                { value: 'all', label: t('optionAll') },
+                { value: 'ACTIVE', label: t('optionActive') },
+                { value: 'TRIAL', label: t('optionTrial') },
+                { value: 'SUSPENDED', label: t('optionSuspended') },
               ]}
             />
             <button
@@ -445,14 +448,14 @@ export default function AdminBusinessMapPage() {
                 })
               }
             >
-              Limpiar filtros
+              {t('clearFilters')}
             </button>
           </div>
 
           {/* Leyenda */}
           <div className="mt-5 pt-4 border-t border-line2">
             <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-2">
-              Leyenda
+              {t('legend')}
             </div>
             <div className="flex flex-col gap-1.5 text-xs">
               {(['ACTIVE', 'TRIAL', 'SUSPENDED'] as TenantStatus[]).map((s) => (
@@ -461,7 +464,7 @@ export default function AdminBusinessMapPage() {
                     className="inline-block w-3 h-3 rounded-full border-2 border-white shadow"
                     style={{ background: STATUS_COLORS[s] }}
                   />
-                  <span>{STATUS_LABELS[s]}</span>
+                  <span>{t(STATUS_LABEL_KEY[s])}</span>
                 </div>
               ))}
             </div>
@@ -472,14 +475,16 @@ export default function AdminBusinessMapPage() {
         <div className="card overflow-hidden relative" style={{ minHeight: 560 }}>
           {loadErr ? (
             <div className="p-6 text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-xl m-4">
-              <div className="font-semibold mb-1">Google Maps no está configurado</div>
+              <div className="font-semibold mb-1">{t('mapsNotConfigured')}</div>
               <div>{loadErr}</div>
               <div className="text-xs mt-2 text-amber-800/80">
-                Definí{' '}
-                <code className="bg-amber-100 px-1 rounded">
-                  NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
-                </code>{' '}
-                en el frontend con Maps JavaScript API habilitada.
+                {t.rich('mapsNotConfiguredHint', {
+                  code: () => (
+                    <code className="bg-amber-100 px-1 rounded">
+                      NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+                    </code>
+                  ),
+                })}
               </div>
             </div>
           ) : (
@@ -487,13 +492,13 @@ export default function AdminBusinessMapPage() {
           )}
           {!tenants && !loadErr && (
             <div className="absolute inset-0 bg-white/60 flex items-center justify-center text-mute text-sm">
-              Cargando…
+              {t('loading')}
             </div>
           )}
           {tenants && filtered.length === 0 && !loadErr && (
             <div className="absolute inset-0 bg-white/60 flex items-center justify-center pointer-events-none">
               <div className="bg-white px-5 py-3 rounded-xl border border-line2 shadow text-sm text-mute">
-                Sin negocios para los filtros actuales.
+                {t('noBusinessesForFilters')}
               </div>
             </div>
           )}
@@ -501,12 +506,13 @@ export default function AdminBusinessMapPage() {
       </div>
 
       <p className="text-[11px] text-mute mt-3">
-        Solo se muestran negocios con al menos una sede configurada. Los
-        clientes sin sede aparecen en{' '}
-        <Link href="/admin/tenants" className="underline">
-          /admin/tenants
-        </Link>
-        . Click sobre un marker para ver el detalle del negocio.
+        {t.rich('footnote', {
+          link: (chunks) => (
+            <Link href="/admin/tenants" className="underline">
+              {chunks}
+            </Link>
+          ),
+        })}
       </p>
     </div>
   );
@@ -517,32 +523,42 @@ export default function AdminBusinessMapPage() {
  * google.maps.InfoWindow.setContent acepta string|Node y este es el patrón
  * más simple sin tener que portaltar React adentro del SDK de Google.
  */
-function buildInfoWindow(t: MapTenant, loc: MapLocation): string {
-  const cat = getCategoryBySlug(t.businessCategorySlug);
+function buildInfoWindow(
+  tn: MapTenant,
+  loc: MapLocation,
+  t: ReturnType<typeof useTranslations<'admin_map'>>,
+): string {
+  const cat = getCategoryBySlug(tn.businessCategorySlug);
   const city = inferCity(loc.address) ?? '—';
-  const status = STATUS_LABELS[t.status];
-  const date = new Date(t.createdAt).toLocaleDateString('es-CO', {
+  const status = t(STATUS_LABEL_KEY[tn.status]);
+  const date = new Date(tn.createdAt).toLocaleDateString('es-CO', {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
   });
-  const refLine = t.assignedToCode
-    ? `<div style="font-size:11px;color:#6b7280;margin-top:4px;">via ${escapeHtml(
-        t.assignedToCode.ownerName,
-      )} (${t.assignedToCode.role === 'AMBASSADOR' ? 'embajador' : 'influencer'})</div>`
+  const refLine = tn.assignedToCode
+    ? `<div style="font-size:11px;color:#6b7280;margin-top:4px;">${escapeHtml(
+        t('infoVia', {
+          name: tn.assignedToCode.ownerName,
+          role:
+            tn.assignedToCode.role === 'AMBASSADOR'
+              ? t('roleAmbassadorLower')
+              : t('roleInfluencerLower'),
+        }),
+      )}</div>`
     : '';
   return `
     <div style="font-family:inherit;min-width:200px;max-width:240px;padding:2px 4px;">
-      <div style="font-weight:600;font-size:14px;color:#111827;">${escapeHtml(t.brandName)}</div>
+      <div style="font-weight:600;font-size:14px;color:#111827;">${escapeHtml(tn.brandName)}</div>
       <div style="font-size:12px;color:#374151;margin-top:2px;">${cat.emoji} ${escapeHtml(cat.name)}</div>
       <div style="font-size:12px;color:#374151;margin-top:6px;">📍 ${escapeHtml(city)}</div>
       <div style="font-size:11px;color:#6b7280;margin-top:2px;">${escapeHtml(loc.name)}</div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
-        <span style="display:inline-block;padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:600;background:${STATUS_COLORS[t.status]};color:white;">${status}</span>
-        <span style="font-size:10px;color:#9ca3af;">Reg. ${date}</span>
+        <span style="display:inline-block;padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:600;background:${STATUS_COLORS[tn.status]};color:white;">${status}</span>
+        <span style="font-size:10px;color:#9ca3af;">${escapeHtml(t('infoRegistered', { date }))}</span>
       </div>
       ${refLine}
-      <a href="/admin/tenants/${t.tenantId}" style="display:inline-block;margin-top:8px;font-size:12px;color:#22C55E;text-decoration:none;font-weight:600;">Ver negocio →</a>
+      <a href="/admin/tenants/${tn.tenantId}" style="display:inline-block;margin-top:8px;font-size:12px;color:#22C55E;text-decoration:none;font-weight:600;">${escapeHtml(t('viewBusiness'))}</a>
     </div>
   `;
 }
@@ -603,7 +619,7 @@ function TopList({
         {title}
       </div>
       {items.length === 0 ? (
-        <div className="text-xs text-mute">{emptyHint ?? 'Sin datos'}</div>
+        <div className="text-xs text-mute">{emptyHint ?? ''}</div>
       ) : (
         <ul className="flex flex-col gap-1.5 text-sm">
           {items.map((it) => (

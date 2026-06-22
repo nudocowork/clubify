@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 
@@ -55,36 +56,37 @@ type Metrics = {
 
 type Filter = 'all' | 'active' | 'expired' | 'converted';
 
-const STATUS_BADGE: Record<Trial['status'], { label: string; cls: string }> = {
-  TRIAL_ACTIVE: { label: 'Activo', cls: 'badge-ok' },
-  TRIAL_EXPIRED: { label: 'Vencido', cls: 'badge-warn' },
-  CONVERTED: { label: 'Cliente', cls: 'badge-ok' },
-  SUSPENDED: { label: 'Suspendido', cls: 'badge-bad' },
+const STATUS_BADGE: Record<Trial['status'], { labelKey: string; cls: string }> = {
+  TRIAL_ACTIVE: { labelKey: 'statusActive', cls: 'badge-ok' },
+  TRIAL_EXPIRED: { labelKey: 'statusExpired', cls: 'badge-warn' },
+  CONVERTED: { labelKey: 'statusCustomer', cls: 'badge-ok' },
+  SUSPENDED: { labelKey: 'statusSuspended', cls: 'badge-bad' },
 };
 
-const SOURCE_LABEL: Record<string, string> = {
-  LANDING: 'Landing',
-  AMBASSADOR: 'Embajador',
-  INFLUENCER: 'Influencer',
-  CAMPAIGN: 'Campaña',
-  DIRECT: 'Directo',
+const SOURCE_LABEL_KEY: Record<string, string> = {
+  LANDING: 'sourceLanding',
+  AMBASSADOR: 'sourceAmbassador',
+  INFLUENCER: 'sourceInfluencer',
+  CAMPAIGN: 'sourceCampaign',
+  DIRECT: 'sourceDirect',
 };
 
 export default function TrialsAdminPage() {
+  const t = useTranslations('admin_trials');
   const [trials, setTrials] = useState<Trial[] | null>(null);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
 
   async function load() {
     try {
-      const [t, m] = await Promise.all([
+      const [tr, m] = await Promise.all([
         api<Trial[]>(`/admin/trials?filter=${filter}`),
         api<Metrics>('/admin/trials/metrics'),
       ]);
-      setTrials(t);
+      setTrials(tr);
       setMetrics(m);
     } catch (e: any) {
-      toast(e?.message ?? 'Error cargando trials', 'error');
+      toast(e?.message ?? t('errorLoading'), 'error');
     }
   }
 
@@ -97,22 +99,22 @@ export default function TrialsAdminPage() {
     <div className="max-w-6xl">
       <div className="page-head">
         <h1 className="page-title">
-          Trials <span className="page-crumb">/ Modo prueba</span>
+          {t('pageTitle')} <span className="page-crumb">{t('pageCrumb')}</span>
         </h1>
       </div>
 
       {/* KPI cards */}
       {metrics && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
-          <KpiCard label="Trials activos" value={metrics.counts.active} accent="ok" />
-          <KpiCard label="Vencidos" value={metrics.counts.expired} accent="warn" />
-          <KpiCard label="Convertidos" value={metrics.counts.converted} accent="ok" />
-          <KpiCard label="Suspendidos" value={metrics.counts.suspended} accent="bad" />
+          <KpiCard label={t('kpiActiveTrials')} value={metrics.counts.active} accent="ok" />
+          <KpiCard label={t('kpiExpired')} value={metrics.counts.expired} accent="warn" />
+          <KpiCard label={t('kpiConverted')} value={metrics.counts.converted} accent="ok" />
+          <KpiCard label={t('kpiSuspended')} value={metrics.counts.suspended} accent="bad" />
           <KpiCard
-            label="% Conversión"
+            label={t('kpiConversionPct')}
             value={metrics.conversionPct !== null ? `${metrics.conversionPct}%` : '—'}
             accent="brand"
-            hint="convertidos / (convertidos + vencidos)"
+            hint={t('kpiConversionHint')}
           />
         </div>
       )}
@@ -120,20 +122,20 @@ export default function TrialsAdminPage() {
       {/* Breakdown por source */}
       {metrics && Object.keys(metrics.bySource).length > 0 && (
         <div className="card card-pad mb-5">
-          <h2 className="text-base font-semibold m-0">Por canal de origen</h2>
+          <h2 className="text-base font-semibold m-0">{t('bySourceTitle')}</h2>
           <div className="mt-3 grid grid-cols-2 md:grid-cols-5 gap-3">
             {Object.entries(metrics.bySource).map(([src, s]) => (
               <div key={src} className="rounded-lg border border-line2 px-3 py-2.5">
                 <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
-                  {SOURCE_LABEL[src] ?? src}
+                  {SOURCE_LABEL_KEY[src] ? t(SOURCE_LABEL_KEY[src]) : src}
                 </div>
                 <div className="text-xl font-bold mt-1">{s.total}</div>
                 <div className="text-[11px] text-mute mt-1">
-                  {s.active} activos · {s.converted} pagaron
+                  {t('sourceActivePaid', { active: s.active, paid: s.converted })}
                 </div>
                 {s.conversionPct !== null && (
                   <div className="text-[11px] text-brand font-semibold mt-0.5">
-                    {s.conversionPct}% conv.
+                    {t('conversionShort', { pct: s.conversionPct })}
                   </div>
                 )}
               </div>
@@ -145,17 +147,17 @@ export default function TrialsAdminPage() {
       {/* Breakdown por embajador */}
       {metrics && metrics.byReferrer.length > 0 && (
         <div className="card card-pad mb-5">
-          <h2 className="text-base font-semibold m-0">Top embajadores / influencers</h2>
+          <h2 className="text-base font-semibold m-0">{t('byReferrerTitle')}</h2>
           <div className="mt-3 overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-mute text-[11px] uppercase tracking-wider border-b border-line2">
-                  <th className="py-2 font-semibold">Código</th>
-                  <th className="py-2 font-semibold">Nombre</th>
-                  <th className="py-2 font-semibold">Rol</th>
-                  <th className="py-2 font-semibold text-right">Trials</th>
-                  <th className="py-2 font-semibold text-right">Convertidos</th>
-                  <th className="py-2 font-semibold text-right">% conv.</th>
+                  <th className="py-2 font-semibold">{t('thCode')}</th>
+                  <th className="py-2 font-semibold">{t('thName')}</th>
+                  <th className="py-2 font-semibold">{t('thRole')}</th>
+                  <th className="py-2 font-semibold text-right">{t('thTrials')}</th>
+                  <th className="py-2 font-semibold text-right">{t('thConverted')}</th>
+                  <th className="py-2 font-semibold text-right">{t('thConvPct')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -190,12 +192,12 @@ export default function TrialsAdminPage() {
             }`}
           >
             {f === 'all'
-              ? 'Todos'
+              ? t('filterAll')
               : f === 'active'
-              ? 'Activos'
+              ? t('filterActive')
               : f === 'expired'
-              ? 'Vencidos'
-              : 'Convertidos'}
+              ? t('filterExpired')
+              : t('filterConverted')}
           </button>
         ))}
       </div>
@@ -203,77 +205,81 @@ export default function TrialsAdminPage() {
       {/* Tabla */}
       <div className="card overflow-hidden">
         {!trials ? (
-          <div className="p-6 text-mute text-sm">Cargando…</div>
+          <div className="p-6 text-mute text-sm">{t('loading')}</div>
         ) : trials.length === 0 ? (
           <div className="p-10 text-center text-mute">
             <div className="text-4xl mb-2">📭</div>
-            Sin trials en este filtro.
+            {t('emptyFilter')}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-bg2 text-left text-mute text-[11px] uppercase tracking-wider">
                 <tr>
-                  <th className="px-4 py-3 font-semibold">Negocio</th>
-                  <th className="px-4 py-3 font-semibold">Contacto</th>
-                  <th className="px-4 py-3 font-semibold">Origen</th>
-                  <th className="px-4 py-3 font-semibold">Inicio</th>
-                  <th className="px-4 py-3 font-semibold">Fin</th>
-                  <th className="px-4 py-3 font-semibold text-right">Días</th>
-                  <th className="px-4 py-3 font-semibold">Estado</th>
+                  <th className="px-4 py-3 font-semibold">{t('thBusiness')}</th>
+                  <th className="px-4 py-3 font-semibold">{t('thContact')}</th>
+                  <th className="px-4 py-3 font-semibold">{t('thSource')}</th>
+                  <th className="px-4 py-3 font-semibold">{t('thStart')}</th>
+                  <th className="px-4 py-3 font-semibold">{t('thEnd')}</th>
+                  <th className="px-4 py-3 font-semibold text-right">{t('thDays')}</th>
+                  <th className="px-4 py-3 font-semibold">{t('thStatus')}</th>
                   <th className="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody>
-                {trials.map((t) => {
-                  const badge = STATUS_BADGE[t.status];
+                {trials.map((tr) => {
+                  const badge = STATUS_BADGE[tr.status];
                   return (
                     <tr
-                      key={t.id}
+                      key={tr.id}
                       className="border-t border-line2 hover:bg-bg2/40"
                     >
                       <td className="px-4 py-3">
-                        <div className="font-semibold">{t.brandName}</div>
-                        {t.city && (
-                          <div className="text-[11px] text-mute">{t.city}</div>
+                        <div className="font-semibold">{tr.brandName}</div>
+                        {tr.city && (
+                          <div className="text-[11px] text-mute">{tr.city}</div>
                         )}
                       </td>
                       <td className="px-4 py-3 text-xs">
-                        <div className="truncate max-w-[200px]">{t.email}</div>
-                        {t.phone && (
-                          <div className="text-mute">{t.phone}</div>
+                        <div className="truncate max-w-[200px]">{tr.email}</div>
+                        {tr.phone && (
+                          <div className="text-mute">{tr.phone}</div>
                         )}
                       </td>
                       <td className="px-4 py-3 text-xs">
-                        <div>{SOURCE_LABEL[t.source ?? 'DIRECT'] ?? t.source}</div>
-                        {t.referrer && (
+                        <div>
+                          {SOURCE_LABEL_KEY[tr.source ?? 'DIRECT']
+                            ? t(SOURCE_LABEL_KEY[tr.source ?? 'DIRECT'])
+                            : tr.source}
+                        </div>
+                        {tr.referrer && (
                           <div className="text-mute mt-0.5">
-                            via {t.referrer.name}
+                            {t('viaName', { name: tr.referrer.name })}
                           </div>
                         )}
                       </td>
                       <td className="px-4 py-3 text-xs">
-                        {t.trialStartedAt
-                          ? new Date(t.trialStartedAt).toLocaleDateString(
+                        {tr.trialStartedAt
+                          ? new Date(tr.trialStartedAt).toLocaleDateString(
                               'es-CO',
                               { day: 'numeric', month: 'short' },
                             )
                           : '—'}
                       </td>
                       <td className="px-4 py-3 text-xs">
-                        {t.trialEndsAt
-                          ? new Date(t.trialEndsAt).toLocaleDateString(
+                        {tr.trialEndsAt
+                          ? new Date(tr.trialEndsAt).toLocaleDateString(
                               'es-CO',
                               { day: 'numeric', month: 'short' },
                             )
                           : '—'}
                       </td>
                       <td className="px-4 py-3 text-right font-semibold">
-                        {t.daysLeft !== null ? (
-                          t.status === 'TRIAL_ACTIVE' ? (
-                            <span className="text-brand">{t.daysLeft}</span>
+                        {tr.daysLeft !== null ? (
+                          tr.status === 'TRIAL_ACTIVE' ? (
+                            <span className="text-brand">{tr.daysLeft}</span>
                           ) : (
-                            <span className="text-mute">{t.daysLeft}</span>
+                            <span className="text-mute">{tr.daysLeft}</span>
                           )
                         ) : (
                           '—'
@@ -281,15 +287,15 @@ export default function TrialsAdminPage() {
                       </td>
                       <td className="px-4 py-3">
                         <span className={`badge ${badge.cls}`}>
-                          {badge.label}
+                          {t(badge.labelKey)}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right">
                         <Link
-                          href={`/admin/tenants/${t.id}`}
+                          href={`/admin/tenants/${tr.id}`}
                           className="text-brand text-xs hover:underline"
                         >
-                          Ver →
+                          {t('viewArrow')}
                         </Link>
                       </td>
                     </tr>
@@ -302,9 +308,7 @@ export default function TrialsAdminPage() {
       </div>
 
       <p className="text-[11px] text-mute mt-3">
-        Acciones (extender, convertir, suspender) en el detalle del negocio.
-        Los recordatorios SMS internos a Javier + Jhon se disparan
-        automáticamente a 5/3/1 días y 12h antes del vencimiento.
+        {t('footnote')}
       </p>
     </div>
   );
