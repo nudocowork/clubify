@@ -7,6 +7,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
@@ -25,6 +26,7 @@ type ReviewQrTarget = {
 };
 
 export default function ReviewTargetsPage() {
+  const t = useTranslations('app_marketing_review_targets');
   const [targets, setTargets] = useState<ReviewQrTarget[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,7 +36,7 @@ export default function ReviewTargetsPage() {
   const [tenantSlug, setTenantSlug] = useState<string | null>(null);
   useEffect(() => {
     api<any>('/tenants/me')
-      .then((t) => setTenantSlug(t?.slug ?? null))
+      .then((me) => setTenantSlug(me?.slug ?? null))
       .catch(() => {});
   }, []);
 
@@ -50,7 +52,7 @@ export default function ReviewTargetsPage() {
         (locs ?? []).map((l: any) => ({ id: l.id, name: l.name })),
       );
     } catch (e: any) {
-      toast(e.message || 'Error cargando targets', 'error');
+      toast(e.message || t('errorLoading'), 'error');
     } finally {
       setLoading(false);
     }
@@ -60,19 +62,14 @@ export default function ReviewTargetsPage() {
     load();
   }, []);
 
-  async function remove(t: ReviewQrTarget) {
-    if (
-      !confirm(
-        `¿Eliminar el target "${t.name}"? Los feedbacks previos quedan en la lista de reseñas, pero sin asociación a este target.`,
-      )
-    )
-      return;
+  async function remove(tgt: ReviewQrTarget) {
+    if (!confirm(t('confirmDelete', { name: tgt.name }))) return;
     try {
-      await api(`/review-qr-targets/${t.id}`, { method: 'DELETE' });
-      toast('Target eliminado', 'success');
+      await api(`/review-qr-targets/${tgt.id}`, { method: 'DELETE' });
+      toast(t('toastDeleted'), 'success');
       load();
     } catch (e: any) {
-      toast(e.message || 'No se pudo eliminar', 'error');
+      toast(e.message || t('errorDelete'), 'error');
     }
   }
 
@@ -81,61 +78,56 @@ export default function ReviewTargetsPage() {
       <div className="page-head">
         <h1 className="page-title">
           <Link href="/app/marketing" className="text-mute hover:text-ink">
-            Marketing
+            {t('marketing')}
           </Link>{' '}
-          <span className="page-crumb">/ ⭐ Targets de reseñas</span>
+          <span className="page-crumb">{t('crumb')}</span>
         </h1>
         <button onClick={() => setShowNew(true)} className="btn-primary">
-          <Icon name="plus" /> Nuevo target
+          <Icon name="plus" /> {t('newTarget')}
         </button>
       </div>
 
       <p className="text-sm text-mute max-w-2xl mb-5 leading-relaxed">
-        Cada sede de tu negocio puede tener su propio QR de reseñas con su
-        URL de Google Reviews y umbral de estrellas. Cuando un cliente
-        escanea el QR de una sede específica, las reseñas 4-5★ van al
-        Google de esa sede; 1-3★ se capturan privadas con la asociación
-        a la sede correcta para que puedas separar métricas.
+        {t('intro')}
       </p>
 
       {loading ? (
-        <div className="card card-pad text-mute">Cargando…</div>
+        <div className="card card-pad text-mute">{t('loading')}</div>
       ) : targets.length === 0 ? (
         <div className="card card-pad text-center py-12">
           <div className="text-4xl mb-2">⭐</div>
-          <div className="font-semibold">Aún no hay targets</div>
+          <div className="font-semibold">{t('emptyTitle')}</div>
           <div className="text-xs text-mute mt-1 max-w-md mx-auto">
-            Crea uno por cada sede que tenga su propio link de Google Reviews.
-            El QR público se asocia desde el editor del QR.
+            {t('emptyDesc')}
           </div>
         </div>
       ) : (
         <div className="grid md:grid-cols-2 gap-3">
-          {targets.map((t) => (
-            <div key={t.id} className="card card-pad">
+          {targets.map((tgt) => (
+            <div key={tgt.id} className="card card-pad">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold flex items-center gap-2">
-                    {!t.isActive && (
+                    {!tgt.isActive && (
                       <span className="text-[10px] uppercase bg-bg3 text-mute px-1.5 py-0.5 rounded">
-                        Inactivo
+                        {t('inactive')}
                       </span>
                     )}
-                    {t.name}
+                    {tgt.name}
                   </div>
                   <div className="text-[11px] text-mute mt-1">
-                    {t.location ? `📍 ${t.location.name}` : 'Sin sede asociada'}
+                    {tgt.location ? `📍 ${tgt.location.name}` : t('noLocation')}
                   </div>
                 </div>
                 <div className="flex gap-1">
                   <button
-                    onClick={() => setEditing(t)}
+                    onClick={() => setEditing(tgt)}
                     className="btn-ghost text-xs"
                   >
-                    Editar
+                    {t('edit')}
                   </button>
                   <button
-                    onClick={() => remove(t)}
+                    onClick={() => remove(tgt)}
                     className="btn-ghost text-xs text-bad-ink hover:bg-bad-soft"
                   >
                     <Icon name="trash" size={12} />
@@ -144,26 +136,26 @@ export default function ReviewTargetsPage() {
               </div>
               <div className="mt-3 space-y-1.5 text-[11px]">
                 <div className="flex items-baseline justify-between gap-2">
-                  <span className="text-mute">Google Reviews</span>
+                  <span className="text-mute">{t('googleReviews')}</span>
                   <a
-                    href={t.googleReviewUrl}
+                    href={tgt.googleReviewUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-brand hover:underline truncate max-w-[200px]"
                   >
-                    Abrir →
+                    {t('open')}
                   </a>
                 </div>
                 <div className="flex items-baseline justify-between gap-2">
-                  <span className="text-mute">Umbral Google</span>
+                  <span className="text-mute">{t('googleThreshold')}</span>
                   <span className="font-medium text-ink">
-                    {t.threshold}★ ó más
+                    {t('thresholdOrMore', { n: tgt.threshold })}
                   </span>
                 </div>
                 <div className="flex items-baseline justify-between gap-2">
-                  <span className="text-mute">Reseñas recibidas</span>
+                  <span className="text-mute">{t('reviewsReceived')}</span>
                   <span className="font-medium text-ink">
-                    {t._count?.feedbacks ?? 0}
+                    {tgt._count?.feedbacks ?? 0}
                   </span>
                 </div>
               </div>
@@ -173,11 +165,11 @@ export default function ReviewTargetsPage() {
               {tenantSlug && (
                 <div className="mt-3 pt-3 border-t border-line">
                   <div className="text-[10px] uppercase tracking-wider text-mute mb-1">
-                    URL pública de esta sede
+                    {t('publicUrlLabel')}
                   </div>
                   <div className="flex items-center gap-2">
                     <code className="text-[11px] bg-bg2 rounded px-2 py-1 flex-1 truncate">
-                      /r/{tenantSlug}?target={t.id}
+                      /r/{tenantSlug}?target={tgt.id}
                     </code>
                     <button
                       type="button"
@@ -185,16 +177,16 @@ export default function ReviewTargetsPage() {
                       onClick={async () => {
                         const origin =
                           typeof window !== 'undefined' ? window.location.origin : '';
-                        const url = `${origin}/r/${tenantSlug}?target=${t.id}`;
+                        const url = `${origin}/r/${tenantSlug}?target=${tgt.id}`;
                         try {
                           await navigator.clipboard.writeText(url);
-                          toast('Link público de la sede copiado', 'success');
+                          toast(t('toastLinkCopied'), 'success');
                         } catch {
                           toast(url, 'info');
                         }
                       }}
                     >
-                      Copiar
+                      {t('copy')}
                     </button>
                   </div>
                 </div>
@@ -234,6 +226,7 @@ function TargetModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations('app_marketing_review_targets');
   const [form, setForm] = useState({
     name: target?.name ?? '',
     googleReviewUrl: target?.googleReviewUrl ?? '',
@@ -245,7 +238,7 @@ function TargetModal({
 
   async function save() {
     if (!form.name.trim() || !form.googleReviewUrl.trim()) {
-      toast('Nombre y URL son requeridos', 'error');
+      toast(t('errorNameUrlRequired'), 'error');
       return;
     }
     setBusy(true);
@@ -262,17 +255,17 @@ function TargetModal({
           method: 'PATCH',
           body: JSON.stringify(body),
         });
-        toast('Target actualizado', 'success');
+        toast(t('toastUpdated'), 'success');
       } else {
         await api('/review-qr-targets', {
           method: 'POST',
           body: JSON.stringify(body),
         });
-        toast('Target creado', 'success');
+        toast(t('toastCreated'), 'success');
       }
       onSaved();
     } catch (e: any) {
-      toast(e.message || 'No se pudo guardar', 'error');
+      toast(e.message || t('errorSave'), 'error');
     } finally {
       setBusy(false);
     }
@@ -283,7 +276,7 @@ function TargetModal({
       <div className="bg-white rounded-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
         <div className="px-5 py-4 border-b border-line2 flex items-center justify-between">
           <div className="font-semibold text-base">
-            {target ? 'Editar target' : 'Nuevo target de reseñas'}
+            {target ? t('modalEditTitle') : t('modalNewTitle')}
           </div>
           <button
             onClick={onClose}
@@ -294,17 +287,17 @@ function TargetModal({
         </div>
         <div className="p-5 space-y-4">
           <div>
-            <label className="label">Nombre</label>
+            <label className="label">{t('fieldName')}</label>
             <input
               className="input"
-              placeholder="Ej: Sede Norte"
+              placeholder={t('namePlaceholder')}
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               maxLength={80}
             />
           </div>
           <div>
-            <label className="label">URL de Google Reviews</label>
+            <label className="label">{t('fieldGoogleUrl')}</label>
             <input
               className="input"
               placeholder="https://g.page/r/..."
@@ -314,11 +307,11 @@ function TargetModal({
               }
             />
             <div className="text-[11px] text-mute mt-1 leading-relaxed">
-              Pégalo desde Google Business Profile → "Compartir formulario".
+              {t('googleUrlHint')}
             </div>
           </div>
           <div>
-            <label className="label">Sede asociada (opcional)</label>
+            <label className="label">{t('fieldLocation')}</label>
             <select
               className="input"
               value={form.locationId}
@@ -326,7 +319,7 @@ function TargetModal({
                 setForm({ ...form, locationId: e.target.value })
               }
             >
-              <option value="">— Sin sede específica —</option>
+              <option value="">{t('noSpecificLocation')}</option>
               {locations.map((l) => (
                 <option key={l.id} value={l.id}>
                   📍 {l.name}
@@ -336,7 +329,7 @@ function TargetModal({
           </div>
           <div>
             <label className="label">
-              Umbral mínimo de estrellas para ir a Google
+              {t('fieldThreshold')}
             </label>
             <div className="grid grid-cols-5 gap-2">
               {[1, 2, 3, 4, 5].map((n) => (
@@ -355,8 +348,7 @@ function TargetModal({
               ))}
             </div>
             <div className="text-[11px] text-mute mt-1 leading-relaxed">
-              Clientes con {form.threshold}★ o más van a Google. Por debajo,
-              quedan como feedback privado.
+              {t('thresholdHint', { n: form.threshold })}
             </div>
           </div>
           <label className="flex items-center gap-3 cursor-pointer">
@@ -368,7 +360,7 @@ function TargetModal({
               }
               className="accent-brand"
             />
-            <span className="text-sm font-medium">Target activo</span>
+            <span className="text-sm font-medium">{t('targetActive')}</span>
           </label>
         </div>
         <div className="px-5 py-3 border-t border-line2 flex items-center justify-end gap-2 bg-bg2">
@@ -377,14 +369,14 @@ function TargetModal({
             disabled={busy}
             className="text-sm px-3 py-2 rounded-md hover:bg-bg3"
           >
-            Cancelar
+            {t('cancel')}
           </button>
           <button
             onClick={save}
             disabled={busy}
             className="btn-primary text-sm disabled:opacity-50"
           >
-            {busy ? 'Guardando…' : 'Guardar target'}
+            {busy ? t('saving') : t('saveTarget')}
           </button>
         </div>
       </div>

@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 
@@ -54,18 +55,18 @@ type ReportResp = {
   socioPercent: number;
 };
 
-const ROLE_LABEL: Record<string, string> = {
-  INFLUENCER: 'Influencer',
-  AMBASSADOR: 'Embajador',
-  VENDOR: 'Vendedor',
-  SOCIO: 'Socio',
+const ROLE_LABEL_KEY: Record<string, string> = {
+  INFLUENCER: 'roleInfluencer',
+  AMBASSADOR: 'roleAmbassador',
+  VENDOR: 'roleVendor',
+  SOCIO: 'roleSocio',
 };
 
-const PERIOD_LABEL: Record<string, string> = {
-  MENSUAL: 'Mensual',
-  TRIMESTRAL: 'Trimestral',
-  SEMESTRAL: 'Semestral',
-  ANUAL: 'Anual',
+const PERIOD_LABEL_KEY: Record<string, string> = {
+  MENSUAL: 'periodMonthly',
+  TRIMESTRAL: 'periodQuarterly',
+  SEMESTRAL: 'periodSemiannual',
+  ANUAL: 'periodAnnual',
 };
 
 const usd = (n: number) =>
@@ -75,6 +76,7 @@ const usd = (n: number) =>
   })}`;
 
 export default function CompanyReportPage() {
+  const t = useTranslations('admin_commissions_report');
   const [data, setData] = useState<ReportResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
@@ -84,7 +86,7 @@ export default function CompanyReportPage() {
     try {
       setData(await api<ReportResp>('/admin/commissions/company-report'));
     } catch (e: any) {
-      toast(e?.message ?? 'Error cargando el reporte', 'error');
+      toast(e?.message ?? t('errorLoading'), 'error');
     } finally {
       setLoading(false);
     }
@@ -109,29 +111,29 @@ export default function CompanyReportPage() {
 
   function exportCsv() {
     if (!data?.rows.length) {
-      toast('Sin filas para exportar', 'info');
+      toast(t('noRowsToExport'), 'info');
       return;
     }
     const headers = [
-      'Empresa',
-      'Estado',
-      'Plan',
-      'Periodicidad',
-      'Pago del cliente',
-      'Base',
-      'Afiliado',
-      'Rol',
-      'Código',
-      '% directo',
-      'Comisión directa',
-      'Influencer (indirecto)',
-      '% indirecto',
-      'Comisión indirecta',
-      '% socio',
-      'Socio',
-      'Neto empresa (aprox)',
-      'Comisiones registradas',
-      '# registradas',
+      t('csvCompany'),
+      t('csvStatus'),
+      t('csvPlan'),
+      t('csvPeriodicity'),
+      t('csvCustomerPayment'),
+      t('csvBase'),
+      t('csvAffiliate'),
+      t('csvRole'),
+      t('csvCode'),
+      t('csvDirectPercent'),
+      t('csvDirectCommission'),
+      t('csvInfluencerIndirect'),
+      t('csvIndirectPercent'),
+      t('csvIndirectCommission'),
+      t('csvPartnerPercent'),
+      t('csvPartner'),
+      t('csvCompanyNet'),
+      t('csvRegisteredCommissions'),
+      t('csvRegisteredCount'),
     ];
     const csvRows = data.rows.map((r) => [
       r.brandName,
@@ -139,9 +141,9 @@ export default function CompanyReportPage() {
       r.planName ?? '',
       r.planPeriodicity ?? '',
       r.base.toFixed(2),
-      r.baseIsReal ? 'real' : 'aprox',
+      r.baseIsReal ? t('baseReal') : t('baseApprox'),
       r.afiliado.ownerName,
-      ROLE_LABEL[r.afiliado.role] ?? r.afiliado.role,
+      t(ROLE_LABEL_KEY[r.afiliado.role] ?? 'roleUnknown', { role: r.afiliado.role }),
       r.afiliado.code,
       r.afiliado.percent.toFixed(2),
       r.comisionDirecta.toFixed(2),
@@ -177,73 +179,73 @@ export default function CompanyReportPage() {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  const t = data?.totals;
+  const totals = data?.totals;
 
   return (
     <div className="max-w-7xl">
       <div className="page-head flex flex-wrap items-center justify-between gap-3">
         <h1 className="page-title">
-          Reporte por empresa{' '}
-          <span className="page-crumb">/ Contabilidad de comisiones</span>
+          {t('title')}{' '}
+          <span className="page-crumb">{t('crumb')}</span>
         </h1>
         <div className="flex flex-wrap items-center gap-2">
           <Link
             href="/admin/commissions"
             className="text-sm px-3.5 py-2 rounded-pill border border-slate-300 bg-white text-slate-700 font-semibold hover:bg-slate-50 transition"
           >
-            ← Volver a comisiones
+            {t('backToCommissions')}
           </Link>
           <button
             onClick={exportCsv}
             className="text-sm px-3.5 py-2 rounded-pill bg-brand text-white font-semibold hover:opacity-90 transition"
           >
-            Exportar CSV
+            {t('exportCsv')}
           </button>
         </div>
       </div>
 
       <p className="text-sm text-slate-500 mb-5 max-w-3xl">
-        Económica <strong>por ciclo de facturación</strong> sobre la base = lo
-        que el cliente paga por su plan (precio canónico del bundle). Por cada
-        empresa: pago − comisión del afiliado (directa{' '}
-        {data ? `+ ${data.indirectPercent}% indirecto del influencer` : ''}) −{' '}
-        {data ? `${data.socioPercent}%` : '10%'} del socio de plataforma = neto
-        a la empresa (aprox). La columna <em>Registradas</em> muestra las
-        comisiones reales acumuladas (no anuladas) para reconciliar.
+        {t.rich('intro', {
+          strong: (chunks) => <strong>{chunks}</strong>,
+          em: (chunks) => <em>{chunks}</em>,
+          indirect: data ? `+ ${data.indirectPercent}% ` : '',
+          partner: data ? `${data.socioPercent}%` : '10%',
+        })}
       </p>
 
       {/* KPIs totales */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
         <KpiCard
-          label="Empresas"
-          value={t ? String(t.companies) : '—'}
+          label={t('kpiCompanies')}
+          value={totals ? String(totals.companies) : '—'}
           tone="slate"
         />
         <KpiCard
-          label="Pago clientes / ciclo"
-          value={t ? usd(t.base) : '—'}
+          label={t('kpiCustomerPaymentPerCycle')}
+          value={totals ? usd(totals.base) : '—'}
           tone="indigo"
         />
         <KpiCard
-          label="Comisiones afiliados"
-          value={t ? usd(t.comisiones) : '—'}
+          label={t('kpiAffiliateCommissions')}
+          value={totals ? usd(totals.comisiones) : '—'}
           tone="amber"
           sub={
-            t
-              ? `${usd(t.comisionDirecta)} dir + ${usd(
-                  t.comisionIndirecta,
-                )} indir`
+            totals
+              ? t('kpiCommissionsSub', {
+                  direct: usd(totals.comisionDirecta),
+                  indirect: usd(totals.comisionIndirecta),
+                })
               : undefined
           }
         />
         <KpiCard
-          label={`Socio (${data?.socioPercent ?? 10}%)`}
-          value={t ? usd(t.socio) : '—'}
+          label={t('kpiPartner', { percent: data?.socioPercent ?? 10 })}
+          value={totals ? usd(totals.socio) : '—'}
           tone="violet"
         />
         <KpiCard
-          label="Neto empresa (aprox)"
-          value={t ? usd(t.neto) : '—'}
+          label={t('kpiCompanyNet')}
+          value={totals ? usd(totals.neto) : '—'}
           tone="emerald"
         />
       </div>
@@ -251,34 +253,34 @@ export default function CompanyReportPage() {
       <input
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        placeholder="Buscar empresa, afiliado o código…"
+        placeholder={t('searchPlaceholder')}
         className="w-full md:w-80 mb-4 px-3.5 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand/30"
       />
 
       {loading ? (
         <div className="text-sm text-slate-400 py-10 text-center">
-          Cargando…
+          {t('loading')}
         </div>
       ) : rows.length === 0 ? (
         <div className="text-sm text-slate-400 py-10 text-center">
-          Sin empresas con atribución de afiliado.
+          {t('emptyNoAttribution')}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
           <table className="w-full text-sm min-w-[1080px]">
             <thead>
               <tr className="text-left text-xs uppercase tracking-wide text-slate-500 border-b border-slate-200 bg-slate-50">
-                <th className="px-3 py-2.5">Empresa</th>
-                <th className="px-3 py-2.5">Plan</th>
-                <th className="px-3 py-2.5 text-right">Pago cliente</th>
-                <th className="px-3 py-2.5">Afiliado</th>
-                <th className="px-3 py-2.5 text-right">Directa</th>
-                <th className="px-3 py-2.5 text-right">Indirecta</th>
+                <th className="px-3 py-2.5">{t('thCompany')}</th>
+                <th className="px-3 py-2.5">{t('thPlan')}</th>
+                <th className="px-3 py-2.5 text-right">{t('thCustomerPayment')}</th>
+                <th className="px-3 py-2.5">{t('thAffiliate')}</th>
+                <th className="px-3 py-2.5 text-right">{t('thDirect')}</th>
+                <th className="px-3 py-2.5 text-right">{t('thIndirect')}</th>
                 <th className="px-3 py-2.5 text-right">
-                  Socio {data?.socioPercent ?? 10}%
+                  {t('thPartner', { percent: data?.socioPercent ?? 10 })}
                 </th>
-                <th className="px-3 py-2.5 text-right">Neto empresa</th>
-                <th className="px-3 py-2.5 text-right">Registradas</th>
+                <th className="px-3 py-2.5 text-right">{t('thCompanyNet')}</th>
+                <th className="px-3 py-2.5 text-right">{t('thRegistered')}</th>
               </tr>
             </thead>
             <tbody>
@@ -299,7 +301,9 @@ export default function CompanyReportPage() {
                   </td>
                   <td className="px-3 py-2.5 text-slate-600">
                     {r.planPeriodicity
-                      ? PERIOD_LABEL[r.planPeriodicity] ?? r.planPeriodicity
+                      ? PERIOD_LABEL_KEY[r.planPeriodicity]
+                        ? t(PERIOD_LABEL_KEY[r.planPeriodicity])
+                        : r.planPeriodicity
                       : '—'}
                   </td>
                   <td className="px-3 py-2.5 text-right font-semibold text-slate-800">
@@ -307,9 +311,9 @@ export default function CompanyReportPage() {
                     {!r.baseIsReal && (
                       <span
                         className="block text-[10px] font-normal text-amber-500"
-                        title="Precio canónico del plan (no tenemos el monto real pagado). Setealo en /admin/tenants para exactitud."
+                        title={t('approxTitle')}
                       >
-                        aprox
+                        {t('approxBadge')}
                       </span>
                     )}
                   </td>
@@ -321,13 +325,17 @@ export default function CompanyReportPage() {
                       </span>
                     </div>
                     <div className="text-[11px] text-slate-400">
-                      {ROLE_LABEL[r.afiliado.role] ?? r.afiliado.role} ·{' '}
-                      {r.afiliado.code}
+                      {ROLE_LABEL_KEY[r.afiliado.role]
+                        ? t(ROLE_LABEL_KEY[r.afiliado.role])
+                        : r.afiliado.role}{' '}
+                      · {r.afiliado.code}
                     </div>
                     {r.influencer && (
                       <div className="text-[11px] text-indigo-500">
-                        ↳ {r.influencer.ownerName} ({r.influencer.percent}%
-                        indir)
+                        {t('influencerIndir', {
+                          name: r.influencer.ownerName,
+                          percent: r.influencer.percent,
+                        })}
                       </div>
                     )}
                   </td>
@@ -355,28 +363,28 @@ export default function CompanyReportPage() {
                 </tr>
               ))}
             </tbody>
-            {t && (
+            {totals && (
               <tfoot>
                 <tr className="border-t-2 border-slate-200 bg-slate-50 font-semibold text-slate-800">
                   <td className="px-3 py-2.5" colSpan={2}>
-                    Total ({t.companies} empresas)
+                    {t('totalCompanies', { count: totals.companies })}
                   </td>
-                  <td className="px-3 py-2.5 text-right">{usd(t.base)}</td>
+                  <td className="px-3 py-2.5 text-right">{usd(totals.base)}</td>
                   <td className="px-3 py-2.5"></td>
                   <td className="px-3 py-2.5 text-right text-amber-700">
-                    {usd(t.comisionDirecta)}
+                    {usd(totals.comisionDirecta)}
                   </td>
                   <td className="px-3 py-2.5 text-right text-indigo-600">
-                    {usd(t.comisionIndirecta)}
+                    {usd(totals.comisionIndirecta)}
                   </td>
                   <td className="px-3 py-2.5 text-right text-violet-600">
-                    {usd(t.socio)}
+                    {usd(totals.socio)}
                   </td>
                   <td className="px-3 py-2.5 text-right text-emerald-700">
-                    {usd(t.neto)}
+                    {usd(totals.neto)}
                   </td>
                   <td className="px-3 py-2.5 text-right text-slate-500">
-                    {usd(t.registradas)}
+                    {usd(totals.registradas)}
                   </td>
                 </tr>
               </tfoot>

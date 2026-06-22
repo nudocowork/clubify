@@ -13,6 +13,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 
@@ -92,6 +93,7 @@ const fmtDate = (s: string | null) =>
   s ? new Date(s).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 
 export default function AmbassadorsReportPage() {
+  const t = useTranslations('admin_reports_ambassadors');
   const [rows, setRows] = useState<AmbassadorRow[] | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [detail, setDetail] = useState<AmbassadorDetail | null>(null);
@@ -119,7 +121,7 @@ export default function AmbassadorsReportPage() {
       const r = await api<AmbassadorRow[]>('/admin/reports/ambassadors');
       setRows(r);
     } catch (e: any) {
-      toast(e?.message || 'Error cargando embajadores', 'error');
+      toast(e?.message || t('errorLoadingAmbassadors'), 'error');
     }
   }
 
@@ -134,18 +136,18 @@ export default function AmbassadorsReportPage() {
     }
     api<AmbassadorDetail>(`/admin/reports/ambassadors/${openId}`)
       .then(setDetail)
-      .catch((e) => toast(e?.message || 'Error cargando detalle', 'error'));
-  }, [openId]);
+      .catch((e) => toast(e?.message || t('errorLoadingDetail'), 'error'));
+  }, [openId, t]);
 
   const filtered = rows
     ? rows.filter((r) => {
-        const t = search.trim().toLowerCase();
-        if (!t) return true;
+        const q = search.trim().toLowerCase();
+        if (!q) return true;
         return (
-          r.ownerName.toLowerCase().includes(t) ||
-          r.ownerEmail.toLowerCase().includes(t) ||
-          r.code.toLowerCase().includes(t) ||
-          (r.parentInfluencerName ?? '').toLowerCase().includes(t)
+          r.ownerName.toLowerCase().includes(q) ||
+          r.ownerEmail.toLowerCase().includes(q) ||
+          r.code.toLowerCase().includes(q) ||
+          (r.parentInfluencerName ?? '').toLowerCase().includes(q)
         );
       })
     : null;
@@ -161,22 +163,20 @@ export default function AmbassadorsReportPage() {
     <div className="max-w-7xl">
       <div className="page-head">
         <h1 className="page-title">
-          Reportes <span className="page-crumb">/ Embajadores</span>
+          {t('reportsCrumb')} <span className="page-crumb">{t('ambassadorsCrumb')}</span>
         </h1>
         <Link href="/admin/reports/vendors" className="btn-ghost text-sm">
-          Ver vendedores →
+          {t('viewVendors')}
         </Link>
       </div>
 
       <p className="text-mute text-sm mb-4 max-w-prose">
-        Producción agregada por embajador: ventas, facturación atribuida y
-        comisiones generadas. Click en una fila para ver el detalle con
-        vendedores, tenants y timeline.
+        {t('intro')}
       </p>
 
       <input
         type="search"
-        placeholder="Buscar por nombre, email, código o influencer…"
+        placeholder={t('searchPlaceholder')}
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         className="input mb-4 max-w-md"
@@ -186,21 +186,21 @@ export default function AmbassadorsReportPage() {
         <div className="h-64 bg-bg2 rounded animate-shimmer" />
       ) : sorted.length === 0 ? (
         <div className="card card-pad text-center text-mute">
-          No hay embajadores que coincidan con tu búsqueda.
+          {t('emptyNoMatch')}
         </div>
       ) : (
         <div className="card overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-bg2 text-mute text-xs uppercase tracking-wider">
               <tr>
-                <th className="text-left p-3">Embajador</th>
-                <th className="text-left p-3">Influencer</th>
-                <SortableTh label="Ventas" onClick={() => toggleSort('ventasTotales')} indicator={arrow('ventasTotales')} />
-                <SortableTh label="Facturación" onClick={() => toggleSort('facturacionUsd')} indicator={arrow('facturacionUsd')} />
-                <SortableTh label="Comisión generada" onClick={() => toggleSort('comisionGeneradaUsd')} indicator={arrow('comisionGeneradaUsd')} />
-                <SortableTh label="Pagada" onClick={() => toggleSort('comisionPagadaUsd')} indicator={arrow('comisionPagadaUsd')} />
-                <SortableTh label="Pendiente" onClick={() => toggleSort('comisionPendienteUsd')} indicator={arrow('comisionPendienteUsd')} />
-                <th className="text-right p-3">Vendedores</th>
+                <th className="text-left p-3">{t('colAmbassador')}</th>
+                <th className="text-left p-3">{t('colInfluencer')}</th>
+                <SortableTh label={t('colSales')} onClick={() => toggleSort('ventasTotales')} indicator={arrow('ventasTotales')} />
+                <SortableTh label={t('colBilling')} onClick={() => toggleSort('facturacionUsd')} indicator={arrow('facturacionUsd')} />
+                <SortableTh label={t('colCommissionGenerated')} onClick={() => toggleSort('comisionGeneradaUsd')} indicator={arrow('comisionGeneradaUsd')} />
+                <SortableTh label={t('colPaid')} onClick={() => toggleSort('comisionPagadaUsd')} indicator={arrow('comisionPagadaUsd')} />
+                <SortableTh label={t('colPending')} onClick={() => toggleSort('comisionPendienteUsd')} indicator={arrow('comisionPendienteUsd')} />
+                <th className="text-right p-3">{t('colVendors')}</th>
                 <th className="p-3"></th>
               </tr>
             </thead>
@@ -215,14 +215,14 @@ export default function AmbassadorsReportPage() {
                     <div className="font-medium">{r.ownerName}</div>
                     <div className="text-xs text-mute">
                       {r.code} · {r.ownerEmail}
-                      {!r.isActive && <span className="ml-2 badge-bad">Inactivo</span>}
+                      {!r.isActive && <span className="ml-2 badge-bad">{t('inactive')}</span>}
                     </div>
                   </td>
                   <td className="p-3">
                     {r.parentInfluencerName ? (
                       <span className="text-sm">{r.parentInfluencerName}</span>
                     ) : (
-                      <span className="text-mute text-xs">Empresa</span>
+                      <span className="text-mute text-xs">{t('company')}</span>
                     )}
                   </td>
                   <td className="p-3 text-right tabular-nums">{r.ventasTotales}</td>
@@ -270,7 +270,7 @@ export default function AmbassadorsReportPage() {
                     </div>
                     {detail.parent && (
                       <div className="text-xs text-mute mt-1">
-                        Reporta a: {detail.parent.name} ({detail.parent.code})
+                        {t('reportsTo', { name: detail.parent.name, code: detail.parent.code })}
                       </div>
                     )}
                   </div>
@@ -279,36 +279,36 @@ export default function AmbassadorsReportPage() {
                     onClick={() => setOpenId(null)}
                     className="btn-ghost text-sm"
                   >
-                    Cerrar ✕
+                    {t('closeBtn')}
                   </button>
                 </div>
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
-                  <Stat label="Ventas" value={detail.totals.ventasTotales} />
-                  <Stat label="Generada" value={usd(detail.totals.comisionGeneradaUsd)} />
-                  <Stat label="Pagada" value={usd(detail.totals.comisionPagadaUsd)} accent="ok" />
+                  <Stat label={t('statSales')} value={detail.totals.ventasTotales} />
+                  <Stat label={t('statGenerated')} value={usd(detail.totals.comisionGeneradaUsd)} />
+                  <Stat label={t('statPaid')} value={usd(detail.totals.comisionPagadaUsd)} accent="ok" />
                   <Stat
-                    label="Pendiente"
+                    label={t('statPending')}
                     value={usd(detail.totals.comisionPendienteUsd)}
                     accent="warn"
                   />
                 </div>
 
                 {/* Producción por vendedor */}
-                <SectionTitle>Producción por vendedor</SectionTitle>
+                <SectionTitle>{t('sectionVendorProduction')}</SectionTitle>
                 {detail.vendors.length === 0 ? (
-                  <div className="text-sm text-mute mb-4">Sin vendedores asociados.</div>
+                  <div className="text-sm text-mute mb-4">{t('noVendors')}</div>
                 ) : (
                   <div className="card overflow-x-auto mb-4">
                     <table className="w-full text-xs">
                       <thead className="bg-bg2 text-mute uppercase">
                         <tr>
-                          <th className="text-left p-2">Vendedor</th>
+                          <th className="text-left p-2">{t('colVendor')}</th>
                           <th className="text-right p-2">%</th>
-                          <th className="text-right p-2">Ventas</th>
-                          <th className="text-right p-2">Generada</th>
-                          <th className="text-right p-2">Pagada</th>
-                          <th className="text-right p-2">Pendiente</th>
+                          <th className="text-right p-2">{t('colSales')}</th>
+                          <th className="text-right p-2">{t('statGenerated')}</th>
+                          <th className="text-right p-2">{t('statPaid')}</th>
+                          <th className="text-right p-2">{t('statPending')}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -339,29 +339,29 @@ export default function AmbassadorsReportPage() {
                 )}
 
                 {/* Tenants */}
-                <SectionTitle>Tenants atribuidos</SectionTitle>
+                <SectionTitle>{t('sectionTenants')}</SectionTitle>
                 {detail.tenants.length === 0 ? (
-                  <div className="text-sm text-mute mb-4">Sin tenants atribuidos.</div>
+                  <div className="text-sm text-mute mb-4">{t('noTenants')}</div>
                 ) : (
                   <div className="card overflow-x-auto mb-4">
                     <table className="w-full text-xs">
                       <thead className="bg-bg2 text-mute uppercase">
                         <tr>
-                          <th className="text-left p-2">Tenant</th>
-                          <th className="text-left p-2">Plan</th>
-                          <th className="text-left p-2">Periodicidad</th>
-                          <th className="text-left p-2">Renovación</th>
-                          <th className="text-left p-2">Estado</th>
+                          <th className="text-left p-2">{t('colTenant')}</th>
+                          <th className="text-left p-2">{t('colPlan')}</th>
+                          <th className="text-left p-2">{t('colPeriodicity')}</th>
+                          <th className="text-left p-2">{t('colRenewal')}</th>
+                          <th className="text-left p-2">{t('colStatus')}</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {detail.tenants.map((t) => (
-                          <tr key={t.referralUseId} className="border-t border-line">
-                            <td className="p-2">{t.brandName}</td>
-                            <td className="p-2">{t.planName ?? '—'}</td>
-                            <td className="p-2">{t.planPeriodicity ?? '—'}</td>
-                            <td className="p-2">{fmtDate(t.currentPeriodEnd)}</td>
-                            <td className="p-2">{t.tenantStatus}</td>
+                        {detail.tenants.map((tn) => (
+                          <tr key={tn.referralUseId} className="border-t border-line">
+                            <td className="p-2">{tn.brandName}</td>
+                            <td className="p-2">{tn.planName ?? '—'}</td>
+                            <td className="p-2">{tn.planPeriodicity ?? '—'}</td>
+                            <td className="p-2">{fmtDate(tn.currentPeriodEnd)}</td>
+                            <td className="p-2">{tn.tenantStatus}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -370,19 +370,19 @@ export default function AmbassadorsReportPage() {
                 )}
 
                 {/* Timeline */}
-                <SectionTitle>Timeline de comisiones</SectionTitle>
+                <SectionTitle>{t('sectionTimeline')}</SectionTitle>
                 {detail.timeline.length === 0 ? (
-                  <div className="text-sm text-mute">Sin movimientos.</div>
+                  <div className="text-sm text-mute">{t('noMovements')}</div>
                 ) : (
                   <div className="card overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead className="bg-bg2 text-mute uppercase">
                         <tr>
-                          <th className="text-left p-2">Fecha</th>
-                          <th className="text-left p-2">Tenant</th>
-                          <th className="text-right p-2">Monto</th>
-                          <th className="text-right p-2">Pagado</th>
-                          <th className="text-left p-2">Estado</th>
+                          <th className="text-left p-2">{t('colDate')}</th>
+                          <th className="text-left p-2">{t('colTenant')}</th>
+                          <th className="text-right p-2">{t('colAmount')}</th>
+                          <th className="text-right p-2">{t('colPaid')}</th>
+                          <th className="text-left p-2">{t('colStatus')}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -404,7 +404,11 @@ export default function AmbassadorsReportPage() {
                                     : 'badge-mute'
                                 }
                               >
-                                {c.paymentStatus}
+                                {c.paymentStatus === 'PAID'
+                                  ? t('payStatusPaid')
+                                  : c.paymentStatus === 'PARTIAL'
+                                  ? t('payStatusPartial')
+                                  : t('payStatusPending')}
                               </span>
                             </td>
                           </tr>
