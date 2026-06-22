@@ -14,6 +14,7 @@
  * - Modal de creación/edición con todos los campos
  */
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api, getToken } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import { ImageUploader } from '@/components/ImageUploader';
@@ -52,39 +53,41 @@ type Material = {
 
 type Influencer = { id: string; code: string; ownerName: string };
 
-const TYPE_LABEL: Record<Type, string> = {
-  PDF: '📄 PDF',
-  IMAGE: '🖼 Imagen',
-  VIDEO: '🎬 Video (link)',
-  AUDIO: '🎵 Audio',
-  LINK: '🔗 Link externo',
-  SCRIPT: '📝 Script copiable',
-  PRESENTATION: '🎤 Presentación',
-  TEMPLATE: '📋 Plantilla',
-  OTHER: '📦 Otro',
+const TYPE_LABEL_KEY: Record<Type, string> = {
+  PDF: 'typePdf',
+  IMAGE: 'typeImage',
+  VIDEO: 'typeVideo',
+  AUDIO: 'typeAudio',
+  LINK: 'typeLink',
+  SCRIPT: 'typeScript',
+  PRESENTATION: 'typePresentation',
+  TEMPLATE: 'typeTemplate',
+  OTHER: 'typeOther',
 };
 
-const AUDIENCE_LABEL: Record<Audience, string> = {
-  INFLUENCER: '🌟 Solo influencers',
-  AMBASSADOR: '👥 Solo embajadores',
-  BOTH: '👥🌟 Influencers + embajadores',
-  VENDOR: '💼 Solo vendedores',
-  ALL: '🌍 Todos (incluye vendedores)',
+const AUDIENCE_LABEL_KEY: Record<Audience, string> = {
+  INFLUENCER: 'audienceInfluencer',
+  AMBASSADOR: 'audienceAmbassador',
+  BOTH: 'audienceBoth',
+  VENDOR: 'audienceVendor',
+  ALL: 'audienceAll',
 };
 
-const SUGGESTED_CATEGORIES = [
-  'Primeros pasos',
-  'Cómo vender Clubify',
-  'Scripts de WhatsApp',
-  'Objeciones',
-  'Videos de capacitación',
-  'Material gráfico',
-  'Presentaciones',
-  'Casos de éxito',
-  'Manual de producto',
+// Categorías sugeridas — claves i18n; los valores son lo que se persiste.
+const SUGGESTED_CATEGORY_KEYS = [
+  'catFirstSteps',
+  'catHowToSell',
+  'catWhatsappScripts',
+  'catObjections',
+  'catTrainingVideos',
+  'catGraphics',
+  'catPresentations',
+  'catSuccessCases',
+  'catProductManual',
 ];
 
 export default function SupportMaterialsAdmin() {
+  const t = useTranslations('admin_support_materials');
   const [materials, setMaterials] = useState<Material[]>([]);
   const [influencers, setInfluencers] = useState<Influencer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -158,22 +161,22 @@ export default function SupportMaterialsAdmin() {
           body: JSON.stringify(dto),
         });
       }
-      toast(isUpdate ? 'Material actualizado' : 'Material creado', 'success');
+      toast(isUpdate ? t('toastUpdated') : t('toastCreated'), 'success');
       setEditing(null);
       await load();
     } catch (e: any) {
-      toast(e.message ?? 'Error', 'error');
+      toast(e.message ?? t('error'), 'error');
     }
   }
 
   async function remove(m: Material) {
-    if (!confirm(`¿Eliminar "${m.title}"?`)) return;
+    if (!confirm(t('confirmRemove', { title: m.title }))) return;
     try {
       await api(`/admin/support-materials/${m.id}`, { method: 'DELETE' });
-      toast('Material eliminado', 'success');
+      toast(t('toastDeleted'), 'success');
       await load();
     } catch (e: any) {
-      toast(e.message ?? 'Error', 'error');
+      toast(e.message ?? t('error'), 'error');
     }
   }
 
@@ -185,18 +188,18 @@ export default function SupportMaterialsAdmin() {
       });
       await load();
     } catch (e: any) {
-      toast(e.message ?? 'Error', 'error');
+      toast(e.message ?? t('error'), 'error');
     }
   }
 
-  if (loading) return <div className="text-mute">Cargando…</div>;
+  if (loading) return <div className="text-mute">{t('loading')}</div>;
 
   return (
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Material de apoyo{' '}
-          <span className="page-crumb">/ {materials.length} totales</span>
+          {t('title')}{' '}
+          <span className="page-crumb">/ {t('totalCount', { count: materials.length })}</span>
         </h1>
         <button
           className="btn-primary"
@@ -209,7 +212,7 @@ export default function SupportMaterialsAdmin() {
             })
           }
         >
-          + Material
+          {t('addMaterial')}
         </button>
       </div>
 
@@ -217,7 +220,7 @@ export default function SupportMaterialsAdmin() {
         <div className="grid grid-cols-1 md:grid-cols-[1fr_200px_240px] gap-3">
           <input
             className="input"
-            placeholder="Buscar por título o descripción…"
+            placeholder={t('searchPlaceholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -226,7 +229,7 @@ export default function SupportMaterialsAdmin() {
             value={filterCategory}
             onChange={(e) => setFilterCategory(e.target.value)}
           >
-            <option value="">Todas las categorías</option>
+            <option value="">{t('filterAllCategories')}</option>
             {categories.map((c) => (
               <option key={c} value={c}>
                 {c}
@@ -238,12 +241,12 @@ export default function SupportMaterialsAdmin() {
             value={filterAudience}
             onChange={(e) => setFilterAudience(e.target.value)}
           >
-            <option value="">Toda la audiencia</option>
-            <option value="INFLUENCER">Solo influencers</option>
-            <option value="AMBASSADOR">Solo embajadores</option>
-            <option value="VENDOR">Solo vendedores</option>
-            <option value="BOTH">Influencers + embajadores</option>
-            <option value="ALL">Todos (incluye vendedores)</option>
+            <option value="">{t('filterAllAudiences')}</option>
+            <option value="INFLUENCER">{t('filterInfluencer')}</option>
+            <option value="AMBASSADOR">{t('filterAmbassador')}</option>
+            <option value="VENDOR">{t('filterVendor')}</option>
+            <option value="BOTH">{t('filterBoth')}</option>
+            <option value="ALL">{t('filterAll')}</option>
           </select>
         </div>
       </div>
@@ -251,8 +254,8 @@ export default function SupportMaterialsAdmin() {
       {grouped.length === 0 && (
         <div className="card card-pad text-center text-mute py-10">
           {materials.length === 0
-            ? 'Aún no hay materiales. Sube el primero con "+ Material" arriba.'
-            : 'Sin resultados para los filtros aplicados.'}
+            ? t('emptyNoMaterials')
+            : t('emptyNoResults')}
         </div>
       )}
 
@@ -280,7 +283,10 @@ export default function SupportMaterialsAdmin() {
           material={editing}
           influencers={influencers}
           suggestedCategories={[
-            ...new Set([...SUGGESTED_CATEGORIES, ...categories]),
+            ...new Set([
+              ...SUGGESTED_CATEGORY_KEYS.map((k) => t(k)),
+              ...categories,
+            ]),
           ]}
           onClose={() => setEditing(null)}
           onSave={save}
@@ -301,6 +307,7 @@ function MaterialCard({
   onDelete: () => void;
   onToggle: () => void;
 }) {
+  const t = useTranslations('admin_support_materials');
   return (
     <div
       className={`card card-pad flex flex-col gap-2 transition ${
@@ -317,13 +324,13 @@ function MaterialCard({
           />
         ) : (
           <div className="w-12 h-12 rounded-lg bg-bg2 flex items-center justify-center text-xl flex-none">
-            {TYPE_LABEL[m.type].split(' ')[0]}
+            {t(TYPE_LABEL_KEY[m.type]).split(' ')[0]}
           </div>
         )}
         <div className="flex-1 min-w-0">
           <div className="font-semibold text-sm leading-tight">{m.title}</div>
           <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mt-0.5">
-            {TYPE_LABEL[m.type]}
+            {t(TYPE_LABEL_KEY[m.type])}
           </div>
         </div>
       </div>
@@ -335,22 +342,22 @@ function MaterialCard({
       )}
 
       <div className="text-[11px] text-mute leading-relaxed">
-        {AUDIENCE_LABEL[m.audience]}
+        {t(AUDIENCE_LABEL_KEY[m.audience])}
         {m.scopeInfluencer && (
           <>
-            {' '}· <span className="text-violet-700">solo @{m.scopeInfluencer.code}</span>
+            {' '}· <span className="text-violet-700">{t('onlyScope', { code: m.scopeInfluencer.code })}</span>
           </>
         )}
       </div>
 
       <div className="flex items-center gap-1.5 mt-auto pt-2">
         <button onClick={onEdit} className="btn-ghost text-[11px] flex-1">
-          ✏️ Editar
+          {t('cardEdit')}
         </button>
         <button
           onClick={onToggle}
           className="btn-ghost text-[11px]"
-          title={m.isActive ? 'Pausar' : 'Activar'}
+          title={m.isActive ? t('pause') : t('activate')}
         >
           {m.isActive ? '⏸' : '▶'}
         </button>
@@ -375,6 +382,7 @@ function EditorModal({
   onClose: () => void;
   onSave: (m: Partial<Material>) => void | Promise<void>;
 }) {
+  const t = useTranslations('admin_support_materials');
   const [form, setForm] = useState<Partial<Material>>({ ...material });
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -398,14 +406,14 @@ function EditorModal({
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) {
-        const t = await res.text();
-        throw new Error(t || `Error ${res.status}`);
+        const errText = await res.text();
+        throw new Error(errText || `Error ${res.status}`);
       }
       const r = (await res.json()) as { url: string };
       patch({ fileUrl: r.url });
-      toast('Archivo subido', 'success');
+      toast(t('toastFileUploaded'), 'success');
     } catch (e: any) {
-      toast(e.message ?? 'Error subiendo archivo', 'error');
+      toast(e.message ?? t('errUploading'), 'error');
     } finally {
       setUploading(false);
     }
@@ -414,11 +422,11 @@ function EditorModal({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.title?.trim()) {
-      toast('Falta el título', 'error');
+      toast(t('errMissingTitle'), 'error');
       return;
     }
     if (!form.fileUrl && !form.externalUrl && !form.scriptBody) {
-      toast('Sube un archivo, pega un link externo o escribe el script', 'error');
+      toast(t('errMissingContent'), 'error');
       return;
     }
     setBusy(true);
@@ -446,7 +454,7 @@ function EditorModal({
       >
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-bold text-lg">
-            {form.id ? 'Editar material' : 'Nuevo material'}
+            {form.id ? t('modalEditTitle') : t('modalNewTitle')}
           </h2>
           <button onClick={onClose} className="text-mute hover:text-ink text-xl">
             ×
@@ -455,7 +463,7 @@ function EditorModal({
 
         <form onSubmit={submit} className="space-y-3">
           <div>
-            <label className="label">Título</label>
+            <label className="label">{t('labelTitle')}</label>
             <input
               className="input"
               value={form.title ?? ''}
@@ -466,7 +474,7 @@ function EditorModal({
           </div>
 
           <div>
-            <label className="label">Descripción (opcional)</label>
+            <label className="label">{t('labelDescription')}</label>
             <textarea
               className="input"
               rows={2}
@@ -478,27 +486,27 @@ function EditorModal({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label">Tipo</label>
+              <label className="label">{t('labelType')}</label>
               <select
                 className="input"
                 value={form.type ?? 'PDF'}
                 onChange={(e) => patch({ type: e.target.value as Type })}
               >
-                {(Object.keys(TYPE_LABEL) as Type[]).map((t) => (
-                  <option key={t} value={t}>
-                    {TYPE_LABEL[t]}
+                {(Object.keys(TYPE_LABEL_KEY) as Type[]).map((ty) => (
+                  <option key={ty} value={ty}>
+                    {t(TYPE_LABEL_KEY[ty])}
                   </option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="label">Categoría</label>
+              <label className="label">{t('labelCategory')}</label>
               <input
                 className="input"
                 list="categories-list"
                 value={form.category ?? ''}
                 onChange={(e) => patch({ category: e.target.value })}
-                placeholder="Ej: Scripts de WhatsApp"
+                placeholder={t('phCategory')}
               />
               <datalist id="categories-list">
                 {suggestedCategories.map((c) => (
@@ -510,7 +518,7 @@ function EditorModal({
 
           {showFile && (
             <div>
-              <label className="label">Archivo</label>
+              <label className="label">{t('labelFile')}</label>
               {form.fileUrl ? (
                 <div className="flex items-center gap-2">
                   <a
@@ -526,7 +534,7 @@ function EditorModal({
                     className="btn-ghost text-xs text-bad"
                     onClick={() => patch({ fileUrl: null })}
                   >
-                    Quitar
+                    {t('remove')}
                   </button>
                 </div>
               ) : (
@@ -540,13 +548,13 @@ function EditorModal({
                   }}
                 />
               )}
-              {uploading && <div className="text-xs text-mute mt-1">Subiendo…</div>}
+              {uploading && <div className="text-xs text-mute mt-1">{t('uploading')}</div>}
             </div>
           )}
 
           {showExternal && (
             <div>
-              <label className="label">URL externa (YouTube / Drive / Loom / etc.)</label>
+              <label className="label">{t('labelExternalUrl')}</label>
               <input
                 className="input"
                 value={form.externalUrl ?? ''}
@@ -558,20 +566,20 @@ function EditorModal({
 
           {showScript && (
             <div>
-              <label className="label">Contenido del script (para copiar)</label>
+              <label className="label">{t('labelScript')}</label>
               <textarea
                 className="input"
                 rows={6}
                 value={form.scriptBody ?? ''}
                 onChange={(e) => patch({ scriptBody: e.target.value })}
-                placeholder="Ej: Hola {nombre}, te escribo de [tu negocio]…"
+                placeholder={t('phScript')}
                 maxLength={10000}
               />
             </div>
           )}
 
           <div>
-            <label className="label">Thumbnail (opcional)</label>
+            <label className="label">{t('labelThumbnail')}</label>
             <ImageUploader
               value={form.thumbnailUrl ?? null}
               onChange={(url) => patch({ thumbnailUrl: url })}
@@ -581,21 +589,21 @@ function EditorModal({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label">Audiencia</label>
+              <label className="label">{t('labelAudience')}</label>
               <select
                 className="input"
                 value={form.audience ?? 'BOTH'}
                 onChange={(e) => patch({ audience: e.target.value as Audience })}
               >
-                {(Object.keys(AUDIENCE_LABEL) as Audience[]).map((a) => (
+                {(Object.keys(AUDIENCE_LABEL_KEY) as Audience[]).map((a) => (
                   <option key={a} value={a}>
-                    {AUDIENCE_LABEL[a]}
+                    {t(AUDIENCE_LABEL_KEY[a])}
                   </option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="label">Scope (opcional)</label>
+              <label className="label">{t('labelScope')}</label>
               <select
                 className="input"
                 value={form.scopeInfluencerId ?? ''}
@@ -603,10 +611,10 @@ function EditorModal({
                   patch({ scopeInfluencerId: e.target.value || null })
                 }
               >
-                <option value="">Todos (sin scope)</option>
+                <option value="">{t('scopeAll')}</option>
                 {influencers.map((i) => (
                   <option key={i.id} value={i.id}>
-                    Solo equipo de {i.ownerName} ({i.code})
+                    {t('scopeTeamOf', { name: i.ownerName, code: i.code })}
                   </option>
                 ))}
               </select>
@@ -614,9 +622,7 @@ function EditorModal({
           </div>
 
           <div className="text-[11px] text-mute leading-relaxed">
-            Tip: si eliges un influencer en "Scope", solo lo verán ese
-            influencer y sus embajadores. Útil para material exclusivo de
-            equipos. Si dejas "Todos", lo ve cualquiera que matchee la audiencia.
+            {t('scopeTip')}
           </div>
 
           <label className="flex items-center gap-2 text-xs cursor-pointer">
@@ -625,19 +631,19 @@ function EditorModal({
               checked={form.isActive ?? true}
               onChange={(e) => patch({ isActive: e.target.checked })}
             />
-            Activo (visible para los afiliados)
+            {t('labelActive')}
           </label>
 
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="btn-ghost text-sm">
-              Cancelar
+              {t('cancel')}
             </button>
             <button
               type="submit"
               disabled={busy || uploading}
               className="btn-primary text-sm"
             >
-              {busy ? 'Guardando…' : 'Guardar'}
+              {busy ? t('saving') : t('save')}
             </button>
           </div>
         </form>

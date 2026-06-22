@@ -18,6 +18,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import { ImageUploader } from '@/components/ImageUploader';
@@ -66,6 +67,7 @@ function slugify(s: string): string {
 }
 
 export default function AdminIndustriesPage() {
+  const t = useTranslations('admin_industries');
   const [items, setItems] = useState<Industry[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -144,7 +146,7 @@ export default function AdminIndustriesPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.name?.trim()) {
-      toast('El nombre es obligatorio', 'error');
+      toast(t('errNameRequired'), 'error');
       return;
     }
     setSaving(true);
@@ -166,18 +168,18 @@ export default function AdminIndustriesPage() {
           method: 'PATCH',
           body: JSON.stringify(body),
         });
-        toast('Industria actualizada', 'success');
+        toast(t('toastUpdated'), 'success');
       } else {
         await api('/admin/industries', {
           method: 'POST',
           body: JSON.stringify(body),
         });
-        toast('Industria creada', 'success');
+        toast(t('toastCreated'), 'success');
       }
       setModalOpen(false);
       load();
     } catch (err: any) {
-      toast(err?.message || 'No se pudo guardar', 'error');
+      toast(err?.message || t('errSave'), 'error');
     } finally {
       setSaving(false);
     }
@@ -193,23 +195,18 @@ export default function AdminIndustriesPage() {
         arr.map((x) => (x.id === i.id ? { ...x, isActive: !x.isActive } : x)),
       );
     } catch (e: any) {
-      toast(e?.message || 'No se pudo actualizar', 'error');
+      toast(e?.message || t('errUpdate'), 'error');
     }
   }
 
   async function remove(i: Industry) {
-    if (
-      !confirm(
-        `¿Eliminar "${i.name}"? El deck y sus slides se eliminan también.`,
-      )
-    )
-      return;
+    if (!confirm(t('confirmRemove', { name: i.name }))) return;
     try {
       await api(`/admin/industries/${i.id}`, { method: 'DELETE' });
-      toast('Industria eliminada', 'success');
+      toast(t('toastDeleted'), 'success');
       setItems((arr) => arr.filter((x) => x.id !== i.id));
     } catch (e: any) {
-      toast(e?.message || 'No se pudo eliminar', 'error');
+      toast(e?.message || t('errDelete'), 'error');
     }
   }
 
@@ -231,7 +228,7 @@ export default function AdminIndustriesPage() {
         }),
       });
     } catch (e: any) {
-      toast(e?.message || 'No se pudo reordenar', 'error');
+      toast(e?.message || t('errReorder'), 'error');
       load();
     }
   }
@@ -240,21 +237,19 @@ export default function AdminIndustriesPage() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Industrias{' '}
+          {t('title')}{' '}
           <span className="page-crumb">
-            / {items.length} {items.length === 1 ? 'industria' : 'industrias'}
+            / {t('countCrumb', { count: items.length })}
           </span>
         </h1>
       </div>
 
       <div className="card card-pad mb-5">
         <h3 className="text-base font-semibold m-0 flex items-center gap-2">
-          🏢 Catálogo de industrias (sales decks)
+          {t('catalogTitle')}
         </h3>
         <p className="text-sm text-mute mt-2 leading-relaxed">
-          Cada industria tiene su propio deck con slides específicos para esa
-          vertical. Después de crear una industria, da clic en su card
-          para abrir el <b>editor de slides</b>.
+          {t.rich('catalogDesc', { b: (c) => <b>{c}</b> })}
         </p>
       </div>
 
@@ -262,7 +257,7 @@ export default function AdminIndustriesPage() {
         <input
           type="search"
           className="input flex-1 max-w-sm"
-          placeholder="Buscar por nombre, slug o descripción…"
+          placeholder={t('searchPlaceholder')}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -271,9 +266,9 @@ export default function AdminIndustriesPage() {
           target="_blank"
           rel="noopener noreferrer"
           className="btn-secondary inline-flex items-center gap-1.5 whitespace-nowrap"
-          title="Abrir la página pública de Industrias en otra pestaña"
+          title={t('viewLinkTitle')}
         >
-          🔗 Ver enlace
+          {t('viewLink')}
         </a>
         <button
           type="button"
@@ -281,28 +276,28 @@ export default function AdminIndustriesPage() {
             try {
               const url = `${window.location.origin}/industrias`;
               await navigator.clipboard.writeText(url);
-              toast('Enlace copiado al portapapeles', 'success');
+              toast(t('toastLinkCopied'), 'success');
             } catch {
-              toast('No se pudo copiar — copialo manualmente', 'error');
+              toast(t('errCopy'), 'error');
             }
           }}
           className="btn-ghost inline-flex items-center gap-1.5 whitespace-nowrap"
-          title="Copiar https://soyclubify.com/industrias al portapapeles"
+          title={t('copyLinkTitle')}
         >
-          📋 Copiar
+          {t('copyLink')}
         </button>
         <button onClick={openCreate} className="btn-primary">
-          + Industria
+          {t('addIndustry')}
         </button>
       </div>
 
       {loading ? (
-        <div className="text-mute py-10 text-center">Cargando…</div>
+        <div className="text-mute py-10 text-center">{t('loading')}</div>
       ) : filtered.length === 0 ? (
         <div className="card card-pad text-center py-10 text-mute">
           {items.length === 0
-            ? 'Todavía no hay industrias. Crea la primera arriba.'
-            : 'Sin resultados para tu búsqueda.'}
+            ? t('emptyNoIndustries')
+            : t('emptyNoResults')}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -347,7 +342,7 @@ export default function AdminIndustriesPage() {
                     </div>
                   </div>
                   {!i.isActive && (
-                    <span className="badge badge-warn text-[10px]">Inactiva</span>
+                    <span className="badge badge-warn text-[10px]">{t('badgeInactive')}</span>
                   )}
                 </div>
                 {i.description && (
@@ -360,14 +355,14 @@ export default function AdminIndustriesPage() {
                     href={`/admin/industries/${i.id}`}
                     className="text-xs text-brand font-semibold hover:underline"
                   >
-                    Editar slides →
+                    {t('editSlides')}
                   </Link>
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => move(i, 'up')}
                       disabled={realIdx === 0}
                       className="text-mute hover:text-ink disabled:opacity-20 px-1.5 py-0.5"
-                      title="Subir"
+                      title={t('moveUp')}
                     >
                       ↑
                     </button>
@@ -375,28 +370,28 @@ export default function AdminIndustriesPage() {
                       onClick={() => move(i, 'down')}
                       disabled={realIdx === items.length - 1}
                       className="text-mute hover:text-ink disabled:opacity-20 px-1.5 py-0.5"
-                      title="Bajar"
+                      title={t('moveDown')}
                     >
                       ↓
                     </button>
                     <button
                       onClick={() => toggleActive(i)}
                       className="text-[11px] text-mute hover:text-ink px-2 py-1"
-                      title={i.isActive ? 'Desactivar' : 'Activar'}
+                      title={i.isActive ? t('deactivate') : t('activate')}
                     >
                       {i.isActive ? '👁' : '🚫'}
                     </button>
                     <button
                       onClick={() => openEdit(i)}
                       className="text-[11px] text-mute hover:text-ink px-2 py-1"
-                      title="Editar"
+                      title={t('edit')}
                     >
                       ✏️
                     </button>
                     <button
                       onClick={() => remove(i)}
                       className="text-[11px] text-bad hover:text-bad px-2 py-1"
-                      title="Eliminar"
+                      title={t('delete')}
                     >
                       🗑
                     </button>
@@ -420,7 +415,7 @@ export default function AdminIndustriesPage() {
           >
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-lg font-semibold m-0">
-                {editing ? 'Editar industria' : 'Nueva industria'}
+                {editing ? t('modalEditTitle') : t('modalNewTitle')}
               </h2>
               <button
                 type="button"
@@ -434,7 +429,7 @@ export default function AdminIndustriesPage() {
             <form onSubmit={submit} className="space-y-3">
               <div className="grid grid-cols-[80px_1fr] gap-3">
                 <div>
-                  <label className="label">Emoji</label>
+                  <label className="label">{t('labelEmoji')}</label>
                   <input
                     type="text"
                     className="input text-2xl text-center"
@@ -445,23 +440,23 @@ export default function AdminIndustriesPage() {
                   />
                 </div>
                 <div>
-                  <label className="label">Nombre *</label>
+                  <label className="label">{t('labelName')}</label>
                   <input
                     className="input"
                     value={form.name ?? ''}
                     onChange={(e) => onNameChange(e.target.value)}
                     maxLength={120}
                     required
-                    placeholder="Ej: Cafeterías"
+                    placeholder={t('phName')}
                   />
                 </div>
               </div>
 
               <div>
                 <label className="label">
-                  Slug{' '}
+                  {t('labelSlug')}{' '}
                   <span className="text-[10px] text-mute font-normal">
-                    (URL: /industria/{form.slug || 'slug-aqui'})
+                    (URL: /industria/{form.slug || t('slugPlaceholderHint')})
                   </span>
                 </label>
                 <input
@@ -477,20 +472,20 @@ export default function AdminIndustriesPage() {
               </div>
 
               <div>
-                <label className="label">Descripción</label>
+                <label className="label">{t('labelDescription')}</label>
                 <textarea
                   className="input"
                   rows={2}
                   value={form.description ?? ''}
                   onChange={(e) => patchForm({ description: e.target.value })}
                   maxLength={500}
-                  placeholder="Cafeterías de especialidad, brunch, cafés con menú digital"
+                  placeholder={t('phDescription')}
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="label">Color del tema</label>
+                  <label className="label">{t('labelThemeColor')}</label>
                   <div className="flex items-center gap-2">
                     <input
                       type="color"
@@ -509,7 +504,7 @@ export default function AdminIndustriesPage() {
                   </div>
                 </div>
                 <div>
-                  <label className="label">Orden</label>
+                  <label className="label">{t('labelOrder')}</label>
                   <input
                     type="number"
                     className="input"
@@ -522,7 +517,7 @@ export default function AdminIndustriesPage() {
               </div>
 
               <div>
-                <label className="label">Ícono (cuadrado, opcional)</label>
+                <label className="label">{t('labelIcon')}</label>
                 <ImageUploader
                   value={form.iconUrl}
                   onChange={(url) => patchForm({ iconUrl: url })}
@@ -531,12 +526,12 @@ export default function AdminIndustriesPage() {
                   aspect={1}
                 />
                 <div className="text-[11px] text-mute mt-1">
-                  Si subes un ícono, se usa en vez del emoji.
+                  {t('iconHint')}
                 </div>
               </div>
 
               <div>
-                <label className="label">Imagen de portada (opcional)</label>
+                <label className="label">{t('labelCover')}</label>
                 <ImageUploader
                   value={form.coverImage}
                   onChange={(url) => patchForm({ coverImage: url })}
@@ -545,13 +540,13 @@ export default function AdminIndustriesPage() {
                   aspect={16 / 9}
                 />
                 <div className="text-[11px] text-mute mt-1">
-                  Banner que aparece arriba de la card y en la vista pública.
+                  {t('coverHint')}
                 </div>
 
                 <div className="mt-4 pt-4 border-t border-line2">
                   <BannerStylePicker
                     industry={{
-                      name: form.name || 'Industria',
+                      name: form.name || t('previewIndustryName'),
                       description: form.description ?? null,
                       emoji: form.emoji ?? null,
                       iconUrl: form.iconUrl ?? null,
@@ -572,7 +567,7 @@ export default function AdminIndustriesPage() {
                   onChange={(e) => patchForm({ isActive: e.target.checked })}
                   className="rounded"
                 />
-                Industria activa (visible públicamente)
+                {t('labelActive')}
               </label>
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-line2">
@@ -582,7 +577,7 @@ export default function AdminIndustriesPage() {
                   onClick={() => !saving && setModalOpen(false)}
                   disabled={saving}
                 >
-                  Cancelar
+                  {t('cancel')}
                 </button>
                 <button
                   type="submit"
@@ -590,10 +585,10 @@ export default function AdminIndustriesPage() {
                   disabled={saving}
                 >
                   {saving
-                    ? 'Guardando…'
+                    ? t('saving')
                     : editing
-                      ? 'Guardar cambios'
-                      : 'Crear industria'}
+                      ? t('saveChanges')
+                      : t('createIndustry')}
                 </button>
               </div>
             </form>

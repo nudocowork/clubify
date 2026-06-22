@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import { ImageUploader } from '@/components/ImageUploader';
@@ -32,25 +33,25 @@ type SlideLayout =
 
 type SlideAnimation = 'NONE' | 'FADE' | 'SLIDE_RIGHT' | 'SLIDE_UP' | 'ZOOM';
 
-const LAYOUT_LABELS: Record<SlideLayout, string> = {
-  COVER: '🎯 Portada',
-  IMAGE_LEFT: '🖼 ← Imagen + texto',
-  IMAGE_RIGHT: '🖼 → Imagen + texto',
-  FULL_IMAGE: '🖼 Imagen full-bleed',
-  TEXT_ONLY: '📝 Solo texto',
-  QUOTE: '❝ Cita',
-  CTA: '🎬 CTA prominente',
-  STATS: '📊 Números clave',
-  COMPARISON: '⚖️ Comparativa',
-  VIDEO: '🎥 Video',
+const LAYOUT_LABEL_KEY: Record<SlideLayout, string> = {
+  COVER: 'layoutCover',
+  IMAGE_LEFT: 'layoutImageLeft',
+  IMAGE_RIGHT: 'layoutImageRight',
+  FULL_IMAGE: 'layoutFullImage',
+  TEXT_ONLY: 'layoutTextOnly',
+  QUOTE: 'layoutQuote',
+  CTA: 'layoutCta',
+  STATS: 'layoutStats',
+  COMPARISON: 'layoutComparison',
+  VIDEO: 'layoutVideo',
 };
 
-const ANIMATION_LABELS: Record<SlideAnimation, string> = {
-  NONE: 'Sin animación',
-  FADE: 'Fade',
-  SLIDE_RIGHT: 'Slide ←→',
-  SLIDE_UP: 'Slide ↑',
-  ZOOM: 'Zoom',
+const ANIMATION_LABEL_KEY: Record<SlideAnimation, string> = {
+  NONE: 'animationNone',
+  FADE: 'animationFade',
+  SLIDE_RIGHT: 'animationSlideRight',
+  SLIDE_UP: 'animationSlideUp',
+  ZOOM: 'animationZoom',
 };
 
 type Slide = {
@@ -86,6 +87,7 @@ type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
 const AUTOSAVE_DEBOUNCE_MS = 1500;
 
 export default function PresentationEditorPage() {
+  const t = useTranslations('admin_industries_presentations');
   const { id: industryId, pid } = useParams<{ id: string; pid: string }>();
   const [presentation, setPresentation] = useState<Presentation | null>(null);
   const [slides, setSlides] = useState<Slide[]>([]);
@@ -191,7 +193,7 @@ export default function PresentationEditorPage() {
       setSaveState('saved');
     } catch (e: any) {
       setSaveState('error');
-      toast(e?.message || 'No se pudo guardar el slide', 'error');
+      toast(e?.message || t('errSaveSlide'), 'error');
     }
     // Sin deps — el callback lee todo desde refs y setters de React (que
     // son estables). Sin useCallback el componente lo recrea cada render
@@ -219,7 +221,7 @@ export default function PresentationEditorPage() {
       setSlides((arr) => [...arr, created]);
       setSelectedId(created.id);
     } catch (e: any) {
-      toast(e?.message || 'No se pudo crear el slide', 'error');
+      toast(e?.message || t('errCreateSlide'), 'error');
     }
   }
 
@@ -233,12 +235,12 @@ export default function PresentationEditorPage() {
       await load();
       setSelectedId(dup.id);
     } catch (e: any) {
-      toast(e?.message || 'No se pudo duplicar', 'error');
+      toast(e?.message || t('errDuplicate'), 'error');
     }
   }
 
   async function deleteSlide(s: Slide) {
-    if (!confirm(`¿Eliminar el slide ${s.sortOrder + 1}?`)) return;
+    if (!confirm(t('confirmDeleteSlide', { num: s.sortOrder + 1 }))) return;
     try {
       await api(`/admin/presentations/slides/${s.id}`, { method: 'DELETE' });
       const next = slides.filter((x) => x.id !== s.id);
@@ -247,7 +249,7 @@ export default function PresentationEditorPage() {
         setSelectedId(next[0]?.id ?? null);
       }
     } catch (e: any) {
-      toast(e?.message || 'No se pudo eliminar', 'error');
+      toast(e?.message || t('errDelete'), 'error');
     }
   }
 
@@ -267,7 +269,7 @@ export default function PresentationEditorPage() {
         }),
       });
     } catch (e: any) {
-      toast(e?.message || 'No se pudo reordenar', 'error');
+      toast(e?.message || t('errReorder'), 'error');
       load();
     }
   }
@@ -286,23 +288,23 @@ export default function PresentationEditorPage() {
       setContentErr(null);
       patchSelected({ content: parsed });
     } catch (e: any) {
-      setContentErr('JSON inválido — no se guarda hasta corregir.');
+      setContentErr(t('errInvalidJson'));
     }
   }
 
   if (loading) {
-    return <div className="text-mute py-10 text-center">Cargando…</div>;
+    return <div className="text-mute py-10 text-center">{t('loading')}</div>;
   }
   if (!presentation) {
     return (
       <div className="card card-pad text-center py-10">
         <div className="text-3xl mb-2">⚠️</div>
-        <div className="font-semibold">Presentación no encontrada</div>
+        <div className="font-semibold">{t('notFound')}</div>
         <Link
           href={`/admin/industries/${industryId}`}
           className="btn-primary inline-block mt-4"
         >
-          ← Volver
+          {t('back')}
         </Link>
       </div>
     );
@@ -318,7 +320,7 @@ export default function PresentationEditorPage() {
             href="/admin/industries"
             className="text-mute hover:text-ink"
           >
-            Industrias
+            {t('breadcrumbIndustries')}
           </Link>{' '}
           <span className="text-mute">/</span>{' '}
           <Link
@@ -337,18 +339,18 @@ export default function PresentationEditorPage() {
           <div className="card card-pad">
             <div className="flex items-center justify-between mb-2">
               <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
-                Slides ({slides.length})
+                {t('slidesCount', { count: slides.length })}
               </div>
               <button
                 onClick={addSlide}
                 className="btn-primary text-xs px-2 py-1"
               >
-                + Slide
+                {t('addSlide')}
               </button>
             </div>
             {slides.length === 0 ? (
               <div className="text-xs text-mute py-4 text-center">
-                Empieza agregando el primer slide.
+                {t('emptySlides')}
               </div>
             ) : (
               <div className="space-y-1.5">
@@ -375,12 +377,12 @@ export default function PresentationEditorPage() {
                           <div className="text-xs font-semibold truncate">
                             {s.title || (
                               <span className="text-mute italic">
-                                Sin título
+                                {t('untitled')}
                               </span>
                             )}
                           </div>
                           <div className="text-[10px] text-mute truncate">
-                            {LAYOUT_LABELS[s.layout]}
+                            {t(LAYOUT_LABEL_KEY[s.layout])}
                           </div>
                         </div>
                         {s.imageUrl && (
@@ -401,7 +403,7 @@ export default function PresentationEditorPage() {
                             }}
                             disabled={idx === 0}
                             className="text-mute hover:text-ink disabled:opacity-20 px-1.5 py-0.5 text-xs"
-                            title="Subir"
+                            title={t('moveUp')}
                           >
                             ↑
                           </button>
@@ -412,7 +414,7 @@ export default function PresentationEditorPage() {
                             }}
                             disabled={idx === slides.length - 1}
                             className="text-mute hover:text-ink disabled:opacity-20 px-1.5 py-0.5 text-xs"
-                            title="Bajar"
+                            title={t('moveDown')}
                           >
                             ↓
                           </button>
@@ -422,7 +424,7 @@ export default function PresentationEditorPage() {
                               duplicateSlide(s);
                             }}
                             className="text-mute hover:text-ink px-1.5 py-0.5 text-xs"
-                            title="Duplicar"
+                            title={t('duplicate')}
                           >
                             📋
                           </button>
@@ -432,7 +434,7 @@ export default function PresentationEditorPage() {
                               deleteSlide(s);
                             }}
                             className="text-bad hover:text-bad px-1.5 py-0.5 text-xs ml-auto"
-                            title="Eliminar"
+                            title={t('delete')}
                           >
                             🗑
                           </button>
@@ -451,21 +453,23 @@ export default function PresentationEditorPage() {
           {!selected ? (
             <div className="card card-pad text-center py-16 text-mute">
               {slides.length === 0
-                ? 'Agrega un slide para empezar a editar.'
-                : 'Selecciona un slide a la izquierda.'}
+                ? t('emptyEditorNoSlides')
+                : t('emptyEditorSelect')}
             </div>
           ) : (
             <div className="space-y-3">
               <div className="card card-pad flex items-center justify-between">
                 <div>
                   <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
-                    Slide {slides.findIndex((s) => s.id === selected.id) + 1}{' '}
-                    de {slides.length}
+                    {t('slideOf', {
+                      num: slides.findIndex((s) => s.id === selected.id) + 1,
+                      total: slides.length,
+                    })}
                   </div>
                   <div className="font-semibold mt-0.5">
                     {selected.title || (
                       <span className="text-mute italic font-normal">
-                        Sin título
+                        {t('untitled')}
                       </span>
                     )}
                   </div>
@@ -476,7 +480,7 @@ export default function PresentationEditorPage() {
               <div className="card card-pad space-y-3">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="label">Layout</label>
+                    <label className="label">{t('labelLayout')}</label>
                     <select
                       className="input"
                       value={selected.layout}
@@ -486,17 +490,17 @@ export default function PresentationEditorPage() {
                         })
                       }
                     >
-                      {(Object.keys(LAYOUT_LABELS) as SlideLayout[]).map(
+                      {(Object.keys(LAYOUT_LABEL_KEY) as SlideLayout[]).map(
                         (l) => (
                           <option key={l} value={l}>
-                            {LAYOUT_LABELS[l]}
+                            {t(LAYOUT_LABEL_KEY[l])}
                           </option>
                         ),
                       )}
                     </select>
                   </div>
                   <div>
-                    <label className="label">Animación</label>
+                    <label className="label">{t('labelAnimation')}</label>
                     <select
                       className="input"
                       value={selected.animation}
@@ -507,10 +511,10 @@ export default function PresentationEditorPage() {
                       }
                     >
                       {(
-                        Object.keys(ANIMATION_LABELS) as SlideAnimation[]
+                        Object.keys(ANIMATION_LABEL_KEY) as SlideAnimation[]
                       ).map((a) => (
                         <option key={a} value={a}>
-                          {ANIMATION_LABELS[a]}
+                          {t(ANIMATION_LABEL_KEY[a])}
                         </option>
                       ))}
                     </select>
@@ -518,7 +522,7 @@ export default function PresentationEditorPage() {
                 </div>
 
                 <div>
-                  <label className="label">Título</label>
+                  <label className="label">{t('labelTitle')}</label>
                   <input
                     className="input"
                     value={selected.title ?? ''}
@@ -526,12 +530,12 @@ export default function PresentationEditorPage() {
                       patchSelected({ title: e.target.value || null })
                     }
                     maxLength={200}
-                    placeholder="Título del slide"
+                    placeholder={t('phTitle')}
                   />
                 </div>
 
                 <div>
-                  <label className="label">Subtítulo</label>
+                  <label className="label">{t('labelSubtitle')}</label>
                   <input
                     className="input"
                     value={selected.subtitle ?? ''}
@@ -539,13 +543,13 @@ export default function PresentationEditorPage() {
                       patchSelected({ subtitle: e.target.value || null })
                     }
                     maxLength={300}
-                    placeholder="Línea secundaria"
+                    placeholder={t('phSubtitle')}
                   />
                 </div>
 
                 <div>
                   <label className="label">
-                    Cuerpo (texto largo, soporta markdown básico en F5)
+                    {t('labelBody')}
                   </label>
                   <textarea
                     className="input"
@@ -554,17 +558,17 @@ export default function PresentationEditorPage() {
                     onChange={(e) =>
                       patchSelected({ body: e.target.value || null })
                     }
-                    placeholder="Párrafo descriptivo del slide…"
+                    placeholder={t('phBody')}
                   />
                 </div>
               </div>
 
               <div className="card card-pad space-y-3">
                 <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
-                  Media
+                  {t('sectionMedia')}
                 </div>
                 <div>
-                  <label className="label">Imagen</label>
+                  <label className="label">{t('labelImage')}</label>
                   <ImageUploader
                     value={selected.imageUrl}
                     onChange={(url) => patchSelected({ imageUrl: url })}
@@ -575,7 +579,7 @@ export default function PresentationEditorPage() {
                 </div>
                 <div>
                   <label className="label">
-                    URL de video (YouTube embed o R2)
+                    {t('labelVideoUrl')}
                   </label>
                   <input
                     className="input"
@@ -590,11 +594,11 @@ export default function PresentationEditorPage() {
 
               <div className="card card-pad space-y-3">
                 <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
-                  Call to Action
+                  {t('sectionCta')}
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="label">Texto del botón</label>
+                    <label className="label">{t('labelCtaText')}</label>
                     <input
                       className="input"
                       value={selected.ctaText ?? ''}
@@ -602,18 +606,18 @@ export default function PresentationEditorPage() {
                         patchSelected({ ctaText: e.target.value || null })
                       }
                       maxLength={80}
-                      placeholder="Empezar gratis"
+                      placeholder={t('phCtaText')}
                     />
                   </div>
                   <div>
-                    <label className="label">URL del botón</label>
+                    <label className="label">{t('labelCtaUrl')}</label>
                     <input
                       className="input"
                       value={selected.ctaUrl ?? ''}
                       onChange={(e) =>
                         patchSelected({ ctaUrl: e.target.value || null })
                       }
-                      placeholder="/signup o https://…"
+                      placeholder={t('phCtaUrl')}
                     />
                   </div>
                 </div>
@@ -621,11 +625,11 @@ export default function PresentationEditorPage() {
 
               <div className="card card-pad space-y-3">
                 <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
-                  Colores
+                  {t('sectionColors')}
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="label">Fondo</label>
+                    <label className="label">{t('labelBackground')}</label>
                     <div className="flex items-center gap-2">
                       <input
                         type="color"
@@ -644,12 +648,12 @@ export default function PresentationEditorPage() {
                             bgColor: e.target.value || null,
                           })
                         }
-                        placeholder="hereda del deck"
+                        placeholder={t('phInheritDeck')}
                       />
                     </div>
                   </div>
                   <div>
-                    <label className="label">Texto</label>
+                    <label className="label">{t('labelTextColor')}</label>
                     <div className="flex items-center gap-2">
                       <input
                         type="color"
@@ -668,7 +672,7 @@ export default function PresentationEditorPage() {
                             textColor: e.target.value || null,
                           })
                         }
-                        placeholder="auto-contrast"
+                        placeholder={t('phAutoContrast')}
                       />
                     </div>
                   </div>
@@ -691,13 +695,11 @@ export default function PresentationEditorPage() {
 
               <details className="card card-pad" open={!selected.content ? false : undefined}>
                 <summary className="text-[11px] uppercase tracking-wider text-mute font-semibold cursor-pointer">
-                  Contenido avanzado (JSON crudo)
+                  {t('advancedContent')}
                 </summary>
                 <div className="mt-3 space-y-2">
                   <div className="text-[11px] text-mute leading-relaxed">
-                    Bag JSON del slide. Para STATS y COMPARISON ya tienes
-                    editor visual arriba — este textarea es para casos
-                    custom o debug.
+                    {t('advancedContentHelp')}
                   </div>
                   <textarea
                     className="input font-mono text-xs"
@@ -720,16 +722,17 @@ export default function PresentationEditorPage() {
 }
 
 function SaveIndicator({ state }: { state: SaveState }) {
+  const t = useTranslations('admin_industries_presentations');
   if (state === 'idle') return null;
-  const map: Record<SaveState, { label: string; cls: string }> = {
-    idle: { label: '', cls: '' },
-    dirty: { label: '● Cambios sin guardar', cls: 'text-warn' },
-    saving: { label: '⟳ Guardando…', cls: 'text-mute' },
-    saved: { label: '✓ Guardado', cls: 'text-good' },
-    error: { label: '✗ Error al guardar', cls: 'text-bad' },
+  const map: Record<SaveState, { labelKey: string; cls: string }> = {
+    idle: { labelKey: '', cls: '' },
+    dirty: { labelKey: 'saveDirty', cls: 'text-warn' },
+    saving: { labelKey: 'saveSaving', cls: 'text-mute' },
+    saved: { labelKey: 'saveSaved', cls: 'text-good' },
+    error: { labelKey: 'saveError', cls: 'text-bad' },
   };
-  const { label, cls } = map[state];
-  return <div className={`text-xs ${cls}`}>{label}</div>;
+  const { labelKey, cls } = map[state];
+  return <div className={`text-xs ${cls}`}>{labelKey ? t(labelKey) : ''}</div>;
 }
 
 /**
@@ -744,6 +747,7 @@ function StatsEditor({
   slide: Slide;
   onChange: (content: any) => void;
 }) {
+  const t = useTranslations('admin_industries_presentations');
   const stats: Array<{ label?: string; value?: string }> = Array.isArray(
     slide.content?.stats,
   )
@@ -758,18 +762,18 @@ function StatsEditor({
     <div className="card card-pad space-y-3">
       <div className="flex items-center justify-between">
         <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
-          Stats del slide
+          {t('statsTitle')}
         </div>
         <button
           onClick={() => update([...stats, { label: '', value: '' }])}
           className="btn-primary text-xs px-2 py-1"
         >
-          + Stat
+          {t('addStat')}
         </button>
       </div>
       {stats.length === 0 ? (
         <div className="text-xs text-mute py-3 text-center">
-          Agrega métricas tipo "+50% en visitas" o "2.5x retención".
+          {t('statsEmpty')}
         </div>
       ) : (
         <div className="space-y-2">
@@ -796,7 +800,7 @@ function StatsEditor({
                   next[i] = { ...next[i], label: e.target.value };
                   update(next);
                 }}
-                placeholder="retención en 3 meses"
+                placeholder={t('phStatLabel')}
               />
               <button
                 onClick={() => {
@@ -807,7 +811,7 @@ function StatsEditor({
                 }}
                 disabled={i === 0}
                 className="text-mute hover:text-ink disabled:opacity-20 px-1.5 py-0.5 text-xs"
-                title="Subir"
+                title={t('moveUp')}
               >
                 ↑
               </button>
@@ -820,14 +824,14 @@ function StatsEditor({
                 }}
                 disabled={i === stats.length - 1}
                 className="text-mute hover:text-ink disabled:opacity-20 px-1.5 py-0.5 text-xs"
-                title="Bajar"
+                title={t('moveDown')}
               >
                 ↓
               </button>
               <button
                 onClick={() => update(stats.filter((_, j) => j !== i))}
                 className="text-bad hover:text-bad px-1.5 py-0.5 text-xs"
-                title="Eliminar"
+                title={t('delete')}
               >
                 🗑
               </button>
@@ -836,8 +840,7 @@ function StatsEditor({
         </div>
       )}
       <div className="text-[10px] text-mute leading-relaxed">
-        Tip: 4 stats se ven mejor en grid 4 columnas; 3 también funcionan.
-        Más de 4 puede quedar denso en mobile.
+        {t('statsTip')}
       </div>
     </div>
   );
@@ -854,6 +857,7 @@ function ComparisonEditor({
   slide: Slide;
   onChange: (content: any) => void;
 }) {
+  const t = useTranslations('admin_industries_presentations');
   const left = slide.content?.left ?? { title: 'Antes', items: [] };
   const right = slide.content?.right ?? { title: 'Con Clubify', items: [] };
   const leftItems: string[] = Array.isArray(left.items) ? left.items : [];
@@ -890,7 +894,7 @@ function ComparisonEditor({
               right: isLeft ? right : updated,
             });
           }}
-          placeholder={isLeft ? 'Antes' : 'Con Clubify'}
+          placeholder={isLeft ? t('phColLeftTitle') : t('phColRightTitle')}
         />
         <div className="space-y-1.5">
           {items.map((item, i) => (
@@ -913,8 +917,8 @@ function ComparisonEditor({
                 }}
                 placeholder={
                   isLeft
-                    ? 'Lo que pierden hoy…'
-                    : 'Lo que ganan contigo…'
+                    ? t('phColLeftItem')
+                    : t('phColRightItem')
                 }
               />
               <button
@@ -929,7 +933,7 @@ function ComparisonEditor({
                   });
                 }}
                 className="text-bad hover:text-bad px-1.5 py-0.5 text-xs"
-                title="Eliminar"
+                title={t('delete')}
               >
                 🗑
               </button>
@@ -949,7 +953,7 @@ function ComparisonEditor({
           }}
           className="text-xs text-brand hover:underline"
         >
-          + Ítem
+          {t('addItem')}
         </button>
       </div>
     );
@@ -958,18 +962,18 @@ function ComparisonEditor({
   return (
     <div className="card card-pad space-y-4">
       <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
-        Comparativa (dos columnas)
+        {t('comparisonTitle')}
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <ColumnEditor
           side="left"
-          label="Columna izquierda (con ✗)"
+          label={t('colLeftLabel')}
           title={left.title ?? 'Antes'}
           items={leftItems}
         />
         <ColumnEditor
           side="right"
-          label="Columna derecha (con ✓)"
+          label={t('colRightLabel')}
           title={right.title ?? 'Con Clubify'}
           items={rightItems}
         />
