@@ -14,6 +14,7 @@ import { SmsTemplatesService } from './sms-templates.service';
 import { WhiteLabelNotificationsService } from '../white-label-notifications/white-label-notifications.service';
 import { BusinessGroupsService } from '../business-groups/business-groups.service';
 import { fmtSmsDate } from './sms-templates';
+import { decryptSecret } from '../common/crypto/secret-box';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -179,6 +180,35 @@ export class HotmartService {
       return process.env.NODE_ENV !== 'production';
     }
     return hottok === expected;
+  }
+
+  /**
+   * Verifica el HOTTOK contra el webhookSecret CIFRADO de una marca (ruta
+   * brand-aware /webhooks/hotmart/:slug). La marca debe estar ACTIVE y tener
+   * paymentGateway=HOTMART con un webhookSecret cargado. Devuelve el
+   * whiteLabelId si valida, o null. NO cae al env: cada marca usa su secreto.
+   */
+  async verifyHottokForBrand(
+    slug: string,
+    hottok?: string,
+  ): Promise<{ whiteLabelId: string } | null> {
+    const s = (slug ?? '').trim().toLowerCase();
+    if (!s) return null;
+    const wl = await this.prisma.whiteLabel.findFirst({
+      where: { slug: s, status: 'ACTIVE' },
+      select: { id: true, paymentGateway: true, paymentConfig: true },
+    });
+    if (!wl || wl.paymentGateway !== 'HOTMART') return null;
+    const cfg = (wl.paymentConfig as Record<string, any>) || {};
+    const enc = cfg.webhookSecret as string | undefined;
+    if (!enc) return null;
+    let secret: string;
+    try {
+      secret = decryptSecret(enc);
+    } catch {
+      return null;
+    }
+    return hottok && hottok === secret ? { whiteLabelId: wl.id } : null;
   }
 
   /**

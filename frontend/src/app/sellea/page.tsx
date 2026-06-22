@@ -111,21 +111,70 @@ async function fetchBrandByHost(
   }
 }
 
+// Mapea la periodicidad del link de pago (backend) al shape de LandingPlan.
+const PERIOD_TO_PLAN: Record<string, { id: 'mensual' | 'trimestral' | 'semestral' | 'anual'; months: number }> = {
+  MENSUAL: { id: 'mensual', months: 1 },
+  TRIMESTRAL: { id: 'trimestral', months: 3 },
+  SEMESTRAL: { id: 'semestral', months: 6 },
+  ANUAL: { id: 'anual', months: 12 },
+};
+
+type LandingPlan = { id: 'mensual' | 'trimestral' | 'semestral' | 'anual'; name: string; shortName: string; months: number; price: number; checkoutUrl: string | null; description: string };
+
+/** Planes de Sellea desde su config de pasarela (links por marca). Devuelve
+ *  null si el host no matchea (preview /sellea) → la landing usa su fallback. */
+async function fetchPaymentPlans(host: string): Promise<LandingPlan[] | null> {
+  const h = (host || '').toLowerCase().split(':')[0];
+  if (!h || h === 'localhost' || h.startsWith('127.') || h.endsWith('soyclubify.com') || h.endsWith('clubify.app')) {
+    return null;
+  }
+  try {
+    const r = await fetch(
+      `${API_URL}/api/superadmin-public/white-labels/payment-links-by-host?host=${encodeURIComponent(h)}`,
+      { next: { revalidate: 60 } },
+    );
+    if (!r.ok) return null;
+    const d = await r.json();
+    if (!d || !Array.isArray(d.links) || !d.links.length) return null;
+    const plans: LandingPlan[] = [];
+    for (const l of d.links) {
+      const m = PERIOD_TO_PLAN[l.periodicity as string];
+      if (!m) continue; // CUSTOM u otros no se representan en el selector
+      plans.push({
+        id: m.id,
+        name: l.name || m.id,
+        shortName: l.name || m.id,
+        months: m.months,
+        price: Number(l.amountUsd) || 0,
+        checkoutUrl: l.url || null,
+        description: '',
+      });
+    }
+    return plans.length ? plans : null;
+  } catch {
+    return null;
+  }
+}
+
 export default async function SelleaLandingPage() {
   const host = headers().get('host') ?? '';
-  const brand = await fetchBrandByHost(host);
+  const [brand, fetchedPlans] = await Promise.all([
+    fetchBrandByHost(host),
+    fetchPaymentPlans(host),
+  ]);
   const brandLogo = brand.logoUrl;
   // Botón "Agendar demo": usa el WhatsApp configurado en la marca; sino fallback.
   const demoLink = brand.demoWhatsapp
     ? 'https://wa.me/' + brand.demoWhatsapp.replace(/[^0-9]/g, '')
     : DEMO_LINK_FALLBACK;
 
-  // Precios PROPIOS de Sellea: solo Mensual ($80) y Anual ($799) — sin
-  // Trimestral ni Semestral. checkoutUrl null = botón "Próximamente" hasta
-  // integrar Stripe para Sellea. NO se reusan los links de Hotmart de Clubify.
-  const landingPlans = [
-    { id: 'mensual' as const, name: 'Mensual', shortName: 'Mensual', months: 1, price: 80, checkoutUrl: null, description: '' },
-    { id: 'anual' as const, name: 'Anual', shortName: 'Anual', months: 12, price: 799, checkoutUrl: null, description: '' },
+  // Planes de Sellea: si la marca tiene links configurados (Master Admin →
+  // Pasarela de pago), se usan esos. Sino, fallback Mensual $80 / Anual $799
+  // con checkoutUrl null (botón "Próximamente") — preview /sellea y mientras
+  // no haya links cargados. NO se reusan los links de Hotmart de Clubify.
+  const landingPlans: LandingPlan[] = fetchedPlans ?? [
+    { id: 'mensual', name: 'Mensual', shortName: 'Mensual', months: 1, price: 80, checkoutUrl: null, description: '' },
+    { id: 'anual', name: 'Anual', shortName: 'Anual', months: 12, price: 799, checkoutUrl: null, description: '' },
   ];
 
   return (

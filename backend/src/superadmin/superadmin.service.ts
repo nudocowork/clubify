@@ -1253,6 +1253,44 @@ export class SuperAdminService {
     };
   }
 
+  /** Links de pago ACTIVOS de una marca por HOST (dominio propio). Lo usa la
+   *  landing de la marca para pintar sus planes/precios sin hardcodear. Devuelve
+   *  null si el host no matchea ninguna marca (→ la landing usa su fallback). */
+  async getPaymentLinksByHost(host: string) {
+    const { slug } = await this.resolveWhiteLabelByHost(host);
+    if (!slug) return null;
+    return this.getPaymentLinksBySlug(slug);
+  }
+
+  /** Links de pago ACTIVOS de una marca por slug. Público: NO expone secretos
+   *  (los links no tienen). Devuelve gateway + links ordenados. */
+  async getPaymentLinksBySlug(slug: string) {
+    const s = (slug ?? '').trim().toLowerCase();
+    if (!s) return null;
+    const wl = await this.prisma.whiteLabel.findFirst({
+      where: { slug: s, status: 'ACTIVE' },
+      select: {
+        paymentGateway: true,
+        paymentLinks: {
+          where: { active: true },
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        },
+      },
+    });
+    if (!wl) return null;
+    return {
+      gateway: wl.paymentGateway,
+      links: wl.paymentLinks.map((l) => ({
+        id: l.id,
+        name: l.name,
+        periodicity: l.periodicity,
+        amountUsd: Number(l.amountUsd),
+        url: l.url,
+        stripePriceId: l.stripePriceId,
+      })),
+    };
+  }
+
   async createHotmartLink(dto: HotmartLinkDto, actorId?: string) {
     if (!dto.credits || dto.credits < 1) throw new BadRequestException('credits >= 1');
     if (!dto.label?.trim()) throw new BadRequestException('label requerido');

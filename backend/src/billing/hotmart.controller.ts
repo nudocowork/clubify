@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, HttpCode, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Param, Post, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { HotmartService, HotmartWebhookPayload } from './hotmart.service';
 import { Public } from '../common/decorators/public.decorator';
@@ -31,6 +31,32 @@ export class HotmartWebhookController {
       headers['x-hotmart-hottok'] ??
       headers['x-hotmart-webhook-token'];
     if (!this.hotmart.verifyHottok(hottok)) {
+      return { ok: false, action: 'invalid_hottok' };
+    }
+    return this.hotmart.handleEvent(body);
+  }
+
+  /**
+   * Webhook brand-aware: cada marca con paymentGateway=HOTMART apunta su panel
+   * de Hotmart a /webhooks/hotmart/<slug> y valida contra SU webhookSecret
+   * cifrado (no el env). La ruta legacy /webhooks/hotmart sigue para Clubify.
+   * El scoping del tenant lookup al whiteLabelId llega en Fase 5 (aislamiento).
+   */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
+  @Post(':slug')
+  @HttpCode(200)
+  async receiveForBrand(
+    @Param('slug') slug: string,
+    @Body() body: HotmartWebhookPayload,
+    @Headers() headers: Record<string, string>,
+  ) {
+    const hottok =
+      body.hottok ??
+      headers['x-hotmart-hottok'] ??
+      headers['x-hotmart-webhook-token'];
+    const brand = await this.hotmart.verifyHottokForBrand(slug, hottok);
+    if (!brand) {
       return { ok: false, action: 'invalid_hottok' };
     }
     return this.hotmart.handleEvent(body);

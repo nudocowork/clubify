@@ -505,4 +505,12 @@ export class SuperAdminPublicController {
   brandingByHost(@Query('host') host: string) {
     return this.svc.getWhiteLabelBrandingByHost(host);
   }
+
+  // Links de pago ACTIVOS por dominio propio → la landing de la marca pinta
+  // sus planes/precios sin hardcodear. Devuelve { gateway, links } o null.
+  @Public()
+  @Get('white-labels/payment-links-by-host')
+  paymentLinksByHost(@Query('host') host: string) {
+    return this.svc.getPaymentLinksByHost(host);
+  }
 }
