@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import {
@@ -47,6 +48,7 @@ const STATUS_OPTIONS: LabStatus[] = [
 ];
 
 export default function AdminLabPage() {
+  const t = useTranslations('admin_lab');
   const [tab, setTab] = useState<Tab>('pending');
   const [pending, setPending] = useState<Proposal[] | null>(null);
   const [all, setAll] = useState<Proposal[] | null>(null);
@@ -66,7 +68,7 @@ export default function AdminLabPage() {
       );
       setPending(r.items);
     } catch (e: any) {
-      toast(e?.message ?? 'Error', 'error');
+      toast(e?.message ?? t('error'), 'error');
       setPending([]);
     }
   }
@@ -82,7 +84,7 @@ export default function AdminLabPage() {
       );
       setAll(r.items);
     } catch (e: any) {
-      toast(e?.message ?? 'Error', 'error');
+      toast(e?.message ?? t('error'), 'error');
       setAll([]);
     }
   }
@@ -92,7 +94,7 @@ export default function AdminLabPage() {
       const m = await api<Metrics>('/admin/lab/metrics');
       setMetrics(m);
     } catch (e: any) {
-      toast(e?.message ?? 'Error', 'error');
+      toast(e?.message ?? t('error'), 'error');
     }
   }
 
@@ -109,7 +111,7 @@ export default function AdminLabPage() {
       );
       setTopVoted(r.items.slice(0, 20));
     } catch (e: any) {
-      toast(e?.message ?? 'Error', 'error');
+      toast(e?.message ?? t('error'), 'error');
       setTopVoted([]);
     }
   }
@@ -132,24 +134,24 @@ export default function AdminLabPage() {
         method: 'PATCH',
         body: JSON.stringify({ status, reason }),
       });
-      toast('Status actualizado', 'success');
+      toast(t('toastStatusUpdated'), 'success');
       if (tab === 'pending') loadPending();
       else if (tab === 'all') loadAll();
     } catch (e: any) {
-      toast(e?.message ?? 'Error', 'error');
+      toast(e?.message ?? t('error'), 'error');
     }
   }
 
   async function deleteProposal(id: string) {
-    if (!confirm('¿Eliminar esta propuesta? Esta acción no se puede deshacer.'))
+    if (!confirm(t('confirmDelete')))
       return;
     try {
       await api(`/admin/lab/proposals/${id}`, { method: 'DELETE' });
-      toast('Eliminada', 'success');
+      toast(t('toastDeleted'), 'success');
       if (tab === 'all') loadAll();
       if (tab === 'pending') loadPending();
     } catch (e: any) {
-      toast(e?.message ?? 'Error', 'error');
+      toast(e?.message ?? t('error'), 'error');
     }
   }
 
@@ -157,7 +159,7 @@ export default function AdminLabPage() {
     <div className="max-w-6xl">
       <div className="page-head">
         <h1 className="page-title">
-          🧪 Clubify Lab <span className="page-crumb">/ Admin</span>
+          🧪 Clubify Lab <span className="page-crumb">{t('pageCrumb')}</span>
         </h1>
       </div>
 
@@ -166,25 +168,25 @@ export default function AdminLabPage() {
           className={`tab ${tab === 'pending' ? 'tab-active' : ''}`}
           onClick={() => setTab('pending')}
         >
-          Pendientes
+          {t('tabPending')}
         </button>
         <button
           className={`tab ${tab === 'all' ? 'tab-active' : ''}`}
           onClick={() => setTab('all')}
         >
-          Todas
+          {t('tabAll')}
         </button>
         <button
           className={`tab ${tab === 'metrics' ? 'tab-active' : ''}`}
           onClick={() => setTab('metrics')}
         >
-          Métricas
+          {t('tabMetrics')}
         </button>
         <button
           className={`tab ${tab === 'topVoted' ? 'tab-active' : ''}`}
           onClick={() => setTab('topVoted')}
         >
-          🏆 Top votadas
+          🏆 {t('tabTopVoted')}
         </button>
       </div>
 
@@ -255,6 +257,7 @@ function ProposalRow({
   proposal: Proposal;
   actions: React.ReactNode;
 }) {
+  const t = useTranslations('admin_lab');
   const meta = STATUS_META[proposal.status];
   const cat = CATEGORY_META[proposal.category];
   return (
@@ -282,13 +285,18 @@ function ProposalRow({
             {proposal.description}
           </p>
           <div className="text-xs text-mute2 mt-1.5 flex gap-3 flex-wrap">
-            <span>Por {proposal.author.fullName}</span>
-            <span>🗳 {proposal.votesCount} ({proposal.votesScore} pts)</span>
+            <span>{t('byAuthor', { name: proposal.author.fullName })}</span>
+            <span>
+              🗳 {t('votesWithScore', {
+                votes: proposal.votesCount,
+                score: proposal.votesScore,
+              })}
+            </span>
             <span>💬 {proposal.commentsCount}</span>
           </div>
           {proposal.rejectionReason && (
             <div className="text-xs text-bad-ink mt-1.5">
-              Motivo: {proposal.rejectionReason}
+              {t('reasonLabel', { reason: proposal.rejectionReason })}
             </div>
           )}
         </div>
@@ -313,11 +321,12 @@ function PendingTab({
   onChange: (p: Proposal) => void;
   onDelete: (p: Proposal) => void;
 }) {
-  if (items === null) return <p className="text-mute">Cargando...</p>;
+  const t = useTranslations('admin_lab');
+  if (items === null) return <p className="text-mute">{t('loading')}</p>;
   if (items.length === 0)
     return (
       <p className="text-mute text-sm">
-        No hay propuestas pendientes de revisión.
+        {t('emptyPending')}
       </p>
     );
   return (
@@ -332,22 +341,22 @@ function PendingTab({
                 className="btn-primary text-xs"
                 onClick={() => onApprove(p)}
               >
-                Aprobar
+                {t('actionApprove')}
               </button>
               <button className="btn-ghost text-xs" onClick={() => onReject(p)}>
-                Rechazar
+                {t('actionReject')}
               </button>
               <button className="btn-ghost text-xs" onClick={() => onMerge(p)}>
-                Fusionar
+                {t('actionMerge')}
               </button>
               <button className="btn-ghost text-xs" onClick={() => onChange(p)}>
-                Otro
+                {t('actionOther')}
               </button>
               <button
                 className="btn-ghost text-xs text-bad"
                 onClick={() => onDelete(p)}
               >
-                Eliminar
+                {t('actionDelete')}
               </button>
             </>
           }
@@ -376,6 +385,7 @@ function AllTab({
   onMerge: (p: Proposal) => void;
   onDelete: (p: Proposal) => void;
 }) {
+  const t = useTranslations('admin_lab');
   return (
     <div>
       <div className="card card-pad mb-3 flex gap-2 items-center flex-wrap">
@@ -384,7 +394,7 @@ function AllTab({
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value as LabStatus | 'ALL')}
         >
-          <option value="ALL">Todos los status</option>
+          <option value="ALL">{t('filterAllStatus')}</option>
           {STATUS_OPTIONS.map((s) => (
             <option key={s} value={s}>
               {STATUS_META[s].label}
@@ -398,14 +408,14 @@ function AllTab({
             setFilterCategory(e.target.value as LabCategory | 'ALL')
           }
         >
-          <option value="ALL">Todas las categorías</option>
-          <option value="CLIENTS">🏢 Negocios</option>
-          <option value="AFFILIATES">👥 Embajadores</option>
+          <option value="ALL">{t('filterAllCategories')}</option>
+          <option value="CLIENTS">🏢 {t('categoryBusinesses')}</option>
+          <option value="AFFILIATES">👥 {t('categoryAmbassadors')}</option>
         </select>
       </div>
-      {items === null && <p className="text-mute">Cargando...</p>}
+      {items === null && <p className="text-mute">{t('loading')}</p>}
       {items && items.length === 0 && (
-        <p className="text-mute text-sm">No hay propuestas.</p>
+        <p className="text-mute text-sm">{t('emptyAll')}</p>
       )}
       <div className="grid gap-3">
         {items?.map((p) => (
@@ -418,16 +428,16 @@ function AllTab({
                   className="btn-ghost text-xs"
                   onClick={() => onChangeStatus(p)}
                 >
-                  Cambiar estado
+                  {t('actionChangeStatus')}
                 </button>
                 <button className="btn-ghost text-xs" onClick={() => onMerge(p)}>
-                  Fusionar
+                  {t('actionMerge')}
                 </button>
                 <button
                   className="btn-ghost text-xs text-bad"
                   onClick={() => onDelete(p)}
                 >
-                  Eliminar
+                  {t('actionDelete')}
                 </button>
               </>
             }
@@ -439,24 +449,25 @@ function AllTab({
 }
 
 function MetricsTab({ metrics }: { metrics: Metrics | null }) {
-  if (!metrics) return <p className="text-mute">Cargando...</p>;
-  const t = metrics.totals;
+  const t = useTranslations('admin_lab');
+  if (!metrics) return <p className="text-mute">{t('loading')}</p>;
+  const tot = metrics.totals;
   return (
     <div className="grid gap-4">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <KpiCard label="Total ideas" value={t.total} />
-        <KpiCard label="Pendientes" value={t.pending} />
-        <KpiCard label="En evaluación" value={t.evaluating} />
-        <KpiCard label="Aprobadas" value={t.approved} />
-        <KpiCard label="En desarrollo" value={t.inDevelopment} />
-        <KpiCard label="En pruebas" value={t.inTesting} />
-        <KpiCard label="Implementadas" value={t.implemented} />
-        <KpiCard label="Rechazadas" value={t.rejected} />
+        <KpiCard label={t('kpiTotalIdeas')} value={tot.total} />
+        <KpiCard label={t('kpiPending')} value={tot.pending} />
+        <KpiCard label={t('kpiEvaluating')} value={tot.evaluating} />
+        <KpiCard label={t('kpiApproved')} value={tot.approved} />
+        <KpiCard label={t('kpiInDevelopment')} value={tot.inDevelopment} />
+        <KpiCard label={t('kpiInTesting')} value={tot.inTesting} />
+        <KpiCard label={t('kpiImplemented')} value={tot.implemented} />
+        <KpiCard label={t('kpiRejected')} value={tot.rejected} />
       </div>
 
       <div className="card card-pad">
         <h3 className="font-bold m-0 mb-3 text-sm uppercase tracking-wide text-mute">
-          Categoría más activa
+          {t('mostActiveCategory')}
         </h3>
         <div className="text-lg">
           {metrics.mostActiveCategory
@@ -464,7 +475,7 @@ function MetricsTab({ metrics }: { metrics: Metrics | null }) {
             : '—'}
         </div>
         <div className="text-xs text-mute2 mt-2">
-          Por categoría:{' '}
+          {t('byCategoryLabel')}{' '}
           {Object.entries(metrics.byCategory)
             .map(
               ([c, n]) =>
@@ -476,10 +487,10 @@ function MetricsTab({ metrics }: { metrics: Metrics | null }) {
 
       <div className="card card-pad">
         <h3 className="font-bold m-0 mb-3 text-sm uppercase tracking-wide text-mute">
-          Top contribuidores
+          {t('topContributors')}
         </h3>
         {metrics.topContributors.length === 0 ? (
-          <p className="text-mute text-sm m-0">Sin datos.</p>
+          <p className="text-mute text-sm m-0">{t('noData')}</p>
         ) : (
           <ol className="grid gap-2 text-sm pl-5">
             {metrics.topContributors.map((c) => (
@@ -488,7 +499,9 @@ function MetricsTab({ metrics }: { metrics: Metrics | null }) {
                   <b>{c.fullName}</b>{' '}
                   <span className="text-xs text-mute2">({c.role ?? '—'})</span>
                 </span>
-                <span className="text-mute2">{c.count} ideas</span>
+                <span className="text-mute2">
+                  {t('ideasCount', { count: c.count })}
+                </span>
               </li>
             ))}
           </ol>
@@ -516,6 +529,7 @@ function TopVotedTab({
   scope: 'top' | 'topMonth';
   setScope: (v: 'top' | 'topMonth') => void;
 }) {
+  const t = useTranslations('admin_lab');
   return (
     <div>
       <div className="tabs mb-4 max-w-fit">
@@ -523,18 +537,18 @@ function TopVotedTab({
           className={`tab ${scope === 'top' ? 'tab-active' : ''}`}
           onClick={() => setScope('top')}
         >
-          Histórico
+          {t('scopeHistorical')}
         </button>
         <button
           className={`tab ${scope === 'topMonth' ? 'tab-active' : ''}`}
           onClick={() => setScope('topMonth')}
         >
-          Top del mes
+          {t('scopeTopMonth')}
         </button>
       </div>
-      {items === null && <p className="text-mute">Cargando...</p>}
+      {items === null && <p className="text-mute">{t('loading')}</p>}
       {items && items.length === 0 && (
-        <p className="text-mute text-sm">No hay propuestas votadas todavía.</p>
+        <p className="text-mute text-sm">{t('emptyTopVoted')}</p>
       )}
       <ol className="grid gap-2">
         {items?.map((p, i) => (
@@ -553,7 +567,11 @@ function TopVotedTab({
                 {p.title}
               </Link>
               <div className="text-xs text-mute2 mt-0.5">
-                {p.votesScore} pts · {p.votesCount} votos · {p.commentsCount} comentarios
+                {t('topVotedStats', {
+                  score: p.votesScore,
+                  votes: p.votesCount,
+                  comments: p.commentsCount,
+                })}
               </div>
             </div>
             <span className={`badge ${STATUS_META[p.status].badge}`}>
@@ -575,6 +593,7 @@ function StatusModal({
   onClose: () => void;
   onSubmit: (status: LabStatus, reason: string) => Promise<void>;
 }) {
+  const t = useTranslations('admin_lab');
   const [status, setStatus] = useState<LabStatus>(proposal.status);
   const [reason, setReason] = useState(proposal.rejectionReason ?? '');
   const [busy, setBusy] = useState(false);
@@ -583,12 +602,12 @@ function StatusModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="bg-white rounded-2xl w-full max-w-md">
         <div className="p-5 border-b border-line">
-          <h2 className="font-bold text-lg m-0">Cambiar estado</h2>
+          <h2 className="font-bold text-lg m-0">{t('modalChangeStatusTitle')}</h2>
           <p className="text-xs text-mute2 m-0 mt-1">{proposal.title}</p>
         </div>
         <div className="p-5 grid gap-3">
           <label className="grid gap-1.5">
-            <span className="text-sm font-medium">Nuevo estado</span>
+            <span className="text-sm font-medium">{t('newStatus')}</span>
             <select
               className="input"
               value={status}
@@ -603,19 +622,19 @@ function StatusModal({
           </label>
           <label className="grid gap-1.5">
             <span className="text-sm font-medium">
-              Motivo (opcional, requerido para Rechazo)
+              {t('reasonField')}
             </span>
             <textarea
               className="input min-h-[80px]"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="Explica el motivo del cambio..."
+              placeholder={t('reasonPlaceholder')}
               maxLength={2000}
             />
           </label>
           <div className="flex justify-end gap-2 mt-2">
             <button onClick={onClose} className="btn-ghost" disabled={busy}>
-              Cancelar
+              {t('cancel')}
             </button>
             <button
               onClick={async () => {
@@ -626,7 +645,7 @@ function StatusModal({
               className="btn-primary"
               disabled={busy || (status === 'REJECTED' && !reason.trim())}
             >
-              {busy ? 'Guardando...' : 'Guardar'}
+              {busy ? t('savingEllipsis') : t('save')}
             </button>
           </div>
         </div>
@@ -644,6 +663,7 @@ function MergeModal({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const t = useTranslations('admin_lab');
   const [candidates, setCandidates] = useState<Proposal[] | null>(null);
   const [dstId, setDstId] = useState<string>('');
   const [busy, setBusy] = useState(false);
@@ -663,10 +683,10 @@ function MergeModal({
       await api(`/admin/lab/proposals/${src.id}/merge-into/${dstId}`, {
         method: 'POST',
       });
-      toast('Propuestas fusionadas', 'success');
+      toast(t('toastMerged'), 'success');
       onDone();
     } catch (e: any) {
-      toast(e?.message ?? 'Error', 'error');
+      toast(e?.message ?? t('error'), 'error');
       setBusy(false);
     }
   }
@@ -675,28 +695,30 @@ function MergeModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="bg-white rounded-2xl w-full max-w-lg">
         <div className="p-5 border-b border-line">
-          <h2 className="font-bold text-lg m-0">Fusionar propuesta</h2>
+          <h2 className="font-bold text-lg m-0">{t('modalMergeTitle')}</h2>
           <p className="text-xs text-mute2 m-0 mt-1">
-            Origen: <b>{src.title}</b> · Se marcará como rechazada y los votos
-            + comentarios se transfieren al destino.
+            {t.rich('mergeSourceDescription', {
+              title: src.title,
+              b: (chunks) => <b>{chunks}</b>,
+            })}
           </p>
         </div>
         <div className="p-5 grid gap-3">
-          {candidates === null && <p className="text-mute">Cargando...</p>}
+          {candidates === null && <p className="text-mute">{t('loading')}</p>}
           {candidates && candidates.length === 0 && (
             <p className="text-mute text-sm">
-              No hay otras propuestas en esta categoría para fusionar.
+              {t('emptyMergeCandidates')}
             </p>
           )}
           {candidates && candidates.length > 0 && (
             <label className="grid gap-1.5">
-              <span className="text-sm font-medium">Propuesta destino</span>
+              <span className="text-sm font-medium">{t('targetProposal')}</span>
               <select
                 className="input"
                 value={dstId}
                 onChange={(e) => setDstId(e.target.value)}
               >
-                <option value="">— Selecciona —</option>
+                <option value="">{t('selectPlaceholder')}</option>
                 {candidates.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.title} ({STATUS_META[c.status].label})
@@ -707,14 +729,14 @@ function MergeModal({
           )}
           <div className="flex justify-end gap-2 mt-2">
             <button onClick={onClose} className="btn-ghost" disabled={busy}>
-              Cancelar
+              {t('cancel')}
             </button>
             <button
               onClick={submit}
               className="btn-primary"
               disabled={busy || !dstId}
             >
-              {busy ? 'Fusionando...' : 'Fusionar'}
+              {busy ? t('mergingEllipsis') : t('actionMerge')}
             </button>
           </div>
         </div>

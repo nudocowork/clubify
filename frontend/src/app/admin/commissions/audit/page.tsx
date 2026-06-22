@@ -10,6 +10,7 @@
  */
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 
@@ -43,6 +44,7 @@ type AuditResponse = {
 };
 
 export default function CommissionsAuditPage() {
+  const t = useTranslations('admin_commissions_audit');
   const [data, setData] = useState<AuditResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [limit, setLimit] = useState(100);
@@ -55,7 +57,7 @@ export default function CommissionsAuditPage() {
       );
       setData(d);
     } catch (e: any) {
-      toast(e?.message ?? 'Error cargando auditoría', 'error');
+      toast(e?.message ?? t('errorLoading'), 'error');
     } finally {
       setLoading(false);
     }
@@ -69,11 +71,11 @@ export default function CommissionsAuditPage() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Auditoría de comisiones{' '}
-          <span className="page-crumb">/ Duplicados sospechosos</span>
+          {t('pageTitle')}{' '}
+          <span className="page-crumb">{t('pageCrumb')}</span>
         </h1>
         <div className="flex gap-2 items-center">
-          <label className="text-xs text-mute">Grupos máx:</label>
+          <label className="text-xs text-mute">{t('maxGroups')}</label>
           <select
             value={limit}
             onChange={(e) => setLimit(Number(e.target.value))}
@@ -85,17 +87,17 @@ export default function CommissionsAuditPage() {
             <option value={500}>500</option>
           </select>
           <button onClick={load} className="btn-ghost text-sm" disabled={loading}>
-            {loading ? '…' : '↻ Refrescar'}
+            {loading ? '…' : `↻ ${t('refresh')}`}
           </button>
         </div>
       </div>
 
       <div className="card card-pad mb-4 bg-amber-50 border-amber-200">
         <p className="text-sm text-amber-900 m-0 leading-relaxed">
-          🔍 <strong>Read-only.</strong> Esta vista NO modifica datos. Detecta
-          grupos donde una misma combinación (cliente · destinatario) tiene
-          múltiples comisiones creadas dentro de 25 días. Es candidato a
-          duplicado por bug histórico de periodicidad o webhooks reenviados.
+          🔍{' '}
+          {t.rich('readOnlyNote', {
+            strong: (chunks) => <strong>{chunks}</strong>,
+          })}
         </p>
       </div>
 
@@ -103,23 +105,23 @@ export default function CommissionsAuditPage() {
       {data && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5 mb-4">
           <KpiCard
-            label="Comisiones totales"
+            label={t('kpiTotalCommissions')}
             value={data.summary.totalCommissions}
           />
           <KpiCard
-            label="Grupos sospechosos"
+            label={t('kpiSuspiciousGroups')}
             value={data.summary.totalDuplicateGroups}
             tone={data.summary.totalDuplicateGroups > 0 ? 'warn' : 'ok'}
           />
           <KpiCard
-            label="Filas en grupos"
+            label={t('kpiRowsInGroups')}
             value={data.summary.totalCommissionsInGroups}
             tone={data.summary.totalCommissionsInGroups > 0 ? 'warn' : 'ok'}
           />
           <KpiCard
-            label="Mostrando"
+            label={t('kpiShowing')}
             value={data.summary.truncatedToFirst}
-            hint={`top ${limit}`}
+            hint={t('kpiTopHint', { limit })}
           />
         </div>
       )}
@@ -135,9 +137,9 @@ export default function CommissionsAuditPage() {
       {data && !loading && data.groups.length === 0 && (
         <div className="card card-pad text-center py-10">
           <div className="text-4xl mb-2">✅</div>
-          <div className="font-semibold">Sin duplicados detectados</div>
+          <div className="font-semibold">{t('emptyTitle')}</div>
           <div className="text-xs text-mute mt-1">
-            No hay grupos de comisiones sospechosas con la heurística actual.
+            {t('emptyDescription')}
           </div>
         </div>
       )}
@@ -190,6 +192,7 @@ function GroupCard({
   g: AuditGroup;
   onChanged: () => void;
 }) {
+  const t = useTranslations('admin_commissions_audit');
   // Selección de filas para mark-rejected (Fase B 2026-06-12).
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -220,14 +223,13 @@ function GroupCard({
   async function markRejected() {
     if (selected.size === 0) return;
     const reason = window.prompt(
-      'Motivo del rechazo (queda en audit log):',
-      'Duplicado detectado en revisión manual',
+      t('promptRejectReason'),
+      t('promptRejectDefault'),
     );
     if (reason === null) return;
     if (
       !confirm(
-        `¿Marcar ${selected.size} comision${selected.size === 1 ? '' : 'es'} como REJECTED?\n\n` +
-          'Esta acción NO se puede deshacer desde la UI. PAID nunca se toca.',
+        t('confirmMarkRejected', { count: selected.size }),
       )
     )
       return;
@@ -245,13 +247,16 @@ function GroupCard({
         }),
       });
       toast(
-        `${res.updated} marcadas REJECTED${res.skippedPaid > 0 ? ` · ${res.skippedPaid} PAID skipped` : ''}`,
+        t('toastMarkedRejected', { updated: res.updated }) +
+          (res.skippedPaid > 0
+            ? ' · ' + t('toastSkippedPaid', { count: res.skippedPaid })
+            : ''),
         'success',
       );
       setSelected(new Set());
       onChanged();
     } catch (e: any) {
-      toast(e?.message ?? 'Error marcando como REJECTED', 'error');
+      toast(e?.message ?? t('errorMarkingRejected'), 'error');
     } finally {
       setBusy(false);
     }
@@ -262,13 +267,14 @@ function GroupCard({
       <div className="px-4 py-3 bg-bg2 border-b border-line2 flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0">
           <div className="font-semibold text-sm">
-            {g.tenant?.brandName ?? '(tenant eliminado)'}{' '}
+            {g.tenant?.brandName ?? t('tenantDeleted')}{' '}
             <span className="text-mute font-normal">
-              · {g.recipientCode?.role ?? '—'} {g.recipientCode?.code ?? '(legacy null)'}
+              · {g.recipientCode?.role ?? '—'} {g.recipientCode?.code ?? t('legacyNull')}
             </span>
           </div>
           <div className="text-xs text-mute mt-0.5">
-            ReferralUse: <code className="font-mono">{g.referralUseId.slice(0, 8)}</code>
+            {t('referralUse')}{' '}
+            <code className="font-mono">{g.referralUseId.slice(0, 8)}</code>
             {g.tenant?.slug && (
               <>
                 {' · '}
@@ -276,7 +282,7 @@ function GroupCard({
                   href={`/admin/tenants/${g.tenant.id}`}
                   className="text-brand hover:underline"
                 >
-                  Ver tenant →
+                  {t('viewTenant')} →
                 </Link>
               </>
             )}
@@ -284,10 +290,12 @@ function GroupCard({
         </div>
         <div className="text-right shrink-0">
           <div className="text-xs text-mute uppercase tracking-wider font-semibold">
-            {g.size} comisiones
+            {t('commissionsCount', { count: g.size })}
           </div>
           <div className="text-sm font-semibold text-bad">
-            Total: ${g.totalAmount.toLocaleString('es-CO', { maximumFractionDigits: 2 })}
+            {t('totalLabel', {
+              amount: g.totalAmount.toLocaleString('es-CO', { maximumFractionDigits: 2 }),
+            })}
           </div>
         </div>
       </div>
@@ -306,7 +314,7 @@ function GroupCard({
               disabled={busy}
             />
             <span className="text-mute">
-              Seleccionar todas las PENDING/APPROVED ({allSelectableIds.length})
+              {t('selectAllPendingApproved', { count: allSelectableIds.length })}
             </span>
           </label>
           {selected.size > 0 && (
@@ -317,8 +325,8 @@ function GroupCard({
               className="bg-bad text-white font-semibold text-xs px-3 py-1.5 rounded-md hover:bg-bad/90 disabled:opacity-50"
             >
               {busy
-                ? 'Marcando…'
-                : `🗑 Marcar ${selected.size} como REJECTED`}
+                ? t('marking')
+                : `🗑 ${t('markAsRejected', { count: selected.size })}`}
             </button>
           )}
         </div>
@@ -329,22 +337,22 @@ function GroupCard({
             <tr>
               <th className="px-3 py-2 w-8"></th>
               <th className="text-left px-3 py-2 text-[10px] uppercase tracking-wider text-mute font-semibold">
-                ID
+                {t('thId')}
               </th>
               <th className="text-left px-3 py-2 text-[10px] uppercase tracking-wider text-mute font-semibold">
-                Monto
+                {t('thAmount')}
               </th>
               <th className="text-left px-3 py-2 text-[10px] uppercase tracking-wider text-mute font-semibold">
-                Estado
+                {t('thStatus')}
               </th>
               <th className="text-left px-3 py-2 text-[10px] uppercase tracking-wider text-mute font-semibold">
-                Hotmart TX
+                {t('thHotmartTx')}
               </th>
               <th className="text-left px-3 py-2 text-[10px] uppercase tracking-wider text-mute font-semibold">
-                Creada
+                {t('thCreated')}
               </th>
               <th className="text-left px-3 py-2 text-[10px] uppercase tracking-wider text-mute font-semibold">
-                Pagada
+                {t('thPaid')}
               </th>
             </tr>
           </thead>
@@ -363,7 +371,7 @@ function GroupCard({
                       disabled={busy}
                     />
                   ) : (
-                    <span className="text-mute2 text-xs" title="PAID no se puede tocar">🔒</span>
+                    <span className="text-mute2 text-xs" title={t('paidLockedTooltip')}>🔒</span>
                   )}
                 </td>
                 <td className="px-3 py-2 font-mono text-[11px]">

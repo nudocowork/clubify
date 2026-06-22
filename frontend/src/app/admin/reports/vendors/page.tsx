@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 
@@ -76,6 +77,7 @@ const fmtDate = (s: string | null) =>
   s ? new Date(s).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 
 export default function VendorsReportPage() {
+  const t = useTranslations('admin_reports_vendors');
   const [rows, setRows] = useState<VendorRow[] | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [detail, setDetail] = useState<VendorDetail | null>(null);
@@ -102,7 +104,7 @@ export default function VendorsReportPage() {
       const r = await api<VendorRow[]>('/admin/reports/vendors');
       setRows(r);
     } catch (e: any) {
-      toast(e?.message || 'Error cargando vendedores', 'error');
+      toast(e?.message || t('errorLoadingVendors'), 'error');
     }
   }
 
@@ -117,18 +119,18 @@ export default function VendorsReportPage() {
     }
     api<VendorDetail>(`/admin/reports/vendors/${openId}`)
       .then(setDetail)
-      .catch((e) => toast(e?.message || 'Error cargando detalle', 'error'));
+      .catch((e) => toast(e?.message || t('errorLoadingDetail'), 'error'));
   }, [openId]);
 
   const filtered = rows
     ? rows.filter((r) => {
-        const t = search.trim().toLowerCase();
-        if (!t) return true;
+        const q = search.trim().toLowerCase();
+        if (!q) return true;
         return (
-          r.ownerName.toLowerCase().includes(t) ||
-          r.ownerEmail.toLowerCase().includes(t) ||
-          r.code.toLowerCase().includes(t) ||
-          (r.parentEmbajadorName ?? '').toLowerCase().includes(t)
+          r.ownerName.toLowerCase().includes(q) ||
+          r.ownerEmail.toLowerCase().includes(q) ||
+          r.code.toLowerCase().includes(q) ||
+          (r.parentEmbajadorName ?? '').toLowerCase().includes(q)
         );
       })
     : null;
@@ -144,21 +146,20 @@ export default function VendorsReportPage() {
     <div className="max-w-7xl">
       <div className="page-head">
         <h1 className="page-title">
-          Reportes <span className="page-crumb">/ Vendedores</span>
+          {t('pageTitle')} <span className="page-crumb">{t('pageCrumb')}</span>
         </h1>
         <Link href="/admin/reports/ambassadors" className="btn-ghost text-sm">
-          ← Embajadores
+          ← {t('navAmbassadors')}
         </Link>
       </div>
 
       <p className="text-mute text-sm mb-4 max-w-prose">
-        Producción agregada por vendedor: ventas realizadas y comisiones
-        (acumulada, pagada, pendiente). Click en una fila para ver el detalle.
+        {t('intro')}
       </p>
 
       <input
         type="search"
-        placeholder="Buscar por nombre, email, código o embajador…"
+        placeholder={t('searchPlaceholder')}
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         className="input mb-4 max-w-md"
@@ -168,20 +169,20 @@ export default function VendorsReportPage() {
         <div className="h-64 bg-bg2 rounded animate-shimmer" />
       ) : sorted.length === 0 ? (
         <div className="card card-pad text-center text-mute">
-          No hay vendedores que coincidan con tu búsqueda.
+          {t('emptyNoMatch')}
         </div>
       ) : (
         <div className="card overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-bg2 text-mute text-xs uppercase tracking-wider">
               <tr>
-                <th className="text-left p-3">Vendedor</th>
-                <th className="text-left p-3">Embajador</th>
+                <th className="text-left p-3">{t('thVendor')}</th>
+                <th className="text-left p-3">{t('thAmbassador')}</th>
                 <th className="text-right p-3">%</th>
-                <SortableTh label="Ventas" onClick={() => toggleSort('ventasRealizadas')} indicator={arrow('ventasRealizadas')} />
-                <SortableTh label="Acumulada" onClick={() => toggleSort('comisionAcumuladaUsd')} indicator={arrow('comisionAcumuladaUsd')} />
-                <SortableTh label="Pagada" onClick={() => toggleSort('comisionPagadaUsd')} indicator={arrow('comisionPagadaUsd')} />
-                <SortableTh label="Pendiente" onClick={() => toggleSort('comisionPendienteUsd')} indicator={arrow('comisionPendienteUsd')} />
+                <SortableTh label={t('thSales')} onClick={() => toggleSort('ventasRealizadas')} indicator={arrow('ventasRealizadas')} />
+                <SortableTh label={t('thAccrued')} onClick={() => toggleSort('comisionAcumuladaUsd')} indicator={arrow('comisionAcumuladaUsd')} />
+                <SortableTh label={t('thPaid')} onClick={() => toggleSort('comisionPagadaUsd')} indicator={arrow('comisionPagadaUsd')} />
+                <SortableTh label={t('thPending')} onClick={() => toggleSort('comisionPendienteUsd')} indicator={arrow('comisionPendienteUsd')} />
                 <th className="p-3"></th>
               </tr>
             </thead>
@@ -196,7 +197,7 @@ export default function VendorsReportPage() {
                     <div className="font-medium">{r.ownerName}</div>
                     <div className="text-xs text-mute">
                       {r.code} · {r.ownerEmail}
-                      {!r.isActive && <span className="ml-2 badge-bad">Inactivo</span>}
+                      {!r.isActive && <span className="ml-2 badge-bad">{t('inactive')}</span>}
                     </div>
                   </td>
                   <td className="p-3">
@@ -247,7 +248,10 @@ export default function VendorsReportPage() {
                     </div>
                     {detail.parentEmbajador && (
                       <div className="text-xs text-mute mt-1">
-                        Embajador: {detail.parentEmbajador.name} ({detail.parentEmbajador.code})
+                        {t('ambassadorLabel', {
+                          name: detail.parentEmbajador.name,
+                          code: detail.parentEmbajador.code,
+                        })}
                       </div>
                     )}
                   </div>
@@ -256,34 +260,34 @@ export default function VendorsReportPage() {
                     onClick={() => setOpenId(null)}
                     className="btn-ghost text-sm"
                   >
-                    Cerrar ✕
+                    {t('close')} ✕
                   </button>
                 </div>
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
-                  <Stat label="Ventas" value={detail.totals.ventasRealizadas} />
-                  <Stat label="Acumulada" value={usd(detail.totals.comisionAcumuladaUsd)} />
-                  <Stat label="Pagada" value={usd(detail.totals.comisionPagadaUsd)} accent="ok" />
+                  <Stat label={t('statSales')} value={detail.totals.ventasRealizadas} />
+                  <Stat label={t('statAccrued')} value={usd(detail.totals.comisionAcumuladaUsd)} />
+                  <Stat label={t('statPaid')} value={usd(detail.totals.comisionPagadaUsd)} accent="ok" />
                   <Stat
-                    label="Pendiente"
+                    label={t('statPending')}
                     value={usd(detail.totals.comisionPendienteUsd)}
                     accent="warn"
                   />
                 </div>
 
                 {/* Sales */}
-                <SectionTitle>Sales</SectionTitle>
+                <SectionTitle>{t('sectionSales')}</SectionTitle>
                 {detail.sales.length === 0 ? (
-                  <div className="text-sm text-mute mb-4">Sin ventas todavía.</div>
+                  <div className="text-sm text-mute mb-4">{t('emptySales')}</div>
                 ) : (
                   <div className="card overflow-x-auto mb-4">
                     <table className="w-full text-xs">
                       <thead className="bg-bg2 text-mute uppercase">
                         <tr>
-                          <th className="text-left p-2">Fecha</th>
-                          <th className="text-left p-2">Tenant</th>
-                          <th className="text-left p-2">Plan</th>
-                          <th className="text-left p-2">Estado</th>
+                          <th className="text-left p-2">{t('thDate')}</th>
+                          <th className="text-left p-2">{t('thTenant')}</th>
+                          <th className="text-left p-2">{t('thPlan')}</th>
+                          <th className="text-left p-2">{t('thStatus')}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -306,19 +310,19 @@ export default function VendorsReportPage() {
                 )}
 
                 {/* Commissions */}
-                <SectionTitle>Comisiones</SectionTitle>
+                <SectionTitle>{t('sectionCommissions')}</SectionTitle>
                 {detail.commissions.length === 0 ? (
-                  <div className="text-sm text-mute">Sin comisiones todavía.</div>
+                  <div className="text-sm text-mute">{t('emptyCommissions')}</div>
                 ) : (
                   <div className="card overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead className="bg-bg2 text-mute uppercase">
                         <tr>
-                          <th className="text-left p-2">Fecha</th>
-                          <th className="text-left p-2">Tenant</th>
-                          <th className="text-right p-2">Monto</th>
-                          <th className="text-right p-2">Pagado</th>
-                          <th className="text-left p-2">Estado</th>
+                          <th className="text-left p-2">{t('thDate')}</th>
+                          <th className="text-left p-2">{t('thTenant')}</th>
+                          <th className="text-right p-2">{t('thAmount')}</th>
+                          <th className="text-right p-2">{t('thPaidCol')}</th>
+                          <th className="text-left p-2">{t('thStatus')}</th>
                         </tr>
                       </thead>
                       <tbody>
