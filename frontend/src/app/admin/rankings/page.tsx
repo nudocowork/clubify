@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 
@@ -38,44 +39,42 @@ type RankingResponse = {
   rows: RankingRow[];
 };
 
-const ROLE_TITLE: Record<Role, string> = {
-  INFLUENCER: 'Top Influencers',
-  AMBASSADOR: 'Top Embajadores',
-  VENDOR: 'Top Vendedores',
+const ROLE_TITLE_KEY: Record<Role, string> = {
+  INFLUENCER: 'roleTitleInfluencer',
+  AMBASSADOR: 'roleTitleAmbassador',
+  VENDOR: 'roleTitleVendor',
 };
 
-const METRIC_LABEL: Record<Metric, string> = {
-  sales: 'Por ventas',
-  revenue: 'Por facturación',
-  commissions: 'Por comisiones',
+const METRIC_LABEL_KEY: Record<Metric, string> = {
+  sales: 'metricSales',
+  revenue: 'metricRevenue',
+  commissions: 'metricCommissions',
 };
 
-const RANGE_LABEL: Record<Range, string> = {
-  '7d': '7 días',
-  '30d': '30 días',
-  '90d': '90 días',
-  all: 'All-time',
+const RANGE_LABEL_KEY: Record<Range, string> = {
+  '7d': 'range7d',
+  '30d': 'range30d',
+  '90d': 'range90d',
+  all: 'rangeAll',
 };
 
 const usd = (n: number) =>
   `$${Number(n ?? 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 
 export default function RankingsPage() {
+  const t = useTranslations('admin_rankings');
   const [range, setRange] = useState<Range>('30d');
 
   return (
     <div className="max-w-7xl">
       <div className="page-head">
-        <h1 className="page-title">Rankings</h1>
+        <h1 className="page-title">{t('title')}</h1>
       </div>
 
-      <p className="text-mute text-sm mb-4 max-w-prose">
-        Top performers de la red por rol. Cambia la métrica con los tabs y
-        el rango temporal con los pills.
-      </p>
+      <p className="text-mute text-sm mb-4 max-w-prose">{t('intro')}</p>
 
       <div className="flex flex-wrap gap-2 mb-5">
-        {(Object.keys(RANGE_LABEL) as Range[]).map((r) => (
+        {(Object.keys(RANGE_LABEL_KEY) as Range[]).map((r) => (
           <button
             key={r}
             type="button"
@@ -87,7 +86,7 @@ export default function RankingsPage() {
                 : 'bg-bg2 text-ink hover:bg-bg2/80')
             }
           >
-            {RANGE_LABEL[r]}
+            {t(RANGE_LABEL_KEY[r])}
           </button>
         ))}
       </div>
@@ -102,6 +101,7 @@ export default function RankingsPage() {
 }
 
 function RankingCard({ role, range }: { role: Role; range: Range }) {
+  const t = useTranslations('admin_rankings');
   const [metric, setMetric] = useState<Metric>('sales');
   const [data, setData] = useState<RankingResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -116,18 +116,19 @@ function RankingCard({ role, range }: { role: Role; range: Range }) {
     });
     api<RankingResponse>(`/admin/rankings?${params.toString()}`)
       .then(setData)
-      .catch((e) => toast(e?.message || 'Error cargando ranking', 'error'))
+      .catch((e) => toast(e?.message || t('errLoading'), 'error'))
       .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role, metric, range]);
 
   return (
     <div className="card card-pad">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="font-semibold">{ROLE_TITLE[role]}</h2>
+        <h2 className="font-semibold">{t(ROLE_TITLE_KEY[role])}</h2>
       </div>
 
       <div className="flex gap-1 mb-3 border-b border-line">
-        {(Object.keys(METRIC_LABEL) as Metric[]).map((m) => (
+        {(Object.keys(METRIC_LABEL_KEY) as Metric[]).map((m) => (
           <button
             key={m}
             type="button"
@@ -139,7 +140,7 @@ function RankingCard({ role, range }: { role: Role; range: Range }) {
                 : 'border-transparent text-mute hover:text-ink')
             }
           >
-            {METRIC_LABEL[m]}
+            {t(METRIC_LABEL_KEY[m])}
           </button>
         ))}
       </div>
@@ -152,7 +153,7 @@ function RankingCard({ role, range }: { role: Role; range: Range }) {
         </div>
       ) : !data || data.rows.length === 0 ? (
         <div className="text-sm text-mute text-center py-6">
-          Sin datos en este rango.
+          {t('noData')}
         </div>
       ) : (
         <ul className="space-y-1">
@@ -189,10 +190,10 @@ function RankingCard({ role, range }: { role: Role; range: Range }) {
                 </div>
                 <div className="text-xs text-mute">
                   {metric === 'sales'
-                    ? 'ventas'
+                    ? t('unitSales')
                     : metric === 'revenue'
-                    ? 'facturación'
-                    : 'comisiones'}
+                    ? t('unitRevenue')
+                    : t('unitCommissions')}
                 </div>
               </div>
             </li>

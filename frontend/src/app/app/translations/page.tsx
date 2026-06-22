@@ -4,6 +4,7 @@
 // (auto / manual / missing / stale) y puede editarlas o regenerarlas.
 
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 
 type Locale = 'en' | 'pt';
@@ -45,6 +46,7 @@ type EntityFilter =
   | 'card';
 
 export default function TranslationsPage() {
+  const t = useTranslations('app_translations');
   const [rows, setRows] = useState<Row[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -64,7 +66,7 @@ export default function TranslationsPage() {
       setRows(r.rows);
       setStats(r.stats);
     } catch (e: any) {
-      setErr(e?.message ?? 'Error cargando traducciones');
+      setErr(e?.message ?? t('errLoading'));
     } finally {
       setLoading(false);
     }
@@ -122,7 +124,7 @@ export default function TranslationsPage() {
       );
       await load();
     } catch (e: any) {
-      alert(e?.message ?? 'Error guardando traducción');
+      alert(e?.message ?? t('errSaving'));
     } finally {
       setBusyKey(null);
     }
@@ -130,8 +132,7 @@ export default function TranslationsPage() {
 
   const clearText = async (r: Row, l: Locale) => {
     const k = keyFor(r, l);
-    if (!confirm(`Eliminar la traducción ${l.toUpperCase()} cacheada?`))
-      return;
+    if (!confirm(t('confirmClear', { locale: l.toUpperCase() }))) return;
     setBusyKey(k);
     try {
       await api(
@@ -140,7 +141,7 @@ export default function TranslationsPage() {
       );
       await load();
     } catch (e: any) {
-      alert(e?.message ?? 'Error eliminando');
+      alert(e?.message ?? t('errDeleting'));
     } finally {
       setBusyKey(null);
     }
@@ -156,7 +157,7 @@ export default function TranslationsPage() {
       );
       await load();
     } catch (e: any) {
-      alert(e?.message ?? 'Error regenerando');
+      alert(e?.message ?? t('errRegenerating'));
     } finally {
       setBusyKey(null);
     }
@@ -165,34 +166,32 @@ export default function TranslationsPage() {
   return (
     <div className="px-4 py-6 max-w-7xl mx-auto space-y-4">
       <header>
-        <h1 className="text-2xl font-bold text-text">Traducciones del menú</h1>
-        <p className="text-sm text-mute mt-1">
-          Tus textos en español se traducen automáticamente al inglés y portugués cuando un cliente extranjero abre tu menú. Aquí puedes revisar, ajustar o regenerar las traducciones.
-        </p>
+        <h1 className="text-2xl font-bold text-text">{t('title')}</h1>
+        <p className="text-sm text-mute mt-1">{t('subtitle')}</p>
       </header>
 
       {/* Stats */}
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-          <StatCard label="Textos totales" value={stats.total} />
+          <StatCard label={t('statTotal')} value={stats.total} />
           <StatCard
-            label="Faltantes"
+            label={t('statMissing')}
             value={stats.missing.en + stats.missing.pt}
-            sub={`EN ${stats.missing.en} · PT ${stats.missing.pt}`}
+            sub={t('statByLocale', { en: stats.missing.en, pt: stats.missing.pt })}
             tone={
               stats.missing.en + stats.missing.pt > 0 ? 'warn' : 'neutral'
             }
           />
           <StatCard
-            label="Manuales"
+            label={t('statManual')}
             value={stats.manual.en + stats.manual.pt}
-            sub={`EN ${stats.manual.en} · PT ${stats.manual.pt}`}
+            sub={t('statByLocale', { en: stats.manual.en, pt: stats.manual.pt })}
             tone="info"
           />
           <StatCard
-            label="Desactualizados"
+            label={t('statStale')}
             value={stats.stale.en + stats.stale.pt}
-            sub={`EN ${stats.stale.en} · PT ${stats.stale.pt}`}
+            sub={t('statByLocale', { en: stats.stale.en, pt: stats.stale.pt })}
             tone={stats.stale.en + stats.stale.pt > 0 ? 'warn' : 'neutral'}
           />
         </div>
@@ -203,12 +202,12 @@ export default function TranslationsPage() {
         <div className="inline-flex rounded-pill bg-bg2 p-1">
           {(
             [
-              ['all', 'Todos'],
-              ['missing', 'Faltantes'],
-              ['manual', 'Manuales'],
-              ['stale', 'Desactualizados'],
+              ['all', 'filterAll'],
+              ['missing', 'filterMissing'],
+              ['manual', 'filterManual'],
+              ['stale', 'filterStale'],
             ] as const
-          ).map(([k, label]) => (
+          ).map(([k, labelKey]) => (
             <button
               key={k}
               onClick={() => setFilter(k)}
@@ -218,7 +217,7 @@ export default function TranslationsPage() {
                   : 'text-mute hover:text-text'
               }`}
             >
-              {label}
+              {t(labelKey)}
             </button>
           ))}
         </div>
@@ -227,18 +226,18 @@ export default function TranslationsPage() {
           onChange={(e) => setEntityFilter(e.target.value as EntityFilter)}
           className="rounded-pill bg-bg2 border-0 text-xs font-semibold px-3 py-2"
         >
-          <option value="all">Todas las entidades</option>
-          <option value="storefront">Storefront</option>
-          <option value="category">Secciones</option>
-          <option value="product">Productos</option>
-          <option value="variant">Variantes</option>
-          <option value="extra">Adicionales</option>
-          <option value="promotion">Promociones</option>
-          <option value="infolink">Info Links</option>
-          <option value="card">Tarjetas</option>
+          <option value="all">{t('entityAll')}</option>
+          <option value="storefront">{t('entityStorefront')}</option>
+          <option value="category">{t('entityCategory')}</option>
+          <option value="product">{t('entityProduct')}</option>
+          <option value="variant">{t('entityVariant')}</option>
+          <option value="extra">{t('entityExtra')}</option>
+          <option value="promotion">{t('entityPromotion')}</option>
+          <option value="infolink">{t('entityInfolink')}</option>
+          <option value="card">{t('entityCard')}</option>
         </select>
         <input
-          placeholder="Buscar…"
+          placeholder={t('searchPlaceholder')}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="flex-1 min-w-[180px] rounded-pill bg-bg2 border-0 text-sm px-4 py-2"
@@ -247,21 +246,19 @@ export default function TranslationsPage() {
           onClick={load}
           className="rounded-pill bg-bg2 text-xs font-semibold px-3 py-2 hover:bg-bg3"
         >
-          Recargar
+          {t('reload')}
         </button>
       </div>
 
       {/* Body */}
-      {loading && <div className="text-mute py-12 text-center">Cargando…</div>}
+      {loading && <div className="text-mute py-12 text-center">{t('loading')}</div>}
       {err && (
         <div className="rounded-card bg-red-50 text-red-700 px-4 py-3 text-sm">
           {err}
         </div>
       )}
       {!loading && !err && filtered.length === 0 && (
-        <div className="text-mute py-12 text-center">
-          No hay textos en este filtro.
-        </div>
+        <div className="text-mute py-12 text-center">{t('emptyFilter')}</div>
       )}
 
       {!loading && !err && filtered.length > 0 && (
@@ -333,6 +330,7 @@ function RowEditor({
   onClear: (l: Locale) => Promise<void> | void;
   onRegenerate: (l: Locale) => Promise<void> | void;
 }) {
+  const t = useTranslations('app_translations');
   return (
     <div className="px-4 py-3">
       <div className="text-[11px] font-semibold uppercase text-mute mb-1.5">
@@ -340,7 +338,7 @@ function RowEditor({
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
         <div>
-          <FlagLabel flag="🇪🇸" label="ES · origen" />
+          <FlagLabel flag="🇪🇸" label={t('esSource')} />
           <div className="mt-1 px-3 py-2 rounded-card bg-bg2 text-text whitespace-pre-wrap break-words">
             {row.sourceText}
           </div>
@@ -398,14 +396,15 @@ function LocaleCell({
   onClear: (l: Locale) => Promise<void> | void;
   onRegenerate: (l: Locale) => Promise<void> | void;
 }) {
+  const t = useTranslations('app_translations');
   const k = `${row.entityType}:${row.entityId}:${row.field}:${locale}`;
   const busy = busyKey === k;
-  const t = locale === 'en' ? row.en : row.pt;
+  const ts = locale === 'en' ? row.en : row.pt;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
 
   const startEdit = () => {
-    setDraft(t?.text ?? '');
+    setDraft(ts?.text ?? '');
     setEditing(true);
   };
 
@@ -424,16 +423,16 @@ function LocaleCell({
     <div>
       <div className="flex items-center justify-between">
         <FlagLabel flag={flag} label={label} />
-        {t && (
+        {ts && (
           <div className="flex items-center gap-1.5 text-[10px] font-semibold">
-            {t.source === 'manual' && (
+            {ts.source === 'manual' && (
               <span className="px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
-                manual
+                {t('badgeManual')}
               </span>
             )}
-            {t.stale && (
+            {ts.stale && (
               <span className="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">
-                desactualizado
+                {t('badgeStale')}
               </span>
             )}
           </div>
@@ -455,13 +454,13 @@ function LocaleCell({
               disabled={busy || !draft.trim()}
               className="rounded-pill text-xs font-semibold bg-indigo-600 text-white px-3 py-1.5 disabled:opacity-50"
             >
-              {busy ? 'Guardando…' : 'Guardar'}
+              {busy ? t('saving') : t('save')}
             </button>
             <button
               onClick={cancel}
               className="rounded-pill text-xs font-semibold bg-bg2 text-text px-3 py-1.5"
             >
-              Cancelar
+              {t('cancel')}
             </button>
           </div>
         </div>
@@ -470,40 +469,40 @@ function LocaleCell({
           <div
             onClick={() => !busy && startEdit()}
             className={`mt-1 px-3 py-2 rounded-card cursor-pointer transition whitespace-pre-wrap break-words ${
-              t
+              ts
                 ? 'bg-white ring-1 ring-black/5 hover:ring-indigo-300 text-text'
                 : 'bg-amber-50 text-amber-700 hover:bg-amber-100 italic'
             }`}
           >
-            {t ? t.text : 'Sin traducir — click para escribir'}
+            {ts ? ts.text : t('untranslated')}
           </div>
           <div className="flex gap-1.5 mt-1.5">
-            {t && (
+            {ts && (
               <button
                 onClick={() => onRegenerate(locale)}
                 disabled={busy}
                 className="text-[11px] font-semibold text-indigo-600 hover:underline disabled:opacity-50"
-                title="Regenerar con IA"
+                title={t('regenerateTitle')}
               >
-                {busy ? 'Regenerando…' : '↻ Regenerar IA'}
+                {busy ? t('regenerating') : t('regenerateAi')}
               </button>
             )}
-            {!t && (
+            {!ts && (
               <button
                 onClick={() => onRegenerate(locale)}
                 disabled={busy}
                 className="text-[11px] font-semibold text-indigo-600 hover:underline disabled:opacity-50"
               >
-                {busy ? 'Generando…' : '✨ Generar con IA'}
+                {busy ? t('generating') : t('generateAi')}
               </button>
             )}
-            {t && (
+            {ts && (
               <button
                 onClick={() => onClear(locale)}
                 disabled={busy}
                 className="text-[11px] font-semibold text-mute hover:text-red-600 disabled:opacity-50"
               >
-                Eliminar
+                {t('delete')}
               </button>
             )}
           </div>

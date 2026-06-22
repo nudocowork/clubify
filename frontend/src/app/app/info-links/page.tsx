@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { api, getUser } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 
@@ -18,6 +19,7 @@ type InfoLink = {
 };
 
 export default function InfoLinksList() {
+  const t = useTranslations('app_info_links');
   const router = useRouter();
   const [list, setList] = useState<InfoLink[]>([]);
   const [tenant, setTenant] = useState<any>(null);
@@ -38,10 +40,10 @@ export default function InfoLinksList() {
       const r = await api<{ id: string }>('/info-links', {
         method: 'POST',
         body: JSON.stringify({
-          title: 'Mi nuevo link',
-          subtitle: 'Una descripción corta',
+          title: t('sampleTitle'),
+          subtitle: t('sampleSubtitle'),
           sections: [
-            { type: 'paragraph', text: 'Edita este texto.' },
+            { type: 'paragraph', text: t('sampleParagraph') },
           ],
           buttons: [],
           theme: { primaryColor: '#22C55E' },
@@ -62,7 +64,7 @@ export default function InfoLinksList() {
   }
 
   async function remove(id: string) {
-    if (!confirm('¿Eliminar link?')) return;
+    if (!confirm(t('confirmDelete'))) return;
     await api(`/info-links/${id}`, { method: 'DELETE' });
     load();
   }
@@ -80,27 +82,22 @@ export default function InfoLinksList() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          InfoLinks{' '}
+          {t('heading')}{' '}
           <span className="page-crumb">
-            / {list.length} {list.length === 1 ? 'link' : 'links'}
+            / {t('countCrumb', { count: list.length })}
           </span>
         </h1>
         <button className="btn-primary" onClick={create} disabled={creating}>
-          <Icon name="plus" /> {creating ? 'Creando…' : 'Nuevo link'}
+          <Icon name="plus" /> {creating ? t('creating') : t('newLink')}
         </button>
       </div>
 
-      <p className="text-mute mb-5 max-w-2xl">
-        Mini-páginas visuales para presentar tu negocio, servicios, eventos o
-        promociones — con embed de tu menú y tarjetas. Cada una tiene URL única
-        y QR descargable.
-      </p>
+      <p className="text-mute mb-5 max-w-2xl">{t('intro')}</p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
         {list.length === 0 && (
           <div className="card card-pad text-mute md:col-span-2 lg:col-span-3">
-            Sin links aún. Crea tu primer link informativo (eventos, paquetes,
-            galería, etc.).
+            {t('empty')}
           </div>
         )}
         {list.map((l) => (
@@ -140,11 +137,11 @@ export default function InfoLinksList() {
                 <span
                   className={`badge ${l.isActive ? 'badge-ok' : 'badge-mute'}`}
                 >
-                  {l.isActive ? 'Activo' : 'Pausa'}
+                  {l.isActive ? t('statusActive') : t('statusPaused')}
                 </span>
               </div>
               <div className="flex items-center justify-between text-xs text-mute mt-3">
-                <span>{l.views} vistas</span>
+                <span>{t('views', { count: l.views })}</span>
                 <code className="text-[11px] truncate max-w-[180px]">
                   /i/{tenant?.slug}/{l.slug}
                 </code>
@@ -154,30 +151,30 @@ export default function InfoLinksList() {
                   className="btn-link text-xs"
                   href={`/app/info-links/${l.id}`}
                 >
-                  Editar
+                  {t('edit')}
                 </Link>
                 <button className="btn-link text-xs" onClick={() => toggle(l)}>
-                  {l.isActive ? 'Pausar' : 'Activar'}
+                  {l.isActive ? t('pause') : t('activate')}
                 </button>
                 <button
                   className="btn-link text-xs"
                   onClick={() => duplicate(l)}
-                  title="Crear una copia con la misma estructura y diseño (sin estadísticas)"
+                  title={t('duplicateTitle')}
                 >
-                  ⎘ Duplicar
+                  {t('duplicate')}
                 </button>
                 <a
                   href={`/i/${tenant?.slug}/${l.slug}`}
                   target="_blank"
                   className="btn-link text-xs"
                 >
-                  Ver →
+                  {t('view')}
                 </a>
                 <button
                   className="text-bad text-xs underline ml-auto"
                   onClick={() => remove(l.id)}
                 >
-                  Eliminar
+                  {t('delete')}
                 </button>
               </div>
             </div>
