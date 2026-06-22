@@ -1127,6 +1127,8 @@ export class TenantsService {
         plan: true,
         whiteLabel: {
           select: {
+            slug: true,
+            name: true,
             creditsUnlimited: true,
             modules: { where: { module: 'REVIEWS' }, select: { enabled: true } },
           },
@@ -1143,6 +1145,12 @@ export class TenantsService {
       ...t,
       whiteLabelCreditsUnlimited: t.whiteLabel?.creditsUnlimited ?? false,
       reviewsEnabled: reviewsModule ? reviewsModule.enabled : true,
+      // Slug de la marca del negocio. null (marcas viejas / sin marca) se trata
+      // como 'clubify' en el frontend. Se usa para gatear secciones exclusivas
+      // (Comunidad/Lab) por marca, sin filtrar branding de otra.
+      whiteLabelSlug: t.whiteLabel?.slug ?? null,
+      // Nombre de la marca (para la identidad del asistente IA del panel).
+      whiteLabelName: t.whiteLabel?.name ?? null,
     };
   }
 

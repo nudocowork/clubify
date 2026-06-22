@@ -245,16 +245,33 @@ export class SupportService {
     question: string,
     history: ChatMessage[] = [],
     audience: 'tenant' | 'affiliate' = 'tenant',
+    whiteLabelId: string | null = null,
   ): Promise<{ reply: string }> {
     const q = question?.trim();
     if (!q) throw new BadRequestException('Pregunta vacía');
     if (q.length > 1000)
       throw new BadRequestException('Pregunta muy larga (máx 1000 caracteres)');
 
+    // Identidad por marca: el asistente se identifica con la marca blanca del
+    // usuario (Sellea, Clubify, …), nunca con otra. Si no hay marca (legacy),
+    // cae a Clubify.
+    let brandName = 'Clubify';
+    let brandSite = 'clubify.app';
+    if (whiteLabelId) {
+      const wl = await this.prisma.whiteLabel
+        .findUnique({
+          where: { id: whiteLabelId },
+          select: { name: true, domain: true, appDomain: true },
+        })
+        .catch(() => null);
+      if (wl?.name) brandName = wl.name;
+      if (wl?.domain) brandSite = wl.domain;
+      else if (wl?.appDomain) brandSite = wl.appDomain;
+    }
+
     if (!this.client) {
       return {
-        reply:
-          'El asistente IA no está configurado todavía. Contacta al equipo de Clubify por WhatsApp para resolver tus dudas.',
+        reply: `El asistente IA no está configurado todavía. Contacta al equipo de ${brandName} por WhatsApp para resolver tus dudas.`,
       };
     }
 
@@ -313,7 +330,7 @@ export class SupportService {
 
     const knowledgeBlock =
       activeEntries.length === 0
-        ? '(El admin todavía no agregó knowledge — responde con info general de Clubify y aclara que pueden contactar al soporte.)'
+        ? `(El admin todavía no agregó knowledge — responde con info general de ${brandName} y aclara que pueden contactar al soporte.)`
         : activeEntries
             .map(
               (e) =>
@@ -337,15 +354,15 @@ export class SupportService {
 ESTILO DE RESPUESTA (MUY IMPORTANTE): Escribes como un asesor humano por chat, en prosa natural y conversacional. PROHIBIDO el formato Markdown: nada de asteriscos para negrita (**texto** o *texto*), nada de encabezados (#, ##), nada de listas con viñetas (- o •). Si necesitas enumerar, hazlo dentro de una frase fluida o con números simples (1, 2, 3) en línea. Nada de "¡Aquí tienes!", "Claro, te explico:" ni muletillas robóticas. Habla directo, cálido y humano, como un colega que sabe del tema.`;
     const systemPrompt =
       (audience === 'affiliate'
-        ? `${masterPromptBlock}Eres el MENTOR DE VENTAS para afiliados de Clubify (influencers y embajadores) — un SaaS LATAM para negocios locales (cafeterías, restaurantes, barberías, gimnasios, autolavados, etc.) que ofrece pedidos por WhatsApp, fidelización en Apple/Google Wallet, automatizaciones, CRM y analítica.
+        ? `${masterPromptBlock}Eres el MENTOR DE VENTAS para afiliados de ${brandName} (influencers y embajadores) — un SaaS LATAM para negocios locales (cafeterías, restaurantes, barberías, gimnasios, autolavados, etc.) que ofrece pedidos por WhatsApp, fidelización en Apple/Google Wallet, automatizaciones, CRM y analítica.
 
-Tu misión: ayudar a los afiliados a VENDER MÁS Clubify. Específicamente:
+Tu misión: ayudar a los afiliados a VENDER MÁS ${brandName}. Específicamente:
 - Generar scripts de venta personalizados (primera llamada, mensaje frío, follow-up)
 - Manejar objeciones (precio, tiempo, "ya tengo algo similar", "no es para mi negocio")
 - Generar copies para WhatsApp e Instagram (Stories, posts, reels)
 - Estrategias de prospección por rubro
 - Cómo cerrar clientes y pedir referidos
-- Cómo mostrar el ROI de Clubify (un cliente que vuelve más cubre 6 meses de Clubify)
+- Cómo mostrar el ROI de ${brandName} (un cliente que vuelve más cubre 6 meses de ${brandName})
 
 Tono: motivador, directo, español neutro LATAM con preferencia colombiana (NO uses voseo argentino: di "puedes", no "podés"; "ingresa", no "ingresá"; "comparte", no "compartí"). Respuestas accionables: si te piden un script, dáselo listo para copiar — no expliques abstractamente. Si te piden manejo de objeción, di la frase exacta. Usa ejemplos concretos.
 
@@ -355,8 +372,8 @@ Esta es la base de conocimiento del producto (úsala para detalles técnicos cua
 
 ${knowledgeBlock}
 
-Si la pregunta es totalmente off-topic (cocinar pasta, etc.), redirige amablemente al objetivo: vender Clubify.`
-        : `${masterPromptBlock}Eres el asistente virtual de Clubify (clubify.app), un SaaS para negocios locales en LATAM que ofrece:
+Si la pregunta es totalmente off-topic (cocinar pasta, etc.), redirige amablemente al objetivo: vender ${brandName}.`
+        : `${masterPromptBlock}Eres el asistente virtual de ${brandName} (${brandSite}), un SaaS para negocios locales en LATAM que ofrece:
 - Tarjetas de fidelización digitales (Apple Wallet + Google Wallet)
 - Menú digital, pedidos online y delivery
 - WhatsApp y push notifications
@@ -370,7 +387,7 @@ Esta es la base de conocimiento curada por el equipo:
 
 ${knowledgeBlock}
 
-Si la pregunta del usuario no se relaciona con Clubify (ej. cómo cocinar pasta), redirige amablemente: solo respondes cosas de Clubify.`) + humanStyleBlock;
+Si la pregunta del usuario no se relaciona con ${brandName} (ej. cómo cocinar pasta), redirige amablemente: solo respondes cosas de ${brandName}.`) + humanStyleBlock;
 
     const messages = [
       ...history

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { api, startImpersonation } from '@/lib/api';
 import { ImageUploader } from '@/components/ImageUploader';
+import { ActionsMenu } from '@/components/ActionsMenu';
 
 type WhiteLabel = {
   id: string;
@@ -1259,55 +1260,40 @@ function BrandRowActions({
   onEnter: () => void;
   onToggle: () => void;
 }) {
-  const [open, setOpen] = useState(false);
+  // Portal + posicionamiento inteligente (abre hacia arriba si no hay espacio)
+  // → ya NO se recorta en la última fila por el overflow-x-auto de la tabla.
   return (
-    <div className="relative inline-block" onClick={(e) => e.stopPropagation()}>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="text-xs font-semibold px-3 py-1.5 rounded-md transition"
-        style={{ background: 'white', color: '#374151', border: '1px solid #e5e7eb' }}
-        aria-haspopup="menu"
-        aria-expanded={open}
-      >
-        Acciones ▾
-      </button>
-      {open && (
+    <ActionsMenu
+      label="Acciones ▾"
+      buttonClassName="text-xs font-semibold px-3 py-1.5 rounded-md transition"
+      buttonStyle={{ background: 'white', color: '#374151', border: '1px solid #e5e7eb' }}
+      menuWidth={160}
+    >
+      {(close) => (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div
-            role="menu"
-            className="absolute right-0 mt-1 z-20 rounded-lg overflow-hidden"
-            style={{
-              background: 'white',
-              border: '1px solid #e5e7eb',
-              boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
-              minWidth: 150,
+          <button
+            onClick={() => {
+              close();
+              onEnter();
             }}
+            className="block w-full text-left text-xs font-semibold px-3 py-2 transition hover:bg-gray-50"
+            style={{ color: '#15803d' }}
           >
-            <button
-              onClick={() => {
-                setOpen(false);
-                onEnter();
-              }}
-              className="block w-full text-left text-xs font-semibold px-3 py-2 transition hover:bg-gray-50"
-              style={{ color: '#15803d' }}
-            >
-              Entrar
-            </button>
-            <button
-              onClick={() => {
-                setOpen(false);
-                onToggle();
-              }}
-              className="block w-full text-left text-xs font-semibold px-3 py-2 transition hover:bg-gray-50"
-              style={{ color: status === 'ACTIVE' ? '#b91c1c' : '#15803d' }}
-            >
-              {status === 'ACTIVE' ? 'Suspender' : 'Activar'}
-            </button>
-          </div>
+            Entrar
+          </button>
+          <button
+            onClick={() => {
+              close();
+              onToggle();
+            }}
+            className="block w-full text-left text-xs font-semibold px-3 py-2 transition hover:bg-gray-50"
+            style={{ color: status === 'ACTIVE' ? '#b91c1c' : '#15803d' }}
+          >
+            {status === 'ACTIVE' ? 'Suspender' : 'Activar'}
+          </button>
         </>
       )}
-    </div>
+    </ActionsMenu>
   );
 }
 

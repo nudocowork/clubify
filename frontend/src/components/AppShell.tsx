@@ -189,6 +189,11 @@ export default function AppShell({
     // Módulo Reseñas de la marca (default true). Si la marca lo apaga, se
     // ocultan los items de reseñas del menú.
     reviewsEnabled?: boolean;
+    // Slug de la marca blanca del negocio (null = legacy → 'clubify'). Gatea
+    // secciones exclusivas de Clubify (Comunidad/Lab) en el panel del negocio.
+    whiteLabelSlug?: string | null;
+    // Nombre de la marca blanca (identidad del asistente IA del panel).
+    whiteLabelName?: string | null;
   } | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
     new Set(),
@@ -438,6 +443,8 @@ export default function AppShell({
           reservationsEnabled: t?.reservationsEnabled ?? false,
           whiteLabelCreditsUnlimited: t?.whiteLabelCreditsUnlimited ?? false,
           reviewsEnabled: t?.reviewsEnabled ?? true,
+          whiteLabelSlug: t?.whiteLabelSlug ?? null,
+          whiteLabelName: t?.whiteLabelName ?? null,
         });
       })
       .catch(() => null);
@@ -549,8 +556,10 @@ export default function AppShell({
               items: [
                 // Item 13 sprint: review queue + métricas de las propuestas.
                 // Accesible a MARKETING (no requiere hideForMarketing).
-                { href: '/admin/lab', label: '🧪 Lab Admin', icon: 'spark' },
-                { href: '/lab', label: 'Ver Lab público', icon: 'spark' },
+                // Comunidad/Lab es exclusivo de Clubify → clubifyOnly (oculto en
+                // Sellea y toda marca blanca). Wave 2 lo generaliza a módulo COMMUNITY.
+                { href: '/admin/lab', label: '🧪 Lab Admin', icon: 'spark', clubifyOnly: true },
+                { href: '/lab', label: 'Ver Lab público', icon: 'spark', clubifyOnly: true },
               ],
             },
           ];
@@ -658,27 +667,34 @@ export default function AppShell({
                 { href: '/app/referrals', label: 'Referidos', icon: 'gift' },
               ],
             },
-            {
-              section: 'Comunidad',
-              items: [
-                // Clubify Lab — propuestas y votación pública. Accesible a
-                // todos los roles autenticados (item 13 sprint).
-                { href: '/lab', label: '🧪 Clubify Lab', icon: 'spark' },
-                // Tutoriales — link externo a la academia (Bloque 2 2026-06-12).
-                // SUPER_ADMIN puede ocultarlo per-tenant desde
-                // /admin/tenants/[id] vía Tenant.tutorialsEnabled.
-                ...(tenantInfo?.tutorialsEnabled !== false
-                  ? [
-                      {
-                        href: 'https://academy.soyclubify.lat/cliente',
-                        label: '🎓 Tutoriales',
-                        icon: 'book' as IconName,
-                        external: true,
-                      },
-                    ]
-                  : []),
-              ],
-            },
+            // Comunidad (Clubify Lab + Tutoriales) es exclusivo de Clubify.
+            // Solo se muestra si el negocio es de la marca 'clubify' (null =
+            // legacy → clubify). Oculto para Sellea y toda marca blanca.
+            ...(!tenantInfo?.whiteLabelSlug || tenantInfo.whiteLabelSlug === 'clubify'
+              ? [
+                  {
+                    section: 'Comunidad',
+                    items: [
+                      // Clubify Lab — propuestas y votación pública. Accesible a
+                      // todos los roles autenticados (item 13 sprint).
+                      { href: '/lab', label: '🧪 Clubify Lab', icon: 'spark' as IconName },
+                      // Tutoriales — link externo a la academia (Bloque 2 2026-06-12).
+                      // SUPER_ADMIN puede ocultarlo per-tenant desde
+                      // /admin/tenants/[id] vía Tenant.tutorialsEnabled.
+                      ...(tenantInfo?.tutorialsEnabled !== false
+                        ? [
+                            {
+                              href: 'https://academy.soyclubify.lat/cliente',
+                              label: '🎓 Tutoriales',
+                              icon: 'book' as IconName,
+                              external: true,
+                            },
+                          ]
+                        : []),
+                    ],
+                  },
+                ]
+              : []),
           ];
 
           // Mientras tenantInfo no llegó (primer paint), mostramos todos los
@@ -1120,7 +1136,7 @@ export default function AppShell({
       <CommandPalette variant={variant} />
       {variant === 'app' && (
         <>
-          <SupportWidget />
+          <SupportWidget brandName={tenantInfo?.whiteLabelName ?? undefined} />
           <QuickCreateFAB />
         </>
       )}

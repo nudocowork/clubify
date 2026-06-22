@@ -28,6 +28,10 @@ import { SupportService } from './support.service';
 import { KnowledgeDocumentService } from './knowledge-document.service';
 import { SettingsService } from '../settings/settings.service';
 import { Roles } from '../common/decorators/roles.decorator';
+import {
+  CurrentUser,
+  AuthUser,
+} from '../common/decorators/current-user.decorator';
 
 class ChatMessageDto {
   @IsIn(['user', 'assistant'])
@@ -94,8 +98,13 @@ export class SupportController {
   )
   @Throttle({ default: { ttl: 60_000, limit: 20 } })
   @Post('support/ask')
-  ask(@Body() body: AskDto) {
-    return this.svc.ask(body.question, body.history ?? [], body.audience ?? 'tenant');
+  ask(@Body() body: AskDto, @CurrentUser() user: AuthUser) {
+    return this.svc.ask(
+      body.question,
+      body.history ?? [],
+      body.audience ?? 'tenant',
+      user?.whiteLabelId ?? null,
+    );
   }
 
   // ----- Admin CRUD del knowledge base ----- //

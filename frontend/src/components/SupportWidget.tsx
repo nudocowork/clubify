@@ -1,8 +1,26 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 
 type Msg = { role: 'user' | 'assistant'; content: string };
+
+/**
+ * Limpia markdown crudo de la respuesta del modelo para mostrarla como texto
+ * legible (el asistente NO debe mostrar *, **, #, etc.). El system prompt ya
+ * pide no-markdown; esto es hardening por si el modelo lo devuelve igual.
+ */
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/^#{1,6}\s+/gm, '') // encabezados ###
+    .replace(/\*\*(.+?)\*\*/g, '$1') // **negrita**
+    .replace(/(^|[^*])\*(?!\*)([^*\n]+?)\*(?!\*)/g, '$1$2') // *cursiva*
+    .replace(/__(.+?)__/g, '$1') // __negrita__
+    .replace(/`([^`]+?)`/g, '$1') // `code`
+    .replace(/^\s*[-*+]\s+/gm, '• ') // bullets - * + → •
+    .replace(/^\s*\d+\.\s+/gm, (m) => m.trimStart()) // listas numeradas: dejar "1. "
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // [texto](url) → texto
+    .trim();
+}
 export type SupportAudience = 'tenant' | 'affiliate';
 
 const HISTORY_LIMIT = 20;
@@ -74,10 +92,26 @@ const AUDIENCE_CFG: Record<SupportAudience, AudienceConfig> = {
  */
 export function SupportWidget({
   audience = 'tenant',
+  brandName,
 }: {
   audience?: SupportAudience;
+  /** Nombre de la marca blanca del usuario (Sellea, Clubify, …). El asistente
+   *  hereda la identidad de la marca — no muestra "Clubify" en otra marca. */
+  brandName?: string;
 }) {
-  const cfg = AUDIENCE_CFG[audience];
+  const baseCfg = AUDIENCE_CFG[audience];
+  // Sustituye "Clubify" por la marca del usuario en la identidad del widget.
+  const cfg = useMemo(() => {
+    if (!brandName || brandName === 'Clubify') return baseCfg;
+    const sub = (s: string) => s.replace(/Clubify/g, brandName);
+    return {
+      ...baseCfg,
+      triggerTitle: sub(baseCfg.triggerTitle),
+      headerName: sub(baseCfg.headerName),
+      welcome: { ...baseCfg.welcome, content: sub(baseCfg.welcome.content) },
+      suggestions: baseCfg.suggestions.map(sub),
+    };
+  }, [baseCfg, brandName]);
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([cfg.welcome]);
   const [input, setInput] = useState('');
@@ -317,7 +351,7 @@ function Bubble({ msg, audience }: { msg: Msg; audience: SupportAudience }) {
         }`}
         style={isUser ? { background: userBg } : undefined}
       >
-        {msg.content}
+        {isUser ? msg.content : stripMarkdown(msg.content)}
       </div>
     </div>
   );

@@ -49,14 +49,15 @@ const FAQS = [
   { q: '¿Mis clientes necesitan descargar una app?', a: 'No. Las tarjetas se instalan directamente en su Wallet del teléfono (Apple Wallet en iPhone, Google Wallet en Android). Cero fricción.' },
   { q: '¿Funciona para negocios con pocos clientes o recién abiertos?', a: 'Sin duda. Un programa de fidelización al iniciar un negocio te ayuda a crear comunidad desde el primer momento, ayudando a crecer la marca y las ventas.' },
   { q: '¿Cómo se procesa el pago?', a: 'Procesamos los pagos a través de una pasarela de pago segura ampliamente usada en LATAM. Acepta tarjeta de crédito, débito y métodos locales según tu país.' },
-  { q: '¿Necesito Apple Developer Program para emitir tarjetas wallet?', a: 'No. Las tarjetas funcionan en Google Wallet (Android e iPhone) sin pagar nada. Si quieres .pkpass nativo en Apple Wallet, sí necesitas Apple Developer (USD 99/año), pero no es obligatorio.' },
   { q: '¿Qué pasa con mis datos si decido cancelar?', a: 'Te exportamos todo: clientes, menú, pedidos, tarjetas. Mantenemos tu información disponible para descarga durante 30 días después de cancelar.' },
   { q: '¿Hay costos extras?', a: 'No. Pedidos, tarjetas, automatizaciones y clientes son ilimitados con tu suscripción. Sin comisiones por transacción.' },
   { q: '¿Funciona si no soy técnico?', a: 'Sí. El setup inicial son 5 pasos visuales. No tienes que escribir código ni configurar servidores. Si te trabas, escríbenos por WhatsApp.' },
 ];
 
 const waLink = 'https://wa.me/?text=' + encodeURIComponent('Hola, quiero saber más de Sellea');
-const demoLink = 'https://wa.me/';
+// Fallback si la marca no tiene demoButtonWhatsApp configurado. El número real
+// se define en la config de la marca (WhiteLabel.demoButtonWhatsApp), NO acá.
+const DEMO_LINK_FALLBACK = 'https://wa.me/';
 const igLink = 'https://www.instagram.com/selleala';
 const mailLink = 'mailto:hola@selleala.com';
 
@@ -76,10 +77,13 @@ const SELLEA_THEME_CSS = `
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
-/** Logo SUBIDO de la marca (WhiteLabel.logoUrl), resuelto por host — el mismo
- *  que ya usan favicon y login. En el dominio Clubify (preview /sellea) o si la
- *  marca no tiene logo, devuelve null → cae al SelleaLogo SVG. */
-async function fetchBrandLogoByHost(host: string): Promise<string | null> {
+/** Branding de la marca resuelto por host (el mismo que usan favicon y login):
+ *  logo SUBIDO + WhatsApp del botón demo. En el dominio Clubify (preview
+ *  /sellea) o sin match, devuelve nulls → la landing usa sus fallbacks. */
+async function fetchBrandByHost(
+  host: string,
+): Promise<{ logoUrl: string | null; demoWhatsapp: string | null }> {
+  const empty = { logoUrl: null, demoWhatsapp: null };
   const h = (host || '').toLowerCase().split(':')[0];
   if (
     !h ||
@@ -88,25 +92,33 @@ async function fetchBrandLogoByHost(host: string): Promise<string | null> {
     h.endsWith('soyclubify.com') ||
     h.endsWith('clubify.app')
   ) {
-    return null;
+    return empty;
   }
   try {
     const r = await fetch(
       `${API_URL}/api/superadmin-public/white-labels/branding-by-host?host=${encodeURIComponent(h)}`,
       { next: { revalidate: 60 } },
     );
-    if (!r.ok) return null;
+    if (!r.ok) return empty;
     const d = await r.json();
-    if (!d || !d.slug || d.slug === 'clubify') return null;
-    return d.logoUrl ?? null;
+    if (!d || !d.slug || d.slug === 'clubify') return empty;
+    return {
+      logoUrl: d.logoUrl ?? null,
+      demoWhatsapp: d.demoButtonWhatsApp ?? null,
+    };
   } catch {
-    return null;
+    return empty;
   }
 }
 
 export default async function SelleaLandingPage() {
   const host = headers().get('host') ?? '';
-  const brandLogo = await fetchBrandLogoByHost(host);
+  const brand = await fetchBrandByHost(host);
+  const brandLogo = brand.logoUrl;
+  // Botón "Agendar demo": usa el WhatsApp configurado en la marca; sino fallback.
+  const demoLink = brand.demoWhatsapp
+    ? 'https://wa.me/' + brand.demoWhatsapp.replace(/[^0-9]/g, '')
+    : DEMO_LINK_FALLBACK;
 
   // Precios PROPIOS de Sellea: solo Mensual ($80) y Anual ($799) — sin
   // Trimestral ni Semestral. checkoutUrl null = botón "Próximamente" hasta

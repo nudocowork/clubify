@@ -3843,6 +3843,10 @@ model WhiteLabel {
   contactEmail    String?
   /// Letra inicial mostrada en el avatar cuadrado.
   initial         String?
+  /// WhatsApp del botón "Agendar demo" de la landing de la marca (ej.
+  /// "+17865832760"). Si null, la landing usa su fallback. NO hardcodear el
+  /// número en la página — cada marca define el suyo acá.
+  demoButtonWhatsApp String?
   /// Email del admin principal (queda informativo; los logins reales son
   /// User con role SUPER_ADMIN o TENANT_OWNER bajo esta marca).
   adminEmail      String?

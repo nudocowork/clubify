@@ -459,10 +459,6 @@ export default async function Landing() {
                 a: 'Procesamos los pagos a través de una pasarela de pago segura ampliamente usada en LATAM. Acepta tarjeta de crédito, débito y métodos locales (PSE, Mercado Pago, etc.) según tu país.',
               },
               {
-                q: '¿Necesito Apple Developer Program para emitir tarjetas wallet?',
-                a: 'No. Las tarjetas funcionan en Google Wallet (Android e iPhone) sin pagar nada. Si quieres .pkpass nativo en Apple Wallet, sí necesitas Apple Developer (USD 99/año), pero no es obligatorio.',
-              },
-              {
                 q: '¿Qué pasa con mis datos si decido cancelar?',
                 a: 'Te exportamos todo: clientes, menú, pedidos, tarjetas. Mantenemos tu información disponible para descarga durante 30 días después de cancelar.',
               },

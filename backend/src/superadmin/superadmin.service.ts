@@ -1021,6 +1021,7 @@ export class SuperAdminService {
         supportColor: true,
         instagram: true,
         contactEmail: true,
+        demoButtonWhatsApp: true,
         // Módulos habilitados → el panel gatea secciones (ej. Referidos) por
         // marca. Solo los enabled.
         modules: { where: { enabled: true }, select: { module: true } },
@@ -1039,6 +1040,7 @@ export class SuperAdminService {
       supportColor: wl.supportColor,
       instagram: wl.instagram,
       contactEmail: wl.contactEmail,
+      demoButtonWhatsApp: wl.demoButtonWhatsApp,
       modules: wl.modules.map((m) => m.module),
     };
   }
