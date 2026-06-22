@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { ImageUploader } from '@/components/ImageUploader';
@@ -36,17 +37,18 @@ type Card = {
   _count?: { passes: number };
 };
 
-const TYPE_LABEL: Record<CardType, string> = {
-  STAMPS: 'Sellos',
-  POINTS: 'Puntos',
-  DISCOUNT: 'Descuento',
-  MEMBERSHIP: 'Membresía',
-  COUPON: 'Cupón',
-  GIFT: 'Regalo',
-  MULTI: 'Múltiple',
-  CASHBACK: 'Cashback',
-  VISITS: 'Visitas',
-  HYBRID: 'Híbrida',
+// Clave i18n por tipo (resuelta vía t() en render). Valores enum INTACTOS.
+const TYPE_LABEL_KEY: Record<CardType, string> = {
+  STAMPS: 'typeStamps',
+  POINTS: 'typePoints',
+  DISCOUNT: 'typeDiscount',
+  MEMBERSHIP: 'typeMembership',
+  COUPON: 'typeCoupon',
+  GIFT: 'typeGift',
+  MULTI: 'typeMulti',
+  CASHBACK: 'typeCashback',
+  VISITS: 'typeVisits',
+  HYBRID: 'typeHybrid',
 };
 
 const TYPE_EMOJI: Record<CardType, string> = {
@@ -79,6 +81,7 @@ type FilterType = 'all' | CardType;
 type FilterStatus = 'all' | 'active' | 'paused';
 
 export default function CardsList() {
+  const t = useTranslations('app_cards');
   const [list, setList] = useState<Card[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -101,7 +104,7 @@ export default function CardsList() {
       setList(cards);
       if (me) setWalletLogoUrl(me.walletLogoUrl ?? null);
     } catch (e: any) {
-      toast(e.message || 'Error cargando tarjetas', 'error');
+      toast(e.message || t('errLoading'), 'error');
     } finally {
       setLoading(false);
     }
@@ -118,9 +121,9 @@ export default function CardsList() {
         body: JSON.stringify({ walletLogoUrl: url }),
       });
       setWalletLogoUrl(url);
-      toast('Logo de wallet actualizado · regenera el pase para verlo', 'success');
+      toast(t('walletLogoUpdated'), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo guardar', 'error');
+      toast(e.message || t('errSave'), 'error');
     } finally {
       setSavingWalletLogo(false);
     }
@@ -132,16 +135,16 @@ export default function CardsList() {
     const passes = card._count?.passes ?? 0;
     const msg =
       passes > 0
-        ? `¿Eliminar "${card.name}"? Esto borrará también ${passes} pase${passes === 1 ? '' : 's'} de clientes y los desinstalará de sus wallets. Esta acción NO se puede deshacer.`
-        : `¿Eliminar la tarjeta "${card.name}"? Esta acción no se puede deshacer.`;
+        ? t('confirmDeleteWithPasses', { name: card.name, count: passes })
+        : t('confirmDelete', { name: card.name });
     if (!confirm(msg)) return;
     setDeletingId(card.id);
     try {
       await api(`/cards/${card.id}`, { method: 'DELETE' });
-      toast('Tarjeta eliminada', 'success');
+      toast(t('cardDeleted'), 'success');
       setList((prev) => prev.filter((c) => c.id !== card.id));
     } catch (err: any) {
-      toast(err.message || 'No se pudo eliminar', 'error');
+      toast(err.message || t('errDelete'), 'error');
     } finally {
       setDeletingId(null);
     }
@@ -175,16 +178,16 @@ export default function CardsList() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Tarjetas{' '}
+          {t('title')}{' '}
           <span className="page-crumb">
-            / {activeCount} activa{activeCount === 1 ? '' : 's'}
+            / {t('activeCrumb', { count: activeCount })}
           </span>
         </h1>
         <div className="flex gap-2 flex-wrap">
           <button
             className="btn-ghost"
             onClick={() => setShowLogoModal(true)}
-            title="Logo que aparece en el wallet de tus clientes"
+            title={t('walletLogoTooltip')}
           >
             {walletLogoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -196,19 +199,19 @@ export default function CardsList() {
             ) : (
               <span>📱</span>
             )}
-            Configura tu logo
+            {t('configureLogo')}
           </button>
           <Link className="btn-primary" href="/app/cards/new">
-            <Icon name="plus" /> Crear tarjeta
+            <Icon name="plus" /> {t('createCard')}
           </Link>
         </div>
       </div>
 
       {list.length > 0 && (
         <div className="grid grid-cols-3 gap-3 mb-4">
-          <Kpi label="Tarjetas" value={list.length} />
-          <Kpi label="Activas" value={activeCount} accent="ok" />
-          <Kpi label="Pases emitidos" value={totalPasses} accent="brand" />
+          <Kpi label={t('kpiCards')} value={list.length} />
+          <Kpi label={t('kpiActive')} value={activeCount} accent="ok" />
+          <Kpi label={t('kpiPasses')} value={totalPasses} accent="brand" />
         </div>
       )}
 
@@ -217,7 +220,7 @@ export default function CardsList() {
           <div className="flex items-center gap-3 flex-wrap">
             <input
               className="input flex-1 min-w-[200px]"
-              placeholder="Buscar por nombre o recompensa…"
+              placeholder={t('searchPlaceholder')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -230,7 +233,11 @@ export default function CardsList() {
                     filterStatus === s ? 'bg-white text-ink shadow-sm' : 'text-mute'
                   }`}
                 >
-                  {s === 'all' ? 'Todas' : s === 'active' ? 'Activas' : 'Pausadas'}
+                  {s === 'all'
+                    ? t('filterAll')
+                    : s === 'active'
+                    ? t('filterActive')
+                    : t('filterPaused')}
                 </button>
               ))}
             </div>
@@ -244,19 +251,19 @@ export default function CardsList() {
                   : 'bg-bg2 text-mute hover:bg-line/50'
               }`}
             >
-              Todos los tipos
+              {t('allTypes')}
             </button>
-            {typesPresent.map((t) => (
+            {typesPresent.map((ct) => (
               <button
-                key={t}
-                onClick={() => setFilterType(t)}
+                key={ct}
+                onClick={() => setFilterType(ct)}
                 className={`text-xs px-3 py-1.5 rounded-full transition flex items-center gap-1.5 ${
-                  filterType === t
+                  filterType === ct
                     ? 'bg-ink text-white'
                     : 'bg-bg2 text-mute hover:bg-line/50'
                 }`}
               >
-                <span>{TYPE_EMOJI[t]}</span> {TYPE_LABEL[t]}
+                <span>{TYPE_EMOJI[ct]}</span> {t(TYPE_LABEL_KEY[ct])}
               </button>
             ))}
           </div>
@@ -276,14 +283,13 @@ export default function CardsList() {
           <div className="card card-pad md:col-span-2 lg:col-span-3 text-center py-12">
             <div className="text-5xl mb-3">🎟️</div>
             <div className="font-semibold text-lg">
-              Crea tu primera tarjeta de fidelización
+              {t('emptyTitle')}
             </div>
             <div className="text-sm text-mute mt-1.5 max-w-md mx-auto leading-relaxed">
-              Tarjetas que viven en Apple Wallet y Google Wallet. Sellos, puntos,
-              cashback, visitas o membresías VIP — tú eliges.
+              {t('emptyDesc')}
             </div>
             <Link href="/app/cards/new" className="btn-primary inline-flex mt-5">
-              <Icon name="plus" /> Crear mi primera tarjeta
+              <Icon name="plus" /> {t('createFirstCard')}
             </Link>
           </div>
         )}
@@ -292,7 +298,7 @@ export default function CardsList() {
           <div className="card card-pad md:col-span-2 lg:col-span-3 text-center py-10">
             <div className="text-3xl mb-2">🔍</div>
             <div className="text-sm text-mute">
-              No hay tarjetas con esos filtros.{' '}
+              {t('noCardsForFilters')}{' '}
               <button
                 onClick={() => {
                   setFilterType('all');
@@ -301,7 +307,7 @@ export default function CardsList() {
                 }}
                 className="text-brand hover:underline"
               >
-                Limpiar
+                {t('clear')}
               </button>
             </div>
           </div>
@@ -329,10 +335,9 @@ export default function CardsList() {
           >
             <div className="flex items-start justify-between mb-3">
               <div>
-                <h3 className="font-semibold text-base m-0">📱 Logo de tarjetas wallet</h3>
+                <h3 className="font-semibold text-base m-0">{t('walletLogoModalTitle')}</h3>
                 <p className="text-xs text-mute mt-1 leading-relaxed">
-                  Aparece en el header de Apple Wallet y Google Wallet de TODAS
-                  las tarjetas que emitas.
+                  {t('walletLogoModalDesc')}
                 </p>
               </div>
               <button
@@ -343,9 +348,9 @@ export default function CardsList() {
               </button>
             </div>
             <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-900 leading-relaxed mb-3">
-              💡 <b>Recomendado: PNG con fondo transparente.</b> Si tiene fondo
-              blanco, va a aparecer un cuadrado blanco detrás del logo en la
-              wallet del cliente.
+              {t.rich('walletLogoModalTip', {
+                b: (chunks) => <b>{chunks}</b>,
+              })}
             </div>
             <ImageUploader
               value={walletLogoUrl}
@@ -355,7 +360,7 @@ export default function CardsList() {
             />
             {savingWalletLogo && (
               <div className="text-[11px] text-mute mt-2 text-center">
-                Guardando…
+                {t('saving')}
               </div>
             )}
           </div>
@@ -374,11 +379,12 @@ function CardPreview({
   deleting: boolean;
   onDelete: (e: React.MouseEvent) => void;
 }) {
+  const t = useTranslations('app_cards');
   const fallback = TYPE_COLORS[card.type] ?? TYPE_COLORS.STAMPS;
   const primary = card.primaryColor || fallback.primary;
   const accent = card.secondaryColor || fallback.accent;
   const passes = card._count?.passes ?? 0;
-  const brand = (card.name.split('—')[0] || 'Tarjeta').trim();
+  const brand = (card.name.split('—')[0] || t('defaultBrand')).trim();
 
   // Header value preview — refleja lo que verá el cliente en wallet.
   const headerValue =
@@ -391,9 +397,9 @@ function CardPreview({
       : card.type === 'DISCOUNT'
       ? `${card.discountPercent ?? 10}%`
       : card.type === 'POINTS'
-      ? '0 pts'
+      ? t('zeroPts')
       : card.type === 'MEMBERSHIP'
-      ? card.tiers?.[0]?.name || 'Activa'
+      ? card.tiers?.[0]?.name || t('membershipActive')
       : '—';
 
   const previewStamps = Math.min(card.stampsRequired ?? 10, 6);
@@ -416,7 +422,7 @@ function CardPreview({
         >
           {!card.isActive && (
             <span className="absolute top-2 left-2 bg-white/95 text-ink text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider z-10">
-              Pausada
+              {t('badgePaused')}
             </span>
           )}
 
@@ -424,8 +430,8 @@ function CardPreview({
             type="button"
             onClick={onDelete}
             disabled={deleting}
-            title="Eliminar tarjeta"
-            aria-label={`Eliminar ${card.name}`}
+            title={t('deleteCard')}
+            aria-label={t('deleteCardAria', { name: card.name })}
             className="absolute top-2 right-2 z-10 w-7 h-7 rounded-full bg-black/30 hover:bg-red-500 backdrop-blur text-white flex items-center justify-center transition disabled:opacity-50"
           >
             {deleting ? (
@@ -442,23 +448,23 @@ function CardPreview({
                 {brand}
               </div>
               <div className="text-[10px] opacity-75 mt-0.5">
-                {TYPE_EMOJI[card.type]} {TYPE_LABEL[card.type]}
+                {TYPE_EMOJI[card.type]} {t(TYPE_LABEL_KEY[card.type])}
               </div>
             </div>
             <div className="text-right shrink-0 mr-7">
               <div className="text-[8px] uppercase tracking-wider opacity-75 font-bold">
                 {card.type === 'STAMPS' || card.type === 'HYBRID'
-                  ? 'SELLOS'
+                  ? t('headerStamps')
                   : card.type === 'VISITS'
-                  ? 'VISITAS'
+                  ? t('headerVisits')
                   : card.type === 'CASHBACK'
-                  ? 'CASHBACK'
+                  ? t('headerCashback')
                   : card.type === 'DISCOUNT'
-                  ? 'OFF'
+                  ? t('headerOff')
                   : card.type === 'POINTS'
-                  ? 'PUNTOS'
+                  ? t('headerPoints')
                   : card.type === 'MEMBERSHIP'
-                  ? 'NIVEL'
+                  ? t('headerLevel')
                   : ''}
               </div>
               <div className="text-base font-bold leading-tight">{headerValue}</div>
@@ -487,7 +493,7 @@ function CardPreview({
           {card.type === 'CASHBACK' && (
             <div className="bg-black/15 rounded-lg px-3 py-2.5 text-center">
               <div className="text-[9px] uppercase tracking-wider opacity-75 font-bold">
-                Saldo cliente
+                {t('customerBalance')}
               </div>
               <div className="text-2xl font-bold">$0</div>
             </div>
@@ -496,9 +502,9 @@ function CardPreview({
           {card.type === 'POINTS' && (
             <div className="bg-black/15 rounded-lg px-3 py-2.5 text-center">
               <div className="text-[9px] uppercase tracking-wider opacity-75 font-bold">
-                Acumulado
+                {t('accumulated')}
               </div>
-              <div className="text-2xl font-bold">0 pts</div>
+              <div className="text-2xl font-bold">{t('zeroPts')}</div>
             </div>
           )}
 
@@ -506,14 +512,14 @@ function CardPreview({
             <div className="bg-black/15 rounded-lg px-3 py-2 text-center">
               <div className="text-[9px] uppercase tracking-wider opacity-75 font-bold">
                 {(card.tiers ?? []).length > 0
-                  ? `${card.tiers.length} niveles`
-                  : 'Sin tiers'}
+                  ? t('levelsCount', { count: card.tiers.length })
+                  : t('noTiers')}
               </div>
               <div className="text-sm font-semibold mt-0.5">
                 {(card.tiers ?? [])
                   .slice(0, 3)
-                  .map((t) => t.name)
-                  .join(' · ') || 'Membresía única'}
+                  .map((tier) => tier.name)
+                  .join(' · ') || t('singleMembership')}
               </div>
             </div>
           )}
@@ -522,7 +528,7 @@ function CardPreview({
             <div className="bg-black/15 rounded-lg px-3 py-2.5 text-center">
               <div className="text-3xl font-black">{card.discountPercent ?? 10}%</div>
               <div className="text-[9px] uppercase tracking-wider opacity-75 font-bold mt-0.5">
-                Descuento permanente
+                {t('permanentDiscount')}
               </div>
             </div>
           )}
@@ -531,7 +537,7 @@ function CardPreview({
             <div className="bg-black/15 rounded-lg px-3 py-3 text-center">
               <div className="text-2xl">{TYPE_EMOJI[card.type]}</div>
               <div className="text-[9px] uppercase tracking-wider opacity-75 font-bold mt-1">
-                {TYPE_LABEL[card.type]}
+                {t(TYPE_LABEL_KEY[card.type])}
               </div>
             </div>
           )}
@@ -549,10 +555,10 @@ function CardPreview({
             <div className="flex items-center gap-1.5 text-mute">
               <Icon name="users" />
               <strong className="text-ink">{passes}</strong>
-              <span>{passes === 1 ? 'pase' : 'pases'}</span>
+              <span>{t('passesLabel', { count: passes })}</span>
             </div>
             <span className="text-brand font-semibold group-hover:underline">
-              Abrir →
+              {t('open')} →
             </span>
           </div>
         </div>

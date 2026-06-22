@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api, getUser } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
@@ -56,6 +57,8 @@ function initials(name: string) {
 }
 
 export default function StaffPage() {
+  const t = useTranslations('app_staff');
+  const tc = useTranslations('common');
   const me = typeof window !== 'undefined' ? getUser() : null;
   const [list, setList] = useState<Staff[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
@@ -86,7 +89,7 @@ export default function StaffPage() {
       setLocations(locs.filter((l) => l.isActive));
       setMetrics(m);
     } catch (e: any) {
-      toast(e.message || 'Error cargando empleados', 'error');
+      toast(e.message || t('errLoading'), 'error');
     }
   }
   useEffect(() => {
@@ -99,10 +102,10 @@ export default function StaffPage() {
         method: 'PATCH',
         body: JSON.stringify({ locationId: locationId || null }),
       });
-      toast('Sede actualizada', 'success');
+      toast(t('locationUpdated'), 'success');
       await load();
     } catch (e: any) {
-      toast(e.message || 'No se pudo cambiar la sede', 'error');
+      toast(e.message || t('errChangeLocation'), 'error');
     }
   }
 
@@ -139,10 +142,10 @@ export default function StaffPage() {
         method: 'PATCH',
         body: JSON.stringify({ isActive: !u.isActive }),
       });
-      toast(u.isActive ? 'Miembro desactivado' : 'Miembro activado', 'success');
+      toast(u.isActive ? t('memberDeactivated') : t('memberActivated'), 'success');
       await load();
     } catch (e: any) {
-      toast(e.message || 'No se pudo actualizar', 'error');
+      toast(e.message || t('errUpdate'), 'error');
     }
   }
 
@@ -152,15 +155,15 @@ export default function StaffPage() {
         method: 'PATCH',
         body: JSON.stringify({ role }),
       });
-      toast('Rol actualizado', 'success');
+      toast(t('roleUpdated'), 'success');
       await load();
     } catch (e: any) {
-      toast(e.message || 'No se pudo cambiar el rol', 'error');
+      toast(e.message || t('errChangeRole'), 'error');
     }
   }
 
   async function resetPwd(u: Staff) {
-    if (!confirm(`¿Generar contraseña temporal para ${u.fullName}?`)) return;
+    if (!confirm(t('confirmResetPwd', { name: u.fullName }))) return;
     try {
       const r = await api<{ tempPassword: string }>(
         `/tenants/me/staff/${u.id}/reset-password`,
@@ -168,24 +171,27 @@ export default function StaffPage() {
       );
       setTempCred({ email: u.email, tempPassword: r.tempPassword });
     } catch (e: any) {
-      toast(e.message || 'No se pudo resetear la contraseña', 'error');
+      toast(e.message || t('errResetPwd'), 'error');
     }
   }
 
   async function remove(u: Staff) {
-    if (!confirm(`¿Eliminar a ${u.fullName}? Esta acción es permanente.`)) return;
+    if (!confirm(t('confirmRemove', { name: u.fullName }))) return;
     try {
       await api(`/tenants/me/staff/${u.id}`, { method: 'DELETE' });
-      toast('Miembro eliminado', 'success');
+      toast(t('memberRemoved'), 'success');
       await load();
     } catch (e: any) {
-      toast(e.message || 'No se pudo eliminar', 'error');
+      toast(e.message || t('errRemove'), 'error');
     }
   }
 
   function copyCred() {
     if (!tempCred) return;
-    const text = `Inicia sesión en Clubify\nEmail: ${tempCred.email}\nContraseña temporal: ${tempCred.tempPassword}`;
+    const text = t('credClipboard', {
+      email: tempCred.email,
+      password: tempCred.tempPassword,
+    });
     navigator.clipboard.writeText(text).catch(() => {});
   }
 
@@ -195,9 +201,9 @@ export default function StaffPage() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Equipo de trabajo{' '}
+          {t('title')}{' '}
           <span className="page-crumb">
-            / {list.length} {list.length === 1 ? 'persona' : 'personas'}
+            / {t('peopleCount', { count: list.length })}
           </span>
         </h1>
         {isOwner && (
@@ -205,16 +211,16 @@ export default function StaffPage() {
             className="btn-primary"
             onClick={() => setShowInvite((v) => !v)}
           >
-            <Icon name="plus" /> Invitar al equipo
+            <Icon name="plus" /> {t('inviteTeam')}
           </button>
         )}
       </div>
 
       {!isOwner && (
         <div className="card card-pad text-mute mb-4">
-          Solo el propietario puede gestionar el equipo. Pídele al{' '}
-          <b className="text-ink">propietario</b> de la cuenta que te invite o
-          actualice tus permisos.
+          {t.rich('onlyOwnerCanManage', {
+            b: (chunks) => <b className="text-ink">{chunks}</b>,
+          })}
         </div>
       )}
 
@@ -222,7 +228,7 @@ export default function StaffPage() {
         <form className="card card-pad mb-5" onSubmit={invite}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <label className="block">
-              <span className="label">Nombre completo</span>
+              <span className="label">{t('fullName')}</span>
               <input
                 className="input"
                 required
@@ -233,7 +239,7 @@ export default function StaffPage() {
               />
             </label>
             <label className="block">
-              <span className="label">Email</span>
+              <span className="label">{t('email')}</span>
               <input
                 className="input"
                 required
@@ -243,7 +249,7 @@ export default function StaffPage() {
               />
             </label>
             <label className="block">
-              <span className="label">Teléfono (opcional)</span>
+              <span className="label">{t('phoneOptional')}</span>
               <input
                 className="input"
                 value={form.phone}
@@ -251,7 +257,7 @@ export default function StaffPage() {
               />
             </label>
             <label className="block">
-              <span className="label">Rol</span>
+              <span className="label">{t('role')}</span>
               <select
                 className="input"
                 value={form.role}
@@ -259,12 +265,12 @@ export default function StaffPage() {
                   setForm({ ...form, role: e.target.value as any })
                 }
               >
-                <option value="TENANT_STAFF">Equipo (escanea, ve pedidos)</option>
-                <option value="TENANT_OWNER">Propietario (acceso total)</option>
+                <option value="TENANT_STAFF">{t('roleStaffDesc')}</option>
+                <option value="TENANT_OWNER">{t('roleOwnerDesc')}</option>
               </select>
             </label>
             <label className="block">
-              <span className="label">Sede asignada (opcional)</span>
+              <span className="label">{t('assignedLocationOptional')}</span>
               <select
                 className="input"
                 value={form.locationId}
@@ -272,7 +278,7 @@ export default function StaffPage() {
                   setForm({ ...form, locationId: e.target.value })
                 }
               >
-                <option value="">Todas las sedes</option>
+                <option value="">{t('allLocations')}</option>
                 {locations.map((l) => (
                   <option key={l.id} value={l.id}>
                     {l.name}
@@ -280,8 +286,7 @@ export default function StaffPage() {
                 ))}
               </select>
               <div className="text-[11px] text-mute mt-1">
-                Si eliges una sede, esta persona aparece como operadora de
-                esa ubicación en los rankings.
+                {t('locationHint')}
               </div>
             </label>
           </div>
@@ -292,14 +297,14 @@ export default function StaffPage() {
           )}
           <div className="flex gap-2 mt-4">
             <button className="btn-primary" disabled={busy}>
-              {busy ? 'Creando…' : 'Crear y generar contraseña'}
+              {busy ? t('creating') : t('createAndGeneratePwd')}
             </button>
             <button
               type="button"
               className="btn-ghost"
               onClick={() => setShowInvite(false)}
             >
-              Cancelar
+              {tc('cancel')}
             </button>
           </div>
         </form>
@@ -313,30 +318,30 @@ export default function StaffPage() {
             </div>
             <div className="flex-1">
               <div className="font-semibold mb-1">
-                Comparte estas credenciales por WhatsApp
+                {t('shareCredentials')}
               </div>
               <div className="text-sm text-mute mb-2">
-                Solo se muestran una vez. El miembro del equipo podrá cambiarlas al ingresar.
+                {t('shownOnce')}
               </div>
               <div className="bg-bg2 rounded-lg p-3 font-mono text-sm">
                 <div>
-                  <span className="text-mute">Email: </span>
+                  <span className="text-mute">{t('emailLabel')} </span>
                   {tempCred.email}
                 </div>
                 <div>
-                  <span className="text-mute">Contraseña: </span>
+                  <span className="text-mute">{t('passwordLabel')} </span>
                   <strong>{tempCred.tempPassword}</strong>
                 </div>
               </div>
               <div className="flex gap-2 mt-3">
                 <button className="btn-primary text-xs" onClick={copyCred}>
-                  <Icon name="check" /> Copiar
+                  <Icon name="check" /> {t('copy')}
                 </button>
                 <button
                   className="btn-ghost text-xs"
                   onClick={() => setTempCred(null)}
                 >
-                  Cerrar
+                  {tc('close')}
                 </button>
               </div>
             </div>
@@ -348,10 +353,9 @@ export default function StaffPage() {
         {list.length === 0 && (
           <div className="card card-pad text-center py-10">
             <div className="text-3xl mb-1">👥</div>
-            <div className="font-semibold text-sm">Aún sin equipo</div>
+            <div className="font-semibold text-sm">{t('emptyTitle')}</div>
             <p className="text-xs text-mute mt-1 max-w-md mx-auto">
-              Invita a tu cajero o staff para que escaneen tarjetas y vean los
-              pedidos sin compartir tu contraseña.
+              {t('emptyDesc')}
             </p>
           </div>
         )}
@@ -371,7 +375,7 @@ export default function StaffPage() {
               <div className="font-semibold flex items-center gap-2">
                 {u.fullName}
                 {u.id === me?.id && (
-                  <span className="badge badge-info text-[10px]">Tú</span>
+                  <span className="badge badge-info text-[10px]">{t('you')}</span>
                 )}
               </div>
               <div className="text-xs text-mute truncate">{u.email}</div>
@@ -382,7 +386,7 @@ export default function StaffPage() {
               )}
               {u.lastLoginAt && (
                 <div className="text-[11px] text-mute mt-0.5">
-                  Último acceso:{' '}
+                  {t('lastAccess')}{' '}
                   {new Date(u.lastLoginAt).toLocaleString('es-CO')}
                 </div>
               )}
@@ -393,12 +397,12 @@ export default function StaffPage() {
                   u.role === 'TENANT_OWNER' ? 'badge-info' : 'badge-mute'
                 }`}
               >
-                {u.role === 'TENANT_OWNER' ? 'Propietario' : 'Equipo'}
+                {u.role === 'TENANT_OWNER' ? t('roleOwner') : t('roleStaff')}
               </span>
               <span
                 className={`badge ${u.isActive ? 'badge-ok' : 'badge-mute'}`}
               >
-                {u.isActive ? 'Activo' : 'Inactivo'}
+                {u.isActive ? t('active') : t('inactive')}
               </span>
               {isOwner && u.id !== me?.id && (
                 <>
@@ -409,17 +413,17 @@ export default function StaffPage() {
                       changeRole(u, e.target.value as any)
                     }
                   >
-                    <option value="TENANT_STAFF">Equipo</option>
-                    <option value="TENANT_OWNER">Propietario</option>
+                    <option value="TENANT_STAFF">{t('roleStaff')}</option>
+                    <option value="TENANT_OWNER">{t('roleOwner')}</option>
                   </select>
                   {locations.length > 0 && (
                     <select
                       className="input text-xs py-1 max-w-[160px]"
                       value={u.locationId ?? ''}
                       onChange={(e) => changeLocation(u, e.target.value)}
-                      title="Sede asignada"
+                      title={t('assignedLocation')}
                     >
-                      <option value="">Todas las sedes</option>
+                      <option value="">{t('allLocations')}</option>
                       {locations.map((l) => (
                         <option key={l.id} value={l.id}>
                           📍 {l.name}
@@ -431,19 +435,19 @@ export default function StaffPage() {
                     className="btn-link text-xs"
                     onClick={() => toggleActive(u)}
                   >
-                    {u.isActive ? 'Desactivar' : 'Activar'}
+                    {u.isActive ? t('deactivate') : t('activate')}
                   </button>
                   <button
                     className="btn-link text-xs"
                     onClick={() => resetPwd(u)}
                   >
-                    Reset clave
+                    {t('resetPwd')}
                   </button>
                   <button
                     className="text-bad text-xs underline"
                     onClick={() => remove(u)}
                   >
-                    Eliminar
+                    {tc('delete')}
                   </button>
                 </>
               )}
@@ -459,17 +463,17 @@ export default function StaffPage() {
             <div className="px-4 py-3 border-b border-line2 flex items-center justify-between">
               <div>
                 <div className="font-semibold text-sm">
-                  🏅 Sellos por miembro
+                  {t('stampsByMember')}
                 </div>
                 <div className="text-[11px] text-mute">
-                  Últimos 30 días · {metrics.totalStamps} sellos totales
+                  {t('last30dStamps', { count: metrics.totalStamps })}
                 </div>
               </div>
             </div>
             <div className="divide-y divide-line2">
               {metrics.memberRanking.length === 0 && (
                 <div className="px-4 py-6 text-center text-xs text-mute">
-                  Sin sellos en los últimos 30 días.
+                  {t('noStampsLast30d')}
                 </div>
               )}
               {metrics.memberRanking.slice(0, 10).map((r, i) => (
@@ -499,16 +503,16 @@ export default function StaffPage() {
           <div className="card overflow-hidden p-0">
             <div className="px-4 py-3 border-b border-line2 flex items-center justify-between">
               <div>
-                <div className="font-semibold text-sm">📍 Sellos por sede</div>
+                <div className="font-semibold text-sm">{t('stampsByLocation')}</div>
                 <div className="text-[11px] text-mute">
-                  Últimos 30 días
+                  {t('last30d')}
                 </div>
               </div>
             </div>
             <div className="divide-y divide-line2">
               {metrics.locationRanking.length === 0 && (
                 <div className="px-4 py-6 text-center text-xs text-mute">
-                  Sin sellos por ubicación.
+                  {t('noStampsByLocation')}
                 </div>
               )}
               {metrics.locationRanking.map((r, i) => (
