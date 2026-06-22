@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { getOrdersSocket } from '@/lib/socket';
 import { playOrderBeep } from '@/lib/notify';
@@ -18,17 +19,17 @@ type Order = {
 };
 
 const COLS = [
-  { key: 'PENDING' as const, label: 'Nuevos', accent: '#F59E0B' },
-  { key: 'CONFIRMED' as const, label: 'En cocina', accent: '#22C55E' },
-  { key: 'READY' as const, label: 'Listos para entregar', accent: '#16A34A' },
+  { key: 'PENDING' as const, labelKey: 'colNew', accent: '#F59E0B' },
+  { key: 'CONFIRMED' as const, labelKey: 'colInKitchen', accent: '#22C55E' },
+  { key: 'READY' as const, labelKey: 'colReadyToDeliver', accent: '#16A34A' },
 ];
 
-function fmtElapsed(d: string) {
+function fmtElapsed(d: string, t: (key: string, vars?: Record<string, any>) => string) {
   const min = Math.floor((Date.now() - new Date(d).getTime()) / 60000);
-  if (min < 1) return 'Recién';
-  if (min < 60) return `${min}m`;
+  if (min < 1) return t('elapsedJustNow');
+  if (min < 60) return t('elapsedMinutes', { min });
   const h = Math.floor(min / 60);
-  return `${h}h ${min % 60}m`;
+  return t('elapsedHours', { h, min: min % 60 });
 }
 
 function elapsedToneClass(d: string, status: Order['status']): string {
@@ -41,6 +42,7 @@ function elapsedToneClass(d: string, status: Order['status']): string {
 }
 
 export default function KitchenDisplay() {
+  const t = useTranslations('app_orders_display');
   const [board, setBoard] = useState<Record<string, Order[]>>({
     PENDING: [],
     CONFIRMED: [],
@@ -179,7 +181,8 @@ export default function KitchenDisplay() {
       <header className="px-6 py-4 border-b border-white/10 flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-4">
           <div className="font-bold text-2xl tracking-tight">
-            🍳 Cocina <span className="text-mute2 font-normal">en vivo</span>
+            🍳 {t('headerKitchen')}{' '}
+            <span className="text-mute2 font-normal">{t('headerLive')}</span>
           </div>
           <span
             className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
@@ -190,31 +193,31 @@ export default function KitchenDisplay() {
               className="w-1.5 h-1.5 rounded-full inline-block mr-1.5"
               style={{ background: live ? '#16A34A' : '#9CA3AF' }}
             />
-            {live ? 'En vivo' : 'Sin conexión'}
+            {live ? t('statusLive') : t('statusOffline')}
           </span>
         </div>
 
         <div className="flex items-center gap-6 text-sm">
-          <Stat label="Nuevos" value={stats.pending} accent="#F59E0B" />
-          <Stat label="En cocina" value={stats.cooking} accent="#22C55E" />
-          <Stat label="Listos" value={stats.ready} accent="#16A34A" />
-          <Stat label="Entregados hoy" value={stats.delivered} accent="#9CA3AF" />
+          <Stat label={t('statNew')} value={stats.pending} accent="#F59E0B" />
+          <Stat label={t('statInKitchen')} value={stats.cooking} accent="#22C55E" />
+          <Stat label={t('statReady')} value={stats.ready} accent="#16A34A" />
+          <Stat label={t('statDeliveredToday')} value={stats.delivered} accent="#9CA3AF" />
         </div>
 
         <div className="flex items-center gap-2">
           <button
             onClick={toggleFullscreen}
             className="text-xs px-3 py-1.5 rounded-pill bg-white/10 hover:bg-white/15 border border-white/20"
-            title="Tecla F"
+            title={t('keyFTitle')}
           >
-            ⛶ Pantalla completa
+            ⛶ {t('fullscreen')}
           </button>
           <Link
             href="/app/orders"
             className="text-xs px-3 py-1.5 rounded-pill bg-white/10 hover:bg-white/15 border border-white/20"
-            title="Tecla ESC"
+            title={t('keyEscTitle')}
           >
-            Salir
+            {t('exit')}
           </Link>
         </div>
       </header>
@@ -234,7 +237,7 @@ export default function KitchenDisplay() {
                   className="w-2.5 h-2.5 rounded-full"
                   style={{ background: col.accent }}
                 />
-                <span className="font-semibold text-sm">{col.label}</span>
+                <span className="font-semibold text-sm">{t(col.labelKey)}</span>
               </div>
               <span
                 className="text-xs font-bold px-2 py-0.5 rounded-full"
@@ -247,7 +250,7 @@ export default function KitchenDisplay() {
             <div className="flex-1 overflow-auto p-2.5 space-y-2">
               {(board[col.key] ?? []).length === 0 ? (
                 <div className="text-mute2 text-center text-sm py-12 italic">
-                  Vacío
+                  {t('empty')}
                 </div>
               ) : (
                 (board[col.key] ?? []).map((o) => (
@@ -267,9 +270,9 @@ export default function KitchenDisplay() {
       <footer className="px-6 py-2.5 border-t border-white/10 text-[11px] text-mute2 flex items-center justify-between flex-wrap gap-2">
         <div>
           <kbd className="font-mono px-1.5 py-0.5 rounded bg-white/10">F</kbd>{' '}
-          pantalla completa ·{' '}
+          {t('footerFullscreen')} ·{' '}
           <kbd className="font-mono px-1.5 py-0.5 rounded bg-white/10">ESC</kbd>{' '}
-          salir
+          {t('footerExit')}
         </div>
         <div>
           {new Date().toLocaleString('es-CO', {
@@ -294,16 +297,17 @@ function DisplayCard({
   accent: string;
   onAdvance: (next: Order['status']) => void;
 }) {
+  const t = useTranslations('app_orders_display');
   const tone = elapsedToneClass(o.createdAt, o.status);
   const next: Record<string, Order['status']> = {
     PENDING: 'CONFIRMED',
     CONFIRMED: 'READY',
     READY: 'DELIVERED',
   };
-  const nextLabel: Record<string, string> = {
-    PENDING: 'Aceptar',
-    CONFIRMED: 'Listo',
-    READY: 'Entregado',
+  const nextLabelKey: Record<string, string> = {
+    PENDING: 'advanceAccept',
+    CONFIRMED: 'advanceReady',
+    READY: 'advanceDelivered',
   };
 
   return (
@@ -315,7 +319,7 @@ function DisplayCard({
           #{o.code}
         </div>
         <div className="text-xs text-mute font-semibold">
-          {fmtElapsed(o.createdAt)}
+          {fmtElapsed(o.createdAt, t)}
         </div>
       </div>
       <div className="text-sm font-semibold mt-1.5 truncate">
@@ -323,10 +327,10 @@ function DisplayCard({
       </div>
       <div className="text-[11px] text-mute mb-2">
         {o.fulfillment === 'DINE_IN'
-          ? `🍽 Mesa ${o.tableNumber ?? '?'}`
+          ? `🍽 ${t('fulfillmentTable', { table: o.tableNumber ?? '?' })}`
           : o.fulfillment === 'PICKUP'
-          ? '🥡 Para llevar'
-          : '🛵 Domicilio'}
+          ? `🥡 ${t('fulfillmentPickup')}`
+          : `🛵 ${t('fulfillmentDelivery')}`}
       </div>
 
       <div className="space-y-0.5 text-sm border-t border-line2 pt-2">
@@ -348,7 +352,7 @@ function DisplayCard({
         ))}
         {(o.items?.length ?? 0) > 5 && (
           <div className="text-[11px] text-mute italic">
-            +{o.items.length - 5} items más…
+            {t('moreItems', { count: o.items.length - 5 })}
           </div>
         )}
       </div>
@@ -359,7 +363,7 @@ function DisplayCard({
           className="w-full mt-3 text-white font-semibold text-sm py-2 rounded-pill"
           style={{ background: accent }}
         >
-          {nextLabel[o.status]} →
+          {t(nextLabelKey[o.status])} →
         </button>
       )}
     </div>

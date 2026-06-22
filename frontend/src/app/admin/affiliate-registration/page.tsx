@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 
 type Config = {
@@ -11,6 +12,7 @@ type Config = {
 };
 
 export default function AffiliateRegistrationPage() {
+  const t = useTranslations('admin_affiliate_registration');
   const [config, setConfig] = useState<Config | null>(null);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -34,16 +36,16 @@ export default function AffiliateRegistrationPage() {
         body: JSON.stringify(patch),
       });
       setConfig(next);
-      flash('Guardado');
+      flash(t('toastSaved'));
     } catch (e: any) {
-      flash(e?.message ?? 'Error al guardar');
+      flash(e?.message ?? t('toastSaveError'));
     } finally {
       setSaving(false);
     }
   }
 
   if (!config) {
-    return <div className="text-sm text-mute">Cargando…</div>;
+    return <div className="text-sm text-mute">{t('loading')}</div>;
   }
 
   const publicUrl =
@@ -54,13 +56,13 @@ export default function AffiliateRegistrationPage() {
   return (
     <div className="max-w-2xl">
       <div className="page-head">
-        <h1 className="page-title">Registro público de afiliados</h1>
+        <h1 className="page-title">{t('pageTitle')}</h1>
       </div>
 
       <div className="card card-pad space-y-4">
         <ToggleRow
-          label="Habilitar registro público"
-          description="Permite que cualquier persona se registre como afiliado desde un link público, sin invitación."
+          label={t('enableLabel')}
+          description={t('enableDescription')}
           checked={config.enabled}
           onChange={(v) => save({ enabled: v })}
           disabled={saving}
@@ -70,27 +72,27 @@ export default function AffiliateRegistrationPage() {
           <>
             <div className="rounded-lg bg-bg2/60 p-3 text-xs">
               <div className="font-semibold text-mute uppercase tracking-wider text-[10px]">
-                Link público
+                {t('publicLink')}
               </div>
               <code className="text-ink break-all">{publicUrl}</code>
               <button
                 onClick={() => {
                   navigator.clipboard.writeText(publicUrl);
-                  flash('Copiado');
+                  flash(t('toastCopied'));
                 }}
                 className="ml-2 text-xs font-semibold text-brand hover:underline"
               >
-                Copiar
+                {t('copy')}
               </button>
             </div>
 
             <div className="border-t border-line pt-4">
-              <div className="font-semibold text-sm mb-2">Tipos permitidos</div>
+              <div className="font-semibold text-sm mb-2">{t('allowedTypes')}</div>
               <div className="space-y-3">
                 <RoleRow
                   emoji="📣"
-                  title="Influencer"
-                  description="Top-level, sin equipo de vendedores. Refiere desde redes sociales."
+                  title={t('influencerTitle')}
+                  description={t('influencerDescription')}
                   allowed={config.allowInfluencer}
                   onAllowedChange={(v) => save({ allowInfluencer: v })}
                   pct={config.influencerCommissionPct}
@@ -99,8 +101,8 @@ export default function AffiliateRegistrationPage() {
                 />
                 <RoleRow
                   emoji="🤝"
-                  title="Embajador"
-                  description="Top-level, puede tener vendedores debajo (si lo habilita el super admin)."
+                  title={t('ambassadorTitle')}
+                  description={t('ambassadorDescription')}
                   allowed={config.allowAmbassador}
                   onAllowedChange={(v) => save({ allowAmbassador: v })}
                   pct={config.ambassadorCommissionPct}
@@ -171,6 +173,7 @@ function RoleRow({
   onPctChange: (v: number) => void;
   saving: boolean;
 }) {
+  const t = useTranslations('admin_affiliate_registration');
   const [draft, setDraft] = useState<string>(String(pct));
   useEffect(() => {
     setDraft(String(pct));
@@ -192,12 +195,12 @@ function RoleRow({
             disabled={saving}
             className="w-4 h-4 accent-brand"
           />
-          {allowed ? 'Permitido' : 'No permitido'}
+          {allowed ? t('allowed') : t('notAllowed')}
         </label>
       </div>
       {allowed && (
         <div className="mt-3 flex items-center gap-2">
-          <label className="text-xs font-semibold text-mute">% Comisión</label>
+          <label className="text-xs font-semibold text-mute">{t('commissionPct')}</label>
           <input
             type="number"
             min={0}
@@ -212,7 +215,7 @@ function RoleRow({
             disabled={saving}
             className="input w-20 text-sm"
           />
-          <span className="text-xs text-mute">% sobre cada venta del afiliado</span>
+          <span className="text-xs text-mute">{t('commissionHint')}</span>
         </div>
       )}
     </div>
