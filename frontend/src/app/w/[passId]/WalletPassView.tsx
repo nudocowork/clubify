@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { Icon } from '@/components/Icon';
-import { ClubifyBadge } from '@/components/ClubifyBadge';
+import { BrandBadge, type BrandBadgeBrand } from '@/components/BrandBadge';
 import { WalletPassPreview } from '@/components/WalletPassPreview';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useT } from '@/lib/i18n';
@@ -114,7 +114,19 @@ export function WalletPassView({ passId, data, googleSaveUrl }: Props) {
             <div className="text-sm mt-2 leading-relaxed">{data.card.terms}</div>
           </div>
         )}
-        <ClubifyBadge />
+        {/* Marca del negocio (per marca blanca). Fallback Clubify mientras
+            el backend propaga el deploy. */}
+        <BrandBadge
+          brand={
+            (data.brand as BrandBadgeBrand | undefined) ?? {
+              name: 'Clubify',
+              websiteUrl: 'https://soyclubify.com',
+              initial: 'C',
+              primaryColor: '#22C55E',
+              attribution: { madeWith: 'Hecho con Clubify' },
+            }
+          }
+        />
         <LanguageSwitcher />
       </div>
     </div>

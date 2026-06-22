@@ -6,6 +6,7 @@ import { PassesService } from './passes.service';
 import { WalletService } from '../wallet/wallet.service';
 import { QueueService } from '../jobs/queue.service';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Public } from '../common/decorators/public.decorator';
@@ -42,6 +43,7 @@ export class PassesController {
     private jobs: QueueService,
     private prisma: PrismaService,
     private translator: TranslationService,
+    private brand: WhitelabelBrandService,
   ) {}
 
   /**
@@ -90,6 +92,8 @@ export class PassesController {
             // País del negocio → el formulario de registro prefija el
             // código telefónico del país correcto (no siempre +57).
             country: true,
+            // Marca blanca del negocio: la tarjeta muestra "Hecho con {marca}".
+            whiteLabelId: true,
           },
         },
       },
@@ -97,8 +101,22 @@ export class PassesController {
     if (!card || !card.isActive || card.tenant.status === 'SUSPENDED') {
       return { available: false };
     }
+    // Marca blanca del negocio (atribución/web/inicial). Nunca Clubify por
+    // defecto: legacy sin marca cae al row real `clubify`.
+    const b = await this.brand.resolveByWhiteLabelId(card.tenant.whiteLabelId);
+    const brand = {
+      name: b.name,
+      slug: b.slug,
+      websiteUrl: b.websiteUrl,
+      logoUrl: b.logoUrl,
+      iconUrl: b.iconUrl,
+      faviconUrl: b.faviconUrl,
+      primaryColor: b.primaryColor,
+      initial: b.initial,
+      attribution: b.attribution,
+    };
     if (locale === 'es') {
-      return { available: true, card };
+      return { available: true, card, brand };
     }
     // Fase 5: traducción de campos visibles en la página de enrollment.
     // terms y otros campos legales se mantienen en ES porque el dueño
@@ -113,7 +131,7 @@ export class PassesController {
     if (card.rewardText) {
       items.push({ entityType: 'card', entityId: card.id, field: 'rewardText', text: card.rewardText });
     }
-    if (items.length === 0) return { available: true, card };
+    if (items.length === 0) return { available: true, card, brand };
     const tr = await this.translator.translateMenuBatch(
       card.tenantId,
       items,
@@ -129,6 +147,7 @@ export class PassesController {
         rewardText:
           tr.get(`card:${card.id}:rewardText`) ?? card.rewardText,
       },
+      brand,
     };
   }
 

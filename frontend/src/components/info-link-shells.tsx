@@ -2,7 +2,7 @@
 import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import type { InfoLinkTemplate } from '@/lib/info-link-templates';
 import { SectionCoverPreview } from '@/components/menu/SectionCoverPreview';
-import { ClubifyBadge } from '@/components/ClubifyBadge';
+import { BrandBadge, type BrandBadgeBrand } from '@/components/BrandBadge';
 import {
   getLogoContainerProps,
   getLogoImgStyle,
@@ -219,13 +219,25 @@ export type ShellProps = {
   /** Background CSS override del usuario (Bloque 1 2026-06-12). Si está
    *  presente, reemplaza el fondo por defecto del template. */
   customBackground?: string;
+  /** Marca blanca del negocio (per marca). El badge "Hecho con {marca}" la
+   *  usa. Puede faltar mientras el backend propaga el deploy → fallback Clubify. */
+  brand?: BrandBadgeBrand;
+};
+
+/** Fallback Clubify mientras el backend propaga `brand` a la respuesta. */
+const CLUBIFY_BADGE_FALLBACK: BrandBadgeBrand = {
+  name: 'Clubify',
+  websiteUrl: 'https://soyclubify.com',
+  initial: 'C',
+  primaryColor: '#22C55E',
+  attribution: { madeWith: 'Hecho con Clubify' },
 };
 
 // =============================================================
 //  AURORA · gradient mesh + glassmorphism
 // =============================================================
 
-export function AuroraShell({ tenant, link, primary, buttons, sectionsNode, customBackground }: ShellProps) {
+export function AuroraShell({ tenant, link, primary, buttons, sectionsNode, customBackground, brand }: ShellProps) {
   const initial = tenant.brandName[0]?.toUpperCase() ?? '?';
   const defaultBg = `radial-gradient(circle at 15% 0%, ${primary}66 0%, transparent 40%), radial-gradient(circle at 85% 25%, ${tenant.secondaryColor || '#8B4513'}66 0%, transparent 40%), radial-gradient(circle at 50% 100%, #1a0e2e 0%, transparent 60%), linear-gradient(180deg, #2D1B4E 0%, #1A0E2E 100%)`;
   return (
@@ -307,7 +319,7 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode, cust
         )}
 
         <div className="mt-10 text-center">
-          <ClubifyBadge variant="pill" />
+          <BrandBadge brand={brand ?? CLUBIFY_BADGE_FALLBACK} variant="pill" />
         </div>
       </article>
     </div>
@@ -318,7 +330,7 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode, cust
 //  MINIMAL · profile clean
 // =============================================================
 
-export function MinimalShell({ tenant, link, primary, buttons, sectionsNode, customBackground }: ShellProps) {
+export function MinimalShell({ tenant, link, primary, buttons, sectionsNode, customBackground, brand }: ShellProps) {
   const initial = tenant.brandName[0]?.toUpperCase() ?? '?';
   const social: { emoji: string; href?: string }[] = [
     { emoji: '📷', href: tenant.instagramUrl ?? undefined },
@@ -413,7 +425,7 @@ export function MinimalShell({ tenant, link, primary, buttons, sectionsNode, cus
 
         {sectionsNode && <div className="mt-8 text-ink">{sectionsNode}</div>}
 
-        <ClubifyBadge />
+        <BrandBadge brand={brand ?? CLUBIFY_BADGE_FALLBACK} />
       </article>
     </div>
   );
@@ -423,7 +435,7 @@ export function MinimalShell({ tenant, link, primary, buttons, sectionsNode, cus
 //  SHOP · hero + grid de productos (gallery)
 // =============================================================
 
-export function ShopShell({ tenant, link, primary, buttons, sectionsNode, customBackground }: ShellProps) {
+export function ShopShell({ tenant, link, primary, buttons, sectionsNode, customBackground, brand }: ShellProps) {
   const initial = tenant.brandName[0]?.toUpperCase() ?? '?';
   const heroBg =
     link.heroImageUrl ||
@@ -589,7 +601,7 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode, custom
           {sectionsNode && (
             <div className="mt-7 pb-2 text-ink">{sectionsNode}</div>
           )}
-          <ClubifyBadge />
+          <BrandBadge brand={brand ?? CLUBIFY_BADGE_FALLBACK} />
         </div>
       </article>
     </div>
@@ -600,7 +612,7 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode, custom
 //  STORIES · IG-style feed
 // =============================================================
 
-export function StoriesShell({ tenant, link, primary, buttons, sectionsNode, customBackground }: ShellProps) {
+export function StoriesShell({ tenant, link, primary, buttons, sectionsNode, customBackground, brand }: ShellProps) {
   const initial = tenant.brandName[0]?.toUpperCase() ?? '?';
   const stories = (link.gallery ?? []).slice(0, 6);
 
@@ -707,7 +719,7 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode, cus
         {sectionsNode && (
           <div className="px-5 pt-5 text-ink">{sectionsNode}</div>
         )}
-        <ClubifyBadge />
+        <BrandBadge brand={brand ?? CLUBIFY_BADGE_FALLBACK} />
       </article>
     </div>
   );
@@ -717,7 +729,7 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode, cus
 //  NEON · dark accent
 // =============================================================
 
-export function NeonShell({ tenant, link, primary, buttons, sectionsNode, customBackground }: ShellProps) {
+export function NeonShell({ tenant, link, primary, buttons, sectionsNode, customBackground, brand }: ShellProps) {
   const accent = primary;
   const initial = tenant.brandName[0]?.toUpperCase() ?? '?';
   return (
@@ -834,7 +846,7 @@ export function NeonShell({ tenant, link, primary, buttons, sectionsNode, custom
         )}
 
         <div className="mt-10 text-center">
-          <ClubifyBadge variant="pill" />
+          <BrandBadge brand={brand ?? CLUBIFY_BADGE_FALLBACK} variant="pill" />
         </div>
       </article>
     </div>

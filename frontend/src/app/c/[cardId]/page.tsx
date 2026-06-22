@@ -8,7 +8,7 @@ import {
   useTransition,
 } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ClubifyBadge } from '@/components/ClubifyBadge';
+import { BrandBadge, type BrandBadgeBrand } from '@/components/BrandBadge';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useLocale, useT } from '@/lib/i18n';
 
@@ -479,6 +479,8 @@ export default function EnrollPage() {
   // El useEffect de abajo hidrata desde cache después del mount; el
   // form se renderiza SIEMPRE — los campos no esperan al fetch.
   const [card, setCard] = useState<Card | null>(null);
+  // Marca blanca del negocio (per marca). El badge "Hecho con {marca}" la usa.
+  const [brand, setBrand] = useState<BrandBadgeBrand | null>(null);
 
   // HOTFIX 2026-06-05 (bug P): hidratar cache solo POST-mount para
   // mantener el primer render idéntico entre SSR y CSR.
@@ -586,6 +588,7 @@ export default function EnrollPage() {
         // header brand se renderiza cuando el browser tenga tiempo
         // libre, no compitiendo con el teclado.
         startCardTransition(() => setCard(data.card));
+        if (data.brand) setBrand(data.brand as BrandBadgeBrand);
         // writeCache hace JSON.stringify de un objeto grande — diferimos
         // a la siguiente microtask para no robar tiempo al render actual.
         queueMicrotask(() => writeCache(cardId as string, locale, data.card));
@@ -730,7 +733,19 @@ export default function EnrollPage() {
           </details>
         )}
 
-        <ClubifyBadge />
+        {/* Marca del negocio (per marca blanca). Fallback Clubify mientras
+            el backend propaga el deploy. */}
+        <BrandBadge
+          brand={
+            brand ?? {
+              name: 'Clubify',
+              websiteUrl: 'https://soyclubify.com',
+              initial: 'C',
+              primaryColor: '#22C55E',
+              attribution: { madeWith: 'Hecho con Clubify' },
+            }
+          }
+        />
         <LanguageSwitcher />
       </div>
     </main>

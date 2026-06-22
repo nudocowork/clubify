@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { Icon } from '@/components/Icon';
-import { ClubifyBadge } from '@/components/ClubifyBadge';
+import { BrandBadge, type BrandBadgeBrand } from '@/components/BrandBadge';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -28,6 +28,7 @@ type Order = {
     currency?: string | null;
     currencySymbol?: string | null;
   };
+  brand?: BrandBadgeBrand;
   customer: { fullName: string; phone: string };
 };
 
@@ -254,7 +255,19 @@ export default function OrderStatus() {
         >
           ← Volver al menú
         </Link>
-        <ClubifyBadge />
+        {/* Marca del negocio (per marca blanca). Fallback Clubify mientras
+            el backend propaga el deploy. */}
+        <BrandBadge
+          brand={
+            order.brand ?? {
+              name: 'Clubify',
+              websiteUrl: 'https://soyclubify.com',
+              initial: 'C',
+              primaryColor: '#22C55E',
+              attribution: { madeWith: 'Hecho con Clubify' },
+            }
+          }
+        />
       </div>
     </div>
   );

@@ -9,6 +9,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { AppConfigService } from '../common/config/app-config.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { AutomationsService } from '../automations/automations.service';
+import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 
 /**
  * Token que va dentro del barcode (PDF417) del pase de wallet.
@@ -29,6 +30,7 @@ export class PassesService {
     private prisma: PrismaService,
     private automations: AutomationsService,
     private appConfig: AppConfigService,
+    private brand: WhitelabelBrandService,
   ) {}
 
   private guardTenant(user: AuthUser, tenantId: string) {
@@ -121,11 +123,35 @@ export class PassesService {
       include: {
         card: true,
         customer: { select: { id: true, fullName: true } },
-        tenant: { select: { brandName: true, logoUrl: true, primaryColor: true } },
+        tenant: {
+          select: {
+            brandName: true,
+            logoUrl: true,
+            primaryColor: true,
+            // Marca blanca del negocio: el pase muestra "Hecho con {marca}".
+            whiteLabelId: true,
+          },
+        },
       },
     });
     if (!pass) throw new NotFoundException('Pass');
-    return pass;
+    // Marca blanca del negocio (atribución/web/inicial). Nunca Clubify por
+    // defecto: legacy sin marca cae al row real `clubify`.
+    const b = await this.brand.resolveByWhiteLabelId(pass.tenant.whiteLabelId);
+    return {
+      ...pass,
+      brand: {
+        name: b.name,
+        slug: b.slug,
+        websiteUrl: b.websiteUrl,
+        logoUrl: b.logoUrl,
+        iconUrl: b.iconUrl,
+        faviconUrl: b.faviconUrl,
+        primaryColor: b.primaryColor,
+        initial: b.initial,
+        attribution: b.attribution,
+      },
+    };
   }
 
   /**

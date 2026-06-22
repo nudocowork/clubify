@@ -24,6 +24,7 @@ import { OrdersGateway } from './orders.gateway';
 import { EmailService } from '../email/email.service';
 import { WalletService } from '../wallet/wallet.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
+import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 import {
   orderConfirmedTemplate,
   orderCreatedTemplate,
@@ -115,6 +116,7 @@ export class OrdersService {
     private wallet: WalletService,
     private appConfig: AppConfigService,
     private growBusiness: GrowBusinessService,
+    private brand: WhitelabelBrandService,
   ) {}
 
   /** Lista de eventos del pedido delivery que pueden disparar SMS al
@@ -798,13 +800,31 @@ export class OrdersService {
             // (ej "Ref." en lugar de "$") según la config del negocio.
             currency: true,
             currencySymbol: true,
+            // Marca blanca del negocio: el recibo muestra "Hecho con {marca}".
+            whiteLabelId: true,
           },
         },
         customer: { select: { fullName: true, phone: true } },
       },
     });
     if (!o) throw new NotFoundException();
-    return o;
+    // Marca blanca del negocio (atribución/web/inicial). Nunca Clubify por
+    // defecto: legacy sin marca cae al row real `clubify`.
+    const b = await this.brand.resolveByWhiteLabelId(o.tenant.whiteLabelId);
+    return {
+      ...o,
+      brand: {
+        name: b.name,
+        slug: b.slug,
+        websiteUrl: b.websiteUrl,
+        logoUrl: b.logoUrl,
+        iconUrl: b.iconUrl,
+        faviconUrl: b.faviconUrl,
+        primaryColor: b.primaryColor,
+        initial: b.initial,
+        attribution: b.attribution,
+      },
+    };
   }
 
   /**

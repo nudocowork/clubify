@@ -13,6 +13,7 @@ import {
   TranslationService,
   normalizeLocale,
 } from '../catalog/translation.service';
+import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 
 function slugify(s: string) {
   return (
@@ -89,6 +90,7 @@ export class InfoLinksService {
   constructor(
     private prisma: PrismaService,
     private translator: TranslationService,
+    private brand: WhitelabelBrandService,
   ) {}
 
   private tid(user: AuthUser, override?: string) {
@@ -348,6 +350,8 @@ export class InfoLinksService {
         mapsUrl: true,
         slug: true,
         status: true,
+        // Marca blanca del negocio: el infolink muestra "Hecho con {marca}".
+        whiteLabelId: true,
         locations: {
           where: { isActive: true },
           select: {
@@ -378,7 +382,22 @@ export class InfoLinksService {
       .create({ data: { infoLinkId: link.id, type: 'view' } })
       .catch(() => null);
 
-    if (locale === 'es') return { tenant, link };
+    // Marca blanca del negocio (atribución/web/inicial). Nunca Clubify por
+    // defecto: legacy sin marca cae al row real `clubify`.
+    const b = await this.brand.resolveByWhiteLabelId(tenant.whiteLabelId);
+    const brand = {
+      name: b.name,
+      slug: b.slug,
+      websiteUrl: b.websiteUrl,
+      logoUrl: b.logoUrl,
+      iconUrl: b.iconUrl,
+      faviconUrl: b.faviconUrl,
+      primaryColor: b.primaryColor,
+      initial: b.initial,
+      attribution: b.attribution,
+    };
+
+    if (locale === 'es') return { tenant, link, brand };
 
     // Fase 5: traducción del title + subtitle del InfoLink. El JSON
     // de sections/buttons queda en ES por ahora (estructuras complejas
@@ -400,7 +419,7 @@ export class InfoLinksService {
         text: link.subtitle,
       });
     }
-    if (items.length === 0) return { tenant, link };
+    if (items.length === 0) return { tenant, link, brand };
     const tr = await this.translator.translateMenuBatch(
       tenant.id,
       items,
@@ -416,6 +435,7 @@ export class InfoLinksService {
             ? link.subtitle
             : (tr.get(`infolink:${link.id}:subtitle`) ?? link.subtitle),
       },
+      brand,
     };
   }
 

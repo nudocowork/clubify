@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { InfoLinkShell, ResolvedButton } from '@/components/info-link-shells';
+import type { BrandBadgeBrand } from '@/components/BrandBadge';
 import { resolveTemplate } from '@/lib/info-link-templates';
 import { useLocale } from '@/lib/i18n';
 import { InfoLinkPopupModal } from '@/components/InfoLinkPopupModal';
@@ -95,7 +96,11 @@ type Link = {
 export default function PublicInfoLink() {
   const { slug, linkSlug } = useParams<{ slug: string; linkSlug: string }>();
   const [locale] = useLocale();
-  const [data, setData] = useState<{ tenant: Tenant; link: Link } | null>(null);
+  const [data, setData] = useState<{
+    tenant: Tenant;
+    link: Link;
+    brand?: BrandBadgeBrand;
+  } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [menu, setMenu] = useState<any[]>([]);
   const [storefront, setStorefront] = useState<any>(null);
@@ -491,6 +496,7 @@ export default function PublicInfoLink() {
         buttons={resolvedButtons}
         sectionsNode={sectionsNode}
         customBackground={customBg}
+        brand={data.brand}
       />
       <InfoLinkPopupModal
         popup={openPopup?.config ?? null}
