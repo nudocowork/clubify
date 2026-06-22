@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { headers } from 'next/headers';
+import Image from 'next/image';
 import Link from 'next/link';
 import { Icon } from '@/components/Icon';
 import { FadeIn } from '@/components/FadeIn';
@@ -202,12 +203,15 @@ export default async function SelleaLandingPage() {
             </div>
             <div className="relative flex justify-center lg:justify-end">
               {/* Hero visual de Sellea: foto del perro con los 2 teléfonos
-                  (reemplaza el HeroTrio de 3 iPhones). PNG transparente. */}
-              <img
+                  (reemplaza el HeroTrio de 3 iPhones). next/image con priority
+                  → precarga (LCP) + caché inmutable + tamaño por viewport. */}
+              <Image
                 src="/sellea-hero-perro.webp"
                 alt="Sellea — fidelización digital en el wallet del cliente"
                 width={1120}
                 height={921}
+                priority
+                sizes="(max-width: 1024px) 90vw, 560px"
                 className="w-full max-w-[560px] h-auto object-contain drop-shadow-2xl"
               />
             </div>
