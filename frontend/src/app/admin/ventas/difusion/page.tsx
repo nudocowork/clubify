@@ -10,6 +10,7 @@
  * Dos tabs: cada uno con lista + modal de edición + preview en vivo.
  */
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import { ImageUploader } from '@/components/ImageUploader';
@@ -51,11 +52,11 @@ type Metrics = {
   audience: Audience;
 };
 
-const AUDIENCE_LABEL: Record<Audience, string> = {
-  ALL: 'Todos los afiliados',
-  INFLUENCERS: 'Solo influencers',
-  AMBASSADORS: 'Solo embajadores',
-  VENDORS: 'Solo vendedores',
+const AUDIENCE_LABEL_KEY: Record<Audience, string> = {
+  ALL: 'audienceAll',
+  INFLUENCERS: 'audienceInfluencers',
+  AMBASSADORS: 'audienceAmbassadors',
+  VENDORS: 'audienceVendors',
 };
 
 const COLOR_PRESETS: Record<Exclude<Color, 'CUSTOM'>, { bg: string; ink: string }> = {
@@ -65,12 +66,12 @@ const COLOR_PRESETS: Record<Exclude<Color, 'CUSTOM'>, { bg: string; ink: string 
   RED: { bg: '#dc2626', ink: '#ffffff' },
 };
 
-const ICON_LABEL: Record<IconKind, string> = {
-  INFO: 'ℹ️ Info',
-  ALERT: '⚠️ Alerta',
-  NEWS: '📰 Novedad',
-  TRAINING: '🎓 Capacitación',
-  PROMO: '🎁 Promo',
+const ICON_LABEL_KEY: Record<IconKind, string> = {
+  INFO: 'iconInfo',
+  ALERT: 'iconAlert',
+  NEWS: 'iconNews',
+  TRAINING: 'iconTraining',
+  PROMO: 'iconPromo',
 };
 
 const ICON_SYMBOL: Record<IconKind, string> = {
@@ -81,24 +82,24 @@ const ICON_SYMBOL: Record<IconKind, string> = {
   PROMO: '🎁',
 };
 
-const MEDIA_LABEL: Record<MediaKind, string> = {
-  TEXT: 'Solo texto',
-  IMAGE: 'Imagen',
-  AUDIO: 'Audio',
-  VIDEO: 'Video',
-  PDF: 'PDF',
+const MEDIA_LABEL_KEY: Record<MediaKind, string> = {
+  TEXT: 'mediaText',
+  IMAGE: 'mediaImage',
+  AUDIO: 'mediaAudio',
+  VIDEO: 'mediaVideo',
+  PDF: 'mediaPdf',
 };
 
-function statusLabel(b: Broadcast): { label: string; cls: string } {
-  if (!b.isActive) return { label: 'Inactivo', cls: 'bg-bg2 text-mute' };
+function statusBadge(b: Broadcast): { key: string; cls: string } {
+  if (!b.isActive) return { key: 'statusInactive', cls: 'bg-bg2 text-mute' };
   const now = Date.now();
   if (b.startsAt && new Date(b.startsAt).getTime() > now) {
-    return { label: 'Agendado', cls: 'bg-amber-100 text-amber-800' };
+    return { key: 'statusScheduled', cls: 'bg-amber-100 text-amber-800' };
   }
   if (b.endsAt && new Date(b.endsAt).getTime() < now) {
-    return { label: 'Vencido', cls: 'bg-bg2 text-mute' };
+    return { key: 'statusExpired', cls: 'bg-bg2 text-mute' };
   }
-  return { label: 'Activo', cls: 'bg-ok-soft text-ok' };
+  return { key: 'statusActive', cls: 'bg-ok-soft text-ok' };
 }
 
 function emptyForm(kind: Kind): Partial<Broadcast> {
@@ -128,6 +129,7 @@ function emptyForm(kind: Kind): Partial<Broadcast> {
 }
 
 export default function DifusionAdminPage() {
+  const t = useTranslations('admin_ventas_difusion');
   const [tab, setTab] = useState<Kind>('BANNER');
   const [items, setItems] = useState<Broadcast[]>([]);
   const [loading, setLoading] = useState(true);
@@ -192,22 +194,22 @@ export default function DifusionAdminPage() {
           body: JSON.stringify(payload),
         });
       }
-      toast(isUpdate ? 'Broadcast actualizado' : 'Broadcast creado', 'success');
+      toast(isUpdate ? t('toastUpdated') : t('toastCreated'), 'success');
       setEditing(null);
       await load();
     } catch (e: any) {
-      toast(e.message ?? 'Error', 'error');
+      toast(e.message ?? t('errorGeneric'), 'error');
     }
   }
 
   async function disable(b: Broadcast) {
-    if (!confirm(`¿Desactivar "${b.title}"?`)) return;
+    if (!confirm(t('confirmDisable', { title: b.title }))) return;
     try {
       await api(`/admin/broadcasts/${b.id}/disable`, { method: 'PATCH' });
-      toast('Desactivado', 'success');
+      toast(t('toastDisabled'), 'success');
       await load();
     } catch (e: any) {
-      toast(e.message ?? 'Error', 'error');
+      toast(e.message ?? t('errorGeneric'), 'error');
     }
   }
 
@@ -219,11 +221,11 @@ export default function DifusionAdminPage() {
       });
       await load();
     } catch (e: any) {
-      toast(e.message ?? 'Error', 'error');
+      toast(e.message ?? t('errorGeneric'), 'error');
     }
   }
 
-  if (loading) return <div className="text-mute">Cargando…</div>;
+  if (loading) return <div className="text-mute">{t('loading')}</div>;
 
   const visible = tab === 'BANNER' ? banners : popups;
 
@@ -231,14 +233,14 @@ export default function DifusionAdminPage() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Difusión interna{' '}
-          <span className="page-crumb">/ comunicación a equipos comerciales</span>
+          {t('pageTitle')}{' '}
+          <span className="page-crumb">{t('pageCrumb')}</span>
         </h1>
         <button
           className="btn-primary"
           onClick={() => setEditing(emptyForm(tab))}
         >
-          + {tab === 'BANNER' ? 'Banner' : 'Popup'}
+          + {tab === 'BANNER' ? t('banner') : t('popup')}
         </button>
       </div>
 
@@ -248,14 +250,14 @@ export default function DifusionAdminPage() {
             className={`tab ${tab === 'BANNER' ? 'tab-active' : ''}`}
             onClick={() => setTab('BANNER')}
           >
-            📢 Banner informativo
+            📢 {t('tabBanner')}
             <span className="ml-1.5 text-[10px] opacity-70">({banners.length})</span>
           </button>
           <button
             className={`tab ${tab === 'LOGIN_POPUP' ? 'tab-active' : ''}`}
             onClick={() => setTab('LOGIN_POPUP')}
           >
-            🪟 Popup de comunicación
+            🪟 {t('tabPopup')}
             <span className="ml-1.5 text-[10px] opacity-70">({popups.length})</span>
           </button>
         </div>
@@ -263,9 +265,7 @@ export default function DifusionAdminPage() {
 
       {visible.length === 0 && (
         <div className="card card-pad text-center text-mute py-10">
-          {tab === 'BANNER'
-            ? 'Aún no hay banners. Crea el primero con "+ Banner" arriba.'
-            : 'Aún no hay popups. Crea el primero con "+ Popup" arriba.'}
+          {tab === 'BANNER' ? t('emptyBanners') : t('emptyPopups')}
         </div>
       )}
 
@@ -303,7 +303,8 @@ function BroadcastCard({
   onDisable: () => void;
   onToggle: () => void;
 }) {
-  const st = statusLabel(b);
+  const t = useTranslations('admin_ventas_difusion');
+  const st = statusBadge(b);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [showMetrics, setShowMetrics] = useState(false);
 
@@ -317,7 +318,7 @@ function BroadcastCard({
       setMetrics(m);
       setShowMetrics(true);
     } catch (e: any) {
-      toast(e.message ?? 'Error', 'error');
+      toast(e.message ?? t('errorGeneric'), 'error');
     }
   }
 
@@ -327,10 +328,10 @@ function BroadcastCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
             <span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${st.cls}`}>
-              {st.label}
+              {t(st.key)}
             </span>
             <span className="text-[11px] text-mute">
-              {AUDIENCE_LABEL[b.audience]}
+              {t(AUDIENCE_LABEL_KEY[b.audience])}
             </span>
             {(b.startsAt || b.endsAt) && (
               <span className="text-[11px] text-mute">
@@ -351,21 +352,21 @@ function BroadcastCard({
         </div>
         <div className="flex flex-col gap-1.5 flex-none">
           <button onClick={onEdit} className="btn-ghost text-[11px]">
-            ✏️ Editar
+            ✏️ {t('edit')}
           </button>
           <button onClick={loadMetrics} className="btn-ghost text-[11px]">
-            📈 Métricas
+            📈 {t('metrics')}
           </button>
           <button
             onClick={onToggle}
             className="btn-ghost text-[11px]"
-            title={b.isActive ? 'Pausar' : 'Activar'}
+            title={b.isActive ? t('pause') : t('activate')}
           >
-            {b.isActive ? '⏸ Pausar' : '▶ Activar'}
+            {b.isActive ? `⏸ ${t('pause')}` : `▶ ${t('activate')}`}
           </button>
           {b.isActive && (
             <button onClick={onDisable} className="btn-ghost text-[11px] text-bad">
-              🚫 Desactivar
+              🚫 {t('disable')}
             </button>
           )}
         </div>
@@ -373,11 +374,11 @@ function BroadcastCard({
 
       {showMetrics && metrics && (
         <div className="mt-3 pt-3 border-t border-bg2 grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <Metric label="Enviados" value={String(metrics.sent)} />
-          <Metric label="Leídos" value={String(metrics.read)} />
-          <Metric label="Pendientes" value={String(metrics.pending)} />
+          <Metric label={t('metricSent')} value={String(metrics.sent)} />
+          <Metric label={t('metricRead')} value={String(metrics.read)} />
+          <Metric label={t('metricPending')} value={String(metrics.pending)} />
           <Metric
-            label="Tasa lectura"
+            label={t('metricReadRate')}
             value={`${(metrics.rate * 100).toFixed(0)}%`}
           />
         </div>
@@ -398,6 +399,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 function BannerPreview({ b }: { b: Partial<Broadcast> }) {
+  const t = useTranslations('admin_ventas_difusion');
   const color: Color = (b.color as Color) || 'BLUE';
   const palette =
     color === 'CUSTOM'
@@ -411,9 +413,9 @@ function BannerPreview({ b }: { b: Partial<Broadcast> }) {
     >
       <span className="text-lg leading-none">{ICON_SYMBOL[icon]}</span>
       <div className="flex-1 min-w-0">
-        <div className="font-semibold leading-tight">{b.title || 'Título del banner'}</div>
+        <div className="font-semibold leading-tight">{b.title || t('previewBannerTitle')}</div>
         <div className="opacity-90 text-[11px] leading-snug">
-          {b.description || 'Descripción del banner'}
+          {b.description || t('previewBannerDescription')}
         </div>
       </div>
       {b.ctaLabel && (
@@ -429,10 +431,11 @@ function BannerPreview({ b }: { b: Partial<Broadcast> }) {
 }
 
 function PopupPreview({ b }: { b: Partial<Broadcast> }) {
+  const t = useTranslations('admin_ventas_difusion');
   return (
     <div className="bg-bg2 rounded-xl p-4">
       <div className="bg-white rounded-xl p-4 shadow-sm">
-        <div className="font-bold text-base mb-2">{b.title || 'Título del popup'}</div>
+        <div className="font-bold text-base mb-2">{b.title || t('previewPopupTitle')}</div>
         {b.mediaKind === 'IMAGE' && b.mediaUrl && (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={b.mediaUrl} alt="" className="w-full rounded-lg mb-2" />
@@ -450,14 +453,14 @@ function PopupPreview({ b }: { b: Partial<Broadcast> }) {
             rel="noopener noreferrer"
             className="text-violet-700 underline text-sm block mb-2"
           >
-            📄 Ver documento
+            📄 {t('viewDocument')}
           </a>
         )}
         <div className="text-sm text-mute whitespace-pre-wrap mb-3">
-          {b.description || 'Contenido del popup'}
+          {b.description || t('previewPopupContent')}
         </div>
         <button className="btn-primary w-full">
-          {b.confirmLabel || 'He leído'}
+          {b.confirmLabel || t('defaultConfirmLabel')}
         </button>
       </div>
     </div>
@@ -473,6 +476,7 @@ function EditorModal({
   onClose: () => void;
   onSave: (b: Partial<Broadcast>) => void | Promise<void>;
 }) {
+  const t = useTranslations('admin_ventas_difusion');
   const [form, setForm] = useState<Partial<Broadcast>>({ ...initial });
   const [busy, setBusy] = useState(false);
 
@@ -483,11 +487,11 @@ function EditorModal({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.title?.trim()) {
-      toast('Falta el título', 'error');
+      toast(t('errorMissingTitle'), 'error');
       return;
     }
     if (!form.description?.trim()) {
-      toast('Falta la descripción', 'error');
+      toast(t('errorMissingDescription'), 'error');
       return;
     }
     setBusy(true);
@@ -511,7 +515,13 @@ function EditorModal({
       >
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-bold text-lg">
-            {form.id ? 'Editar' : 'Nuevo'} {isBanner ? 'banner' : 'popup'}
+            {form.id
+              ? isBanner
+                ? t('editorTitleEditBanner')
+                : t('editorTitleEditPopup')
+              : isBanner
+                ? t('editorTitleNewBanner')
+                : t('editorTitleNewPopup')}
           </h2>
           <button onClick={onClose} className="text-mute hover:text-ink text-xl">
             ×
@@ -521,28 +531,28 @@ function EditorModal({
         <form onSubmit={submit} className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5">
           {/* Formulario */}
           <div className="flex flex-col gap-3">
-            <Field label="Título">
+            <Field label={t('fieldTitle')}>
               <input
                 className="input"
                 value={form.title ?? ''}
                 onChange={(e) => patch({ title: e.target.value })}
-                placeholder={isBanner ? 'Nueva capacitación esta semana' : 'Lee esto antes de empezar'}
+                placeholder={isBanner ? t('phTitleBanner') : t('phTitlePopup')}
                 required
               />
             </Field>
-            <Field label={isBanner ? 'Descripción' : 'Contenido'}>
+            <Field label={isBanner ? t('fieldDescription') : t('fieldContent')}>
               <textarea
                 className="input min-h-[100px]"
                 value={form.description ?? ''}
                 onChange={(e) => patch({ description: e.target.value })}
-                placeholder={isBanner ? 'Texto que aparecerá en la barra' : 'Mensaje completo del popup'}
+                placeholder={isBanner ? t('phDescriptionBanner') : t('phDescriptionPopup')}
                 required
               />
             </Field>
 
             {isBanner ? (
               <>
-                <Field label="Color">
+                <Field label={t('fieldColor')}>
                   <div className="flex items-center gap-2 flex-wrap">
                     {(['GREEN', 'BLUE', 'YELLOW', 'RED'] as const).map((c) => {
                       const p = COLOR_PRESETS[c];
@@ -555,7 +565,7 @@ function EditorModal({
                             form.color === c ? 'border-ink' : 'border-transparent'
                           }`}
                           style={{ background: p.bg }}
-                          title={c}
+                          title={t(`color_${c}`)}
                         />
                       );
                     })}
@@ -568,7 +578,7 @@ function EditorModal({
                           : 'border-bg2'
                       }`}
                     >
-                      Custom
+                      {t('colorCustom')}
                     </button>
                     {form.color === 'CUSTOM' && (
                       <input
@@ -580,7 +590,7 @@ function EditorModal({
                     )}
                   </div>
                 </Field>
-                <Field label="Icono">
+                <Field label={t('fieldIcon')}>
                   <select
                     className="input"
                     value={form.icon ?? 'INFO'}
@@ -588,21 +598,21 @@ function EditorModal({
                   >
                     {(['INFO', 'ALERT', 'NEWS', 'TRAINING', 'PROMO'] as const).map((i) => (
                       <option key={i} value={i}>
-                        {ICON_LABEL[i]}
+                        {ICON_SYMBOL[i]} {t(ICON_LABEL_KEY[i])}
                       </option>
                     ))}
                   </select>
                 </Field>
                 <div className="grid grid-cols-2 gap-3">
-                  <Field label="Texto del CTA (opcional)">
+                  <Field label={t('fieldCtaLabel')}>
                     <input
                       className="input"
                       value={form.ctaLabel ?? ''}
                       onChange={(e) => patch({ ctaLabel: e.target.value })}
-                      placeholder="Ver más"
+                      placeholder={t('phCtaLabel')}
                     />
                   </Field>
-                  <Field label="URL del CTA (opcional)">
+                  <Field label={t('fieldCtaUrl')}>
                     <input
                       className="input"
                       type="url"
@@ -615,7 +625,7 @@ function EditorModal({
               </>
             ) : (
               <>
-                <Field label="Tipo de media">
+                <Field label={t('fieldMediaKind')}>
                   <select
                     className="input"
                     value={form.mediaKind ?? 'TEXT'}
@@ -625,7 +635,7 @@ function EditorModal({
                   >
                     {(['TEXT', 'IMAGE', 'AUDIO', 'VIDEO', 'PDF'] as const).map((m) => (
                       <option key={m} value={m}>
-                        {MEDIA_LABEL[m]}
+                        {t(MEDIA_LABEL_KEY[m])}
                       </option>
                     ))}
                   </select>
@@ -633,7 +643,7 @@ function EditorModal({
                 {/* #21 (2026-06-16): para IMAGE, permitir SUBIR la imagen
                     directamente (además de pegar URL). */}
                 {form.mediaKind === 'IMAGE' && (
-                  <Field label="Subir imagen">
+                  <Field label={t('fieldUploadImage')}>
                     <ImageUploader
                       value={form.mediaUrl ?? null}
                       onChange={(url) => patch({ mediaUrl: url ?? '' })}
@@ -644,8 +654,10 @@ function EditorModal({
                   <Field
                     label={
                       form.mediaKind === 'IMAGE'
-                        ? '…o pegar URL de la imagen'
-                        : `URL del ${MEDIA_LABEL[form.mediaKind].toLowerCase()}`
+                        ? t('fieldOrPasteImageUrl')
+                        : t('fieldMediaUrl', {
+                            kind: t(MEDIA_LABEL_KEY[form.mediaKind]).toLowerCase(),
+                          })
                     }
                   >
                     <input
@@ -657,18 +669,18 @@ function EditorModal({
                     />
                   </Field>
                 )}
-                <Field label="Texto del botón principal">
+                <Field label={t('fieldConfirmLabel')}>
                   <input
                     className="input"
                     value={form.confirmLabel ?? 'He leído'}
                     onChange={(e) => patch({ confirmLabel: e.target.value })}
-                    placeholder="He leído"
+                    placeholder={t('phConfirmLabel')}
                   />
                 </Field>
               </>
             )}
 
-            <Field label="Audiencia">
+            <Field label={t('fieldAudience')}>
               <select
                 className="input"
                 value={form.audience ?? 'ALL'}
@@ -677,7 +689,7 @@ function EditorModal({
                 {(['ALL', 'INFLUENCERS', 'AMBASSADORS', 'VENDORS'] as const).map(
                   (a) => (
                     <option key={a} value={a}>
-                      {AUDIENCE_LABEL[a]}
+                      {t(AUDIENCE_LABEL_KEY[a])}
                     </option>
                   ),
                 )}
@@ -685,7 +697,7 @@ function EditorModal({
             </Field>
 
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Fecha inicio (opcional)">
+              <Field label={t('fieldStartsAt')}>
                 <input
                   className="input"
                   type="datetime-local"
@@ -699,7 +711,7 @@ function EditorModal({
                   }
                 />
               </Field>
-              <Field label="Fecha fin (opcional)">
+              <Field label={t('fieldEndsAt')}>
                 <input
                   className="input"
                   type="datetime-local"
@@ -719,15 +731,15 @@ function EditorModal({
                 checked={form.isActive ?? true}
                 onChange={(e) => patch({ isActive: e.target.checked })}
               />
-              <span>Activo</span>
+              <span>{t('active')}</span>
             </label>
 
             <div className="flex items-center gap-2 pt-2">
               <button type="button" onClick={onClose} className="btn-ghost flex-1">
-                Cancelar
+                {t('cancel')}
               </button>
               <button type="submit" className="btn-primary flex-1" disabled={busy}>
-                {busy ? 'Guardando…' : form.id ? 'Actualizar' : 'Crear'}
+                {busy ? t('saving') : form.id ? t('update') : t('create')}
               </button>
             </div>
           </div>
@@ -735,7 +747,7 @@ function EditorModal({
           {/* Preview en vivo */}
           <div className="lg:border-l lg:pl-5">
             <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-2">
-              Vista previa
+              {t('preview')}
             </div>
             {isBanner ? <BannerPreview b={form} /> : <PopupPreview b={form} />}
           </div>

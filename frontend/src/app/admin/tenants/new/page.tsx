@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { api, getImpersonationBackup } from '@/lib/api';
 import { Icon } from '@/components/Icon';
@@ -11,6 +12,7 @@ import {
 import { AffiliatePickerSearch } from '@/components/AffiliatePickerSearch';
 
 export default function NewTenant() {
+  const t = useTranslations('admin_tenants_new');
   const router = useRouter();
   const [plans, setPlans] = useState<any[]>([]);
   type BillingMode = 'pending' | 'free' | 'trial' | 'paid';
@@ -178,7 +180,7 @@ export default function NewTenant() {
           />
         )}
         <div className="page-head">
-          <h1 className="page-title">Negocio creado</h1>
+          <h1 className="page-title">{t('resultPageTitle')}</h1>
         </div>
         {blocked && (
           <div className="card card-pad mb-3 border-2 border-warn/40 bg-warn-soft/40">
@@ -186,17 +188,16 @@ export default function NewTenant() {
               <span className="text-xl leading-none">🔒</span>
               <div>
                 <div className="font-semibold text-warn-ink">
-                  Negocio bloqueado — falta activarlo
+                  {t('blockedTitle')}
                 </div>
                 <p className="text-sm text-warn-ink/90 mt-1 mb-3">
-                  Este negocio no puede operar hasta que le asignes un crédito.
-                  El dueño verá la pantalla de bloqueo al ingresar.
+                  {t('blockedDescription')}
                 </p>
                 <button
                   className="btn-primary"
                   onClick={() => setShowCreditModal(true)}
                 >
-                  Activar ahora
+                  {t('activateNow')}
                 </button>
               </div>
             </div>
@@ -205,26 +206,25 @@ export default function NewTenant() {
         {activated && (
           <div className="card card-pad mb-3 border-2 border-ok/30 bg-ok-soft/40">
             <div className="flex items-center gap-2 text-ok-ink font-semibold">
-              <Icon name="check" size={18} /> Negocio activado · 30 días
+              <Icon name="check" size={18} /> {t('activatedBanner')}
             </div>
           </div>
         )}
         <div className="card card-pad">
           <div className="flex items-center gap-2 text-ok">
             <Icon name="check" size={22} />
-            <h3 className="m-0 text-lg font-semibold">{brand} listo</h3>
+            <h3 className="m-0 text-lg font-semibold">{t('brandReady', { brand })}</h3>
           </div>
           <p className="text-sm text-mute mt-1.5 mb-4">
-            Comparte estas credenciales con el dueño. La contraseña no se vuelve
-            a mostrar después de salir de esta pantalla.
+            {t('credentialsHint')}
           </p>
 
           <div className="space-y-2.5">
-            <CredentialRow label="Usuario / Email" value={email} />
+            <CredentialRow label={t('credUserEmail')} value={email} />
             {password && (
-              <CredentialRow label="Contraseña" value={password} mono highlight />
+              <CredentialRow label={t('credPassword')} value={password} mono highlight />
             )}
-            {phone && <CredentialRow label="Teléfono" value={phone} />}
+            {phone && <CredentialRow label={t('credPhone')} value={phone} />}
           </div>
 
           <div className="mt-5 grid grid-cols-2 gap-2">
@@ -247,13 +247,13 @@ export default function NewTenant() {
 
           <div className="mt-6 flex gap-2.5 pt-4 border-t border-line">
             <button className="btn-ghost" onClick={() => setResult(null)}>
-              Crear otro
+              {t('createAnother')}
             </button>
             <button
               className="btn-primary"
               onClick={() => router.push('/admin/tenants')}
             >
-              Volver a la lista
+              {t('backToList')}
             </button>
           </div>
         </div>
@@ -265,13 +265,13 @@ export default function NewTenant() {
     <div className="max-w-2xl">
       <div className="page-head">
         <h1 className="page-title">
-          Nuevo negocio <span className="page-crumb">/ Negocios</span>
+          {t('pageTitle')} <span className="page-crumb">{t('pageCrumb')}</span>
         </h1>
       </div>
 
       <form onSubmit={submit} className="card card-pad grid grid-cols-2 gap-3.5">
         <div className="col-span-2">
-          <label className="label">Nombre comercial</label>
+          <label className="label">{t('fieldBrandName')}</label>
           <input
             className="input"
             value={form.brandName}
@@ -280,7 +280,7 @@ export default function NewTenant() {
           />
         </div>
         <div>
-          <label className="label">Email del dueño</label>
+          <label className="label">{t('fieldOwnerEmail')}</label>
           <input
             className="input"
             type="email"
@@ -290,18 +290,18 @@ export default function NewTenant() {
           />
         </div>
         <div>
-          <label className="label">Teléfono</label>
+          <label className="label">{t('fieldPhone')}</label>
           <PhoneInput
             value={form.phone}
             onChange={(v) => set('phone', v)}
             placeholder="3001234567"
           />
           <div className="text-[11px] text-mute mt-1">
-            Solo informativo · no enviamos notificaciones a este número.
+            {t('phoneHint')}
           </div>
         </div>
         <div>
-          <label className="label">Nombre del dueño</label>
+          <label className="label">{t('fieldOwnerName')}</label>
           <input
             className="input"
             value={form.ownerFullName}
@@ -310,16 +310,16 @@ export default function NewTenant() {
           />
         </div>
         <div>
-          <label className="label">Contraseña (opcional)</label>
+          <label className="label">{t('fieldPassword')}</label>
           <input
             className="input"
-            placeholder="Auto si lo dejas vacío"
+            placeholder={t('phPassword')}
             value={form.ownerPassword}
             onChange={(e) => set('ownerPassword', e.target.value)}
           />
         </div>
         <div>
-          <label className="label">Plan</label>
+          <label className="label">{t('fieldPlan')}</label>
           <select
             className="input"
             value={form.planId}
@@ -327,7 +327,7 @@ export default function NewTenant() {
           >
             {/* #9: "Sin plan" permite crear el negocio aunque la marca no tenga
                 planes configurados (ej. Sellea). */}
-            <option value="">Sin plan</option>
+            <option value="">{t('noPlan')}</option>
             {plans.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -336,23 +336,22 @@ export default function NewTenant() {
           </select>
           {!form.planId && (
             <div className="text-[11px] text-mute mt-1">
-              Se creará sin plan asignado (precio 0). Podés asignarle un plan
-              después desde la página del negocio.
+              {t('noPlanHint')}
             </div>
           )}
         </div>
         <div className="col-span-2">
           <label className="label">
-            Periodicidad{' '}
-            <span className="text-mute font-normal">— informativo, NO altera el billing real (lo dicta Hotmart)</span>
+            {t('fieldPeriodicity')}{' '}
+            <span className="text-mute font-normal">{t('periodicityNote')}</span>
           </label>
           <div className="grid grid-cols-4 gap-2">
             {(
               [
-                { v: 'MENSUAL', label: 'Mensual' },
-                { v: 'TRIMESTRAL', label: 'Trimestral' },
-                { v: 'SEMESTRAL', label: 'Semestral' },
-                { v: 'ANUAL', label: 'Anual' },
+                { v: 'MENSUAL', label: t('periodicityMonthly') },
+                { v: 'TRIMESTRAL', label: t('periodicityQuarterly') },
+                { v: 'SEMESTRAL', label: t('periodicitySemiannual') },
+                { v: 'ANUAL', label: t('periodicityAnnual') },
               ] as const
             ).map((opt) => {
               const active = form.planPeriodicity === opt.v;
@@ -373,8 +372,7 @@ export default function NewTenant() {
             })}
           </div>
           <div className="text-[11px] text-mute mt-1">
-            Útil para CRM, reporting y filtros. Editable después desde la
-            página del negocio.
+            {t('periodicityHint')}
           </div>
         </div>
         {/* #10: la asignación a afiliados solo se muestra si la marca activa
@@ -382,24 +380,22 @@ export default function NewTenant() {
         {referralsEnabled && (
           <div className="col-span-2">
             <label className="label">
-              Asignar a embajador / influencer{' '}
-              <span className="text-mute font-normal">— opcional</span>
+              {t('fieldAssignAffiliate')}{' '}
+              <span className="text-mute font-normal">{t('optionalSuffix')}</span>
             </label>
             <AffiliatePickerSearch
               value={form.referralCodeId}
               onChange={(id) => set('referralCodeId', id)}
-              placeholder="Buscar por nombre, correo, teléfono o código…"
+              placeholder={t('phAffiliateSearch')}
             />
             <div className="text-[11px] text-mute mt-1 leading-snug">
-              Si el negocio fue traído por un afiliado offline, elegilo aquí.
-              Las comisiones futuras se atribuyen automáticamente. Puedes
-              cambiar esto después desde la página del negocio.
+              {t('assignAffiliateHint')}
             </div>
           </div>
         )}
 
         <div className="col-span-2">
-          <label className="label">Categoría del negocio</label>
+          <label className="label">{t('fieldCategory')}</label>
           <select
             className="input"
             value={form.businessCategorySlug}
@@ -413,15 +409,17 @@ export default function NewTenant() {
             ))}
           </select>
           <div className="text-[11px] text-mute mt-1 leading-relaxed">
-            Define qué módulos verá el dueño en su panel (menú, pedidos,
-            servicios, etc). Lista completa en{' '}
-            <a
-              href="/admin/business-categories"
-              target="_blank"
-              className="text-brand hover:underline"
-            >
-              /admin/business-categories
-            </a>.
+            {t.rich('categoryHint', {
+              a: (chunks) => (
+                <a
+                  href="/admin/business-categories"
+                  target="_blank"
+                  className="text-brand hover:underline"
+                >
+                  {chunks}
+                </a>
+              ),
+            })}
           </div>
         </div>
         {/* Marca blanca: la activación es con créditos, no con Hotmart. */}
@@ -429,19 +427,22 @@ export default function NewTenant() {
           <div className="col-span-2 mt-2 border-t border-line2 pt-4">
             <div className="rounded-lg bg-brand-soft/50 border border-brand/20 px-3 py-3 text-sm">
               <div className="font-semibold text-brand-700">
-                Activación con créditos
+                {t('creditActivationTitle')}
               </div>
               <p className="text-[13px] text-mute mt-1 mb-0">
-                Al crear el negocio te pediremos asignarle{' '}
-                <strong>1 crédito</strong> para activarlo (o comprar más).
-                Hasta entonces queda bloqueado.{' '}
+                {t.rich('creditActivationDescription', {
+                  strong: (chunks) => <strong>{chunks}</strong>,
+                })}{' '}
                 {credits.unlimited ? (
                   <span className="text-ok-ink font-medium">
-                    Tu marca tiene créditos ilimitados — se activa solo.
+                    {t('creditsUnlimited')}
                   </span>
                 ) : (
                   <span>
-                    Disponibles: <strong>{credits.available}</strong>.
+                    {t.rich('creditsAvailable', {
+                      count: credits.available,
+                      strong: (chunks) => <strong>{chunks}</strong>,
+                    })}
                   </span>
                 )}
               </p>
@@ -452,7 +453,7 @@ export default function NewTenant() {
         {creditsLoaded && !credits && (
         <div className="col-span-2 mt-2 border-t border-line2 pt-4">
           <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-3">
-            Facturación · Tipo de cuenta
+            {t('billingSectionTitle')}
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
@@ -461,26 +462,26 @@ export default function NewTenant() {
                 {
                   v: 'pending',
                   emoji: '🔒',
-                  label: 'Sin pago aún',
-                  hint: 'Debe pagar en Hotmart antes de entrar',
+                  label: t('billingPendingLabel'),
+                  hint: t('billingPendingHint'),
                 },
                 {
                   v: 'free',
                   emoji: '🎁',
-                  label: 'Cuenta sin costo',
-                  hint: 'Cortesía indefinida, sin Hotmart',
+                  label: t('billingFreeLabel'),
+                  hint: t('billingFreeHint'),
                 },
                 {
                   v: 'trial',
                   emoji: '⏱',
-                  label: 'Trial gratuito',
-                  hint: 'Acceso por X días, luego pago',
+                  label: t('billingTrialLabel'),
+                  hint: t('billingTrialHint'),
                 },
                 {
                   v: 'paid',
                   emoji: '💳',
-                  label: 'Hotmart activo',
-                  hint: 'Ya pagó · enlazar fecha/código',
+                  label: t('billingPaidLabel'),
+                  hint: t('billingPaidHint'),
                 },
               ] as const
             ).map((opt) => {
@@ -506,7 +507,7 @@ export default function NewTenant() {
 
           {billingMode === 'trial' && (
             <div>
-              <label className="label">Días de trial</label>
+              <label className="label">{t('trialDaysLabel')}</label>
               <input
                 className="input"
                 type="number"
@@ -518,11 +519,10 @@ export default function NewTenant() {
                 }
               />
               <div className="text-[11px] text-mute mt-1">
-                El negocio podrá usar el panel sin restricciones por{' '}
-                <strong>{form.trialDays || 0}</strong> día
-                {form.trialDays === 1 ? '' : 's'}. Cuando termine el trial,
-                pasa a SUSPENDIDO automáticamente y debe pagar en Hotmart
-                para reactivar.
+                {t.rich('trialDaysHint', {
+                  count: form.trialDays || 0,
+                  strong: (chunks) => <strong>{chunks}</strong>,
+                })}
               </div>
             </div>
           )}
@@ -530,7 +530,7 @@ export default function NewTenant() {
           {billingMode === 'paid' && (
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="label">Próxima fecha de pago Hotmart</label>
+                <label className="label">{t('nextChargeLabel')}</label>
                 <input
                   className="input"
                   type="date"
@@ -538,23 +538,21 @@ export default function NewTenant() {
                   onChange={(e) => set('nextChargeDate', e.target.value)}
                 />
                 <div className="text-[11px] text-mute mt-1">
-                  Cuando vence se renueva por webhook (si el código está
-                  enlazado) o pasa a PAST_DUE.
+                  {t('nextChargeHint')}
                 </div>
               </div>
               <div>
-                <label className="label">Código suscriptor Hotmart</label>
+                <label className="label">{t('subscriberCodeLabel')}</label>
                 <input
                   className="input"
-                  placeholder="opcional · si lo conoces del panel Hotmart"
+                  placeholder={t('phSubscriberCode')}
                   value={form.hotmartSubscriberCode}
                   onChange={(e) =>
                     set('hotmartSubscriberCode', e.target.value)
                   }
                 />
                 <div className="text-[11px] text-mute mt-1">
-                  Permite que el webhook de renovaciones encuentre este
-                  tenant. Si no lo tienes, generamos uno manual.
+                  {t('subscriberCodeHint')}
                 </div>
               </div>
             </div>
@@ -562,15 +560,13 @@ export default function NewTenant() {
 
           {billingMode === 'pending' && (
             <div className="rounded-lg bg-bg2/60 px-3 py-2.5 text-xs text-mute">
-              El dueño verá la pantalla de bloqueo apenas haga login. Tendrá
-              que completar el pago en Hotmart para entrar al panel.
+              {t('pendingInfo')}
             </div>
           )}
 
           {billingMode === 'free' && (
             <div className="rounded-lg bg-ok-soft/50 border border-ok/20 px-3 py-2.5 text-xs text-ok-ink">
-              Cuenta de cortesía: queda activa indefinidamente sin pasar por
-              Hotmart. Para revocar acceso, suspende manualmente el tenant.
+              {t('freeInfo')}
             </div>
           )}
         </div>
@@ -583,7 +579,7 @@ export default function NewTenant() {
         )}
         <div className="col-span-2 mt-2">
           <button className="btn-primary" type="submit">
-            <Icon name="check" /> Crear negocio
+            <Icon name="check" /> {t('submitCreate')}
           </button>
         </div>
       </form>
@@ -610,6 +606,7 @@ function CreditActivationModal({
   onActivated: (creditsLeft: number) => void;
   onSkip: () => void;
 }) {
+  const t = useTranslations('admin_tenants_new');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const canUseCredit = !!credits && (credits.unlimited || credits.available >= 1);
@@ -626,7 +623,7 @@ function CreditActivationModal({
       );
       onActivated(res?.creditsAvailable ?? 0);
     } catch (e: any) {
-      setErr(e?.message ?? 'No se pudo activar');
+      setErr(e?.message ?? t('errorCouldNotActivate'));
       setBusy(false);
     }
   }
@@ -640,17 +637,19 @@ function CreditActivationModal({
         className="w-full max-w-md rounded-[16px] bg-white p-6"
         style={{ boxShadow: '0 20px 50px rgba(0,0,0,.3)' }}
       >
-        <h3 className="m-0 text-lg font-bold text-ink">Activa {tenantName}</h3>
+        <h3 className="m-0 text-lg font-bold text-ink">{t('modalActivate', { tenantName })}</h3>
         <p className="text-sm text-mute mt-1.5">
-          El negocio quedó <strong>bloqueado</strong>. Para que pueda operar,
-          asígnale 1 crédito o compra más. Sin esto, no podrá ingresar ni usar
-          ningún módulo.
+          {t.rich('modalActivateDescription', {
+            strong: (chunks) => <strong>{chunks}</strong>,
+          })}
         </p>
 
         {!credits?.unlimited && (
           <div className="mt-4 rounded-lg bg-bg2/60 px-3 py-2.5 text-sm">
-            Créditos disponibles:{' '}
-            <strong>{credits?.available ?? 0}</strong>
+            {t.rich('modalCreditsAvailable', {
+              count: credits?.available ?? 0,
+              strong: (chunks) => <strong>{chunks}</strong>,
+            })}
           </div>
         )}
 
@@ -666,22 +665,22 @@ function CreditActivationModal({
           className="btn-primary w-full justify-center mt-4 disabled:opacity-50"
         >
           {busy
-            ? 'Activando…'
+            ? t('activating')
             : credits?.unlimited
-            ? 'Activar negocio'
-            : 'Usar 1 crédito y activar'}
+            ? t('activateBusiness')
+            : t('useOneCredit')}
         </button>
 
         {!canUseCredit && !credits?.unlimited && (
           <p className="text-xs text-warn-ink mt-2 text-center">
-            No tienes créditos disponibles. Compra un pack para activar.
+            {t('noCreditsAvailable')}
           </p>
         )}
 
         {buyLinks.length > 0 && (
           <div className="mt-5 border-t border-line pt-4">
             <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
-              Comprar créditos
+              {t('buyCredits')}
             </div>
             <div className="space-y-2">
               {buyLinks.map((l: any) => (
@@ -693,13 +692,14 @@ function CreditActivationModal({
                   className="flex items-center justify-between rounded-lg border border-line px-3 py-2.5 text-sm hover:bg-bg2"
                 >
                   <span className="font-medium">{l.label}</span>
-                  <span className="text-brand font-semibold">Comprar →</span>
+                  <span className="text-brand font-semibold">{t('buy')} →</span>
                 </a>
               ))}
             </div>
             <p className="text-[11px] text-mute mt-2">
-              Tras comprar, los créditos se acreditan automáticamente y puedes
-              activar este negocio desde <strong>Créditos → Pendientes</strong>.
+              {t.rich('buyCreditsHint', {
+                strong: (chunks) => <strong>{chunks}</strong>,
+              })}
             </p>
           </div>
         )}
@@ -709,7 +709,7 @@ function CreditActivationModal({
           disabled={busy}
           className="block w-full text-center text-xs text-mute hover:text-ink mt-5"
         >
-          Activar después — el negocio quedará bloqueado
+          {t('activateLater')}
         </button>
       </div>
     </div>
@@ -727,6 +727,7 @@ function CredentialRow({
   mono?: boolean;
   highlight?: boolean;
 }) {
+  const t = useTranslations('admin_tenants_new');
   const [copied, setCopied] = useState(false);
   async function copy() {
     try {
@@ -762,7 +763,7 @@ function CredentialRow({
         className="shrink-0 text-xs font-semibold px-2.5 py-1.5 rounded-md bg-white border border-line hover:bg-bg2"
         type="button"
       >
-        {copied ? '✓ Copiado' : 'Copiar'}
+        {copied ? `✓ ${t('copied')}` : t('copy')}
       </button>
     </div>
   );
@@ -783,22 +784,23 @@ function SendButton({
   password: string;
   loginUrl: string;
 }) {
-  const body =
-    `Hola, te creamos el panel de ${brand}.\n\n` +
-    `Usuario: ${email}\n` +
-    `Contraseña: ${password}\n\n` +
-    `Entra acá: ${loginUrl}\n\n` +
-    `Te recomendamos cambiar la contraseña al primer login.`;
+  const t = useTranslations('admin_tenants_new');
+  const body = t('sendMessageBody', {
+    brand,
+    email: email ?? '',
+    password,
+    loginUrl,
+  });
   if (kind === 'email') {
     const href = `mailto:${encodeURIComponent(email ?? '')}?subject=${encodeURIComponent(
-      `Credenciales de ${brand}`,
+      t('sendEmailSubject', { brand }),
     )}&body=${encodeURIComponent(body)}`;
     return (
       <a
         href={href}
         className="text-center text-sm font-semibold py-2.5 rounded-lg bg-white border border-line hover:bg-bg2"
       >
-        ✉ Enviar por email
+        ✉ {t('sendByEmail')}
       </a>
     );
   }
@@ -809,7 +811,7 @@ function SendButton({
         disabled
         className="text-sm font-semibold py-2.5 rounded-lg bg-bg2/50 text-mute cursor-not-allowed"
       >
-        WhatsApp · sin teléfono
+        {t('whatsappNoPhone')}
       </button>
     );
   }
@@ -822,7 +824,7 @@ function SendButton({
       rel="noreferrer"
       className="text-center text-sm font-semibold py-2.5 rounded-lg bg-[#25D366] text-white hover:opacity-95"
     >
-      💬 Enviar por WhatsApp
+      💬 {t('sendByWhatsapp')}
     </a>
   );
 }
