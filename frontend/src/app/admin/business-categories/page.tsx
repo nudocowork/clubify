@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import {
@@ -7,22 +8,24 @@ import {
   type BusinessModule,
 } from '@/lib/business-categories';
 
-const MODULE_INFO: Record<BusinessModule, { emoji: string; label: string }> = {
-  cards: { emoji: '💳', label: 'Tarjetas fid.' },
-  customers: { emoji: '👥', label: 'Clientes' },
-  scanner: { emoji: '🔍', label: 'Escáner' },
-  push: { emoji: '🔔', label: 'Push wallet' },
-  menu: { emoji: '📋', label: 'Menú/catálogo' },
-  orders: { emoji: '🛒', label: 'Pedidos' },
-  analytics: { emoji: '📊', label: 'Analítica' },
-  staff: { emoji: '👤', label: 'Equipo de trabajo' },
-  info_links: { emoji: '🔗', label: 'InfoLinks' },
-  services: { emoji: '🛠', label: 'Servicios' },
-};
+const MODULE_INFO: Record<BusinessModule, { emoji: string; labelKey: string }> =
+  {
+    cards: { emoji: '💳', labelKey: 'moduleCards' },
+    customers: { emoji: '👥', labelKey: 'moduleCustomers' },
+    scanner: { emoji: '🔍', labelKey: 'moduleScanner' },
+    push: { emoji: '🔔', labelKey: 'modulePush' },
+    menu: { emoji: '📋', labelKey: 'moduleMenu' },
+    orders: { emoji: '🛒', labelKey: 'moduleOrders' },
+    analytics: { emoji: '📊', labelKey: 'moduleAnalytics' },
+    staff: { emoji: '👤', labelKey: 'moduleStaff' },
+    info_links: { emoji: '🔗', labelKey: 'moduleInfoLinks' },
+    services: { emoji: '🛠', labelKey: 'moduleServices' },
+  };
 
 type CategoryCounts = Record<string, number>;
 
 export default function BusinessCategoriesPage() {
+  const t = useTranslations('admin_business_categories');
   const [counts, setCounts] = useState<CategoryCounts>({});
   const [loading, setLoading] = useState(true);
 
@@ -30,8 +33,8 @@ export default function BusinessCategoriesPage() {
     api<any[]>('/tenants')
       .then((tenants) => {
         const c: CategoryCounts = {};
-        for (const t of tenants) {
-          const slug = t.businessCategorySlug ?? '_unset';
+        for (const tn of tenants) {
+          const slug = tn.businessCategorySlug ?? '_unset';
           c[slug] = (c[slug] ?? 0) + 1;
         }
         setCounts(c);
@@ -44,26 +47,27 @@ export default function BusinessCategoriesPage() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Categorías de negocio{' '}
-          <span className="page-crumb">/ {BUSINESS_CATEGORIES.length} disponibles</span>
+          {t('title')}{' '}
+          <span className="page-crumb">
+            / {t('available', { count: BUSINESS_CATEGORIES.length })}
+          </span>
         </h1>
       </div>
 
       <div className="card card-pad mb-5">
         <h3 className="text-base font-semibold m-0 flex items-center gap-2">
-          🎯 Personalización del panel por rubro
+          🎯 {t('panelCustomizationTitle')}
         </h3>
         <p className="text-sm text-mute mt-2 leading-relaxed">
-          Cada cliente elige su categoría al pagar el plan. El sidebar y los
-          módulos del panel se ajustan automáticamente al rubro: un{' '}
-          <b>autolavado</b> ve "Servicios" en vez de "Menú" y no tiene
-          "Pedidos"; una <b>cafetería</b> sí ve menú y pedidos. La lista de
-          módulos por categoría está hardcoded en{' '}
-          <code className="text-xs bg-bg2 px-1.5 py-0.5 rounded">
-            frontend/src/lib/business-categories.ts
-          </code>{' '}
-          y la copia idéntica en backend. Para agregar/editar categorías,
-          modifica ambos archivos y redespliega.
+          {t.rich('panelCustomizationDesc', {
+            autolavado: (chunks) => <b>{chunks}</b>,
+            cafeteria: (chunks) => <b>{chunks}</b>,
+            code: (chunks) => (
+              <code className="text-xs bg-bg2 px-1.5 py-0.5 rounded">
+                {chunks}
+              </code>
+            ),
+          })}
         </p>
       </div>
 
@@ -81,7 +85,7 @@ export default function BusinessCategoriesPage() {
               {counts[c.slug] > 0 && (
                 <span
                   className="badge badge-info text-[10px]"
-                  title={`${counts[c.slug]} negocios en esta categoría`}
+                  title={t('businessesInCategory', { count: counts[c.slug] })}
                 >
                   {counts[c.slug]}
                 </span>
@@ -92,27 +96,27 @@ export default function BusinessCategoriesPage() {
             </p>
             <div className="mt-3 pt-3 border-t border-line2">
               <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1.5">
-                Módulos habilitados
+                {t('enabledModules')}
               </div>
               <div className="flex flex-wrap gap-1">
                 {c.modules.map((m) => (
                   <span
                     key={m}
                     className="text-[10px] bg-bg2 text-ink px-1.5 py-0.5 rounded font-medium"
-                    title={MODULE_INFO[m].label}
+                    title={t(MODULE_INFO[m].labelKey)}
                   >
-                    {MODULE_INFO[m].emoji} {MODULE_INFO[m].label}
+                    {MODULE_INFO[m].emoji} {t(MODULE_INFO[m].labelKey)}
                   </span>
                 ))}
               </div>
               <div className="text-[10px] text-mute mt-2">
-                Item del catálogo en el sidebar:{' '}
+                {t('catalogItemInSidebar')}{' '}
                 <b className="text-ink">
                   {c.catalogLabel === 'services'
-                    ? 'Servicios'
+                    ? t('catalogLabelServices')
                     : c.catalogLabel === 'catalog'
-                    ? 'Catálogo'
-                    : 'Menú'}
+                    ? t('catalogLabelCatalog')
+                    : t('catalogLabelMenu')}
                 </b>
               </div>
             </div>
@@ -122,10 +126,13 @@ export default function BusinessCategoriesPage() {
 
       {!loading && counts['_unset'] > 0 && (
         <div className="mt-5 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900">
-          ⚠ Hay <b>{counts['_unset']}</b> negocios sin categoría asignada.
-          Caen al default <code>restaurant</code> en runtime.{' '}
+          {t.rich('unsetWarning', {
+            count: counts['_unset'],
+            b: (chunks) => <b>{chunks}</b>,
+            code: (chunks) => <code>{chunks}</code>,
+          })}{' '}
           <Link href="/admin/tenants" className="underline">
-            Revisar tenants →
+            {t('reviewTenants')}
           </Link>
         </div>
       )}

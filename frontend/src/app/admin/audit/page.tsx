@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
@@ -35,6 +36,7 @@ function actionTone(action: string) {
 }
 
 export default function AuditLogsPage() {
+  const t = useTranslations('admin_audit');
   const [items, setItems] = useState<Audit[]>([]);
   const [filters, setFilters] = useState({
     action: '',
@@ -54,7 +56,7 @@ export default function AuditLogsPage() {
       const data = await api<Audit[]>(`/audit?${params}`);
       setItems(data);
     } catch (e: any) {
-      toast(e.message || 'Error cargando audit log', 'error');
+      toast(e.message || t('errorLoading'), 'error');
     } finally {
       setLoading(false);
     }
@@ -67,11 +69,13 @@ export default function AuditLogsPage() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Audit log{' '}
-          <span className="page-crumb">/ {items.length} eventos recientes</span>
+          {t('title')}{' '}
+          <span className="page-crumb">
+            / {t('recentEvents', { count: items.length })}
+          </span>
         </h1>
         <button className="btn-ghost" onClick={load} disabled={loading}>
-          <Icon name="history" /> {loading ? 'Cargando…' : 'Refrescar'}
+          <Icon name="history" /> {loading ? t('loading') : t('refresh')}
         </button>
       </div>
 
@@ -79,14 +83,14 @@ export default function AuditLogsPage() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
           <input
             className="input"
-            placeholder="Acción (login, payment...)"
+            placeholder={t('placeholderAction')}
             value={filters.action}
             onChange={(e) => setFilters({ ...filters, action: e.target.value })}
             onKeyDown={(e) => e.key === 'Enter' && load()}
           />
           <input
             className="input"
-            placeholder="Recurso (user, order...)"
+            placeholder={t('placeholderResource')}
             value={filters.resource}
             onChange={(e) =>
               setFilters({ ...filters, resource: e.target.value })
@@ -95,7 +99,7 @@ export default function AuditLogsPage() {
           />
           <input
             className="input"
-            placeholder="tenantId"
+            placeholder={t('placeholderTenantId')}
             value={filters.tenantId}
             onChange={(e) =>
               setFilters({ ...filters, tenantId: e.target.value })
@@ -103,7 +107,7 @@ export default function AuditLogsPage() {
             onKeyDown={(e) => e.key === 'Enter' && load()}
           />
           <button className="btn-primary" onClick={load}>
-            <Icon name="search" /> Buscar
+            <Icon name="search" /> {t('search')}
           </button>
         </div>
       </div>
@@ -111,23 +115,28 @@ export default function AuditLogsPage() {
       <div className="card overflow-hidden">
         {items.length === 0 ? (
           <div className="text-center text-mute p-8 text-sm">
-            Sin eventos para los filtros aplicados
+            {t('emptyState')}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-bg2">
                 <tr>
-                  {['Cuándo', 'Acción', 'Recurso', 'Actor', 'IP', 'Metadata'].map(
-                    (h) => (
-                      <th
-                        key={h}
-                        className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
-                      >
-                        {h}
-                      </th>
-                    ),
-                  )}
+                  {[
+                    t('colWhen'),
+                    t('colAction'),
+                    t('colResource'),
+                    t('colActor'),
+                    t('colIp'),
+                    t('colMetadata'),
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
+                    >
+                      {h}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
