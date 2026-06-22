@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
@@ -55,12 +56,12 @@ type Order = {
   location: { id: string; name: string } | null;
 };
 
-const STATUS_LABEL: Record<string, string> = {
-  PENDING: 'Pendiente',
-  CONFIRMED: 'Confirmado',
-  READY: 'Listo',
-  DELIVERED: 'Entregado',
-  CANCELLED: 'Cancelado',
+const STATUS_LABEL_KEY: Record<string, string> = {
+  PENDING: 'statusPending',
+  CONFIRMED: 'statusConfirmed',
+  READY: 'statusReady',
+  DELIVERED: 'statusDelivered',
+  CANCELLED: 'statusCancelled',
 };
 
 const NEXT: Record<string, Order['status']> = {
@@ -69,10 +70,18 @@ const NEXT: Record<string, Order['status']> = {
   READY: 'DELIVERED',
 };
 
-const NEXT_LABEL: Record<string, string> = {
-  PENDING: 'Confirmar',
-  CONFIRMED: 'Marcar listo',
-  READY: 'Marcar entregado',
+const NEXT_LABEL_KEY: Record<string, string> = {
+  PENDING: 'nextConfirm',
+  CONFIRMED: 'nextMarkReady',
+  READY: 'nextMarkDelivered',
+};
+
+const PAYMENT_STATUS_LABEL_KEY: Record<string, string> = {
+  NOT_REQUIRED: 'payStatusNotRequired',
+  PENDING: 'payStatusPending',
+  PAID: 'payStatusPaid',
+  FAILED: 'payStatusFailed',
+  REFUNDED: 'payStatusRefunded',
 };
 
 const COP = (n: number) =>
@@ -92,6 +101,7 @@ function fmtDate(s: string) {
 }
 
 export default function OrderDetail() {
+  const t = useTranslations('app_orders_id');
   const { id } = useParams<{ id: string }>();
   const [o, setO] = useState<Order | null>(null);
   const [busy, setBusy] = useState(false);
@@ -100,7 +110,7 @@ export default function OrderDetail() {
     try {
       setO(await api<Order>(`/orders/${id}`));
     } catch (e: any) {
-      toast(e.message || 'Error cargando pedido', 'error');
+      toast(e.message || t('errorLoading'), 'error');
     }
   }
   useEffect(() => {
@@ -115,9 +125,9 @@ export default function OrderDetail() {
         body: JSON.stringify({ status: next }),
       });
       await load();
-      toast(`Pedido marcado como ${STATUS_LABEL[next]}`, 'success');
+      toast(t('toastStatusChanged', { status: t(STATUS_LABEL_KEY[next]) }), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo cambiar el estado', 'error');
+      toast(e.message || t('errorStatusChange'), 'error');
     } finally {
       setBusy(false);
     }
@@ -129,7 +139,7 @@ export default function OrderDetail() {
    * número de courier, solo marca el pago y avisa que falta config.
    */
   async function acceptDeliveryPayment() {
-    if (!confirm('¿Aceptar pago de este pedido y despachar al courier?')) return;
+    if (!confirm(t('confirmAcceptDelivery'))) return;
     setBusy(true);
     try {
       const res = await api<{ courierLink: string; courierConfigured: boolean }>(
@@ -138,16 +148,13 @@ export default function OrderDetail() {
       );
       await load();
       if (res.courierConfigured && res.courierLink) {
-        toast('Pago aceptado · abriendo WhatsApp al courier…', 'success');
+        toast(t('toastPaymentAcceptedCourier'), 'success');
         window.open(res.courierLink, '_blank');
       } else {
-        toast(
-          'Pago aceptado. Configura el WhatsApp del courier en Mi cuenta para despachar automático.',
-          'info',
-        );
+        toast(t('toastPaymentAcceptedNoCourier'), 'info');
       }
     } catch (e: any) {
-      toast(e.message || 'No se pudo aceptar el pago', 'error');
+      toast(e.message || t('errorAcceptPayment'), 'error');
     } finally {
       setBusy(false);
     }
@@ -163,14 +170,14 @@ export default function OrderDetail() {
     }, 50);
   }
 
-  if (!o) return <div className="text-mute">Cargando…</div>;
+  if (!o) return <div className="text-mute">{t('loading')}</div>;
 
   const flow = ['PENDING', 'CONFIRMED', 'READY', 'DELIVERED'] as const;
   const stamps: { label: string; at: string | null }[] = [
-    { label: 'Creado', at: o.createdAt },
-    { label: 'Confirmado', at: o.confirmedAt },
-    { label: 'Listo', at: o.readyAt },
-    { label: 'Entregado', at: o.deliveredAt },
+    { label: t('stampCreated'), at: o.createdAt },
+    { label: t('stampConfirmed'), at: o.confirmedAt },
+    { label: t('stampReady'), at: o.readyAt },
+    { label: t('stampDelivered'), at: o.deliveredAt },
   ];
 
   return (
@@ -179,7 +186,7 @@ export default function OrderDetail() {
       <div className="page-head">
         <h1 className="page-title">
           <Link href="/app/orders" className="text-mute hover:text-ink">
-            Pedidos
+            {t('breadcrumbOrders')}
           </Link>{' '}
           <span className="page-crumb">/ #{o.code}</span>
         </h1>
@@ -197,7 +204,7 @@ export default function OrderDetail() {
                 : 'badge-warn'
             }`}
           >
-            {STATUS_LABEL[o.status]}
+            {t(STATUS_LABEL_KEY[o.status])}
           </span>
           <PrintMenu onPrint={printAs} />
           {NEXT[o.status] && (
@@ -206,7 +213,7 @@ export default function OrderDetail() {
               disabled={busy}
               onClick={() => setStatus(NEXT[o.status])}
             >
-              <Icon name="arrow-right" /> {NEXT_LABEL[o.status]}
+              <Icon name="arrow-right" /> {t(NEXT_LABEL_KEY[o.status])}
             </button>
           )}
           {o.fulfillment === 'DELIVERY' &&
@@ -216,9 +223,9 @@ export default function OrderDetail() {
                 className="inline-flex items-center gap-1.5 bg-emerald-600 text-white text-sm font-semibold px-3.5 py-2 rounded-pill hover:bg-emerald-700 transition disabled:opacity-50"
                 disabled={busy}
                 onClick={acceptDeliveryPayment}
-                title="Marca pago como cobrado y abre WhatsApp al courier de domicilio"
+                title={t('acceptDeliveryTooltip')}
               >
-                ✓ Aceptar pago + despachar 🛵
+                {t('acceptDeliveryBtn')}
               </button>
             )}
           {o.status !== 'CANCELLED' && o.status !== 'DELIVERED' && (
@@ -226,11 +233,11 @@ export default function OrderDetail() {
               className="btn-danger"
               disabled={busy}
               onClick={() => {
-                if (confirm('¿Cancelar este pedido?'))
+                if (confirm(t('confirmCancel')))
                   setStatus('CANCELLED');
               }}
             >
-              Cancelar
+              {t('cancel')}
             </button>
           )}
         </div>
@@ -269,7 +276,7 @@ export default function OrderDetail() {
         {/* Items */}
         <div className="space-y-4">
           <div className="card card-pad">
-            <h3 className="font-semibold mb-3">Items del pedido</h3>
+            <h3 className="font-semibold mb-3">{t('orderItemsTitle')}</h3>
             <div className="divide-y divide-line2">
               {o.items.map((it, i) => (
                 <div key={i} className="py-3 flex items-start gap-3">
@@ -285,13 +292,13 @@ export default function OrderDetail() {
                     )}
                     {it.note && (
                       <div className="text-xs text-mute italic mt-1">
-                        Nota: {it.note}
+                        {t('itemNote', { note: it.note })}
                       </div>
                     )}
                   </div>
                   <div className="text-right">
                     <div className="font-medium">{COP(it.lineTotal)}</div>
-                    <div className="text-xs text-mute">{COP(it.unitPrice)} c/u</div>
+                    <div className="text-xs text-mute">{t('unitPriceEach', { price: COP(it.unitPrice) })}</div>
                   </div>
                 </div>
               ))}
@@ -299,17 +306,17 @@ export default function OrderDetail() {
 
             <div className="border-t border-line mt-3 pt-3 space-y-1 text-sm">
               <div className="flex justify-between text-mute">
-                <span>Subtotal</span>
+                <span>{t('subtotal')}</span>
                 <span>{COP(Number(o.subtotal))}</span>
               </div>
               {Number(o.discount) > 0 && (
                 <div className="flex justify-between text-ok">
-                  <span>Descuento</span>
+                  <span>{t('discount')}</span>
                   <span>−{COP(Number(o.discount))}</span>
                 </div>
               )}
               <div className="flex justify-between text-base font-bold pt-1 border-t border-line">
-                <span>Total</span>
+                <span>{t('total')}</span>
                 <span>{COP(Number(o.total))}</span>
               </div>
             </div>
@@ -317,14 +324,14 @@ export default function OrderDetail() {
 
           {o.customerNote && (
             <div className="card card-pad">
-              <h3 className="font-semibold mb-2">Nota del cliente</h3>
+              <h3 className="font-semibold mb-2">{t('customerNoteTitle')}</h3>
               <p className="text-sm text-mute italic">"{o.customerNote}"</p>
             </div>
           )}
 
           {o.rating && (
             <div className="card card-pad">
-              <h3 className="font-semibold mb-2">Calificación del cliente</h3>
+              <h3 className="font-semibold mb-2">{t('customerRatingTitle')}</h3>
               <div className="flex items-center gap-2">
                 <div className="text-2xl">
                   {Array.from({ length: 5 }).map((_, i) => (
@@ -355,7 +362,7 @@ export default function OrderDetail() {
 
           {/* Timeline de eventos */}
           <div className="card card-pad">
-            <h3 className="font-semibold mb-3">Actividad</h3>
+            <h3 className="font-semibold mb-3">{t('activityTitle')}</h3>
             <div className="space-y-2.5 text-sm">
               {o.events.map((e) => (
                 <div key={e.id} className="flex gap-3 items-start">
@@ -384,7 +391,7 @@ export default function OrderDetail() {
         {/* Sidebar derecho */}
         <div className="space-y-4">
           <div className="card card-pad">
-            <h3 className="font-semibold mb-3">Cliente</h3>
+            <h3 className="font-semibold mb-3">{t('customerTitle')}</h3>
             <Link
               href={`/app/customers/${o.customer.id}`}
               className="block hover:text-brand"
@@ -408,13 +415,13 @@ export default function OrderDetail() {
           </div>
 
           <div className="card card-pad">
-            <h3 className="font-semibold mb-3">Entrega</h3>
+            <h3 className="font-semibold mb-3">{t('deliveryTitle')}</h3>
             <div className="text-sm">
               {o.fulfillment === 'PICKUP'
-                ? '🥡 Para llevar'
+                ? t('fulfillmentPickup')
                 : o.fulfillment === 'DINE_IN'
-                ? `🍽 Mesa ${o.tableNumber ?? ''}`
-                : '🛵 Domicilio'}
+                ? t('fulfillmentDineIn', { table: o.tableNumber ?? '' })
+                : t('fulfillmentDelivery')}
             </div>
             {o.location && (
               <div className="text-xs text-mute mt-1">
@@ -424,13 +431,13 @@ export default function OrderDetail() {
           </div>
 
           <div className="card card-pad">
-            <h3 className="font-semibold mb-3">Pago</h3>
+            <h3 className="font-semibold mb-3">{t('paymentTitle')}</h3>
             <div className="flex items-center justify-between text-sm">
-              <span className="text-mute">Método</span>
+              <span className="text-mute">{t('paymentMethod')}</span>
               <span className="font-medium">{o.paymentMethod}</span>
             </div>
             <div className="flex items-center justify-between text-sm mt-1.5">
-              <span className="text-mute">Estado</span>
+              <span className="text-mute">{t('paymentStatusLabel')}</span>
               <span
                 className={`badge ${
                   o.paymentStatus === 'PAID'
@@ -442,17 +449,17 @@ export default function OrderDetail() {
                     : 'badge-mute'
                 } text-[10px]`}
               >
-                {o.paymentStatus}
+                {t(PAYMENT_STATUS_LABEL_KEY[o.paymentStatus] ?? 'payStatusPending')}
               </span>
             </div>
             {o.paidAt && (
               <div className="text-xs text-mute mt-2">
-                Pagado el {fmtDate(o.paidAt)}
+                {t('paidOn', { date: fmtDate(o.paidAt) })}
               </div>
             )}
             {o.paymentRef && (
               <div className="text-[11px] text-mute mt-1 truncate">
-                Ref: <code>{o.paymentRef}</code>
+                {t('refLabel')} <code>{o.paymentRef}</code>
               </div>
             )}
           </div>
@@ -465,10 +472,10 @@ export default function OrderDetail() {
               className="card card-pad block hover:shadow-md transition"
             >
               <div className="font-semibold flex items-center gap-2">
-                <Icon name="send" /> Mensaje WhatsApp listo
+                <Icon name="send" /> {t('whatsappReadyTitle')}
               </div>
               <div className="text-xs text-mute mt-1">
-                Click para abrir el chat con el cliente
+                {t('whatsappReadyHint')}
               </div>
             </a>
           )}
@@ -484,12 +491,13 @@ export default function OrderDetail() {
 }
 
 function KitchenTicket({ order }: { order: Order }) {
+  const t = useTranslations('app_orders_id');
   const fulfillmentLabel =
     order.fulfillment === 'PICKUP'
-      ? 'PARA LLEVAR'
+      ? t('ticketFulfillmentPickup')
       : order.fulfillment === 'DINE_IN'
-      ? `MESA ${order.tableNumber ?? '?'}`
-      : 'DOMICILIO';
+      ? t('ticketFulfillmentDineIn', { table: order.tableNumber ?? '?' })
+      : t('ticketFulfillmentDelivery');
 
   return (
     <div className="print-only">
@@ -535,14 +543,14 @@ function KitchenTicket({ order }: { order: Order }) {
           <>
             <div className="ticket-divider" />
             <div className="ticket-customer-note">
-              <strong>Nota cliente:</strong> {order.customerNote}
+              <strong>{t('ticketCustomerNote')}</strong> {order.customerNote}
             </div>
           </>
         )}
 
         <div className="ticket-divider" />
         <div className="ticket-total">
-          <span>TOTAL</span>
+          <span>{t('ticketTotal')}</span>
           <span>
             {new Intl.NumberFormat('es-CO', {
               style: 'currency',
@@ -552,7 +560,9 @@ function KitchenTicket({ order }: { order: Order }) {
           </span>
         </div>
         <div className="ticket-foot">
-          {order.paymentStatus === 'PAID' ? '✓ PAGADO' : 'COBRAR EN ENTREGA'}
+          {order.paymentStatus === 'PAID'
+            ? t('ticketFootPaid')
+            : t('ticketFootCollectOnDelivery')}
         </div>
       </div>
     </div>
@@ -567,6 +577,7 @@ function PrintMenu({
 }: {
   onPrint: (mode: 'ticket' | 'receipt') => void;
 }) {
+  const t = useTranslations('app_orders_id');
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -586,9 +597,9 @@ function PrintMenu({
           e.stopPropagation();
           setOpen((v) => !v);
         }}
-        title="Imprimir"
+        title={t('print')}
       >
-        🖨 Imprimir ▾
+        🖨 {t('print')} ▾
       </button>
       {open && (
         <div
@@ -604,8 +615,8 @@ function PrintMenu({
           >
             <span>👨‍🍳</span>
             <div>
-              <div className="font-medium">Ticket cocina</div>
-              <div className="text-[11px] text-mute">80mm térmico</div>
+              <div className="font-medium">{t('printKitchenTicket')}</div>
+              <div className="text-[11px] text-mute">{t('printKitchenTicketDesc')}</div>
             </div>
           </button>
           <div className="border-t border-line2" />
@@ -618,8 +629,8 @@ function PrintMenu({
           >
             <span>🧾</span>
             <div>
-              <div className="font-medium">Recibo cliente</div>
-              <div className="text-[11px] text-mute">A5 con marca</div>
+              <div className="font-medium">{t('printCustomerReceipt')}</div>
+              <div className="text-[11px] text-mute">{t('printCustomerReceiptDesc')}</div>
             </div>
           </button>
         </div>
@@ -629,12 +640,13 @@ function PrintMenu({
 }
 
 function CustomerReceipt({ order }: { order: Order }) {
+  const t = useTranslations('app_orders_id');
   return (
     <div className="receipt-only">
       <div className="receipt">
         <div className="receipt-head">
           <div className="receipt-brand">CLUBIFY</div>
-          <div className="receipt-code">Pedido #{order.code}</div>
+          <div className="receipt-code">{t('receiptOrderCode', { code: order.code })}</div>
           <div className="receipt-date">
             {new Date(order.createdAt).toLocaleString('es-CO', {
               day: '2-digit',
@@ -647,7 +659,7 @@ function CustomerReceipt({ order }: { order: Order }) {
         </div>
 
         <div className="receipt-section">
-          <div className="receipt-label">Cliente</div>
+          <div className="receipt-label">{t('receiptCustomer')}</div>
           <div className="receipt-row">
             <span>{order.customer.fullName}</span>
             <span>{order.customer.phone}</span>
@@ -660,20 +672,20 @@ function CustomerReceipt({ order }: { order: Order }) {
         </div>
 
         <div className="receipt-section">
-          <div className="receipt-label">Detalles</div>
+          <div className="receipt-label">{t('receiptDetails')}</div>
           <div className="receipt-row">
-            <span>Tipo</span>
+            <span>{t('receiptType')}</span>
             <span>
               {order.fulfillment === 'PICKUP'
-                ? 'Para llevar'
+                ? t('receiptPickup')
                 : order.fulfillment === 'DINE_IN'
-                ? `Mesa ${order.tableNumber ?? ''}`
-                : 'Domicilio'}
+                ? t('receiptDineIn', { table: order.tableNumber ?? '' })
+                : t('receiptDelivery')}
             </span>
           </div>
           {order.location && (
             <div className="receipt-row">
-              <span>Sucursal</span>
+              <span>{t('receiptBranch')}</span>
               <span>{order.location.name}</span>
             </div>
           )}
@@ -683,9 +695,9 @@ function CustomerReceipt({ order }: { order: Order }) {
           <table className="receipt-table">
             <thead>
               <tr>
-                <th className="left">Producto</th>
-                <th className="right">Cant.</th>
-                <th className="right">Total</th>
+                <th className="left">{t('receiptThProduct')}</th>
+                <th className="right">{t('receiptThQty')}</th>
+                <th className="right">{t('receiptThTotal')}</th>
               </tr>
             </thead>
             <tbody>
@@ -716,7 +728,7 @@ function CustomerReceipt({ order }: { order: Order }) {
 
         <div className="receipt-totals">
           <div className="receipt-row">
-            <span>Subtotal</span>
+            <span>{t('subtotal')}</span>
             <span>
               {new Intl.NumberFormat('es-CO', {
                 style: 'currency',
@@ -727,7 +739,7 @@ function CustomerReceipt({ order }: { order: Order }) {
           </div>
           {Number(order.discount) > 0 && (
             <div className="receipt-row">
-              <span>Descuento</span>
+              <span>{t('discount')}</span>
               <span>
                 −{' '}
                 {new Intl.NumberFormat('es-CO', {
@@ -739,7 +751,7 @@ function CustomerReceipt({ order }: { order: Order }) {
             </div>
           )}
           <div className="receipt-row receipt-total">
-            <span>TOTAL</span>
+            <span>{t('ticketTotal')}</span>
             <span>
               {new Intl.NumberFormat('es-CO', {
                 style: 'currency',
@@ -749,22 +761,24 @@ function CustomerReceipt({ order }: { order: Order }) {
             </span>
           </div>
           <div className="receipt-row receipt-meta">
-            <span>Estado pago</span>
+            <span>{t('receiptPayStatus')}</span>
             <span>
-              {order.paymentStatus === 'PAID' ? '✓ Pagado' : 'Pendiente'}
+              {order.paymentStatus === 'PAID'
+                ? t('receiptPaid')
+                : t('receiptPending')}
             </span>
           </div>
         </div>
 
         {order.customerNote && (
           <div className="receipt-section">
-            <div className="receipt-label">Nota</div>
+            <div className="receipt-label">{t('receiptNote')}</div>
             <div>{order.customerNote}</div>
           </div>
         )}
 
         <div className="receipt-foot">
-          ¡Gracias por tu compra! Vuelve pronto.
+          {t('receiptFoot')}
         </div>
       </div>
     </div>

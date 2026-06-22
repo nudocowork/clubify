@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import {
@@ -77,6 +78,7 @@ function computeMesaState(
 }
 
 export default function PlanoPage() {
+  const t = useTranslations('app_reservations_plano');
   const [mode, setMode] = useState<'operacion' | 'editor'>('operacion');
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [zones, setZones] = useState<Zone[]>([]);
@@ -100,7 +102,7 @@ export default function PlanoPage() {
       setReservations(res);
       if (locations.length === 0) setLocations(locs);
     } catch (e: any) {
-      toast(e.message || 'Error cargando plano', 'error');
+      toast(e.message || t('errorLoadingPlan'), 'error');
     }
   }
 
@@ -146,19 +148,19 @@ export default function PlanoPage() {
       });
       loadAll();
     } catch (e: any) {
-      toast(e.message || 'No se pudo actualizar', 'error');
+      toast(e.message || t('errorUpdate'), 'error');
     }
   }
 
-  async function toggleBlock(t: Table) {
+  async function toggleBlock(tbl: Table) {
     try {
-      await api(`/reservations/tables/${t.id}`, {
+      await api(`/reservations/tables/${tbl.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ isBlocked: !t.isBlocked }),
+        body: JSON.stringify({ isBlocked: !tbl.isBlocked }),
       });
       loadAll();
     } catch (e: any) {
-      toast(e.message || 'No se pudo actualizar', 'error');
+      toast(e.message || t('errorUpdate'), 'error');
     }
   }
 
@@ -176,7 +178,7 @@ export default function PlanoPage() {
   async function createTable(e: React.FormEvent) {
     e.preventDefault();
     if (!newTable.number.trim()) {
-      toast('Número de mesa requerido', 'error');
+      toast(t('errorTableNumberRequired'), 'error');
       return;
     }
     try {
@@ -195,30 +197,30 @@ export default function PlanoPage() {
       setNewTable({ number: '', seats: 4, shape: 'ROUND', zoneId: '' });
       setShowAddTable(false);
       loadAll();
-      toast('Mesa creada', 'success');
+      toast(t('toastTableCreated'), 'success');
     } catch (err: any) {
-      toast(err.message || 'No se pudo crear', 'error');
+      toast(err.message || t('errorCreate'), 'error');
     }
   }
 
   async function patchTable(id: string, patch: Partial<Table>) {
-    setTables((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+    setTables((prev) => prev.map((tbl) => (tbl.id === id ? { ...tbl, ...patch } : tbl)));
     try {
       await api(`/reservations/tables/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
     } catch (e: any) {
-      toast(e.message || 'No se pudo actualizar', 'error');
+      toast(e.message || t('errorUpdate'), 'error');
       loadAll();
     }
   }
 
-  async function deleteTable(t: Table) {
-    if (!confirm(`Eliminar mesa "${t.number}"?`)) return;
+  async function deleteTable(tbl: Table) {
+    if (!confirm(t('confirmDeleteTable', { number: tbl.number }))) return;
     try {
-      await api(`/reservations/tables/${t.id}`, { method: 'DELETE' });
+      await api(`/reservations/tables/${tbl.id}`, { method: 'DELETE' });
       setSelectedTableId(null);
       loadAll();
     } catch (e: any) {
-      toast(e.message || 'No se pudo eliminar', 'error');
+      toast(e.message || t('errorDelete'), 'error');
     }
   }
 
@@ -253,13 +255,13 @@ export default function PlanoPage() {
     const id = dragRef.current.id;
     dragRef.current = null;
     (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
-    const t = tables.find((x) => x.id === id);
-    if (!t) return;
+    const tbl = tables.find((x) => x.id === id);
+    if (!tbl) return;
     api(`/reservations/tables/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ posX: t.posX, posY: t.posY }),
+      body: JSON.stringify({ posX: tbl.posX, posY: tbl.posY }),
     }).catch((err: any) => {
-      toast(err.message || 'No se pudo guardar la posición', 'error');
+      toast(err.message || t('errorSavePosition'), 'error');
       loadAll();
     });
   }
@@ -270,11 +272,11 @@ export default function PlanoPage() {
       <div className="flex items-start justify-between gap-3 mb-5 flex-wrap">
         <div>
           <h1 className="page-title m-0">
-            Plano de mesas{' '}
+            {t('pageTitle')}{' '}
             <span className="page-crumb text-mute font-normal">/ {fmtLongDate(todayISO())}</span>
           </h1>
           <p className="text-xs text-mute mt-1">
-            Distribución en tiempo real
+            {t('realtimeLayout')}
             {locations.length > 0 && activeLocationId
               ? ` · ${locations.find((l) => l.id === activeLocationId)?.name ?? ''}`
               : locations.length === 1
@@ -288,7 +290,7 @@ export default function PlanoPage() {
               <span className="absolute inset-0 rounded-full bg-ok animate-ping opacity-75" />
               <span className="absolute inset-0 rounded-full bg-ok" />
             </span>
-            Tiempo real
+            {t('realtimeBadge')}
           </div>
           {locations.length > 1 && (
             <select
@@ -297,7 +299,7 @@ export default function PlanoPage() {
               className="input text-sm"
               style={{ width: 'auto' }}
             >
-              <option value="">📍 Todas las sedes</option>
+              <option value="">{t('allLocations')}</option>
               {locations.map((loc) => (
                 <option key={loc.id} value={loc.id}>📍 {loc.name}</option>
               ))}
@@ -310,7 +312,7 @@ export default function PlanoPage() {
       <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
         <div className="flex gap-1.5 text-xs flex-wrap">
           <FilterChip
-            label="Todas"
+            label={t('filterAll')}
             active={zoneFilter === 'todas'}
             onClick={() => setZoneFilter('todas')}
           />
@@ -330,7 +332,7 @@ export default function PlanoPage() {
               mode === 'operacion' ? 'bg-white text-ink shadow-sm' : 'text-mute hover:text-ink'
             }`}
           >
-            🗂 Operación
+            🗂 {t('modeOperation')}
           </button>
           <button
             onClick={() => setMode('editor')}
@@ -338,7 +340,7 @@ export default function PlanoPage() {
               mode === 'editor' ? 'bg-white text-ink shadow-sm' : 'text-mute hover:text-ink'
             }`}
           >
-            ⚙ Editor
+            ⚙ {t('modeEditor')}
           </button>
         </div>
       </div>
@@ -377,10 +379,10 @@ export default function PlanoPage() {
           {mode === 'operacion' && (
             <div className="mt-4 pt-3 border-t border-line2 flex items-center justify-between text-xs flex-wrap gap-3">
               <div className="flex gap-3 flex-wrap">
-                <Legend dot={STATE_STYLES.libre.bg} border={STATE_STYLES.libre.border} label={`Libre · ${counts.libre}`} />
-                <Legend dot={STATE_STYLES.reservada.bg} border={STATE_STYLES.reservada.border} label={`Reservada · ${counts.reservada}`} />
-                <Legend dot={STATE_STYLES.sentada.bg} border={STATE_STYLES.sentada.border} label={`Sentada · ${counts.sentada}`} />
-                <Legend dot="#f3f4f6" border={STATE_STYLES.bloqueada.border} label={`Bloqueada · ${counts.bloqueada}`} stripes />
+                <Legend dot={STATE_STYLES.libre.bg} border={STATE_STYLES.libre.border} label={t('legendFree', { count: counts.libre })} />
+                <Legend dot={STATE_STYLES.reservada.bg} border={STATE_STYLES.reservada.border} label={t('legendReserved', { count: counts.reservada })} />
+                <Legend dot={STATE_STYLES.sentada.bg} border={STATE_STYLES.sentada.border} label={t('legendSeated', { count: counts.sentada })} />
+                <Legend dot="#f3f4f6" border={STATE_STYLES.bloqueada.border} label={t('legendBlocked', { count: counts.bloqueada })} stripes />
               </div>
             </div>
           )}
@@ -499,12 +501,18 @@ function OperationView({
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
+  const t = useTranslations('app_reservations_plano');
+  const STATE_LABEL_KEY: Record<MesaState, string> = {
+    libre: 'stateFree',
+    reservada: 'stateReserved',
+    sentada: 'stateSeated',
+    bloqueada: 'stateBlocked',
+  };
   if (zones.length === 0 && orphanTables.length === 0) {
     return (
       <div className="text-center py-12">
         <p className="text-sm text-mute">
-          Sin mesas configuradas todavía. Pasa al modo <strong>Editor</strong> para crear zonas y
-          mesas.
+          {t.rich('emptyNoTables', { strong: (chunks) => <strong>{chunks}</strong> })}
         </p>
       </div>
     );
@@ -520,8 +528,7 @@ function OperationView({
         <div className="mb-3 rounded-lg p-3 text-xs flex items-start gap-2" style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e' }}>
           <span className="shrink-0">💡</span>
           <div className="leading-snug">
-            Tus mesas están apiladas en la esquina. Cambia al modo{' '}
-            <strong>Editor</strong> y arrástralas para acomodar el plano real del local.
+            {t.rich('stackedWarning', { strong: (chunks) => <strong>{chunks}</strong> })}
           </div>
         </div>
       )}
@@ -623,21 +630,21 @@ function OperationView({
         })}
 
         {/* Mesas — encima de las paredes */}
-        {tables.map((t) => {
-          const dims = tableDims(t);
-          const meta = mesaStates.get(t.id);
+        {tables.map((tbl) => {
+          const dims = tableDims(tbl);
+          const meta = mesaStates.get(tbl.id);
           const state = meta?.state ?? 'libre';
           const style = STATE_STYLES[state];
           const isRound = dims.isRound;
-          const selected = t.id === selectedId;
+          const selected = tbl.id === selectedId;
           return (
             <button
-              key={t.id}
-              onClick={() => onSelect(t.id)}
+              key={tbl.id}
+              onClick={() => onSelect(tbl.id)}
               className="absolute flex flex-col items-center justify-center font-bold transition"
               style={{
-                left: t.posX,
-                top: t.posY,
+                left: tbl.posX,
+                top: tbl.posY,
                 width: dims.w,
                 height: dims.h,
                 borderRadius: isRound ? '50%' : 12,
@@ -650,10 +657,10 @@ function OperationView({
                 cursor: 'pointer',
                 userSelect: 'none',
               }}
-              title={`Mesa ${t.number} · ${state}`}
+              title={t('tableTitleTooltip', { number: tbl.number, state: t(STATE_LABEL_KEY[state]) })}
             >
-              <span className="text-sm leading-none">{t.number}</span>
-              <span className="text-[10px] leading-none mt-0.5 opacity-90">{t.seats}p</span>
+              <span className="text-sm leading-none">{tbl.number}</span>
+              <span className="text-[10px] leading-none mt-0.5 opacity-90">{tbl.seats}p</span>
             </button>
           );
         })}
@@ -661,7 +668,7 @@ function OperationView({
         {/* Puerta de entrada */}
         <div className="absolute" style={{ bottom: 8, left: '50%', transform: 'translateX(-50%)' }}>
           <div className="flex items-center gap-1 bg-white px-3 py-1.5 rounded-full shadow-lg border border-line">
-            <span className="text-xs font-bold tracking-wider text-ink">↑ ENTRADA</span>
+            <span className="text-xs font-bold tracking-wider text-ink">{t('entrance')}</span>
           </div>
         </div>
       </div>
@@ -686,12 +693,13 @@ function OperationSidebar({
   onLiberar: (rid: string) => void;
   onBloquear: () => void;
 }) {
+  const t = useTranslations('app_reservations_plano');
   if (!table) {
     return (
       <div className="card card-pad text-center py-8">
         <div className="text-3xl mb-2 opacity-60">👆</div>
         <p className="text-sm text-mute leading-snug">
-          Toca una mesa en el plano para ver su estado y las acciones disponibles.
+          {t('sidebarEmptyOperation')}
         </p>
       </div>
     );
@@ -699,10 +707,10 @@ function OperationSidebar({
 
   const meta = state ?? { state: 'libre' as MesaState, reservation: null };
   const stateMeta: Record<MesaState, { label: string; bg: string; fg: string }> = {
-    libre: { label: 'Libre', bg: '#f1f5f9', fg: '#475569' },
-    reservada: { label: 'Reservada', bg: '#fef3c7', fg: '#b45309' },
-    sentada: { label: 'Sentada', bg: '#dcfce7', fg: '#15803d' },
-    bloqueada: { label: 'Bloqueada', bg: '#f3f4f6', fg: '#6b7280' },
+    libre: { label: t('stateFree'), bg: '#f1f5f9', fg: '#475569' },
+    reservada: { label: t('stateReserved'), bg: '#fef3c7', fg: '#b45309' },
+    sentada: { label: t('stateSeated'), bg: '#dcfce7', fg: '#15803d' },
+    bloqueada: { label: t('stateBlocked'), bg: '#f3f4f6', fg: '#6b7280' },
   };
   const sm = stateMeta[meta.state];
 
@@ -729,8 +737,8 @@ function OperationSidebar({
         {zone && <span className="text-[10px] text-mute">{zone.name}</span>}
       </div>
       <div className="mt-2">
-        <div className="text-2xl font-extrabold m-0">Mesa {table.number}</div>
-        <div className="text-xs text-mute mt-0.5">Capacidad · {table.seats} personas</div>
+        <div className="text-2xl font-extrabold m-0">{t('tableName', { number: table.number })}</div>
+        <div className="text-xs text-mute mt-0.5">{t('capacityPeople', { seats: table.seats })}</div>
       </div>
 
       {meta.reservation && (
@@ -752,7 +760,7 @@ function OperationSidebar({
                 {meta.reservation.customerName}
               </Link>
               <div className="text-[11px] text-mute">
-                {meta.reservation.time} · {meta.reservation.party} pax
+                {t('reservationTimeParty', { time: meta.reservation.time, party: meta.reservation.party })}
               </div>
             </div>
           </div>
@@ -787,7 +795,7 @@ function OperationSidebar({
             className="w-full py-2.5 rounded-lg font-semibold text-white text-sm"
             style={{ background: '#1d4ed8' }}
           >
-            🪑 Sentar cliente
+            🪑 {t('seatCustomer')}
           </button>
         )}
         {meta.state === 'sentada' && meta.reservation && (
@@ -796,27 +804,27 @@ function OperationSidebar({
             className="w-full py-2.5 rounded-lg font-semibold text-white text-sm"
             style={{ background: '#15803d' }}
           >
-            ✓ Liberar mesa
+            ✓ {t('freeTable')}
           </button>
         )}
         <button
           onClick={onBloquear}
           className="w-full py-2.5 rounded-lg font-semibold text-sm border border-line"
         >
-          {table.isBlocked ? '▶ Desbloquear mesa' : '⏸ Bloquear mesa'}
+          {table.isBlocked ? t('unblockTable') : t('blockTable')}
         </button>
       </div>
 
       <div className="mt-4 pt-3 border-t border-line2">
         <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-mute">
-          Asignación inteligente
+          {t('smartAssignment')}
         </div>
         <button
           className="mt-2 w-full text-left px-3 py-2 rounded-lg text-xs bg-bg2/40 text-mute italic cursor-not-allowed"
           disabled
-          title="Próximamente — sugiere automáticamente la mejor mesa para una reserva"
+          title={t('smartAssignmentTooltip')}
         >
-          ✨ Próximamente — sugerir mesa óptima
+          {t('smartAssignmentSoon')}
         </button>
       </div>
     </div>
@@ -854,17 +862,18 @@ function EditorView({
   zones: Zone[];
   setShowAddTable: (v: boolean) => void;
 }) {
+  const t = useTranslations('app_reservations_plano');
   return (
     <>
       <div className="flex items-center justify-between mb-3">
         <div>
-          <h2 className="text-base font-semibold m-0">Editor de plano</h2>
+          <h2 className="text-base font-semibold m-0">{t('editorTitle')}</h2>
           <p className="text-[11px] text-mute mt-0.5">
-            Arrastra mesas para reorganizar. Los cambios se guardan al soltar.
+            {t('editorHint')}
           </p>
         </div>
         <button onClick={onAddOpen} className="btn-primary text-sm">
-          + Mesa
+          {t('addTable')}
         </button>
       </div>
 
@@ -874,17 +883,17 @@ function EditorView({
           className="mb-3 p-3 bg-bg2/60 rounded-lg border border-line grid grid-cols-2 md:grid-cols-5 gap-2 items-end"
         >
           <div>
-            <label className="label">Número</label>
+            <label className="label">{t('fieldNumber')}</label>
             <input
               className="input"
               value={newTable.number}
               onChange={(e) => setNewTable({ ...newTable, number: e.target.value })}
-              placeholder="1 / VIP / Barra"
+              placeholder={t('fieldNumberPlaceholder')}
               required
             />
           </div>
           <div>
-            <label className="label">Capacidad</label>
+            <label className="label">{t('fieldCapacity')}</label>
             <input
               type="number"
               className="input"
@@ -895,32 +904,32 @@ function EditorView({
             />
           </div>
           <div>
-            <label className="label">Forma</label>
+            <label className="label">{t('fieldShape')}</label>
             <select
               className="input"
               value={newTable.shape}
               onChange={(e) => setNewTable({ ...newTable, shape: e.target.value as any })}
             >
-              <option value="ROUND">Redonda</option>
-              <option value="RECT">Rectangular</option>
-              <option value="BAR">Barra</option>
+              <option value="ROUND">{t('shapeRound')}</option>
+              <option value="RECT">{t('shapeRect')}</option>
+              <option value="BAR">{t('shapeBar')}</option>
             </select>
           </div>
           <div>
-            <label className="label">Zona</label>
+            <label className="label">{t('fieldZone')}</label>
             <select
               className="input"
               value={newTable.zoneId}
               onChange={(e) => setNewTable({ ...newTable, zoneId: e.target.value })}
             >
-              <option value="">Sin zona</option>
+              <option value="">{t('noZone')}</option>
               {zones.map((z) => (
                 <option key={z.id} value={z.id}>{z.name}</option>
               ))}
             </select>
           </div>
           <div className="flex gap-1.5">
-            <button className="btn-primary text-sm justify-center flex-1">Crear</button>
+            <button className="btn-primary text-sm justify-center flex-1">{t('create')}</button>
             <button
               type="button"
               onClick={() => setShowAddTable(false)}
@@ -998,21 +1007,22 @@ function EditorSidebar({
   onToggleBlock: () => void;
   onDelete: () => void;
 }) {
+  const t = useTranslations('app_reservations_plano');
   if (!table) {
     return (
       <div className="card card-pad text-center py-8">
         <p className="text-sm text-mute leading-snug">
-          Selecciona una mesa del plano para editar sus datos o arrástrala para reposicionarla.
+          {t('sidebarEmptyEditor')}
         </p>
       </div>
     );
   }
   return (
     <div className="card card-pad">
-      <h2 className="text-base font-semibold m-0">Mesa {table.number}</h2>
+      <h2 className="text-base font-semibold m-0">{t('tableName', { number: table.number })}</h2>
       <div className="mt-3 space-y-3">
         <div>
-          <label className="label">Número / etiqueta</label>
+          <label className="label">{t('fieldNumberLabel')}</label>
           <input
             className="input"
             defaultValue={table.number}
@@ -1025,7 +1035,7 @@ function EditorSidebar({
           />
         </div>
         <div>
-          <label className="label">Capacidad</label>
+          <label className="label">{t('fieldCapacity')}</label>
           <input
             type="number"
             className="input"
@@ -1036,21 +1046,21 @@ function EditorSidebar({
           />
         </div>
         <div>
-          <label className="label">Forma</label>
+          <label className="label">{t('fieldShape')}</label>
           <select className="input" value={table.shape} onChange={(e) => onPatch({ shape: e.target.value })}>
-            <option value="ROUND">Redonda</option>
-            <option value="RECT">Rectangular</option>
-            <option value="BAR">Barra</option>
+            <option value="ROUND">{t('shapeRound')}</option>
+            <option value="RECT">{t('shapeRect')}</option>
+            <option value="BAR">{t('shapeBar')}</option>
           </select>
         </div>
         <div>
-          <label className="label">Zona</label>
+          <label className="label">{t('fieldZone')}</label>
           <select
             className="input"
             value={table.zoneId ?? ''}
             onChange={(e) => onPatch({ zoneId: e.target.value || null })}
           >
-            <option value="">Sin zona</option>
+            <option value="">{t('noZone')}</option>
             {zones.map((z) => (
               <option key={z.id} value={z.id}>{z.name}</option>
             ))}
@@ -1060,13 +1070,13 @@ function EditorSidebar({
           onClick={onToggleBlock}
           className="w-full py-2 rounded-lg text-sm border border-line"
         >
-          {table.isBlocked ? '▶ Desbloquear' : '⏸ Bloquear'}
+          {table.isBlocked ? t('unblock') : t('block')}
         </button>
         <button
           onClick={onDelete}
           className="w-full py-2 rounded-lg text-sm border border-bad text-bad"
         >
-          🗑 Eliminar mesa
+          🗑 {t('deleteTable')}
         </button>
       </div>
     </div>
@@ -1126,10 +1136,10 @@ function Legend({
 // ============ Zone Manager (Editor mode only) ============
 
 const ZONE_TYPES = [
-  { value: 'INDOOR', label: 'Indoor' },
-  { value: 'OUTDOOR', label: 'Terraza' },
-  { value: 'BAR', label: 'Barra' },
-  { value: 'PRIVATE', label: 'Privado' },
+  { value: 'INDOOR', labelKey: 'zoneTypeIndoor' },
+  { value: 'OUTDOOR', labelKey: 'zoneTypeOutdoor' },
+  { value: 'BAR', labelKey: 'zoneTypeBar' },
+  { value: 'PRIVATE', labelKey: 'zoneTypePrivate' },
 ] as const;
 
 function ZoneManagerCard({
@@ -1141,6 +1151,7 @@ function ZoneManagerCard({
   locationId: string | null;
   onChanged: () => void;
 }) {
+  const t = useTranslations('app_reservations_plano');
   const [name, setName] = useState('');
   const [type, setType] = useState<'INDOOR' | 'OUTDOOR' | 'BAR' | 'PRIVATE'>('INDOOR');
   const [busy, setBusy] = useState(false);
@@ -1160,35 +1171,34 @@ function ZoneManagerCard({
       });
       setName('');
       onChanged();
-      toast('Zona creada', 'success');
+      toast(t('toastZoneCreated'), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo crear', 'error');
+      toast(e.message || t('errorCreate'), 'error');
     } finally {
       setBusy(false);
     }
   }
 
   async function removeZone(zoneId: string) {
-    if (!confirm('¿Eliminar esta zona? Las mesas en ella quedarán sin zona.')) return;
+    if (!confirm(t('confirmDeleteZone'))) return;
     try {
       await api(`/reservations/zones/${zoneId}`, { method: 'DELETE' });
       onChanged();
-      toast('Zona eliminada', 'success');
+      toast(t('toastZoneDeleted'), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo eliminar', 'error');
+      toast(e.message || t('errorDelete'), 'error');
     }
   }
 
   return (
     <div className="card card-pad">
-      <h3 className="text-sm font-semibold m-0">Zonas</h3>
+      <h3 className="text-sm font-semibold m-0">{t('zonesTitle')}</h3>
       <p className="text-[11px] text-mute mt-0.5 mb-2 leading-snug">
-        Agrupa mesas por área (Salón, Terraza, Barra, Privado). El cliente puede elegirlas al
-        reservar online.
+        {t('zonesHint')}
       </p>
 
       {zones.length === 0 ? (
-        <p className="text-xs text-mute italic mb-2">Sin zonas todavía.</p>
+        <p className="text-xs text-mute italic mb-2">{t('noZonesYet')}</p>
       ) : (
         <ul className="space-y-1 mb-3">
           {zones.map((z) => {
@@ -1204,14 +1214,17 @@ function ZoneManagerCard({
                     className="text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider"
                     style={{ background: tStyle.label, color: 'white' }}
                   >
-                    {ZONE_TYPES.find((t) => t.value === z.type)?.label ?? z.type}
+                    {(() => {
+                      const zt = ZONE_TYPES.find((zoneType) => zoneType.value === z.type);
+                      return zt ? t(zt.labelKey) : z.type;
+                    })()}
                   </span>
                   <span className="font-semibold truncate">{z.name}</span>
                 </span>
                 <button
                   onClick={() => removeZone(z.id)}
                   className="text-mute hover:text-bad text-base leading-none px-1"
-                  title="Eliminar zona"
+                  title={t('deleteZone')}
                 >
                   ×
                 </button>
@@ -1224,7 +1237,7 @@ function ZoneManagerCard({
       <form onSubmit={createZone} className="flex gap-1">
         <input
           className="input text-xs flex-1"
-          placeholder="Nueva zona (Salón, Terraza...)"
+          placeholder={t('newZonePlaceholder')}
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
@@ -1234,9 +1247,9 @@ function ZoneManagerCard({
           onChange={(e) => setType(e.target.value as any)}
           style={{ width: 100 }}
         >
-          {ZONE_TYPES.map((t) => (
-            <option key={t.value} value={t.value}>
-              {t.label}
+          {ZONE_TYPES.map((zoneType) => (
+            <option key={zoneType.value} value={zoneType.value}>
+              {t(zoneType.labelKey)}
             </option>
           ))}
         </select>

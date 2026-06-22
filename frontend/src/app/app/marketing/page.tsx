@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { Icon } from '@/components/Icon';
 import { ConstructionBadge } from '@/components/UnderConstruction';
 import { api } from '@/lib/api';
@@ -10,8 +11,8 @@ import { toast } from '@/components/Toast';
 type QrTool = {
   href: string;
   emoji: string;
-  title: string;
-  description: string;
+  titleKey: string;
+  descriptionKey: string;
   ready: boolean;
   type: QrPosterType;
 };
@@ -33,55 +34,51 @@ type QrPoster = {
 
 const TYPE_META: Record<
   QrPosterType,
-  { emoji: string; label: string; href: string; description: string }
+  { emoji: string; labelKey: string; href: string; descriptionKey: string }
 > = {
   MENU: {
     emoji: '🍽',
-    label: 'QR Menú',
+    labelKey: 'typeMenuLabel',
     href: '/app/marketing/qr-menu',
-    description:
-      'Cartel imprimible con el QR de tu menú digital. Ideal para mesas, mostrador o vitrina.',
+    descriptionKey: 'typeMenuDescription',
   },
   COUNTER: {
     emoji: '🪪',
-    label: 'QR Mostrador',
+    labelKey: 'typeCounterLabel',
     href: '/app/marketing/qr-counter',
-    description:
-      'Cartel para que el cliente escanee, instale su wallet y empiece a sumar sellos al instante.',
+    descriptionKey: 'typeCounterDescription',
   },
   DISCOUNT: {
     emoji: '🎁',
-    label: 'QR Descuento',
+    labelKey: 'typeDiscountLabel',
     href: '/app/marketing/qr-discount',
-    description:
-      'Cartel promocional para campañas, primera compra, activaciones y descuentos.',
+    descriptionKey: 'typeDiscountDescription',
   },
   REVIEWS: {
     emoji: '⭐',
-    label: 'QR Reseñas',
+    labelKey: 'typeReviewsLabel',
     href: '/app/marketing/qr-reviews',
-    description:
-      'Cartel para incentivar reseñas de Google. Filtro inteligente 4-5★ → Google, 1-3★ → privado.',
+    descriptionKey: 'typeReviewsDescription',
   },
   INFOLINK: {
     emoji: '🔗',
-    label: 'QR Infolink',
+    labelKey: 'typeInfolinkLabel',
     href: '/app/marketing/qr-infolink',
-    description:
-      'Cartel para el mini-sitio tipo Linktree del negocio. Redes, eventos, promos en un solo link dinámico.',
+    descriptionKey: 'typeInfolinkDescription',
   },
 };
 
-const TOOLS: QrTool[] = (Object.keys(TYPE_META) as QrPosterType[]).map((t) => ({
-  href: TYPE_META[t].href,
-  emoji: TYPE_META[t].emoji,
-  title: TYPE_META[t].label,
-  description: TYPE_META[t].description,
+const TOOLS: QrTool[] = (Object.keys(TYPE_META) as QrPosterType[]).map((type) => ({
+  href: TYPE_META[type].href,
+  emoji: TYPE_META[type].emoji,
+  titleKey: TYPE_META[type].labelKey,
+  descriptionKey: TYPE_META[type].descriptionKey,
   ready: true,
-  type: t,
+  type,
 }));
 
 export default function MarketingHub() {
+  const t = useTranslations('app_marketing');
   const router = useRouter();
   const [posters, setPosters] = useState<QrPoster[] | null>(null);
   const [creatingType, setCreatingType] = useState<QrPosterType | null>(null);
@@ -108,21 +105,21 @@ export default function MarketingHub() {
         method: 'POST',
         body: JSON.stringify({
           type,
-          name: `${TYPE_META[type].label} #${
+          name: `${t(TYPE_META[type].labelKey)} #${
             (posters ?? []).filter((p) => p.type === type).length + 1
           }`,
         }),
       });
       router.push(`/app/marketing/edit/${created.id}`);
     } catch (e: any) {
-      toast(e?.message || 'No se pudo crear el cartel', 'error');
+      toast(e?.message || t('errorCreatePoster'), 'error');
     } finally {
       setCreatingType(null);
     }
   }
 
   async function rename(p: QrPoster) {
-    const next = window.prompt('Nuevo nombre para este cartel:', p.name || '');
+    const next = window.prompt(t('promptRename'), p.name || '');
     if (next == null) return;
     const trimmed = next.trim();
     if (trimmed === (p.name ?? '').trim()) return;
@@ -133,23 +130,23 @@ export default function MarketingHub() {
       });
       reload();
     } catch (e: any) {
-      toast(e?.message || 'No se pudo renombrar', 'error');
+      toast(e?.message || t('errorRename'), 'error');
     }
   }
 
   async function remove(p: QrPoster) {
     if (
       !window.confirm(
-        `¿Eliminar el cartel "${p.name?.trim() || TYPE_META[p.type].label}"?\n\nEsta acción no se puede deshacer.`,
+        t('confirmRemove', { name: p.name?.trim() || t(TYPE_META[p.type].labelKey) }),
       )
     )
       return;
     try {
       await api(`/qr-posters/${p.id}`, { method: 'DELETE' });
       reload();
-      toast('Cartel eliminado', 'success');
+      toast(t('toastPosterRemoved'), 'success');
     } catch (e: any) {
-      toast(e?.message || 'No se pudo eliminar', 'error');
+      toast(e?.message || t('errorRemove'), 'error');
     }
   }
 
@@ -161,7 +158,7 @@ export default function MarketingHub() {
       });
       reload();
     } catch (e: any) {
-      toast(e?.message || 'No se pudo actualizar', 'error');
+      toast(e?.message || t('errorUpdate'), 'error');
     }
   }
 
@@ -180,14 +177,11 @@ export default function MarketingHub() {
   return (
     <div>
       <div className="page-head">
-        <h1 className="page-title">Marketing</h1>
+        <h1 className="page-title">{t('pageTitle')}</h1>
       </div>
 
       <p className="text-sm text-mute max-w-2xl mb-6 leading-relaxed">
-        Crea carteles QR profesionales para imprimir y usar en tu negocio.
-        Puedes tener varias variantes del mismo tipo — cada una con su
-        diseño. Cada QR es dinámico: si cambias menú, wallet o reseñas, el
-        QR sigue funcionando automáticamente.
+        {t('intro')}
       </p>
 
       {/* "Mis QRs" — galería de carteles agrupada por tipo. Solo aparece
@@ -196,10 +190,9 @@ export default function MarketingHub() {
       {hasAny && (
         <section className="mb-8">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-bold text-ink m-0">Mis QRs</h2>
+            <h2 className="text-lg font-bold text-ink m-0">{t('myQrs')}</h2>
             <span className="text-xs text-mute">
-              {(posters ?? []).length} cartel
-              {(posters ?? []).length === 1 ? '' : 'es'}
+              {t('posterCount', { count: (posters ?? []).length })}
             </span>
           </div>
           <div className="space-y-6">
@@ -212,7 +205,7 @@ export default function MarketingHub() {
                   <div className="flex items-center justify-between mb-2 px-1">
                     <div className="flex items-center gap-2">
                       <span className="text-base">{meta.emoji}</span>
-                      <h3 className="font-semibold text-sm m-0">{meta.label}</h3>
+                      <h3 className="font-semibold text-sm m-0">{t(meta.labelKey)}</h3>
                       <span className="text-[11px] text-mute">
                         · {items.length}
                       </span>
@@ -222,9 +215,9 @@ export default function MarketingHub() {
                       onClick={() => createNew(type)}
                       disabled={creatingType === type}
                       className="btn-ghost text-xs"
-                      title={`Agregar otra variante de ${meta.label}`}
+                      title={t('addVariantTooltip', { label: t(meta.labelKey) })}
                     >
-                      {creatingType === type ? 'Creando…' : '+ Nuevo'}
+                      {creatingType === type ? t('creating') : t('addNew')}
                     </button>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
@@ -246,7 +239,7 @@ export default function MarketingHub() {
       )}
 
       <h2 className="text-lg font-bold text-ink m-0 mb-3">
-        {hasAny ? 'Crear nuevo' : 'Empieza creando uno'}
+        {hasAny ? t('createNew') : t('startCreatingOne')}
       </h2>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -263,8 +256,8 @@ export default function MarketingHub() {
                 <div className="text-3xl">{tool.emoji}</div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="font-bold text-ink">{tool.title}</h3>
-                    {!tool.ready && <ConstructionBadge label="Próximamente" />}
+                    <h3 className="font-bold text-ink">{t(tool.titleKey)}</h3>
+                    {!tool.ready && <ConstructionBadge label={t('comingSoon')} />}
                   </div>
                 </div>
                 {tool.ready && (
@@ -272,7 +265,7 @@ export default function MarketingHub() {
                 )}
               </div>
               <p className="text-sm text-mute leading-relaxed">
-                {tool.description}
+                {t(tool.descriptionKey)}
               </p>
             </div>
           );
@@ -304,6 +297,7 @@ function PosterCard({
   onRemove: () => void;
   onToggleActive: () => void;
 }) {
+  const t = useTranslations('app_marketing');
   const meta = TYPE_META[poster.type];
   const inactive = !poster.isActive;
   return (
@@ -311,24 +305,24 @@ function PosterCard({
       <Link
         href={`/app/marketing/edit/${poster.id}`}
         className={`block relative ${inactive ? 'opacity-60 grayscale' : ''}`}
-        title={inactive ? 'Cartel pausado — clic para editar' : 'Editar este cartel'}
+        title={inactive ? t('posterPausedTooltip') : t('editPosterTooltip')}
       >
         <QrPosterThumbnail config={poster.config} type={poster.type} />
         {inactive && (
           <span className="absolute top-1.5 left-1.5 bg-bad text-white text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">
-            Pausado
+            {t('paused')}
           </span>
         )}
       </Link>
       <div className="px-1 flex items-start gap-1">
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold truncate">
-            {poster.name?.trim() || meta.label}
+            {poster.name?.trim() || t(meta.labelKey)}
           </div>
           <div className="text-[11px] text-mute mt-0.5 flex items-center gap-2">
-            <span title="Escaneos del QR">👁 {poster.visitCount ?? 0}</span>
-            <span title="Descargas del cartel">⬇ {poster.exportCount ?? 0}</span>
-            <span>· {timeAgo(poster.updatedAt)}</span>
+            <span title={t('scansTooltip')}>👁 {poster.visitCount ?? 0}</span>
+            <span title={t('downloadsTooltip')}>⬇ {poster.exportCount ?? 0}</span>
+            <span>· {timeAgo(poster.updatedAt, t)}</span>
           </div>
         </div>
         <button
@@ -337,7 +331,7 @@ function PosterCard({
           className={`p-0.5 transition opacity-0 group-hover:opacity-100 ${
             inactive ? 'text-brand hover:text-brand-700' : 'text-mute hover:text-amber-600'
           }`}
-          title={inactive ? 'Reactivar cartel' : 'Pausar cartel'}
+          title={inactive ? t('reactivatePoster') : t('pausePoster')}
         >
           {inactive ? '▶' : '⏸'}
         </button>
@@ -345,7 +339,7 @@ function PosterCard({
           type="button"
           onClick={onRename}
           className="text-mute hover:text-brand p-0.5 opacity-0 group-hover:opacity-100 transition"
-          title="Renombrar"
+          title={t('rename')}
         >
           <Icon name="edit" size={14} />
         </button>
@@ -353,7 +347,7 @@ function PosterCard({
           type="button"
           onClick={onRemove}
           className="text-mute hover:text-bad p-0.5 opacity-0 group-hover:opacity-100 transition"
-          title="Eliminar"
+          title={t('remove')}
         >
           <Icon name="trash" size={14} />
         </button>
@@ -485,15 +479,15 @@ function QrLatticeMini({ fg }: { fg: string }) {
   );
 }
 
-function timeAgo(iso: string): string {
+function timeAgo(iso: string, t: (key: string, values?: Record<string, any>) => string): string {
   const d = new Date(iso);
   const diffMs = Date.now() - d.getTime();
   const min = Math.floor(diffMs / 60000);
-  if (min < 1) return 'recién';
-  if (min < 60) return `hace ${min}m`;
+  if (min < 1) return t('timeJustNow');
+  if (min < 60) return t('timeMinutesAgo', { min });
   const hr = Math.floor(min / 60);
-  if (hr < 24) return `hace ${hr}h`;
+  if (hr < 24) return t('timeHoursAgo', { hr });
   const days = Math.floor(hr / 24);
-  if (days < 7) return `hace ${days}d`;
+  if (days < 7) return t('timeDaysAgo', { days });
   return d.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' });
 }
