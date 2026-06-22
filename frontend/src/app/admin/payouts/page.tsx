@@ -9,6 +9,7 @@
  * Fase D 2026-06-07.
  */
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import { FileUploader } from '@/components/FileUploader';
@@ -64,32 +65,33 @@ function fmtDate(d: string | null) {
   });
 }
 
-const ROLE_LABEL: Record<string, string> = {
-  AFFILIATE_INFLUENCER: 'Influencer',
-  AFFILIATE_AMBASSADOR: 'Embajador',
-  AFFILIATE_VENDOR: 'Vendedor',
-  AFFILIATE_SOCIO: 'Socio',
+const ROLE_LABEL_KEY: Record<string, string> = {
+  AFFILIATE_INFLUENCER: 'roleInfluencer',
+  AFFILIATE_AMBASSADOR: 'roleAmbassador',
+  AFFILIATE_VENDOR: 'roleVendor',
+  AFFILIATE_SOCIO: 'roleSocio',
 };
 
 export default function AdminPayoutsPage() {
+  const t = useTranslations('admin_payouts');
   const [tab, setTab] = useState<'ready' | 'profiles'>('ready');
   return (
     <div className="max-w-6xl">
       <div className="page-head">
-        <h1 className="page-title">💰 Pagos a afiliados</h1>
+        <h1 className="page-title">{t('pageTitle')}</h1>
       </div>
       <div className="border-b border-line mb-4 flex gap-1">
         <button
           onClick={() => setTab('ready')}
           className={`tab ${tab === 'ready' ? 'tab-active' : ''}`}
         >
-          ⏰ Listo por pagar
+          {t('tabReady')}
         </button>
         <button
           onClick={() => setTab('profiles')}
           className={`tab ${tab === 'profiles' ? 'tab-active' : ''}`}
         >
-          📋 Perfiles de pago
+          {t('tabProfiles')}
         </button>
       </div>
       {tab === 'ready' ? <ReadyTab /> : <ProfilesTab />}
@@ -98,6 +100,7 @@ export default function AdminPayoutsPage() {
 }
 
 function ReadyTab() {
+  const t = useTranslations('admin_payouts');
   const [data, setData] = useState<{
     items: ReadyRow[];
     total: number;
@@ -111,7 +114,7 @@ function ReadyTab() {
     try {
       setData(await api('/admin/payouts/ready-to-pay'));
     } catch (e: any) {
-      toast(e?.message ?? 'Error cargando', 'error');
+      toast(e?.message ?? t('errorLoading'), 'error');
     } finally {
       setLoading(false);
     }
@@ -124,16 +127,16 @@ function ReadyTab() {
     <div>
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
         <KpiCard
-          label="Personas listas"
+          label={t('kpiPeopleReady')}
           value={data?.total ?? 0}
         />
         <KpiCard
-          label="Total a pagar"
+          label={t('kpiTotalToPay')}
           value={fmtUsd(data?.grandTotalUsd ?? 0)}
           accent="amber"
         />
         <KpiCard
-          label="Promedio por persona"
+          label={t('kpiAveragePerPerson')}
           value={fmtUsd(
             data && data.total > 0 ? data.grandTotalUsd / data.total : 0,
           )}
@@ -145,10 +148,10 @@ function ReadyTab() {
           <table className="w-full text-sm min-w-[860px]">
             <thead className="bg-bg2 text-left text-mute text-[11px] uppercase tracking-wider">
               <tr>
-                <th className="px-4 py-3">Persona</th>
-                <th className="px-4 py-3">Rol</th>
-                <th className="px-4 py-3">Método</th>
-                <th className="px-4 py-3 text-right">Monto</th>
+                <th className="px-4 py-3">{t('thPerson')}</th>
+                <th className="px-4 py-3">{t('thRole')}</th>
+                <th className="px-4 py-3">{t('thMethod')}</th>
+                <th className="px-4 py-3 text-right">{t('thAmount')}</th>
                 <th className="px-4 py-3"></th>
               </tr>
             </thead>
@@ -156,7 +159,7 @@ function ReadyTab() {
               {loading && (
                 <tr>
                   <td colSpan={5} className="px-4 py-10 text-center text-mute">
-                    Cargando…
+                    {t('loading')}
                   </td>
                 </tr>
               )}
@@ -165,11 +168,10 @@ function ReadyTab() {
                   <td colSpan={5} className="px-4 py-12 text-center text-mute">
                     <div className="text-3xl mb-2">🎉</div>
                     <div className="font-semibold text-ink">
-                      No hay nadie listo por pagar
+                      {t('emptyReadyTitle')}
                     </div>
                     <div className="text-xs mt-1">
-                      Aparecen cuando tienen saldo disponible (desbloqueado) y
-                      datos de pago aprobados.
+                      {t('emptyReadyDesc')}
                     </div>
                   </td>
                 </tr>
@@ -185,16 +187,16 @@ function ReadyTab() {
                       <div className="text-xs text-mute">{r.email}</div>
                     </td>
                     <td className="px-4 py-3 text-xs">
-                      {ROLE_LABEL[r.role] ?? r.role}
+                      {ROLE_LABEL_KEY[r.role] ? t(ROLE_LABEL_KEY[r.role]) : r.role}
                     </td>
                     <td className="px-4 py-3 text-xs">
-                      {r.method === 'BINANCE' ? '🪙 Binance' : '🏦 Banco'}
+                      {r.method === 'BINANCE' ? t('methodBinance') : t('methodBank')}
                     </td>
                     <td className="px-4 py-3 text-right font-bold text-amber-700">
                       {fmtUsd(r.availableUsd)}
                       {r.withdrawalFeeUsd > 0 && (
                         <div className="text-[10px] font-normal text-mute">
-                          neto {fmtUsd(r.netUsd)} (−{fmtUsd(r.withdrawalFeeUsd)})
+                          {t('netFee', { net: fmtUsd(r.netUsd), fee: fmtUsd(r.withdrawalFeeUsd) })}
                         </div>
                       )}
                     </td>
@@ -203,7 +205,7 @@ function ReadyTab() {
                         onClick={() => setTarget(r)}
                         className="text-xs px-3 py-1.5 rounded-md bg-brand text-white font-semibold hover:opacity-90"
                       >
-                        {r.hasOpenPayout ? 'Continuar pago' : 'Pagar'}
+                        {r.hasOpenPayout ? t('continuePayment') : t('pay')}
                       </button>
                     </td>
                   </tr>
@@ -228,6 +230,7 @@ function ReadyTab() {
 }
 
 function ProfilesTab() {
+  const t = useTranslations('admin_payouts');
   const [filter, setFilter] = useState<'pending' | 'all'>('pending');
   const [rows, setRows] = useState<ProfileRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -237,7 +240,7 @@ function ProfilesTab() {
     try {
       setRows(await api(`/admin/payouts/profiles?filter=${filter}`));
     } catch (e: any) {
-      toast(e?.message ?? 'Error cargando', 'error');
+      toast(e?.message ?? t('errorLoading'), 'error');
     } finally {
       setLoading(false);
     }
@@ -249,17 +252,17 @@ function ProfilesTab() {
   async function review(row: ProfileRow, approve: boolean) {
     let reason: string | null = null;
     if (!approve) {
-      reason = prompt('Motivo del rechazo (opcional):') ?? '';
+      reason = prompt(t('promptRejectReason')) ?? '';
     }
     try {
       await api(`/admin/payouts/profiles/${row.userId}`, {
         method: 'PATCH',
         body: JSON.stringify({ approve, rejectionReason: reason }),
       });
-      toast(approve ? 'Perfil aprobado' : 'Perfil rechazado', 'success');
+      toast(approve ? t('toastProfileApproved') : t('toastProfileRejected'), 'success');
       load();
     } catch (e: any) {
-      toast(e?.message ?? 'Error', 'error');
+      toast(e?.message ?? t('error'), 'error');
     }
   }
 
@@ -272,7 +275,7 @@ function ProfilesTab() {
             filter === 'pending' ? 'bg-white shadow-sm' : 'text-mute'
           }`}
         >
-          Pendientes
+          {t('filterPending')}
         </button>
         <button
           onClick={() => setFilter('all')}
@@ -280,7 +283,7 @@ function ProfilesTab() {
             filter === 'all' ? 'bg-white shadow-sm' : 'text-mute'
           }`}
         >
-          Todos
+          {t('filterAll')}
         </button>
       </div>
 
@@ -289,11 +292,11 @@ function ProfilesTab() {
           <table className="w-full text-sm min-w-[820px]">
             <thead className="bg-bg2 text-left text-mute text-[11px] uppercase tracking-wider">
               <tr>
-                <th className="px-4 py-3">Persona</th>
-                <th className="px-4 py-3">Estado</th>
-                <th className="px-4 py-3">Método</th>
-                <th className="px-4 py-3">Datos clave</th>
-                <th className="px-4 py-3">Actualizado</th>
+                <th className="px-4 py-3">{t('thPerson')}</th>
+                <th className="px-4 py-3">{t('thStatus')}</th>
+                <th className="px-4 py-3">{t('thMethod')}</th>
+                <th className="px-4 py-3">{t('thKeyData')}</th>
+                <th className="px-4 py-3">{t('thUpdated')}</th>
                 <th className="px-4 py-3"></th>
               </tr>
             </thead>
@@ -301,14 +304,14 @@ function ProfilesTab() {
               {loading && (
                 <tr>
                   <td colSpan={6} className="px-4 py-10 text-center text-mute">
-                    Cargando…
+                    {t('loading')}
                   </td>
                 </tr>
               )}
               {!loading && rows.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-4 py-12 text-center text-mute">
-                    Sin perfiles para mostrar.
+                    {t('emptyProfiles')}
                   </td>
                 </tr>
               )}
@@ -319,7 +322,7 @@ function ProfilesTab() {
                       <div className="font-semibold">{r.user.fullName}</div>
                       <div className="text-xs text-mute">{r.user.email}</div>
                       <div className="text-[10px] text-mute">
-                        {ROLE_LABEL[r.user.role] ?? r.user.role}
+                        {ROLE_LABEL_KEY[r.user.role] ? t(ROLE_LABEL_KEY[r.user.role]) : r.user.role}
                       </div>
                     </td>
                     <td className="px-4 py-3">
@@ -332,9 +335,9 @@ function ProfilesTab() {
                     </td>
                     <td className="px-4 py-3 text-xs">
                       {r.method === 'BINANCE'
-                        ? '🪙 Binance'
+                        ? t('methodBinance')
                         : r.method === 'BANK'
-                        ? '🏦 Cuenta'
+                        ? t('methodAccount')
                         : '—'}
                     </td>
                     <td className="px-4 py-3 text-xs">
@@ -362,7 +365,7 @@ function ProfilesTab() {
                           onClick={() => review(r, true)}
                           className="text-xs px-2 py-1 rounded bg-emerald-600 text-white font-semibold mr-1"
                         >
-                          Aprobar
+                          {t('approve')}
                         </button>
                       ) : null}
                       {r.status === 'APPROVED' ||
@@ -371,7 +374,7 @@ function ProfilesTab() {
                           onClick={() => review(r, false)}
                           className="text-xs px-2 py-1 rounded bg-red-600 text-white font-semibold"
                         >
-                          Rechazar
+                          {t('reject')}
                         </button>
                       ) : null}
                     </td>
@@ -386,23 +389,24 @@ function ProfilesTab() {
 }
 
 function ProfileBadge({ status }: { status: ProfileStatus }) {
+  const t = useTranslations('admin_payouts');
   const cls: Record<ProfileStatus, string> = {
     NONE: 'bg-bg2 text-mute',
     PENDING_REVIEW: 'bg-amber-100 text-amber-800',
     APPROVED: 'bg-emerald-100 text-emerald-800',
     REJECTED: 'bg-red-100 text-red-800',
   };
-  const label: Record<ProfileStatus, string> = {
-    NONE: 'Sin datos',
-    PENDING_REVIEW: 'En revisión',
-    APPROVED: 'Aprobado',
-    REJECTED: 'Rechazado',
+  const labelKey: Record<ProfileStatus, string> = {
+    NONE: 'profileStatusNone',
+    PENDING_REVIEW: 'profileStatusPending',
+    APPROVED: 'profileStatusApproved',
+    REJECTED: 'profileStatusRejected',
   };
   return (
     <span
       className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${cls[status]}`}
     >
-      {label[status]}
+      {t(labelKey[status])}
     </span>
   );
 }
@@ -441,6 +445,7 @@ function PayoutModal({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const t = useTranslations('admin_payouts');
   const [step, setStep] = useState<'confirm' | 'proof'>('confirm');
   const [payoutId, setPayoutId] = useState<string | null>(null);
   const [proofUrl, setProofUrl] = useState<string | null>(null);
@@ -458,7 +463,7 @@ function PayoutModal({
       setPayoutId(res.id);
       setStep('proof');
     } catch (e: any) {
-      toast(e?.message ?? 'No se pudo crear el payout', 'error');
+      toast(e?.message ?? t('errorCreatePayout'), 'error');
     } finally {
       setSaving(false);
     }
@@ -466,7 +471,7 @@ function PayoutModal({
 
   async function markPaid() {
     if (!payoutId || !proofUrl) {
-      toast('Subí el comprobante antes de marcar como pagado', 'error');
+      toast(t('errorProofRequired'), 'error');
       return;
     }
     setSaving(true);
@@ -479,10 +484,10 @@ function PayoutModal({
           notes: notes.trim() || undefined,
         }),
       });
-      toast('Pago marcado como completado', 'success');
+      toast(t('toastPaymentCompleted'), 'success');
       onDone();
     } catch (e: any) {
-      toast(e?.message ?? 'Error', 'error');
+      toast(e?.message ?? t('error'), 'error');
     } finally {
       setSaving(false);
     }
@@ -492,7 +497,7 @@ function PayoutModal({
     <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[92dvh] overflow-y-auto">
         <div className="sticky top-0 bg-white border-b border-line px-5 py-3 flex items-center justify-between">
-          <div className="font-semibold">Pagar a {target.fullName}</div>
+          <div className="font-semibold">{t('payTo', { name: target.fullName })}</div>
           <button onClick={onClose} className="text-mute hover:text-ink text-xl">
             ×
           </button>
@@ -500,16 +505,16 @@ function PayoutModal({
         <div className="p-5 space-y-4">
           <div className="text-sm">
             <div>
-              Monto: <span className="font-bold">{fmtUsd(target.availableUsd)}</span>
+              {t('amountLabel')} <span className="font-bold">{fmtUsd(target.availableUsd)}</span>
             </div>
             <div className="text-mute text-xs mt-0.5">
-              Método: {target.method === 'BINANCE' ? 'Binance' : 'Cuenta bancaria'}
+              {t('methodLabel', { method: target.method === 'BINANCE' ? t('methodBinanceName') : t('methodBankAccount') })}
             </div>
           </div>
           {step === 'confirm' && (
             <>
               <div className="card card-pad bg-bg2/40 text-xs">
-                <div className="font-semibold mb-1">Datos del titular</div>
+                <div className="font-semibold mb-1">{t('holderData')}</div>
                 <div>
                   {target.profile?.firstName} {target.profile?.lastName}
                 </div>
@@ -518,7 +523,7 @@ function PayoutModal({
                 </div>
                 {target.method === 'BINANCE' && (
                   <div className="mt-2">
-                    <div className="font-semibold">Binance</div>
+                    <div className="font-semibold">{t('methodBinanceName')}</div>
                     <div>📧 {target.profile?.binanceEmail}</div>
                     {target.profile?.binanceNote && (
                       <div className="text-mute italic mt-1">
@@ -529,14 +534,14 @@ function PayoutModal({
                 )}
                 {target.method === 'BANK' && (
                   <div className="mt-2">
-                    <div className="font-semibold">Cuenta bancaria</div>
+                    <div className="font-semibold">{t('methodBankAccount')}</div>
                     <div>{target.profile?.bankName} · {target.profile?.bankCountry}</div>
                     <div className="font-mono">
                       {target.profile?.bankAccountType} · {target.profile?.bankAccountNo}
                     </div>
                     <div>{target.profile?.bankHolderName}</div>
                     {target.profile?.bankHolderDoc && (
-                      <div className="text-mute">Doc: {target.profile.bankHolderDoc}</div>
+                      <div className="text-mute">{t('docLabel', { doc: target.profile.bankHolderDoc })}</div>
                     )}
                     {target.profile?.bankNote && (
                       <div className="text-mute italic mt-1">
@@ -552,22 +557,21 @@ function PayoutModal({
                 className="btn-primary w-full"
               >
                 {target.hasOpenPayout
-                  ? 'Ya hay un payout abierto — continuá abajo'
+                  ? t('payoutAlreadyOpen')
                   : saving
-                  ? 'Creando…'
-                  : '1. Crear payout (bloquea las comisiones)'}
+                  ? t('creating')
+                  : t('createPayoutStep')}
               </button>
             </>
           )}
           {step === 'proof' && (
             <>
               <div className="rounded-md bg-emerald-50 border border-emerald-200 px-3 py-2 text-xs text-emerald-900">
-                Payout creado. Ahora transferí el dinero y subí el comprobante
-                acá para cerrar el ciclo.
+                {t('payoutCreatedInfo')}
               </div>
               <div>
                 <div className="text-xs text-mute mb-1">
-                  Comprobante (imagen o PDF, máx 30 MB) *
+                  {t('proofLabel')}
                 </div>
                 <FileUploader
                   value={proofUrl}
@@ -582,7 +586,7 @@ function PayoutModal({
               </div>
               <label className="block">
                 <div className="text-xs text-mute mb-1">
-                  Notas internas (opcional)
+                  {t('internalNotes')}
                 </div>
                 <textarea
                   className="input"
@@ -596,7 +600,7 @@ function PayoutModal({
                 disabled={saving || !proofUrl}
                 className="btn-primary w-full"
               >
-                {saving ? 'Guardando…' : '2. Marcar como pagado'}
+                {saving ? t('saving') : t('markPaidStep')}
               </button>
             </>
           )}

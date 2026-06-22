@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
@@ -33,27 +34,26 @@ type Account = {
   createdAt: string;
 };
 
-const PURPOSE_META: Record<Purpose, { label: string; emoji: string; description: string }> = {
+const PURPOSE_META: Record<Purpose, { labelKey: string; emoji: string; descKey: string }> = {
   BILLING: {
-    label: 'Billing — pagos',
+    labelKey: 'purposeBillingLabel',
     emoji: '💳',
-    description:
-      'Para recordatorios de pago, avisos de impago y suspensión.',
+    descKey: 'purposeBillingDesc',
   },
   OPERATIONAL: {
-    label: 'Operativa — reseñas / pedidos',
+    labelKey: 'purposeOperationalLabel',
     emoji: '📣',
-    description:
-      'Para alertas de reseñas negativas, pedidos delivery y comunicaciones operativas.',
+    descKey: 'purposeOperationalDesc',
   },
   GENERAL: {
-    label: 'General',
+    labelKey: 'purposeGeneralLabel',
     emoji: '⚙️',
-    description: 'Subcuenta sin propósito específico — usa para cualquier flujo.',
+    descKey: 'purposeGeneralDesc',
   },
 };
 
 export default function IntegrationsPage() {
+  const t = useTranslations('admin_integrations');
   const [accounts, setAccounts] = useState<Account[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -67,7 +67,7 @@ export default function IntegrationsPage() {
       );
       setAccounts(data);
     } catch (e: any) {
-      toast(e.message || 'No se pudo cargar', 'error');
+      toast(e.message || t('errorLoad'), 'error');
     } finally {
       setLoading(false);
     }
@@ -84,34 +84,30 @@ export default function IntegrationsPage() {
         { method: 'POST' },
       );
       if (res.ok) {
-        toast('Conexión OK', 'success');
+        toast(t('toastConnectionOk'), 'success');
       } else {
         toast(
-          `Falló: ${res.error || res.detail?.message || res.status || 'sin detalle'}`,
+          t('toastTestFailed', { detail: res.error || res.detail?.message || res.status || t('noDetail') }),
           'error',
         );
       }
       load();
     } catch (e: any) {
-      toast(e.message || 'No se pudo probar', 'error');
+      toast(e.message || t('errorTest'), 'error');
     }
   }
 
   async function remove(id: string, name: string) {
-    if (
-      !confirm(
-        `¿Eliminar la subcuenta "${name}"? Los negocios que la usen volverán a credenciales propias.`,
-      )
-    )
+    if (!confirm(t('confirmDelete', { name })))
       return;
     try {
       await api(`/admin/integrations/grow-business-accounts/${id}`, {
         method: 'DELETE',
       });
-      toast('Subcuenta eliminada', 'success');
+      toast(t('toastAccountDeleted'), 'success');
       load();
     } catch (e: any) {
-      toast(e.message || 'No se pudo eliminar', 'error');
+      toast(e.message || t('errorDelete'), 'error');
     }
   }
 
@@ -119,8 +115,8 @@ export default function IntegrationsPage() {
     <div className="max-w-4xl">
       <div className="page-head">
         <h1 className="page-title">
-          Integraciones SMS{' '}
-          <span className="page-crumb">/ Subcuentas Grow Business</span>
+          {t('pageTitle')}{' '}
+          <span className="page-crumb">{t('pageCrumb')}</span>
         </h1>
         <button
           className="btn-primary"
@@ -129,37 +125,31 @@ export default function IntegrationsPage() {
             setShowForm(true);
           }}
         >
-          <Icon name="plus" /> Nueva subcuenta
+          <Icon name="plus" /> {t('newAccount')}
         </button>
       </div>
 
       <div className="card card-pad mb-5">
         <h3 className="text-base font-semibold m-0">
-          ¿Para qué sirven las subcuentas globales?
+          {t('helpTitle')}
         </h3>
         <p className="text-sm text-mute mt-2 leading-relaxed">
-          Cada subcuenta es una cuenta de Grow Business (provider SMS).
-          Conectala una sola vez aquí, y después asignala a cualquier
-          negocio desde su detalle (
-          <code className="bg-bg2 px-1.5 py-0.5 rounded text-xs">
-            /admin/tenants/[id]
-          </code>
-          ) para que todas sus alertas SMS de reseñas salgan por esa
-          cuenta. Sin tener que pegar credenciales en cada tenant.
+          {t.rich('helpBody', {
+            code: (chunks) => (
+              <code className="bg-bg2 px-1.5 py-0.5 rounded text-xs">{chunks}</code>
+            ),
+          })}
         </p>
         <p className="text-xs text-mute mt-2 leading-relaxed">
-          Si un negocio no tiene subcuenta asignada, el sistema usa las
-          credenciales propias del tenant (legacy). Si tampoco las tiene,
-          el SMS no se manda.
+          {t('helpFallback')}
         </p>
       </div>
 
-      {loading && <div className="text-mute">Cargando…</div>}
+      {loading && <div className="text-mute">{t('loading')}</div>}
 
       {!loading && accounts?.length === 0 && (
         <div className="card card-pad text-center text-mute">
-          Aún no hay subcuentas registradas. Crea la primera con el botón
-          arriba a la derecha.
+          {t('emptyAccounts')}
         </div>
       )}
 
@@ -175,9 +165,9 @@ export default function IntegrationsPage() {
               <div key={purpose}>
                 <h2 className="text-sm font-bold uppercase tracking-[0.12em] text-mute mb-2 flex items-center gap-2">
                   <span>{meta.emoji}</span>
-                  <span>{meta.label}</span>
+                  <span>{t(meta.labelKey)}</span>
                 </h2>
-                <p className="text-[11px] text-mute mb-2">{meta.description}</p>
+                <p className="text-[11px] text-mute mb-2">{t(meta.descKey)}</p>
                 <div className="space-y-3">
                   {inGroup.map((acc) => (
             <div key={acc.id} className="card card-pad">
@@ -187,56 +177,57 @@ export default function IntegrationsPage() {
                     <h3 className="text-base font-semibold m-0">{acc.name}</h3>
                     {acc.isDefault && (
                       <span className="text-[10px] uppercase tracking-wider font-bold bg-brand/15 text-brand px-2 py-0.5 rounded-full">
-                        Default
+                        {t('badgeDefault')}
                       </span>
                     )}
                     {acc.lastTestOk === true && (
                       <span className="text-[10px] uppercase tracking-wider font-bold bg-ok/15 text-ok px-2 py-0.5 rounded-full">
-                        Test OK
+                        {t('badgeTestOk')}
                       </span>
                     )}
                     {acc.lastTestOk === false && (
                       <span className="text-[10px] uppercase tracking-wider font-bold bg-bad/15 text-bad px-2 py-0.5 rounded-full">
-                        Test falló
+                        {t('badgeTestFailed')}
                       </span>
                     )}
                   </div>
                   <div className="mt-1.5 text-xs text-mute space-y-0.5">
                     <div>
-                      <span className="font-semibold">Location ID:</span>{' '}
+                      <span className="font-semibold">{t('fieldLocationId')}</span>{' '}
                       <code className="bg-bg2 px-1.5 py-0.5 rounded text-[11px]">
                         {acc.locationId}
                       </code>
                     </div>
                     <div>
-                      <span className="font-semibold">API key:</span>{' '}
+                      <span className="font-semibold">{t('fieldApiKey')}</span>{' '}
                       <code className="bg-bg2 px-1.5 py-0.5 rounded text-[11px]">
                         {acc.apiKeyPreview ?? '—'}
                       </code>
                     </div>
                     {acc.switchNumber != null && (
                       <div>
-                        <span className="font-semibold">Switch:</span> #
+                        <span className="font-semibold">{t('fieldSwitch')}</span> #
                         {acc.switchNumber}
                       </div>
                     )}
                     <div>
-                      <span className="font-semibold">Negocios usandola:</span>{' '}
+                      <span className="font-semibold">{t('fieldBusinessesUsing')}</span>{' '}
                       {acc.tenantsCount}
                       {(acc.reviewTenantsCount != null ||
                         acc.billingTenantsCount != null ||
                         acc.deliveryTenantsCount != null) && (
                         <span className="text-[10px] ml-1">
-                          (reseñas: {acc.reviewTenantsCount ?? 0} · pagos:{' '}
-                          {acc.billingTenantsCount ?? 0} · delivery:{' '}
-                          {acc.deliveryTenantsCount ?? 0})
+                          {t('usageBreakdown', {
+                            reviews: acc.reviewTenantsCount ?? 0,
+                            billing: acc.billingTenantsCount ?? 0,
+                            delivery: acc.deliveryTenantsCount ?? 0,
+                          })}
                         </span>
                       )}
                       {acc.lastTestAt && (
                         <>
                           {' '}
-                          · Último test:{' '}
-                          {new Date(acc.lastTestAt).toLocaleString('es-CO')}
+                          {t('lastTest', { date: new Date(acc.lastTestAt).toLocaleString('es-CO') })}
                         </>
                       )}
                     </div>
@@ -247,7 +238,7 @@ export default function IntegrationsPage() {
                     className="btn-ghost text-xs"
                     onClick={() => test(acc.id)}
                   >
-                    Probar
+                    {t('testButton')}
                   </button>
                   <button
                     className="btn-ghost text-xs"
@@ -256,13 +247,13 @@ export default function IntegrationsPage() {
                       setShowForm(true);
                     }}
                   >
-                    <Icon name="edit" /> Editar
+                    <Icon name="edit" /> {t('editButton')}
                   </button>
                   <button
                     className="btn-ghost text-xs text-bad"
                     onClick={() => remove(acc.id, acc.name)}
                   >
-                    Eliminar
+                    {t('deleteButton')}
                   </button>
                 </div>
               </div>
@@ -302,6 +293,7 @@ function AccountForm({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations('admin_integrations');
   const [name, setName] = useState(editing?.name ?? '');
   const [locationId, setLocationId] = useState(editing?.locationId ?? '');
   const [apiKey, setApiKey] = useState('');
@@ -314,11 +306,11 @@ function AccountForm({
 
   async function save() {
     if (!name.trim() || !locationId.trim()) {
-      toast('Name y Location ID son obligatorios', 'error');
+      toast(t('errorNameLocationRequired'), 'error');
       return;
     }
     if (!editing && !apiKey.trim()) {
-      toast('API key obligatoria para crear', 'error');
+      toast(t('errorApiKeyRequired'), 'error');
       return;
     }
     const sn = switchNumber.trim();
@@ -329,7 +321,7 @@ function AccountForm({
       parsedSwitch !== null &&
       (!Number.isInteger(parsedSwitch) || parsedSwitch < 1)
     ) {
-      toast('Switch debe ser entero ≥ 1 o vacío', 'error');
+      toast(t('errorSwitchInvalid'), 'error');
       return;
     }
     setSaving(true);
@@ -347,17 +339,17 @@ function AccountForm({
           method: 'PATCH',
           body: JSON.stringify(body),
         });
-        toast('Subcuenta actualizada', 'success');
+        toast(t('toastAccountUpdated'), 'success');
       } else {
         await api('/admin/integrations/grow-business-accounts', {
           method: 'POST',
           body: JSON.stringify(body),
         });
-        toast('Subcuenta creada', 'success');
+        toast(t('toastAccountCreated'), 'success');
       }
       onSaved();
     } catch (e: any) {
-      toast(e.message || 'No se pudo guardar', 'error');
+      toast(e.message || t('errorSave'), 'error');
     } finally {
       setSaving(false);
     }
@@ -374,7 +366,7 @@ function AccountForm({
       >
         <div className="px-5 py-4 border-b border-line flex items-center justify-between">
           <h2 className="text-lg font-bold m-0">
-            {editing ? 'Editar subcuenta' : 'Nueva subcuenta Grow Business'}
+            {editing ? t('formEditTitle') : t('formNewTitle')}
           </h2>
           <button
             onClick={onClose}
@@ -386,22 +378,22 @@ function AccountForm({
 
         <div className="p-5 space-y-4">
           <div>
-            <label className="label">Nombre interno</label>
+            <label className="label">{t('formNameLabel')}</label>
             <input
               type="text"
               className="input"
-              placeholder="Ej: Subcuenta principal · Bucaramanga"
+              placeholder={t('formNamePlaceholder')}
               value={name}
               onChange={(e) => setName(e.target.value)}
               maxLength={60}
             />
             <div className="text-[10px] text-mute mt-1">
-              Solo para que tú lo identifiques en este panel.
+              {t('formNameHint')}
             </div>
           </div>
 
           <div>
-            <label className="label">Propósito</label>
+            <label className="label">{t('formPurposeLabel')}</label>
             <div className="grid grid-cols-3 gap-2">
               {(['BILLING', 'OPERATIONAL', 'GENERAL'] as const).map((p) => {
                 const meta = PURPOSE_META[p];
@@ -419,19 +411,19 @@ function AccountForm({
                   >
                     <div className="text-base">{meta.emoji}</div>
                     <div className={`text-xs font-semibold mt-0.5 ${active ? 'text-brand' : 'text-ink'}`}>
-                      {meta.label}
+                      {t(meta.labelKey)}
                     </div>
                   </button>
                 );
               })}
             </div>
             <div className="text-[10px] text-mute mt-1">
-              {PURPOSE_META[purpose].description}
+              {t(PURPOSE_META[purpose].descKey)}
             </div>
           </div>
 
           <div>
-            <label className="label">Location ID</label>
+            <label className="label">{t('formLocationIdLabel')}</label>
             <input
               type="text"
               className="input font-mono text-xs"
@@ -443,7 +435,7 @@ function AccountForm({
 
           <div>
             <label className="label">
-              API key {editing && <span className="text-[10px] text-mute">(deja vacío para mantener la actual)</span>}
+              {t('formApiKeyLabel')} {editing && <span className="text-[10px] text-mute">{t('formApiKeyEditHint')}</span>}
             </label>
             <input
               type="password"
@@ -461,8 +453,8 @@ function AccountForm({
 
           <div>
             <label className="label">
-              Switch number{' '}
-              <span className="text-[10px] text-mute">(opcional)</span>
+              {t('formSwitchLabel')}{' '}
+              <span className="text-[10px] text-mute">{t('formOptional')}</span>
             </label>
             <input
               type="number"
@@ -473,9 +465,11 @@ function AccountForm({
               onChange={(e) => setSwitchNumber(e.target.value)}
             />
             <div className="text-[10px] text-mute mt-1">
-              Si esta subcuenta enruta mensajes con prefijo
-              <code className="mx-1 bg-bg2 px-1 rounded">#Switch&#123;N&#125;</code>,
-              pon el número aquí.
+              {t.rich('formSwitchHint', {
+                code: (chunks) => (
+                  <code className="mx-1 bg-bg2 px-1 rounded">{chunks}</code>
+                ),
+              })}
             </div>
           </div>
 
@@ -487,10 +481,9 @@ function AccountForm({
               className="w-4 h-4 accent-brand"
             />
             <div>
-              <div className="text-sm font-semibold">Marcar como default</div>
+              <div className="text-sm font-semibold">{t('formDefaultLabel')}</div>
               <div className="text-[11px] text-mute">
-                Esta subcuenta aparece preseleccionada al asignar a un nuevo
-                negocio. Solo puede haber una default activa a la vez.
+                {t('formDefaultHint')}
               </div>
             </div>
           </label>
@@ -498,14 +491,14 @@ function AccountForm({
 
         <div className="px-5 py-3 border-t border-line flex justify-end gap-2 bg-bg2/30">
           <button onClick={onClose} className="btn-ghost text-sm" disabled={saving}>
-            Cancelar
+            {t('cancel')}
           </button>
           <button
             onClick={save}
             disabled={saving}
             className="btn-primary text-sm"
           >
-            {saving ? 'Guardando…' : editing ? 'Guardar cambios' : 'Crear subcuenta'}
+            {saving ? t('saving') : editing ? t('saveChanges') : t('createAccount')}
           </button>
         </div>
       </div>
