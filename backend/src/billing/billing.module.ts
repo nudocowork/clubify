@@ -7,6 +7,8 @@ import {
   HotmartCheckoutController,
 } from './hotmart.controller';
 import { HotmartSimulatorController } from './hotmart-simulator.controller';
+import { StripeService } from './stripe.service';
+import { StripeWebhookController } from './stripe.controller';
 import { SmsTemplatesService } from './sms-templates.service';
 import { SmsTemplatesController } from './sms-templates.controller';
 import { IntegrationsModule } from '../integrations/integrations.module';
@@ -24,9 +26,10 @@ import { BusinessGroupsModule } from '../business-groups/business-groups.module'
     HotmartWebhookController,
     HotmartCheckoutController,
     HotmartSimulatorController,
+    StripeWebhookController,
     SmsTemplatesController,
   ],
-  providers: [BillingService, HotmartService, SmsTemplatesService],
-  exports: [BillingService, HotmartService, SmsTemplatesService],
+  providers: [BillingService, HotmartService, StripeService, SmsTemplatesService],
+  exports: [BillingService, HotmartService, StripeService, SmsTemplatesService],
 })
 export class BillingModule {}

@@ -496,6 +496,10 @@ model Tenant {
   currentPeriodEnd            DateTime?
   hotmartSubscriberCode       String?
   hotmartTransactionId        String?
+  /// Stripe (marcas con paymentGateway=STRIPE): customer + subscription para
+  /// matchear renovaciones del webhook (análogo a hotmartSubscriberCode).
+  stripeCustomerId            String?
+  stripeSubscriptionId        String?
   failedPaymentCount          Int                  @default(0)
   lastPaymentAttemptAt        DateTime?
   // E (2026-06-12): timestamp del último pago aprobado real (approved_date
@@ -636,6 +640,8 @@ model Tenant {
   commissionExceptions CommissionException[]
 
   @@index([status])
+  @@index([stripeCustomerId])
+  @@index([stripeSubscriptionId])
 }
 
 /// Pago de Hotmart recibido por webhook ANTES de que exista la cuenta
@@ -690,6 +696,47 @@ model HotmartWebhookEvent {
   processedAt DateTime @default(now())
 
   @@index([tenantId, eventType, processedAt])
+}
+
+/// Pago de Stripe recibido por webhook ANTES de que exista la cuenta
+/// (flujo "pago → datos"). Análogo a PendingHotmartPayment. /auth/signup lo
+/// consume al crear la cuenta (match por email) y activa el tenant. Aislado
+/// por whiteLabelId: el consume solo matchea pendientes de la misma marca.
+model PendingStripePayment {
+  id                 String    @id @default(uuid())
+  /// Email del comprador (lowercased) — clave de match con el signup.
+  email              String
+  whiteLabelId       String?
+  stripeCustomerId   String?
+  stripeSubscriptionId String?
+  stripePriceId      String?
+  /// Tipo de evento Stripe (checkout.session.completed | invoice.paid).
+  event              String
+  /// Payload completo del evento para re-ejecutar la activación.
+  rawPayload         Json
+  consumedAt         DateTime?
+  recoveryNotifiedAt DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([email])
+  @@index([whiteLabelId])
+  @@index([consumedAt])
+}
+
+/// Idempotencia del webhook Stripe (análogo a HotmartWebhookEvent). Stripe
+/// reintenta con el MISMO event.id; si ya existe, se ignora.
+model StripeWebhookEvent {
+  id           String   @id @default(uuid())
+  /// event.id de Stripe (evt_...). UNIQUE — segundo INSERT del mismo falla.
+  eventId      String   @unique
+  eventType    String
+  whiteLabelId String?
+  tenantId     String?
+  payload      Json
+  processedAt  DateTime @default(now())
+
+  @@index([whiteLabelId, eventType, processedAt])
 }
 
 model User {

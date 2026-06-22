@@ -209,7 +209,17 @@ async function bootstrap() {
       credentials: true,
     },
   });
-  app.use(json({ limit: '15mb' }));
+  // verify stashea el RAW body en req.rawBody (Buffer) — Stripe lo necesita
+  // para validar la firma del webhook (/webhooks/stripe/:slug). El parseo JSON
+  // sigue normal para el resto de las rutas.
+  app.use(
+    json({
+      limit: '15mb',
+      verify: (req: any, _res, buf) => {
+        if (buf && buf.length) req.rawBody = buf;
+      },
+    }),
+  );
   app.use(urlencoded({ limit: '15mb', extended: true }));
   app.use(helmet());
   // Compat versioning + Swagger gating se conectan ANTES del global prefix

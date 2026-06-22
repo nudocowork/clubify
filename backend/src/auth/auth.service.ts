@@ -1163,6 +1163,25 @@ export class AuthService {
       );
     }
 
+    // Análogo para marcas con Stripe: si el comprador pagó por Stripe antes de
+    // crear la cuenta, hay un PendingStripePayment por su email + marca. Mismo
+    // require() inline para resolver el servicio en runtime (evita ciclo DI).
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { StripeService: StripeServiceClass } = require('../billing/stripe.service');
+      const stripe = this.moduleRef.get(StripeServiceClass, { strict: false });
+      const activated = await stripe.consumePendingForTenant(tenant.id, email);
+      if (activated) {
+        this.logger.log(
+          `Signup activado al instante por pago Stripe pendiente — tenant=${tenant.id}`,
+        );
+      }
+    } catch (e) {
+      this.logger.warn(
+        `consumePendingForTenant (Stripe) falló para tenant=${tenant.id}: ${(e as Error).message}`,
+      );
+    }
+
     // Welcome email best-effort (no bloqueante)
     this.email.send({
       to: email,
