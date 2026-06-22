@@ -5,6 +5,7 @@ import * as path from 'path';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GoogleWalletService } from './google-wallet.service';
 import { resolveStampIconRenderer } from './stamp-icons';
+import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 
 /**
  * Genera pases para Apple Wallet (.pkpass) y Google Wallet (save link).
@@ -19,6 +20,7 @@ export class WalletService {
   constructor(
     private prisma: PrismaService,
     private googleWallet: GoogleWalletService,
+    private brand: WhitelabelBrandService,
   ) {}
 
   /**
@@ -93,6 +95,12 @@ export class WalletService {
     const brandName =
       (pass.card.walletBrandName?.trim() || pass.tenant.brandName || 'Clubify').trim() ||
       'Clubify';
+    // Marca blanca dueña del pass — el link "Creado por X" del reverso apunta
+    // al dominio público de la marca (no hardcode Clubify). resolveTenant cae
+    // al row real `clubify` cuando el negocio no tiene whiteLabelId (legacy).
+    const passBrand = await this.brand.resolveTenant(pass.tenantId);
+    const passBrandHref = passBrand.websiteUrl;
+    const passBrandDomain = passBrand.websiteUrl.replace(/^https?:\/\//, '');
     const cardName = (pass.card.name || 'Tarjeta de fidelización').trim() || 'Tarjeta';
     const description = cardName;
 
@@ -184,13 +192,12 @@ export class WalletService {
           { key: 'contact', label: 'Contacto', value: brandName },
           {
             // Apple Wallet detecta URLs en value y las hace clickeables.
-            // El usuario tap el ⓘ del pase, ve "Creado por Clubify" con el
-            // link y al tap abre Safari en https://soyclubify.com.
+            // El usuario tap el ⓘ del pase, ve "Creado por <marca>" con el
+            // link y al tap abre Safari en el dominio de la marca dueña.
             key: 'powered',
-            label: 'Creado por Clubify',
-            value: 'https://soyclubify.com',
-            attributedValue:
-              '<a href="https://soyclubify.com">soyclubify.com</a>',
+            label: `Creado por ${passBrand.name}`,
+            value: passBrandHref,
+            attributedValue: `<a href="${passBrandHref}">${passBrandDomain}</a>`,
           },
         ],
       },
@@ -1360,6 +1367,9 @@ export class WalletService {
     if (!r) throw new NotFoundException('Reservation');
 
     const brandName = (r.tenant.brandName || 'Clubify').trim() || 'Clubify';
+    const resBrand = await this.brand.resolveTenant(r.tenant.id);
+    const resBrandHref = resBrand.websiteUrl;
+    const resBrandDomain = resBrand.websiteUrl.replace(/^https?:\/\//, '');
     const seatLabel = r.table?.number
       ? `Mesa ${r.table.number}`
       : r.zone?.name ?? 'Por asignar';
@@ -1427,10 +1437,9 @@ export class WalletService {
           { key: 'phone', label: 'Teléfono', value: r.customerPhone },
           {
             key: 'powered',
-            label: 'Creado por Clubify',
-            value: 'https://soyclubify.com',
-            attributedValue:
-              '<a href="https://soyclubify.com">soyclubify.com</a>',
+            label: `Creado por ${resBrand.name}`,
+            value: resBrandHref,
+            attributedValue: `<a href="${resBrandHref}">${resBrandDomain}</a>`,
           },
         ],
       },

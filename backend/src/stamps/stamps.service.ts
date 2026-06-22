@@ -8,6 +8,7 @@ import { computePassExpiry } from '../cards/expiry.util';
 import { GamificationService } from '../badges/gamification.service';
 import { AutomationsService } from '../automations/automations.service';
 import { PassesService } from '../passes/passes.service';
+import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 
 export type StampDto = {
   passId: string;
@@ -39,6 +40,7 @@ export class StampsService {
     private gamification: GamificationService,
     private automations: AutomationsService,
     private passes: PassesService,
+    private brand: WhitelabelBrandService,
   ) {}
 
   async record(user: AuthUser, dto: StampDto) {
@@ -589,6 +591,7 @@ export class StampsService {
     // pueda engancharle reglas SEND_PUSH / SEND_WHATSAPP si quiere
     // mandarle un mensaje "tu cupón fue usado, ahora suma sellos".
     if (isCouponRedeem) {
+      const brand = await this.brand.resolveTenant(pass.tenantId);
       this.automations
         .emit('COUPON_REDEEMED', {
           tenantId: pass.tenantId,
@@ -606,7 +609,7 @@ export class StampsService {
           // la tarjeta de sellos. backwards compat con automations.
           stampsCardId: stampsCardForTransform?.id ?? null,
           stampsPassId: pass.id,
-          stampsPassUrl: `https://soyclubify.com/w/${pass.id}`,
+          stampsPassUrl: `${brand.websiteUrl}/w/${pass.id}`,
           transformedInPlace: true,
         })
         .catch(() => null);
@@ -792,6 +795,7 @@ export class StampsService {
     }> = [];
 
     for (const p of couponPasses) {
+      const brand = await this.brand.resolveTenant(p.tenantId);
       try {
         const stampsCard = await this.resolveOrCreateStampsCard(
           p.tenantId,
@@ -822,7 +826,7 @@ export class StampsService {
           tenant: p.tenant.brandName,
           couponName: p.card.name,
           passId: p.id,
-          passUrl: `https://soyclubify.com/w/${p.id}`,
+          passUrl: `${brand.websiteUrl}/w/${p.id}`,
           transformed: true,
         });
         this.logger.log(
@@ -834,7 +838,7 @@ export class StampsService {
           tenant: p.tenant.brandName,
           couponName: p.card.name,
           passId: p.id,
-          passUrl: `https://soyclubify.com/w/${p.id}`,
+          passUrl: `${brand.websiteUrl}/w/${p.id}`,
           transformed: false,
           error: e?.message ?? String(e),
         });

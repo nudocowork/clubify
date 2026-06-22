@@ -19,6 +19,7 @@ import { Public } from '../common/decorators/public.decorator';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GoogleWalletService } from '../wallet/google-wallet.service';
 import { WalletService } from '../wallet/wallet.service';
+import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 
 class PublicReservationBody {
   @IsString() @MaxLength(120) customerName!: string;
@@ -38,6 +39,7 @@ export class PublicReservationsController {
     private prisma: PrismaService,
     private googleWallet: GoogleWalletService,
     private wallet: WalletService,
+    private brand: WhitelabelBrandService,
   ) {}
 
   /** Devuelve detalles de la reserva para mostrar antes de cancelar.
@@ -215,7 +217,8 @@ export class PublicReservationsController {
     // así el cliente puede ver/guardar su pase desde el confirm step.
     // El pase muestra el estado actual (Pendiente → Confirmada → Sentada).
     const passToken = this.svc.signPassToken(r.id);
-    const passUrl = `https://soyclubify.com/r/pase/${passToken}`;
+    const brand = await this.brand.resolveTenant(t.id);
+    const passUrl = `${brand.websiteUrl}/r/pase/${passToken}`;
     return {
       id: r.id,
       status: r.status,

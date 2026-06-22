@@ -14,6 +14,7 @@ import { GrowBusinessService } from '../integrations/grow-business.service';
 import { WalletService } from '../wallet/wallet.service';
 import { PassesService } from '../passes/passes.service';
 import { AppConfigService } from '../common/config/app-config.service';
+import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 import { sign, verify } from 'jsonwebtoken';
 
 const QR_RESERVATION_PROTOCOL = 'clubify-reservation:';
@@ -70,6 +71,7 @@ export class ReservationsService {
     private wallet: WalletService,
     private passes: PassesService,
     private appConfig: AppConfigService,
+    private brand: WhitelabelBrandService,
   ) {}
 
   /** Token HMAC-firmado para cancelar (SMS). Reusa QR_HMAC_SECRET. */
@@ -1105,8 +1107,9 @@ export class ReservationsService {
     const zoneStr = r.zone?.name ? ` (${r.zone.name})` : '';
     const cancelToken = this.signCancelToken(reservationId);
     const passToken = this.signPassToken(reservationId);
-    const cancelUrl = `https://soyclubify.com/r/cancelar/${cancelToken}`;
-    const passUrl = `https://soyclubify.com/r/pase/${passToken}`;
+    const brand = await this.brand.resolveTenant(r.tenantId);
+    const cancelUrl = `${brand.websiteUrl}/r/cancelar/${cancelToken}`;
+    const passUrl = `${brand.websiteUrl}/r/pase/${passToken}`;
     const body =
       `✅ ¡Tu reserva está confirmada!\n` +
       `${r.tenant.brandName} te espera el ${dateStr} a las ${r.time} para ${partyStr}${zoneStr}.\n\n` +

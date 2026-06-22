@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { sign } from 'jsonwebtoken';
 import * as fs from 'fs';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 
 /**
  * Google Wallet integration end-to-end.
@@ -20,7 +21,10 @@ export class GoogleWalletService {
   private logger = new Logger(GoogleWalletService.name);
   private cachedSa: { client_email: string; private_key: string } | null = null;
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private brand: WhitelabelBrandService,
+  ) {}
 
   private loadServiceAccount(): { client_email: string; private_key: string } | null {
     if (this.cachedSa) return this.cachedSa;
@@ -276,12 +280,14 @@ export class GoogleWalletService {
     };
   }
 
-  private resolveLogoUri(pass: any): string {
+  private resolveLogoUri(pass: any, brandWebsiteUrl?: string): string {
+    // Fallback base del logo de la marca dueña del pass (no hardcode Clubify).
+    // El caller resuelve la marca por tenant y la pasa; si falta, cae al env.
     const publicBase =
       process.env.PUBLIC_LOGO_BASE_URL ||
       (process.env.APP_URL && !process.env.APP_URL.includes('localhost')
         ? process.env.APP_URL
-        : 'https://soyclubify.com');
+        : brandWebsiteUrl || 'https://soyclubify.com');
     // #22 (2026-06-16): el logo de LA TARJETA (card.logoUrl) tiene prioridad
     // sobre el del tenant. Al subir un logo nuevo cambia la URL de R2 → el
     // base cambia y Google re-descarga (además del cache-bust por ?v=).
@@ -317,7 +323,8 @@ export class GoogleWalletService {
       return `https://pay.google.com/gp/v/save/MOCK_${passId}`;
     }
 
-    const logoUri = this.resolveLogoUri(pass);
+    const brand = await this.brand.resolveTenant(pass.tenantId);
+    const logoUri = this.resolveLogoUri(pass, brand.websiteUrl);
     const loyaltyClass = this.buildClass(pass, ids.classId, logoUri);
     const loyaltyObject = this.buildObject(pass, ids.classId, ids.objectId);
 
@@ -461,7 +468,8 @@ export class GoogleWalletService {
       // pase instalado (fix 2026-06-15). El logoUri lleva cache-bust por
       // tenant.updatedAt para que Google re-descargue la imagen.
       try {
-        const logoUri = this.resolveLogoUri(pass);
+        const brand = await this.brand.resolveTenant(pass.tenantId);
+        const logoUri = this.resolveLogoUri(pass, brand.websiteUrl);
         const classBody = this.buildClass(pass, ids.classId, logoUri);
         await wallet.loyaltyclass.patch({
           resourceId: ids.classId,
