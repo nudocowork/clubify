@@ -3858,6 +3858,17 @@ model WhiteLabel {
   adminEmail      String?
   status          WhiteLabelStatus @default(ACTIVE)
 
+  /// Pasarela de pago activa de la marca. Cada marca cobra de forma
+  /// independiente con SU propia cuenta. HOTMART | STRIPE | MANUAL.
+  /// MANUAL = sin cobro automático (activaciones/suspensiones a mano).
+  paymentGateway  PaymentGateway   @default(HOTMART)
+  /// Config de la pasarela (Json). Secretos guardados CIFRADOS (enc:v1:...);
+  /// campos no-secretos en plano. Forma por gateway:
+  ///   HOTMART: { apiKey, clientId, clientSecret, webhookSecret, webhookUrl, productCode }
+  ///   STRIPE:  { publishableKey, secretKey, webhookSecret, webhookUrl, customerPortalUrl }
+  /// Nunca se devuelve en plano al frontend: los secretos van enmascarados.
+  paymentConfig   Json?
+
   /// Créditos disponibles para gastar en activaciones / renovaciones
   /// de sus negocios. 1 crédito = 30 días de servicio. Acumulativos,
   /// no vencen. Se descuentan automáticamente.
@@ -3902,6 +3913,7 @@ model WhiteLabel {
   adminInvites    WhiteLabelAdminInvite[]
   hotmartCreditPurchases HotmartCreditPurchase[]
   businessGroups  BusinessGroup[]      @relation("WhiteLabelGroups")
+  paymentLinks    WhiteLabelPaymentLink[]
 
   @@index([status])
 }
@@ -3909,6 +3921,50 @@ model WhiteLabel {
 enum WhiteLabelStatus {
   ACTIVE
   SUSPENDED
+}
+
+/// Pasarela de pago de una marca blanca. MANUAL = sin cobro automático.
+enum PaymentGateway {
+  HOTMART
+  STRIPE
+  MANUAL
+}
+
+/// Periodicidad de un link/plan de pago. CUSTOM = link personalizado.
+enum PaymentLinkPeriodicity {
+  MENSUAL
+  TRIMESTRAL
+  SEMESTRAL
+  ANUAL
+  CUSTOM
+}
+
+/// Link de pago (plan) de una marca blanca. Soporta múltiples por marca
+/// (mensual/trimestral/semestral/anual/personalizado) — punto 9 del spec.
+/// Aislado por whiteLabelId: nunca se mezclan links entre marcas.
+model WhiteLabelPaymentLink {
+  id              String                 @id @default(uuid())
+  whiteLabelId    String
+  whiteLabel      WhiteLabel             @relation(fields: [whiteLabelId], references: [id], onDelete: Cascade)
+  /// Pasarela a la que pertenece el link (debe coincidir con la de la marca).
+  gateway         PaymentGateway
+  /// Nombre del plan visible ("Mensual", "Anual", "Promo lanzamiento").
+  name            String
+  periodicity     PaymentLinkPeriodicity @default(MENSUAL)
+  /// Monto en USD (referencia / display). La cobranza real la define la URL.
+  amountUsd       Decimal                @db.Decimal(10, 2)
+  /// URL de pago (checkout Hotmart o Stripe Payment Link / Checkout).
+  url             String?
+  active          Boolean                @default(true)
+  sortOrder       Int                    @default(0)
+  /// Solo Stripe: identifican el precio/producto para mapear el webhook.
+  stripePriceId   String?
+  stripeProductId String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  @@index([whiteLabelId])
+  @@index([stripePriceId])
 }
 
 /// Estado financiero de un Grupo Empresarial.
