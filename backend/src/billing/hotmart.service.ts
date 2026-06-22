@@ -733,12 +733,14 @@ export class HotmartService {
     tenant: {
       id: string;
       brandName: string;
+      status?: string;
       hotmartSubscriberCode: string | null;
       hotmartTransactionId: string | null;
       currentPeriodEnd?: Date | null;
     },
     payload: HotmartWebhookPayload,
   ) {
+    const wasSuspended = tenant.status === 'SUSPENDED';
     const subscriberCode = payload.data?.subscription?.subscriber?.code;
     const transactionId = payload.data?.purchase?.transaction;
     // E (2026-06-12): Hotmart es la fuente oficial de fechas. Si
@@ -871,17 +873,25 @@ export class HotmartService {
         `generación de comisión falló: ${(e as Error).message}`,
       );
     }
-    // SMS de confirmación al dueño (best-effort)
-    const nextChargeInfo = nextCharge
-      ? ` Próximo cobro: ${fmtSmsDate(nextCharge)}.`
-      : '';
-    this.smsTemplates
-      .render('payment_confirmed', {
-        brandName: tenant.brandName,
-        nextChargeInfo,
-      })
-      .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
-      .catch(() => null);
+    // SMS al dueño (best-effort): si la cuenta venía SUSPENDED, "cuenta
+    // reactivada"; si no, "pago confirmado" (con info del próximo cobro).
+    if (wasSuspended) {
+      this.smsTemplates
+        .render('account_reactivated', { brandName: tenant.brandName })
+        .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
+        .catch(() => null);
+    } else {
+      const nextChargeInfo = nextCharge
+        ? ` Próximo cobro: ${fmtSmsDate(nextCharge)}.`
+        : '';
+      this.smsTemplates
+        .render('payment_confirmed', {
+          brandName: tenant.brandName,
+          nextChargeInfo,
+        })
+        .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
+        .catch(() => null);
+    }
 
     // Fan-out post-activación (C2 sprint): alerta al equipo comercial,
     // creación de CrmContact en el pipeline del afiliado atribuido y
@@ -915,6 +925,7 @@ export class HotmartService {
       select: {
         id: true,
         brandName: true,
+        status: true,
         hotmartSubscriberCode: true,
         hotmartTransactionId: true,
         currentPeriodEnd: true,
@@ -1099,6 +1110,7 @@ export class HotmartService {
         select: {
           id: true,
           brandName: true,
+          status: true,
           hotmartSubscriberCode: true,
           hotmartTransactionId: true,
           currentPeriodEnd: true,
@@ -1147,6 +1159,7 @@ export class HotmartService {
           select: {
             id: true,
             brandName: true,
+            status: true,
             hotmartSubscriberCode: true,
             hotmartTransactionId: true,
             currentPeriodEnd: true,

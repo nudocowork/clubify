@@ -69,6 +69,16 @@ export const SMS_TEMPLATES: SmsTemplateDef[] = [
     default:
       'Clubify: Tu cuenta de {brandName} quedó pausada por falta de pago. Reactiva en la pasarela de pago para volver al instante.',
   },
+  {
+    id: 'account_reactivated',
+    label: 'Cuenta reactivada',
+    description:
+      'Se envía cuando una cuenta pausada/suspendida vuelve a estar activa tras un pago (Hotmart o Stripe).',
+    vars: ['brandName'],
+    group: 'cliente',
+    default:
+      'Clubify: Tu cuenta de {brandName} fue reactivada correctamente. Ya puedes ingresar a tu panel.',
+  },
 
   // ───────── Marca blanca (notificaciones de créditos desde Clubify) ─────────
   {

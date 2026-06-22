@@ -228,10 +228,11 @@ export class StripeService {
   // ── Activación ──────────────────────────────────────────────────────────
 
   private async activate(
-    tenant: { id: string; brandName: string; planPeriodicity: string | null; stripeCustomerId: string | null; stripeSubscriptionId: string | null; currentPeriodEnd: Date | null },
+    tenant: { id: string; brandName: string; status: string; planPeriodicity: string | null; stripeCustomerId: string | null; stripeSubscriptionId: string | null; currentPeriodEnd: Date | null },
     ctx: StripeCtx,
     whiteLabelId: string,
   ) {
+    const wasSuspended = tenant.status === 'SUSPENDED';
     // Próximo cobro: Stripe es la fuente. Fallback (primer pago sin fecha) →
     // periodicidad del link de pago que matchea el priceId.
     let nextCharge = ctx.nextCharge;
@@ -257,11 +258,19 @@ export class StripeService {
         pausePendingNoticeSentAt: null,
       },
     });
-    const nextChargeInfo = nextCharge ? ` Próximo cobro: ${fmtSmsDate(nextCharge)}.` : '';
-    this.smsTemplates
-      .render('payment_confirmed', { brandName: tenant.brandName, nextChargeInfo })
-      .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
-      .catch(() => null);
+    // Si venía SUSPENDED → "cuenta reactivada"; si no → "pago confirmado".
+    if (wasSuspended) {
+      this.smsTemplates
+        .render('account_reactivated', { brandName: tenant.brandName })
+        .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
+        .catch(() => null);
+    } else {
+      const nextChargeInfo = nextCharge ? ` Próximo cobro: ${fmtSmsDate(nextCharge)}.` : '';
+      this.smsTemplates
+        .render('payment_confirmed', { brandName: tenant.brandName, nextChargeInfo })
+        .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
+        .catch(() => null);
+    }
   }
 
   /** Activa un tenant ya conocido por id — lo usa /auth/signup al consumir un
@@ -269,7 +278,7 @@ export class StripeService {
   async activateForTenant(tenantId: string, event: Stripe.Event, brand: BrandCtx) {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
-      select: { id: true, brandName: true, planPeriodicity: true, stripeCustomerId: true, stripeSubscriptionId: true, currentPeriodEnd: true },
+      select: { id: true, brandName: true, status: true, planPeriodicity: true, stripeCustomerId: true, stripeSubscriptionId: true, currentPeriodEnd: true },
     });
     if (!tenant) return false;
     const ctx = await this.extractCtx(brand, event);
@@ -360,6 +369,7 @@ export class StripeService {
     const sel = {
       id: true,
       brandName: true,
+      status: true,
       planPeriodicity: true,
       stripeCustomerId: true,
       stripeSubscriptionId: true,
