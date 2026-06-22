@@ -8,6 +8,7 @@
  * admin (flow existente).
  */
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api, getUser } from '@/lib/api';
 import { toast } from '@/components/Toast';
 
@@ -27,18 +28,19 @@ type AdminUser = {
 
 type CreateResponse = AdminUser & { tempPassword: string };
 
-const ROLE_LABEL: Record<AdminRole, string> = {
-  SUPER_ADMIN: 'Super Admin',
-  MARKETING: 'Marketing',
+const ROLE_LABEL_KEY: Record<AdminRole, string> = {
+  SUPER_ADMIN: 'roleSuperAdmin',
+  MARKETING: 'roleMarketing',
 };
 
-const ROLE_DESC: Record<AdminRole, string> = {
-  SUPER_ADMIN: 'Acceso total al panel /admin.',
-  MARKETING:
-    'Solo marketing y diseño. Sin acceso a financiero, escáner, crear negocios ni gestionar admins.',
+const ROLE_DESC_KEY: Record<AdminRole, string> = {
+  SUPER_ADMIN: 'roleDescSuperAdmin',
+  MARKETING: 'roleDescMarketing',
 };
 
 export default function AdminUsersPage() {
+  const t = useTranslations('admin_users');
+  const tc = useTranslations('common');
   const me = getUser();
   const [users, setUsers] = useState<AdminUser[] | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -70,7 +72,7 @@ export default function AdminUsersPage() {
       const r = await api<AdminUser[]>('/admin/users');
       setUsers(r);
     } catch (e: any) {
-      setLoadErr(e?.message || 'No se pudieron cargar los administradores');
+      setLoadErr(e?.message || t('errorLoad'));
     }
   }
 
@@ -81,7 +83,7 @@ export default function AdminUsersPage() {
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!createForm.fullName.trim() || !createForm.email.trim()) {
-      toast('Completa nombre y email', 'error');
+      toast(t('fillNameEmail'), 'error');
       return;
     }
     setCreating(true);
@@ -107,9 +109,9 @@ export default function AdminUsersPage() {
         role: 'SUPER_ADMIN',
       });
       await load();
-      toast('Administrador creado', 'success');
+      toast(t('toastCreated'), 'success');
     } catch (e: any) {
-      toast(e?.message || 'No se pudo crear', 'error');
+      toast(e?.message || t('errorCreate'), 'error');
     } finally {
       setCreating(false);
     }
@@ -117,14 +119,14 @@ export default function AdminUsersPage() {
 
   async function toggleActive(u: AdminUser) {
     if (u.id === me?.id && u.isActive) {
-      toast('No puedes desactivarte a ti mismo', 'error');
+      toast(t('cannotDeactivateSelf'), 'error');
       return;
     }
     if (
       !confirm(
         u.isActive
-          ? `Desactivar a ${u.fullName}? No va a poder loguearse.`
-          : `Reactivar a ${u.fullName}?`,
+          ? t('confirmDeactivate', { name: u.fullName })
+          : t('confirmReactivate', { name: u.fullName }),
       )
     )
       return;
@@ -134,19 +136,14 @@ export default function AdminUsersPage() {
         body: JSON.stringify({ isActive: !u.isActive }),
       });
       await load();
-      toast(u.isActive ? 'Desactivado' : 'Reactivado', 'success');
+      toast(u.isActive ? t('toastDeactivated') : t('toastReactivated'), 'success');
     } catch (e: any) {
-      toast(e?.message || 'No se pudo actualizar', 'error');
+      toast(e?.message || t('errorUpdate'), 'error');
     }
   }
 
   async function resetPassword(u: AdminUser) {
-    if (
-      !confirm(
-        `Generar nueva contraseña temporal para ${u.fullName}? La anterior va a dejar de funcionar.`,
-      )
-    )
-      return;
+    if (!confirm(t('confirmReset', { name: u.fullName }))) return;
     setResetting(u.id);
     try {
       const r = await api<{ tempPassword: string }>(
@@ -155,7 +152,7 @@ export default function AdminUsersPage() {
       );
       setResetResult({ userId: u.id, tempPassword: r.tempPassword });
     } catch (e: any) {
-      toast(e?.message || 'No se pudo resetear', 'error');
+      toast(e?.message || t('errorReset'), 'error');
     } finally {
       setResetting(null);
     }
@@ -163,21 +160,16 @@ export default function AdminUsersPage() {
 
   async function remove(u: AdminUser) {
     if (u.id === me?.id) {
-      toast('No puedes eliminarte a ti mismo', 'error');
+      toast(t('cannotDeleteSelf'), 'error');
       return;
     }
-    if (
-      !confirm(
-        `Eliminar definitivamente a ${u.fullName}? Esta acción no se puede deshacer.`,
-      )
-    )
-      return;
+    if (!confirm(t('confirmDelete', { name: u.fullName }))) return;
     try {
       await api(`/admin/users/${u.id}`, { method: 'DELETE' });
       await load();
-      toast('Administrador eliminado', 'success');
+      toast(t('toastDeleted'), 'success');
     } catch (e: any) {
-      toast(e?.message || 'No se pudo eliminar', 'error');
+      toast(e?.message || t('errorDelete'), 'error');
     }
   }
 
@@ -185,9 +177,9 @@ export default function AdminUsersPage() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Administradores{' '}
+          {t('title')}{' '}
           <span className="page-crumb">
-            / {users?.length ?? 0} con acceso al panel
+            / {t('crumbCount', { count: users?.length ?? 0 })}
           </span>
         </h1>
         <div className="flex gap-2 flex-wrap">
@@ -196,23 +188,23 @@ export default function AdminUsersPage() {
             className="btn-primary"
             onClick={() => setShowCreate(true)}
           >
-            + Nuevo administrador
+            {t('newAdmin')}
           </button>
         </div>
       </div>
 
       <p className="text-sm text-mute mb-4 max-w-2xl leading-relaxed">
-        Dos roles disponibles: <strong>SUPER_ADMIN</strong> con acceso total
-        al panel /admin, y <strong>MARKETING</strong> con acceso solo a
-        marketing y diseño (sin financiero, sin escáner, sin crear negocios).
-        El nuevo usuario debe habilitar 2FA en su primer inicio de sesión.
+        {t.rich('intro', {
+          superadmin: () => <strong>SUPER_ADMIN</strong>,
+          marketing: () => <strong>MARKETING</strong>,
+        })}
       </p>
 
       {loadErr && (
         <div className="card card-pad mb-4">
           <div className="text-sm text-bad-ink">{loadErr}</div>
           <button onClick={load} className="btn-ghost text-sm mt-2">
-            Reintentar
+            {t('retry')}
           </button>
         </div>
       )}
@@ -220,20 +212,19 @@ export default function AdminUsersPage() {
       {lastCreated && (
         <div className="card card-pad mb-4 bg-ok-soft border-ok/20">
           <div className="text-sm font-semibold text-ok-ink mb-1">
-            ✅ Administrador creado
+            {t('createdBanner')}
           </div>
           <div className="text-xs text-mute mb-2">
-            Comparte estas credenciales por canal seguro (Slack/WhatsApp). No
-            se vuelven a mostrar.
+            {t('createdShareHint')}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
             <div>
-              <div className="text-[11px] text-mute uppercase">Email</div>
+              <div className="text-[11px] text-mute uppercase">{t('emailLabel')}</div>
               <div className="font-mono">{lastCreated.email}</div>
             </div>
             <div>
               <div className="text-[11px] text-mute uppercase">
-                Contraseña temporal
+                {t('tempPasswordLabel')}
               </div>
               <div className="font-mono">{lastCreated.tempPassword}</div>
             </div>
@@ -244,20 +235,23 @@ export default function AdminUsersPage() {
               onClick={() => {
                 navigator.clipboard
                   .writeText(
-                    `Email: ${lastCreated.email}\nContraseña temporal: ${lastCreated.tempPassword}`,
+                    t('credentialsClipboard', {
+                      email: lastCreated.email,
+                      password: lastCreated.tempPassword,
+                    }),
                   )
-                  .then(() => toast('Copiado al portapapeles', 'success'));
+                  .then(() => toast(t('toastCopiedClipboard'), 'success'));
               }}
               className="btn-ghost text-xs"
             >
-              Copiar credenciales
+              {t('copyCredentials')}
             </button>
             <button
               type="button"
               onClick={() => setLastCreated(null)}
               className="btn-ghost text-xs"
             >
-              Listo, ocultar
+              {t('doneHide')}
             </button>
           </div>
         </div>
@@ -266,14 +260,14 @@ export default function AdminUsersPage() {
       {resetResult && (
         <div className="card card-pad mb-4 bg-amber-50 border border-amber-200">
           <div className="text-sm font-semibold text-amber-900 mb-1">
-            🔑 Contraseña reseteada
+            {t('resetBanner')}
           </div>
           <div className="text-xs text-mute mb-2">
-            Compartila por canal seguro. La contraseña anterior ya no funciona.
+            {t('resetShareHint')}
           </div>
           <div className="text-sm">
             <span className="text-[11px] text-mute uppercase block">
-              Nueva contraseña
+              {t('newPasswordLabel')}
             </span>
             <span className="font-mono">{resetResult.tempPassword}</span>
           </div>
@@ -283,18 +277,18 @@ export default function AdminUsersPage() {
               onClick={() => {
                 navigator.clipboard
                   .writeText(resetResult.tempPassword)
-                  .then(() => toast('Copiada', 'success'));
+                  .then(() => toast(t('toastCopied'), 'success'));
               }}
               className="btn-ghost text-xs"
             >
-              Copiar
+              {t('copy')}
             </button>
             <button
               type="button"
               onClick={() => setResetResult(null)}
               className="btn-ghost text-xs"
             >
-              Ocultar
+              {t('hide')}
             </button>
           </div>
         </div>
@@ -302,7 +296,7 @@ export default function AdminUsersPage() {
 
       {users && users.length === 0 && (
         <div className="card card-pad text-center text-mute">
-          No hay administradores cargados.
+          {t('emptyState')}
         </div>
       )}
 
@@ -311,13 +305,13 @@ export default function AdminUsersPage() {
           <table className="w-full text-sm">
             <thead className="bg-bg2/40">
               <tr className="text-left">
-                <th className="px-4 py-3 font-semibold">Nombre</th>
-                <th className="px-4 py-3 font-semibold">Email</th>
-                <th className="px-4 py-3 font-semibold">Rol</th>
+                <th className="px-4 py-3 font-semibold">{t('thName')}</th>
+                <th className="px-4 py-3 font-semibold">{t('emailLabel')}</th>
+                <th className="px-4 py-3 font-semibold">{t('thRole')}</th>
                 <th className="px-4 py-3 font-semibold">2FA</th>
-                <th className="px-4 py-3 font-semibold">Último login</th>
-                <th className="px-4 py-3 font-semibold">Estado</th>
-                <th className="px-4 py-3 font-semibold text-right">Acciones</th>
+                <th className="px-4 py-3 font-semibold">{t('thLastLogin')}</th>
+                <th className="px-4 py-3 font-semibold">{t('thStatus')}</th>
+                <th className="px-4 py-3 font-semibold text-right">{t('thActions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -329,7 +323,7 @@ export default function AdminUsersPage() {
                       {u.fullName}
                       {isMe && (
                         <span className="ml-2 text-[10px] uppercase tracking-wider text-brand font-semibold">
-                          tú
+                          {t('you')}
                         </span>
                       )}
                       {u.phone && (
@@ -348,15 +342,15 @@ export default function AdminUsersPage() {
                             : 'bg-brand-soft text-brand-ink')
                         }
                       >
-                        {ROLE_LABEL[u.role]}
+                        {t(ROLE_LABEL_KEY[u.role])}
                       </span>
                     </td>
                     <td className="px-4 py-3">
                       {u.totpEnabledAt ? (
-                        <span className="text-ok text-xs">✓ Activo</span>
+                        <span className="text-ok text-xs">{t('twoFaActive')}</span>
                       ) : (
                         <span className="text-amber-600 text-xs">
-                          Pendiente
+                          {t('twoFaPending')}
                         </span>
                       )}
                     </td>
@@ -369,16 +363,16 @@ export default function AdminUsersPage() {
                             hour: '2-digit',
                             minute: '2-digit',
                           })
-                        : 'Nunca'}
+                        : t('never')}
                     </td>
                     <td className="px-4 py-3">
                       {u.isActive ? (
                         <span className="text-xs px-2 py-0.5 rounded-pill bg-ok-soft text-ok">
-                          Activo
+                          {t('statusActive')}
                         </span>
                       ) : (
                         <span className="text-xs px-2 py-0.5 rounded-pill bg-bg2 text-mute">
-                          Inactivo
+                          {t('statusInactive')}
                         </span>
                       )}
                     </td>
@@ -389,9 +383,9 @@ export default function AdminUsersPage() {
                           onClick={() => resetPassword(u)}
                           disabled={resetting === u.id}
                           className="btn-ghost text-xs"
-                          title="Generar nueva contraseña temporal"
+                          title={t('resetTitle')}
                         >
-                          {resetting === u.id ? '…' : '🔑 Reset'}
+                          {resetting === u.id ? '…' : t('resetBtn')}
                         </button>
                         <button
                           type="button"
@@ -399,7 +393,7 @@ export default function AdminUsersPage() {
                           disabled={isMe && u.isActive}
                           className="btn-ghost text-xs disabled:opacity-40"
                         >
-                          {u.isActive ? 'Desactivar' : 'Reactivar'}
+                          {u.isActive ? t('deactivate') : t('reactivate')}
                         </button>
                         <button
                           type="button"
@@ -407,7 +401,7 @@ export default function AdminUsersPage() {
                           disabled={isMe}
                           className="btn-ghost text-xs text-bad-ink disabled:opacity-40"
                         >
-                          Eliminar
+                          {tc('delete')}
                         </button>
                       </div>
                     </td>
@@ -432,15 +426,14 @@ export default function AdminUsersPage() {
             className="card card-pad max-w-md w-full"
           >
             <h2 className="text-base font-semibold mb-1">
-              Nuevo administrador
+              {t('modalTitle')}
             </h2>
             <p className="text-xs text-mute mb-4 leading-relaxed">
-              El nuevo usuario va a tener que habilitar 2FA en su primer
-              login.
+              {t('modalSubtitle')}
             </p>
             <div className="grid gap-3">
               <div>
-                <label className="label">Rol</label>
+                <label className="label">{t('roleLabel')}</label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {(['SUPER_ADMIN', 'MARKETING'] as AdminRole[]).map((r) => {
                     const active = createForm.role === r;
@@ -457,10 +450,10 @@ export default function AdminUsersPage() {
                         }
                       >
                         <div className="text-sm font-semibold">
-                          {ROLE_LABEL[r]}
+                          {t(ROLE_LABEL_KEY[r])}
                         </div>
                         <div className="text-[11px] text-mute mt-1 leading-snug">
-                          {ROLE_DESC[r]}
+                          {t(ROLE_DESC_KEY[r])}
                         </div>
                       </button>
                     );
@@ -468,7 +461,7 @@ export default function AdminUsersPage() {
                 </div>
               </div>
               <div>
-                <label className="label">Nombre completo</label>
+                <label className="label">{t('fullNameLabel')}</label>
                 <input
                   className="input"
                   required
@@ -476,12 +469,12 @@ export default function AdminUsersPage() {
                   onChange={(e) =>
                     setCreateForm({ ...createForm, fullName: e.target.value })
                   }
-                  placeholder="Ej: María García"
+                  placeholder={t('fullNamePlaceholder')}
                   autoComplete="off"
                 />
               </div>
               <div>
-                <label className="label">Email</label>
+                <label className="label">{t('emailLabel')}</label>
                 <input
                   className="input"
                   type="email"
@@ -495,7 +488,7 @@ export default function AdminUsersPage() {
                 />
               </div>
               <div>
-                <label className="label">Teléfono (opcional)</label>
+                <label className="label">{t('phoneLabel')}</label>
                 <input
                   className="input"
                   value={createForm.phone}
@@ -508,7 +501,7 @@ export default function AdminUsersPage() {
               </div>
               <div>
                 <label className="label">
-                  Contraseña inicial (opcional)
+                  {t('initialPasswordLabel')}
                 </label>
                 <input
                   className="input font-mono"
@@ -517,14 +510,12 @@ export default function AdminUsersPage() {
                   onChange={(e) =>
                     setCreateForm({ ...createForm, password: e.target.value })
                   }
-                  placeholder="Si la dejas vacía, generamos una"
+                  placeholder={t('initialPasswordPlaceholder')}
                   minLength={8}
                   autoComplete="new-password"
                 />
                 <p className="text-[11px] text-mute mt-1">
-                  Mínimo 8 caracteres. Si la dejas vacía, generamos una
-                  contraseña aleatoria de 10 chars y te la mostramos una sola
-                  vez.
+                  {t('initialPasswordHint')}
                 </p>
               </div>
             </div>
@@ -534,14 +525,14 @@ export default function AdminUsersPage() {
                 onClick={() => setShowCreate(false)}
                 className="btn-ghost"
               >
-                Cancelar
+                {tc('cancel')}
               </button>
               <button
                 type="submit"
                 disabled={creating}
                 className="btn-primary"
               >
-                {creating ? 'Creando…' : 'Crear administrador'}
+                {creating ? t('creating') : t('createAdmin')}
               </button>
             </div>
           </form>

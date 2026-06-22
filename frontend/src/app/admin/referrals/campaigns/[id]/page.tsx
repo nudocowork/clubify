@@ -6,6 +6,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
@@ -47,10 +48,10 @@ type Detail = {
   }>;
 };
 
-const STATUS_PILL: Record<Detail['status'], { text: string; cls: string }> = {
-  ACTIVE: { text: 'Activa', cls: 'bg-ok-soft text-ok' },
-  PAUSED: { text: 'Pausada', cls: 'bg-amber-100 text-amber-800' },
-  FINISHED: { text: 'Finalizada', cls: 'bg-bg2 text-mute' },
+const STATUS_PILL: Record<Detail['status'], { textKey: string; cls: string }> = {
+  ACTIVE: { textKey: 'statusActive', cls: 'bg-ok-soft text-ok' },
+  PAUSED: { textKey: 'statusPaused', cls: 'bg-amber-100 text-amber-800' },
+  FINISHED: { textKey: 'statusFinished', cls: 'bg-bg2 text-mute' },
 };
 
 function fmtUsd(n: number) {
@@ -62,6 +63,8 @@ function fmtDate(d: string | null | undefined) {
 }
 
 export default function CampaignDetailPage() {
+  const t = useTranslations('admin_referrals_campaigns_id');
+  const tc = useTranslations('common');
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const id = params.id;
@@ -83,7 +86,7 @@ export default function CampaignDetailPage() {
     try {
       setData(await api<Detail>(`/campaigns/${id}`));
     } catch (e: any) {
-      toast(e.message || 'Error', 'error');
+      toast(e.message || tc('error'), 'error');
     } finally {
       setLoading(false);
     }
@@ -98,7 +101,7 @@ export default function CampaignDetailPage() {
       method: 'PATCH',
       body: JSON.stringify({ status }),
     });
-    toast('Estado actualizado', 'success');
+    toast(t('toastStatusUpdated'), 'success');
     load();
   }
 
@@ -114,18 +117,18 @@ export default function CampaignDetailPage() {
       });
       if (res?.recalc && res.recalc.updated > 0) {
         toast(
-          `Cambios guardados. ${res.recalc.updated} comisiones recalculadas` +
+          t('toastRecalc', { updated: res.recalc.updated }) +
             (res.recalc.skippedPaid > 0
-              ? ` (${res.recalc.skippedPaid} ya pagadas quedaron intactas).`
+              ? ` ${t('toastRecalcSkipped', { skipped: res.recalc.skippedPaid })}`
               : '.'),
           'success',
         );
       } else {
-        toast('Cambios guardados', 'success');
+        toast(t('toastSaved'), 'success');
       }
       load();
     } catch (e: any) {
-      toast(e.message ?? 'No se pudo guardar', 'error');
+      toast(e.message ?? t('errorSave'), 'error');
     }
   }
 
@@ -157,23 +160,23 @@ export default function CampaignDetailPage() {
           whatsapp: saved.whatsapp,
         });
       } else {
-        toast('Embajador agregado', 'success');
+        toast(t('toastAmbassadorAdded'), 'success');
       }
     } catch (e: any) {
-      toast(e.message || 'Error', 'error');
+      toast(e.message || tc('error'), 'error');
     } finally {
       setBusy(false);
     }
   }
 
   async function removeAmbassador(ambId: string) {
-    if (!confirm('¿Desactivar este embajador? El historial se conserva.')) return;
+    if (!confirm(t('confirmDeactivateAmbassador'))) return;
     await api(`/campaigns/ambassadors/${ambId}`, { method: 'DELETE' });
-    toast('Embajador desactivado', 'success');
+    toast(t('toastAmbassadorDeactivated'), 'success');
     load();
   }
 
-  if (loading || !data) return <div className="p-8 text-mute">Cargando…</div>;
+  if (loading || !data) return <div className="p-8 text-mute">{tc('loading')}</div>;
 
   // Métricas calculadas
   const allUses = [
@@ -207,64 +210,61 @@ export default function CampaignDetailPage() {
       <div className="page-head flex-wrap gap-3">
         <div className="flex-1 min-w-[260px]">
           <Link href="/admin/referrals" className="text-xs text-mute hover:text-ink">
-            ← Volver
+            {t('back')}
           </Link>
           <h1 className="page-title m-0 mt-1">{data.name}</h1>
           <div className="flex items-center gap-2 mt-2">
             <span
               className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${STATUS_PILL[data.status].cls}`}
             >
-              {STATUS_PILL[data.status].text}
+              {t(STATUS_PILL[data.status].textKey)}
             </span>
-            <span className="text-xs text-mute">Creada {fmtDate(data.createdAt)}</span>
+            <span className="text-xs text-mute">{t('createdOn', { date: fmtDate(data.createdAt) })}</span>
           </div>
         </div>
         <div className="flex gap-2">
           {data.status !== 'ACTIVE' && (
             <button onClick={() => setStatus('ACTIVE')} className="btn-ghost text-sm">
-              Activar
+              {t('activate')}
             </button>
           )}
           {data.status !== 'PAUSED' && (
             <button onClick={() => setStatus('PAUSED')} className="btn-ghost text-sm">
-              Pausar
+              {t('pause')}
             </button>
           )}
           {data.status !== 'FINISHED' && (
             <button onClick={() => setStatus('FINISHED')} className="btn-ghost text-sm">
-              Finalizar
+              {t('finish')}
             </button>
           )}
           <button
             onClick={() => setShowDelete(true)}
             className="text-sm font-semibold px-3 py-1.5 rounded-md bg-red-100 text-red-700 hover:bg-red-200"
-            title="Eliminar la campaña (valida que no haya tenants activos)"
+            title={t('deleteTitle')}
           >
-            🗑 Eliminar
+            🗑 {tc('delete')}
           </button>
         </div>
       </div>
       {showDelete && (
         <ConfirmDeleteModal
-          title={`Eliminar campaña "${data.name}"`}
+          title={t('deleteModalTitle', { name: data.name })}
           description={
             <>
-              ¿Deseas eliminar este registro? Si el influencer titular o
-              sus embajadores tienen tenants en estado{' '}
-              <strong>activo o pagando</strong>,{' '}
-              <strong>no se podrá eliminar</strong> — recibirás un aviso con
-              la cantidad. El influencer titular queda como influencer sin
-              campaña; los embajadores se desactivan para preservar
-              historial.
+              {t.rich('deleteModalDescription', {
+                active: (chunks) => <strong>{chunks}</strong>,
+                cant: (chunks) => <strong>{chunks}</strong>,
+              })}
             </>
           }
           onConfirm={async () => {
             try {
               await api(`/campaigns/${id}`, { method: 'DELETE' });
-              toast(`Campaña "${data.name}" eliminada`, 'success');
+              toast(t('toastCampaignDeleted', { name: data.name }), 'success');
               router.push('/admin/referrals');
             } catch (e: any) {
-              toast(e.message || 'No se pudo eliminar', 'error');
+              toast(e.message || t('errorDelete'), 'error');
             }
           }}
           onClose={() => setShowDelete(false)}
@@ -273,15 +273,15 @@ export default function CampaignDetailPage() {
 
       {/* Mini dashboard */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5 mb-5">
-        <Stat label="Clientes activos" value={String(activeClients)} tone="ok" />
-        <Stat label="Total clientes" value={String(directClients + indirectClients)} />
-        <Stat label="Cancelados" value={String(churnedClients)} />
-        <Stat label="Embajadores" value={String(data.codes.length)} />
-        <Stat label="Comisiones generadas" value={fmtUsd(totalCommissionsUsd)} tone="brand" />
-        <Stat label="Pagado" value={fmtUsd(paidUsd)} tone="ok" />
-        <Stat label="Pendiente" value={fmtUsd(pendingUsd)} tone="amber" />
+        <Stat label={t('statActiveClients')} value={String(activeClients)} tone="ok" />
+        <Stat label={t('statTotalClients')} value={String(directClients + indirectClients)} />
+        <Stat label={t('statChurned')} value={String(churnedClients)} />
+        <Stat label={t('statAmbassadors')} value={String(data.codes.length)} />
+        <Stat label={t('statCommissionsGenerated')} value={fmtUsd(totalCommissionsUsd)} tone="brand" />
+        <Stat label={t('statPaid')} value={fmtUsd(paidUsd)} tone="ok" />
+        <Stat label={t('statPending')} value={fmtUsd(pendingUsd)} tone="amber" />
         <Stat
-          label="Directos vs indirectos"
+          label={t('statDirectVsIndirect')}
           value={`${directClients} / ${indirectClients}`}
         />
       </div>
@@ -292,7 +292,7 @@ export default function CampaignDetailPage() {
       {/* Influencer titular + link */}
       <div className="card card-pad mb-5 bg-bg2/40">
         <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1">
-          Influencer titular
+          {t('ownerInfluencer')}
         </div>
         <div className="font-semibold text-base">{data.ownerCode.ownerName}</div>
         <div className="text-xs text-mute">
@@ -302,7 +302,7 @@ export default function CampaignDetailPage() {
           <div className="inline-flex items-center gap-2 bg-white px-3 py-2 rounded-lg">
             <span className="font-mono font-bold text-lg">{data.ownerCode.code}</span>
             <span className="text-xs text-mute">
-              · {Number(data.ownerCode.commissionPercent)}% comisión afiliado
+              · {t('affiliateCommissionPct', { pct: Number(data.ownerCode.commissionPercent) })}
             </span>
           </div>
         </div>
@@ -314,10 +314,10 @@ export default function CampaignDetailPage() {
       <div className="card card-pad mb-5">
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-semibold m-0">
-            Embajadores ({data.codes.length})
+            {t('ambassadorsHeading', { count: data.codes.length })}
           </h2>
           <button onClick={() => setShowAdd(!showAdd)} className="btn-ghost text-sm">
-            {showAdd ? 'Cancelar' : '+ Embajador'}
+            {showAdd ? tc('cancel') : t('addAmbassadorBtn')}
           </button>
         </div>
 
@@ -329,7 +329,7 @@ export default function CampaignDetailPage() {
             <div className="grid grid-cols-2 gap-2">
               <input
                 className="input"
-                placeholder="Nombre"
+                placeholder={t('phName')}
                 required
                 value={addForm.fullName}
                 onChange={(e) => setAddForm({ ...addForm, fullName: e.target.value })}
@@ -337,7 +337,7 @@ export default function CampaignDetailPage() {
               <input
                 className="input"
                 type="email"
-                placeholder="Email"
+                placeholder={t('phEmail')}
                 required
                 value={addForm.email}
                 onChange={(e) => setAddForm({ ...addForm, email: e.target.value })}
@@ -347,7 +347,7 @@ export default function CampaignDetailPage() {
               <PhoneInput
                 value={addForm.whatsapp}
                 onChange={(v) => setAddForm({ ...addForm, whatsapp: v })}
-                placeholder="WhatsApp del embajador"
+                placeholder={t('phWhatsapp')}
               />
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -356,13 +356,13 @@ export default function CampaignDetailPage() {
                 type="number"
                 min={0}
                 max={100}
-                placeholder="% comisión"
+                placeholder={t('phCommissionPct')}
                 value={addForm.commissionPercent}
                 onChange={(e) => setAddForm({ ...addForm, commissionPercent: Number(e.target.value) })}
               />
               <input
                 className="input"
-                placeholder="Código (opcional)"
+                placeholder={t('phCode')}
                 value={addForm.customCode}
                 onChange={(e) => setAddForm({ ...addForm, customCode: e.target.value.toUpperCase() })}
               />
@@ -373,19 +373,19 @@ export default function CampaignDetailPage() {
               required
               minLength={8}
               maxLength={64}
-              placeholder="Contraseña de acceso (mín 8 caracteres)"
+              placeholder={t('phPassword')}
               value={addForm.password}
               onChange={(e) => setAddForm({ ...addForm, password: e.target.value })}
             />
             <button type="submit" disabled={busy} className="btn-primary text-sm w-full">
-              {busy ? 'Agregando…' : 'Agregar embajador'}
+              {busy ? t('adding') : t('addAmbassadorSubmit')}
             </button>
           </form>
         )}
 
         {data.codes.length === 0 ? (
           <div className="text-center py-8 text-mute text-sm">
-            Sin embajadores aún
+            {t('noAmbassadors')}
           </div>
         ) : (
           <div className="space-y-2">
@@ -406,7 +406,7 @@ export default function CampaignDetailPage() {
                       {amb.ownerName}
                       {!amb.approvedAt && (
                         <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
-                          Pendiente
+                          {t('pending')}
                         </span>
                       )}
                     </div>
@@ -416,14 +416,14 @@ export default function CampaignDetailPage() {
                     {amb.code}
                   </div>
                   <div className="text-xs text-mute whitespace-nowrap text-right">
-                    <div>{Number(amb.commissionPercent)}% · {ambUses.length} clientes</div>
+                    <div>{t('pctClients', { pct: Number(amb.commissionPercent), count: ambUses.length })}</div>
                     <div className="text-brand font-semibold">{fmtUsd(round(ambComm))}</div>
                   </div>
                   {amb.isActive && (
                     <button
                       onClick={() => removeAmbassador(amb.id)}
                       className="text-mute hover:text-bad text-lg leading-none"
-                      aria-label="Desactivar"
+                      aria-label={t('deactivate')}
                     >
                       ×
                     </button>
@@ -441,7 +441,7 @@ export default function CampaignDetailPage() {
       {ambCreds && (
         <AffiliateCredentialsModal
           credentials={ambCreds}
-          whoLabel={`embajador ${ambCreds.fullName}`}
+          whoLabel={t('whoLabelAmbassador', { name: ambCreds.fullName })}
           whatsapp={ambCreds.whatsapp}
           onClose={() => setAmbCreds(null)}
         />
@@ -468,6 +468,8 @@ type CampaignClient = {
 };
 
 function ClientsCommissionsSection({ campaignId }: { campaignId: string }) {
+  const t = useTranslations('admin_referrals_campaigns_id');
+  const tc = useTranslations('common');
   const [clients, setClients] = useState<CampaignClient[] | null>(null);
   const [q, setQ] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -484,7 +486,7 @@ function ClientsCommissionsSection({ campaignId }: { campaignId: string }) {
       );
       setClients(res.items);
     } catch (e: any) {
-      setError(e.message ?? 'No se pudo cargar el listado');
+      setError(e.message ?? t('errorLoadList'));
     }
   }
 
@@ -507,11 +509,11 @@ function ClientsCommissionsSection({ campaignId }: { campaignId: string }) {
     <div className="card card-pad mb-5">
       <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
         <h2 className="font-semibold m-0">
-          Clientes atribuidos ({clients?.length ?? 0})
+          {t('attributedClients', { count: clients?.length ?? 0 })}
         </h2>
         <input
           className="input text-sm max-w-xs"
-          placeholder="Buscar por nombre o email"
+          placeholder={t('searchPlaceholder')}
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => {
@@ -527,29 +529,29 @@ function ClientsCommissionsSection({ campaignId }: { campaignId: string }) {
       )}
 
       {!clients ? (
-        <div className="text-sm text-mute py-6 text-center">Cargando…</div>
+        <div className="text-sm text-mute py-6 text-center">{tc('loading')}</div>
       ) : clients.length === 0 ? (
         <div className="text-sm text-mute py-6 text-center">
-          Sin clientes atribuidos a esta campaña aún.
+          {t('noAttributedClients')}
         </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-[10px] uppercase tracking-wider text-mute border-b border-line2">
-                <th className="py-2 pr-3">Cliente</th>
-                <th className="py-2 pr-3">Atribución</th>
-                <th className="py-2 pr-3">Comisión</th>
-                <th className="py-2 pr-3 text-right" title="Lo que el cliente le pagó a Clubify (bundle × ciclos)">
-                  Entró
+                <th className="py-2 pr-3">{t('thClient')}</th>
+                <th className="py-2 pr-3">{t('thAttribution')}</th>
+                <th className="py-2 pr-3">{t('thCommission')}</th>
+                <th className="py-2 pr-3 text-right" title={t('thInTitle')}>
+                  {t('thIn')}
                 </th>
-                <th className="py-2 pr-3 text-right" title="Total de comisiones generadas">
-                  Comisión
+                <th className="py-2 pr-3 text-right" title={t('thCommissionColTitle')}>
+                  {t('thCommission')}
                 </th>
-                <th className="py-2 pr-3 text-right" title="Entró − Comisión = lo que retiene la empresa">
-                  Quedó
+                <th className="py-2 pr-3 text-right" title={t('thLeftTitle')}>
+                  {t('thLeft')}
                 </th>
-                <th className="py-2 pr-3 text-right">Acciones</th>
+                <th className="py-2 pr-3 text-right">{t('thActions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -576,7 +578,7 @@ function ClientsCommissionsSection({ campaignId }: { campaignId: string }) {
                     </td>
                     <td className="py-2 pr-3">
                       {c.attributions.length === 0 ? (
-                        <span className="text-mute text-xs">Sin atribución</span>
+                        <span className="text-mute text-xs">{t('noAttribution')}</span>
                       ) : (
                         <div className="space-y-0.5">
                           {c.attributions.map((a) => (
@@ -596,9 +598,9 @@ function ClientsCommissionsSection({ campaignId }: { campaignId: string }) {
                               {principalException.customPercent}%
                             </span>
                             <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
-                              Excepción
+                              {t('exception')}
                             </span>
-                            <span title="Excepción activa" aria-hidden>
+                            <span title={t('activeException')} aria-hidden>
                               ✏️
                             </span>
                           </div>
@@ -607,7 +609,7 @@ function ClientsCommissionsSection({ campaignId }: { campaignId: string }) {
                             <span className="font-semibold">
                               {principalAttr.defaultPercent}%
                             </span>{' '}
-                            <span className="text-mute">(campaña)</span>
+                            <span className="text-mute">{t('campaignTag')}</span>
                           </div>
                         )
                       ) : (
@@ -618,8 +620,7 @@ function ClientsCommissionsSection({ campaignId }: { campaignId: string }) {
                       {c.breakdown ? fmtUsd(c.breakdown.revenueUsd) : '—'}
                       {c.breakdown && c.breakdown.cyclesCount > 0 && (
                         <div className="text-[10px] text-mute font-sans">
-                          {c.breakdown.cyclesCount} ciclo
-                          {c.breakdown.cyclesCount === 1 ? '' : 's'}
+                          {t('cyclesCount', { count: c.breakdown.cyclesCount })}
                         </div>
                       )}
                     </td>
@@ -627,7 +628,7 @@ function ClientsCommissionsSection({ campaignId }: { campaignId: string }) {
                       {c.breakdown ? fmtUsd(c.breakdown.commissionsUsd) : '—'}
                       {c.breakdown && c.breakdown.pendingUsd > 0 && (
                         <div className="text-[10px] text-amber-700 font-sans">
-                          {fmtUsd(c.breakdown.pendingUsd)} pendiente
+                          {t('pendingAmount', { amount: fmtUsd(c.breakdown.pendingUsd) })}
                         </div>
                       )}
                     </td>
@@ -647,13 +648,13 @@ function ClientsCommissionsSection({ campaignId }: { campaignId: string }) {
                         onClick={() => setEditing(c)}
                         className="btn-ghost text-xs"
                       >
-                        Editar comisión
+                        {t('editCommission')}
                       </button>
                       {principalException && (
                         <button
                           onClick={() => setHistoryFor(principalException.id)}
                           className="btn-ghost text-xs ml-1"
-                          title="Ver historial"
+                          title={t('viewHistory')}
                         >
                           📜
                         </button>
@@ -701,6 +702,8 @@ function CampaignSettings({
     patch: Partial<{ name: string; ownerCommissionPercent: number }>,
   ) => Promise<void>;
 }) {
+  const t = useTranslations('admin_referrals_campaigns_id');
+  const tc = useTranslations('common');
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(data.name);
   const [pct, setPct] = useState(Number(data.ownerCode.commissionPercent));
@@ -728,15 +731,15 @@ function CampaignSettings({
       <div className="card card-pad mb-5 flex items-center justify-between flex-wrap gap-2">
         <div>
           <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1">
-            Configuración
+            {t('configuration')}
           </div>
-          <div className="text-sm">Nombre: {data.name}</div>
+          <div className="text-sm">{t('nameLabel', { name: data.name })}</div>
           <div className="text-sm">
-            % comisión influencer: {Number(data.ownerCode.commissionPercent)}%
+            {t('influencerCommissionLabel', { pct: Number(data.ownerCode.commissionPercent) })}
           </div>
         </div>
         <button onClick={() => setEditing(true)} className="btn-ghost text-sm">
-          Editar
+          {tc('edit')}
         </button>
       </div>
     );
@@ -745,10 +748,10 @@ function CampaignSettings({
   return (
     <div className="card card-pad mb-5 space-y-3">
       <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
-        Editar campaña
+        {t('editCampaign')}
       </div>
       <label className="block">
-        <div className="text-xs text-mute mb-1">Nombre</div>
+        <div className="text-xs text-mute mb-1">{t('phName')}</div>
         <input
           className="input"
           value={name}
@@ -756,7 +759,7 @@ function CampaignSettings({
         />
       </label>
       <label className="block">
-        <div className="text-xs text-mute mb-1">% comisión del influencer</div>
+        <div className="text-xs text-mute mb-1">{t('influencerCommissionPct')}</div>
         <input
           className="input"
           type="number"
@@ -767,8 +770,7 @@ function CampaignSettings({
           onChange={(e) => setPct(Number(e.target.value))}
         />
         <div className="text-[10px] text-mute mt-1">
-          Aplica a comisiones futuras del influencer titular. Las ya pagadas
-          quedan intactas.
+          {t('futureCommissionsNote')}
         </div>
       </label>
       <div className="flex gap-2 justify-end">
@@ -780,10 +782,10 @@ function CampaignSettings({
           }}
           className="btn-ghost text-sm"
         >
-          Cancelar
+          {tc('cancel')}
         </button>
         <button onClick={save} className="btn-primary text-sm">
-          Guardar
+          {tc('save')}
         </button>
       </div>
     </div>
@@ -794,6 +796,7 @@ function CampaignSettings({
  *  este link puede aplicar como embajador de la campaña vía form
  *  público en /refer/[code]. */
 function AmbassadorApplyLink({ code }: { code: string }) {
+  const t = useTranslations('admin_referrals_campaigns_id');
   const link =
     typeof window !== 'undefined'
       ? `${window.location.origin}/refer/${code}`
@@ -801,18 +804,18 @@ function AmbassadorApplyLink({ code }: { code: string }) {
   async function copy() {
     try {
       await navigator.clipboard.writeText(link);
-      toast('Link copiado', 'success');
+      toast(t('toastLinkCopied'), 'success');
     } catch {
-      toast('No se pudo copiar', 'error');
+      toast(t('errorCopy'), 'error');
     }
   }
   const waText = encodeURIComponent(
-    `Únete como embajador de mi campaña en Clubify y gana comisiones por cada negocio que registres: ${link}`,
+    `${t('applyWaText')}: ${link}`,
   );
   return (
     <div className="mt-3 pt-3 border-t border-line2">
       <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1.5">
-        Link de postulación · embajadores
+        {t('applyLinkHeading')}
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <input
@@ -822,7 +825,7 @@ function AmbassadorApplyLink({ code }: { code: string }) {
           className="input flex-1 min-w-[240px] font-mono text-xs"
         />
         <button onClick={copy} className="btn-ghost text-xs">
-          Copiar
+          {t('copy')}
         </button>
         <a
           href={`https://wa.me/?text=${waText}`}
@@ -834,10 +837,9 @@ function AmbassadorApplyLink({ code }: { code: string }) {
         </a>
       </div>
       <div className="text-[11px] text-mute mt-1.5 leading-relaxed">
-        Cualquier persona con este link puede postularse como embajador.
-        Si tienes <code>referrals.requireAmbassadorApproval</code>{' '}
-        activado, aparecerá en la lista de pendientes para revisar antes
-        de activar.
+        {t.rich('applyLinkNote', {
+          code: () => <code>referrals.requireAmbassadorApproval</code>,
+        })}
       </div>
     </div>
   );
@@ -847,6 +849,7 @@ function AmbassadorApplyLink({ code }: { code: string }) {
  *  Usa `/ref/<slug>` si hay slug definido (más memorable), fallback a
  *  `/signup?ref=CODE`. El backend loguea visita en ReferralVisit. */
 function CampaignShareLink({ code, slug }: { code: string; slug: string | null }) {
+  const t = useTranslations('admin_referrals_campaigns_id');
   const link =
     typeof window !== 'undefined'
       ? slug
@@ -856,18 +859,18 @@ function CampaignShareLink({ code, slug }: { code: string; slug: string | null }
   async function copy() {
     try {
       await navigator.clipboard.writeText(link);
-      toast('Link copiado', 'success');
+      toast(t('toastLinkCopied'), 'success');
     } catch {
-      toast('No se pudo copiar', 'error');
+      toast(t('errorCopy'), 'error');
     }
   }
   const waText = encodeURIComponent(
-    `Te invito a sumarte a Clubify usando mi código ${code}: ${link}`,
+    `${t('shareWaText', { code })}: ${link}`,
   );
   return (
     <div className="mt-3 pt-3 border-t border-line2">
       <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1.5">
-        Link de la campaña
+        {t('campaignLinkHeading')}
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <input
@@ -877,7 +880,7 @@ function CampaignShareLink({ code, slug }: { code: string; slug: string | null }
           className="input flex-1 min-w-[240px] font-mono text-xs"
         />
         <button onClick={copy} className="btn-ghost text-xs">
-          Copiar
+          {t('copy')}
         </button>
         <a
           href={`https://wa.me/?text=${waText}`}
@@ -889,8 +892,9 @@ function CampaignShareLink({ code, slug }: { code: string; slug: string | null }
         </a>
       </div>
       <div className="text-[11px] text-mute mt-1.5 leading-relaxed">
-        El cliente que abra este link verá <code>{code}</code> precargado
-        en el form de signup — se atribuye automáticamente a esta campaña.
+        {t.rich('campaignLinkNote', {
+          code: () => <code>{code}</code>,
+        })}
       </div>
     </div>
   );

@@ -6,6 +6,7 @@
  * marca: cada marca ve solo sus grupos.
  */
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 
@@ -34,10 +35,17 @@ type Group = {
 
 const PERIODS = ['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL'];
 
-const STATUS_META: Record<GroupStatus, { label: string; cls: string }> = {
-  ACTIVE: { label: 'Activo', cls: 'bg-ok-soft text-ok' },
-  PAST_DUE: { label: 'Pago pendiente', cls: 'bg-warn-soft text-warn-ink' },
-  SUSPENDED: { label: 'Suspendido', cls: 'bg-bad-soft text-bad-ink' },
+const PERIODICITY_LABEL_KEY: Record<string, string> = {
+  MENSUAL: 'periodicityMonthly',
+  TRIMESTRAL: 'periodicityQuarterly',
+  SEMESTRAL: 'periodicitySemiannual',
+  ANUAL: 'periodicityAnnual',
+};
+
+const STATUS_META: Record<GroupStatus, { labelKey: string; cls: string }> = {
+  ACTIVE: { labelKey: 'statusActive', cls: 'bg-ok-soft text-ok' },
+  PAST_DUE: { labelKey: 'statusPastDue', cls: 'bg-warn-soft text-warn-ink' },
+  SUSPENDED: { labelKey: 'statusSuspended', cls: 'bg-bad-soft text-bad-ink' },
 };
 
 function fmtDate(d?: string | null) {
@@ -50,6 +58,7 @@ function fmtDate(d?: string | null) {
 }
 
 export default function BusinessGroupsPage() {
+  const t = useTranslations('admin_business_groups');
   const [groups, setGroups] = useState<Group[] | null>(null);
   const [creating, setCreating] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -58,7 +67,7 @@ export default function BusinessGroupsPage() {
     try {
       setGroups((await api<Group[]>('/admin/business-groups')) ?? []);
     } catch (e: any) {
-      toast(e?.message || 'Error cargando grupos', 'error');
+      toast(e?.message || t('errorLoading'), 'error');
       setGroups([]);
     }
   }
@@ -70,19 +79,18 @@ export default function BusinessGroupsPage() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Grupos Empresariales{' '}
-          <span className="page-crumb">/ {groups?.length ?? 0} registros</span>
+          {t('title')}{' '}
+          <span className="page-crumb">
+            / {t('recordsCount', { count: groups?.length ?? 0 })}
+          </span>
         </h1>
         <button className="btn-primary" onClick={() => setCreating(true)}>
-          + Nuevo grupo
+          {t('newGroup')}
         </button>
       </div>
 
       <p className="text-sm text-mute mb-4 max-w-2xl leading-relaxed">
-        Agrupa varios negocios bajo un mismo cliente y una sola suscripción de
-        pago. Cada negocio opera independiente (clientes, menú, wallet, sellos
-        propios), pero el estado financiero del grupo cascadea: suspender el
-        grupo suspende todos sus negocios; reactivarlo los reactiva.
+        {t('intro')}
       </p>
 
       {groups === null ? (
@@ -93,10 +101,8 @@ export default function BusinessGroupsPage() {
       ) : groups.length === 0 ? (
         <div className="card card-pad text-center text-mute">
           <div className="text-3xl mb-1">🏢</div>
-          <div className="font-semibold">Sin grupos todavía</div>
-          <div className="text-xs mt-1">
-            Creá un grupo para administrar un cliente con varios negocios.
-          </div>
+          <div className="font-semibold">{t('emptyTitle')}</div>
+          <div className="text-xs mt-1">{t('emptyHint')}</div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -114,14 +120,14 @@ export default function BusinessGroupsPage() {
                       {g.name}
                     </div>
                     <div className="text-xs text-mute truncate">
-                      {g.responsibleName || 'Sin responsable'}
+                      {g.responsibleName || t('noResponsible')}
                       {g.responsibleEmail ? ` · ${g.responsibleEmail}` : ''}
                     </div>
                   </div>
                   <span
                     className={`text-[11px] font-semibold px-2 py-0.5 rounded-pill shrink-0 ${meta.cls}`}
                   >
-                    {meta.label}
+                    {t(meta.labelKey)}
                   </span>
                 </div>
                 <div className="grid grid-cols-3 gap-2 mt-3 text-center">
@@ -130,16 +136,16 @@ export default function BusinessGroupsPage() {
                       {g.tenantsCount ?? g.tenants.length}
                     </div>
                     <div className="text-[10px] uppercase tracking-wide text-mute mt-1">
-                      Negocios
+                      {t('businesses')}
                     </div>
                   </div>
                   <div className="rounded-lg bg-bg2/60 py-2">
                     <div className="text-lg font-bold leading-none text-ok">
                       {g.activeCount ??
-                        g.tenants.filter((t) => t.status === 'ACTIVE').length}
+                        g.tenants.filter((tn) => tn.status === 'ACTIVE').length}
                     </div>
                     <div className="text-[10px] uppercase tracking-wide text-mute mt-1">
-                      Activos
+                      {t('active')}
                     </div>
                   </div>
                   <div className="rounded-lg bg-bg2/60 py-2">
@@ -147,7 +153,7 @@ export default function BusinessGroupsPage() {
                       {fmtDate(g.currentPeriodEnd)}
                     </div>
                     <div className="text-[10px] uppercase tracking-wide text-mute mt-1">
-                      Próx. cobro
+                      {t('nextCharge')}
                     </div>
                   </div>
                 </div>
@@ -184,6 +190,8 @@ function GroupFormModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations('admin_business_groups');
+  const tc = useTranslations('common');
   const [f, setF] = useState({
     name: '',
     responsibleName: '',
@@ -214,10 +222,10 @@ function GroupFormModal({
             : undefined,
         }),
       });
-      toast('Grupo creado', 'success');
+      toast(t('toastCreated'), 'success');
       onSaved();
     } catch (e: any) {
-      toast(e?.message || 'No se pudo crear', 'error');
+      toast(e?.message || t('errorCreate'), 'error');
     } finally {
       setSaving(false);
     }
@@ -231,53 +239,48 @@ function GroupFormModal({
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <form onSubmit={submit} className="card card-pad w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <h2 className="text-base font-semibold mb-3">Nuevo grupo empresarial</h2>
+        <h2 className="text-base font-semibold mb-3">{t('formTitle')}</h2>
         <div className="grid grid-cols-2 gap-3">
           <div className="col-span-2">
-            <label className="label">Nombre del grupo</label>
+            <label className="label">{t('fieldGroupName')}</label>
             <input className="input" value={f.name} onChange={(e) => set('name', e.target.value)} required placeholder="Grupo Juan Pérez" />
           </div>
           <div>
-            <label className="label">Cliente responsable</label>
+            <label className="label">{t('fieldResponsible')}</label>
             <input className="input" value={f.responsibleName} onChange={(e) => set('responsibleName', e.target.value)} placeholder="Juan Pérez" />
           </div>
           <div>
-            <label className="label">Teléfono</label>
+            <label className="label">{t('fieldPhone')}</label>
             <input className="input" value={f.responsiblePhone} onChange={(e) => set('responsiblePhone', e.target.value)} placeholder="+57 300 000 0000" />
           </div>
           <div className="col-span-2">
-            <label className="label">Email del responsable</label>
+            <label className="label">{t('fieldResponsibleEmail')}</label>
             <input className="input" type="email" value={f.responsibleEmail} onChange={(e) => set('responsibleEmail', e.target.value)} placeholder="juan@empresa.com" />
-            <div className="text-[11px] text-mute mt-1">
-              Si Hotmart envía el pago con este email, se vincula la suscripción
-              al grupo automáticamente.
-            </div>
+            <div className="text-[11px] text-mute mt-1">{t('emailHint')}</div>
           </div>
           <div>
-            <label className="label">Código suscriptor Hotmart</label>
-            <input className="input" value={f.hotmartSubscriberCode} onChange={(e) => set('hotmartSubscriberCode', e.target.value)} placeholder="opcional" />
+            <label className="label">{t('fieldHotmartCode')}</label>
+            <input className="input" value={f.hotmartSubscriberCode} onChange={(e) => set('hotmartSubscriberCode', e.target.value)} placeholder={t('optionalPlaceholder')} />
           </div>
           <div>
-            <label className="label">Periodicidad</label>
+            <label className="label">{t('fieldPeriodicity')}</label>
             <select className="input" value={f.planPeriodicity} onChange={(e) => set('planPeriodicity', e.target.value)}>
               <option value="">—</option>
               {PERIODS.map((p) => (
-                <option key={p} value={p}>{p.charAt(0) + p.slice(1).toLowerCase()}</option>
+                <option key={p} value={p}>{t(PERIODICITY_LABEL_KEY[p])}</option>
               ))}
             </select>
           </div>
           <div className="col-span-2">
-            <label className="label">Próxima fecha de cobro</label>
+            <label className="label">{t('fieldNextChargeDate')}</label>
             <input className="input" type="date" value={f.nextChargeDate} onChange={(e) => set('nextChargeDate', e.target.value)} />
           </div>
         </div>
-        <div className="text-[11px] text-mute mt-2">
-          Después de crear el grupo podrás asociarle negocios desde su detalle.
-        </div>
+        <div className="text-[11px] text-mute mt-2">{t('afterCreateHint')}</div>
         <div className="flex justify-end gap-2 mt-4">
-          <button type="button" className="btn-ghost" onClick={onClose}>Cancelar</button>
+          <button type="button" className="btn-ghost" onClick={onClose}>{tc('cancel')}</button>
           <button type="submit" className="btn-primary" disabled={saving || !f.name.trim()}>
-            {saving ? 'Creando…' : 'Crear grupo'}
+            {saving ? t('creating') : t('createGroup')}
           </button>
         </div>
       </form>
@@ -294,6 +297,8 @@ function GroupDetailModal({
   onClose: () => void;
   onChanged: () => void;
 }) {
+  const t = useTranslations('admin_business_groups');
+  const tc = useTranslations('common');
   const [g, setG] = useState<Group | null>(null);
   const [available, setAvailable] = useState<GroupTenant[]>([]);
   const [busy, setBusy] = useState(false);
@@ -308,7 +313,7 @@ function GroupDetailModal({
       setG(grp);
       setAvailable(avail ?? []);
     } catch (e: any) {
-      toast(e?.message || 'Error', 'error');
+      toast(e?.message || tc('error'), 'error');
     }
   }
   useEffect(() => {
@@ -319,10 +324,10 @@ function GroupDetailModal({
   async function setStatus(status: GroupStatus) {
     const msg =
       status === 'SUSPENDED'
-        ? '¿Suspender el grupo? Se suspenderán TODOS sus negocios.'
+        ? t('confirmSuspend')
         : status === 'ACTIVE'
-        ? '¿Reactivar el grupo? Se reactivarán TODOS sus negocios.'
-        : '¿Marcar el grupo como pago pendiente?';
+        ? t('confirmReactivate')
+        : t('confirmPastDue');
     if (!confirm(msg)) return;
     setBusy(true);
     try {
@@ -330,11 +335,11 @@ function GroupDetailModal({
         method: 'POST',
         body: JSON.stringify({ status }),
       });
-      toast('Estado actualizado', 'success');
+      toast(t('toastStatusUpdated'), 'success');
       await reload();
       onChanged();
     } catch (e: any) {
-      toast(e?.message || 'No se pudo cambiar el estado', 'error');
+      toast(e?.message || t('errorStatus'), 'error');
     } finally {
       setBusy(false);
     }
@@ -351,16 +356,16 @@ function GroupDetailModal({
       setAddId('');
       await reload();
       onChanged();
-      toast('Negocio agregado', 'success');
+      toast(t('toastBusinessAdded'), 'success');
     } catch (e: any) {
-      toast(e?.message || 'No se pudo agregar', 'error');
+      toast(e?.message || t('errorAdd'), 'error');
     } finally {
       setBusy(false);
     }
   }
 
   async function removeTenant(tenantId: string) {
-    if (!confirm('¿Quitar este negocio del grupo? Seguirá operando, pero queda como negocio individual.')) return;
+    if (!confirm(t('confirmRemoveTenant'))) return;
     setBusy(true);
     try {
       await api(`/admin/business-groups/${groupId}/tenants/${tenantId}`, {
@@ -368,42 +373,42 @@ function GroupDetailModal({
       });
       await reload();
       onChanged();
-      toast('Negocio quitado', 'success');
+      toast(t('toastBusinessRemoved'), 'success');
     } catch (e: any) {
-      toast(e?.message || 'No se pudo quitar', 'error');
+      toast(e?.message || t('errorRemove'), 'error');
     } finally {
       setBusy(false);
     }
   }
 
   async function simulate(event: string, label: string) {
-    if (!confirm(`Simular "${label}" para este grupo (QA)? Cascadea a todos sus negocios.`)) return;
+    if (!confirm(t('confirmSimulate', { label }))) return;
     setBusy(true);
     try {
       await api('/admin/billing/hotmart/simulate-group-webhook', {
         method: 'POST',
         body: JSON.stringify({ groupId, event }),
       });
-      toast('Simulación aplicada', 'success');
+      toast(t('toastSimulated'), 'success');
       await reload();
       onChanged();
     } catch (e: any) {
-      toast(e?.message || 'No se pudo simular', 'error');
+      toast(e?.message || t('errorSimulate'), 'error');
     } finally {
       setBusy(false);
     }
   }
 
   async function removeGroup() {
-    if (!confirm('¿Eliminar el grupo? Los negocios NO se borran, quedan individuales.')) return;
+    if (!confirm(t('confirmRemoveGroup'))) return;
     setBusy(true);
     try {
       await api(`/admin/business-groups/${groupId}`, { method: 'DELETE' });
-      toast('Grupo eliminado', 'success');
+      toast(t('toastGroupDeleted'), 'success');
       onChanged();
       onClose();
     } catch (e: any) {
-      toast(e?.message || 'No se pudo eliminar', 'error');
+      toast(e?.message || t('errorDelete'), 'error');
       setBusy(false);
     }
   }
@@ -424,57 +429,57 @@ function GroupDetailModal({
               <h2 className="text-lg font-semibold m-0">{g.name}</h2>
               {meta && (
                 <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-pill ${meta.cls}`}>
-                  {meta.label}
+                  {t(meta.labelKey)}
                 </span>
               )}
             </div>
             <div className="text-xs text-mute mb-3">
-              {g.responsibleName || 'Sin responsable'}
+              {g.responsibleName || t('noResponsible')}
               {g.responsibleEmail ? ` · ${g.responsibleEmail}` : ''}
               {g.responsiblePhone ? ` · ${g.responsiblePhone}` : ''}
             </div>
 
             <div className="grid grid-cols-3 gap-2 text-center mb-4">
-              <Info label="Periodicidad" value={g.planPeriodicity ? g.planPeriodicity.charAt(0) + g.planPeriodicity.slice(1).toLowerCase() : '—'} />
-              <Info label="Próx. cobro" value={fmtDate(g.currentPeriodEnd)} />
-              <Info label="Cód. Hotmart" value={g.hotmartSubscriberCode || '—'} />
+              <Info label={t('fieldPeriodicity')} value={g.planPeriodicity ? t(PERIODICITY_LABEL_KEY[g.planPeriodicity] ?? g.planPeriodicity) : '—'} />
+              <Info label={t('nextCharge')} value={fmtDate(g.currentPeriodEnd)} />
+              <Info label={t('hotmartCodeShort')} value={g.hotmartSubscriberCode || '—'} />
             </div>
 
             {/* Acciones financieras (cascada) */}
             <div className="flex flex-wrap gap-2 mb-4">
               {g.status !== 'ACTIVE' && (
                 <button className="btn-primary text-sm" disabled={busy} onClick={() => setStatus('ACTIVE')}>
-                  Reactivar grupo
+                  {t('reactivateGroup')}
                 </button>
               )}
               {g.status !== 'SUSPENDED' && (
                 <button className="btn-danger text-sm" disabled={busy} onClick={() => setStatus('SUSPENDED')}>
-                  Suspender grupo
+                  {t('suspendGroup')}
                 </button>
               )}
               {g.status === 'ACTIVE' && (
                 <button className="btn-ghost text-sm" disabled={busy} onClick={() => setStatus('PAST_DUE')}>
-                  Marcar pago pendiente
+                  {t('markPastDue')}
                 </button>
               )}
             </div>
 
             {/* Negocios del grupo */}
             <div className="text-[11px] uppercase tracking-wide text-mute font-semibold mb-2">
-              Negocios del grupo ({g.tenants.length})
+              {t('groupBusinesses', { count: g.tenants.length })}
             </div>
             <div className="space-y-1.5 mb-3">
               {g.tenants.length === 0 && (
-                <div className="text-sm text-mute italic">Sin negocios asociados.</div>
+                <div className="text-sm text-mute italic">{t('noBusinesses')}</div>
               )}
-              {g.tenants.map((t) => (
-                <div key={t.id} className="flex items-center justify-between gap-2 rounded-lg bg-bg2/50 px-3 py-2">
+              {g.tenants.map((tn) => (
+                <div key={tn.id} className="flex items-center justify-between gap-2 rounded-lg bg-bg2/50 px-3 py-2">
                   <div className="min-w-0">
-                    <div className="text-sm font-medium truncate">{t.brandName}</div>
-                    <div className="text-[11px] text-mute">{t.status}</div>
+                    <div className="text-sm font-medium truncate">{tn.brandName}</div>
+                    <div className="text-[11px] text-mute">{tn.status}</div>
                   </div>
-                  <button className="btn-ghost text-xs text-bad-ink" disabled={busy} onClick={() => removeTenant(t.id)}>
-                    Quitar
+                  <button className="btn-ghost text-xs text-bad-ink" disabled={busy} onClick={() => removeTenant(tn.id)}>
+                    {t('remove')}
                   </button>
                 </div>
               ))}
@@ -483,60 +488,55 @@ function GroupDetailModal({
             {/* Agregar negocio */}
             <div className="flex gap-2 mb-4">
               <select className="input flex-1" value={addId} onChange={(e) => setAddId(e.target.value)}>
-                <option value="">Agregar negocio…</option>
-                {available.map((t) => (
-                  <option key={t.id} value={t.id}>{t.brandName}</option>
+                <option value="">{t('addBusiness')}</option>
+                {available.map((tn) => (
+                  <option key={tn.id} value={tn.id}>{tn.brandName}</option>
                 ))}
               </select>
               <button className="btn-primary" disabled={busy || !addId} onClick={addTenant}>
-                Agregar
+                {t('add')}
               </button>
             </div>
             {available.length === 0 && (
-              <div className="text-[11px] text-mute mb-3 -mt-2">
-                No hay negocios sin grupo disponibles en esta marca.
-              </div>
+              <div className="text-[11px] text-mute mb-3 -mt-2">{t('noAvailableBusinesses')}</div>
             )}
 
             {/* Simulador QA: ejercita la cascada Hotmart→grupo sin cobro real */}
             <div className="mt-2 rounded-lg border border-dashed border-line p-3">
               <div className="text-[11px] uppercase tracking-wide text-mute font-semibold mb-2">
-                Simular cobro (QA)
+                {t('simulateCharge')}
               </div>
               <div className="flex flex-wrap gap-2">
                 <button
                   className="btn-ghost text-xs"
                   disabled={busy}
-                  onClick={() => simulate('PURCHASE_APPROVED', 'pago aprobado')}
+                  onClick={() => simulate('PURCHASE_APPROVED', t('simPaymentApproved'))}
                 >
-                  ✅ Pago aprobado
+                  ✅ {t('simPaymentApproved')}
                 </button>
                 <button
                   className="btn-ghost text-xs"
                   disabled={busy}
-                  onClick={() => simulate('PURCHASE_DELAYED', 'pago atrasado')}
+                  onClick={() => simulate('PURCHASE_DELAYED', t('simPaymentDelayed'))}
                 >
-                  ⏳ Pago atrasado
+                  ⏳ {t('simPaymentDelayed')}
                 </button>
                 <button
                   className="btn-ghost text-xs"
                   disabled={busy}
-                  onClick={() => simulate('PURCHASE_REFUNDED', 'reembolso')}
+                  onClick={() => simulate('PURCHASE_REFUNDED', t('simRefund'))}
                 >
-                  ↩️ Reembolso
+                  ↩️ {t('simRefund')}
                 </button>
               </div>
-              <p className="text-[11px] text-mute mt-2">
-                Pago aprobado → activa el grupo + negocios. Atrasado → pago
-                pendiente. Reembolso → suspende todo. (Solo pruebas.)
-              </p>
+              <p className="text-[11px] text-mute mt-2">{t('simHint')}</p>
             </div>
 
             <div className="flex justify-between items-center pt-3 border-t border-line mt-3">
               <button className="btn-ghost text-sm text-bad-ink" disabled={busy} onClick={removeGroup}>
-                Eliminar grupo
+                {t('deleteGroup')}
               </button>
-              <button className="btn-ghost" onClick={onClose}>Cerrar</button>
+              <button className="btn-ghost" onClick={onClose}>{tc('close')}</button>
             </div>
           </>
         )}
