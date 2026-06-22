@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api, downloadFile } from '@/lib/api';
@@ -36,10 +37,10 @@ type Order = {
 };
 
 const COLS = [
-  { key: 'PENDING' as const, label: 'Nuevos', tone: 'warn' },
-  { key: 'CONFIRMED' as const, label: 'Confirmados', tone: 'info' },
-  { key: 'READY' as const, label: 'Listos', tone: 'brand' },
-  { key: 'DELIVERED' as const, label: 'Entregados', tone: 'ok' },
+  { key: 'PENDING' as const, labelKey: 'colPending', tone: 'warn' },
+  { key: 'CONFIRMED' as const, labelKey: 'colConfirmed', tone: 'info' },
+  { key: 'READY' as const, labelKey: 'colReady', tone: 'brand' },
+  { key: 'DELIVERED' as const, labelKey: 'colDelivered', tone: 'ok' },
 ];
 
 const NEXT: Record<string, Order['status']> = {
@@ -48,10 +49,10 @@ const NEXT: Record<string, Order['status']> = {
   READY: 'DELIVERED',
 };
 
-const NEXT_LABEL: Record<string, string> = {
-  PENDING: 'Confirmar',
-  CONFIRMED: 'Marcar listo',
-  READY: 'Entregado',
+const NEXT_LABEL_KEY: Record<string, string> = {
+  PENDING: 'nextConfirm',
+  CONFIRMED: 'nextMarkReady',
+  READY: 'nextDelivered',
 };
 
 function fmt(n: number) {
@@ -62,14 +63,15 @@ function fmt(n: number) {
   }).format(n);
 }
 
-function timeAgo(d: string) {
+function timeAgo(d: string, t: (key: string, values?: Record<string, any>) => string) {
   const diff = (Date.now() - new Date(d).getTime()) / 60000;
-  if (diff < 1) return 'ahora';
-  if (diff < 60) return `${Math.floor(diff)} min`;
-  return `${Math.floor(diff / 60)} h`;
+  if (diff < 1) return t('timeNow');
+  if (diff < 60) return t('timeMinutes', { min: Math.floor(diff) });
+  return t('timeHours', { h: Math.floor(diff / 60) });
 }
 
 export default function OrdersBoard() {
+  const t = useTranslations('app_orders');
   const [board, setBoard] = useState<Record<string, Order[]>>({
     PENDING: [],
     CONFIRMED: [],
@@ -133,11 +135,11 @@ export default function OrdersBoard() {
       setTimeout(() => {
         setFlashId((cur) => (cur === o.id ? null : cur));
       }, 4000);
-      toast(`🔔 Nuevo pedido #${o.code} de ${o.customer.fullName}`, 'info');
+      toast(t('toastNewOrder', { code: o.code, name: o.customer.fullName }), 'info');
       // Notificación nativa solo si la pestaña no está visible
       if (typeof document !== 'undefined' && document.hidden) {
         browserNotify(
-          `Nuevo pedido #${o.code}`,
+          t('notifyNewOrder', { code: o.code }),
           `${o.customer.fullName} · ${fmt(Number(o.total))}`,
           `/app/orders/${o.id}`,
         );
@@ -166,12 +168,12 @@ export default function OrdersBoard() {
     if (sock.connected) onConnect();
 
     // Fallback: recarga cada 30s en caso de desconexión silenciosa
-    const t = setInterval(load, 30000);
+    const interval = setInterval(load, 30000);
     return () => {
       sock.off('connect', onConnect);
       sock.off('disconnect', onDisconnect);
       sock.off('order:upsert', onUpsert);
-      clearInterval(t);
+      clearInterval(interval);
     };
   }, []);
 
@@ -191,7 +193,7 @@ export default function OrdersBoard() {
       });
       await load();
     } catch (e: any) {
-      toast(e.message || 'No se pudo cambiar el estado', 'error');
+      toast(e.message || t('errorChangeStatus'), 'error');
     } finally {
       setBusy(null);
     }
@@ -257,9 +259,9 @@ export default function OrdersBoard() {
         method: 'PATCH',
         body: JSON.stringify({ status: target }),
       });
-      toast('Pedido movido', 'success');
+      toast(t('toastOrderMoved'), 'success');
     } catch (err: any) {
-      toast(err.message || 'No se pudo mover. Refrescando…', 'error');
+      toast(err.message || t('errorCouldNotMove'), 'error');
       load();
     }
   }
@@ -297,10 +299,10 @@ export default function OrdersBoard() {
     const withReady = all.filter((o) => !!o.readyAt);
     if (withReady.length === 0) return { avgMin: null, lateCount: 0 };
     const totalMin = withReady.reduce((sum, o) => {
-      const t =
+      const elapsed =
         (new Date(o.readyAt!).getTime() - new Date(o.createdAt).getTime()) /
         60000;
-      return sum + Math.max(0, t);
+      return sum + Math.max(0, elapsed);
     }, 0);
     const avgMin = Math.round(totalMin / withReady.length);
 
@@ -320,27 +322,27 @@ export default function OrdersBoard() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Pedidos{' '}
+          {t('pageTitle')}{' '}
           <span className="page-crumb">
-            / {counts.PENDING + counts.CONFIRMED + counts.READY} en curso
+            {t('crumbInProgress', { count: counts.PENDING + counts.CONFIRMED + counts.READY })}
           </span>
         </h1>
         <div className="flex items-center gap-2 -mt-1 mb-2 lg:mb-0 lg:mt-0">
           {opStats.avgMin !== null && (
             <span
               className="inline-flex items-center gap-1.5 text-xs bg-bg2/70 border border-line rounded-pill px-3 py-1"
-              title="Tiempo promedio desde creado hasta listo"
+              title={t('avgPrepTooltip')}
             >
-              ⏱ <b className="text-ink">{opStats.avgMin}m</b>{' '}
-              <span className="text-mute">prep promedio</span>
+              ⏱ <b className="text-ink">{t('avgPrepMinutes', { min: opStats.avgMin })}</b>{' '}
+              <span className="text-mute">{t('avgPrepLabel')}</span>
             </span>
           )}
           {opStats.lateCount > 0 && (
             <span
               className="inline-flex items-center gap-1.5 text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-pill px-3 py-1"
-              title="Pedidos en curso de más de 15 min"
+              title={t('lateTooltip')}
             >
-              🔴 <b>{opStats.lateCount}</b> tarde
+              🔴 <b>{opStats.lateCount}</b> {t('lateLabel')}
             </span>
           )}
         </div>
@@ -349,7 +351,7 @@ export default function OrdersBoard() {
             <Icon name="search" size={14} className="text-mute" />
             <input
               className="border-0 outline-none text-sm w-44 bg-transparent"
-              placeholder="Buscar #código, nombre, tel…"
+              placeholder={t('searchPlaceholder')}
               value={searchQ}
               onChange={(e) => setSearchQ(e.target.value)}
             />
@@ -357,7 +359,7 @@ export default function OrdersBoard() {
               <button
                 onClick={() => setSearchQ('')}
                 className="text-mute hover:text-ink text-sm"
-                title="Limpiar"
+                title={t('clear')}
               >
                 ✕
               </button>
@@ -374,22 +376,22 @@ export default function OrdersBoard() {
                     : 'text-mute hover:text-ink'
                 }`}
                 title={
-                  d === 1 ? 'Solo hoy' : d === 7 ? 'Última semana' : 'Último mes'
+                  d === 1 ? t('scopeTodayTooltip') : d === 7 ? t('scopeWeekTooltip') : t('scopeMonthTooltip')
                 }
               >
-                {d === 1 ? 'Hoy' : `${d}d`}
+                {d === 1 ? t('scopeToday') : t('scopeDays', { days: d })}
               </button>
             ))}
           </div>
           <span
             className={`badge ${live ? 'badge-ok' : 'badge-mute'} text-[11px]`}
-            title={live ? 'Conectado en tiempo real' : 'Sin conexión live'}
+            title={live ? t('liveTooltip') : t('offlineTooltip')}
           >
             <span
               className="w-1.5 h-1.5 rounded-full inline-block mr-1.5"
               style={{ background: live ? '#16A34A' : '#9CA3AF' }}
             />
-            {live ? 'En vivo' : 'Sin conexión'}
+            {live ? t('live') : t('offline')}
           </span>
           <button
             type="button"
@@ -409,23 +411,23 @@ export default function OrdersBoard() {
                 ? 'bg-brand-soft text-brand-700 border-brand/30'
                 : 'bg-bg2 text-mute border-line'
             }`}
-            title={soundOn ? 'Silenciar alertas de pedidos' : 'Activar alertas de pedidos'}
+            title={soundOn ? t('soundOnTooltip') : t('soundOffTooltip')}
           >
-            {soundOn ? '🔔 Sonido ON' : '🔕 Sonido OFF'}
+            {soundOn ? t('soundOn') : t('soundOff')}
           </button>
           <Link
             href="/app/orders/display"
             className="btn-ghost text-xs"
-            title="Vista TV cocina (full screen)"
+            title={t('kitchenModeTooltip')}
           >
-            🍳 Modo cocina
+            🍳 {t('kitchenMode')}
           </Link>
           <button className="btn-ghost" onClick={load}>
-            <Icon name="history" /> Refrescar
+            <Icon name="history" /> {t('refresh')}
           </button>
           <button
             className="btn-ghost text-xs"
-            title="Descargar CSV"
+            title={t('downloadCsvTooltip')}
             onClick={() =>
               downloadFile(
                 '/orders/export.csv',
@@ -433,14 +435,14 @@ export default function OrdersBoard() {
               )
             }
           >
-            ⤓ CSV
+            ⤓ {t('csv')}
           </button>
           <button
             className="btn-primary text-sm"
             onClick={() => setNewOrderOpen(true)}
-            title="Crear pedido manual (walk-in, teléfono, etc.)"
+            title={t('newOrderTooltip')}
           >
-            <Icon name="plus" /> Nuevo pedido
+            <Icon name="plus" /> {t('newOrder')}
           </button>
         </div>
       </div>
@@ -469,7 +471,7 @@ export default function OrdersBoard() {
           >
             <div className="card-h">
               <h3>
-                {col.label}{' '}
+                {t(col.labelKey)}{' '}
                 <span className="text-mute font-normal">({counts[col.key] ?? 0})</span>
               </h3>
               <span
@@ -496,9 +498,9 @@ export default function OrdersBoard() {
                   }`}
                 >
                   {dragOver === col.key
-                    ? 'Suelta aquí'
+                    ? t('dropHere')
                     : searchQ
-                    ? 'Sin coincidencias'
+                    ? t('noMatches')
                     : '—'}
                 </div>
               )}
@@ -517,7 +519,7 @@ export default function OrdersBoard() {
                     <Link href={`/app/orders/${o.id}`} className="hover:text-brand">
                       #{o.code} →
                     </Link>
-                    <span>{timeAgo(o.createdAt)}</span>
+                    <span>{timeAgo(o.createdAt, t)}</span>
                   </div>
                   <Link
                     href={`/app/orders/${o.id}`}
@@ -527,25 +529,25 @@ export default function OrdersBoard() {
                   </Link>
                   <div className="text-xs text-mute">{o.customer.phone}</div>
                   <div className="text-xs text-mute mt-1">
-                    {o.items.length} items · {fmt(Number(o.total))}
+                    {t('itemsCount', { count: o.items.length })} · {fmt(Number(o.total))}
                   </div>
                   <div className="text-xs text-mute mt-0.5 flex items-center gap-1.5 flex-wrap">
                     <span>
                       {o.fulfillment === 'PICKUP'
-                        ? '🥡 Para llevar'
+                        ? `🥡 ${t('fulfillmentPickup')}`
                         : o.fulfillment === 'DINE_IN'
-                        ? `🍽 Mesa ${o.tableNumber ?? ''}`
-                        : '🛵 Domicilio'}
+                        ? `🍽 ${t('fulfillmentDineIn', { table: o.tableNumber ?? '' })}`
+                        : `🛵 ${t('fulfillmentDelivery')}`}
                     </span>
                     {o.paymentStatus === 'PAID' && (
-                      <span className="badge badge-ok text-[10px]">💳 Pagado</span>
+                      <span className="badge badge-ok text-[10px]">💳 {t('paymentPaid')}</span>
                     )}
                     {o.paymentStatus === 'PENDING' && (
-                      <span className="badge badge-warn text-[10px]">⏳ Pago pend.</span>
+                      <span className="badge badge-warn text-[10px]">⏳ {t('paymentPending')}</span>
                     )}
                     {o.paymentStatus === 'FAILED' && (
                       <span className="badge text-[10px] bg-bad-soft text-bad-ink">
-                        ✕ Pago fall.
+                        ✕ {t('paymentFailed')}
                       </span>
                     )}
                   </div>
@@ -556,7 +558,7 @@ export default function OrdersBoard() {
                         onClick={() => setStatus(o.id, NEXT[o.status])}
                         className="btn-primary text-xs px-3 py-1.5"
                       >
-                        {NEXT_LABEL[o.status]}
+                        {t(NEXT_LABEL_KEY[o.status])}
                       </button>
                     )}
                     {o.whatsappLink && (
@@ -566,7 +568,7 @@ export default function OrdersBoard() {
                         rel="noreferrer"
                         className="btn-ghost text-xs px-3 py-1.5"
                       >
-                        WA dueño
+                        {t('waOwner')}
                       </a>
                     )}
                     {o.status !== 'CANCELLED' && o.status !== 'DELIVERED' && (
@@ -575,7 +577,7 @@ export default function OrdersBoard() {
                         onClick={() => setStatus(o.id, 'CANCELLED')}
                         className="btn-danger text-xs px-3 py-1.5"
                       >
-                        Cancelar
+                        {t('cancel')}
                       </button>
                     )}
                   </div>
@@ -617,13 +619,13 @@ type CartLine = {
 
 const STATUS_OPTIONS: Array<{
   value: 'PENDING' | 'CONFIRMED' | 'READY' | 'DELIVERED';
-  label: string;
-  hint: string;
+  labelKey: string;
+  hintKey: string;
 }> = [
-  { value: 'PENDING', label: 'Pendiente', hint: 'Aún por confirmar' },
-  { value: 'CONFIRMED', label: 'Confirmado', hint: 'En cocina' },
-  { value: 'READY', label: 'Listo', hint: 'Esperando entregar' },
-  { value: 'DELIVERED', label: 'Entregado', hint: 'Walk-in / cobro en caja' },
+  { value: 'PENDING', labelKey: 'statusPending', hintKey: 'statusPendingHint' },
+  { value: 'CONFIRMED', labelKey: 'statusConfirmed', hintKey: 'statusConfirmedHint' },
+  { value: 'READY', labelKey: 'statusReady', hintKey: 'statusReadyHint' },
+  { value: 'DELIVERED', labelKey: 'statusDelivered', hintKey: 'statusDeliveredHint' },
 ];
 
 function NewOrderModal({
@@ -633,6 +635,7 @@ function NewOrderModal({
   onClose: () => void;
   onCreated: (orderId: string) => void;
 }) {
+  const t = useTranslations('app_orders');
   const [customerSearch, setCustomerSearch] = useState('');
   const [customers, setCustomers] = useState<CustomerLite[]>([]);
   const [pickedCustomer, setPickedCustomer] = useState<CustomerLite | null>(
@@ -667,7 +670,7 @@ function NewOrderModal({
 
   // Búsqueda live de clientes (debounced)
   useEffect(() => {
-    const t = setTimeout(async () => {
+    const timer = setTimeout(async () => {
       if (customerSearch.trim().length < 2) {
         setCustomers([]);
         return;
@@ -681,7 +684,7 @@ function NewOrderModal({
         setCustomers([]);
       }
     }, 250);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
   }, [customerSearch]);
 
   const filteredProducts = useMemo(() => {
@@ -740,11 +743,11 @@ function NewOrderModal({
 
   async function submit() {
     if (!pickedCustomer) {
-      setErr('Selecciona un cliente');
+      setErr(t('errorSelectCustomer'));
       return;
     }
     if (cart.length === 0) {
-      setErr('Agrega al menos un producto');
+      setErr(t('errorAddProduct'));
       return;
     }
     setSubmitting(true);
@@ -770,10 +773,10 @@ function NewOrderModal({
           deliveryAmount: deliveryNumber > 0 ? deliveryNumber : undefined,
         }),
       });
-      toast('Pedido creado', 'success');
+      toast(t('toastOrderCreated'), 'success');
       onCreated(order.id);
     } catch (e: any) {
-      setErr(e.message || 'No se pudo crear el pedido');
+      setErr(e.message || t('errorCouldNotCreate'));
     } finally {
       setSubmitting(false);
     }
@@ -789,9 +792,9 @@ function NewOrderModal({
       <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[92vh] flex flex-col overflow-hidden">
         <div className="px-5 py-4 border-b border-line flex items-center justify-between">
           <div>
-            <div className="font-semibold text-lg">Nuevo pedido</div>
+            <div className="font-semibold text-lg">{t('newOrder')}</div>
             <div className="text-xs text-mute">
-              Walk-in, teléfono o cualquier pedido fuera del menú público
+              {t('newOrderSubtitle')}
             </div>
           </div>
           <button
@@ -806,7 +809,7 @@ function NewOrderModal({
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
           {/* Cliente */}
           <div>
-            <label className="label">Cliente</label>
+            <label className="label">{t('customer')}</label>
             {pickedCustomer ? (
               <div className="flex items-center gap-3 bg-brand-soft border border-brand/20 rounded-input px-3 py-2.5">
                 <div className="flex-1 min-w-0">
@@ -814,7 +817,7 @@ function NewOrderModal({
                     {pickedCustomer.fullName}
                   </div>
                   <div className="text-xs text-mute truncate">
-                    {pickedCustomer.phone || pickedCustomer.email || 'Sin contacto'}
+                    {pickedCustomer.phone || pickedCustomer.email || t('noContact')}
                   </div>
                 </div>
                 <button
@@ -825,14 +828,14 @@ function NewOrderModal({
                   }}
                   className="text-xs text-mute hover:text-ink"
                 >
-                  Cambiar
+                  {t('change')}
                 </button>
               </div>
             ) : (
               <>
                 <input
                   className="input"
-                  placeholder="Buscar por nombre, teléfono o email…"
+                  placeholder={t('customerSearchPlaceholder')}
                   value={customerSearch}
                   onChange={(e) => setCustomerSearch(e.target.value)}
                   autoFocus
@@ -841,13 +844,13 @@ function NewOrderModal({
                   <div className="border border-line rounded-input mt-1 max-h-48 overflow-y-auto bg-white">
                     {customers.length === 0 ? (
                       <div className="px-3 py-3 text-sm text-mute text-center">
-                        Sin resultados.{' '}
+                        {t('noResults')}{' '}
                         <Link
                           href="/app/customers"
                           target="_blank"
                           className="text-brand hover:underline"
                         >
-                          Crear cliente nuevo →
+                          {t('createNewCustomer')} →
                         </Link>
                       </div>
                     ) : (
@@ -860,7 +863,7 @@ function NewOrderModal({
                         >
                           <div className="text-sm font-medium">{c.fullName}</div>
                           <div className="text-xs text-mute">
-                            {c.phone || c.email || 'Sin contacto'}
+                            {c.phone || c.email || t('noContact')}
                           </div>
                         </button>
                       ))
@@ -873,10 +876,10 @@ function NewOrderModal({
 
           {/* Productos */}
           <div>
-            <label className="label">Productos</label>
+            <label className="label">{t('products')}</label>
             <input
               className="input mb-2"
-              placeholder="Buscar producto o categoría…"
+              placeholder={t('productSearchPlaceholder')}
               value={productSearch}
               onChange={(e) => setProductSearch(e.target.value)}
             />
@@ -896,7 +899,7 @@ function NewOrderModal({
               ))}
               {filteredProducts.length === 0 && (
                 <div className="col-span-full text-sm text-mute text-center py-4">
-                  Sin productos para mostrar.
+                  {t('noProducts')}
                 </div>
               )}
             </div>
@@ -906,7 +909,7 @@ function NewOrderModal({
           {cart.length > 0 && (
             <div className="border border-line rounded-input p-3 bg-bg2/30">
               <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">
-                Carrito ({cart.length} líneas)
+                {t('cartLines', { count: cart.length })}
               </div>
               <div className="space-y-1.5 max-h-40 overflow-y-auto">
                 {cart.map((c) => (
@@ -939,7 +942,7 @@ function NewOrderModal({
                 ))}
               </div>
               <div className="border-t border-line2 mt-2 pt-2 flex justify-between font-semibold">
-                <span>Total</span>
+                <span>{t('total')}</span>
                 <span>{fmt(total)}</span>
               </div>
             </div>
@@ -948,7 +951,7 @@ function NewOrderModal({
           {/* Opciones */}
           <div className="grid sm:grid-cols-2 gap-3">
             <div>
-              <label className="label">Estado inicial</label>
+              <label className="label">{t('initialStatus')}</label>
               <div className="grid grid-cols-2 gap-1">
                 {STATUS_OPTIONS.map((s) => (
                   <button
@@ -960,28 +963,28 @@ function NewOrderModal({
                         ? 'bg-brand text-white'
                         : 'bg-bg2 text-ink hover:bg-line'
                     }`}
-                    title={s.hint}
+                    title={t(s.hintKey)}
                   >
-                    {s.label}
+                    {t(s.labelKey)}
                     <div
                       className={`text-[10px] font-normal mt-0.5 ${
                         status === s.value ? 'text-white/80' : 'text-mute'
                       }`}
                     >
-                      {s.hint}
+                      {t(s.hintKey)}
                     </div>
                   </button>
                 ))}
               </div>
             </div>
             <div>
-              <label className="label">Pago</label>
+              <label className="label">{t('payment')}</label>
               <div className="grid grid-cols-3 gap-1">
                 {(
                   [
-                    { v: 'PAID', l: '✓ Cobrado' },
-                    { v: 'PENDING', l: 'Por cobrar' },
-                    { v: 'NOT_REQUIRED', l: 'No aplica' },
+                    { v: 'PAID', labelKey: 'payPaid' },
+                    { v: 'PENDING', labelKey: 'payPending' },
+                    { v: 'NOT_REQUIRED', labelKey: 'payNotRequired' },
                   ] as const
                 ).map((p) => (
                   <button
@@ -994,14 +997,14 @@ function NewOrderModal({
                         : 'bg-bg2 text-ink hover:bg-line'
                     }`}
                   >
-                    {p.l}
+                    {t(p.labelKey)}
                   </button>
                 ))}
               </div>
-              <label className="label mt-3">Mesa (opcional)</label>
+              <label className="label mt-3">{t('tableOptional')}</label>
               <input
                 className="input"
-                placeholder="Ej: 5"
+                placeholder={t('tablePlaceholder')}
                 value={tableNumber}
                 onChange={(e) => setTableNumber(e.target.value)}
               />
@@ -1011,9 +1014,9 @@ function NewOrderModal({
           {/* Monto de delivery — opcional, se suma al total si > 0. */}
           <div>
             <label className="label">
-              Monto de delivery{' '}
+              {t('deliveryAmount')}{' '}
               <span className="text-mute font-normal">
-                — opcional, se suma al total
+                {t('deliveryAmountNote')}
               </span>
             </label>
             <div className="flex items-center gap-2">
@@ -1022,7 +1025,7 @@ function NewOrderModal({
                 type="number"
                 min="0"
                 step="0.01"
-                placeholder="Vacío = no aplica"
+                placeholder={t('deliveryAmountPlaceholder')}
                 value={deliveryAmount}
                 onChange={(e) => setDeliveryAmount(e.target.value)}
               />
@@ -1032,23 +1035,23 @@ function NewOrderModal({
                   onClick={() => setDeliveryAmount('')}
                   className="text-xs text-mute hover:text-ink"
                 >
-                  Quitar
+                  {t('remove')}
                 </button>
               )}
             </div>
             {deliveryNumber > 0 && (
               <div className="text-xs text-mute mt-1">
-                Subtotal {fmt(subtotal)} + delivery {fmt(deliveryNumber)} ={' '}
+                {t('deliveryBreakdown', { subtotal: fmt(subtotal), delivery: fmt(deliveryNumber) })}{' '}
                 <strong className="text-ink">{fmt(total)}</strong>
               </div>
             )}
           </div>
 
           <div>
-            <label className="label">Nota interna (opcional)</label>
+            <label className="label">{t('internalNote')}</label>
             <input
               className="input"
-              placeholder="Ej: sin azúcar, para llevar…"
+              placeholder={t('internalNotePlaceholder')}
               value={customerNote}
               onChange={(e) => setCustomerNote(e.target.value)}
             />
@@ -1063,7 +1066,7 @@ function NewOrderModal({
 
         <div className="px-5 py-3 border-t border-line bg-bg2/30 flex items-center justify-between gap-3">
           <div className="text-sm text-mute">
-            {cart.length > 0 ? `Total: ${fmt(total)}` : 'Carrito vacío'}
+            {cart.length > 0 ? t('totalAmount', { amount: fmt(total) }) : t('emptyCart')}
           </div>
           <div className="flex gap-2">
             <button
@@ -1072,7 +1075,7 @@ function NewOrderModal({
               disabled={submitting}
               className="btn-ghost text-sm"
             >
-              Cancelar
+              {t('cancel')}
             </button>
             <button
               type="button"
@@ -1082,7 +1085,7 @@ function NewOrderModal({
               }
               className="btn-primary disabled:opacity-50"
             >
-              {submitting ? 'Creando…' : 'Crear pedido →'}
+              {submitting ? t('creating') : t('createOrderCta')}
             </button>
           </div>
         </div>
