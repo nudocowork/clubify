@@ -1190,8 +1190,13 @@ export class SuperAdminService {
       (s ?? '').trim().toLowerCase().replace(/^www\./, '');
     const h = norm(host);
     if (!h) return { slug: null };
+    // IMPORTANTE: NO filtrar por status. El dominio propio (selleala.com)
+    // PERTENECE a la marca exista o no su suscripción activa. Si filtráramos por
+    // ACTIVE, una marca SUSPENDED dejaría de resolver y su dominio caería al
+    // branding default de Clubify (logo/favicon/colores verdes) — fuga de marca
+    // crítica. La suspensión gatea el SERVICIO (login/panel), no la identidad
+    // visual del dominio. Regresión 2026-06-23.
     const wls = await this.prisma.whiteLabel.findMany({
-      where: { status: 'ACTIVE' },
       select: { slug: true, domain: true, appDomain: true },
     });
     const match = wls.find(
@@ -1217,8 +1222,11 @@ export class SuperAdminService {
   async getWhiteLabelBrandingBySlug(slug: string) {
     const s = (slug ?? '').trim().toLowerCase();
     if (!s) return null;
+    // NO filtrar por status: la identidad visual (logo/favicon/colores/nombre)
+    // de la marca debe resolver aunque esté SUSPENDED, para que su dominio nunca
+    // muestre el branding de Clubify. El gating de servicio es aparte.
     const wl = await this.prisma.whiteLabel.findFirst({
-      where: { slug: s, status: 'ACTIVE' },
+      where: { slug: s },
       select: {
         slug: true,
         name: true,
