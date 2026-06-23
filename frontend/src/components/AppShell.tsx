@@ -479,6 +479,30 @@ export default function AppShell({
     };
   }, [navOpen]);
 
+  // Favicon del panel del negocio por TENANT (no solo por host): si la marca
+  // del tenant ≠ clubify y tiene favicon propio, lo aplicamos. Cubre el caso
+  // de acceder al panel de un negocio de otra marca desde el dominio Clubify
+  // (donde DynamicFavicon, host-based, mostraría el de Clubify). Escribimos
+  // sobre el MISMO <link> id que DynamicFavicon → un solo icono, sin pelea.
+  useEffect(() => {
+    if (variant !== 'app' || typeof document === 'undefined') return;
+    const wl = tenantInfo?.whiteLabelBranding;
+    const slug = tenantInfo?.whiteLabelSlug;
+    if (!wl || !slug || slug === 'clubify') return;
+    const fav = wl.faviconUrl || wl.iconUrl || wl.logoUrl;
+    if (!fav) return;
+    const ID = '__clubify_dynamic_favicon';
+    let link = document.getElementById(ID) as HTMLLinkElement | null;
+    if (!link) {
+      link = document.createElement('link');
+      link.id = ID;
+      link.rel = 'icon';
+      link.type = 'image/png';
+      document.head.appendChild(link);
+    }
+    if (link.href !== fav) link.href = fav;
+  }, [variant, tenantInfo?.whiteLabelSlug, tenantInfo?.whiteLabelBranding]);
+
   const isMarketing = user?.role === 'MARKETING';
 
   // Slug + módulos de la marca activa. DEBEN declararse ANTES de `groups`:
