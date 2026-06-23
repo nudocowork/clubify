@@ -33,7 +33,10 @@ export class HotmartWebhookController {
     if (!this.hotmart.verifyHottok(hottok)) {
       return { ok: false, action: 'invalid_hottok' };
     }
-    return this.hotmart.handleEvent(body);
+    // Legacy = Clubify: scopeamos a la marca clubify (+ tenants sin marca,
+    // histórico). Así un webhook de Clubify nunca activa un tenant de otra marca.
+    const scope = await this.hotmart.clubifyScope();
+    return this.hotmart.handleEvent(body, scope);
   }
 
   /**
@@ -59,7 +62,11 @@ export class HotmartWebhookController {
     if (!brand) {
       return { ok: false, action: 'invalid_hottok' };
     }
-    return this.hotmart.handleEvent(body);
+    // Scope estricto a la marca: el tenant lookup nunca cruza a otra marca.
+    return this.hotmart.handleEvent(body, {
+      whiteLabelId: brand.whiteLabelId,
+      includeNull: false,
+    });
   }
 }
 

@@ -18,6 +18,11 @@ import { decryptSecret } from '../common/crypto/secret-box';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+/** Aislamiento por marca para la búsqueda del tenant en el webhook.
+ *  includeNull=true incluye tenants sin marca (whiteLabelId null = histórico
+ *  Clubify); las marcas blancas usan false (estricto a su id). */
+type TenantScope = { whiteLabelId: string; includeNull: boolean };
+
 /**
  * Tipos de evento que Hotmart envía vía webhook.
  * Solo procesamos los críticos para el ciclo de vida de la suscripción.
@@ -211,12 +216,28 @@ export class HotmartService {
     return hottok && hottok === secret ? { whiteLabelId: wl.id } : null;
   }
 
+  /** Scope del webhook legacy (/webhooks/hotmart = Clubify): tenants de la
+   *  marca clubify O sin marca (whiteLabelId null = histórico Clubify).
+   *  Excluye tenants de OTRAS marcas. Si no existe el registro clubify,
+   *  devuelve undefined → comportamiento global (no rompe nada). */
+  async clubifyScope(): Promise<TenantScope | undefined> {
+    const wl = await this.prisma.whiteLabel.findFirst({
+      where: { slug: 'clubify' },
+      select: { id: true },
+    });
+    return wl ? { whiteLabelId: wl.id, includeNull: true } : undefined;
+  }
+
   /**
    * Procesa el payload del webhook. Devuelve `{ ok, action }` describiendo
    * qué se hizo. NO lanza errores al caller; loggea y persiste para debugging
    * porque Hotmart reintenta agresivamente y queremos 200 idempotente.
+   *
+   * `scope` aísla la búsqueda del tenant a una marca: la ruta /:slug pasa el
+   * whiteLabelId de la marca (estricto); la legacy pasa el scope de Clubify
+   * (id clubify + null). Un pago de una marca NUNCA activa el tenant de otra.
    */
-  async handleEvent(payload: HotmartWebhookPayload) {
+  async handleEvent(payload: HotmartWebhookPayload, scope?: TenantScope) {
     const event = payload.event;
     const buyerEmail = payload.data?.buyer?.email?.toLowerCase();
     const subscriberCode = payload.data?.subscription?.subscriber?.code;
@@ -298,7 +319,8 @@ export class HotmartService {
     }
 
     // Localizar tenant por email del buyer (caso primer pago) o por subscriberCode (renovaciones).
-    const tenant = await this.findTenant({ buyerEmail, subscriberCode });
+    // Scopeado a la marca: nunca matchea tenants de otra marca.
+    const tenant = await this.findTenant({ buyerEmail, subscriberCode, scope });
     if (!tenant) {
       // Flujo "pago → datos" (referido): el cliente puede pagar ANTES de
       // crear la cuenta. Si es un pago aprobado y todavía no hay tenant,
@@ -1100,13 +1122,23 @@ export class HotmartService {
   private async findTenant({
     buyerEmail,
     subscriberCode,
+    scope,
   }: {
     buyerEmail?: string;
     subscriberCode?: string;
+    scope?: TenantScope;
   }) {
+    // Filtro de aislamiento por marca. Sin scope → global (legado). Con scope:
+    // estricto al whiteLabelId, o id + null (Clubify histórico) si includeNull.
+    const brandFilter = scope
+      ? scope.includeNull
+        ? { OR: [{ whiteLabelId: scope.whiteLabelId }, { whiteLabelId: null }] }
+        : { whiteLabelId: scope.whiteLabelId }
+      : undefined;
+    const tenantRelation = brandFilter ? { tenant: brandFilter } : {};
     if (subscriberCode) {
       const t = await this.prisma.tenant.findFirst({
-        where: { hotmartSubscriberCode: subscriberCode },
+        where: { hotmartSubscriberCode: subscriberCode, ...(brandFilter ?? {}) },
         select: {
           id: true,
           brandName: true,
@@ -1120,7 +1152,7 @@ export class HotmartService {
     }
     if (buyerEmail) {
       let user = await this.prisma.user.findFirst({
-        where: { email: buyerEmail, role: 'TENANT_OWNER', tenantId: { not: null } },
+        where: { email: buyerEmail, role: 'TENANT_OWNER', tenantId: { not: null }, ...tenantRelation },
         select: { tenantId: true },
       });
       // Fallback: Hotmart a veces strippea el sufijo `+alias` del email del
@@ -1138,6 +1170,7 @@ export class HotmartService {
               role: 'TENANT_OWNER',
               tenantId: { not: null },
               email: { endsWith: domain, contains: '+', mode: 'insensitive' },
+              ...tenantRelation,
             },
             select: { email: true, tenantId: true },
             take: 50,
