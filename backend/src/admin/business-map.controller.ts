@@ -1,5 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { Roles } from '../common/decorators/roles.decorator';
+import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { BusinessMapService } from './business-map.service';
 
 /**
@@ -21,7 +22,7 @@ export class BusinessMapController {
   }
 
   @Get('affiliates')
-  affiliates() {
-    return this.svc.listAffiliates();
+  affiliates(@CurrentUser() user: AuthUser) {
+    return this.svc.listAffiliates(user.whiteLabelId ?? null);
   }
 }

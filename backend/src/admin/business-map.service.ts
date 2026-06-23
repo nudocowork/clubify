@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import {
+  resolveBrandScope,
+  brandWhiteLabelWhere,
+} from '../common/white-label/brand-scope.util';
 
 /**
  * Service del Mapa de Negocios SUPER_ADMIN. Devuelve el listado de
@@ -101,11 +105,18 @@ export class BusinessMapService {
    * Lista de afiliados (INFLUENCER + AMBASSADOR) para los dropdowns de
    * filtro del mapa. Solo los activos, ordenados alfabéticamente.
    */
-  async listAffiliates() {
+  async listAffiliates(whiteLabelId?: string | null) {
+    // Aislamiento por marca: ReferralCode tiene whiteLabelId directo pero NO
+    // tenantId → el middleware no lo scopea. Filtramos por la marca del admin
+    // (sin marca en sesión → default Clubify, que incluye los códigos legacy
+    // con whiteLabelId null).
+    const scope = await resolveBrandScope(this.prisma, whiteLabelId);
+    const brand = brandWhiteLabelWhere(scope);
     const codes = await this.prisma.referralCode.findMany({
       where: {
         isActive: true,
         role: { in: ['AMBASSADOR', 'INFLUENCER'] },
+        ...brand,
       },
       select: {
         id: true,

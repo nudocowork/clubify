@@ -29,9 +29,13 @@ export class CommissionsAuditController {
   constructor(private svc: CommissionsAuditService) {}
 
   @Get('duplicates')
-  duplicates(@Query('limit') limit?: string) {
+  duplicates(
+    @CurrentUser() user: AuthUser,
+    @Query('limit') limit?: string,
+  ) {
     return this.svc.findDuplicates({
       limit: limit ? Number(limit) : undefined,
+      whiteLabelId: user.whiteLabelId ?? null,
     });
   }
 
@@ -45,6 +49,7 @@ export class CommissionsAuditController {
   ) {
     return this.svc.markRejected({
       actorId: user.id,
+      whiteLabelId: user.whiteLabelId ?? null,
       ids: body.ids,
       reason: body.reason,
       cascade: body.cascade === true,

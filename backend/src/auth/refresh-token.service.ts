@@ -14,6 +14,11 @@ export type RefreshPayload = {
   email: string;
   role: Role;
   tenantId: string | null;
+  // Marca blanca propia del admin (relación WhiteLabelAdmin). DEBE viajar en el
+  // refresh: sin esto, al rotar el token se re-firma el accessToken sin marca y
+  // el admin de una marca (ej: Sellea) cae al default del panel /admin (Clubify)
+  // → ve negocios de otra marca. Bug de aislamiento crítico 2026-06-23.
+  whiteLabelId?: string | null;
 };
 
 export type IssueOpts = {
@@ -134,6 +139,9 @@ export class RefreshTokenService {
         email: true,
         role: true,
         tenantId: true,
+        // Re-leemos la marca desde la DB (fuente de verdad) en cada rotación →
+        // las sesiones viejas sin marca se auto-sanan al refrescar.
+        whiteLabelId: true,
         isActive: true,
         passwordChangedAt: true,
       },
@@ -160,6 +168,7 @@ export class RefreshTokenService {
       email: user.email,
       role: user.role,
       tenantId: user.tenantId,
+      whiteLabelId: user.whiteLabelId ?? null,
     };
     const newToken = await this.issue({
       userId: user.id,

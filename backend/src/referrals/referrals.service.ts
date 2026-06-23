@@ -5,6 +5,10 @@ import { customAlphabet } from 'nanoid';
 import { CommissionStatus } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import {
+  resolveBrandScope,
+  brandWhiteLabelWhere,
+} from '../common/white-label/brand-scope.util';
 import { AuthService } from '../auth/auth.service';
 import { CommissionExceptionsService } from '../admin/commission-exceptions.service';
 import { CommissionRecalcService } from './commission-recalc.service';
@@ -855,14 +859,16 @@ export class ReferralsService {
     const oneMonthAgo = new Date(Date.now() - 30 * 86400_000);
     const oneMonthAgoMs = oneMonthAgo.getTime();
     // Aislamiento por marca: códigos por whiteLabelId, comisiones/uses vía el
-    // tenant del referido, campañas vía su influencer dueño.
-    const wlId = user.whiteLabelId ?? null;
-    const codeWhere = wlId ? { whiteLabelId: wlId } : {};
-    const commWhere = wlId
-      ? { referralUse: { tenant: { whiteLabelId: wlId } } }
-      : {};
-    const useWhere = wlId ? { tenant: { whiteLabelId: wlId } } : {};
-    const campWhere = wlId ? { ownerCode: { whiteLabelId: wlId } } : {};
+    // tenant del referido, campañas vía su influencer dueño. Sin marca en
+    // sesión → default Clubify (NO "ver todo": antes con wlId null este panel
+    // mostraba campañas/códigos de TODAS las marcas → Clubify veía Sellea).
+    const scope = await resolveBrandScope(this.prisma, user.whiteLabelId);
+    const brand = brandWhiteLabelWhere(scope);
+    const hasBrand = Object.keys(brand).length > 0;
+    const codeWhere = hasBrand ? brand : {};
+    const commWhere = hasBrand ? { referralUse: { tenant: brand } } : {};
+    const useWhere = hasBrand ? { tenant: brand } : {};
+    const campWhere = hasBrand ? { ownerCode: brand } : {};
     const [campaigns, codes, uses, commByStatus, mrrAgg] = await Promise.all([
       this.prisma.campaign.findMany({
         where: campWhere,

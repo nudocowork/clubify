@@ -10,6 +10,10 @@ import { customAlphabet } from 'nanoid';
 import { CampaignStatus } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import {
+  resolveBrandScope,
+  brandWhiteLabelWhere,
+} from '../common/white-label/brand-scope.util';
 import { AuthService } from '../auth/auth.service';
 import { CommissionRecalcService } from '../referrals/commission-recalc.service';
 import { AuditService } from '../audit/audit.service';
@@ -198,7 +202,14 @@ export class CampaignsService {
 
   async list(user: AuthUser) {
     this.assertAdmin(user);
+    // Aislamiento por MARCA: Campaign no tiene tenantId ni whiteLabelId (cuelga
+    // de ownerCode, que sí tiene whiteLabelId) → el middleware no la scopea.
+    // Filtramos por la marca del admin (sin marca en sesión → default Clubify).
+    const scope = await resolveBrandScope(this.prisma, user.whiteLabelId);
+    const brand = brandWhiteLabelWhere(scope);
+    const where = Object.keys(brand).length > 0 ? { ownerCode: brand } : {};
     const campaigns = await this.prisma.campaign.findMany({
+      where,
       include: {
         ownerCode: {
           include: {

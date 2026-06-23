@@ -14,6 +14,10 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import {
+  resolveBrandScope,
+  brandWhiteLabelWhere,
+} from '../common/white-label/brand-scope.util';
 
 // Reglas de negocio Fase D — 2026-06-07.
 export const MIN_PAYOUT_USD = 50;
@@ -269,8 +273,13 @@ export class PayoutsService {
    */
   async adminReadyToPay(user: AuthUser) {
     this.assertAdmin(user);
+    // Scope por marca: solo afiliados con ReferralCode de la marca del admin.
+    const brand = await this.brandCodeWhere(user);
     const profiles = await this.prisma.paymentProfile.findMany({
-      where: { status: 'APPROVED' },
+      where: {
+        status: 'APPROVED',
+        ...(brand ? { user: { referralCodes: { some: brand } } } : {}),
+      },
       include: {
         user: {
           select: {
@@ -279,7 +288,12 @@ export class PayoutsService {
             fullName: true,
             role: true,
             phone: true,
-            referralCodes: { select: { id: true, code: true, role: true } },
+            // Solo los códigos de la marca → el balance se calcula con las
+            // comisiones de esos códigos, sin sumar las de otras marcas.
+            referralCodes: {
+              where: brand ?? undefined,
+              select: { id: true, code: true, role: true },
+            },
           },
         },
       },
@@ -349,8 +363,16 @@ export class PayoutsService {
    */
   async adminListProfiles(user: AuthUser, filter?: 'all' | 'pending') {
     this.assertAdmin(user);
+    // Scope por marca: solo perfiles de afiliados con un ReferralCode de la marca.
+    const brand = await this.brandCodeWhere(user);
+    const brandWhere = brand
+      ? { user: { referralCodes: { some: brand } } }
+      : {};
     const profiles = await this.prisma.paymentProfile.findMany({
-      where: filter === 'all' ? {} : { status: 'PENDING_REVIEW' },
+      where: {
+        ...(filter === 'all' ? {} : { status: 'PENDING_REVIEW' }),
+        ...brandWhere,
+      },
       include: {
         user: {
           select: { id: true, fullName: true, email: true, role: true },
@@ -369,6 +391,7 @@ export class PayoutsService {
     rejectionReason?: string | null,
   ) {
     this.assertAdmin(user);
+    await this.assertAffiliateInBrand(user, userId);
     const profile = await this.prisma.paymentProfile.findUnique({
       where: { userId },
     });
@@ -394,6 +417,7 @@ export class PayoutsService {
    */
   async adminCreatePayout(user: AuthUser, recipientUserId: string) {
     this.assertAdmin(user);
+    await this.assertAffiliateInBrand(user, recipientUserId);
     const profile = await this.prisma.paymentProfile.findUnique({
       where: { userId: recipientUserId },
     });
@@ -520,6 +544,7 @@ export class PayoutsService {
       include: { items: { select: { commissionId: true } } },
     });
     if (!payout) throw new NotFoundException('Payout no encontrado');
+    await this.assertAffiliateInBrand(user, payout.recipientUserId);
     if (payout.status !== 'PROCESSING') {
       throw new BadRequestException(
         'El payout ya no está en estado PROCESSING',
@@ -587,6 +612,7 @@ export class PayoutsService {
       include: { items: { select: { id: true, commissionId: true } } },
     });
     if (!payout) throw new NotFoundException('Payout no encontrado');
+    await this.assertAffiliateInBrand(user, payout.recipientUserId);
     if (payout.status !== 'PAID') {
       throw new BadRequestException(
         `Solo se pueden reversar payouts en estado PAID (este es ${payout.status})`,
@@ -641,6 +667,39 @@ export class PayoutsService {
   private assertAdmin(user: AuthUser) {
     if (user.role !== 'SUPER_ADMIN') {
       throw new ForbiddenException();
+    }
+  }
+
+  /**
+   * Aislamiento por MARCA BLANCA del panel admin de payouts. PaymentProfile y
+   * Commission cuelgan del User/ReferralCode (sin tenantId) → el middleware
+   * Prisma NO los scopea. Filtramos por los ReferralCode de la marca del admin:
+   * un admin de Sellea solo ve/paga afiliados de Sellea, nunca de Clubify (ni
+   * sus datos bancarios). Sin marca en sesión → default Clubify (incluye los
+   * códigos legacy con whiteLabelId null). Devuelve `null` si no hay filtro
+   * (dev sin marca clubify configurada).
+   */
+  private async brandCodeWhere(
+    user: AuthUser,
+  ): Promise<Record<string, any> | null> {
+    const scope = await resolveBrandScope(this.prisma, user.whiteLabelId);
+    const brand = brandWhiteLabelWhere(scope);
+    return Object.keys(brand).length > 0 ? brand : null;
+  }
+
+  /** Verifica que el afiliado destino tenga al menos un ReferralCode dentro de
+   *  la marca del admin. Bloquea acciones cross-brand (crear/pagar/reversar). */
+  private async assertAffiliateInBrand(user: AuthUser, recipientUserId: string) {
+    const brand = await this.brandCodeWhere(user);
+    if (!brand) return; // dev sin marca → sin restricción
+    const inBrand = await this.prisma.referralCode.findFirst({
+      where: { ownerUserId: recipientUserId, ...brand },
+      select: { id: true },
+    });
+    if (!inBrand) {
+      throw new ForbiddenException(
+        'El afiliado no pertenece a tu marca blanca.',
+      );
     }
   }
 

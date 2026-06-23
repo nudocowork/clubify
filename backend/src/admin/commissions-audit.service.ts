@@ -6,6 +6,10 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import {
+  resolveBrandScope,
+  brandWhiteLabelWhere,
+} from '../common/white-label/brand-scope.util';
 
 /**
  * Servicio read-only que detecta posibles comisiones duplicadas para
@@ -42,15 +46,24 @@ export class CommissionsAuditService {
    *  - summary: totales globales
    *  - groups: lista de clusters con detalle de cada commission
    */
-  async findDuplicates(opts?: { limit?: number }) {
+  async findDuplicates(opts?: { limit?: number; whiteLabelId?: string | null }) {
     const limit = Math.min(500, Math.max(10, opts?.limit ?? 100));
+
+    // Aislamiento por MARCA BLANCA: Commission no tiene tenantId (cuelga de
+    // referralUse → tenant), así que el middleware Prisma NO la scopea. Filtramos
+    // explícito por la marca del admin para que Sellea no vea comisiones de
+    // Clubify (ni viceversa). Sin marca en sesión → default Clubify.
+    const scope = await resolveBrandScope(this.prisma, opts?.whiteLabelId);
+    const brand = brandWhiteLabelWhere(scope);
+    const brandWhere =
+      Object.keys(brand).length > 0 ? { referralUse: { tenant: brand } } : {};
 
     // Traer TODAS las commissions no-REJECTED ordenadas por
     // (referralUseId, recipientCodeId, createdAt). Agrupamos en memoria
     // porque Prisma no tiene window functions limpias y el volumen
     // hoy es manejable (<10k commissions PENDING+APPROVED+PAID).
     const all = await this.prisma.commission.findMany({
-      where: { status: { not: 'REJECTED' } },
+      where: { status: { not: 'REJECTED' }, ...brandWhere },
       orderBy: [
         { referralUseId: 'asc' },
         { recipientCodeId: 'asc' },
@@ -157,6 +170,7 @@ export class CommissionsAuditService {
    */
   async markRejected(opts: {
     actorId: string;
+    whiteLabelId?: string | null;
     ids: string[];
     reason?: string;
     cascade?: boolean;
@@ -192,8 +206,15 @@ export class CommissionsAuditService {
       },
     } as const;
 
+    // Aislamiento por marca: solo se pueden rechazar comisiones de la marca del
+    // admin (Commission no tiene tenantId → el middleware no la cubre).
+    const scope = await resolveBrandScope(this.prisma, opts.whiteLabelId);
+    const brand = brandWhiteLabelWhere(scope);
+    const brandWhere =
+      Object.keys(brand).length > 0 ? { referralUse: { tenant: brand } } : {};
+
     const found = await this.prisma.commission.findMany({
-      where: { id: { in: ids } },
+      where: { id: { in: ids }, ...brandWhere },
       select: selectShape,
     });
 
@@ -222,6 +243,7 @@ export class CommissionsAuditService {
             OR: uniqueKeys,
             status: { in: ['PENDING', 'APPROVED'] },
             id: { notIn: ids },
+            ...brandWhere,
           },
           select: selectShape,
         });

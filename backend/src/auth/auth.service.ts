@@ -787,6 +787,7 @@ export class AuthService {
         fullName: true,
         role: true,
         tenantId: true,
+        whiteLabelId: true,
         isActive: true,
       },
     });
@@ -798,6 +799,7 @@ export class AuthService {
       email: user.email,
       role: user.role,
       tenantId: user.tenantId,
+      whiteLabelId: user.whiteLabelId ?? null,
     };
     const accessToken = this.jwt.sign(payload);
     const refreshToken = await this.refreshTokens.issue({
@@ -1251,6 +1253,7 @@ export class AuthService {
       email: user.email,
       role: user.role,
       tenantId: user.tenantId,
+      whiteLabelId: user.whiteLabelId ?? null,
     };
     const accessToken = this.jwt.sign(payload);
     const refreshToken = await this.refreshTokens.issue({
@@ -1575,6 +1578,7 @@ export class AuthService {
       email: user.email,
       role: user.role,
       tenantId: user.tenantId,
+      whiteLabelId: user.whiteLabelId ?? null,
     };
     const accessToken = this.jwt.sign(payload);
     const refreshToken = await this.refreshTokens.issue({
