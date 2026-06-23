@@ -84,7 +84,42 @@ function ScreenIframe({
 // reemplazados por iframes reales con el contenido del menú publicado
 // — ver `ScreenIframe` arriba.
 
-export function InfoLinksBanner() {
+export type InfolinkDemo = {
+  rotate: number;
+  floatDelay: number;
+  brandName: string;
+  demoHref: string;
+  title: string;
+};
+
+// Demos por DEFAULT (marca Clubify): menús reales de clientes de Clubify.
+// ⚠️ NO usar en marcas blancas — apuntan a soyclubify.com (fuga de marca). Las
+// marcas blancas deben pasar sus propios demos o `[]` para ocultar los iPhones.
+const CLUBIFY_DEMOS: InfolinkDemo[] = [
+  {
+    rotate: -8,
+    floatDelay: 0,
+    brandName: 'Nudo Cowork',
+    demoHref: 'https://soyclubify.com/m/nudocowork?mesa=1',
+    title: 'Menú de Nudo Cowork',
+  },
+  {
+    rotate: 8,
+    floatDelay: 1,
+    brandName: 'Motilart',
+    demoHref: 'https://soyclubify.com/m/motilart?mesa=1',
+    title: 'Menú de Motilart',
+  },
+];
+
+export function InfoLinksBanner({
+  demos = CLUBIFY_DEMOS,
+}: {
+  /** Menús de ejemplo (iPhones). Default = clientes de Clubify. Una marca
+   *  blanca debe pasar los suyos o `[]` para no mostrar dominios ajenos. */
+  demos?: InfolinkDemo[];
+} = {}) {
+  const showDemos = demos.length > 0;
   return (
     <>
       <style>{`
@@ -94,7 +129,11 @@ export function InfoLinksBanner() {
         }
       `}</style>
       <section className="relative overflow-hidden bg-bg2/40 border-y border-line/80 py-12 sm:py-16 lg:py-20">
-        <div className="mx-auto max-w-7xl px-5 sm:px-6 grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-10 lg:gap-12 items-center">
+        <div
+          className={`mx-auto max-w-7xl px-5 sm:px-6 grid grid-cols-1 gap-10 lg:gap-12 items-center ${
+            showDemos ? 'lg:grid-cols-[1fr_1.2fr]' : ''
+          }`}
+        >
           {/* Columna izquierda: descripción + beneficios + CTA */}
           <div className="text-center lg:text-left">
             <div className="text-xs uppercase tracking-[0.18em] text-brand font-semibold mb-3">
@@ -120,29 +159,24 @@ export function InfoLinksBanner() {
             </div>
           </div>
 
-          {/* Columna derecha: 2 iPhones tilted con infolinks reales
-              (Nudo Cowork + Motilart). Cada phone va dentro de una
-              columna que incluye un botón "Ver ejemplo" debajo que
-              abre el infolink público real en nueva pestaña. */}
-          <div className="relative flex items-end justify-center gap-2 sm:gap-4 lg:gap-6">
-            {/* Nudo Cowork */}
-            <InfolinkCard
-              rotate={-8}
-              floatDelay={0}
-              brandName="Nudo Cowork"
-              demoHref="https://soyclubify.com/m/nudocowork?mesa=1"
-              title="Menú de Nudo Cowork"
-            />
-
-            {/* Motilart */}
-            <InfolinkCard
-              rotate={8}
-              floatDelay={1}
-              brandName="Motilart"
-              demoHref="https://soyclubify.com/m/motilart?mesa=1"
-              title="Menú de Motilart"
-            />
-          </div>
+          {/* Columna derecha: iPhones tilted con infolinks reales. Cada phone
+              incluye un botón "Ver ejemplo" que abre el link público real. Solo
+              se renderiza si la marca tiene demos (las blancas pasan [] para no
+              mostrar dominios ajenos). */}
+          {showDemos && (
+            <div className="relative flex items-end justify-center gap-2 sm:gap-4 lg:gap-6">
+              {demos.map((d) => (
+                <InfolinkCard
+                  key={d.demoHref}
+                  rotate={d.rotate}
+                  floatDelay={d.floatDelay}
+                  brandName={d.brandName}
+                  demoHref={d.demoHref}
+                  title={d.title}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </section>
     </>

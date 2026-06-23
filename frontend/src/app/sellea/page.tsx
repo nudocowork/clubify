@@ -305,7 +305,9 @@ export default async function SelleaLandingPage() {
       <HeroBanner waLink={waLink} demoLink={demoLink} mailLink={mailLink} igLink={igLink} />
 
       {/* ─────────── InfoLinks ─────────── */}
-      <InfoLinksBanner />
+      {/* demos={[]}: NO mostrar los iPhones con menús de clientes de Clubify
+          (soyclubify.com/m/...) en el dominio de Sellea — fuga de marca. */}
+      <InfoLinksBanner demos={[]} />
 
       {/* ─────────── Testimonios ─────────── */}
       <section id="clientes" className="bg-bg2/40 border-y border-line/80 py-24">
