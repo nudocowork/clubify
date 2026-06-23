@@ -362,18 +362,45 @@ export class TenantsService {
     return rows;
   }
 
+  private _clubifyWlId: string | null | undefined;
+  /** Id de la marca 'clubify' (cacheado). El panel /admin sin marca activa
+   *  hace default a esta marca (no "ver todo"). */
+  private async clubifyWlId(): Promise<string | null> {
+    if (this._clubifyWlId !== undefined) return this._clubifyWlId;
+    const wl = await this.prisma.whiteLabel.findFirst({
+      where: { slug: 'clubify' },
+      select: { id: true },
+    });
+    this._clubifyWlId = wl?.id ?? null;
+    return this._clubifyWlId;
+  }
+
+  /** WHERE de marca para el panel /admin. Sin marca en sesión → default Clubify
+   *  (incluye tenants legacy null). Con marca → estricto a esa marca. Nunca
+   *  "ver todo" acá; el cross-brand es /superadmin. */
+  private async brandTenantWhere(
+    sessionWlId: string | null,
+  ): Promise<Record<string, any>> {
+    const clubifyId = await this.clubifyWlId();
+    const wlId = sessionWlId ?? clubifyId;
+    if (!wlId) return {}; // sin marca clubify configurada (dev) → sin filtro
+    if (wlId === clubifyId) {
+      // Clubify ve sus tenants + los legacy sin marca (whiteLabelId null).
+      return { OR: [{ whiteLabelId: clubifyId }, { whiteLabelId: null }] };
+    }
+    return { whiteLabelId: wlId };
+  }
+
   async list(user?: AuthUser) {
-    // #6: aislamiento por MARCA BLANCA. Cada admin ve solo los negocios de su
-    // marca (user.whiteLabelId). whiteLabelId null = admin de plataforma
-    // (PLATFORM_OWNER / super-super) → ve todos. ⚠️ Para que Clubify NO vea
-    // Sellea, los admins de Clubify deben tener whiteLabelId = marca 'clubify'
-    // (backfill-clubify-admins-whitelabel.cjs).
-    const wlId = user?.whiteLabelId ?? null;
+    // Aislamiento por MARCA BLANCA en el panel /admin. Cada admin ve SOLO los
+    // negocios de su marca. La vista cross-brand vive en /superadmin (master
+    // admin), NO acá. Por eso, si no hay marca en la sesión (null = Clubify/
+    // plataforma en el panel /admin), hacemos DEFAULT a la marca Clubify — NO
+    // "ver todo". Clubify incluye los tenants legacy con whiteLabelId null.
+    const where = await this.brandTenantWhere(user?.whiteLabelId ?? null);
     const tenants = await this.prisma.tenant.findMany({
       // Bloque 5 (2026-06-12): excluir soft-deleted del listado admin.
-      // El SUPER_ADMIN no debería ver tenants eliminados que conservaron
-      // historial — la contabilidad sigue por separado vía AuditLog.
-      where: { deletedAt: null, ...(wlId ? { whiteLabelId: wlId } : {}) },
+      where: { deletedAt: null, ...where },
       include: {
         plan: true,
         businessGroup: { select: { id: true, name: true, status: true } },

@@ -22,17 +22,28 @@ export class MetricsService {
     const since7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const in3Days = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
 
-    // Scope por marca blanca: si la sesión "entró" a una marca (PLATFORM_OWNER
-    // impersonando white-label), las métricas se limitan a sus tenants. Sin
-    // marca activa (null) → vista global de toda la plataforma (sin cambios).
-    const wlId = user.whiteLabelId ?? null;
-    const tenantWhere = wlId ? { whiteLabelId: wlId } : {};
+    // Scope por marca blanca del panel /admin. Sin marca en sesión → DEFAULT a
+    // Clubify (NO "ver todo"; el cross-brand es /superadmin). Clubify incluye
+    // los tenants legacy con whiteLabelId null.
+    const clubifyId =
+      (
+        await this.prisma.whiteLabel.findFirst({
+          where: { slug: 'clubify' },
+          select: { id: true },
+        })
+      )?.id ?? null;
+    const wlId = user.whiteLabelId ?? clubifyId;
+    const brand =
+      wlId && wlId === clubifyId
+        ? { OR: [{ whiteLabelId: clubifyId }, { whiteLabelId: null }] }
+        : wlId
+          ? { whiteLabelId: wlId }
+          : {};
+    const tenantWhere = brand;
     // Modelos con tenantId directo (pass/customer/order) → filtro por relación.
-    const relWhere = wlId ? { tenant: { whiteLabelId: wlId } } : {};
+    const relWhere = wlId ? { tenant: brand } : {};
     // Commission no tiene tenantId: cuelga del tenant vía referralUse.
-    const commWhere = wlId
-      ? { referralUse: { tenant: { whiteLabelId: wlId } } }
-      : {};
+    const commWhere = wlId ? { referralUse: { tenant: brand } } : {};
 
     const [
       tenants,
