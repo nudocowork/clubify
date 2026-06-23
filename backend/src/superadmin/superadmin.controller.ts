@@ -75,6 +75,8 @@ class HotmartLinkBody {
 
 class AssignPurchaseBody {
   @IsString() whiteLabelId!: string;
+  // Override de cantidad para compras de oferta ambigua (credits=0). Opcional.
+  @IsOptional() @IsInt() @Min(1) credits?: number;
 }
 
 class IntegrationUpdateBody {
@@ -294,7 +296,7 @@ export class SuperAdminController {
     @Body() body: AssignPurchaseBody,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.svc.assignCreditPurchase(id, body.whiteLabelId, user.id);
+    return this.svc.assignCreditPurchase(id, body.whiteLabelId, user.id, body.credits);
   }
 
   // -------- Módulos --------

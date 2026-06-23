@@ -545,8 +545,9 @@ export class HotmartService {
         },
       });
       this.logger.warn(
-        `[CREDITOS] ERROR: tx=${transactionId} sin marca (buyer=${buyerEmail} no matchea ` +
-          `ningún adminEmail ni User SUPER_ADMIN) → UNASSIGNED. Asignar desde /superadmin/creditos.`,
+        `[CREDITOS] ERROR: tx=${transactionId} sin marca — el link (product=${productId} ` +
+          `offer=${offerCode ?? '-'}) no tiene whiteLabelId y no existe la marca Clubify. ` +
+          `→ UNASSIGNED. Asigná la marca al link o la compra desde /superadmin/creditos.`,
       );
       return 'credit_purchase_unassigned';
     }

@@ -681,17 +681,30 @@ function AssignPurchaseModal({
 }) {
   const [whiteLabelId, setWhiteLabelId] = useState<string>('');
   const [saving, setSaving] = useState(false);
+  // Compra de oferta ambigua: quedó con credits=0 (no se pudo determinar la
+  // cantidad). El admin debe indicar cuántos créditos acreditar.
+  const needsCredits = !purchase.credits || purchase.credits <= 0;
+  const [credits, setCredits] = useState<string>('');
 
   async function submit() {
     if (!whiteLabelId) return;
+    const creditsNum = parseInt(credits, 10);
+    if (needsCredits && (!creditsNum || creditsNum < 1)) {
+      alert('Indicá la cantidad de créditos a acreditar.');
+      return;
+    }
     setSaving(true);
     try {
       await api(`/superadmin/hotmart-purchases/${purchase.id}/assign`, {
         method: 'POST',
-        body: JSON.stringify({ whiteLabelId }),
+        body: JSON.stringify({
+          whiteLabelId,
+          ...(needsCredits ? { credits: creditsNum } : {}),
+        }),
       });
       const wl = whiteLabels.find((w) => w.id === whiteLabelId);
-      onSaved(`${purchase.credits} créditos asignados a ${wl?.name ?? 'la marca'}`);
+      const granted = needsCredits ? creditsNum : purchase.credits;
+      onSaved(`${granted} créditos asignados a ${wl?.name ?? 'la marca'}`);
     } catch (e: any) {
       alert('Error: ' + (e?.message ?? e));
     } finally {
@@ -716,6 +729,22 @@ function AssignPurchaseModal({
         <p className="text-sm mt-1.5 mb-4" style={{ color: '#6b7785' }}>
           {purchase.credits} créditos · comprador {purchase.buyerEmail}
         </p>
+
+        {needsCredits && (
+          <label className="block mb-4">
+            <div className="text-[11px] font-bold uppercase mb-1.5" style={{ letterSpacing: 0.6, color: '#b45309' }}>
+              Cantidad de créditos (oferta no reconocida)
+            </div>
+            <input
+              type="number"
+              min={1}
+              value={credits}
+              onChange={(e) => setCredits(e.target.value)}
+              placeholder="Ej: 10"
+              style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #f0c98a', fontSize: 13.5, outline: 'none', background: 'white', width: '100%' }}
+            />
+          </label>
+        )}
 
         <label className="block mb-5">
           <div className="text-[11px] font-bold uppercase mb-1.5" style={{ letterSpacing: 0.6, color: '#6b7785' }}>

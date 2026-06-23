@@ -1133,7 +1133,12 @@ export class SuperAdminService {
 
   /** Asigna una compra UNASSIGNED a una marca: acredita los créditos
    *  + crea CreditTransaction + marca la compra como ASSIGNED. */
-  async assignCreditPurchase(purchaseId: string, whiteLabelId: string, actorId?: string) {
+  async assignCreditPurchase(
+    purchaseId: string,
+    whiteLabelId: string,
+    actorId?: string,
+    creditsOverride?: number,
+  ) {
     const purchase = await this.prisma.hotmartCreditPurchase.findUnique({
       where: { id: purchaseId },
     });
@@ -1148,12 +1153,26 @@ export class SuperAdminService {
       throw new BadRequestException('No se puede asignar créditos a una marca suspendida. Reactívala primero.');
     }
 
+    // Cantidad a acreditar: override del admin (caso oferta ambigua, donde la
+    // compra quedó con credits=0) o la de la compra. Bloqueamos acreditar 0/neg
+    // — antes una compra ambigua se asignaba con 0 créditos silenciosamente.
+    const effectiveCredits =
+      creditsOverride && creditsOverride > 0
+        ? Math.floor(creditsOverride)
+        : purchase.credits;
+    if (effectiveCredits <= 0) {
+      throw new BadRequestException(
+        'Esta compra quedó sin cantidad determinada (oferta ambigua). Indicá cuántos créditos acreditar.',
+      );
+    }
+
     // Atomic claim: solo un PLATFORM_OWNER puede asignar esta compra.
     // updateMany WHERE status != 'ASSIGNED' devuelve count=0 si otro ya
-    // la asignó entre el findUnique y este update.
+    // la asignó entre el findUnique y este update. Persistimos la cantidad
+    // efectiva en el registro para que refleje lo realmente acreditado.
     const claim = await this.prisma.hotmartCreditPurchase.updateMany({
       where: { id: purchaseId, status: { not: 'ASSIGNED' } },
-      data: { whiteLabelId, status: 'ASSIGNED', assignedAt: new Date() },
+      data: { whiteLabelId, status: 'ASSIGNED', assignedAt: new Date(), credits: effectiveCredits },
     });
     if (claim.count === 0) {
       throw new ConflictException('Otra operación ya asignó esta compra');
@@ -1165,13 +1184,13 @@ export class SuperAdminService {
       await this.prisma.$transaction([
         this.prisma.whiteLabel.update({
           where: { id: whiteLabelId },
-          data: { creditsAvailable: { increment: purchase.credits } },
+          data: { creditsAvailable: { increment: effectiveCredits } },
         }),
         this.prisma.creditTransaction.create({
           data: {
             whiteLabelId,
             type: 'PURCHASE',
-            amount: purchase.credits,
+            amount: effectiveCredits,
             note: `Compra Hotmart reasignada · tx=${purchase.transactionId}`,
           },
         }),
@@ -1182,13 +1201,13 @@ export class SuperAdminService {
         select: { creditsAvailable: true },
       });
       await this.wlNotifications
-        .onCreditsPurchased(whiteLabelId, purchase.credits, fresh?.creditsAvailable ?? purchase.credits)
+        .onCreditsPurchased(whiteLabelId, effectiveCredits, fresh?.creditsAvailable ?? effectiveCredits)
         .catch(() => null);
     }
     await this.logAction(actorId, 'superadmin.hotmart_purchase.assign', `hotmartPurchase:${purchaseId}`, {
       transactionId: purchase.transactionId,
       whiteLabelName: wl.name,
-      credits: purchase.credits,
+      credits: effectiveCredits,
     });
     return { ok: true };
   }
