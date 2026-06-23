@@ -290,6 +290,26 @@ export class SettingsService {
     return { couponCode: clean ? clean : null };
   }
 
+  /** Política de pruebas gratuitas cuando una marca blanca NO tiene créditos.
+   *  maxTrialDaysNoCredits: tope de días de trial si la marca está sin saldo
+   *  (0 = no se permiten trials). Marcas con créditos o ilimitadas no se topan.
+   *  Default 7. Editable desde el super admin. */
+  async getTrialPolicy(): Promise<{ maxTrialDaysNoCredits: number }> {
+    const s = await this.prisma.setting.findUnique({
+      where: { key: 'platform.maxTrialDaysNoCredits' },
+    });
+    const n = s?.value != null ? Number(s.value) : NaN;
+    return { maxTrialDaysNoCredits: Number.isFinite(n) && n >= 0 ? Math.floor(n) : 7 };
+  }
+
+  async setTrialPolicy(
+    maxTrialDaysNoCredits: number,
+  ): Promise<{ maxTrialDaysNoCredits: number }> {
+    const clamped = Math.max(0, Math.min(365, Math.floor(Number(maxTrialDaysNoCredits) || 0)));
+    await this.upsert('platform.maxTrialDaysNoCredits', String(clamped));
+    return { maxTrialDaysNoCredits: clamped };
+  }
+
   /** Master prompt opcional para la IA Clubify — texto libre que se
    *  prepone al system prompt del support widget. El admin lo edita
    *  desde /admin/ai-knowledge para inyectar instrucciones / tono /

@@ -1,5 +1,5 @@
 import { Body, Controller, ForbiddenException, Get, Patch, Post } from '@nestjs/common';
-import { IsBoolean, IsNumber, IsOptional, IsString, Length, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, Length, Max, MaxLength, Min } from 'class-validator';
 import { SettingsService } from './settings.service';
 import { Public } from '../common/decorators/public.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -50,6 +50,11 @@ class HotmartCouponDto {
   // rechaza con 400 antes de llegar al service (sin esta clase el endpoint
   // aceptaba { foo: 'bar' } y crasheaba en .trim()).
   @IsOptional() @IsString() @MaxLength(200) couponCode?: string | null;
+}
+
+class TrialPolicyDto {
+  // Tope de días de trial cuando la marca blanca no tiene créditos (0 = bloquear).
+  @IsInt() @Min(0) @Max(365) maxTrialDaysNoCredits!: number;
 }
 
 const WELCOME_POPUP_MESSAGE =
@@ -138,6 +143,18 @@ export class SettingsController {
   @Roles('SUPER_ADMIN')
   setHotmartCoupon(@Body() body: HotmartCouponDto) {
     return this.svc.setHotmartCoupon(body.couponCode ?? null);
+  }
+
+  @Get('admin/trial-policy')
+  @Roles('SUPER_ADMIN')
+  getTrialPolicy() {
+    return this.svc.getTrialPolicy();
+  }
+
+  @Patch('admin/trial-policy')
+  @Roles('SUPER_ADMIN')
+  setTrialPolicy(@Body() body: TrialPolicyDto) {
+    return this.svc.setTrialPolicy(body.maxTrialDaysNoCredits);
   }
 
   /**

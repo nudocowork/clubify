@@ -196,6 +196,17 @@ export default function AppShell({
     // Módulo COMMUNITY de la marca: gatea la sección Comunidad/Lab en el panel
     // del negocio (genérico por marca). Default true mientras carga (sin flicker).
     communityEnabled?: boolean;
+    // Branding de la marca blanca para pintar el panel /app (logo + colores).
+    // null = Clubify → defaults. Evita el verde + logo Clubify en otra marca.
+    whiteLabelBranding?: {
+      logoUrl: string | null;
+      iconUrl: string | null;
+      faviconUrl: string | null;
+      primaryColor: string | null;
+      secondaryColor: string | null;
+      backgroundColor: string | null;
+      supportColor: string | null;
+    } | null;
   } | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
     new Set(),
@@ -448,6 +459,7 @@ export default function AppShell({
           whiteLabelSlug: t?.whiteLabelSlug ?? null,
           whiteLabelName: t?.whiteLabelName ?? null,
           communityEnabled: t?.communityEnabled ?? true,
+          whiteLabelBranding: t?.whiteLabelBranding ?? null,
         });
       })
       .catch(() => null);
@@ -781,24 +793,41 @@ export default function AppShell({
   // `icon` = logo DASHBOARD cuadrado (preferido para el sidebar); `logo` = logo
   // HEADER ancho (fallback). El render elige según cuál exista para no
   // deformar un lockup ancho dentro de un cuadrado.
+  // Marca del panel del NEGOCIO (/app): hereda el branding de la marca blanca
+  // del tenant (no Clubify). Solo para marcas ≠ clubify con branding cargado.
+  const appWlBrand =
+    variant === 'app' &&
+    tenantInfo?.whiteLabelSlug &&
+    tenantInfo.whiteLabelSlug !== 'clubify' &&
+    tenantInfo.whiteLabelBranding
+      ? {
+          name: tenantInfo.whiteLabelName || tenantInfo.brandName || 'Marca',
+          color: tenantInfo.whiteLabelBranding.primaryColor || null,
+          icon: tenantInfo.whiteLabelBranding.iconUrl || null,
+          logo: tenantInfo.whiteLabelBranding.logoUrl || null,
+        }
+      : null;
+
   const activeBrand =
-    variant !== 'admin'
-      ? null
-      : impersonation?.tenant?.brandName?.trim()
-        ? {
-            name: impersonation.tenant.brandName.trim(),
-            color: impersonation.tenant.primaryColor || brandFetched?.color || null,
-            icon: brandFetched?.iconUrl ?? null,
-            logo: brandFetched?.logoUrl ?? null,
-          }
-        : brandFetched
+    variant === 'app'
+      ? appWlBrand
+      : variant !== 'admin'
+        ? null
+        : impersonation?.tenant?.brandName?.trim()
           ? {
-              name: brandFetched.name,
-              color: brandFetched.color,
-              icon: brandFetched.iconUrl,
-              logo: brandFetched.logoUrl,
+              name: impersonation.tenant.brandName.trim(),
+              color: impersonation.tenant.primaryColor || brandFetched?.color || null,
+              icon: brandFetched?.iconUrl ?? null,
+              logo: brandFetched?.logoUrl ?? null,
             }
-          : null;
+          : brandFetched
+            ? {
+                name: brandFetched.name,
+                color: brandFetched.color,
+                icon: brandFetched.iconUrl,
+                logo: brandFetched.logoUrl,
+              }
+            : null;
 
   // (brandSlug + brandModules se declaran arriba, antes de `groups`, para
   // evitar el TDZ — ver comentario allí.)
@@ -808,7 +837,10 @@ export default function AppShell({
   const panelThemeColor =
     variant === 'admin' && brandSlug && brandSlug !== 'clubify' && activeBrand?.color
       ? activeBrand.color
-      : null;
+      : // Panel del negocio (/app) de una marca blanca → su color propio.
+        variant === 'app' && appWlBrand?.color
+        ? appWlBrand.color
+        : null;
 
   // Prefija un href de /admin con el slug de marca activo (/admin/tenants →
   // /admin/<slug>/tenants). El middleware reescribe de vuelta a /admin.

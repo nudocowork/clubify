@@ -669,11 +669,14 @@ export class TenantsService {
         break;
       case 'trial': {
         const days = Math.max(1, Math.min(365, Math.floor(dto.trialDays ?? 7)));
+        const proposedEnd = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+        // Tope por créditos de la marca (sin créditos → máx N días o bloqueado).
+        const trialEndsAt = await this.clampTrialEnd(previous.whiteLabelId, proposedEnd, now);
         data = {
           status: 'TRIAL',
           hotmartSubscriberCode: `trial-${nanoid(10)}`,
           trialStartedAt: now,
-          trialEndsAt: new Date(now.getTime() + days * 24 * 60 * 60 * 1000),
+          trialEndsAt,
           currentPeriodEnd: null,
           suspendedAt: null,
         };
@@ -983,11 +986,51 @@ export class TenantsService {
   }
 
   /** Extiende el trial agregando `days` al trialEndsAt actual (o desde hoy si no hay). */
+  /** Tope de días de trial para un tenant según los créditos de su marca.
+   *  null = sin tope (Clubify, marca con créditos, o ilimitada).
+   *  number = máximo de días desde HOY (0 = trials bloqueados). */
+  private async trialCapDays(whiteLabelId: string | null): Promise<number | null> {
+    if (!whiteLabelId) return null; // Clubify / sin marca
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id: whiteLabelId },
+      select: { creditsUnlimited: true, creditsAvailable: true, slug: true },
+    });
+    if (!wl || wl.slug === 'clubify' || wl.creditsUnlimited) return null;
+    if (wl.creditsAvailable >= 1) return null; // tiene créditos → sin tope
+    // Sin créditos → setting platform.maxTrialDaysNoCredits (default 7).
+    const s = await this.prisma.setting.findUnique({
+      where: { key: 'platform.maxTrialDaysNoCredits' },
+    });
+    const n = s?.value != null ? Number(s.value) : NaN;
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 7;
+  }
+
+  /** Aplica el tope de trial (créditos de la marca) a un trialEnd propuesto.
+   *  Lanza si los trials están bloqueados (cap 0). Solo se llama cuando el
+   *  resultado deja al tenant en TRIAL (no al suspender). */
+  private async clampTrialEnd(
+    whiteLabelId: string | null,
+    proposedEnd: Date,
+    now = new Date(),
+  ): Promise<Date> {
+    const cap = await this.trialCapDays(whiteLabelId);
+    if (cap == null) return proposedEnd;
+    if (cap === 0) {
+      throw new BadRequestException(
+        'La marca no tiene créditos disponibles: no se pueden activar pruebas gratuitas. Recarga créditos para continuar.',
+      );
+    }
+    const maxEnd = new Date(now.getTime() + cap * 24 * 60 * 60 * 1000);
+    return proposedEnd.getTime() > maxEnd.getTime() ? maxEnd : proposedEnd;
+  }
+
   async extendTrial(id: string, days: number, actorId: string) {
     const t = await this.prisma.tenant.findFirst({ where: { id } }); // aislado por marca (middleware)
     if (!t) throw new NotFoundException('Tenant');
     const base = t.trialEndsAt && t.trialEndsAt.getTime() > Date.now() ? t.trialEndsAt : new Date();
-    const newEnd = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
+    const proposedEnd = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
+    // Tope por créditos de la marca (sin créditos → máx N días o bloqueado).
+    const newEnd = await this.clampTrialEnd(t.whiteLabelId, proposedEnd);
     const updated = await this.prisma.tenant.update({
       where: { id },
       data: {
@@ -1074,13 +1117,17 @@ export class TenantsService {
       previousEnd && previousEnd.getTime() > now.getTime()
         ? previousEnd
         : now;
-    const newEnd = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
+    let newEnd = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
 
     // Si descontamos hasta el pasado, suspendemos. Si extendemos al
     // futuro, vuelve a TRIAL (reactiva expirados). El guard de arriba
     // ya excluyó ACTIVE pagante, así que acá solo procesamos TRIAL
     // y SUSPENDED.
     const newStatus = newEnd.getTime() <= now.getTime() ? 'SUSPENDED' : 'TRIAL';
+    // Tope por créditos de la marca — solo al dejar el tenant en TRIAL.
+    if (newStatus === 'TRIAL') {
+      newEnd = await this.clampTrialEnd(t.whiteLabelId, newEnd, now);
+    }
 
     const updated = await this.prisma.tenant.update({
       where: { id },
@@ -1157,6 +1204,15 @@ export class TenantsService {
             slug: true,
             name: true,
             creditsUnlimited: true,
+            // Branding de la marca → el panel /app hereda logo/colores/favicon
+            // (sino el negocio de una marca blanca ve el verde + logo Clubify).
+            logoUrl: true,
+            iconUrl: true,
+            faviconUrl: true,
+            primaryColor: true,
+            secondaryColor: true,
+            backgroundColor: true,
+            supportColor: true,
             modules: {
               where: { module: { in: ['REVIEWS', 'COMMUNITY'] } },
               select: { module: true, enabled: true },
@@ -1189,6 +1245,18 @@ export class TenantsService {
       whiteLabelSlug: t.whiteLabel?.slug ?? null,
       // Nombre de la marca (para la identidad del asistente IA del panel).
       whiteLabelName: t.whiteLabel?.name ?? null,
+      // Branding de la marca para el panel /app (null = Clubify → defaults).
+      whiteLabelBranding: t.whiteLabel
+        ? {
+            logoUrl: t.whiteLabel.logoUrl,
+            iconUrl: t.whiteLabel.iconUrl,
+            faviconUrl: t.whiteLabel.faviconUrl,
+            primaryColor: t.whiteLabel.primaryColor,
+            secondaryColor: t.whiteLabel.secondaryColor,
+            backgroundColor: t.whiteLabel.backgroundColor,
+            supportColor: t.whiteLabel.supportColor,
+          }
+        : null,
     };
   }
 

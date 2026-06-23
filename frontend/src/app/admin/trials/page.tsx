@@ -103,6 +103,8 @@ export default function TrialsAdminPage() {
         </h1>
       </div>
 
+      <TrialPolicyCard />
+
       {/* KPI cards */}
       {metrics && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
@@ -310,6 +312,71 @@ export default function TrialsAdminPage() {
       <p className="text-[11px] text-mute mt-3">
         {t('footnote')}
       </p>
+    </div>
+  );
+}
+
+/** Política de pruebas gratuitas cuando una marca blanca no tiene créditos.
+ *  0 = bloquear trials · N = tope de días. Editable solo por super admin. */
+function TrialPolicyCard() {
+  const [days, setDays] = useState<string>('');
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api<{ maxTrialDaysNoCredits: number }>('/admin/trial-policy')
+      .then((r) => {
+        setDays(String(r?.maxTrialDaysNoCredits ?? 7));
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, []);
+
+  async function save() {
+    const n = Math.max(0, Math.min(365, Math.floor(Number(days) || 0)));
+    setSaving(true);
+    try {
+      await api('/admin/trial-policy', {
+        method: 'PATCH',
+        body: JSON.stringify({ maxTrialDaysNoCredits: n }),
+      });
+      setDays(String(n));
+      toast('Política de pruebas actualizada', 'success');
+    } catch (e: any) {
+      toast(e?.message ?? 'Error al guardar', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!loaded) return null;
+
+  return (
+    <div className="card card-pad mb-5">
+      <h2 className="text-base font-semibold m-0">Política de pruebas gratuitas</h2>
+      <p className="text-[13px] text-mute mt-1 mb-3">
+        Tope de días de prueba cuando una marca blanca <b>no tiene créditos</b>{' '}
+        disponibles. <b>0 = bloquear</b> (no puede activar pruebas). Marcas con
+        créditos o ilimitadas no se ven afectadas.
+      </p>
+      <div className="flex items-end gap-3">
+        <div>
+          <label className="text-[11px] uppercase tracking-wider text-mute font-semibold block mb-1">
+            Máx. días sin créditos
+          </label>
+          <input
+            type="number"
+            min={0}
+            max={365}
+            value={days}
+            onChange={(e) => setDays(e.target.value)}
+            className="input w-32"
+          />
+        </div>
+        <button onClick={save} disabled={saving} className="btn-primary">
+          {saving ? 'Guardando…' : 'Guardar'}
+        </button>
+      </div>
     </div>
   );
 }
