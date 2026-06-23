@@ -106,13 +106,20 @@ export class WalletService {
 
     // Para que Apple Wallet muestre banner "Tu pase de X cambió", el .pkpass
     // tiene que cambiar de bytes Y tener un field con changeMessage que cambió.
-    // Embebimos el último mensaje de notificación enviado al tenant/card —
-    // si cambió desde la última fetch del iPhone, Apple muestra el banner.
+    // Embebimos el último mensaje de notificación — si cambió desde la última
+    // fetch del iPhone, Apple muestra el banner.
+    // CRÍTICO (2026-06-23): SOLO mensajes de ESTE cliente (customerId == dueño
+    // del pase) o broadcasts (customerId null). Antes tomaba la última del
+    // TENANT → el saludo de cumpleaños personalizado de un cliente ("Feliz
+    // cumple Caroline") aparecía en el lockscreen de TODOS los demás clientes.
     const latestNotif = await this.prisma.notification.findFirst({
       where: {
         tenantId: pass.tenantId,
         OR: [{ cardId: pass.cardId }, { cardId: null }],
         sentAt: { not: null },
+        AND: [
+          { OR: [{ customerId: null }, { customerId: pass.customerId }] },
+        ],
       },
       orderBy: { sentAt: 'desc' },
     });
@@ -1189,7 +1196,10 @@ export class WalletService {
    *   APNS_KEY_PATH, APNS_KEY_ID, APNS_TEAM_ID, APPLE_PASS_TYPE_ID
    * Si faltan, loggea y skipea (modo dev).
    */
-  async pushPassUpdate(passId: string, opts: { silent?: boolean } = {}) {
+  async pushPassUpdate(
+    passId: string,
+    opts: { silent?: boolean; message?: { header: string; body: string } } = {},
+  ) {
     // Google Wallet PATCH — propaga sellos/saldo/visitas/tier a Android.
     // En paralelo con APNs para que ambos lleguen lo antes posible. En modo
     // silent (refresh global), Google actualiza sin notificar; Apple ya es

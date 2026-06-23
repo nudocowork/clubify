@@ -446,7 +446,7 @@ export class GoogleWalletService {
 
   async pushUpdate(
     passId: string,
-    opts: { silent?: boolean } = {},
+    opts: { silent?: boolean; message?: { header: string; body: string } } = {},
   ): Promise<{ ok: boolean; status: string; notified?: boolean; error?: string }> {
     const pass = await this.prisma.pass.findUnique({
       where: { id: passId },
@@ -516,7 +516,12 @@ export class GoogleWalletService {
       let notified = false;
       if (!opts.silent)
       try {
-        const { header, body } = this.buildNotificationText(pass);
+        // Si el caller pasó un mensaje custom (ej. saludo de cumpleaños con el
+        // nombre del cliente), lo usamos; sino el texto genérico por tipo de
+        // tarjeta (saldo/sellos/puntos).
+        const { header, body } = opts.message?.body
+          ? { header: opts.message.header || this.buildNotificationText(pass).header, body: opts.message.body }
+          : this.buildNotificationText(pass);
         const msgId = `update-${Date.now()}`;
         await wallet.loyaltyobject.addmessage({
           resourceId: pass.googleObjectId,

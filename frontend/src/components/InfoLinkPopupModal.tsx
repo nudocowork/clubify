@@ -109,11 +109,12 @@ export function InfoLinkPopupModal({
           <div
             className="w-full overflow-hidden"
             style={{
-              // Caja cuadrada fija: cualquier imagen (vertical, horizontal o
-              // cuadrada) llena el ancho y se recorta parejo con object-cover.
-              // Antes, con h-auto + maxHeight, las imágenes no-horizontales se
-              // veían angostas/descuadradas.
-              aspectRatio: '1 / 1',
+              // Mostramos la imagen COMPLETA (sin recorte): ancho 100% + alto
+              // automático respeta la proporción real (vertical/horizontal/
+              // cuadrada). Si queda muy alta, el modal scrollea (el contenedor
+              // padre tiene max-h-[90vh] overflow-y-auto) en vez de cortar.
+              // Fondo neutro por si la imagen tarda en cargar.
+              background: 'rgba(0,0,0,0.04)',
               borderTopLeftRadius: `${popup.borderRadius}px`,
               borderTopRightRadius: `${popup.borderRadius}px`,
             }}
@@ -122,8 +123,8 @@ export function InfoLinkPopupModal({
             <img
               src={popup.imageUrl}
               alt=""
-              className="block w-full h-full"
-              style={{ objectFit: 'cover' }}
+              className="block w-full h-auto"
+              style={{ objectFit: 'contain' }}
             />
           </div>
         )}

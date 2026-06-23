@@ -228,6 +228,24 @@ export class AutomationsService {
           break;
         }
 
+        // ORDEN IMPORTANTE: creamos la Notification ANTES de pushear. El pase
+        // Apple, al re-armarse en pushPassUpdate, lee la ÚLTIMA Notification del
+        // cliente para el campo `lastMessage` (lockscreen). Si la creáramos
+        // después, el iPhone mostraría el mensaje ANTERIOR, no este saludo.
+        // DESTINATARIO individual (customerId) → el pase de OTROS clientes nunca
+        // muestra este saludo personalizado.
+        const notif = await this.prisma.notification.create({
+          data: {
+            tenantId,
+            customerId,
+            title,
+            body,
+            triggerType: 'AUTOMATION',
+            sentAt: new Date(),
+            stats: { customerId },
+          },
+        });
+
         // Pases ACTIVOS de ESTE cliente. El push se hace pase por pase:
         // nunca toca los pases de otros clientes.
         const passes = await this.prisma.pass.findMany({
@@ -245,7 +263,12 @@ export class AutomationsService {
               where: { id: p.id },
               data: { lastActivityAt: new Date() },
             });
-            const r = await this.wallet.pushPassUpdate(p.id);
+            // Pasamos el texto renderizado: Apple lo muestra vía el campo
+            // lastMessage (ya scopeado al cliente) y Google lo usa en el
+            // addMessage (en vez del texto genérico de saldo/sellos).
+            const r = await this.wallet.pushPassUpdate(p.id, {
+              message: { header: title, body },
+            });
             delivered += r?.sent ?? 0;
           } catch (e) {
             this.logger.warn(
@@ -253,15 +276,9 @@ export class AutomationsService {
             );
           }
         }
-        await this.prisma.notification.create({
-          data: {
-            tenantId,
-            title,
-            body,
-            triggerType: 'AUTOMATION',
-            sentAt: new Date(),
-            stats: { targeted: passes.length, delivered, customerId },
-          },
+        await this.prisma.notification.update({
+          where: { id: notif.id },
+          data: { stats: { targeted: passes.length, delivered, customerId } },
         });
         break;
       }

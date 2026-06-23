@@ -898,6 +898,7 @@ model Customer {
   carts    Cart[]
   orders   Order[]
   messages Message[]
+  notifications Notification[]
   badges   CustomerBadge[]
   reservations Reservation[]
   eventAttendees EventAttendee[]
@@ -1399,6 +1400,13 @@ model Notification {
   tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   cardId      String?
   card        Card?               @relation(fields: [cardId], references: [id])
+  // Cliente DESTINATARIO cuando la notificación es individual (automations:
+  // cumpleaños, inactividad, etc.). null = broadcast (a todos los pases del
+  // tenant). El campo `lastMessage` del pase Apple SOLO muestra notificaciones
+  // con customerId null (broadcast) o == el dueño del pase — así un cliente
+  // NUNCA ve el saludo personalizado de OTRO cliente. Bug 2026-06-23.
+  customerId  String?
+  customer    Customer?           @relation(fields: [customerId], references: [id], onDelete: SetNull)
   segment     Json?
   title       String
   body        String
@@ -1412,6 +1420,7 @@ model Notification {
 
   @@index([tenantId, sentAt])
   @@index([scheduledAt])
+  @@index([customerId, sentAt])
 }
 
 /// 2026-06-12: notificaciones PUSH recurrentes. A diferencia de

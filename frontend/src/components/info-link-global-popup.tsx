@@ -107,14 +107,17 @@ export function InfoLinkGlobalPopup({
       onClick={() => setActiveIndex(null)}
     >
       <div
-        className="bg-white text-ink rounded-t-3xl sm:rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-in slide-in-from-bottom-8 duration-300"
+        className="bg-white text-ink rounded-t-3xl sm:rounded-3xl w-full max-w-md overflow-hidden max-h-[90vh] overflow-y-auto shadow-2xl animate-in slide-in-from-bottom-8 duration-300"
         onClick={(e) => e.stopPropagation()}
       >
         {popup.imageUrl && (
+          // Imagen COMPLETA (sin recorte): h-auto respeta la proporción real.
+          // Si queda muy alta, el modal scrollea (max-h-[90vh] overflow-y-auto).
           <img
             src={popup.imageUrl}
             alt={popup.title ?? ''}
-            className="w-full h-48 object-cover"
+            className="block w-full h-auto"
+            style={{ background: 'rgba(0,0,0,0.04)' }}
           />
         )}
         <div className="px-5 py-5">

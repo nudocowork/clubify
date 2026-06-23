@@ -260,6 +260,22 @@ export class RecurringNotificationsService {
     body: string;
     segment: any;
   }) {
+    // Notification PRIMERO (broadcast: customerId null → la ve todo el tenant):
+    // así el pase Apple, al re-armarse en el push, ya lee este texto en
+    // lastMessage. Stats se actualizan después con los conteos reales.
+    const notif = await this.prisma.notification.create({
+      data: {
+        tenantId: s.tenantId,
+        cardId: s.cardId,
+        title: s.title,
+        body: s.body,
+        segment: s.segment ?? {},
+        triggerType: 'SCHEDULED',
+        sentAt: new Date(),
+        stats: { source: 'recurring', recurringId: s.id },
+      },
+    });
+
     const passes = await this.prisma.pass.findMany({
       where: {
         tenantId: s.tenantId,
@@ -277,7 +293,9 @@ export class RecurringNotificationsService {
           where: { id: p.id },
           data: { lastActivityAt: new Date() },
         });
-        const r = await this.wallet.pushPassUpdate(p.id);
+        const r = await this.wallet.pushPassUpdate(p.id, {
+          message: { header: s.title, body: s.body },
+        });
         delivered += r?.sent ?? 0;
       } catch (e) {
         this.logger.warn(
@@ -285,15 +303,9 @@ export class RecurringNotificationsService {
         );
       }
     }
-    await this.prisma.notification.create({
+    await this.prisma.notification.update({
+      where: { id: notif.id },
       data: {
-        tenantId: s.tenantId,
-        cardId: s.cardId,
-        title: s.title,
-        body: s.body,
-        segment: s.segment ?? {},
-        triggerType: 'SCHEDULED',
-        sentAt: new Date(),
         stats: { targeted, delivered, opened: 0, source: 'recurring', recurringId: s.id },
       },
     });
