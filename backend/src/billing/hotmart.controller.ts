@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, HttpCode, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Logger, Param, Post, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { HotmartService, HotmartWebhookPayload } from './hotmart.service';
 import { Public } from '../common/decorators/public.decorator';
@@ -6,8 +6,26 @@ import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorat
 import { Roles } from '../common/decorators/roles.decorator';
 import { PrismaService } from '../common/prisma/prisma.service';
 
+/** Log de TODO webhook entrante (antes de validar hottok) — así vemos en logs
+ *  si un evento llegó aunque sea rechazado o no matchee ningún handler. Útil
+ *  para diagnosticar compras (ej. packs de créditos) que "no acreditan". */
+function logIncoming(
+  logger: Logger,
+  route: string,
+  body: HotmartWebhookPayload,
+) {
+  logger.log(
+    `[HOTMART-WH] entrante route=${route} event=${body?.event ?? '-'} ` +
+      `producto=${body?.data?.product?.id ?? '-'} ` +
+      `offer=${body?.data?.purchase?.offer?.code ?? '-'} ` +
+      `buyer=${body?.data?.buyer?.email ?? '-'} ` +
+      `tx=${body?.data?.purchase?.transaction ?? '-'}`,
+  );
+}
+
 @Controller('webhooks/hotmart')
 export class HotmartWebhookController {
+  private readonly logger = new Logger(HotmartWebhookController.name);
   constructor(private hotmart: HotmartService) {}
 
   /**
@@ -26,11 +44,17 @@ export class HotmartWebhookController {
     @Body() body: HotmartWebhookPayload,
     @Headers() headers: Record<string, string>,
   ) {
+    logIncoming(this.logger, '/webhooks/hotmart', body);
     const hottok =
       body.hottok ??
       headers['x-hotmart-hottok'] ??
       headers['x-hotmart-webhook-token'];
     if (!this.hotmart.verifyHottok(hottok)) {
+      this.logger.warn(
+        `[HOTMART-WH] hottok INVÁLIDO en /webhooks/hotmart (producto=${body?.data?.product?.id ?? '-'} ` +
+          `tx=${body?.data?.purchase?.transaction ?? '-'}). Si es el producto de créditos, ` +
+          `revisá que su webhook en Hotmart use el hottok correcto de esta cuenta.`,
+      );
       return { ok: false, action: 'invalid_hottok' };
     }
     // Legacy = Clubify: scopeamos a la marca clubify (+ tenants sin marca,
@@ -54,12 +78,17 @@ export class HotmartWebhookController {
     @Body() body: HotmartWebhookPayload,
     @Headers() headers: Record<string, string>,
   ) {
+    logIncoming(this.logger, `/webhooks/hotmart/${slug}`, body);
     const hottok =
       body.hottok ??
       headers['x-hotmart-hottok'] ??
       headers['x-hotmart-webhook-token'];
     const brand = await this.hotmart.verifyHottokForBrand(slug, hottok);
     if (!brand) {
+      this.logger.warn(
+        `[HOTMART-WH] hottok INVÁLIDO en /webhooks/hotmart/${slug} ` +
+          `(producto=${body?.data?.product?.id ?? '-'} tx=${body?.data?.purchase?.transaction ?? '-'})`,
+      );
       return { ok: false, action: 'invalid_hottok' };
     }
     // Scope estricto a la marca: el tenant lookup nunca cruza a otra marca.

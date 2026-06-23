@@ -69,6 +69,7 @@ class HotmartLinkBody {
   @IsOptional() @IsInt() @Min(0) position?: number;
   @IsOptional() @IsBoolean() isActive?: boolean;
   @IsOptional() @IsString() @MaxLength(60) hotmartProductId?: string | null;
+  @IsOptional() @IsString() @MaxLength(60) hotmartOfferCode?: string | null;
 }
 
 class AssignPurchaseBody {

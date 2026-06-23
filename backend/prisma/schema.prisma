@@ -4129,6 +4129,11 @@ model HotmartCreditLink {
   /// recibe un PURCHASE_APPROVED y este matchea, acreditamos automáticamente
   /// los créditos a la marca cuyo adminEmail = buyer.email.
   hotmartProductId String?
+  /// offer code de Hotmart (`payload.data.purchase.offer.code`). Varias ofertas
+  /// (1/10/20 créditos) comparten el MISMO productId, así que el productId solo
+  /// NO distingue la cantidad. El webhook matchea por (productId + offerCode).
+  /// null = link sin oferta específica (solo se usa si el producto tiene 1 link).
+  hotmartOfferCode String?
   updatedAt DateTime @updatedAt
 
   purchases HotmartCreditPurchase[]

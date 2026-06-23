@@ -65,6 +65,7 @@ export type HotmartLinkDto = {
   position?: number;
   isActive?: boolean;
   hotmartProductId?: string | null;
+  hotmartOfferCode?: string | null;
 };
 
 export type CreditAdjustDto = {
@@ -1318,6 +1319,7 @@ export class SuperAdminService {
         position: dto.position ?? 0,
         isActive: dto.isActive ?? true,
         hotmartProductId: dto.hotmartProductId?.trim() || null,
+        hotmartOfferCode: dto.hotmartOfferCode?.trim() || null,
       },
     });
     await this.logAction(actorId, 'superadmin.hotmart_link.create', `hotmartLink:${created.id}`, {
@@ -1343,6 +1345,9 @@ export class SuperAdminService {
     }
     if (patch.hotmartProductId !== undefined) {
       data.hotmartProductId = patch.hotmartProductId?.trim() || null;
+    }
+    if (patch.hotmartOfferCode !== undefined) {
+      data.hotmartOfferCode = patch.hotmartOfferCode?.trim() || null;
     }
     const updated = await this.prisma.hotmartCreditLink.update({ where: { id }, data });
     await this.logAction(actorId, 'superadmin.hotmart_link.update', `hotmartLink:${id}`, {

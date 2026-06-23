@@ -58,6 +58,9 @@ export type HotmartWebhookPayload = {
       // Hotmart manda el monto pagado en USD aquí. Lo usamos para calcular
       // la comisión del referido. Si no viene, caemos a plan.priceMonthly.
       price?: { value?: number; currency_code?: string };
+      // Oferta específica del checkout. Varias ofertas pueden compartir el mismo
+      // productId (ej. packs de 1/10/20 créditos) → el offer.code distingue cuál.
+      offer?: { code?: string; description?: string };
     };
     product?: { id?: number; name?: string };
   };
@@ -431,15 +434,60 @@ export class HotmartService {
     const productIdRaw = payload.data?.product?.id;
     if (productIdRaw === undefined || productIdRaw === null) return null;
     const productId = String(productIdRaw);
-
-    const creditLink = await this.prisma.hotmartCreditLink.findFirst({
-      where: { hotmartProductId: productId, isActive: true },
-    });
-    if (!creditLink) return null; // no es pack de créditos
-
+    const offerCode = payload.data?.purchase?.offer?.code?.trim() || null;
     const buyerEmail = payload.data?.buyer?.email?.toLowerCase();
     const transactionId =
       payload.data?.purchase?.transaction ?? `derived:${productId}:${buyerEmail ?? '?'}`;
+
+    // Todos los links ACTIVOS de este producto. Varias ofertas (1/10/20) pueden
+    // compartir productId → desambiguamos por offer.code.
+    const productLinks = await this.prisma.hotmartCreditLink.findMany({
+      where: { hotmartProductId: productId, isActive: true },
+    });
+    if (productLinks.length === 0) return null; // no es pack de créditos
+
+    this.logger.log(
+      `[CREDITOS] WEBHOOK RECIBIDO · tx=${transactionId} producto=${productId} ` +
+        `offer=${offerCode ?? '-'} buyer=${buyerEmail ?? '-'} ` +
+        `links_del_producto=${productLinks.length}`,
+    );
+
+    // Selección del link: 1) match exacto por offerCode; 2) si hay UN solo link
+    // del producto, usarlo (producto de oferta única); 3) ambiguo (varios links,
+    // sin match de oferta) → ERROR + UNASSIGNED, NO acreditar cantidad al azar.
+    let creditLink = offerCode
+      ? productLinks.find((l) => l.hotmartOfferCode === offerCode) ?? null
+      : null;
+    if (!creditLink) {
+      if (productLinks.length === 1) {
+        creditLink = productLinks[0];
+      } else {
+        this.logger.error(
+          `[CREDITOS] ERROR: producto ${productId} tiene ${productLinks.length} links y la ` +
+            `oferta '${offerCode ?? '(sin offer en payload)'}' no matchea ninguno. ` +
+            `No se puede determinar la cantidad → registro UNASSIGNED. ` +
+            `Asigná hotmartOfferCode a cada HotmartCreditLink.`,
+        );
+        await this.prisma.hotmartCreditPurchase
+          .create({
+            data: {
+              transactionId,
+              hotmartProductId: productId,
+              creditLinkId: productLinks[0].id,
+              credits: 0,
+              buyerEmail: buyerEmail ?? '',
+              status: 'UNASSIGNED',
+              rawPayload: payload as any,
+            },
+          })
+          .catch(() => null);
+        return 'credit_purchase_offer_ambiguous';
+      }
+    }
+    this.logger.log(
+      `[CREDITOS] PRODUCTO IDENTIFICADO · link="${creditLink.label}" ` +
+        `créditos=${creditLink.credits} offerCode=${creditLink.hotmartOfferCode ?? '-'}`,
+    );
 
     // Idempotency vía transactionId UNIQUE.
     const existing = await this.prisma.hotmartCreditPurchase.findUnique({
@@ -447,12 +495,14 @@ export class HotmartService {
     });
     if (existing) {
       this.logger.log(
-        `Hotmart credit purchase ${transactionId} ya procesada — skip duplicate`,
+        `[CREDITOS] tx=${transactionId} ya procesada (status=${existing.status}) — skip duplicate`,
       );
       return 'credit_purchase_duplicate';
     }
 
-    // Match con marca por adminEmail.
+    // Match con marca: 1) por WhiteLabel.adminEmail; 2) fallback por un User
+    // SUPER_ADMIN de la marca cuyo email = buyer (si compró con su email de
+    // login en vez del adminEmail configurado).
     let whiteLabelId: string | null = null;
     let creditsUnlimited = false;
     if (buyerEmail) {
@@ -462,8 +512,28 @@ export class HotmartService {
       if (wl) {
         whiteLabelId = wl.id;
         creditsUnlimited = wl.creditsUnlimited;
+      } else {
+        const adminUser = await this.prisma.user.findFirst({
+          where: {
+            email: { equals: buyerEmail, mode: 'insensitive' },
+            role: 'SUPER_ADMIN',
+            whiteLabelId: { not: null },
+          },
+          select: { whiteLabel: { select: { id: true, creditsUnlimited: true } } },
+        });
+        if (adminUser?.whiteLabel) {
+          whiteLabelId = adminUser.whiteLabel.id;
+          creditsUnlimited = adminUser.whiteLabel.creditsUnlimited;
+          this.logger.log(
+            `[CREDITOS] marca resuelta por User SUPER_ADMIN (no adminEmail): ${whiteLabelId}`,
+          );
+        }
       }
     }
+    this.logger.log(
+      `[CREDITOS] MARCA BLANCA IDENTIFICADA · whiteLabelId=${whiteLabelId ?? 'NINGUNA (→ UNASSIGNED)'} ` +
+        `unlimited=${creditsUnlimited}`,
+    );
 
     if (!whiteLabelId) {
       // Sin match — guardamos UNASSIGNED para reasignación manual.
@@ -479,7 +549,8 @@ export class HotmartService {
         },
       });
       this.logger.warn(
-        `Hotmart credit purchase ${transactionId} sin marca — UNASSIGNED (buyer=${buyerEmail})`,
+        `[CREDITOS] ERROR: tx=${transactionId} sin marca (buyer=${buyerEmail} no matchea ` +
+          `ningún adminEmail ni User SUPER_ADMIN) → UNASSIGNED. Asignar desde /superadmin/creditos.`,
       );
       return 'credit_purchase_unassigned';
     }
@@ -506,7 +577,15 @@ export class HotmartService {
       );
       return 'credit_purchase_unlimited';
     }
-    await this.prisma.$transaction([
+    // CRÉDITOS ANTES (para log + trazabilidad).
+    const beforeWl = await this.prisma.whiteLabel.findUnique({
+      where: { id: whiteLabelId },
+      select: { creditsAvailable: true },
+    });
+    this.logger.log(
+      `[CREDITOS] CRÉDITOS A ACREDITAR=${creditLink.credits} · CRÉDITOS ANTES=${beforeWl?.creditsAvailable ?? '?'}`,
+    );
+    const [, updatedWl] = await this.prisma.$transaction([
       this.prisma.hotmartCreditPurchase.create({
         data: {
           transactionId,
@@ -523,6 +602,7 @@ export class HotmartService {
       this.prisma.whiteLabel.update({
         where: { id: whiteLabelId },
         data: { creditsAvailable: { increment: creditLink.credits } },
+        select: { creditsAvailable: true },
       }),
       this.prisma.creditTransaction.create({
         data: {
@@ -535,13 +615,11 @@ export class HotmartService {
     ]);
 
     this.logger.log(
-      `Hotmart credit purchase ${transactionId}: ${creditLink.credits} créditos → marca ${whiteLabelId}`,
+      `[CREDITOS] ✅ ACREDITADO · tx=${transactionId} · ${creditLink.credits} créditos → marca ${whiteLabelId} · ` +
+        `CRÉDITOS DESPUÉS=${updatedWl.creditsAvailable}`,
     );
     // SMS a la marca: créditos acreditados (+ reset de dedups de avisos).
-    const fresh = await this.prisma.whiteLabel.findUnique({
-      where: { id: whiteLabelId },
-      select: { creditsAvailable: true },
-    });
+    const fresh = { creditsAvailable: updatedWl.creditsAvailable };
     await this.wlNotifications
       .onCreditsPurchased(whiteLabelId, creditLink.credits, fresh?.creditsAvailable ?? creditLink.credits)
       .catch(() => null);
