@@ -10,6 +10,36 @@
  *    dominio Clubify, donde el server no puede resolver la marca por host).
  */
 
+/** Oscurece un hex en `amount` (0..1) — para hovers. */
+export function darkenHex(hex: string, amount = 0.12): string {
+  const h = (hex || '').replace('#', '');
+  if (h.length !== 6) return hex;
+  const ch = (i: number) =>
+    Math.round(parseInt(h.slice(i, i + 2), 16) * (1 - amount))
+      .toString(16)
+      .padStart(2, '0');
+  return `#${ch(0)}${ch(2)}${ch(4)}`;
+}
+
+/** CSS scopeado a `.brand-auth` (pantallas de login/registro/reset): voltea los
+ *  tokens brand/ok al color de la marca. Mismo contenido que BrandAuthTheme,
+ *  extraído acá para poder inyectarlo también desde el SERVER (anti-flash). */
+export function authBrandCss(color: string): string {
+  const c = color || '#16a34a';
+  const hover = darkenHex(c, 0.12);
+  return `
+.brand-auth .text-brand,.brand-auth [class*="text-brand"]{color:${c}!important}
+.brand-auth [class*="bg-brand"]:not([class*="bg-brand-soft"]){background-color:${c}!important}
+.brand-auth [class*="bg-brand-soft"]{background-color:${c}1f!important}
+.brand-auth [class*="border-brand"]{border-color:${c}!important}
+.brand-auth .text-ok,.brand-auth [class*="text-ok"]{color:${c}!important}
+.brand-auth .btn-primary{background-color:${c}!important;border-color:${c}!important}
+.brand-auth .btn-primary:hover{background-color:${hover}!important;border-color:${hover}!important}
+.brand-auth .btn-link{color:${c}!important}
+.brand-auth .input:focus{border-color:${c}!important;box-shadow:0 0 0 3px ${c}33!important}
+`;
+}
+
 /** Mezcla un hex hacia negro o blanco en `amount` (0..1). */
 export function mixHex(
   hex: string,
