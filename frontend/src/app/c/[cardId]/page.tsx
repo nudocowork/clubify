@@ -121,9 +121,13 @@ function clearCache(cardId: string, locale: string) {
 const BrandHeader = memo(function BrandHeader({
   card,
   verifying,
+  brandLogoUrl,
 }: {
   card: Card | null;
   verifying: boolean;
+  /** Logo de la marca blanca (Nivel 2): se usa si el negocio no tiene logo
+   *  propio, para no mostrar la inicial pelada. Nunca Clubify para otra marca. */
+  brandLogoUrl?: string | null;
 }) {
   const ready = !!card;
   const primary = card?.primaryColor || card?.tenant.primaryColor || '#22C55E';
@@ -139,9 +143,9 @@ const BrandHeader = memo(function BrandHeader({
     >
       <div className="max-w-md mx-auto">
         <div className="flex items-center gap-2.5 sm:gap-3 mb-4 sm:mb-5">
-          {ready && card?.tenant.logoUrl ? (
+          {ready && (card?.tenant.logoUrl || brandLogoUrl) ? (
             <img
-              src={card.tenant.logoUrl}
+              src={(card?.tenant.logoUrl || brandLogoUrl) as string}
               alt=""
               loading="lazy"
               decoding="async"
@@ -713,7 +717,11 @@ export default function EnrollPage() {
 
   return (
     <main className="min-h-screen bg-bg pb-8 sm:pb-12">
-      <BrandHeader card={card} verifying={verifying} />
+      <BrandHeader
+        card={card}
+        verifying={verifying}
+        brandLogoUrl={brand?.logoUrl ?? brand?.iconUrl ?? null}
+      />
 
       <div className="max-w-md mx-auto px-4 sm:px-5 -mt-10">
         <FormFields

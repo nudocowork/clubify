@@ -36,7 +36,13 @@ export function WalletPassView({ passId, data, googleSaveUrl }: Props) {
         <div className="flex justify-center">
           <WalletPassPreview
             brandName={data.tenant.brandName}
-            brandLogoUrl={data.tenant.walletLogoUrl ?? data.tenant.logoUrl ?? null}
+            brandLogoUrl={
+              data.tenant.walletLogoUrl ??
+              data.tenant.logoUrl ??
+              data.brand?.logoUrl ??
+              data.brand?.iconUrl ??
+              null
+            }
             primaryColor={data.card.primaryColor}
             secondaryColor={data.card.secondaryColor}
             cardName={data.card.name}

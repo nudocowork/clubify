@@ -272,9 +272,15 @@ export class WalletService {
     const normalize = (u: any): string | null =>
       typeof u === 'string' && u.trim() ? u.trim() : null;
     const candidates = [
+      // Nivel 1: logo propio del negocio (tarjeta > wallet > general).
       normalize((pass.card as any).logoUrl),
       normalize((pass.tenant as any).walletLogoUrl),
       normalize(pass.tenant.logoUrl),
+      // Nivel 2: logo de la MARCA BLANCA propietaria (Sellea→Sellea). passBrand
+      // viene de WhitelabelBrandService.resolveTenant → NUNCA cae a Clubify para
+      // otra marca. Así un negocio sin logo hereda el logo de su marca, no Clubify.
+      normalize(passBrand.logoUrl),
+      normalize(passBrand.iconUrl),
     ].filter((u): u is string => u !== null);
 
     let tenantLogos: Record<string, Buffer> = {};
@@ -1465,6 +1471,9 @@ export class WalletService {
     const logoCandidates = [
       normalize(r.tenant.walletLogoUrl),
       normalize(r.tenant.logoUrl),
+      // Nivel 2: logo de la marca blanca propietaria (Sellea→Sellea, no Clubify).
+      normalize(resBrand.logoUrl),
+      normalize(resBrand.iconUrl),
     ].filter((u): u is string => u !== null);
     let tenantLogos: Record<string, Buffer> = {};
     let usedLogoUrl: string | null = null;

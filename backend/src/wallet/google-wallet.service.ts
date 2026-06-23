@@ -280,21 +280,31 @@ export class GoogleWalletService {
     };
   }
 
-  private resolveLogoUri(pass: any, brandWebsiteUrl?: string): string {
+  private resolveLogoUri(
+    pass: any,
+    brand?: {
+      logoUrl?: string | null;
+      iconUrl?: string | null;
+      websiteUrl?: string;
+    },
+  ): string {
     // Fallback base del logo de la marca dueña del pass (no hardcode Clubify).
     // El caller resuelve la marca por tenant y la pasa; si falta, cae al env.
     const publicBase =
       process.env.PUBLIC_LOGO_BASE_URL ||
       (process.env.APP_URL && !process.env.APP_URL.includes('localhost')
         ? process.env.APP_URL
-        : brandWebsiteUrl || 'https://soyclubify.com');
-    // #22 (2026-06-16): el logo de LA TARJETA (card.logoUrl) tiene prioridad
-    // sobre el del tenant. Al subir un logo nuevo cambia la URL de R2 → el
-    // base cambia y Google re-descarga (además del cache-bust por ?v=).
+        : brand?.websiteUrl || 'https://soyclubify.com');
+    // Jerarquía de logo (#22 2026-06-16): card.logoUrl tiene prioridad sobre el
+    // del tenant. NUEVO 2026-06-23: si el negocio no tiene logo, hereda el logo
+    // de la MARCA BLANCA (Sellea→Sellea) antes que el genérico — NUNCA Clubify
+    // para otra marca (brand.logoUrl viene de resolveTenant, marca propietaria).
     const base =
       pass.card?.logoUrl ||
       pass.tenant.walletLogoUrl ||
       pass.tenant.logoUrl ||
+      brand?.logoUrl ||
+      brand?.iconUrl ||
       `${publicBase}/icons/icon-512.png`;
     // CACHE-BUST 2026-06-15: Google Wallet cachea las imágenes por URL. Sin
     // esto, cambiar el logo NO se reflejaba aunque patcheáramos la clase con
@@ -324,7 +334,7 @@ export class GoogleWalletService {
     }
 
     const brand = await this.brand.resolveTenant(pass.tenantId);
-    const logoUri = this.resolveLogoUri(pass, brand.websiteUrl);
+    const logoUri = this.resolveLogoUri(pass, brand);
     const loyaltyClass = this.buildClass(pass, ids.classId, logoUri);
     const loyaltyObject = this.buildObject(pass, ids.classId, ids.objectId);
 
@@ -469,7 +479,7 @@ export class GoogleWalletService {
       // tenant.updatedAt para que Google re-descargue la imagen.
       try {
         const brand = await this.brand.resolveTenant(pass.tenantId);
-        const logoUri = this.resolveLogoUri(pass, brand.websiteUrl);
+        const logoUri = this.resolveLogoUri(pass, brand);
         const classBody = this.buildClass(pass, ids.classId, logoUri);
         await wallet.loyaltyclass.patch({
           resourceId: ids.classId,
@@ -612,7 +622,11 @@ export class GoogleWalletService {
     const seatLabel = r.table?.number
       ? `Mesa ${r.table.number}`
       : r.zone?.name ?? 'Por asignar';
-    const logoUri = r.tenant.logoUrl || undefined;
+    // Hereda el logo de la marca blanca si el negocio no tiene logo propio
+    // (Sellea→Sellea, nunca Clubify). Sin marca con logo → sin logo (no Clubify).
+    const resBrand = await this.brand.resolveTenant(r.tenantId);
+    const logoUri =
+      r.tenant.logoUrl || resBrand.logoUrl || resBrand.iconUrl || undefined;
     const bgColor = r.tenant.primaryColor || '#22C55E';
 
     const eventClass: Record<string, unknown> = {

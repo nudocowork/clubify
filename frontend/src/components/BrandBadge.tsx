@@ -18,6 +18,10 @@ export type BrandBadgeBrand = {
   websiteUrl: string;
   initial?: string | null;
   primaryColor?: string | null;
+  // Logo/ícono de la marca blanca — fallback visual cuando el negocio no tiene
+  // logo propio (ej. cabecera del pase). El backend los incluye en el brand.
+  logoUrl?: string | null;
+  iconUrl?: string | null;
   attribution?: { madeWith?: string } | null;
 };
 
