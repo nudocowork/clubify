@@ -536,9 +536,17 @@ export default function TenantDetail() {
           <GrowBusinessCard tenantId={t.id} planName={t.plan?.name ?? null} />
         )}
 
-        {isSuperAdmin && <ReferralAssignmentCard tenantId={t.id} />}
-
-        {isSuperAdmin && <CommissionModeCard tenant={t} onSaved={load} />}
+        {/* Panels de referidos: solo si la marca del negocio tiene el módulo
+            REFERRALS habilitado. enabledModules null = Clubify (todo on). */}
+        {isSuperAdmin &&
+          (t.enabledModules
+            ? t.enabledModules.includes('REFERRALS')
+            : true) && (
+            <>
+              <ReferralAssignmentCard tenantId={t.id} />
+              <CommissionModeCard tenant={t} onSaved={load} />
+            </>
+          )}
 
         {/* #23 (2026-06-16): las secciones avanzadas se agrupan en acordeones
             colapsados para reducir el scroll. Info/Plan/Referidos quedan

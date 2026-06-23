@@ -1054,21 +1054,17 @@ function StorefrontPublicInner() {
       {/* Popup del menú: prioriza popups programados (#5), cae al legacy single. */}
       <StorefrontPopup menuPopups={s.menuPopups} legacy={s.popup} slug={slug} />
 
-      {/* Marca del negocio (per marca blanca) — siempre visible. Hereda de
-          s.brand; fallback Clubify mientras el backend propaga el deploy. */}
-      <BrandBadge
-        brand={
-          (s.brand as BrandBadgeBrand | undefined) ?? {
-            name: 'Clubify',
-            websiteUrl: 'https://soyclubify.com',
-            initial: 'C',
-            primaryColor: '#22C55E',
-            attribution: { madeWith: 'Hecho con Clubify' },
-          }
-        }
-        variant="auto"
-        dark={pageIsDark}
-      />
+      {/* Marca del negocio (per marca blanca). Hereda de s.brand (el backend
+          lo resuelve por el whiteLabelId del tenant). Si no viene, NO mostramos
+          "Hecho con Clubify" en un negocio de otra marca — ocultamos el badge
+          en vez de filtrar branding ajeno. */}
+      {s.brand && (
+        <BrandBadge
+          brand={s.brand as BrandBadgeBrand}
+          variant="auto"
+          dark={pageIsDark}
+        />
+      )}
       <LanguageSwitcher />
     </div>
   );

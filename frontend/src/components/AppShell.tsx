@@ -1144,7 +1144,12 @@ export default function AppShell({
       <CommandPalette variant={variant} />
       {variant === 'app' && (
         <>
-          <SupportWidget brandName={tenantInfo?.whiteLabelName ?? undefined} />
+          {/* Asistente IA: solo en negocios de Clubify. Su prompt/knowledge
+              habla de Clubify, así que NO se muestra en negocios de otras
+              marcas blancas (Sellea, etc.). */}
+          {(!tenantInfo?.whiteLabelSlug || tenantInfo.whiteLabelSlug === 'clubify') && (
+            <SupportWidget brandName={tenantInfo?.whiteLabelName ?? undefined} />
+          )}
           <QuickCreateFAB />
         </>
       )}

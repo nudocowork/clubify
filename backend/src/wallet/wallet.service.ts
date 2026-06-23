@@ -143,7 +143,9 @@ export class WalletService {
           // redimir. Con el JWT, findByJwt verifica la firma. Los pases
           // viejos siguen con serial hasta refrescarse (fallback legacy).
           message: pass.qrToken,
-          altText: 'Creado por Clubify',
+          // Marca per-marca (no hardcodear Clubify): hereda el nombre de la
+          // marca blanca del tenant (Sellea, etc.).
+          altText: `Creado por ${passBrand.name}`,
           messageEncoding: 'iso-8859-1',
         },
       ],

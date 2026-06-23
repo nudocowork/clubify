@@ -416,10 +416,25 @@ export class TenantsService {
     // remove() llaman a getById primero, así que también quedan aislados.
     const tenant = await this.prisma.tenant.findFirst({
       where: { id },
-      include: { plan: true, locations: true, _count: { select: { cards: true, customers: true, passes: true } } },
+      include: {
+        plan: true,
+        locations: true,
+        _count: { select: { cards: true, customers: true, passes: true } },
+        // Módulos de la marca → el detalle gatea secciones (ej. panels de
+        // referidos) según lo que la marca tenga habilitado.
+        whiteLabel: {
+          select: {
+            slug: true,
+            name: true,
+            modules: { where: { enabled: true }, select: { module: true } },
+          },
+        },
+      },
     });
     if (!tenant) throw new NotFoundException('Tenant not found');
-    return tenant;
+    // Aplanamos los módulos habilitados a string[] para el frontend.
+    const enabledModules = tenant.whiteLabel?.modules?.map((m) => m.module) ?? null;
+    return { ...tenant, enabledModules };
   }
 
   /** #9: asegura un Plan "Sin plan" (precio 0) reutilizable para crear
@@ -597,6 +612,18 @@ export class TenantsService {
     ) {
       this.referrals
         .recalcTenantSplit(id, null, 'distribution_mode_change')
+        .catch(() => undefined);
+    }
+    // Si cambió el precio REAL pagado (base de comisiones), recalculamos las
+    // comisiones PENDIENTES/APROBADAS sobre la nueva base. Sin esto, poner
+    // "$50" guardaba el campo pero la comisión seguía sobre el canónico ($68).
+    if (
+      dto.subscriptionPriceUsd !== undefined &&
+      Number(dto.subscriptionPriceUsd ?? NaN) !==
+        Number((before as any).subscriptionPriceUsd ?? NaN)
+    ) {
+      this.referrals
+        .recalcTenantSplit(id, null, 'subscription_price_change')
         .catch(() => undefined);
     }
     // Mismo refresh de wallet que updateMine: si el admin cambió logo/colores/
