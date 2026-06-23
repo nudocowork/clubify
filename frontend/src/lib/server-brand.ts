@@ -44,8 +44,45 @@ export async function resolveBrandForHost(host: string): Promise<ServerBrand> {
   }
 }
 
+/** Resuelve la marca por slug (ej. acceso por path /admin/<slug> sin dominio
+ *  propio). null = clubify/desconocido. Server-only. */
+export async function resolveBrandBySlug(slug: string): Promise<ServerBrand> {
+  const s = (slug || '').trim().toLowerCase();
+  if (!s || s === 'clubify') return null;
+  try {
+    const r = await fetch(
+      `${API_URL}/api/superadmin-public/white-labels/branding?slug=${encodeURIComponent(s)}`,
+      { next: { revalidate: 60 } },
+    );
+    if (!r.ok) return null;
+    const d = await r.json();
+    if (!d || !d.slug || d.slug === 'clubify') return null;
+    const favicon = d.faviconUrl ?? d.iconUrl ?? d.logoUrl ?? null;
+    return {
+      name: d.name,
+      logoUrl: d.logoUrl ?? null,
+      faviconUrl: favicon,
+      primaryColor: d.primaryColor || '#111827',
+      slug: d.slug,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Resuelve la marca desde los headers de la request actual (host). */
 export async function resolveBrandFromHeaders(): Promise<ServerBrand> {
   const host = headers().get('host') ?? '';
   return resolveBrandForHost(host);
+}
+
+/** Resuelve la marca por host y, si no matchea (dominio Clubify), cae al slug
+ *  del header `x-wl-slug` que setea el middleware en /admin/<slug>. Cubre las
+ *  marcas sin dominio propio conectado todavía. */
+export async function resolveBrandFromHeadersOrSlug(): Promise<ServerBrand> {
+  const h = headers();
+  const byHost = await resolveBrandForHost(h.get('host') ?? '');
+  if (byHost) return byHost;
+  const slug = h.get('x-wl-slug');
+  return slug ? resolveBrandBySlug(slug) : null;
 }

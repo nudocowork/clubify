@@ -204,7 +204,12 @@ export async function middleware(req: NextRequest) {
     const rest = adminBrand[2] ?? '';
     const rewrite = url.clone();
     rewrite.pathname = `/admin${rest}`;
-    return NextResponse.rewrite(rewrite);
+    // Pasamos el slug de marca como header → el layout server de /admin resuelve
+    // el color por slug e inyecta el tema en el SSR aunque el host sea Clubify
+    // (marca sin dominio propio conectado todavía). Evita el flash (FODT).
+    const reqHeaders = new Headers(req.headers);
+    reqHeaders.set('x-wl-slug', adminBrand[1]);
+    return NextResponse.rewrite(rewrite, { request: { headers: reqHeaders } });
   }
 
   // ────────── Maintenance mode ──────────
