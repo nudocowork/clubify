@@ -190,9 +190,53 @@ async function resolveBrandHost(host: string): Promise<string | null> {
   }
 }
 
+// Cache host → favicon de la marca (faviconUrl/iconUrl/logoUrl). Los browsers
+// piden /favicon.ico de la raíz y lo priorizan/cachean por encima del <link>;
+// como el estático /public/favicon.ico es el de Clubify e igual en todos los
+// dominios, en el dominio de una marca redirigimos /favicon.ico a SU favicon.
+const faviconCache = new Map<string, { url: string | null; until: number }>();
+async function resolveBrandFavicon(host: string): Promise<string | null> {
+  const now = Date.now();
+  const hit = faviconCache.get(host);
+  if (hit && hit.until > now) return hit.url;
+  try {
+    const r = await fetch(
+      `${API}/api/superadmin-public/white-labels/branding-by-host?host=${encodeURIComponent(host)}`,
+      { cache: 'no-store' },
+    );
+    if (!r.ok) {
+      faviconCache.set(host, { url: null, until: now + TTL_MS });
+      return null;
+    }
+    const d = (await r.json()) as {
+      slug?: string | null;
+      faviconUrl?: string | null;
+      iconUrl?: string | null;
+      logoUrl?: string | null;
+    } | null;
+    const url =
+      d && d.slug && d.slug !== 'clubify'
+        ? d.faviconUrl ?? d.iconUrl ?? d.logoUrl ?? null
+        : null;
+    faviconCache.set(host, { url, until: now + TTL_MS });
+    return url;
+  } catch {
+    return null;
+  }
+}
+
 export async function middleware(req: NextRequest) {
   const url = req.nextUrl;
   const host = (req.headers.get('host') ?? '').toLowerCase().split(':')[0];
+
+  // ────────── Favicon de la raíz por marca ──────────
+  // En el dominio de una marca, /favicon.ico debe ser el de la marca, no el
+  // estático de Clubify. Redirigimos a su favicon (si tiene). Clubify y los
+  // hosts reservados caen al estático normal.
+  if (url.pathname === '/favicon.ico' && host && !RESERVED_HOSTS.has(host)) {
+    const fav = await resolveBrandFavicon(host);
+    if (fav) return NextResponse.redirect(fav, 307);
+  }
 
   // ────────── Panel de marca blanca por path: /admin/<slug> ──────────
   // /admin/<slug> y /admin/<slug>/<resto> sirven el MISMO panel /admin (y sus
