@@ -623,6 +623,8 @@ function Drawer({
 
               <PaymentGatewayConfig whiteLabelId={w.id} onSaved={onChanged} />
 
+              <HotmartCreditConfig whiteLabelId={w.id} onSaved={onChanged} />
+
               <div>
                 <SectionTitle>Módulos activos</SectionTitle>
                 <div className="mt-2 space-y-1.5">
@@ -1369,6 +1371,153 @@ const payInput = {
 /** Sección "Pasarela de pago": selector Hotmart/Stripe/Manual, campos por
  *  pasarela (secretos cifrados server-side, enmascarados al volver) y gestor
  *  de links de pago. Todo aislado por marca. */
+/**
+ * Configuración de Créditos por MARCA BLANCA. La acreditación automática de
+ * créditos identifica la marca por (Product ID + Offer ID) → este link →
+ * whiteLabelId, INDEPENDIENTE del correo del comprador. Cada marca define sus
+ * packs de 1 / 10 / 20 créditos con su Product ID y Offer ID de Hotmart.
+ */
+const CREDIT_PACKS = [1, 10, 20] as const;
+function HotmartCreditConfig({
+  whiteLabelId,
+  onSaved,
+}: {
+  whiteLabelId: string;
+  onSaved: (msg: string) => void;
+}) {
+  type Row = {
+    id: string | null;
+    credits: number;
+    productId: string;
+    offerCode: string;
+  };
+  const [rows, setRows] = useState<Row[]>(
+    CREDIT_PACKS.map((c) => ({ id: null, credits: c, productId: '', offerCode: '' })),
+  );
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const links =
+        (await api(`/superadmin/hotmart-links?whiteLabelId=${whiteLabelId}`)) ?? [];
+      setRows(
+        CREDIT_PACKS.map((c) => {
+          const l = (links as any[]).find((x) => x.credits === c);
+          return {
+            id: l?.id ?? null,
+            credits: c,
+            productId: l?.hotmartProductId ?? '',
+            offerCode: l?.hotmartOfferCode ?? '',
+          };
+        }),
+      );
+    } catch {
+      /* noop */
+    } finally {
+      setLoading(false);
+    }
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [whiteLabelId]);
+
+  function setRow(credits: number, patch: Partial<Row>) {
+    setRows((rs) => rs.map((r) => (r.credits === credits ? { ...r, ...patch } : r)));
+  }
+
+  async function save() {
+    setBusy(true);
+    try {
+      for (const r of rows) {
+        const productId = r.productId.trim();
+        const offerCode = r.offerCode.trim();
+        const hasData = productId || offerCode;
+        if (r.id) {
+          // Existe: actualizar productId/offerCode (o desactivar si quedó vacío).
+          await api(`/superadmin/hotmart-links/${r.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({
+              hotmartProductId: productId || null,
+              hotmartOfferCode: offerCode || null,
+              isActive: !!hasData,
+            }),
+          });
+        } else if (hasData) {
+          // Nuevo: crear el pack para esta marca.
+          await api(`/superadmin/hotmart-links`, {
+            method: 'POST',
+            body: JSON.stringify({
+              credits: r.credits,
+              label: `${r.credits} crédito${r.credits === 1 ? '' : 's'}`,
+              hotmartProductId: productId || null,
+              hotmartOfferCode: offerCode || null,
+              whiteLabelId,
+            }),
+          });
+        }
+      }
+      onSaved('Configuración de créditos guardada');
+      await load();
+    } catch (e: any) {
+      onSaved(e?.message ?? 'Error al guardar créditos');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      <SectionTitle>Configuración de Créditos (Hotmart)</SectionTitle>
+      <div className="text-[11px] mt-1 mb-2" style={{ color: '#9aa4af' }}>
+        La acreditación automática identifica la marca por Product ID + Offer ID
+        (no por el correo del comprador). Cargá los IDs de Hotmart de cada pack.
+      </div>
+      {loading ? (
+        <div className="text-sm" style={{ color: '#9aa4af' }}>Cargando…</div>
+      ) : (
+        <div className="space-y-2.5">
+          {rows.map((r) => (
+            <div
+              key={r.credits}
+              className="rounded-[10px] p-2.5"
+              style={{ background: '#f8faf9', border: '1px solid #e5e9e7' }}
+            >
+              <div className="text-[12px] font-bold mb-1.5" style={{ color: '#2b3a30' }}>
+                {r.credits} crédito{r.credits === 1 ? '' : 's'}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  value={r.productId}
+                  onChange={(e) => setRow(r.credits, { productId: e.target.value })}
+                  placeholder="Product ID"
+                  className="w-full rounded-[8px] px-2 py-1.5 text-sm"
+                  style={{ border: '1px solid #d6dcd9' }}
+                />
+                <input
+                  value={r.offerCode}
+                  onChange={(e) => setRow(r.credits, { offerCode: e.target.value })}
+                  placeholder="Offer ID"
+                  className="w-full rounded-[8px] px-2 py-1.5 text-sm"
+                  style={{ border: '1px solid #d6dcd9' }}
+                />
+              </div>
+            </div>
+          ))}
+          <button
+            onClick={save}
+            disabled={busy}
+            className="rounded-[8px] px-3 py-1.5 text-sm font-bold text-white disabled:opacity-50"
+            style={{ background: '#16a34a' }}
+          >
+            {busy ? 'Guardando…' : 'Guardar créditos'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PaymentGatewayConfig({
   whiteLabelId,
   onSaved,

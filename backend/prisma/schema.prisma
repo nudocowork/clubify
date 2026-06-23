@@ -3963,6 +3963,7 @@ model WhiteLabel {
   admins          User[]               @relation("WhiteLabelAdmin")
   adminInvites    WhiteLabelAdminInvite[]
   hotmartCreditPurchases HotmartCreditPurchase[]
+  hotmartCreditLinks HotmartCreditLink[] @relation("WhiteLabelCreditLinks")
   businessGroups  BusinessGroup[]      @relation("WhiteLabelGroups")
   paymentLinks    WhiteLabelPaymentLink[]
 
@@ -4134,12 +4135,19 @@ model HotmartCreditLink {
   /// NO distingue la cantidad. El webhook matchea por (productId + offerCode).
   /// null = link sin oferta específica (solo se usa si el producto tiene 1 link).
   hotmartOfferCode String?
+  /// Marca blanca PROPIETARIA de este pack. La acreditación identifica la marca
+  /// por (productId + offerCode) → este link → whiteLabelId, INDEPENDIENTE del
+  /// correo del comprador (2026-06-23). null = pack global/legacy (→ Clubify).
+  whiteLabelId String?
+  whiteLabel   WhiteLabel? @relation("WhiteLabelCreditLinks", fields: [whiteLabelId], references: [id], onDelete: Cascade)
   updatedAt DateTime @updatedAt
 
   purchases HotmartCreditPurchase[]
 
   @@index([isActive, position])
   @@index([hotmartProductId])
+  @@index([whiteLabelId])
+  @@index([hotmartProductId, hotmartOfferCode])
 }
 
 /// Registro de cada compra de pack de créditos hecha en Hotmart. Persistente

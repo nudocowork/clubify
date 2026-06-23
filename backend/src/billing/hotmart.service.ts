@@ -500,39 +500,35 @@ export class HotmartService {
       return 'credit_purchase_duplicate';
     }
 
-    // Match con marca: 1) por WhiteLabel.adminEmail; 2) fallback por un User
-    // SUPER_ADMIN de la marca cuyo email = buyer (si compró con su email de
-    // login en vez del adminEmail configurado).
-    let whiteLabelId: string | null = null;
+    // Marca propietaria por RELACIÓN DIRECTA del link (product+offer → marca).
+    // 2026-06-23: YA NO se identifica por el correo del comprador — una marca
+    // puede comprar con cualquier email. El email queda SOLO informativo.
+    // El link define la marca (creditLink.whiteLabelId) y la cantidad. Legacy:
+    // link sin whiteLabelId → default Clubify (los links viejos son de Clubify).
+    let whiteLabelId: string | null = creditLink.whiteLabelId ?? null;
+    if (!whiteLabelId) {
+      const clubify = await this.prisma.whiteLabel.findFirst({
+        where: { slug: 'clubify' },
+        select: { id: true },
+      });
+      whiteLabelId = clubify?.id ?? null;
+    }
     let creditsUnlimited = false;
-    if (buyerEmail) {
-      const wl = await this.prisma.whiteLabel.findFirst({
-        where: { adminEmail: { equals: buyerEmail, mode: 'insensitive' } },
+    if (whiteLabelId) {
+      const wl = await this.prisma.whiteLabel.findUnique({
+        where: { id: whiteLabelId },
+        select: { id: true, creditsUnlimited: true },
       });
       if (wl) {
-        whiteLabelId = wl.id;
         creditsUnlimited = wl.creditsUnlimited;
       } else {
-        const adminUser = await this.prisma.user.findFirst({
-          where: {
-            email: { equals: buyerEmail, mode: 'insensitive' },
-            role: 'SUPER_ADMIN',
-            whiteLabelId: { not: null },
-          },
-          select: { whiteLabel: { select: { id: true, creditsUnlimited: true } } },
-        });
-        if (adminUser?.whiteLabel) {
-          whiteLabelId = adminUser.whiteLabel.id;
-          creditsUnlimited = adminUser.whiteLabel.creditsUnlimited;
-          this.logger.log(
-            `[CREDITOS] marca resuelta por User SUPER_ADMIN (no adminEmail): ${whiteLabelId}`,
-          );
-        }
+        whiteLabelId = null; // id colgado / marca borrada → UNASSIGNED
       }
     }
     this.logger.log(
-      `[CREDITOS] MARCA BLANCA IDENTIFICADA · whiteLabelId=${whiteLabelId ?? 'NINGUNA (→ UNASSIGNED)'} ` +
-        `unlimited=${creditsUnlimited}`,
+      `[CREDITOS] MARCA BLANCA IDENTIFICADA (por link, no email) · ` +
+        `whiteLabelId=${whiteLabelId ?? 'NINGUNA (→ UNASSIGNED)'} unlimited=${creditsUnlimited} ` +
+        `buyer(informativo)=${buyerEmail ?? '-'}`,
     );
 
     if (!whiteLabelId) {

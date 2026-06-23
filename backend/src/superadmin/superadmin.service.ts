@@ -66,6 +66,8 @@ export type HotmartLinkDto = {
   isActive?: boolean;
   hotmartProductId?: string | null;
   hotmartOfferCode?: string | null;
+  /** Marca blanca propietaria del pack (acreditación por relación directa). */
+  whiteLabelId?: string | null;
 };
 
 export type CreditAdjustDto = {
@@ -1088,8 +1090,17 @@ export class SuperAdminService {
   //                       HOTMART CREDIT LINKS
   // ============================================================
 
-  listHotmartLinks() {
+  listHotmartLinks(whiteLabelId?: string | null) {
+    // Filtro por marca: con whiteLabelId devuelve solo los packs de esa marca;
+    // sin él, todos (vista global legacy). '' o 'null' → packs sin marca.
+    const where =
+      whiteLabelId === undefined
+        ? {}
+        : whiteLabelId === null || whiteLabelId === '' || whiteLabelId === 'null'
+          ? { whiteLabelId: null }
+          : { whiteLabelId };
     return this.prisma.hotmartCreditLink.findMany({
+      where,
       orderBy: [{ position: 'asc' }, { credits: 'asc' }],
     });
   }
@@ -1307,19 +1318,22 @@ export class SuperAdminService {
 
   async createHotmartLink(dto: HotmartLinkDto, actorId?: string) {
     if (!dto.credits || dto.credits < 1) throw new BadRequestException('credits >= 1');
-    if (!dto.label?.trim()) throw new BadRequestException('label requerido');
-    if (!dto.url?.trim()) throw new BadRequestException('url requerida');
+    // label/url son opcionales en la config de acreditación per-marca (que solo
+    // necesita productId + offerCode). label se autogenera; url puede quedar ''.
+    const label = dto.label?.trim() || `${dto.credits} crédito${dto.credits === 1 ? '' : 's'}`;
+    const url = dto.url?.trim() || '';
     const created = await this.prisma.hotmartCreditLink.create({
       data: {
         credits: dto.credits,
-        label: dto.label.trim(),
-        url: dto.url.trim(),
+        label,
+        url,
         price: dto.price !== null && dto.price !== undefined ? new Prisma.Decimal(dto.price) : null,
         currency: dto.currency ?? 'USD',
         position: dto.position ?? 0,
         isActive: dto.isActive ?? true,
         hotmartProductId: dto.hotmartProductId?.trim() || null,
         hotmartOfferCode: dto.hotmartOfferCode?.trim() || null,
+        whiteLabelId: dto.whiteLabelId?.trim() || null,
       },
     });
     await this.logAction(actorId, 'superadmin.hotmart_link.create', `hotmartLink:${created.id}`, {
@@ -1348,6 +1362,9 @@ export class SuperAdminService {
     }
     if (patch.hotmartOfferCode !== undefined) {
       data.hotmartOfferCode = patch.hotmartOfferCode?.trim() || null;
+    }
+    if (patch.whiteLabelId !== undefined) {
+      data.whiteLabelId = patch.whiteLabelId?.trim() || null;
     }
     const updated = await this.prisma.hotmartCreditLink.update({ where: { id }, data });
     await this.logAction(actorId, 'superadmin.hotmart_link.update', `hotmartLink:${id}`, {

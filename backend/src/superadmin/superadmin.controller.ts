@@ -70,6 +70,7 @@ class HotmartLinkBody {
   @IsOptional() @IsBoolean() isActive?: boolean;
   @IsOptional() @IsString() @MaxLength(60) hotmartProductId?: string | null;
   @IsOptional() @IsString() @MaxLength(60) hotmartOfferCode?: string | null;
+  @IsOptional() @IsString() @MaxLength(64) whiteLabelId?: string | null;
 }
 
 class AssignPurchaseBody {
@@ -252,8 +253,8 @@ export class SuperAdminController {
   // -------- Hotmart Links --------
 
   @Get('hotmart-links')
-  listHotmartLinks() {
-    return this.svc.listHotmartLinks();
+  listHotmartLinks(@Query('whiteLabelId') whiteLabelId?: string) {
+    return this.svc.listHotmartLinks(whiteLabelId);
   }
 
   @Post('hotmart-links')
