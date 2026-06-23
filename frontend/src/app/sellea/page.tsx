@@ -54,7 +54,11 @@ const FAQS = [
   { q: '¿Funciona si no soy técnico?', a: 'Sí. El setup inicial son 5 pasos visuales. No tienes que escribir código ni configurar servidores. Si te trabas, escríbenos por WhatsApp.' },
 ];
 
-const waLink = 'https://wa.me/?text=' + encodeURIComponent('Hola, quiero saber más de Sellea');
+// Texto prellenado del WhatsApp "quiero saber más". El número real sale de la
+// config de la marca (WhiteLabel.demoButtonWhatsApp) — se resuelve en el
+// componente (waLink). Este const es el FALLBACK sin número.
+const WA_TEXT = encodeURIComponent('Hola, quiero saber más de Sellea');
+const WA_LINK_FALLBACK = 'https://wa.me/?text=' + WA_TEXT;
 // Fallback si la marca no tiene demoButtonWhatsApp configurado. El número real
 // se define en la config de la marca (WhiteLabel.demoButtonWhatsApp), NO acá.
 const DEMO_LINK_FALLBACK = 'https://wa.me/';
@@ -164,9 +168,15 @@ export default async function SelleaLandingPage() {
   ]);
   const brandLogo = brand.logoUrl;
   // Botón "Agendar demo": usa el WhatsApp configurado en la marca; sino fallback.
-  const demoLink = brand.demoWhatsapp
-    ? 'https://wa.me/' + brand.demoWhatsapp.replace(/[^0-9]/g, '')
-    : DEMO_LINK_FALLBACK;
+  const waNumber = brand.demoWhatsapp
+    ? brand.demoWhatsapp.replace(/[^0-9]/g, '')
+    : '';
+  const demoLink = waNumber ? 'https://wa.me/' + waNumber : DEMO_LINK_FALLBACK;
+  // WhatsApp "quiero saber más" → MISMO número de la marca + texto prellenado.
+  // Antes era un wa.me/ genérico SIN número (el botón no abría chat con nadie).
+  const waLink = waNumber
+    ? `https://wa.me/${waNumber}?text=${WA_TEXT}`
+    : WA_LINK_FALLBACK;
 
   // Planes de Sellea: si la marca tiene links configurados (Master Admin →
   // Pasarela de pago), se usan esos. Sino, fallback Mensual $80 / Anual $799
@@ -396,8 +406,8 @@ export default async function SelleaLandingPage() {
                 )}
               </div>
               <p className="text-mute text-sm leading-relaxed max-w-xs">
-                Sistema de fidelización digital para negocios de LATAM. Sellos,
-                menús, pedidos y CRM en una sola cuenta. Cada compra deja su sello.
+                Sistema de fidelización digital para negocios de USA y de LATAM.
+                Sellos, menús, pedidos y CRM en una sola cuenta. Cada compra deja su sello.
               </p>
               <div className="flex gap-2 mt-4 flex-wrap">
                 <a href={waLink} target="_blank" rel="noreferrer" className="text-xs bg-bg2 text-ink px-3 py-1.5 rounded-pill hover:bg-line">💬 WhatsApp</a>
