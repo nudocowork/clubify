@@ -53,6 +53,7 @@ export type WhiteLabelDto = {
   instagram?: string;
   contactEmail?: string;
   notifyPhone?: string;
+  mapsApiKey?: string;
 };
 
 export type HotmartLinkDto = {
@@ -760,6 +761,7 @@ export class SuperAdminService {
         initial: patch.initial ? patch.initial.toUpperCase().slice(0, 1) : undefined,
         adminEmail: patch.adminEmail === undefined ? undefined : patch.adminEmail?.trim().toLowerCase() || null,
         creditsUnlimited: patch.creditsUnlimited === undefined ? undefined : patch.creditsUnlimited,
+        mapsApiKey: patch.mapsApiKey === undefined ? undefined : patch.mapsApiKey?.trim() || null,
       },
     });
     await this.logAction(actorId, 'superadmin.white_label.update', `whiteLabel:${id}`, {
@@ -1230,6 +1232,7 @@ export class SuperAdminService {
         instagram: true,
         contactEmail: true,
         demoButtonWhatsApp: true,
+        mapsApiKey: true,
         // Módulos habilitados → el panel gatea secciones (ej. Referidos) por
         // marca. Solo los enabled.
         modules: { where: { enabled: true }, select: { module: true } },
@@ -1249,6 +1252,8 @@ export class SuperAdminService {
       instagram: wl.instagram,
       contactEmail: wl.contactEmail,
       demoButtonWhatsApp: wl.demoButtonWhatsApp,
+      // API key de Google Maps de la marca (el mapa del panel la usa).
+      mapsApiKey: wl.mapsApiKey ?? null,
       modules: wl.modules.map((m) => m.module),
     };
   }

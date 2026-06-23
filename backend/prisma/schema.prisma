@@ -3876,6 +3876,10 @@ model WhiteLabel {
   appDomain       String?
   /// Color hex del avatar / botones primarios de la marca.
   primaryColor    String          @default("#16a34a")
+  /// API key de Google Maps (browser key, restringida por referrer en el Google
+  /// Cloud de la marca). El mapa del panel la usa; sin ella cae a la env global
+  /// de Clubify. Es una key pública (se expone al cliente), no un secreto.
+  mapsApiKey      String?
   /// Identidad visual extendida de la marca (manual de marca). Todos opcionales.
   /// Logo HEADER (lockup horizontal ~3:1) — landing, login y páginas públicas.
   logoUrl         String?

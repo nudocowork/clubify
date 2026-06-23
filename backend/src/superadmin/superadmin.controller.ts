@@ -27,6 +27,8 @@ class WhiteLabelBody {
   @IsOptional() @IsEmail() contactEmail?: string;
   // Teléfono al que la plataforma le manda los SMS de créditos a la marca.
   @IsOptional() @IsString() @MaxLength(30) notifyPhone?: string;
+  // Google Maps API key de la marca (browser key restringida por referrer).
+  @IsOptional() @IsString() @MaxLength(200) mapsApiKey?: string;
 }
 
 class StatusBody {

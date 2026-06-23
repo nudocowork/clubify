@@ -21,6 +21,7 @@ type WhiteLabel = {
   instagram: string | null;
   contactEmail: string | null;
   notifyPhone: string | null;
+  mapsApiKey: string | null;
   initial: string | null;
   adminEmail: string | null;
   status: 'ACTIVE' | 'SUSPENDED';
@@ -601,6 +602,7 @@ function Drawer({
                   instagram: w.instagram,
                   contactEmail: w.contactEmail,
                   notifyPhone: w.notifyPhone,
+                  mapsApiKey: w.mapsApiKey,
                 }}
                 onSaved={(msg) => {
                   reloadAdmins();
@@ -1864,6 +1866,7 @@ function BrandingConfig({
     instagram: string | null;
     contactEmail: string | null;
     notifyPhone: string | null;
+    mapsApiKey: string | null;
   };
   onSaved: (msg: string) => void;
 }) {
@@ -1878,6 +1881,7 @@ function BrandingConfig({
     instagram: initial.instagram ?? '',
     contactEmail: initial.contactEmail ?? '',
     notifyPhone: initial.notifyPhone ?? '',
+    mapsApiKey: initial.mapsApiKey ?? '',
   });
   const [busy, setBusy] = useState(false);
 
@@ -1897,6 +1901,7 @@ function BrandingConfig({
           instagram: f.instagram.trim() || null,
           contactEmail: f.contactEmail.trim() || null,
           notifyPhone: f.notifyPhone.trim() || null,
+          mapsApiKey: f.mapsApiKey.trim() || null,
         }),
       });
       onSaved('Branding actualizado');
@@ -1940,7 +1945,7 @@ function BrandingConfig({
 
   const textInput = (
     label: string,
-    key: 'logoUrl' | 'instagram' | 'contactEmail' | 'notifyPhone',
+    key: 'logoUrl' | 'instagram' | 'contactEmail' | 'notifyPhone' | 'mapsApiKey',
     placeholder: string,
   ) => (
     <div>
@@ -2060,6 +2065,11 @@ function BrandingConfig({
         )}
         <p className="text-[11px]" style={{ color: '#9aa3ad', marginTop: -4 }}>
           Recibe los avisos de créditos (compra, saldo bajo, pendientes).
+        </p>
+        {textInput('Google Maps API key (mapa del panel)', 'mapsApiKey', 'AIza…')}
+        <p className="text-[11px]" style={{ color: '#9aa3ad', marginTop: -4 }}>
+          Browser key del Google Cloud de la marca, restringida por referrer a su
+          dominio. Sin ella, el mapa usa la key global de Clubify.
         </p>
         <button
           onClick={save}
