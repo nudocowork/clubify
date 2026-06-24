@@ -318,41 +318,52 @@ export default function NewTenant() {
             onChange={(e) => set('ownerPassword', e.target.value)}
           />
         </div>
-        <div>
-          <label className="label">{t('fieldPlan')}</label>
-          <select
-            className="input"
-            value={form.planId}
-            onChange={(e) => set('planId', e.target.value)}
-          >
-            {/* #9: "Sin plan" permite crear el negocio aunque la marca no tenga
-                planes configurados (ej. Sellea). */}
-            <option value="">{t('noPlan')}</option>
-            {plans.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-          {!form.planId && (
-            <div className="text-[11px] text-mute mt-1">
-              {t('noPlanHint')}
-            </div>
-          )}
-        </div>
+        {/* El selector de Plan lista los planes de Clubify (Hotmart). Para
+            admins de MARCA BLANCA (credits != null) NO aplica — sus negocios se
+            crean sin plan (la marca maneja sus propios planes). Lo ocultamos. */}
+        {credits === null && (
+          <div>
+            <label className="label">{t('fieldPlan')}</label>
+            <select
+              className="input"
+              value={form.planId}
+              onChange={(e) => set('planId', e.target.value)}
+            >
+              {/* #9: "Sin plan" permite crear el negocio aunque la marca no tenga
+                  planes configurados (ej. Sellea). */}
+              <option value="">{t('noPlan')}</option>
+              {plans.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            {!form.planId && (
+              <div className="text-[11px] text-mute mt-1">
+                {t('noPlanHint')}
+              </div>
+            )}
+          </div>
+        )}
         <div className="col-span-2">
           <label className="label">
             {t('fieldPeriodicity')}{' '}
             <span className="text-mute font-normal">{t('periodicityNote')}</span>
           </label>
-          <div className="grid grid-cols-4 gap-2">
+          {/* Marca blanca (credits != null): solo Mensual y Anual — Trimestral
+              y Semestral son planes de Clubify, no de la marca (ej. Sellea). */}
+          <div className={`grid ${credits === null ? 'grid-cols-4' : 'grid-cols-2'} gap-2`}>
             {(
               [
-                { v: 'MENSUAL', label: t('periodicityMonthly') },
-                { v: 'TRIMESTRAL', label: t('periodicityQuarterly') },
-                { v: 'SEMESTRAL', label: t('periodicitySemiannual') },
-                { v: 'ANUAL', label: t('periodicityAnnual') },
-              ] as const
+                { v: 'MENSUAL' as const, label: t('periodicityMonthly') },
+                ...(credits === null
+                  ? [
+                      { v: 'TRIMESTRAL' as const, label: t('periodicityQuarterly') },
+                      { v: 'SEMESTRAL' as const, label: t('periodicitySemiannual') },
+                    ]
+                  : []),
+                { v: 'ANUAL' as const, label: t('periodicityAnnual') },
+              ]
             ).map((opt) => {
               const active = form.planPeriodicity === opt.v;
               return (
