@@ -22,6 +22,10 @@ type WhiteLabel = {
   contactEmail: string | null;
   notifyPhone: string | null;
   mapsApiKey: string | null;
+  shareImageUrl: string | null;
+  subscriptionFeatureKeys?: string[];
+  installationFeeUsd?: number | string | null;
+  installationPromoUsd?: number | string | null;
   initial: string | null;
   adminEmail: string | null;
   status: 'ACTIVE' | 'SUSPENDED';
@@ -65,6 +69,24 @@ const MODULE_LABELS: Record<string, string> = {
   GROW_BUSINESS_SMS: 'GrowBusiness SMS',
   REVIEWS: 'Reseñas',
 };
+
+// Features de la suscripción (lista "Tu suscripción incluye" del panel billing).
+// El orden y las keys coinciden con app/billing. La marca elige cuáles incluye;
+// vacío = todas. Para Sellea se desmarcan dominio/email/automatizaciones.
+const SUBSCRIPTION_FEATURES: { key: string; label: string }[] = [
+  { key: 'featUnlimitedOrders', label: 'Pedidos ilimitados' },
+  { key: 'featUnlimitedWalletCards', label: 'Tarjetas wallet ilimitadas' },
+  { key: 'featAppleGoogleWallet', label: 'Apple & Google Wallet' },
+  { key: 'featMultiLocationStaff', label: 'Multi-sede y staff' },
+  { key: 'featCustomDomainAnalytics', label: 'Dominio propio + analítica' },
+  { key: 'featWhatsappAutomations', label: 'Automatizaciones de WhatsApp' },
+  { key: 'featEventMessages', label: 'Mensajes por eventos' },
+  { key: 'featAdvancedSegmentation', label: 'Segmentación avanzada' },
+  { key: 'featMessageTemplates', label: 'Plantillas de mensajes' },
+  { key: 'featScannerPwa', label: 'Scanner PWA' },
+  { key: 'featTransactionalEmail', label: 'Email transaccional' },
+  { key: 'featChatSupport', label: 'Soporte por chat' },
+];
 
 export default function MarcasBlancasPage() {
   const params = useSearchParams();
@@ -604,6 +626,12 @@ function Drawer({
                   contactEmail: w.contactEmail,
                   notifyPhone: w.notifyPhone,
                   mapsApiKey: w.mapsApiKey,
+                  shareImageUrl: w.shareImageUrl ?? null,
+                  subscriptionFeatureKeys: w.subscriptionFeatureKeys ?? [],
+                  installationFeeUsd:
+                    w.installationFeeUsd != null ? Number(w.installationFeeUsd) : null,
+                  installationPromoUsd:
+                    w.installationPromoUsd != null ? Number(w.installationPromoUsd) : null,
                 }}
                 onSaved={(msg) => {
                   reloadAdmins();
@@ -2190,6 +2218,10 @@ function BrandingConfig({
     contactEmail: string | null;
     notifyPhone: string | null;
     mapsApiKey: string | null;
+    shareImageUrl: string | null;
+    subscriptionFeatureKeys: string[];
+    installationFeeUsd: number | null;
+    installationPromoUsd: number | null;
   };
   onSaved: (msg: string) => void;
 }) {
@@ -2197,6 +2229,7 @@ function BrandingConfig({
     logoUrl: initial.logoUrl ?? '',
     iconUrl: initial.iconUrl ?? '',
     faviconUrl: initial.faviconUrl ?? '',
+    shareImageUrl: initial.shareImageUrl ?? '',
     primaryColor: initial.primaryColor ?? '#16a34a',
     secondaryColor: initial.secondaryColor ?? '',
     backgroundColor: initial.backgroundColor ?? '',
@@ -2205,7 +2238,14 @@ function BrandingConfig({
     contactEmail: initial.contactEmail ?? '',
     notifyPhone: initial.notifyPhone ?? '',
     mapsApiKey: initial.mapsApiKey ?? '',
+    installationFeeUsd:
+      initial.installationFeeUsd != null ? String(initial.installationFeeUsd) : '',
+    installationPromoUsd:
+      initial.installationPromoUsd != null ? String(initial.installationPromoUsd) : '',
   });
+  const [featureKeys, setFeatureKeys] = useState<string[]>(
+    initial.subscriptionFeatureKeys ?? [],
+  );
   const [busy, setBusy] = useState(false);
 
   async function save() {
@@ -2225,6 +2265,14 @@ function BrandingConfig({
           contactEmail: f.contactEmail.trim() || null,
           notifyPhone: f.notifyPhone.trim() || null,
           mapsApiKey: f.mapsApiKey.trim() || null,
+          shareImageUrl: f.shareImageUrl.trim() || null,
+          subscriptionFeatureKeys: featureKeys,
+          installationFeeUsd: f.installationFeeUsd.trim()
+            ? Number(f.installationFeeUsd)
+            : null,
+          installationPromoUsd: f.installationPromoUsd.trim()
+            ? Number(f.installationPromoUsd)
+            : null,
         }),
       });
       onSaved('Branding actualizado');
@@ -2292,7 +2340,7 @@ function BrandingConfig({
   );
 
   const logoField = (
-    key: 'logoUrl' | 'iconUrl' | 'faviconUrl',
+    key: 'logoUrl' | 'iconUrl' | 'faviconUrl' | 'shareImageUrl',
     title: string,
     guide: { formato: string; tamano: string; ratio?: string; peso: string; uso: string },
     opts: { crop: boolean; aspect?: number },
@@ -2377,6 +2425,18 @@ function BrandingConfig({
           source={f.faviconUrl || f.iconUrl || f.logoUrl || ''}
           backgroundColor={f.backgroundColor || '#ffffff'}
         />
+        {logoField(
+          'shareImageUrl',
+          'Imagen al compartir (Open Graph)',
+          {
+            formato: 'PNG / JPG',
+            tamano: '1200 × 630 px',
+            ratio: '1.91:1',
+            peso: '500 KB',
+            uso: 'Previsualización al compartir el enlace de la marca por WhatsApp/redes. Si no se sube, se usa el logo de la marca.',
+          },
+          { crop: false },
+        )}
         <div className="space-y-2">
           {colorRow('Color principal', 'primaryColor')}
           {colorRow('Color secundario', 'secondaryColor')}
@@ -2398,6 +2458,76 @@ function BrandingConfig({
           Browser key del Google Cloud de la marca, restringida por referrer a su
           dominio. Sin ella, el mapa usa la key global de Clubify.
         </p>
+
+        {/* ── Suscripción y precios ── */}
+        <SectionTitle>Suscripción y precios</SectionTitle>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-xs font-semibold" style={{ color: '#6b7785' }}>
+              Instalación (USD)
+            </label>
+            <input
+              type="number"
+              min={0}
+              value={f.installationFeeUsd}
+              onChange={(e) => setF((s) => ({ ...s, installationFeeUsd: e.target.value }))}
+              placeholder="250"
+              className="w-full mt-1 text-sm"
+              style={{ padding: '8px 11px', borderRadius: 8, border: '1px solid #d7dbe0', background: 'white', color: '#16241c' }}
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold" style={{ color: '#6b7785' }}>
+              Promo instalación (USD)
+            </label>
+            <input
+              type="number"
+              min={0}
+              value={f.installationPromoUsd}
+              onChange={(e) => setF((s) => ({ ...s, installationPromoUsd: e.target.value }))}
+              placeholder="100"
+              className="w-full mt-1 text-sm"
+              style={{ padding: '8px 11px', borderRadius: 8, border: '1px solid #d7dbe0', background: 'white', color: '#16241c' }}
+            />
+          </div>
+        </div>
+        <p className="text-[11px]" style={{ color: '#9aa3ad', marginTop: -4 }}>
+          Página de precios: muestra el costo tachado + “PRECIO PROMOCIONAL” y lo
+          suma al total hoy (el plan anual lo incluye gratis). Vacío = sin línea
+          de instalación.
+        </p>
+
+        <div>
+          <label className="text-xs font-semibold" style={{ color: '#16241c' }}>
+            Features incluidos en la suscripción
+          </label>
+          <p className="text-[11px] mb-1.5" style={{ color: '#9aa3ad' }}>
+            Lista “Tu suscripción incluye” del panel. Sin nada marcado = se
+            muestran todos (default Clubify).
+          </p>
+          <div className="grid grid-cols-1 gap-1">
+            {SUBSCRIPTION_FEATURES.map((feat) => {
+              const on = featureKeys.includes(feat.key);
+              return (
+                <label key={feat.key} className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={(e) =>
+                      setFeatureKeys((prev) =>
+                        e.target.checked
+                          ? [...prev, feat.key]
+                          : prev.filter((k) => k !== feat.key),
+                      )
+                    }
+                  />
+                  <span style={{ color: '#16241c' }}>{feat.label}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+
         <button
           onClick={save}
           disabled={busy}

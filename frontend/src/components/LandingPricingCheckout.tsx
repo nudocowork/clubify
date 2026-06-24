@@ -48,13 +48,22 @@ export function LandingPricingCheckout({
   plans,
   initialPlan = 'anual',
   footnote,
+  installationFeeUsd = null,
+  installationPromoUsd = null,
 }: {
   plans: LandingPlan[];
   /** Plan preseleccionado (ej. ?plan= del CTA de la landing). Default: anual. */
   initialPlan?: PlanId;
   /** Texto al pie del checkout (gris, chico). Default: nota de Hotmart de
-   *  Clubify. Las marcas blancas pasan el suyo (ej. costo de instalación). */
+   *  Clubify. Las marcas blancas pasan el suyo. */
   footnote?: ReactNode;
+  /** Costo de instalación/implementación de la marca (USD). Si está, se cobra
+   *  en planes NO anuales y se muestra el desglose; el anual lo incluye gratis
+   *  (cuenta como ahorro). Null = sin línea de instalación. */
+  installationFeeUsd?: number | null;
+  /** Precio promocional de instalación (USD). Si está, se muestra el fee
+   *  original tachado + "PRECIO PROMOCIONAL" y este es el cobrado. */
+  installationPromoUsd?: number | null;
 }) {
   const [selected, setSelected] = useState<PlanId>(initialPlan);
   const plan = plans.find((p) => p.id === selected) ?? plans[0];
@@ -62,6 +71,19 @@ export function LandingPricingCheckout({
   const mensualPlan = plans.find((p) => p.id === 'mensual');
   const mensualPrice = mensualPlan?.price ?? MENSUAL_PRICE_FALLBACK;
   const hasUrl = !!plan.checkoutUrl;
+
+  // Instalación: el monto que realmente se cobra es el promo (si hay) o el fee.
+  // El plan ANUAL la incluye gratis (no se suma al total y cuenta como ahorro);
+  // los demás planes la pagan una vez junto al primer ciclo.
+  const installCharge = installationPromoUsd ?? installationFeeUsd ?? 0;
+  const hasInstall = installCharge > 0;
+  const planPaysInstall = hasInstall && plan.id !== 'anual';
+  const totalToday = plan.price + (planPaysInstall ? installCharge : 0);
+  // Mostrar fee tachado + promo solo si hay un descuento real (fee > promo).
+  const showPromo =
+    installationFeeUsd != null &&
+    installationPromoUsd != null &&
+    installationFeeUsd > installationPromoUsd;
 
   // Pago → datos: persistimos el plan elegido para que /activar lo
   // recupere post-pago y abrimos el checkout de Hotmart directo. La
@@ -84,7 +106,12 @@ export function LandingPricingCheckout({
       <div className="mt-5 space-y-2.5">
         {plans.map((p) => {
           const active = selected === p.id;
-          const save = mensualPrice * p.months - p.price;
+          // Ahorro = (equivalente mensual del periodo − precio del periodo). El
+          // ANUAL suma además la instalación que se ahorra (la incluye gratis).
+          const save =
+            mensualPrice * p.months -
+            p.price +
+            (hasInstall && p.id === 'anual' ? installCharge : 0);
           const perMonth = p.price / p.months;
           return (
             <label
@@ -142,10 +169,38 @@ export function LandingPricingCheckout({
       </div>
 
       <div className="mt-5 pt-5 border-t border-line2">
-        <div className="flex justify-between items-baseline mb-3">
+        {/* Instalación: fee original tachado + PRECIO PROMOCIONAL en mayúscula. */}
+        {hasInstall && (
+          <div className="flex justify-between items-baseline mb-2 text-sm">
+            <span className="text-mute">Costo de instalación</span>
+            <span>
+              {showPromo && (
+                <span className="text-mute line-through mr-2">
+                  {fmtUSD(installationFeeUsd as number)}
+                </span>
+              )}
+              {showPromo && (
+                <span className="text-[10px] font-bold uppercase tracking-wider text-brand mr-1.5">
+                  Precio promocional
+                </span>
+              )}
+              <span className="font-semibold">
+                {planPaysInstall ? fmtUSD(installCharge) : 'Incluida'}
+              </span>
+            </span>
+          </div>
+        )}
+        <div className="flex justify-between items-baseline mb-1">
           <span className="text-sm text-mute">Total hoy</span>
-          <span className="text-2xl font-bold">{fmtUSD(plan.price)}</span>
+          <span className="text-2xl font-bold">{fmtUSD(totalToday)}</span>
         </div>
+        {/* Desglose cuando se cobra instalación (ej. $80 plan + $100 instalación). */}
+        {planPaysInstall && (
+          <div className="text-[11px] text-mute mb-3">
+            {fmtUSD(plan.price)} {plan.name.toLowerCase()} + {fmtUSD(installCharge)} instalación
+          </div>
+        )}
+        {!planPaysInstall && <div className="mb-3" />}
         {hasUrl ? (
           <button
             type="button"

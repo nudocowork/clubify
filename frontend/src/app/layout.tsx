@@ -16,6 +16,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 async function resolveBrandForHost(host: string): Promise<{
   name: string;
   logoUrl: string | null;
+  shareImageUrl: string | null;
   hasIcon: boolean;
   primaryColor: string;
   slug: string;
@@ -42,6 +43,8 @@ async function resolveBrandForHost(host: string): Promise<{
     return {
       name: d.name,
       logoUrl: d.logoUrl ?? null,
+      // Imagen al compartir (Open Graph). Si no hay, el logo de la marca.
+      shareImageUrl: d.shareImageUrl ?? null,
       // Tiene alguna imagen subida (favicon/icon/logo) → el backend puede
       // generar variantes; si no, caemos al SVG con inicial.
       hasIcon: !!(d.faviconUrl || d.iconUrl || d.logoUrl),
@@ -96,6 +99,9 @@ export async function generateMetadata(): Promise<Metadata> {
     const appleIcon = brand.hasIcon
       ? brandIconUrl(brand.slug, 180, 'apple', brand.version)
       : brandFaviconDataUri(brand.name, brand.primaryColor);
+    // Imagen al compartir el enlace (WhatsApp/redes): la configurada por la
+    // marca; si no, su logo. Nunca la de Clubify.
+    const shareImage = brand.shareImageUrl || brand.logoUrl;
     const title = brand.name;
     const description = `${brand.name}: fideliza, vende y automatiza tu negocio en un solo lugar.`;
     return {
@@ -116,15 +122,15 @@ export async function generateMetadata(): Promise<Metadata> {
         siteName: brand.name,
         locale: 'es_LA',
         type: 'website',
-        ...(brand.logoUrl
-          ? { images: [{ url: brand.logoUrl, alt: brand.name }] }
+        ...(shareImage
+          ? { images: [{ url: shareImage, alt: brand.name }] }
           : {}),
       },
       twitter: {
-        card: 'summary',
+        card: brand.shareImageUrl ? 'summary_large_image' : 'summary',
         title,
         description,
-        ...(brand.logoUrl ? { images: [brand.logoUrl] } : {}),
+        ...(shareImage ? { images: [shareImage] } : {}),
       },
       robots: {
         index: true,

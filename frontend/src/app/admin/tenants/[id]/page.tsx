@@ -2274,10 +2274,30 @@ function PlanCurrentCard({
       .catch(() => setPlans({}));
   }, []);
 
+  // Planes de la MARCA del negocio (Sellea, etc.) → el modal muestra SOLO esas
+  // periodicidades con SUS precios, no los 4 de Clubify. Si el negocio es de
+  // Clubify / la marca no tiene links configurados, brandPlans viene vacío y
+  // caemos al comportamiento anterior (/landing-plans + fallback Clubify).
+  const ALL_PERIODS: PeriodId[] = ['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL'];
+  const brandPlans: { periodicity: string; amountUsd: number | null }[] =
+    tenant?.brandPlans ?? [];
+  const brandPriceMap: Partial<Record<PeriodId, number>> = {};
+  for (const bp of brandPlans) {
+    if (ALL_PERIODS.includes(bp.periodicity as PeriodId) && bp.amountUsd != null) {
+      brandPriceMap[bp.periodicity as PeriodId] = bp.amountUsd;
+    }
+  }
+  const hasBrandPlans = Object.keys(brandPriceMap).length > 0;
+  const availablePeriods: PeriodId[] = hasBrandPlans
+    ? ALL_PERIODS.filter((p) => p in brandPriceMap)
+    : ALL_PERIODS;
+  const priceFor = (p: PeriodId): number | null =>
+    hasBrandPlans
+      ? brandPriceMap[p] ?? null
+      : plans?.[PERIOD_TO_KEY[p]]?.price ?? PERIOD_PRICE_DEFAULT[p];
+
   const currentPeriod = (tenant?.planPeriodicity as PeriodId | null) ?? null;
-  const currentPrice = currentPeriod
-    ? plans?.[PERIOD_TO_KEY[currentPeriod]]?.price ?? PERIOD_PRICE_DEFAULT[currentPeriod]
-    : null;
+  const currentPrice = currentPeriod ? priceFor(currentPeriod) : null;
 
   return (
     <div className="card card-pad">
@@ -2341,7 +2361,8 @@ function PlanCurrentCard({
         <ChangePlanPeriodModal
           tenant={tenant}
           currentPeriod={currentPeriod}
-          plans={plans ?? {}}
+          availablePeriods={availablePeriods}
+          priceFor={priceFor}
           onClose={() => setModalOpen(false)}
           onSaved={() => {
             setModalOpen(false);
@@ -2366,13 +2387,15 @@ function PlanCurrentCard({
 function ChangePlanPeriodModal({
   tenant,
   currentPeriod,
-  plans,
+  availablePeriods,
+  priceFor,
   onClose,
   onSaved,
 }: {
   tenant: any;
   currentPeriod: PeriodId | null;
-  plans: LandingPlansResp;
+  availablePeriods: PeriodId[];
+  priceFor: (p: PeriodId) => number | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -2453,9 +2476,8 @@ function ChangePlanPeriodModal({
           <div>
             <label className="label">{t('newPeriodicity')}</label>
             <div className="mt-2 space-y-1.5">
-              {(['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL'] as PeriodId[]).map((p) => {
-                const price =
-                  plans?.[PERIOD_TO_KEY[p]]?.price ?? PERIOD_PRICE_DEFAULT[p];
+              {availablePeriods.map((p) => {
+                const price = priceFor(p);
                 const isCurrent = p === currentPeriod;
                 return (
                   <label
@@ -2483,10 +2505,16 @@ function ChangePlanPeriodModal({
                         )}
                       </div>
                       <div className="text-sm">
-                        <span className="font-semibold">
-                          ${price.toLocaleString('en-US')}
-                        </span>
-                        <span className="text-mute"> USD</span>
+                        {price != null ? (
+                          <>
+                            <span className="font-semibold">
+                              ${price.toLocaleString('en-US')}
+                            </span>
+                            <span className="text-mute"> USD</span>
+                          </>
+                        ) : (
+                          <span className="text-mute">—</span>
+                        )}
                       </div>
                     </div>
                   </label>

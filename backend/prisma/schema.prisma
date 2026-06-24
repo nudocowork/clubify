@@ -3897,6 +3897,10 @@ model WhiteLabel {
   iconUrl         String?
   /// Favicon (cuadrado) — pestaña del navegador + PWA. Cae a iconUrl/logoUrl.
   faviconUrl      String?
+  /// Imagen de previsualización al compartir el enlace de la marca (Open Graph /
+  /// Twitter Card) en WhatsApp/redes. Si null, se usa el logo de la marca; nunca
+  /// la imagen de Clubify. Recomendado 1200×630.
+  shareImageUrl   String?
   /// Color secundario / tinta (textos y fondos oscuros).
   secondaryColor  String?
   /// Color de fondos suaves (crema).
@@ -3948,6 +3952,18 @@ model WhiteLabel {
   /// ANUAL). Configurable por marca en Master Admin → controla qué opciones de
   /// periodicidad muestra el form "Nuevo negocio". Default = las 4 (Clubify).
   planPeriodicities String[]      @default(["MENSUAL", "TRIMESTRAL", "SEMESTRAL", "ANUAL"])
+
+  /// Features que la marca incluye en su suscripción → la lista "Tu suscripción
+  /// incluye" del panel de billing muestra SOLO estas (keys i18n, ej.
+  /// "featUnlimitedOrders"). Vacío = lista completa por defecto (Clubify). Cada
+  /// marca define qué ofrece su plan; nunca se muestran features que no incluye.
+  subscriptionFeatureKeys String[]  @default([])
+  /// Costo de instalación/implementación (USD) mostrado en la página de precios
+  /// de la marca. Null = no se muestra línea de instalación.
+  installationFeeUsd      Decimal?  @db.Decimal(10, 2)
+  /// Precio PROMOCIONAL de instalación (USD). Si está, la página muestra el fee
+  /// original tachado y este como "PRECIO PROMOCIONAL", y lo suma al total hoy.
+  installationPromoUsd    Decimal?  @db.Decimal(10, 2)
 
   /// Teléfono al que la plataforma (Clubify) le manda los SMS de créditos
   /// a esta marca blanca (compra acreditada / saldo bajo / negocios

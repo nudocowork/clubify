@@ -55,6 +55,10 @@ export type WhiteLabelDto = {
   notifyPhone?: string;
   mapsApiKey?: string;
   planPeriodicities?: string[];
+  shareImageUrl?: string;
+  subscriptionFeatureKeys?: string[];
+  installationFeeUsd?: number | null;
+  installationPromoUsd?: number | null;
 };
 
 /** Periodicidades de plan válidas, en orden canónico. */
@@ -732,6 +736,12 @@ export class SuperAdminService {
           ...(dto.planPeriodicities
             ? { planPeriodicities: normalizePeriodicities(dto.planPeriodicities) }
             : {}),
+          shareImageUrl: dto.shareImageUrl?.trim() || null,
+          ...(dto.subscriptionFeatureKeys
+            ? { subscriptionFeatureKeys: dto.subscriptionFeatureKeys }
+            : {}),
+          installationFeeUsd: dto.installationFeeUsd ?? null,
+          installationPromoUsd: dto.installationPromoUsd ?? null,
           modules: {
             create: [
               { module: 'REFERRALS', enabled: true },
@@ -782,6 +792,12 @@ export class SuperAdminService {
         planPeriodicities: patch.planPeriodicities === undefined
           ? undefined
           : normalizePeriodicities(patch.planPeriodicities),
+        shareImageUrl: patch.shareImageUrl === undefined ? undefined : patch.shareImageUrl?.trim() || null,
+        subscriptionFeatureKeys: patch.subscriptionFeatureKeys === undefined
+          ? undefined
+          : patch.subscriptionFeatureKeys,
+        installationFeeUsd: patch.installationFeeUsd === undefined ? undefined : (patch.installationFeeUsd ?? null),
+        installationPromoUsd: patch.installationPromoUsd === undefined ? undefined : (patch.installationPromoUsd ?? null),
       },
     });
     await this.logAction(actorId, 'superadmin.white_label.update', `whiteLabel:${id}`, {
@@ -1290,6 +1306,10 @@ export class SuperAdminService {
         demoButtonWhatsApp: true,
         mapsApiKey: true,
         planPeriodicities: true,
+        shareImageUrl: true,
+        subscriptionFeatureKeys: true,
+        installationFeeUsd: true,
+        installationPromoUsd: true,
         // Sello temporal del último cambio de la marca → versión de cache-bust
         // para favicons/iconos generados (query ?v=). Al guardar branding sube
         // updatedAt y todos los iconos cacheados (immutable) se invalidan.
@@ -1317,6 +1337,13 @@ export class SuperAdminService {
       mapsApiKey: wl.mapsApiKey ?? null,
       // Periodicidades que ofrece la marca (form "Nuevo negocio").
       planPeriodicities: wl.planPeriodicities ?? [],
+      // Imagen Open Graph al compartir (fallback en frontend al logo de la marca).
+      shareImageUrl: wl.shareImageUrl ?? null,
+      // Features que la marca incluye (panel billing). Vacío = lista completa.
+      subscriptionFeatureKeys: wl.subscriptionFeatureKeys ?? [],
+      // Instalación: costo + promo (página de precios). null = no se muestra.
+      installationFeeUsd: wl.installationFeeUsd != null ? Number(wl.installationFeeUsd) : null,
+      installationPromoUsd: wl.installationPromoUsd != null ? Number(wl.installationPromoUsd) : null,
       // Versión para cache-bust de iconos (epoch ms del último cambio).
       brandingVersion: wl.updatedAt ? wl.updatedAt.getTime() : 0,
       modules: wl.modules.map((m) => m.module),

@@ -35,6 +35,14 @@ class WhiteLabelBody {
   @IsOptional() @IsArray()
   @IsIn(['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL'], { each: true })
   planPeriodicities?: string[];
+  // Imagen Open Graph al compartir el enlace de la marca (WhatsApp/redes).
+  @IsOptional() @IsString() @MaxLength(500) shareImageUrl?: string;
+  // Features que la marca incluye en su suscripción (keys i18n). Vacío = todas.
+  @IsOptional() @IsArray() @IsString({ each: true }) @MaxLength(60, { each: true })
+  subscriptionFeatureKeys?: string[];
+  // Costo de instalación + precio promocional (USD) para la página de precios.
+  @IsOptional() @IsNumber() @Min(0) @Max(100000) installationFeeUsd?: number | null;
+  @IsOptional() @IsNumber() @Min(0) @Max(100000) installationPromoUsd?: number | null;
 }
 
 class StatusBody {

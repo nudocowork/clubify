@@ -454,6 +454,14 @@ export class TenantsService {
             slug: true,
             name: true,
             modules: { where: { enabled: true }, select: { module: true } },
+            // Planes de pago de la marca → el modal "Cambiar plan" muestra SOLO
+            // las periodicidades/precios de la marca del negocio (no los de
+            // Clubify). Sellea = Mensual + Anual con sus precios.
+            paymentLinks: {
+              where: { active: true },
+              orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+              select: { periodicity: true, amountUsd: true, url: true },
+            },
           },
         },
       },
@@ -461,7 +469,15 @@ export class TenantsService {
     if (!tenant) throw new NotFoundException('Tenant not found');
     // Aplanamos los módulos habilitados a string[] para el frontend.
     const enabledModules = tenant.whiteLabel?.modules?.map((m) => m.module) ?? null;
-    return { ...tenant, enabledModules };
+    // Planes de la marca para el modal de cambio de periodicidad. Vacío para
+    // Clubify / marca sin links → el frontend cae a su set de planes Clubify.
+    const brandPlans =
+      tenant.whiteLabel?.paymentLinks?.map((l) => ({
+        periodicity: l.periodicity,
+        amountUsd: l.amountUsd != null ? Number(l.amountUsd) : null,
+        url: l.url ?? null,
+      })) ?? [];
+    return { ...tenant, enabledModules, brandPlans };
   }
 
   /** #9: asegura un Plan "Sin plan" (precio 0) reutilizable para crear
@@ -1240,6 +1256,12 @@ export class TenantsService {
             secondaryColor: true,
             backgroundColor: true,
             supportColor: true,
+            // Contacto público de la marca → el apartado de suscripción
+            // (Escríbenos por WhatsApp/email) usa estos, no los de Clubify.
+            contactEmail: true,
+            demoButtonWhatsApp: true,
+            // Features que la marca incluye → lista "Tu suscripción incluye".
+            subscriptionFeatureKeys: true,
             modules: {
               where: { module: { in: ['REVIEWS', 'COMMUNITY'] } },
               select: { module: true, enabled: true },
@@ -1284,6 +1306,13 @@ export class TenantsService {
             supportColor: t.whiteLabel.supportColor,
           }
         : null,
+      // Contacto de la marca para el apartado de suscripción (billing). Null
+      // (Clubify / sin marca) → el frontend usa el contacto default de Clubify.
+      brandContactEmail: t.whiteLabel?.contactEmail ?? null,
+      brandSupportWhatsApp: t.whiteLabel?.demoButtonWhatsApp ?? null,
+      // Features que la marca incluye en su suscripción (keys i18n). Vacío =
+      // lista completa por defecto. Solo aplica a marcas blancas (no Clubify).
+      brandSubscriptionFeatureKeys: t.whiteLabel?.subscriptionFeatureKeys ?? [],
     };
   }
 

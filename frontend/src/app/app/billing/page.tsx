@@ -10,9 +10,31 @@ import { ConstructionBadge } from '@/components/UnderConstruction';
 import {
   formatPlanLabel,
   periodCadence,
+  periodLabel,
   periodTotalUsd,
   type PlanPeriodicity,
 } from '@/lib/plan-format';
+
+// Catálogo de features de la suscripción (keys i18n). Si la marca define
+// subscriptionFeatureKeys, se muestran SOLO las que estén acá Y en su lista
+// (cada marca enseña solo lo que su plan incluye). Vacío = todas (Clubify).
+const ALL_FEATURE_KEYS = [
+  'featUnlimitedOrders',
+  'featUnlimitedWalletCards',
+  'featAppleGoogleWallet',
+  'featMultiLocationStaff',
+  'featCustomDomainAnalytics',
+  'featWhatsappAutomations',
+  'featEventMessages',
+  'featAdvancedSegmentation',
+  'featMessageTemplates',
+  'featScannerPwa',
+  'featTransactionalEmail',
+  'featChatSupport',
+] as const;
+// Contacto default de Clubify (solo si el negocio NO es de una marca blanca).
+const CLUBIFY_SUPPORT_WA = '573167689240';
+const CLUBIFY_SUPPORT_EMAIL = 'hola@soyclubify.com';
 
 type Status = {
   status: 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'SUSPENDED' | 'EXPIRED' | 'CANCELED';
@@ -104,6 +126,39 @@ export default function BillingPage() {
 
   const meta = STATUS_LABELS[s.status];
 
+  // ── Derivaciones por MARCA del negocio (de /tenants/me) ──
+  // Contacto: WhatsApp/email de la marca; si el negocio es de Clubify (sin
+  // marca), el contacto default de Clubify.
+  const brandWaDigits = (tenant?.brandSupportWhatsApp || '').replace(/[^0-9]/g, '');
+  const supportWaHref = `https://wa.me/${brandWaDigits || CLUBIFY_SUPPORT_WA}`;
+  const supportEmail = tenant?.brandContactEmail || CLUBIFY_SUPPORT_EMAIL;
+  const supportEmailHref = `mailto:${supportEmail}`;
+
+  // Beneficios: la marca enseña SOLO los features que su plan incluye. Si no
+  // configuró ninguno (o es Clubify), se muestra la lista completa.
+  const brandFeatureKeys: string[] = Array.isArray(tenant?.brandSubscriptionFeatureKeys)
+    ? tenant!.brandSubscriptionFeatureKeys
+    : [];
+  const featureKeys = brandFeatureKeys.length
+    ? ALL_FEATURE_KEYS.filter((k) => brandFeatureKeys.includes(k))
+    : [...ALL_FEATURE_KEYS];
+
+  // Estado: con plan asignado mostramos "Suscripción activa · Mensual/Anual"
+  // (NO "Sin plan"). Periodicidad de la metadata del tenant.
+  const periodicity = (tenant?.planPeriodicity as PlanPeriodicity | null) ?? null;
+  const hasPlan = s.status === 'ACTIVE' || !!periodicity;
+  const statusActiveText =
+    t('statusActive') + (periodicity ? ` · ${periodLabel(periodicity)}` : '');
+  // Etiqueta del plan (columna derecha). Si el row de Plan es el placeholder
+  // "Sin plan" pero el negocio ya tiene plan, mostramos la periodicidad.
+  const planName: string | undefined = tenant?.plan?.name;
+  const isPlaceholderPlan =
+    !planName || planName.trim().toLowerCase() === 'sin plan';
+  const planLabel =
+    hasPlan && isPlaceholderPlan
+      ? `Suscripción · ${periodLabel(periodicity)}`
+      : formatPlanLabel(planName, periodicity);
+
   return (
     <div className="max-w-3xl mx-auto">
       <div className="mb-6">
@@ -132,7 +187,7 @@ export default function BillingPage() {
               {s.status === 'TRIAL'
                 ? t('statusTrial')
                 : s.status === 'ACTIVE'
-                ? t('statusActive')
+                ? statusActiveText
                 : s.status === 'EXPIRED'
                 ? t('statusExpired')
                 : s.status === 'SUSPENDED'
@@ -164,10 +219,7 @@ export default function BillingPage() {
               {t('currentPlan')}
             </div>
             <div className="text-lg font-semibold mt-1">
-              {formatPlanLabel(
-                tenant?.plan?.name,
-                tenant?.planPeriodicity as PlanPeriodicity | null,
-              )}
+              {planLabel}
             </div>
             <div className="text-sm text-mute mt-0.5">
               USD{' '}
@@ -210,7 +262,7 @@ export default function BillingPage() {
                   {t.rich('manualActivation', {
                     wa: (chunks) => (
                       <a
-                        href="https://wa.me/573167689240"
+                        href={supportWaHref}
                         target="_blank"
                         className="underline hover:text-white"
                       >
@@ -263,20 +315,7 @@ export default function BillingPage() {
       <div className="card card-pad mt-4">
         <div className="font-semibold mb-3">{t('subscriptionIncludes')}</div>
         <ul className="grid sm:grid-cols-2 gap-2 text-sm">
-          {[
-            t('featUnlimitedOrders'),
-            t('featUnlimitedWalletCards'),
-            t('featAppleGoogleWallet'),
-            t('featMultiLocationStaff'),
-            t('featCustomDomainAnalytics'),
-            t('featWhatsappAutomations'),
-            t('featEventMessages'),
-            t('featAdvancedSegmentation'),
-            t('featMessageTemplates'),
-            t('featScannerPwa'),
-            t('featTransactionalEmail'),
-            t('featChatSupport'),
-          ].map((f) => (
+          {featureKeys.map((k) => t(k)).map((f) => (
             <li key={f} className="flex items-start gap-2 text-mute">
               <Icon name="check" size={14} className="text-ok mt-0.5 flex-none" />
               <span>{f}</span>
@@ -300,12 +339,12 @@ export default function BillingPage() {
       <div className="text-xs text-mute mt-6 text-center">
         {t.rich('questionsFooter', {
           wa: (chunks) => (
-            <a href="https://wa.me/573167689240" className="text-brand hover:underline">
+            <a href={supportWaHref} className="text-brand hover:underline">
               {chunks}
             </a>
           ),
           email: (chunks) => (
-            <a href="mailto:hola@soyclubify.com" className="text-brand hover:underline">
+            <a href={supportEmailHref} className="text-brand hover:underline">
               {chunks}
             </a>
           ),

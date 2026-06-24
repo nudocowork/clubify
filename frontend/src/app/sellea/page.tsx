@@ -84,10 +84,18 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 /** Branding de la marca resuelto por host (el mismo que usan favicon y login):
  *  logo SUBIDO + WhatsApp del botón demo. En el dominio Clubify (preview
  *  /sellea) o sin match, devuelve nulls → la landing usa sus fallbacks. */
-async function fetchBrandByHost(
-  host: string,
-): Promise<{ logoUrl: string | null; demoWhatsapp: string | null }> {
-  const empty = { logoUrl: null, demoWhatsapp: null };
+async function fetchBrandByHost(host: string): Promise<{
+  logoUrl: string | null;
+  demoWhatsapp: string | null;
+  installationFeeUsd: number | null;
+  installationPromoUsd: number | null;
+}> {
+  const empty = {
+    logoUrl: null,
+    demoWhatsapp: null,
+    installationFeeUsd: null,
+    installationPromoUsd: null,
+  };
   const h = (host || '').toLowerCase().split(':')[0];
   if (
     !h ||
@@ -109,6 +117,10 @@ async function fetchBrandByHost(
     return {
       logoUrl: d.logoUrl ?? null,
       demoWhatsapp: d.demoButtonWhatsApp ?? null,
+      installationFeeUsd:
+        d.installationFeeUsd != null ? Number(d.installationFeeUsd) : null,
+      installationPromoUsd:
+        d.installationPromoUsd != null ? Number(d.installationPromoUsd) : null,
     };
   } catch {
     return empty;
@@ -186,6 +198,30 @@ export default async function SelleaLandingPage() {
     { id: 'mensual', name: 'Mensual', shortName: 'Mensual', months: 1, price: 80, checkoutUrl: null, description: '' },
     { id: 'anual', name: 'Anual', shortName: 'Anual', months: 12, price: 799, checkoutUrl: null, description: '' },
   ];
+
+  // Instalación de la marca (config en Master Admin). Fallback Sellea: $250 →
+  // promo $100 mientras no esté configurado en la marca.
+  const installFee = brand.installationFeeUsd ?? 250;
+  const installPromo = brand.installationPromoUsd ?? 100;
+  const installCharge = installPromo ?? installFee ?? 0;
+
+  // FAQ de precios DINÁMICA — usa los mismos valores que el checkout (precio
+  // mensual/anual de la config + ahorro que incluye la instalación gratis del
+  // anual). Ej. Sellea: $80/mes, $799 anual, ahorro ~$261 (2 meses + $100 inst.).
+  const mensualP = landingPlans.find((p) => p.id === 'mensual')?.price ?? 80;
+  const anualPlan = landingPlans.find((p) => p.id === 'anual');
+  const annualSave = anualPlan
+    ? Math.round(mensualP * 12 - anualPlan.price + installCharge)
+    : 0;
+  const priceFaqAnswer =
+    `Desde USD ${Math.round(mensualP)}/mes en el plan mensual` +
+    (anualPlan
+      ? `. También el plan Anual por USD ${Math.round(anualPlan.price)}` +
+        (annualSave > 0 ? ` (ahorras ~USD ${annualSave} frente al mensual)` : '')
+      : '') +
+    '. Te mostramos el equivalente en tu moneda local al cambio del día. Sin ' +
+    'contratos — cancelas cuando quieras desde tu panel.';
+  const faqs = FAQS.map((f, i) => (i === 0 ? { ...f, a: priceFaqAnswer } : f));
 
   return (
     <main className="sellea-theme min-h-screen bg-white text-ink">
@@ -358,10 +394,11 @@ export default async function SelleaLandingPage() {
           </div>
           <LandingPricingCheckout
             plans={landingPlans}
+            installationFeeUsd={installFee}
+            installationPromoUsd={installPromo}
             footnote={
               <span className="text-mute">
-                Costo de instalación $250 · precio promocional $180 (incluye el
-                primer mes).
+                Pago seguro. El plan Anual incluye la instalación sin costo.
               </span>
             }
           />
@@ -376,7 +413,7 @@ export default async function SelleaLandingPage() {
             <h2 className="text-3xl md:text-5xl font-bold tracking-tight">Lo que casi todos preguntan</h2>
           </div>
           <div className="space-y-3">
-            {FAQS.map((item) => (
+            {faqs.map((item) => (
               <details key={item.q} className="group bg-white rounded-xl border border-line transition hover:border-ink/20">
                 <summary className="cursor-pointer px-5 py-4 list-none flex justify-between items-center font-semibold text-sm">
                   <span>{item.q}</span>
