@@ -1,8 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
 import sharp from 'sharp';
 import { SuperAdminService } from './superadmin.service';
+import { PrismaService } from '../common/prisma/prisma.service';
 
 export type IconPurpose = 'any' | 'maskable' | 'apple';
+
+/** Sujeto del icono ya resuelto: la imagen de origen + identidad para el
+ *  fallback (inicial sobre color). Lo produce una marca o un negocio. */
+type IconSubject = {
+  source: string | null;
+  name: string;
+  primaryColor: string;
+  backgroundColor: string | null;
+};
 
 /**
  * Generador de iconos de marca AL VUELO. Toma la única imagen que la marca ya
@@ -24,29 +34,29 @@ export type IconPurpose = 'any' | 'maskable' | 'apple';
 export class BrandIconService {
   private logger = new Logger(BrandIconService.name);
 
-  constructor(private svc: SuperAdminService) {}
+  constructor(
+    private svc: SuperAdminService,
+    private prisma: PrismaService,
+  ) {}
 
   async generate(opts: {
     slug?: string;
     host?: string;
+    tenantSlug?: string;
     size: number;
     purpose: IconPurpose;
   }): Promise<{ buffer: Buffer; contentType: string } | null> {
     const size = Math.max(16, Math.min(1024, Math.round(opts.size || 192)));
     const purpose: IconPurpose = opts.purpose ?? 'any';
 
-    const brand = opts.slug
-      ? await this.svc.getWhiteLabelBrandingBySlug(opts.slug)
-      : opts.host
-        ? await this.svc.getWhiteLabelBrandingByHost(opts.host)
-        : null;
-    if (!brand) return null;
+    const subject = await this.resolveSubject(opts);
+    if (!subject) return null;
 
-    const source = brand.faviconUrl || brand.iconUrl || brand.logoUrl || null;
-    // Fondo: transparente para `any`; sólido (background de marca o blanco) para
-    // los propósitos opacos (apple/maskable).
+    const source = subject.source;
+    // Fondo: transparente para `any`; sólido (background o blanco) para los
+    // propósitos opacos (apple/maskable).
     const bgHex =
-      purpose === 'any' ? null : brand.backgroundColor || '#ffffff';
+      purpose === 'any' ? null : subject.backgroundColor || '#ffffff';
     // Zona segura: maskable necesita ~18% de margen por lado (Android recorta
     // hasta el 20%). apple un margen pequeño; `any` casi nada.
     const padRatio =
@@ -56,8 +66,8 @@ export class BrandIconService {
     if (!logoBuf) {
       return {
         buffer: await this.initialTile(
-          brand.name,
-          brand.primaryColor,
+          subject.name,
+          subject.primaryColor,
           size,
           purpose,
         ),
@@ -93,14 +103,75 @@ export class BrandIconService {
       );
       return {
         buffer: await this.initialTile(
-          brand.name,
-          brand.primaryColor,
+          subject.name,
+          subject.primaryColor,
           size,
           purpose,
         ),
         contentType: 'image/png',
       };
     }
+  }
+
+  /** Resuelve el sujeto del icono: un NEGOCIO (tenant) o una MARCA. Para el
+   *  negocio la fuente es su logo → wallet logo → favicon/icon/logo de SU marca,
+   *  y el fallback (sin imagen) es la inicial del negocio sobre su color. Nunca
+   *  hereda Clubify. Para la marca, igual que antes. */
+  private async resolveSubject(opts: {
+    slug?: string;
+    host?: string;
+    tenantSlug?: string;
+  }): Promise<IconSubject | null> {
+    if (opts.tenantSlug) {
+      const s = (opts.tenantSlug || '').trim().toLowerCase();
+      if (!s) return null;
+      // slug es único → findUnique evita el scoping por marca del middleware.
+      const t = await this.prisma.tenant.findUnique({
+        where: { slug: s },
+        select: {
+          logoUrl: true,
+          walletLogoUrl: true,
+          primaryColor: true,
+          brandName: true,
+          whiteLabel: {
+            select: {
+              faviconUrl: true,
+              iconUrl: true,
+              logoUrl: true,
+              primaryColor: true,
+              backgroundColor: true,
+            },
+          },
+        },
+      });
+      if (!t) return null;
+      const wl = t.whiteLabel;
+      return {
+        source:
+          t.logoUrl ||
+          t.walletLogoUrl ||
+          wl?.faviconUrl ||
+          wl?.iconUrl ||
+          wl?.logoUrl ||
+          null,
+        name: t.brandName || 'N',
+        primaryColor: t.primaryColor || wl?.primaryColor || '#16a34a',
+        backgroundColor: wl?.backgroundColor || null,
+      };
+    }
+
+    const brand = opts.slug
+      ? await this.svc.getWhiteLabelBrandingBySlug(opts.slug)
+      : opts.host
+        ? await this.svc.getWhiteLabelBrandingByHost(opts.host)
+        : null;
+    if (!brand) return null;
+    return {
+      source: brand.faviconUrl || brand.iconUrl || brand.logoUrl || null,
+      name: brand.name,
+      primaryColor: brand.primaryColor,
+      backgroundColor: brand.backgroundColor || null,
+    };
   }
 
   private async fetchImage(url: string): Promise<Buffer | null> {

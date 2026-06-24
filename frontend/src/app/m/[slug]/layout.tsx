@@ -29,6 +29,20 @@ export async function generateMetadata({
       };
     }
     const t = await res.json();
+    // Iconos del negocio generados al vuelo (favicon 32/48/192 + apple-touch 180
+    // opaco) desde el logo del negocio → marca → inicial. Antes apuntaban a la
+    // imagen cruda (logo ancho) → pixelado/genérico en accesos directos.
+    const ICON_API =
+      process.env.NEXT_PUBLIC_API_URL ?? 'https://api.soyclubify.com';
+    const iconV =
+      (t.logoUrl || params.slug || '1')
+        .toString()
+        .slice(-16)
+        .replace(/[^a-zA-Z0-9]/g, '') || '1';
+    const tIcon = (size: number, purpose: 'any' | 'apple') =>
+      `${ICON_API}/api/superadmin-public/white-labels/icon?tenant=${encodeURIComponent(
+        params.slug,
+      )}&size=${size}&purpose=${purpose}&v=${iconV}`;
     const title = `${t.brandName} · Pide y suma sellos`;
     const description =
       t.description ||
@@ -37,14 +51,6 @@ export async function generateMetadata({
     const siteBase = t.brand?.websiteUrl || SITE_URL;
     const image = t.heroImageUrl || t.logoUrl || `${siteBase}/og-image.png`;
     const url = `${siteBase}/m/${params.slug}`;
-    // Favicon: logo del negocio → favicon/icono/logo de SU marca blanca →
-    // (último recurso) iconos estáticos. Antes caía SIEMPRE al icono Clubify.
-    const brandFavicon =
-      t.logoUrl ||
-      t.brand?.faviconUrl ||
-      t.brand?.iconUrl ||
-      t.brand?.logoUrl ||
-      null;
 
     return {
       title,
@@ -71,22 +77,18 @@ export async function generateMetadata({
         description,
         images: [image],
       },
-      // White-label: si el tenant tiene logoUrl, su logo es el favicon
-      // del storefront. Si no, explícitamente declaramos el cascade Clubify
-      // (Next 14 no hereda metadata.icons del root layout cuando se devuelve
-      // undefined desde un child generateMetadata).
-      icons: brandFavicon
-        ? { icon: brandFavicon, apple: brandFavicon }
-        : {
-            icon: [
-              { url: '/icons/icon.svg', type: 'image/svg+xml' },
-              { url: '/favicon-32.png', sizes: '32x32', type: 'image/png' },
-              { url: '/favicon-96.png', sizes: '96x96', type: 'image/png' },
-              { url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
-              { url: '/favicon.ico', sizes: 'any' },
-            ],
-            apple: [{ url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }],
-          },
+      // Iconos del negocio SIEMPRE por el generador: favicon 32/48/192 cuadrado
+      // + apple-touch 180 opaco, desde el logo del negocio (→ su marca → inicial
+      // del negocio sobre su color). Nunca hereda Clubify ni usa la imagen cruda.
+      icons: {
+        icon: [
+          { url: tIcon(32, 'any'), sizes: '32x32', type: 'image/png' },
+          { url: tIcon(48, 'any'), sizes: '48x48', type: 'image/png' },
+          { url: tIcon(192, 'any'), sizes: '192x192', type: 'image/png' },
+        ],
+        shortcut: [{ url: tIcon(48, 'any') }],
+        apple: [{ url: tIcon(180, 'apple'), sizes: '180x180', type: 'image/png' }],
+      },
       themeColor: t.primaryColor || t.brand?.primaryColor || '#22C55E',
       alternates: { canonical: url },
     };

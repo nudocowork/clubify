@@ -30,6 +30,18 @@ export async function generateMetadata({
       `Pide a domicilio en ${t.brandName} desde el menú digital.`;
     const image = t.heroImageUrl || t.logoUrl || `${SITE_URL}/og-image.png`;
     const url = `${SITE_URL}/d/${params.slug}`;
+    // Iconos del negocio por el generador (favicon 32/48/192 + apple 180 opaco).
+    const ICON_API =
+      process.env.NEXT_PUBLIC_API_URL ?? 'https://api.soyclubify.com';
+    const iconV =
+      (t.logoUrl || params.slug || '1')
+        .toString()
+        .slice(-16)
+        .replace(/[^a-zA-Z0-9]/g, '') || '1';
+    const tIcon = (size: number, purpose: 'any' | 'apple') =>
+      `${ICON_API}/api/superadmin-public/white-labels/icon?tenant=${encodeURIComponent(
+        params.slug,
+      )}&size=${size}&purpose=${purpose}&v=${iconV}`;
 
     return {
       title,
@@ -49,20 +61,15 @@ export async function generateMetadata({
         description,
         images: [image],
       },
-      icons: t.logoUrl
-        ? { icon: t.logoUrl, apple: t.logoUrl }
-        : {
-            icon: [
-              { url: '/icons/icon.svg', type: 'image/svg+xml' },
-              { url: '/favicon-32.png', sizes: '32x32', type: 'image/png' },
-              { url: '/favicon-96.png', sizes: '96x96', type: 'image/png' },
-              { url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
-              { url: '/favicon.ico', sizes: 'any' },
-            ],
-            apple: [
-              { url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
-            ],
-          },
+      icons: {
+        icon: [
+          { url: tIcon(32, 'any'), sizes: '32x32', type: 'image/png' },
+          { url: tIcon(48, 'any'), sizes: '48x48', type: 'image/png' },
+          { url: tIcon(192, 'any'), sizes: '192x192', type: 'image/png' },
+        ],
+        shortcut: [{ url: tIcon(48, 'any') }],
+        apple: [{ url: tIcon(180, 'apple'), sizes: '180x180', type: 'image/png' }],
+      },
       themeColor: t.primaryColor || '#22C55E',
       alternates: { canonical: url },
     };

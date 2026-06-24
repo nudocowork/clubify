@@ -549,6 +549,7 @@ export class SuperAdminPublicController {
     @Res() res: Response,
     @Query('slug') slug?: string,
     @Query('host') host?: string,
+    @Query('tenant') tenant?: string,
     @Query('size') size?: string,
     @Query('purpose') purpose?: string,
   ) {
@@ -558,6 +559,9 @@ export class SuperAdminPublicController {
     const out = await this.brandIcons.generate({
       slug: slug || undefined,
       host: host || undefined,
+      // tenant=<slug> → icono de un NEGOCIO (storefront/menú), generado desde
+      // su logo. Tiene prioridad sobre slug/host de marca.
+      tenantSlug: tenant || undefined,
       size: n,
       purpose: p,
     });
