@@ -213,10 +213,14 @@ async function resolveBrandFavicon(host: string): Promise<string | null> {
       faviconUrl?: string | null;
       iconUrl?: string | null;
       logoUrl?: string | null;
+      brandingVersion?: number | null;
     } | null;
+    // Redirigimos al endpoint generador (48px nítido, fondo transparente) en
+    // vez de a la imagen cruda — así el favicon tiene tamaño correcto aunque
+    // la marca haya subido un logo grande. ?v=version invalida cache al cambiar.
     const url =
       d && d.slug && d.slug !== 'clubify'
-        ? d.faviconUrl ?? d.iconUrl ?? d.logoUrl ?? null
+        ? `${API}/api/superadmin-public/white-labels/icon?slug=${encodeURIComponent(d.slug)}&size=48&purpose=any&v=${Number(d.brandingVersion) || 0}`
         : null;
     faviconCache.set(host, { url, until: now + TTL_MS });
     return url;

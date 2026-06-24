@@ -16,9 +16,10 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 async function resolveBrandForHost(host: string): Promise<{
   name: string;
   logoUrl: string | null;
-  faviconUrl: string | null;
+  hasIcon: boolean;
   primaryColor: string;
   slug: string;
+  version: number;
 } | null> {
   const h = (host || '').toLowerCase().split(':')[0];
   if (
@@ -38,18 +39,29 @@ async function resolveBrandForHost(host: string): Promise<{
     if (!r.ok) return null;
     const d = await r.json();
     if (!d || !d.slug || d.slug === 'clubify') return null;
-    // Favicon = favicon dedicado → icono dashboard → logo header.
-    const favicon = d.faviconUrl ?? d.iconUrl ?? d.logoUrl ?? null;
     return {
       name: d.name,
       logoUrl: d.logoUrl ?? null,
-      faviconUrl: favicon,
+      // Tiene alguna imagen subida (favicon/icon/logo) → el backend puede
+      // generar variantes; si no, caemos al SVG con inicial.
+      hasIcon: !!(d.faviconUrl || d.iconUrl || d.logoUrl),
       primaryColor: d.primaryColor || '#111827',
       slug: d.slug,
+      version: Number(d.brandingVersion) || 0,
     };
   } catch {
     return null;
   }
+}
+
+/** URL del icono de marca generado al vuelo por el backend, con cache-bust. */
+function brandIconUrl(
+  slug: string,
+  size: number,
+  purpose: 'any' | 'apple',
+  version: number,
+): string {
+  return `${API_URL}/api/superadmin-public/white-labels/icon?slug=${encodeURIComponent(slug)}&size=${size}&purpose=${purpose}&v=${version}`;
 }
 
 /** Favicon SVG (cuadrado redondeado con la inicial de la marca) cuando la marca
@@ -72,8 +84,18 @@ export async function generateMetadata(): Promise<Metadata> {
 
   // ───────── Marca blanca (dominio propio) → metadata 100% de la marca ─────────
   if (brand) {
-    const icon =
-      brand.faviconUrl || brandFaviconDataUri(brand.name, brand.primaryColor);
+    // Iconos generados al vuelo por el backend desde la imagen de la marca
+    // (favicon 32/48, apple-touch 180 OPACO). Si la marca no subió ninguna
+    // imagen, caemos a un SVG con su inicial (nunca el icono de Clubify).
+    const fav32 = brand.hasIcon
+      ? brandIconUrl(brand.slug, 32, 'any', brand.version)
+      : brandFaviconDataUri(brand.name, brand.primaryColor);
+    const fav48 = brand.hasIcon
+      ? brandIconUrl(brand.slug, 48, 'any', brand.version)
+      : brandFaviconDataUri(brand.name, brand.primaryColor);
+    const appleIcon = brand.hasIcon
+      ? brandIconUrl(brand.slug, 180, 'apple', brand.version)
+      : brandFaviconDataUri(brand.name, brand.primaryColor);
     const title = brand.name;
     const description = `${brand.name}: fideliza, vende y automatiza tu negocio en un solo lugar.`;
     return {
@@ -110,9 +132,12 @@ export async function generateMetadata(): Promise<Metadata> {
         googleBot: { index: true, follow: true, 'max-image-preview': 'large' },
       },
       icons: {
-        icon: [{ url: icon }],
-        shortcut: [{ url: icon }],
-        apple: [{ url: icon }],
+        icon: [
+          { url: fav32, sizes: '32x32', type: 'image/png' },
+          { url: fav48, sizes: '48x48', type: 'image/png' },
+        ],
+        shortcut: [{ url: fav48 }],
+        apple: [{ url: appleIcon, sizes: '180x180', type: 'image/png' }],
       },
       other: {
         'msapplication-TileColor': brand.primaryColor,

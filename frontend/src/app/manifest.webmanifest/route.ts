@@ -5,9 +5,9 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 /** Resuelve la marca blanca por host. null para Clubify/dev. */
 async function resolveBrand(host: string): Promise<{
   name: string;
-  icon: string | null;
   primaryColor: string;
   slug: string;
+  version: number;
 } | null> {
   const h = (host || '').toLowerCase().split(':')[0];
   if (
@@ -27,23 +27,26 @@ async function resolveBrand(host: string): Promise<{
     if (!r.ok) return null;
     const d = await r.json();
     if (!d || !d.slug || d.slug === 'clubify') return null;
-    // Icono PWA = favicon dedicado → icono dashboard → logo header.
-    const icon = d.faviconUrl ?? d.iconUrl ?? d.logoUrl ?? null;
     return {
       name: d.name,
-      icon,
       primaryColor: d.primaryColor || '#111827',
       slug: d.slug,
+      version: Number(d.brandingVersion) || 0,
     };
   } catch {
     return null;
   }
 }
 
-function brandIconSvg(name: string, color: string): string {
-  const initial = (name.trim()[0] ?? 'S').toUpperCase();
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="${color}"/><text x="32" y="45" font-size="36" font-family="Arial,Helvetica,sans-serif" font-weight="700" fill="#ffffff" text-anchor="middle">${initial}</text></svg>`;
-  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+/** URL del icono generado al vuelo por el backend (cualquier tamaño/propósito),
+ *  con cache-bust por versión de branding. */
+function brandIconUrl(
+  slug: string,
+  size: number,
+  purpose: 'any' | 'maskable',
+  version: number,
+): string {
+  return `${API_URL}/api/superadmin-public/white-labels/icon?slug=${encodeURIComponent(slug)}&size=${size}&purpose=${purpose}&v=${version}`;
 }
 
 const CLUBIFY_MANIFEST = {
@@ -86,8 +89,6 @@ export async function GET() {
     });
   }
 
-  const icon = brand.icon || brandIconSvg(brand.name, brand.primaryColor);
-  const isImage = !!brand.icon;
   const manifest = {
     name: brand.name,
     short_name: brand.name,
@@ -103,12 +104,26 @@ export async function GET() {
     categories: ['business', 'productivity'],
     lang: 'es',
     dir: 'ltr',
+    // Variantes generadas al vuelo desde el icono de la marca: 192/512 estándar
+    // + 512 maskable (Android recorta a círculo/squircle con zona segura).
     icons: [
       {
-        src: icon,
-        sizes: 'any',
-        type: isImage ? 'image/png' : 'image/svg+xml',
+        src: brandIconUrl(brand.slug, 192, 'any', brand.version),
+        sizes: '192x192',
+        type: 'image/png',
         purpose: 'any',
+      },
+      {
+        src: brandIconUrl(brand.slug, 512, 'any', brand.version),
+        sizes: '512x512',
+        type: 'image/png',
+        purpose: 'any',
+      },
+      {
+        src: brandIconUrl(brand.slug, 512, 'maskable', brand.version),
+        sizes: '512x512',
+        type: 'image/png',
+        purpose: 'maskable',
       },
     ],
   };

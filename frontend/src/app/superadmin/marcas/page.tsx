@@ -2094,6 +2094,84 @@ function DomainConfig({
 /** Edita la identidad visual de una marca: logo, paleta de colores (primario/
  *  secundario/fondo/apoyo), Instagram y email de contacto. PATCH a
  *  /superadmin/white-labels/:id. El panel de la marca toma estos valores. */
+/** Preview en vivo de las variantes que el sistema genera del símbolo de la
+ *  marca (favicon transparente, ícono iPhone opaco, ícono Android maskable).
+ *  Es una aproximación client-side de lo que produce el endpoint /icon — se
+ *  actualiza al instante con la imagen seleccionada, aún sin guardar. */
+function BrandIconPreview({
+  source,
+  backgroundColor,
+}: {
+  source: string;
+  backgroundColor: string;
+}) {
+  const tile = (
+    label: string,
+    bg: string,
+    radius: number,
+    padPct: number,
+    circle: boolean,
+  ) => (
+    <div className="flex flex-col items-center gap-1">
+      <div
+        style={{
+          width: 56,
+          height: 56,
+          background: bg,
+          borderRadius: circle ? '50%' : radius,
+          border: '1px solid #e6eae8',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'hidden',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+        }}
+      >
+        {source ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={source}
+            alt={label}
+            style={{
+              width: `${100 - padPct * 2}%`,
+              height: `${100 - padPct * 2}%`,
+              objectFit: 'contain',
+            }}
+          />
+        ) : (
+          <span style={{ fontSize: 10, color: '#9aa3ad' }}>—</span>
+        )}
+      </div>
+      <span className="text-[10px]" style={{ color: '#6b7785' }}>
+        {label}
+      </span>
+    </div>
+  );
+  return (
+    <div
+      className="rounded-lg"
+      style={{ background: '#f4f6f5', border: '1px solid #e6eae8', padding: 10 }}
+    >
+      <div
+        className="text-[11px] font-semibold mb-2"
+        style={{ color: '#16241c' }}
+      >
+        Vista previa — se generan automáticamente
+      </div>
+      <div className="flex items-center gap-4">
+        {tile('Favicon', 'transparent', 12, 6, false)}
+        {tile('iPhone', backgroundColor || '#ffffff', 12, 10, false)}
+        {tile('Android', backgroundColor || '#ffffff', 0, 18, true)}
+      </div>
+      <p className="text-[10px] mt-2" style={{ color: '#9aa3ad' }}>
+        Al guardar, el favicon, el acceso directo de iPhone/Android y la PWA se
+        actualizan en todos los dispositivos (con limpieza de caché automática).
+        {!source && ' Sube el símbolo arriba para ver el resultado.'}
+      </p>
+    </div>
+  );
+}
+
 function BrandingConfig({
   whiteLabelId,
   initial,
@@ -2285,16 +2363,20 @@ function BrandingConfig({
         )}
         {logoField(
           'faviconUrl',
-          'Favicon',
+          'Favicon / símbolo',
           {
-            formato: 'PNG / ICO / SVG / WEBP',
+            formato: 'PNG / SVG / WEBP',
             tamano: '512 × 512 px',
             ratio: '1:1',
             peso: '200 KB',
-            uso: 'Pestaña del navegador y PWA.',
+            uso: 'Solo el símbolo (sin texto ni slogan). De aquí se generan automáticamente el favicon, el ícono de iPhone/Android y el de la PWA.',
           },
           { crop: true, aspect: 1 },
         )}
+        <BrandIconPreview
+          source={f.faviconUrl || f.iconUrl || f.logoUrl || ''}
+          backgroundColor={f.backgroundColor || '#ffffff'}
+        />
         <div className="space-y-2">
           {colorRow('Color principal', 'primaryColor')}
           {colorRow('Color secundario', 'secondaryColor')}

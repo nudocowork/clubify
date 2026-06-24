@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { IsArray, IsBoolean, IsEmail, IsHexColor, IsIn, IsInt, IsObject, IsNumber, IsOptional, IsString, Length, Max, MaxLength, Min } from 'class-validator';
 import { ModuleKey, WhiteLabelStatus } from '@prisma/client';
 import { Public } from '../common/decorators/public.decorator';
@@ -6,6 +7,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { SuperAdminService } from './superadmin.service';
 import { RenewalsService } from './renewals.service';
+import { BrandIconService, IconPurpose } from './brand-icon.service';
 
 class WhiteLabelBody {
   @IsString() @MaxLength(80) name!: string;
@@ -465,7 +467,10 @@ export class SuperAdminController {
  */
 @Controller('superadmin-public')
 export class SuperAdminPublicController {
-  constructor(private svc: SuperAdminService) {}
+  constructor(
+    private svc: SuperAdminService,
+    private brandIcons: BrandIconService,
+  ) {}
 
   @Public()
   @Get('owner-invites/:token')
@@ -522,5 +527,41 @@ export class SuperAdminPublicController {
   @Get('white-labels/payment-links-by-host')
   paymentLinksByHost(@Query('host') host: string) {
     return this.svc.getPaymentLinksByHost(host);
+  }
+
+  // Icono de marca GENERADO al vuelo en cualquier tamaño/propósito desde la
+  // imagen que la marca ya subió (favicon/icon/logo). Lo consumen el manifest
+  // PWA, los <link icon>/apple-touch del <head> y el redirect de /favicon.ico.
+  // `purpose`: any (transparente) | maskable (zona segura) | apple (180 opaco).
+  // Cache immutable: la URL trae ?v=<brandingVersion>, así un cambio de branding
+  // invalida todos los iconos cacheados sin tocar nada manual.
+  @Public()
+  @Get('white-labels/icon')
+  async icon(
+    @Res() res: Response,
+    @Query('slug') slug?: string,
+    @Query('host') host?: string,
+    @Query('size') size?: string,
+    @Query('purpose') purpose?: string,
+  ) {
+    const p: IconPurpose =
+      purpose === 'maskable' || purpose === 'apple' ? purpose : 'any';
+    const n = Math.max(16, Math.min(1024, parseInt(size ?? '192', 10) || 192));
+    const out = await this.brandIcons.generate({
+      slug: slug || undefined,
+      host: host || undefined,
+      size: n,
+      purpose: p,
+    });
+    if (!out) {
+      // Marca no resuelta → 404 para que el caller caiga a su fallback local.
+      res.status(404).end();
+      return;
+    }
+    // Cache immutable: la URL trae ?v=<brandingVersion>; un cambio de branding
+    // sube la versión y los clientes piden la URL nueva (cache-bust automático).
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('Content-Type', out.contentType);
+    res.end(out.buffer);
   }
 }

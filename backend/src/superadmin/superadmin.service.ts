@@ -1290,6 +1290,10 @@ export class SuperAdminService {
         demoButtonWhatsApp: true,
         mapsApiKey: true,
         planPeriodicities: true,
+        // Sello temporal del último cambio de la marca → versión de cache-bust
+        // para favicons/iconos generados (query ?v=). Al guardar branding sube
+        // updatedAt y todos los iconos cacheados (immutable) se invalidan.
+        updatedAt: true,
         // Módulos habilitados → el panel gatea secciones (ej. Referidos) por
         // marca. Solo los enabled.
         modules: { where: { enabled: true }, select: { module: true } },
@@ -1313,6 +1317,8 @@ export class SuperAdminService {
       mapsApiKey: wl.mapsApiKey ?? null,
       // Periodicidades que ofrece la marca (form "Nuevo negocio").
       planPeriodicities: wl.planPeriodicities ?? [],
+      // Versión para cache-bust de iconos (epoch ms del último cambio).
+      brandingVersion: wl.updatedAt ? wl.updatedAt.getTime() : 0,
       modules: wl.modules.map((m) => m.module),
     };
   }
