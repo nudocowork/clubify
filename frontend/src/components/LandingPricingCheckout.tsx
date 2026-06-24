@@ -174,19 +174,23 @@ export function LandingPricingCheckout({
           <div className="flex justify-between items-baseline mb-2 text-sm">
             <span className="text-mute">Costo de instalación</span>
             <span>
-              {showPromo && (
-                <span className="text-mute line-through mr-2">
-                  {fmtUSD(installationFeeUsd as number)}
-                </span>
+              {planPaysInstall ? (
+                <>
+                  {showPromo && (
+                    <span className="text-mute line-through mr-2">
+                      {fmtUSD(installationFeeUsd as number)}
+                    </span>
+                  )}
+                  {showPromo && (
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-brand mr-1.5">
+                      Precio promocional
+                    </span>
+                  )}
+                  <span className="font-semibold">{fmtUSD(installCharge)}</span>
+                </>
+              ) : (
+                <span className="font-semibold text-brand">Incluida</span>
               )}
-              {showPromo && (
-                <span className="text-[10px] font-bold uppercase tracking-wider text-brand mr-1.5">
-                  Precio promocional
-                </span>
-              )}
-              <span className="font-semibold">
-                {planPaysInstall ? fmtUSD(installCharge) : 'Incluida'}
-              </span>
             </span>
           </div>
         )}
