@@ -981,6 +981,78 @@ export class AuthService {
     };
   }
 
+  /** Resuelve la marca (whiteLabelId) de un negocio que se da de alta por
+   *  signup público. Prioridad: dominio del Origin → pago Stripe pendiente por
+   *  email → código de referido de una marca. Devuelve null para Clubify (su
+   *  scope incluye los tenants con whiteLabelId null). */
+  private async resolveSignupWhiteLabelId(args: {
+    email: string;
+    referralCode?: string;
+    origin?: string;
+  }): Promise<string | null> {
+    const normHost = (s?: string | null) =>
+      (s ?? '')
+        .trim()
+        .toLowerCase()
+        .replace(/^https?:\/\//, '')
+        .split('/')[0]
+        .split(':')[0]
+        .replace(/^www\./, '');
+
+    // 1. Dominio (Origin del navegador): el panel/landing de la marca corre en
+    //    su propio dominio. Cubre pagar→datos y datos→pago.
+    const host = normHost(args.origin);
+    if (
+      host &&
+      host !== 'localhost' &&
+      !host.startsWith('127.') &&
+      !host.endsWith('soyclubify.com') &&
+      !host.endsWith('clubify.app')
+    ) {
+      try {
+        const wls = await this.prisma.whiteLabel.findMany({
+          select: { id: true, slug: true, domain: true, appDomain: true },
+        });
+        const match = wls.find(
+          (w) => normHost(w.domain) === host || normHost(w.appDomain) === host,
+        );
+        if (match && match.slug !== 'clubify') return match.id;
+      } catch {
+        /* noop */
+      }
+    }
+
+    // 2. Pago Stripe pendiente por email (marcas con Stripe, ej. Sellea).
+    const e = (args.email ?? '').trim().toLowerCase();
+    if (e) {
+      const pending = await this.prisma.pendingStripePayment
+        .findFirst({
+          where: { email: e, consumedAt: null },
+          orderBy: { createdAt: 'desc' },
+          select: { whiteLabelId: true },
+        })
+        .catch(() => null);
+      if (pending?.whiteLabelId) return pending.whiteLabelId;
+    }
+
+    // 3. Código de referido que pertenece a una marca (no Clubify).
+    if (args.referralCode) {
+      const code = args.referralCode.trim().toUpperCase();
+      const ref = await this.prisma.referralCode
+        .findUnique({
+          where: { code },
+          select: { whiteLabel: { select: { id: true, slug: true } } },
+        })
+        .catch(() => null);
+      if (ref?.whiteLabel && ref.whiteLabel.slug !== 'clubify') {
+        return ref.whiteLabel.id;
+      }
+    }
+
+    // 4. Clubify (default): null.
+    return null;
+  }
+
   async signup(dto: {
     email: string;
     password: string;
@@ -1004,7 +1076,7 @@ export class AuthService {
       utmCampaign?: string;
       referer?: string;
     };
-  }, ip?: string) {
+  }, ip?: string, origin?: string) {
     const email = dto.email.toLowerCase().trim();
 
     const existing = await this.prisma.user.findUnique({ where: { email } });
@@ -1047,6 +1119,17 @@ export class AuthService {
     // simultáneos con el mismo email pasan el findUnique check, el
     // segundo no deje un tenant huérfano cuando user.create falle con
     // P2002 (unique email). La transacción rollback el tenant también.
+    // MARCA del negocio: heredada por dominio (Origin) → pago Stripe pendiente
+    // → código de referido. Sin esto el tenant quedaba whiteLabelId=null → lo
+    // veía Clubify y, para marcas con Stripe (ej. Sellea), consumePendingForTenant
+    // abortaba (exige tenant.whiteLabelId) y el pago NUNCA activaba la cuenta.
+    // Clubify se mantiene en null (su scope incluye los null).
+    const signupWhiteLabelId = await this.resolveSignupWhiteLabelId({
+      email,
+      referralCode: dto.referralCode,
+      origin,
+    });
+
     let tenant: Awaited<ReturnType<typeof this.prisma.tenant.create>>;
     let user: Awaited<ReturnType<typeof this.prisma.user.create>>;
     try {
@@ -1062,6 +1145,7 @@ export class AuthService {
             status: 'TRIAL',
             planId: defaultPlan.id,
             planPeriodicity: dto.planPeriodicity ?? null,
+            whiteLabelId: signupWhiteLabelId,
             trialStartedAt,
             trialEndsAt,
           },

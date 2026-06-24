@@ -176,8 +176,15 @@ export class AuthController {
   @Public()
   @Throttle({ default: { ttl: 3_600_000, limit: 3 } })
   @Post('signup')
-  signup(@Body() dto: SignupDto, @Ip() ip: string) {
-    return this.auth.signup(dto, ip);
+  signup(
+    @Body() dto: SignupDto,
+    @Ip() ip: string,
+    // Origin del navegador (ej. https://selleala.com) → el signup hereda la
+    // marca por dominio. Crítico para que un negocio de una marca blanca NO
+    // quede con whiteLabelId null (lo vería Clubify y el pago no activaría).
+    @Headers('origin') origin?: string,
+  ) {
+    return this.auth.signup(dto, ip, origin);
   }
 
   /** Check-pending: el frontend `/activar` consulta este endpoint para
