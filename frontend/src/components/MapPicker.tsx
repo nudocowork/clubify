@@ -10,16 +10,43 @@ export type MapPickResult = {
 };
 
 const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
+const MAP_API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
+
+/** Resuelve la API key de Google Maps de la marca por host (branding-by-host).
+ *  Cae a la env global (Clubify) si el host no es de una marca o no tiene key.
+ *  En el dominio de una marca la key global de Clubify está restringida por
+ *  referrer y Google la rechaza — por eso cada marca debe usar la suya. */
+async function resolveMapsKey(): Promise<string> {
+  if (typeof window === 'undefined') return API_KEY;
+  const host = (window.location.host || '').toLowerCase().split(':')[0];
+  const isClubify =
+    !host || host === 'localhost' || host.startsWith('127.') ||
+    host.endsWith('soyclubify.com') || host.endsWith('clubify.app');
+  if (!isClubify) {
+    try {
+      const r = await fetch(
+        `${MAP_API}/api/superadmin-public/white-labels/branding-by-host?host=${encodeURIComponent(host)}`,
+      );
+      if (r.ok) {
+        const d = await r.json();
+        if (d?.mapsApiKey) return d.mapsApiKey as string;
+      }
+    } catch {
+      /* cae a la env */
+    }
+  }
+  return API_KEY;
+}
 
 let loaderPromise: Promise<typeof google> | null = null;
 let optionsSet = false;
 
-function loadGoogleMaps(): Promise<typeof google> {
+function loadGoogleMaps(key: string): Promise<typeof google> {
   if (typeof window === 'undefined') return Promise.reject(new Error('SSR'));
   if (loaderPromise) return loaderPromise;
-  if (!API_KEY) return Promise.reject(new Error('Falta NEXT_PUBLIC_GOOGLE_MAPS_API_KEY'));
+  if (!key) return Promise.reject(new Error('Falta la API key de Google Maps de la marca'));
   if (!optionsSet) {
-    setOptions({ key: API_KEY, v: 'weekly', language: 'es' });
+    setOptions({ key, v: 'weekly', language: 'es' });
     optionsSet = true;
   }
   loaderPromise = (async () => {
@@ -72,7 +99,8 @@ export function MapPicker({
     let cancelled = false;
     (async () => {
       try {
-        const g = await loadGoogleMaps();
+        const key = await resolveMapsKey();
+        const g = await loadGoogleMaps(key);
         if (cancelled || !containerRef.current) return;
 
         const map = new g.maps.Map(containerRef.current, {
@@ -168,10 +196,10 @@ export function MapPicker({
         <div className="font-semibold mb-1">Google Maps no está configurado</div>
         <div>{loadErr}</div>
         <div className="text-xs mt-2 text-amber-800/80">
-          Necesitás definir{' '}
-          <code className="bg-amber-100 px-1 rounded">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code>{' '}
-          en el frontend con una API key con Maps JavaScript API + Places API
-          habilitadas.
+          En el dominio de una marca, configura su Google Maps API key en Master
+          Admin → Marca → Branding (restringida a su dominio, con Maps JavaScript
+          API + Places API habilitadas). Sin ella, la key global de Clubify es
+          rechazada por Google en otros dominios (RefererNotAllowedMapError).
         </div>
       </div>
     );
