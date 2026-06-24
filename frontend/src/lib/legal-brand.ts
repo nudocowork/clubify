@@ -23,6 +23,8 @@ export type LegalBrand = {
   privacyEmail: string;
   /** Logo subido de la marca (header de las páginas legales). null = usar <Logo>. */
   logoUrl: string | null;
+  /** WhatsApp de contacto de la marca (solo dígitos, para wa.me). null = sin link. */
+  whatsapp: string | null;
 };
 
 const CLUBIFY: LegalBrand = {
@@ -34,6 +36,7 @@ const CLUBIFY: LegalBrand = {
   contactEmail: 'hola@soyclubify.com',
   privacyEmail: 'privacidad@soyclubify.com',
   logoUrl: null,
+  whatsapp: null,
 };
 
 export async function resolveLegalBrand(): Promise<LegalBrand> {
@@ -67,6 +70,9 @@ export async function resolveLegalBrand(): Promise<LegalBrand> {
       contactEmail: email,
       privacyEmail: email,
       logoUrl: d.logoUrl ?? null,
+      whatsapp: d.demoButtonWhatsApp
+        ? String(d.demoButtonWhatsApp).replace(/[^0-9]/g, '')
+        : null,
     };
   } catch {
     return CLUBIFY;

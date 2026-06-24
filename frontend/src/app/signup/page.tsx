@@ -1,8 +1,9 @@
 import Link from 'next/link';
+import { headers } from 'next/headers';
 import { RefCapture } from '@/components/RefCapture';
 import { BrandLogoLink, BrandAuthShell } from '@/components/AuthBrand';
 import { LandingPricingCheckout } from '@/components/LandingPricingCheckout';
-import { fetchLandingPlans } from '@/lib/landing-plans';
+import { fetchLandingPlans, fetchBrandPlansByHost } from '@/lib/landing-plans';
 
 // Flujo "pago → datos" (2026-06-06): /signup es el PICKER de planes —
 // muestra los 4 planes igual que la página principal (lo que pedía el
@@ -21,10 +22,25 @@ export default async function SignupPage({
 }: {
   searchParams: { plan?: string };
 }) {
-  const plans = await fetchLandingPlans();
-  const valid: PlanId[] = ['mensual', 'trimestral', 'semestral', 'anual'];
+  // Planes por MARCA: si el host es de una marca blanca (ej. selleala.com),
+  // usamos SUS planes (su gateway/precios/links Stripe), NUNCA los de Clubify.
+  // Sin marca (dominio Clubify) → los 4 planes globales. Aislamiento por marca.
+  const host = headers().get('host') ?? '';
+  const brandPlans = await fetchBrandPlansByHost(host);
+  const plans = brandPlans ?? (await fetchLandingPlans());
+
+  // El plan inicial se limita a los planes REALMENTE disponibles (Sellea solo
+  // tiene mensual+anual → no caer a 'anual' si no existe). Prioriza el ?plan=
+  // pedido, sino anual si existe, sino el primero.
+  const available = plans.map((p) => p.id);
   const raw = (searchParams?.plan ?? '').toLowerCase();
-  const initial = (valid.includes(raw as PlanId) ? raw : 'anual') as PlanId;
+  const initial = (
+    available.includes(raw as PlanId)
+      ? raw
+      : available.includes('anual')
+        ? 'anual'
+        : available[0] ?? 'anual'
+  ) as PlanId;
 
   return (
     <BrandAuthShell className="min-h-screen bg-bg flex flex-col">

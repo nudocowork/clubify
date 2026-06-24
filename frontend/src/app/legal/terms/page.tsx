@@ -98,8 +98,23 @@ export default async function TermsPage() {
           Para cualquier duda escríbenos a{' '}
           <a href={`mailto:${brand.contactEmail}`} className="text-brand">
             {brand.contactEmail}
-          </a>{' '}
-          o por WhatsApp.
+          </a>
+          {brand.whatsapp ? (
+            <>
+              {' '}o por{' '}
+              <a
+                href={`https://wa.me/${brand.whatsapp}`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-brand"
+              >
+                WhatsApp
+              </a>
+              .
+            </>
+          ) : (
+            ' o por WhatsApp.'
+          )}
         </p>
       </section>
     </>

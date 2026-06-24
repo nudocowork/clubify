@@ -48,7 +48,7 @@ const FAQS = [
   { q: '¿Cuánto pago y en qué moneda?', a: 'Desde USD 80/mes en el plan mensual. También tenemos el plan Anual por USD 799 (ahorras ~USD 160 frente al mensual). Te mostramos el equivalente en tu moneda local al cambio del día. Sin contratos — cancelas cuando quieras desde tu panel.' },
   { q: '¿Mis clientes necesitan descargar una app?', a: 'No. Las tarjetas se instalan directamente en su Wallet del teléfono (Apple Wallet en iPhone, Google Wallet en Android). Cero fricción.' },
   { q: '¿Funciona para negocios con pocos clientes o recién abiertos?', a: 'Sin duda. Un programa de fidelización al iniciar un negocio te ayuda a crear comunidad desde el primer momento, ayudando a crecer la marca y las ventas.' },
-  { q: '¿Cómo se procesa el pago?', a: 'Procesamos los pagos a través de una pasarela de pago segura ampliamente usada en LATAM. Acepta tarjeta de crédito, débito y métodos locales según tu país.' },
+  { q: '¿Cómo se procesa el pago?', a: 'Procesamos los pagos a través de una pasarela de pago segura altamente usada en USA y LATAM. Acepta tarjeta de crédito, débito y métodos locales según tu país.' },
   { q: '¿Qué pasa con mis datos si decido cancelar?', a: 'Te exportamos todo: clientes, menú, pedidos, tarjetas. Mantenemos tu información disponible para descarga durante 30 días después de cancelar.' },
   { q: '¿Hay costos extras?', a: 'No. Pedidos, tarjetas, automatizaciones y clientes son ilimitados con tu suscripción. Sin comisiones por transacción.' },
   { q: '¿Funciona si no soy técnico?', a: 'Sí. El setup inicial son 5 pasos visuales. No tienes que escribir código ni configurar servidores. Si te trabas, escríbenos por WhatsApp.' },

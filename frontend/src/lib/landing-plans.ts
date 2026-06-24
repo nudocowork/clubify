@@ -48,6 +48,65 @@ export const LANDING_PLAN_DEFAULTS: LandingPlan[] = [
   },
 ];
 
+const PERIOD_TO_PLAN: Record<
+  string,
+  { id: 'mensual' | 'trimestral' | 'semestral' | 'anual'; months: number }
+> = {
+  MENSUAL: { id: 'mensual', months: 1 },
+  TRIMESTRAL: { id: 'trimestral', months: 3 },
+  SEMESTRAL: { id: 'semestral', months: 6 },
+  ANUAL: { id: 'anual', months: 12 },
+};
+
+/**
+ * Planes de una MARCA BLANCA resueltos por host (dominio propio): usa los
+ * WhiteLabelPaymentLink de la marca (su gateway/precios/links Stripe), NUNCA
+ * los de Clubify. Devuelve null si el host es Clubify/dev o la marca no tiene
+ * links → el caller cae a fetchLandingPlans() (Clubify). Aísla los planes por
+ * marca tanto en la landing como en /signup.
+ */
+export async function fetchBrandPlansByHost(
+  host: string,
+): Promise<LandingPlan[] | null> {
+  const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
+  const h = (host || '').toLowerCase().split(':')[0];
+  if (
+    !h ||
+    h === 'localhost' ||
+    h.startsWith('127.') ||
+    h.endsWith('soyclubify.com') ||
+    h.endsWith('clubify.app')
+  ) {
+    return null;
+  }
+  try {
+    const r = await fetch(
+      `${API}/api/superadmin-public/white-labels/payment-links-by-host?host=${encodeURIComponent(h)}`,
+      { next: { revalidate: 60 } },
+    );
+    if (!r.ok) return null;
+    const d: any = await r.json();
+    if (!d || !Array.isArray(d.links) || !d.links.length) return null;
+    const plans: LandingPlan[] = [];
+    for (const l of d.links) {
+      const m = PERIOD_TO_PLAN[l.periodicity as string];
+      if (!m) continue; // CUSTOM u otros no se muestran en el selector
+      plans.push({
+        id: m.id,
+        name: l.name || m.id,
+        shortName: l.name || m.id,
+        months: m.months,
+        price: Number(l.amountUsd) || 0,
+        checkoutUrl: l.url || null,
+        description: '',
+      });
+    }
+    return plans.length ? plans : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Fetcha los 4 planes del backend y los fusiona con los defaults
  * (preservando name/months/description/shortName, que el backend no
