@@ -62,7 +62,7 @@ function brandIconUrl(
   slug: string,
   size: number,
   purpose: 'any' | 'apple',
-  version: number,
+  version: number | string,
 ): string {
   return `${API_URL}/api/superadmin-public/white-labels/icon?slug=${encodeURIComponent(slug)}&size=${size}&purpose=${purpose}&v=${version}`;
 }
@@ -191,8 +191,22 @@ export async function generateMetadata(): Promise<Metadata> {
     { url: v('/icons/icon-512.png'), sizes: '512x512', type: 'image/png' },
     { url: v('/favicon.ico'), sizes: 'any' },
   ];
+  // Favicon custom de Clubify (Setting branding) → lo servimos por el GENERADOR
+  // (slug=clubify, opaco) en vez de la imagen cruda: un símbolo transparente
+  // (ej. la flecha verde) se ve invisible a 16/32px; el generador lo cuadra
+  // sobre fondo sólido para que tenga presencia. Si no hay custom, la C verde
+  // estática de siempre.
+  const customFaviconV = faviconUrl
+    ? faviconUrl.slice(-16).replace(/[^a-zA-Z0-9]/g, '') || '1'
+    : '1';
+  const clubifyGen = (size: number) =>
+    brandIconUrl('clubify', size, 'apple', customFaviconV);
   const icon = faviconUrl
-    ? [{ url: faviconUrl, type: 'image/png' }, ...localIcons]
+    ? [
+        { url: clubifyGen(32), sizes: '32x32', type: 'image/png' },
+        { url: clubifyGen(48), sizes: '48x48', type: 'image/png' },
+        ...localIcons,
+      ]
     : localIcons;
 
   return {
@@ -241,7 +255,9 @@ export async function generateMetadata(): Promise<Metadata> {
       icon,
       shortcut: [{ url: v('/favicon.ico') }],
       apple: [
-        { url: v('/apple-touch-icon.png'), sizes: '180x180', type: 'image/png' },
+        faviconUrl
+          ? { url: clubifyGen(180), sizes: '180x180', type: 'image/png' }
+          : { url: v('/apple-touch-icon.png'), sizes: '180x180', type: 'image/png' },
       ],
       other: [
         {

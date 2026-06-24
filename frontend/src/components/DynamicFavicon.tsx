@@ -1,6 +1,5 @@
 'use client';
 import { useEffect } from 'react';
-import { useBranding } from '@/lib/useBranding';
 import { useAuthBrand } from '@/components/AuthBrand';
 
 /**
@@ -17,14 +16,16 @@ import { useAuthBrand } from '@/components/AuthBrand';
 const CLUBIFY_FAVICON_ID = '__clubify_dynamic_favicon';
 
 export function DynamicFavicon() {
-  const { faviconUrl } = useBranding();
   const { brand, loading } = useAuthBrand();
-  // En el dominio de una marca NO aplicamos el favicon global de Clubify.
-  // Preferimos su favicon dedicado → icono dashboard → logo; si no tiene
-  // ninguno, dejamos el favicon del metadata SSR (nunca el verde de Clubify).
+  // En el dominio de una marca usamos su favicon dedicado → icono → logo.
+  // Para Clubify NO inyectamos nada: el metadata SSR ya sirve el favicon por
+  // el generador (símbolo cuadrado sobre fondo sólido). Antes inyectábamos la
+  // imagen CRUDA del Setting (ej. flecha verde transparente) al final del head
+  // y, como el browser prioriza el último <link icon>, tapaba el bueno y a
+  // tamaño favicon se veía invisible.
   const effective = brand
     ? brand.faviconUrl ?? brand.iconUrl ?? brand.logoUrl ?? null
-    : faviconUrl;
+    : null;
   useEffect(() => {
     if (typeof document === 'undefined') return;
     // Mientras resolvemos la marca por host, no tocamos nada (evita flash del
