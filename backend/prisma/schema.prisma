@@ -3944,6 +3944,11 @@ model WhiteLabel {
   /// no incrementa creditsAvailable). Para partners especiales o demos.
   creditsUnlimited Boolean        @default(false)
 
+  /// Periodicidades de plan que ofrece la marca (MENSUAL/TRIMESTRAL/SEMESTRAL/
+  /// ANUAL). Configurable por marca en Master Admin → controla qué opciones de
+  /// periodicidad muestra el form "Nuevo negocio". Default = las 4 (Clubify).
+  planPeriodicities String[]      @default(["MENSUAL", "TRIMESTRAL", "SEMESTRAL", "ANUAL"])
+
   /// Teléfono al que la plataforma (Clubify) le manda los SMS de créditos
   /// a esta marca blanca (compra acreditada / saldo bajo / negocios
   /// pendientes por falta de créditos). El remitente es la subcuenta global

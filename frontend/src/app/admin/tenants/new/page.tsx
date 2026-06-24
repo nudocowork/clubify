@@ -45,7 +45,13 @@ export default function NewTenant() {
   // Créditos de la marca del admin. null = admin global (Clubify, sin créditos)
   // → usa el flujo Hotmart. Objeto = admin de marca → activa con créditos y, al
   // crear un negocio, aparece el popup OBLIGATORIO de activación.
-  type Credits = { available: number; unlimited: boolean; buyLinks: any[] };
+  type Credits = {
+    available: number;
+    unlimited: boolean;
+    buyLinks: any[];
+    // Periodicidades que ofrece la marca (configurable en Master Admin).
+    planPeriodicities?: string[];
+  };
   const [credits, setCredits] = useState<Credits | null>(null);
   const [creditsLoaded, setCreditsLoaded] = useState(false);
   const [showCreditModal, setShowCreditModal] = useState(false);
@@ -93,6 +99,9 @@ export default function NewTenant() {
           available: c?.available ?? 0,
           unlimited: !!c?.unlimited,
           buyLinks: c?.buyLinks ?? [],
+          planPeriodicities: Array.isArray(c?.planPeriodicities)
+            ? c.planPeriodicities
+            : undefined,
         }),
       )
       .catch(() => setCredits(null))
@@ -350,21 +359,23 @@ export default function NewTenant() {
             {t('fieldPeriodicity')}{' '}
             <span className="text-mute font-normal">{t('periodicityNote')}</span>
           </label>
-          {/* Marca blanca (credits != null): solo Mensual y Anual — Trimestral
-              y Semestral son planes de Clubify, no de la marca (ej. Sellea). */}
-          <div className={`grid ${credits === null ? 'grid-cols-4' : 'grid-cols-2'} gap-2`}>
-            {(
-              [
-                { v: 'MENSUAL' as const, label: t('periodicityMonthly') },
-                ...(credits === null
-                  ? [
-                      { v: 'TRIMESTRAL' as const, label: t('periodicityQuarterly') },
-                      { v: 'SEMESTRAL' as const, label: t('periodicitySemiannual') },
-                    ]
-                  : []),
-                { v: 'ANUAL' as const, label: t('periodicityAnnual') },
-              ]
-            ).map((opt) => {
+          {/* Periodicidades CONFIGURABLES por marca (Master Admin → Marca →
+              planPeriodicities). Sin marca (Clubify) o sin config → las 4. */}
+          {(() => {
+            const ALL = [
+              { v: 'MENSUAL' as const, label: t('periodicityMonthly') },
+              { v: 'TRIMESTRAL' as const, label: t('periodicityQuarterly') },
+              { v: 'SEMESTRAL' as const, label: t('periodicitySemiannual') },
+              { v: 'ANUAL' as const, label: t('periodicityAnnual') },
+            ];
+            const allowed = credits?.planPeriodicities?.length
+              ? credits.planPeriodicities
+              : null;
+            const opts = allowed ? ALL.filter((o) => allowed.includes(o.v)) : ALL;
+            const cols = opts.length <= 2 ? 'grid-cols-2' : opts.length === 3 ? 'grid-cols-3' : 'grid-cols-4';
+            return (
+          <div className={`grid ${cols} gap-2`}>
+            {opts.map((opt) => {
               const active = form.planPeriodicity === opt.v;
               return (
                 <button
@@ -382,6 +393,8 @@ export default function NewTenant() {
               );
             })}
           </div>
+            );
+          })()}
           <div className="text-[11px] text-mute mt-1">
             {t('periodicityHint')}
           </div>

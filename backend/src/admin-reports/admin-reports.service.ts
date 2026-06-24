@@ -1426,6 +1426,7 @@ export class AdminReportsService {
         creditsCommitted: true,
         creditsUsed: true,
         creditsUnlimited: true,
+        planPeriodicities: true,
       },
     });
     if (!wl) throw new NotFoundException('Marca no encontrada');
@@ -1464,6 +1465,8 @@ export class AdminReportsService {
     return {
       whiteLabel: { id: wl.id, name: wl.name, slug: wl.slug },
       unlimited: wl.creditsUnlimited,
+      // Periodicidades que ofrece la marca (form "Nuevo negocio" las usa).
+      planPeriodicities: wl.planPeriodicities ?? [],
       available: wl.creditsAvailable,
       committed: wl.creditsCommitted,
       used: wl.creditsUsed,

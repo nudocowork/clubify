@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { IsBoolean, IsEmail, IsHexColor, IsIn, IsInt, IsObject, IsNumber, IsOptional, IsString, Length, Max, MaxLength, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsEmail, IsHexColor, IsIn, IsInt, IsObject, IsNumber, IsOptional, IsString, Length, Max, MaxLength, Min } from 'class-validator';
 import { ModuleKey, WhiteLabelStatus } from '@prisma/client';
 import { Public } from '../common/decorators/public.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -29,6 +29,10 @@ class WhiteLabelBody {
   @IsOptional() @IsString() @MaxLength(30) notifyPhone?: string;
   // Google Maps API key de la marca (browser key restringida por referrer).
   @IsOptional() @IsString() @MaxLength(200) mapsApiKey?: string;
+  // Periodicidades de plan que ofrece la marca (form "Nuevo negocio").
+  @IsOptional() @IsArray()
+  @IsIn(['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL'], { each: true })
+  planPeriodicities?: string[];
 }
 
 class StatusBody {

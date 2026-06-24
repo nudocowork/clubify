@@ -37,6 +37,7 @@ type WhiteLabel = {
 };
 
 type WhiteLabelDetail = WhiteLabel & {
+  planPeriodicities?: string[];
   modules: { module: string; enabled: boolean }[];
   tenants: { id: string; brandName: string; slug: string; status: string }[];
   admins: {
@@ -624,6 +625,12 @@ function Drawer({
               <PaymentGatewayConfig whiteLabelId={w.id} onSaved={onChanged} />
 
               <HotmartCreditConfig whiteLabelId={w.id} onSaved={onChanged} />
+
+              <PlanPeriodicitiesConfig
+                whiteLabelId={w.id}
+                initial={w.planPeriodicities ?? []}
+                onSaved={onChanged}
+              />
 
               <div>
                 <SectionTitle>Módulos activos</SectionTitle>
@@ -1371,6 +1378,95 @@ const payInput = {
 /** Sección "Pasarela de pago": selector Hotmart/Stripe/Manual, campos por
  *  pasarela (secretos cifrados server-side, enmascarados al volver) y gestor
  *  de links de pago. Todo aislado por marca. */
+
+/**
+ * Periodicidades de plan que ofrece la marca. Controla qué opciones de
+ * periodicidad muestra el form "Nuevo negocio" del admin (/admin/tenants/new).
+ * Ej: Sellea solo Mensual + Anual.
+ */
+const PERIODICITY_OPTS = [
+  { v: 'MENSUAL', label: 'Mensual' },
+  { v: 'TRIMESTRAL', label: 'Trimestral' },
+  { v: 'SEMESTRAL', label: 'Semestral' },
+  { v: 'ANUAL', label: 'Anual' },
+] as const;
+function PlanPeriodicitiesConfig({
+  whiteLabelId,
+  initial,
+  onSaved,
+}: {
+  whiteLabelId: string;
+  initial: string[];
+  onSaved: (msg: string) => void;
+}) {
+  const [sel, setSel] = useState<string[]>(
+    initial?.length ? initial : PERIODICITY_OPTS.map((o) => o.v),
+  );
+  const [busy, setBusy] = useState(false);
+
+  function toggle(v: string) {
+    setSel((s) => (s.includes(v) ? s.filter((x) => x !== v) : [...s, v]));
+  }
+
+  async function save() {
+    if (sel.length === 0) {
+      onSaved('Elegí al menos una periodicidad');
+      return;
+    }
+    setBusy(true);
+    try {
+      // Mantener el orden canónico.
+      const ordered = PERIODICITY_OPTS.map((o) => o.v).filter((v) => sel.includes(v));
+      await api(`/superadmin/white-labels/${whiteLabelId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ planPeriodicities: ordered }),
+      });
+      onSaved('Periodicidades actualizadas');
+    } catch (e: any) {
+      onSaved(e?.message ?? 'Error al guardar periodicidades');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      <SectionTitle>Planes / Periodicidades</SectionTitle>
+      <div className="text-[11px] mt-1 mb-2" style={{ color: '#9aa4af' }}>
+        Qué periodicidades ofrece esta marca (form &quot;Nuevo negocio&quot;).
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {PERIODICITY_OPTS.map((o) => {
+          const on = sel.includes(o.v);
+          return (
+            <button
+              key={o.v}
+              type="button"
+              onClick={() => toggle(o.v)}
+              className="rounded-[8px] px-3 py-2 text-sm font-semibold text-left transition"
+              style={{
+                border: `2px solid ${on ? '#16a34a' : '#d6dcd9'}`,
+                background: on ? '#dcfce7' : 'white',
+                color: on ? '#15803d' : '#6b7785',
+              }}
+            >
+              {on ? '✓ ' : ''}{o.label}
+            </button>
+          );
+        })}
+      </div>
+      <button
+        onClick={save}
+        disabled={busy}
+        className="mt-2.5 rounded-[8px] px-3 py-1.5 text-sm font-bold text-white disabled:opacity-50"
+        style={{ background: '#16a34a' }}
+      >
+        {busy ? 'Guardando…' : 'Guardar periodicidades'}
+      </button>
+    </div>
+  );
+}
+
 /**
  * Configuración de Créditos por MARCA BLANCA. La acreditación automática de
  * créditos identifica la marca por (Product ID + Offer ID) → este link →

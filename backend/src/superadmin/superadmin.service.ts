@@ -54,7 +54,18 @@ export type WhiteLabelDto = {
   contactEmail?: string;
   notifyPhone?: string;
   mapsApiKey?: string;
+  planPeriodicities?: string[];
 };
+
+/** Periodicidades de plan válidas, en orden canónico. */
+const VALID_PERIODICITIES = ['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL'] as const;
+/** Filtra/dedup/ordena la lista de periodicidades. Si queda vacía → todas
+ *  (no tiene sentido una marca sin ninguna periodicidad). */
+function normalizePeriodicities(input: string[]): string[] {
+  const set = new Set((input ?? []).map((p) => String(p).toUpperCase().trim()));
+  const out = VALID_PERIODICITIES.filter((p) => set.has(p));
+  return out.length ? out : [...VALID_PERIODICITIES];
+}
 
 export type HotmartLinkDto = {
   credits: number;
@@ -718,6 +729,9 @@ export class SuperAdminService {
           initial: (dto.initial || dto.name.trim()[0] || 'M').toUpperCase().slice(0, 1),
           adminEmail: dto.adminEmail?.trim().toLowerCase() || null,
           creditsUnlimited: dto.creditsUnlimited ?? false,
+          ...(dto.planPeriodicities
+            ? { planPeriodicities: normalizePeriodicities(dto.planPeriodicities) }
+            : {}),
           modules: {
             create: [
               { module: 'REFERRALS', enabled: true },
@@ -765,6 +779,9 @@ export class SuperAdminService {
         adminEmail: patch.adminEmail === undefined ? undefined : patch.adminEmail?.trim().toLowerCase() || null,
         creditsUnlimited: patch.creditsUnlimited === undefined ? undefined : patch.creditsUnlimited,
         mapsApiKey: patch.mapsApiKey === undefined ? undefined : patch.mapsApiKey?.trim() || null,
+        planPeriodicities: patch.planPeriodicities === undefined
+          ? undefined
+          : normalizePeriodicities(patch.planPeriodicities),
       },
     });
     await this.logAction(actorId, 'superadmin.white_label.update', `whiteLabel:${id}`, {
@@ -1272,6 +1289,7 @@ export class SuperAdminService {
         contactEmail: true,
         demoButtonWhatsApp: true,
         mapsApiKey: true,
+        planPeriodicities: true,
         // Módulos habilitados → el panel gatea secciones (ej. Referidos) por
         // marca. Solo los enabled.
         modules: { where: { enabled: true }, select: { module: true } },
@@ -1293,6 +1311,8 @@ export class SuperAdminService {
       demoButtonWhatsApp: wl.demoButtonWhatsApp,
       // API key de Google Maps de la marca (el mapa del panel la usa).
       mapsApiKey: wl.mapsApiKey ?? null,
+      // Periodicidades que ofrece la marca (form "Nuevo negocio").
+      planPeriodicities: wl.planPeriodicities ?? [],
       modules: wl.modules.map((m) => m.module),
     };
   }
