@@ -82,43 +82,13 @@ export class NotificationsService {
       include: { walletDevices: true },
     });
 
-    // Para que la notificación llegue al iPhone, necesitamos:
-    // 1. Modificar el pase con el mensaje (en backFields tipo "Mensaje")
-    // 2. Disparar silent push APNs → iPhone re-fetch del .pkpass
-    // El iPhone muestra automáticamente "Tu pase de X cambió" en lockscreen.
-    let targeted = 0;
-    let delivered = 0;
-    const fullMessage = `${dto.title}\n${dto.body}`.trim();
-
-    for (const p of passes) {
-      targeted += p.walletDevices.length;
-      this.logger.log(
-        `Push to pass ${p.id} (${p.walletDevices.length} Apple devices)`,
-      );
-      try {
-        // Guardamos el mensaje en el pase mismo para que aparezca dentro del
-        // pase actualizado. Apple Wallet incluye este texto al re-fetchear.
-        await this.prisma.pass.update({
-          where: { id: p.id },
-          data: {
-            lastActivityAt: new Date(),
-          },
-        });
-        // Silent APNs push → iPhone refetchea + sistema notifica al usuario
-        const r = await this.wallet.pushPassUpdate(p.id);
-        delivered += r?.sent ?? 0;
-      } catch (e) {
-        this.logger.warn(
-          `Push pass ${p.id} falló: ${(e as Error).message}`,
-        );
-      }
-    }
-
-    this.logger.log(
-      `Notification "${dto.title}" → ${targeted} devices targeted, ${delivered} delivered`,
-    );
-
-    return this.prisma.notification.create({
+    // Crear la Notification ANTES del push (broadcast → customerId null = la ve
+    // todo el tenant). Apple lee este texto vía el backField `lastMessage` al
+    // re-fetchear el .pkpass; antes se creaba DESPUÉS del push → Apple mostraba
+    // el mensaje anterior. A Google se le pasa el texto en opts.message
+    // (addMessage TEXT_AND_NOTIFY); antes iba sin mensaje → caía al genérico
+    // "Sellos: 0/10".
+    const notif = await this.prisma.notification.create({
       data: {
         tenantId: tid,
         cardId: dto.cardId,
@@ -127,8 +97,40 @@ export class NotificationsService {
         segment: dto.segment ?? {},
         triggerType: 'MANUAL',
         sentAt: new Date(),
-        stats: { targeted, delivered, opened: 0 },
+        stats: { targeted: 0, delivered: 0, opened: 0 },
       },
+    });
+
+    let targeted = 0;
+    let delivered = 0;
+    for (const p of passes) {
+      targeted += p.walletDevices.length;
+      this.logger.log(
+        `Push to pass ${p.id} (${p.walletDevices.length} Apple devices)`,
+      );
+      try {
+        await this.prisma.pass.update({
+          where: { id: p.id },
+          data: { lastActivityAt: new Date() },
+        });
+        // Pasamos el texto real → Apple (lastMessage) + Google (addMessage) lo
+        // muestran, en vez del genérico de sellos.
+        const r = await this.wallet.pushPassUpdate(p.id, {
+          message: { header: dto.title, body: dto.body },
+        });
+        delivered += r?.sent ?? 0;
+      } catch (e) {
+        this.logger.warn(`Push pass ${p.id} falló: ${(e as Error).message}`);
+      }
+    }
+
+    this.logger.log(
+      `Notification "${dto.title}" → ${targeted} devices targeted, ${delivered} delivered`,
+    );
+
+    return this.prisma.notification.update({
+      where: { id: notif.id },
+      data: { stats: { targeted, delivered, opened: 0 } },
     });
   }
 
@@ -194,7 +196,9 @@ export class NotificationsService {
           where: { id: p.id },
           data: { lastActivityAt: new Date() },
         });
-        const r = await this.wallet.pushPassUpdate(p.id);
+        const r = await this.wallet.pushPassUpdate(p.id, {
+          message: { header: n.title, body: n.body },
+        });
         delivered += r?.sent ?? 0;
       } catch (e) {
         this.logger.warn(
