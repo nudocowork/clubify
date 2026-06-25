@@ -32,6 +32,19 @@ class StatusBody {
   @IsEnum(OrderStatus) status!: OrderStatus;
 }
 
+class EditOrderItem {
+  @IsString() productId!: string;
+  @IsOptional() @IsString() variantId?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) extraIds?: string[];
+  @IsInt() @Min(1) qty!: number;
+  @IsOptional() @IsString() note?: string;
+}
+
+class EditOrderBody {
+  @IsArray() @ArrayMinSize(1) @ValidateNested({ each: true }) @Type(() => EditOrderItem)
+  items!: EditOrderItem[];
+}
+
 class ManualOrderItem {
   @IsString() productId!: string;
   @IsOptional() @IsString() variantId?: string;
@@ -67,8 +80,11 @@ export class OrdersController {
     @CurrentUser() user: AuthUser,
     @Query('tenantId') tenantId?: string,
     @Query('status') status?: OrderStatus,
+    @Query('search') search?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
   ) {
-    return this.svc.list(user, tenantId, status);
+    return this.svc.list(user, tenantId, { status, search, from, to });
   }
 
   @Get('board')
@@ -86,8 +102,11 @@ export class OrdersController {
     @Res() res: Response,
     @Query('tenantId') tenantId?: string,
     @Query('status') status?: OrderStatus,
+    @Query('search') search?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
   ) {
-    const orders = await this.svc.list(user, tenantId, status);
+    const orders = await this.svc.list(user, tenantId, { status, search, from, to });
     const csv = toCSV(orders as any[], [
       { key: 'code', label: 'Código' },
       { key: 'createdAt', label: 'Fecha', format: (v) => new Date(v).toISOString() },
@@ -138,6 +157,16 @@ export class OrdersController {
     @Body() body: StatusBody,
   ) {
     return this.svc.setStatus(user, id, body.status);
+  }
+
+  /** Editar los items de un pedido ya hecho (recalcula totales). */
+  @Patch(':id')
+  edit(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: EditOrderBody,
+  ) {
+    return this.svc.updateOrder(user, id, body);
   }
 
   @Post(':id/accept-delivery-payment')

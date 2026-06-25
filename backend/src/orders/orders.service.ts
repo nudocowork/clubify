@@ -913,12 +913,43 @@ export class OrdersService {
     }
   }
 
-  list(user: AuthUser, override?: string, status?: OrderStatus) {
+  /** Historial de pedidos con filtros opcionales de servidor: estado, búsqueda
+   *  (código / nombre / teléfono del cliente) y rango de fechas (from/to). Lo
+   *  usa el panel de Pedidos → pestaña Historial. */
+  list(
+    user: AuthUser,
+    override?: string,
+    filters?: { status?: OrderStatus; search?: string; from?: string; to?: string },
+  ) {
     const tid = this.tid(user, override);
+    const where: any = { tenantId: tid };
+    if (filters?.status) where.status = filters.status;
+    if (filters?.from || filters?.to) {
+      where.createdAt = {};
+      if (filters.from) {
+        const d = new Date(filters.from);
+        if (!Number.isNaN(d.getTime())) where.createdAt.gte = d;
+      }
+      if (filters.to) {
+        const d = new Date(filters.to);
+        if (!Number.isNaN(d.getTime())) {
+          d.setHours(23, 59, 59, 999);
+          where.createdAt.lte = d;
+        }
+      }
+    }
+    const s = filters?.search?.trim();
+    if (s) {
+      where.OR = [
+        { code: { contains: s, mode: 'insensitive' } },
+        { customer: { is: { fullName: { contains: s, mode: 'insensitive' } } } },
+        { customer: { is: { phone: { contains: s } } } },
+      ];
+    }
     // `items` es Json scalar — Prisma lo devuelve siempre sin necesidad de
     // include/select. El frontend lee o.items.length (orders/page.tsx).
     return this.prisma.order.findMany({
-      where: { tenantId: tid, ...(status ? { status } : {}) },
+      where,
       include: {
         customer: { select: { fullName: true, phone: true, email: true } },
       },
@@ -972,6 +1003,106 @@ export class OrdersService {
       throw new ForbiddenException();
     }
     return o;
+  }
+
+  /** Editar los ITEMS de un pedido ya hecho (panel → "Editar pedido").
+   *  Re-resuelve productos/precios del tenant (anti-tampering) y recalcula
+   *  subtotal/descuento/total. No se puede editar un pedido ENTREGADO/CANCELADO.
+   *  Preserva el monto de delivery. Registra un OrderEvent de edición. */
+  async updateOrder(
+    user: AuthUser,
+    id: string,
+    dto: {
+      items: {
+        productId: string;
+        variantId?: string;
+        extraIds?: string[];
+        qty: number;
+        note?: string;
+      }[];
+    },
+  ) {
+    const o = await this.get(user, id);
+    if (o.status === 'CANCELLED' || o.status === 'DELIVERED') {
+      throw new BadRequestException(
+        'No se puede editar un pedido entregado o cancelado.',
+      );
+    }
+    await this.assertTenantActive(o.tenantId);
+    if (!dto.items?.length) {
+      throw new BadRequestException('El pedido debe tener al menos un producto.');
+    }
+
+    const productIds = dto.items.map((i) => i.productId);
+    const products = await this.prisma.product.findMany({
+      where: { tenantId: o.tenantId, id: { in: productIds } },
+      include: { variants: true, extras: true },
+    });
+    const map = new Map(products.map((p) => [p.id, p]));
+
+    const items: any[] = [];
+    let subtotal = 0;
+    for (const i of dto.items) {
+      const p = map.get(i.productId);
+      if (!p) throw new BadRequestException(`Producto ${i.productId} no disponible`);
+      let unit = Number(p.basePrice);
+      let variantName = '';
+      if (i.variantId) {
+        const v = p.variants.find((x) => x.id === i.variantId);
+        if (!v) throw new BadRequestException('Variante inválida');
+        unit += Number(v.priceDelta);
+        variantName = ` (${v.name})`;
+      }
+      const extras = (i.extraIds ?? []).map((eid) => {
+        const e = p.extras.find((x) => x.id === eid);
+        if (!e) throw new BadRequestException('Extra inválido');
+        unit += Number(e.price);
+        return { id: e.id, name: e.name, price: Number(e.price) };
+      });
+      const qty = Math.max(1, Math.min(50, i.qty));
+      const lineTotal = unit * qty;
+      subtotal += lineTotal;
+      items.push({
+        productId: p.id,
+        variantId: i.variantId ?? null,
+        extras,
+        qty,
+        name: p.name + variantName,
+        unitPrice: unit,
+        lineTotal,
+        note: i.note,
+      });
+    }
+
+    const { discount, applied } = await this.promotions.computeForCart(
+      o.tenantId,
+      subtotal,
+      items,
+    );
+    const deliveryAmount = o.deliveryAmount != null ? Number(o.deliveryAmount) : 0;
+    const total = Math.max(0, subtotal - discount + deliveryAmount);
+
+    const updated = await this.prisma.order.update({
+      where: { id },
+      data: {
+        items: items as any,
+        subtotal,
+        discount,
+        total,
+        appliedPromos: applied as any,
+      },
+    });
+    await this.prisma.orderEvent
+      .create({
+        data: {
+          orderId: id,
+          type: 'STATUS_CHANGED',
+          metadata: { edited: true, by: user.id, newTotal: total, items: items.length },
+          actorId: user.id,
+        },
+      })
+      .catch(() => undefined);
+    return updated;
   }
 
   async setStatus(user: AuthUser, id: string, next: OrderStatus) {
