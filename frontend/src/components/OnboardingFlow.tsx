@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { api, getUser } from '@/lib/api';
 import type { MapPickResult } from '@/components/MapPicker';
+import { useAuthBrand } from '@/components/AuthBrand';
 
 // Leaflet usa `window` al import — dynamic import sin SSR
 const MapPicker = dynamic(
@@ -96,6 +97,8 @@ function WelcomeStep({
   onDone: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const { brand } = useAuthBrand();
+  const platform = brand?.name || 'Clubify';
 
   async function dismiss() {
     setBusy(true);
@@ -128,7 +131,7 @@ function WelcomeStep({
         </button>
         <img src={imageUrl} alt="" className="w-full h-64 object-cover" draggable={false} />
         <div className="p-6 text-center">
-          <h2 className="text-2xl font-bold mb-2">🎉 ¡Bienvenido a Clubify!</h2>
+          <h2 className="text-2xl font-bold mb-2">🎉 ¡Bienvenido a {platform}!</h2>
           <p className="text-mute text-sm leading-relaxed">
             Agenda una sesión personalizada con nuestro equipo para que te
             ayudemos a sacar el máximo provecho de la plataforma desde el día uno.

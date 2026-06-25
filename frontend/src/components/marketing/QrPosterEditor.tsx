@@ -3440,7 +3440,7 @@ function layerLabel(id: LayerId, cfg: QrPosterConfig): string | null {
   if (id === 'bg') return 'Fondo';
   if (id === 'qr') return 'Código QR';
   if (id === 'logo') return cfg.logo ? 'Logo' : null;
-  if (id === 'footer') return 'Pie "Powered by Clubify"';
+  if (id === 'footer') return 'Pie "Powered by"';
   if (id === 'text.title') return `Título: ${cfg.texts.title.text || ''}`;
   if (id === 'text.subtitle') return `Subtítulo: ${cfg.texts.subtitle.text || ''}`;
   if (id === 'text.cta') return `CTA: ${cfg.texts.cta.text || ''}`;

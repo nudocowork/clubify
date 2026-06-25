@@ -23,7 +23,7 @@ export async function generateMetadata({
     });
     if (!res.ok) {
       return {
-        title: 'Pedido · Clubify',
+        title: 'Pedido',
         description: 'Sigue el estado de tu pedido en tiempo real.',
       };
     }
@@ -45,7 +45,7 @@ export async function generateMetadata({
     };
   } catch {
     return {
-      title: 'Pedido · Clubify',
+      title: 'Pedido',
       description: 'Sigue el estado de tu pedido en tiempo real.',
       robots: { index: false, follow: false },
     };

@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { useAuthBrand } from '@/components/AuthBrand';
 
 type Status = {
   status: 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'SUSPENDED' | 'EXPIRED' | 'CANCELED';
@@ -16,6 +17,9 @@ type Status = {
 export function TrialBanner() {
   const [s, setS] = useState<Status | null>(null);
   const [hidden, setHidden] = useState(false);
+  // Nombre de la marca (Sellea en su dominio) para no decir "Clubify".
+  const { brand } = useAuthBrand();
+  const platform = brand?.name || 'Clubify';
 
   useEffect(() => {
     api<Status>('/billing/status').then(setS).catch(() => null);
@@ -60,7 +64,7 @@ export function TrialBanner() {
       label =
         d === 1
           ? '⏰ Tu modo prueba termina mañana. Activa tu cuenta para no perder acceso.'
-          : `🎁 Estás usando Clubify en modo prueba. Te quedan ${d} días para activar tu cuenta.`;
+          : `🎁 Estás usando ${platform} en modo prueba. Te quedan ${d} días para activar tu cuenta.`;
       cta = 'Activar ahora';
     } else {
       label = 'Tu modo prueba está por terminar. Activa tu cuenta ahora.';

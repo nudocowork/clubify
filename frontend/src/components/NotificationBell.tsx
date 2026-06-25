@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Icon } from './Icon';
 import { getOrdersSocket } from '@/lib/socket';
+import { useAuthBrand } from '@/components/AuthBrand';
 
 type Notif = {
   id: string;
@@ -65,6 +66,11 @@ function timeAgo(ts: number) {
 export function NotificationBell() {
   const [items, setItems] = useState<Notif[]>([]);
   const [open, setOpen] = useState(false);
+  // Marca por host (Sellea) para la notif nativa — ref para leer el valor
+  // actual dentro del handler del socket (closure).
+  const { brand } = useAuthBrand();
+  const brandRef = useRef(brand);
+  brandRef.current = brand;
   const ref = useRef<HTMLDivElement>(null);
   // FIX 2026-06-16 (review): dedup de notifs por (code+evento). El socket
   // emite order:upsert en CADA cambio; antes `_wasPending !== false` (campo
@@ -129,7 +135,7 @@ export function NotificationBell() {
         document.visibilityState !== 'visible'
       ) {
         try {
-          new Notification(`Clubify · #${o.code}`, {
+          new Notification(`${brandRef.current?.name || 'Clubify'} · #${o.code}`, {
             body: `${o.customer?.fullName ?? 'Cliente'} · ${o.status}`,
             icon: '/icons/icon-192.png',
           });
