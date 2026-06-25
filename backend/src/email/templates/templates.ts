@@ -144,10 +144,10 @@ export function welcomeStaffTemplate(args: {
 }) {
   return {
     subject: `Bienvenido al equipo de ${args.tenant.brandName}`,
-    text: `Tu cuenta de ${args.tenant.brandName} en Clubify\nEmail: ${args.email}\nContraseña temporal: ${args.tempPassword}\nIngresa en: ${args.loginUrl}`,
+    text: `Tu cuenta de ${args.tenant.brandName}\nEmail: ${args.email}\nContraseña temporal: ${args.tempPassword}\nIngresa en: ${args.loginUrl}`,
     html: shell({
       tenant: args.tenant,
-      preheader: 'Tu acceso al panel de Clubify',
+      preheader: `Tu acceso al panel de ${args.tenant.brandName}`,
       body: `
         <h2 style="margin:0 0 12px;font-size:22px;font-weight:700">¡Bienvenido, ${args.fullName}!</h2>
         <p style="margin:0 0 12px;color:#374151;line-height:1.55">Te crearon una cuenta para gestionar pedidos y clientes en <b>${args.tenant.brandName}</b>.</p>

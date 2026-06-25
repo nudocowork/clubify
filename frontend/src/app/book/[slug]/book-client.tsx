@@ -28,6 +28,13 @@ type Storefront = {
   digitalMenuEnabled?: boolean;
   bookMenuEnabled?: boolean;
   menuLayout?: string;
+  // Marca blanca del negocio (atribución/web). El badge muestra la marca del
+  // negocio (Sellea), nunca Clubify hardcodeado.
+  brand?: {
+    name: string;
+    websiteUrl?: string | null;
+    attribution?: { madeWith?: string | null } | null;
+  } | null;
 };
 
 export default function BookClient() {
@@ -130,12 +137,12 @@ export default function BookClient() {
         urlPrefix="/book"
       />
       <a
-        href="https://soyclubify.com"
+        href={s.brand?.websiteUrl || 'https://soyclubify.com'}
         target="_blank"
         rel="noopener noreferrer"
         className="fixed bottom-2 right-2 z-10 text-[9px] text-mute/70 hover:text-mute font-medium tracking-tight select-none px-1.5 py-0.5 rounded bg-white/60 backdrop-blur-sm"
       >
-        Clubify
+        {s.brand?.name || 'Clubify'}
       </a>
     </div>
   );

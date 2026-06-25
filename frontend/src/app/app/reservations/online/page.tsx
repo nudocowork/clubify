@@ -9,6 +9,8 @@ import { fmtLongDate, todayISO, to12h } from '../_shared';
 type Tenant = {
   slug: string;
   brandName?: string;
+  // Dominio público de la marca del negocio (ej. selleala.com). Null = Clubify.
+  brandPublicDomain?: string | null;
 };
 
 export default function ReservaOnlinePage() {
@@ -21,7 +23,14 @@ export default function ReservaOnlinePage() {
       .catch(() => null);
   }, []);
 
-  const publicUrl = tenant?.slug ? `https://soyclubify.com/reserva/${tenant.slug}` : '';
+  // La URL pública de reservas usa el dominio de la marca (selleala.com), no
+  // soyclubify.com. Sin marca (Clubify) → soyclubify.com.
+  const publicDomain = (tenant?.brandPublicDomain || 'soyclubify.com')
+    .replace(/^https?:\/\//, '')
+    .replace(/\/$/, '');
+  const publicUrl = tenant?.slug
+    ? `https://${publicDomain}/reserva/${tenant.slug}`
+    : '';
 
   function copyLink() {
     if (!publicUrl) return;

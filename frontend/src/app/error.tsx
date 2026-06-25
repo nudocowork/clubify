@@ -20,7 +20,7 @@ export default function GlobalError({
         <h1 className="text-2xl font-bold mt-3">Algo salió mal</h1>
         <p className="text-mute mt-2 leading-relaxed">
           Tuvimos un problema cargando esta página. Reintenta o vuelve al
-          inicio. Si pasa de nuevo, escríbenos.
+          inicio.
         </p>
         {error.digest && (
           <div className="text-[10px] text-mute2 mt-3 font-mono">
@@ -35,12 +35,6 @@ export default function GlobalError({
             Inicio
           </Link>
         </div>
-        <a
-          href="https://wa.me/573167689240?text=Error%20en%20Clubify"
-          className="block text-xs text-brand hover:underline mt-4"
-        >
-          Avisar por WhatsApp →
-        </a>
       </div>
     </main>
   );

@@ -1453,10 +1453,12 @@ function PublicLinkPreview({
           })}
         </div>
 
-        {/* Footer */}
+        {/* Footer — marca del negocio (Sellea, etc.), no Clubify hardcodeado. */}
         <div className="mt-6 pt-4 border-t border-line text-center text-[10px] text-mute">
           {t('developedBy')}{' '}
-          <span className="font-semibold text-brand">Clubify</span>
+          <span className="font-semibold text-brand">
+            {tenant?.whiteLabelName || 'Clubify'}
+          </span>
         </div>
       </div>
     </div>
