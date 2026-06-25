@@ -218,13 +218,18 @@ export function inviteAffiliateTemplate(args: {
   commissionPercent: number;
   campaignName: string | null;
   parentName: string | null;
+  // Marca blanca del afiliado (resuelta por ReferralCode.whiteLabelId). El
+  // email hereda su nombre/color/logo en vez de Clubify. Sin brand → Clubify.
+  brand?: { name: string; primaryColor?: string | null; logoUrl?: string | null } | null;
 }) {
+  const brandName = args.brand?.name ?? 'Clubify';
+  const isBrand = !!args.brand;
   const tenant: Tenant = {
-    brandName: 'Clubify',
-    primaryColor: '#6366F1',
-    logoUrl: null,
+    brandName,
+    primaryColor: args.brand?.primaryColor ?? '#6366F1',
+    logoUrl: args.brand?.logoUrl ?? null,
     whatsappPhone: null,
-    slug: 'clubify',
+    slug: isBrand ? 'brand' : 'clubify',
   };
   const isInfluencer = args.role === 'AFFILIATE_INFLUENCER';
   const isSocio = args.role === 'AFFILIATE_SOCIO';
@@ -237,7 +242,7 @@ export function inviteAffiliateTemplate(args: {
     ? 'vendedor'
     : 'embajador';
   const greeting = isSocio
-    ? `Sos socio de Clubify y recibirás el ${args.commissionPercent}% de TODAS las ventas`
+    ? `Sos socio de ${brandName} y recibirás el ${args.commissionPercent}% de TODAS las ventas`
     : isInfluencer
     ? `Te asignamos la campaña ${args.campaignName ?? 'tuya'}`
     : isVendor
@@ -245,13 +250,14 @@ export function inviteAffiliateTemplate(args: {
     : `Te invitamos a ser embajador de ${args.parentName ?? 'la campaña'}`;
 
   return {
-    subject: `Bienvenido a Clubify — eres ${roleLabel} 🎉`,
+    subject: `Bienvenido a ${brandName} — eres ${roleLabel} 🎉`,
     text: `Hola ${args.fullName},\n${greeting}.\nTu código: ${args.code} (${args.commissionPercent}% de comisión recurrente).\nActiva tu cuenta aquí:\n${args.inviteUrl}\nEl link vence en 7 días.`,
     html: shell({
       tenant,
+      platformCredit: !isBrand,
       preheader: `Tu código: ${args.code} · ${args.commissionPercent}% recurrente`,
       body: `
-        <h2 style="margin:0 0 12px;font-size:22px;font-weight:700">¡Bienvenido a Clubify, ${args.fullName.split(' ')[0]}!</h2>
+        <h2 style="margin:0 0 12px;font-size:22px;font-weight:700">¡Bienvenido a ${brandName}, ${args.fullName.split(' ')[0]}!</h2>
         <p style="margin:0 0 14px;color:#374151;line-height:1.55">
           ${greeting}. Aquí ganas <b>${args.commissionPercent}% recurrente</b> por cada cliente que se registre con tu código.
         </p>

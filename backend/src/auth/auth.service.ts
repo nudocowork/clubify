@@ -659,8 +659,19 @@ export class AuthService {
         parentCode: { select: { ownerName: true } },
         parentEmbajadorCode: { select: { ownerName: true } },
         ownerOfCampaign: { select: { name: true } },
+        // Marca del afiliado → el email de invitación hereda su branding
+        // (Sellea), nunca Clubify. Clubify (o sin marca) cae al default.
+        whiteLabel: { select: { slug: true, name: true, primaryColor: true, logoUrl: true } },
       },
     });
+    const affiliateBrand =
+      code?.whiteLabel && code.whiteLabel.slug !== 'clubify'
+        ? {
+            name: code.whiteLabel.name,
+            primaryColor: code.whiteLabel.primaryColor,
+            logoUrl: code.whiteLabel.logoUrl,
+          }
+        : null;
 
     const parentName =
       code?.role === 'VENDOR'
@@ -678,6 +689,7 @@ export class AuthService {
           commissionPercent: Number(code?.commissionPercent ?? 0),
           campaignName: code?.ownerOfCampaign?.name ?? null,
           parentName,
+          brand: affiliateBrand,
         }),
       })
       .catch((e) =>

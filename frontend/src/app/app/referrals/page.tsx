@@ -49,12 +49,20 @@ export default function TenantReferrals() {
   const t = useTranslations('app_referrals');
   const [data, setData] = useState<MyReferrals | null>(null);
   const [loading, setLoading] = useState(true);
+  // WhatsApp de soporte de la marca del negocio (Sellea), no el de Clubify.
+  const [supportWa, setSupportWa] = useState('573167689240');
 
   useEffect(() => {
     api<MyReferrals>('/referrals/me')
       .then(setData)
       .catch(() => setData({ codes: [], totals: { signedUp: 0, converted: 0, paidUsd: 0, pendingUsd: 0 } }))
       .finally(() => setLoading(false));
+    api<{ brandSupportWhatsApp?: string | null }>('/tenants/me')
+      .then((tn) => {
+        const d = (tn?.brandSupportWhatsApp || '').replace(/[^0-9]/g, '');
+        if (d) setSupportWa(d);
+      })
+      .catch(() => null);
   }, []);
 
   function copyLink(link: string) {
@@ -207,7 +215,7 @@ export default function TenantReferrals() {
         {t.rich('payoutFooter', {
           a: (chunks) => (
             <a
-              href="https://wa.me/573167689240"
+              href={`https://wa.me/${supportWa}`}
               target="_blank"
               className="text-brand hover:underline"
             >
