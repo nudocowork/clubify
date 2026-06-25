@@ -1247,6 +1247,7 @@ export class TenantsService {
             slug: true,
             name: true,
             domain: true,
+            appDomain: true,
             creditsUnlimited: true,
             // Branding de la marca → el panel /app hereda logo/colores/favicon
             // (sino el negocio de una marca blanca ve el verde + logo Clubify).
@@ -1314,6 +1315,9 @@ export class TenantsService {
       // Dominio público de la marca (ej. selleala.com) → links públicos
       // (reservas, etc.) usan el dominio de la marca, no soyclubify.com.
       brandPublicDomain: t.whiteLabel?.domain ?? null,
+      // Dominio del panel/app de la marca (ej. app.selleala.com) → URL vanity
+      // de InfoLinks. Cae a domain, y en última instancia a soyclubify.com.
+      brandAppDomain: t.whiteLabel?.appDomain ?? null,
       // Features que la marca incluye en su suscripción (keys i18n). Vacío =
       // lista completa por defecto. Solo aplica a marcas blancas (no Clubify).
       brandSubscriptionFeatureKeys: t.whiteLabel?.subscriptionFeatureKeys ?? [],

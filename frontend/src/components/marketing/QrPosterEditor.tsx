@@ -20,6 +20,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Konva from 'konva';
+import { useAuthBrand } from '@/components/AuthBrand';
 import {
   Stage,
   Layer,
@@ -554,6 +555,11 @@ export default function QrPosterEditor({
   logoUrl,
   metaSlot,
 }: Props) {
+  // Pie "Powered by X": usa el nombre de la MARCA BLANCA resuelta por host
+  // (Sellea en su dominio), no "Clubify" hardcodeado. Sin marca → Clubify.
+  const { brand: hostBrand } = useAuthBrand();
+  const platformName = hostBrand?.name || 'Clubify';
+
   // Si hay posterIdProp, el editor opera contra /qr-posters/:id (modo
   // multi-QR). Sino, contra /qr-posters/by-type/:type (modo legacy).
   const idMode = !!posterIdProp;
@@ -2480,7 +2486,7 @@ export default function QrPosterEditor({
                       return (
                         <Text
                           key="footer"
-                          text="Powered by Clubify"
+                          text={`Powered by ${platformName}`}
                           x={0}
                           y={cfg.canvas.h - 60}
                           width={cfg.canvas.w}

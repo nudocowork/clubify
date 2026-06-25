@@ -237,12 +237,25 @@ export class PassesService {
 
     const email = dto.email?.trim().toLowerCase() || null;
 
-    // Match-or-create customer por teléfono exacto en este tenant
+    // Match-or-create customer por teléfono. Primero match EXACTO (rápido, usa
+    // el índice único). Si no, match por los ÚLTIMOS 10 DÍGITOS para no
+    // duplicar al cliente cuando vuelve con el número en otro formato (con/sin
+    // +57, con/sin código de país). Así, si ya tenía tarjeta y la borró del
+    // wallet, al reinstalar recupera SU pase con los sellos que tenía (el Pass
+    // nunca se borra; abajo se devuelve el existente).
+    const last10 = phoneNorm.replace(/\D/g, '').slice(-10);
     let customer = await this.prisma.customer
       .findUnique({
         where: { tenantId_phone: { tenantId: card.tenantId, phone: phoneNorm } },
       })
       .catch(() => null);
+    if (!customer && last10.length >= 8) {
+      customer = await this.prisma.customer
+        .findFirst({
+          where: { tenantId: card.tenantId, phone: { endsWith: last10 } },
+        })
+        .catch(() => null);
+    }
     // Birthday: aceptamos YYYY-MM-DD. El año es ficticio (2000), solo
     // usamos día/mes para el cron BIRTHDAY que filtra por extract().
     const birthdayDate = dto.birthday ? new Date(dto.birthday) : null;

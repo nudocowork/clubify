@@ -520,7 +520,6 @@ export class ReservationsService {
     };
     let grantStamp = false;
     let notifyConfirmed = false;
-    let notifyCancelled = false;
     if (patch.status && patch.status !== r.status) {
       data.status = patch.status;
       if (patch.status === 'CONFIRMED' && !r.confirmedAt) {
@@ -532,9 +531,12 @@ export class ReservationsService {
         if (!r.stampGrantedAt) grantStamp = true;
       }
       if (patch.status === 'COMPLETED' && !r.completedAt) data.completedAt = now;
+      // Cancelación desde el panel = la hace el negocio. NO se le manda mensaje
+      // al cliente (antes salía uno con un número de contacto incorrecto). El
+      // negocio ya sabe que canceló; el self-cancel del cliente sí avisa al
+      // negocio (notifyTenantOfCustomerCancellation).
       if (patch.status === 'CANCELLED' && !r.cancelledAt) {
         data.cancelledAt = now;
-        notifyCancelled = true;
       }
     }
     const updated = await this.prisma.reservation.update({
@@ -554,13 +556,6 @@ export class ReservationsService {
       this.notifyCustomerConfirmed(updated.id).catch((e) =>
         this.logger.warn(
           `notifyCustomerConfirmed falló (reservationId=${updated.id}): ${(e as Error).message}`,
-        ),
-      );
-    }
-    if (notifyCancelled) {
-      this.notifyCustomerCancelled(updated.id).catch((e) =>
-        this.logger.warn(
-          `notifyCustomerCancelled falló (reservationId=${updated.id}): ${(e as Error).message}`,
         ),
       );
     }

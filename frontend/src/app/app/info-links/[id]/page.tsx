@@ -447,7 +447,7 @@ export default function InfoLinkEditor() {
               />
             </div>
 
-            {/* URL personalizada (vanity) — soyclubify.com/<slug>. */}
+            {/* URL personalizada (vanity) — <dominio de la marca>/<slug>. */}
             <div className="mt-3">
               <label className="label">
                 {t('customUrl')}{' '}
@@ -455,7 +455,7 @@ export default function InfoLinkEditor() {
               </label>
               <div className="flex items-center gap-2">
                 <span className="text-[13px] text-mute select-none whitespace-nowrap">
-                  soyclubify.com/
+                  {(tenant?.brandAppDomain || tenant?.brandPublicDomain || 'soyclubify.com')}/
                 </span>
                 <input
                   className="input flex-1"
@@ -474,7 +474,7 @@ export default function InfoLinkEditor() {
               </div>
               <p className="text-[11px] text-mute mt-1 leading-snug">
                 {t('customUrlHelpBefore')} <code>/i/{tenant.slug}/{link.slug}</code>.
-                {' '}{t('customUrlHelpMiddle')} <code>soyclubify.com/{link.rootSlug || t('yourSlug')}</code>.
+                {' '}{t('customUrlHelpMiddle')} <code>{(tenant?.brandAppDomain || tenant?.brandPublicDomain || 'soyclubify.com')}/{link.rootSlug || t('yourSlug')}</code>.
               </p>
             </div>
 
