@@ -135,6 +135,23 @@ export default function PlanoPage() {
   // Tablas sin zona (huérfanas)
   const orphanTables = useMemo(() => tables.filter((t) => !t.zoneId), [tables]);
 
+  // Mesas visibles según el filtro de zona. En 'todas' = todas; con una zona
+  // elegida = SOLO las mesas de esa zona (antes se mostraban todas las mesas
+  // aunque la zona estuviera filtrada → se veían los 2 pisos a la vez).
+  const visibleZoneIds = useMemo(
+    () => new Set(visibleZones.map((z) => z.id)),
+    [visibleZones],
+  );
+  const visibleTables = useMemo(
+    () =>
+      zoneFilter === 'todas'
+        ? tables
+        : tables.filter((t) => t.zoneId && visibleZoneIds.has(t.zoneId)),
+    [tables, zoneFilter, visibleZoneIds],
+  );
+  // Huérfanas solo en 'todas' (no pertenecen a ninguna zona específica).
+  const visibleOrphanTables = zoneFilter === 'todas' ? orphanTables : [];
+
   const selectedTable = tables.find((t) => t.id === selectedTableId) || null;
   const selectedState = selectedTable ? mesaStates.get(selectedTable.id) : null;
   const selectedZone = selectedTable?.zoneId ? zones.find((z) => z.id === selectedTable.zoneId) : null;
@@ -351,8 +368,8 @@ export default function PlanoPage() {
           {mode === 'operacion' ? (
             <OperationView
               zones={visibleZones}
-              orphanTables={orphanTables}
-              tables={tables}
+              orphanTables={visibleOrphanTables}
+              tables={visibleTables}
               mesaStates={mesaStates}
               selectedId={selectedTableId}
               onSelect={setSelectedTableId}
