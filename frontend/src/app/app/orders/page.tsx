@@ -422,6 +422,13 @@ export default function OrdersBoard() {
           >
             🍳 {t('kitchenMode')}
           </Link>
+          <Link
+            href="/app/orders/history"
+            className="btn-ghost text-xs"
+            title="Historial de pedidos con búsqueda por nombre y fecha"
+          >
+            📋 Historial
+          </Link>
           <button className="btn-ghost" onClick={load}>
             <Icon name="history" /> {t('refresh')}
           </button>
