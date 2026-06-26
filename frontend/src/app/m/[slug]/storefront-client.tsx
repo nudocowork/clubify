@@ -130,6 +130,8 @@ type Product = {
   basePrice: number;
   priceMode?: 'FIXED' | 'RANGE';
   priceMax?: number | null;
+  /** DELTA: variantes suman al base. ABSOLUTE: cada variante su precio propio. */
+  variantPriceMode?: 'DELTA' | 'ABSOLUTE';
   imageUrl: string | null;
   tags: string[];
   variants: Variant[];
@@ -177,10 +179,24 @@ function fmt(n: number, currency = 'COP', symbolOverride: string | null = null) 
  *    - "$X"             cuando FIXED o RANGE sin priceMax (fallback)
  *  Usado por los 8 layouts del storefront. */
 function fmtProductPrice(
-  p: Pick<Product, 'basePrice' | 'priceMode' | 'priceMax'>,
+  p: Pick<Product, 'basePrice' | 'priceMode' | 'priceMax' | 'variantPriceMode' | 'variants'>,
   currency = 'COP',
   symbolOverride: string | null = null,
 ): string {
+  // Tamaños con precio propio (ABSOLUTE): el precio de la tarjeta es el rango
+  // real de las variantes (mín — máx), no el basePrice (que ya no aplica).
+  if (p.variantPriceMode === 'ABSOLUTE' && p.variants && p.variants.length) {
+    const prices = p.variants
+      .map((v) => Number(v.priceDelta))
+      .filter((n) => Number.isFinite(n));
+    if (prices.length) {
+      const min = Math.min(...prices);
+      const max = Math.max(...prices);
+      return min === max
+        ? fmt(min, currency, symbolOverride)
+        : `${fmt(min, currency, symbolOverride)} — ${fmt(max, currency, symbolOverride)}`;
+    }
+  }
   if (p.priceMode === 'RANGE' && p.priceMax != null && p.priceMax > p.basePrice) {
     return `${fmt(Number(p.basePrice), currency, symbolOverride)} — ${fmt(
       Number(p.priceMax),
@@ -1101,10 +1117,15 @@ function ProductModal({
 
   const variant = product.variants.find((v) => v.id === variantId);
   const extrasObj = product.extras.filter((e) => extras.includes(e.id));
+  // ABSOLUTE: la variante define el precio propio (reemplaza al base).
+  // DELTA (default): suma su priceDelta al base. Extras suman en ambos.
+  const variantBase = variant
+    ? product.variantPriceMode === 'ABSOLUTE'
+      ? Number(variant.priceDelta)
+      : Number(product.basePrice) + Number(variant.priceDelta)
+    : Number(product.basePrice);
   const unit =
-    Number(product.basePrice) +
-    (variant ? Number(variant.priceDelta) : 0) +
-    extrasObj.reduce((s, e) => s + Number(e.price), 0);
+    variantBase + extrasObj.reduce((s, e) => s + Number(e.price), 0);
   const total = unit * qty;
 
   function add() {
@@ -1196,7 +1217,9 @@ function ProductModal({
                       <span className="text-sm">{v.name}</span>
                     </div>
                     <span className="text-sm text-mute">
-                      {Number(v.priceDelta) > 0
+                      {product.variantPriceMode === 'ABSOLUTE'
+                        ? fmt(Number(v.priceDelta), currency, currencySymbol)
+                        : Number(v.priceDelta) > 0
                         ? `+${fmt(Number(v.priceDelta), currency, currencySymbol)}`
                         : Number(v.priceDelta) < 0
                         ? fmt(Number(v.priceDelta), currency, currencySymbol)

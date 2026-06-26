@@ -32,6 +32,12 @@ class ZoneBody {
   @IsOptional() @IsString() @MaxLength(64) slug?: string;
   @IsOptional() @IsIn(['INDOOR', 'OUTDOOR', 'BAR', 'PRIVATE']) type?: string;
   @IsOptional() @IsInt() position?: number;
+  // Geometría explícita del recuadro de zona en el plano. null = volver a
+  // "auto" (recuadro derivado de las mesas). number = posición/tamaño fijo.
+  @IsOptional() @IsInt() posX?: number | null;
+  @IsOptional() @IsInt() posY?: number | null;
+  @IsOptional() @IsInt() width?: number | null;
+  @IsOptional() @IsInt() height?: number | null;
   @IsOptional() @IsBoolean() isActive?: boolean;
   @IsOptional() locationId?: string | null;
 }

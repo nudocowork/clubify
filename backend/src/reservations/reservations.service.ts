@@ -24,6 +24,11 @@ export type ZoneDto = {
   slug?: string;
   type?: string;
   position?: number;
+  // Geometría explícita del recuadro (null = auto, derivado de las mesas).
+  posX?: number | null;
+  posY?: number | null;
+  width?: number | null;
+  height?: number | null;
   isActive?: boolean;
   locationId?: string | null;
 };
@@ -165,6 +170,11 @@ export class ReservationsService {
         name: patch.name?.trim(),
         type: patch.type,
         position: patch.position,
+        // Geometría: undefined = no tocar; null = volver a auto; number = fijar.
+        posX: patch.posX === undefined ? undefined : patch.posX,
+        posY: patch.posY === undefined ? undefined : patch.posY,
+        width: patch.width === undefined ? undefined : patch.width,
+        height: patch.height === undefined ? undefined : patch.height,
         isActive: patch.isActive,
       },
     });

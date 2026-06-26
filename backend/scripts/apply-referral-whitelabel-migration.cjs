@@ -32,10 +32,16 @@ const crypto = require('crypto');
       'migration.sql',
     );
     const sql = fs.readFileSync(sqlPath, 'utf8');
-    const statements = sql
+    // Quitar líneas de comentario ANTES de partir por ';' (sino el comentario
+    // queda pegado a la 1ra sentencia y la perdíamos al filtrar).
+    const cleaned = sql
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('--'))
+      .join('\n');
+    const statements = cleaned
       .split(';')
       .map((s) => s.trim())
-      .filter((s) => s && !s.startsWith('--'));
+      .filter(Boolean);
     for (const st of statements) {
       await prisma.$executeRawUnsafe(st);
     }

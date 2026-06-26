@@ -14,7 +14,7 @@ type OrderItem = {
   qty: number;
   unitPrice: number;
   lineTotal: number;
-  extras?: { name: string; price: number }[];
+  extras?: { id?: string; name: string; price: number }[];
   note?: string;
 };
 
@@ -105,6 +105,7 @@ export default function OrderDetail() {
   const { id } = useParams<{ id: string }>();
   const [o, setO] = useState<Order | null>(null);
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   async function load() {
     try {
@@ -207,6 +208,16 @@ export default function OrderDetail() {
             {t(STATUS_LABEL_KEY[o.status])}
           </span>
           <PrintMenu onPrint={printAs} />
+          {o.status !== 'CANCELLED' && o.status !== 'DELIVERED' && (
+            <button
+              className="btn-ghost"
+              disabled={busy}
+              onClick={() => setEditing(true)}
+              title={t('editOrder')}
+            >
+              ✏️ {t('editOrder')}
+            </button>
+          )}
           {NEXT[o.status] && (
             <button
               className="btn-primary"
@@ -483,9 +494,320 @@ export default function OrderDetail() {
       </div>
      </div>
 
+     {editing && (
+       <EditOrderModal
+         order={o}
+         onClose={() => setEditing(false)}
+         onSaved={async () => {
+           setEditing(false);
+           await load();
+         }}
+       />
+     )}
+
      {/* Ticket para imprimir — solo visible en window.print() */}
      <KitchenTicket order={o} />
      <CustomerReceipt order={o} />
+    </div>
+  );
+}
+
+// =====================================================
+// Modal de edición de items del pedido (#2 PDF 346)
+// Reusa PATCH /orders/:id (updateOrder): el backend re-resuelve precios
+// del tenant (anti-tampering) y recalcula subtotal/descuento/total.
+// Las líneas existentes preservan su variante/extras; las nuevas se agregan
+// como producto base. No editable si el pedido está DELIVERED/CANCELLED.
+// =====================================================
+type EditLine = {
+  key: string;
+  productId: string;
+  name: string;
+  variantId: string | null;
+  extraIds: string[];
+  extras: { name: string; price: number }[];
+  unitPrice: number;
+  qty: number;
+  note?: string;
+};
+
+type ProductPick = {
+  id: string;
+  name: string;
+  basePrice: number;
+  isAvailable: boolean;
+  variants: { id: string }[];
+  extras: { id: string }[];
+  category?: { name: string } | null;
+};
+
+function EditOrderModal({
+  order,
+  onClose,
+  onSaved,
+}: {
+  order: Order;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const t = useTranslations('app_orders_id');
+  const [products, setProducts] = useState<ProductPick[]>([]);
+  const [lines, setLines] = useState<EditLine[]>(() =>
+    order.items.map((it, i) => ({
+      key: `orig-${i}`,
+      productId: it.productId,
+      name: it.name,
+      variantId: it.variantId ?? null,
+      extraIds: (it.extras ?? [])
+        .map((e) => e.id)
+        .filter((x): x is string => !!x),
+      extras: (it.extras ?? []).map((e) => ({
+        name: e.name,
+        price: Number(e.price),
+      })),
+      unitPrice: Number(it.unitPrice),
+      qty: it.qty,
+      note: it.note,
+    })),
+  );
+  const [search, setSearch] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api<ProductPick[]>('/catalog/products')
+      .then((d) => setProducts(d ?? []))
+      .catch(() => setProducts([]));
+  }, []);
+
+  function setQty(key: string, qty: number) {
+    setLines((ls) =>
+      ls.map((l) =>
+        l.key === key ? { ...l, qty: Math.max(1, Math.min(50, qty)) } : l,
+      ),
+    );
+  }
+  function removeLine(key: string) {
+    setLines((ls) => ls.filter((l) => l.key !== key));
+  }
+  function addProduct(p: ProductPick) {
+    setLines((ls) => {
+      // Si ya hay una línea base (sin variante/extras) de ese producto, suma qty.
+      const idx = ls.findIndex(
+        (l) => l.productId === p.id && !l.variantId && l.extraIds.length === 0,
+      );
+      if (idx >= 0) {
+        const cp = [...ls];
+        cp[idx] = { ...cp[idx], qty: Math.min(50, cp[idx].qty + 1) };
+        return cp;
+      }
+      return [
+        ...ls,
+        {
+          key: `new-${p.id}-${ls.length}`,
+          productId: p.id,
+          name: p.name,
+          variantId: null,
+          extraIds: [],
+          extras: [],
+          unitPrice: Number(p.basePrice),
+          qty: 1,
+        },
+      ];
+    });
+  }
+
+  // Preserva variante/extras de líneas existentes SOLO si siguen existiendo en
+  // el producto (evita 'Variante/Extra inválido' si el dueño los borró después).
+  function toPayload(l: EditLine) {
+    const p = products.find((x) => x.id === l.productId);
+    const variantId =
+      l.variantId && p?.variants.some((v) => v.id === l.variantId)
+        ? l.variantId
+        : undefined;
+    const extraIds = p
+      ? l.extraIds.filter((eid) => p.extras.some((e) => e.id === eid))
+      : [];
+    return {
+      productId: l.productId,
+      variantId,
+      extraIds: extraIds.length ? extraIds : undefined,
+      qty: l.qty,
+      note: l.note || undefined,
+    };
+  }
+
+  async function save() {
+    if (lines.length === 0) {
+      toast(t('editEmptyError'), 'error');
+      return;
+    }
+    setSaving(true);
+    try {
+      await api(`/orders/${order.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ items: lines.map(toPayload) }),
+      });
+      toast(t('editSaved'), 'success');
+      onSaved();
+    } catch (e: any) {
+      toast(e.message || t('editError'), 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const itemsSubtotal = lines.reduce((s, l) => s + l.unitPrice * l.qty, 0);
+  const filtered = products
+    .filter((p) => p.isAvailable)
+    .filter((p) =>
+      search.trim()
+        ? p.name.toLowerCase().includes(search.trim().toLowerCase())
+        : true,
+    )
+    .slice(0, 50);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl max-h-[90vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-4 border-b border-line2 flex items-start justify-between gap-3">
+          <div>
+            <h3 className="font-bold text-lg">
+              {t('editOrderTitle', { code: order.code })}
+            </h3>
+            <p className="text-xs text-mute mt-0.5">{t('editOrderSubtitle')}</p>
+          </div>
+          <button
+            className="text-mute hover:text-ink text-xl leading-none"
+            onClick={onClose}
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-5">
+          {/* Líneas actuales */}
+          <div>
+            <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
+              {t('editCurrentItems')}
+            </div>
+            {lines.length === 0 ? (
+              <div className="text-sm text-mute py-3">{t('editEmptyError')}</div>
+            ) : (
+              <div className="space-y-2">
+                {lines.map((l) => (
+                  <div
+                    key={l.key}
+                    className="flex items-center gap-2 border border-line rounded-lg p-2"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate">{l.name}</div>
+                      {l.extras.length > 0 && (
+                        <div className="text-[11px] text-mute truncate">
+                          {l.extras.map((e) => e.name).join(' · ')}
+                        </div>
+                      )}
+                      <div className="text-[11px] text-mute">
+                        {COP(l.unitPrice)}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-none">
+                      <button
+                        className="w-7 h-7 rounded-full bg-bg2 hover:bg-line2 font-bold"
+                        onClick={() => setQty(l.key, l.qty - 1)}
+                      >
+                        −
+                      </button>
+                      <span className="w-6 text-center text-sm font-semibold">
+                        {l.qty}
+                      </span>
+                      <button
+                        className="w-7 h-7 rounded-full bg-bg2 hover:bg-line2 font-bold"
+                        onClick={() => setQty(l.key, l.qty + 1)}
+                      >
+                        +
+                      </button>
+                    </div>
+                    <div className="w-20 text-right text-sm font-semibold flex-none">
+                      {COP(l.unitPrice * l.qty)}
+                    </div>
+                    <button
+                      className="text-bad-ink hover:opacity-70 text-sm flex-none px-1"
+                      title={t('editRemoveLine')}
+                      onClick={() => removeLine(l.key)}
+                    >
+                      🗑
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Agregar productos */}
+          <div>
+            <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
+              {t('editAddProducts')}
+            </div>
+            <input
+              className="input w-full mb-2"
+              placeholder={t('editSearchProducts')}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <div className="max-h-48 overflow-y-auto divide-y divide-line2 border border-line rounded-lg">
+              {filtered.length === 0 ? (
+                <div className="text-sm text-mute p-3">{t('editNoProducts')}</div>
+              ) : (
+                filtered.map((p) => (
+                  <button
+                    key={p.id}
+                    className="w-full text-left px-3 py-2 hover:bg-bg2 flex items-center justify-between gap-2"
+                    onClick={() => addProduct(p)}
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm truncate">{p.name}</div>
+                      {p.category?.name && (
+                        <div className="text-[11px] text-mute truncate">
+                          {p.category.name}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 flex-none">
+                      <span className="text-xs text-mute">
+                        {COP(Number(p.basePrice))}
+                      </span>
+                      <span className="text-brand font-bold text-lg leading-none">
+                        ＋
+                      </span>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="p-4 border-t border-line2 space-y-2">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-mute">{t('editItemsSubtotal')}</span>
+            <span className="font-bold">{COP(itemsSubtotal)}</span>
+          </div>
+          <p className="text-[11px] text-mute">{t('editRecalcHint')}</p>
+          <button
+            className="btn-primary w-full justify-center"
+            disabled={saving || lines.length === 0}
+            onClick={save}
+          >
+            {saving ? t('editSaving') : t('editSave')}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

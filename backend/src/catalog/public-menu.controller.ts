@@ -479,6 +479,7 @@ export class PublicMenuController {
       basePrice: Number(p.basePrice),
       priceMode: p.priceMode ?? 'FIXED',
       priceMax: p.priceMax != null ? Number(p.priceMax) : null,
+      variantPriceMode: p.variantPriceMode ?? 'DELTA',
       imageUrl: p.imageUrl,
       tags: p.tags,
       isRecommended: p.isRecommended,

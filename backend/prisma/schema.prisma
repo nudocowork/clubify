@@ -927,6 +927,14 @@ model ReservationZone {
   /// INDOOR | OUTDOOR | BAR | PRIVATE — para UX en el flujo público.
   type      String                @default("INDOOR")
   position  Int                   @default(0)
+  /// Geometría EXPLÍCITA del recuadro de la zona en el plano (modo editor).
+  /// NULL = "auto": el recuadro se deriva de las posiciones de las mesas
+  /// (computeZoneBox en el frontend). Cuando el dueño mueve/redimensiona la
+  /// zona, se guardan estas coordenadas y dejan de depender de las mesas.
+  posX      Int?
+  posY      Int?
+  width     Int?
+  height    Int?
   isActive  Boolean               @default(true)
   tables    ReservationTable[]
   reservations Reservation[]
@@ -1524,6 +1532,14 @@ model Product {
   /// Null cuando FIXED. Si priceMode='RANGE' y priceMax es null, el
   /// frontend trata como FIXED de fallback.
   priceMax      Decimal? @db.Decimal(10, 2)
+  /// Cómo se interpreta el precio de las VARIANTES/tamaños del producto:
+  ///  - "DELTA" (default): cada variante SUMA su `priceDelta` al `basePrice`
+  ///    (ej. base $20 + "Grande" +$10 = $30). Comportamiento histórico.
+  ///  - "ABSOLUTE": cada variante define su PRECIO PROPIO total y reemplaza
+  ///    al base (ej. "Pequeña" $20, "Mediana" $30, "Grande" $40). El número
+  ///    guardado en `ProductVariant.priceDelta` es el precio final, no un delta.
+  /// Los extras siempre SUMAN encima del precio resultante en ambos modos.
+  variantPriceMode String @default("DELTA")
   imageUrl      String?
   tags          String[]
   isAvailable   Boolean  @default(true)

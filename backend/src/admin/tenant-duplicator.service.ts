@@ -309,6 +309,7 @@ export class TenantDuplicatorService {
             basePrice: p.basePrice,
             priceMode: p.priceMode,
             priceMax: p.priceMax ?? null,
+            variantPriceMode: p.variantPriceMode,
             imageUrl: p.imageUrl ?? null,
             tags: p.tags,
             isAvailable: p.isAvailable,

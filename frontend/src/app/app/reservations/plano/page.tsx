@@ -86,6 +86,7 @@ export default function PlanoPage() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [activeLocationId, setActiveLocationId] = useState<string>('');
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
+  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
   const [zoneFilter, setZoneFilter] = useState<string>('todas');
 
   async function loadAll() {
@@ -184,6 +185,16 @@ export default function PlanoPage() {
   // === Editor mode (drag + add tables/zones) ===
   const canvasRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
+  const zoneDragRef = useRef<{
+    id: string;
+    kind: 'move' | 'resize';
+    startPointerX: number;
+    startPointerY: number;
+    startX: number;
+    startY: number;
+    startW: number;
+    startH: number;
+  } | null>(null);
   const [newTable, setNewTable] = useState({
     number: '',
     seats: 4,
@@ -252,7 +263,63 @@ export default function PlanoPage() {
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
 
+  // === Drag/resize de ZONAS (modo editor) ===
+  // Inicia el arrastre (mover por el cuerpo) o el redimensionado (esquina).
+  // Si la zona aún no tiene geometría explícita, parte de la caja auto o el
+  // default → al soltar queda fija y deja de depender de las mesas.
+  function handleZonePointerDown(
+    e: React.PointerEvent,
+    zone: Zone,
+    kind: 'move' | 'resize',
+  ) {
+    if (mode !== 'editor' || !canvasRef.current) return;
+    e.stopPropagation();
+    const g = zoneGeometry(zone, tables) ?? ZONE_DEFAULT_BOX;
+    zoneDragRef.current = {
+      id: zone.id,
+      kind,
+      startPointerX: e.clientX,
+      startPointerY: e.clientY,
+      startX: g.x,
+      startY: g.y,
+      startW: g.w,
+      startH: g.h,
+    };
+    setSelectedZoneId(zone.id);
+    setSelectedTableId(null);
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }
+
   function handlePointerMove(e: React.PointerEvent) {
+    // Zona primero (su drag tiene prioridad si está activo).
+    if (zoneDragRef.current && canvasRef.current) {
+      const d = zoneDragRef.current;
+      const rect = canvasRef.current.getBoundingClientRect();
+      const dx = e.clientX - d.startPointerX;
+      const dy = e.clientY - d.startPointerY;
+      if (d.kind === 'move') {
+        const x = Math.min(rect.width - d.startW, Math.max(0, snap(d.startX + dx)));
+        const y = Math.min(CANVAS_H - d.startH, Math.max(0, snap(d.startY + dy)));
+        setZones((prev) =>
+          prev.map((z) =>
+            z.id === d.id
+              ? { ...z, posX: x, posY: y, width: d.startW, height: d.startH }
+              : z,
+          ),
+        );
+      } else {
+        const w = Math.min(rect.width - d.startX, Math.max(ZONE_MIN, snap(d.startW + dx)));
+        const h = Math.min(CANVAS_H - d.startY, Math.max(ZONE_MIN, snap(d.startH + dy)));
+        setZones((prev) =>
+          prev.map((z) =>
+            z.id === d.id
+              ? { ...z, posX: d.startX, posY: d.startY, width: w, height: h }
+              : z,
+          ),
+        );
+      }
+      return;
+    }
     if (!dragRef.current || !canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
     const t = tables.find((x) => x.id === dragRef.current!.id);
@@ -268,6 +335,26 @@ export default function PlanoPage() {
   }
 
   function handlePointerUp(e: React.PointerEvent) {
+    if (zoneDragRef.current) {
+      const id = zoneDragRef.current.id;
+      zoneDragRef.current = null;
+      (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+      const z = zones.find((x) => x.id === id);
+      if (!z) return;
+      api(`/reservations/zones/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          posX: z.posX,
+          posY: z.posY,
+          width: z.width,
+          height: z.height,
+        }),
+      }).catch((err: any) => {
+        toast(err.message || t('errorSavePosition'), 'error');
+        loadAll();
+      });
+      return;
+    }
     if (!dragRef.current) return;
     const id = dragRef.current.id;
     dragRef.current = null;
@@ -281,6 +368,26 @@ export default function PlanoPage() {
       toast(err.message || t('errorSavePosition'), 'error');
       loadAll();
     });
+  }
+
+  // Devuelve una zona a modo "auto" (recuadro derivado de las mesas).
+  async function resetZoneGeometry(zoneId: string) {
+    setZones((prev) =>
+      prev.map((z) =>
+        z.id === zoneId
+          ? { ...z, posX: null, posY: null, width: null, height: null }
+          : z,
+      ),
+    );
+    try {
+      await api(`/reservations/zones/${zoneId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ posX: null, posY: null, width: null, height: null }),
+      });
+    } catch (e: any) {
+      toast(e.message || t('errorUpdate'), 'error');
+      loadAll();
+    }
   }
 
   return (
@@ -389,6 +496,9 @@ export default function PlanoPage() {
               onSubmitNew={createTable}
               zones={zones}
               setShowAddTable={setShowAddTable}
+              selectedZoneId={selectedZoneId}
+              onZonePointerDown={handleZonePointerDown}
+              onZoneReset={resetZoneGeometry}
             />
           )}
 
@@ -471,6 +581,31 @@ function computeZoneBox(tablesInZone: Table[]) {
     h: maxY - minY + ZONE_PADDING * 2,
   };
 }
+
+/**
+ * Recuadro de una zona: usa la geometría EXPLÍCITA si el dueño la fijó
+ * (posX/posY/width/height en la zona), o la deriva de las mesas (auto).
+ * Devuelve null si no hay geometría explícita ni mesas para calcularla.
+ */
+function zoneGeometry(
+  zone: Zone,
+  allTables: Table[],
+): { x: number; y: number; w: number; h: number } | null {
+  if (
+    zone.posX != null &&
+    zone.posY != null &&
+    zone.width != null &&
+    zone.height != null
+  ) {
+    return { x: zone.posX, y: zone.posY, w: zone.width, h: zone.height };
+  }
+  return computeZoneBox(allTables.filter((t) => t.zoneId === zone.id));
+}
+
+/** Default cuando una zona aún no tiene geometría ni mesas (placeholder editor). */
+const ZONE_DEFAULT_BOX = { x: 40, y: 40, w: 182, h: 130 };
+/** Tamaño mínimo de zona al redimensionar. */
+const ZONE_MIN = 78;
 
 const ZONE_WALL_STYLE: Record<string, { bg: string; border: string; dashed: boolean; emphasis: boolean; label: string }> = {
   INDOOR: {
@@ -562,9 +697,8 @@ function OperationView({
       >
         {/* Paredes y plantas/ventanas de cada zona */}
         {zones.map((zone) => {
-          const zoneTables = tables.filter((t) => t.zoneId === zone.id);
-          if (zoneTables.length === 0) return null;
-          const box = computeZoneBox(zoneTables);
+          // Geometría explícita (si el dueño la fijó) o derivada de las mesas.
+          const box = zoneGeometry(zone, tables);
           if (!box) return null;
           const wallStyle = ZONE_WALL_STYLE[zone.type] ?? ZONE_WALL_STYLE.INDOOR;
           const isOutdoor = zone.type === 'OUTDOOR';
@@ -864,6 +998,9 @@ function EditorView({
   onSubmitNew,
   zones,
   setShowAddTable,
+  selectedZoneId,
+  onZonePointerDown,
+  onZoneReset,
 }: {
   canvasRef: React.RefObject<HTMLDivElement>;
   tables: Table[];
@@ -878,6 +1015,9 @@ function EditorView({
   onSubmitNew: (e: React.FormEvent) => void;
   zones: Zone[];
   setShowAddTable: (v: boolean) => void;
+  selectedZoneId: string | null;
+  onZonePointerDown: (e: React.PointerEvent, zone: Zone, kind: 'move' | 'resize') => void;
+  onZoneReset: (zoneId: string) => void;
 }) {
   const t = useTranslations('app_reservations_plano');
   return (
@@ -970,6 +1110,70 @@ function EditorView({
           backgroundSize: `${GRID}px ${GRID}px`,
         }}
       >
+        {/* Zonas (recuadros) — detrás de las mesas. Arrastra el cuerpo para
+            mover y la esquina para redimensionar. El ↺ vuelve a modo auto. */}
+        {zones.map((zone) => {
+          const g = zoneGeometry(zone, tables) ?? ZONE_DEFAULT_BOX;
+          const ws = ZONE_WALL_STYLE[zone.type] ?? ZONE_WALL_STYLE.INDOOR;
+          const sel = zone.id === selectedZoneId;
+          const explicit = zone.posX != null && zone.width != null;
+          return (
+            <div
+              key={`zone-${zone.id}`}
+              onPointerDown={(e) => onZonePointerDown(e, zone, 'move')}
+              style={{
+                position: 'absolute',
+                left: g.x,
+                top: g.y,
+                width: g.w,
+                height: g.h,
+                background: ws.bg,
+                border: `2px ${ws.dashed ? 'dashed' : 'solid'} ${sel ? '#0f172a' : ws.border}`,
+                borderRadius: 6,
+                cursor: 'move',
+                touchAction: 'none',
+                boxShadow: sel ? '0 0 0 3px rgba(15,23,42,.12)' : undefined,
+              }}
+            >
+              <div
+                className="absolute bg-white px-1.5 py-0.5 text-[10px] font-bold tracking-wider shadow-sm whitespace-nowrap flex items-center gap-1 rounded"
+                style={{ left: 6, top: -11, color: ws.label }}
+              >
+                {zone.name.toUpperCase()}
+                {explicit && (
+                  <button
+                    type="button"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onZoneReset(zone.id);
+                    }}
+                    title={t('zoneResetTitle')}
+                    className="text-[11px] leading-none text-mute hover:text-ink"
+                  >
+                    ↺
+                  </button>
+                )}
+              </div>
+              <div
+                onPointerDown={(e) => onZonePointerDown(e, zone, 'resize')}
+                title={t('zoneResizeTitle')}
+                style={{
+                  position: 'absolute',
+                  right: -1,
+                  bottom: -1,
+                  width: 16,
+                  height: 16,
+                  cursor: 'nwse-resize',
+                  background: sel ? '#0f172a' : ws.border,
+                  borderRadius: '4px 0 5px 0',
+                  touchAction: 'none',
+                }}
+              />
+            </div>
+          );
+        })}
+
         {tables.map((t) => {
           const { w, h, isRound } = tableDims(t);
           const sel = t.id === selectedId;

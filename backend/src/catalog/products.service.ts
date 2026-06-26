@@ -29,6 +29,11 @@ export type ProductDto = {
   priceMode?: 'FIXED' | 'RANGE';
   /** Solo aplica cuando priceMode='RANGE'. null = sin máximo (fallback FIXED). */
   priceMax?: number | null;
+  /**
+   * "DELTA" (default): variantes suman priceDelta al basePrice.
+   * "ABSOLUTE": cada variante define su precio propio (priceDelta = precio final).
+   */
+  variantPriceMode?: 'DELTA' | 'ABSOLUTE';
   imageUrl?: string;
   tags?: string[];
   isAvailable?: boolean;
@@ -90,6 +95,7 @@ export class ProductsService {
           dto.priceMode === 'RANGE' && dto.priceMax != null
             ? dto.priceMax
             : null,
+        variantPriceMode: dto.variantPriceMode ?? 'DELTA',
         imageUrl: dto.imageUrl,
         tags: dto.tags ?? [],
         isAvailable: dto.isAvailable ?? true,
@@ -153,6 +159,7 @@ export class ProductsService {
               : dto.priceMax === undefined
               ? undefined
               : dto.priceMax,
+          variantPriceMode: dto.variantPriceMode ?? undefined,
           imageUrl: dto.imageUrl ?? undefined,
           tags: dto.tags ?? undefined,
           isAvailable: dto.isAvailable ?? undefined,

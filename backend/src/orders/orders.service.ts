@@ -379,7 +379,12 @@ export class OrdersService {
       if (i.variantId) {
         const v = p.variants.find((x) => x.id === i.variantId);
         if (!v) throw new BadRequestException('Variante inválida');
-        unit += Number(v.priceDelta);
+        // ABSOLUTE: la variante define el precio propio (reemplaza al base).
+        // DELTA (default): suma su priceDelta al base.
+        unit =
+          p.variantPriceMode === 'ABSOLUTE'
+            ? Number(v.priceDelta)
+            : unit + Number(v.priceDelta);
         variantName = ` (${v.name})`;
       }
       const extras = (i.extraIds ?? []).map((eid) => {
@@ -662,7 +667,12 @@ export class OrdersService {
       if (i.variantId) {
         const v = p.variants.find((x) => x.id === i.variantId);
         if (!v) throw new BadRequestException('Variante inválida');
-        unit += Number(v.priceDelta);
+        // ABSOLUTE: la variante define el precio propio (reemplaza al base).
+        // DELTA (default): suma su priceDelta al base.
+        unit =
+          p.variantPriceMode === 'ABSOLUTE'
+            ? Number(v.priceDelta)
+            : unit + Number(v.priceDelta);
         variantName = ` (${v.name})`;
       }
       const extras = (i.extraIds ?? []).map((eid) => {
@@ -1050,7 +1060,12 @@ export class OrdersService {
       if (i.variantId) {
         const v = p.variants.find((x) => x.id === i.variantId);
         if (!v) throw new BadRequestException('Variante inválida');
-        unit += Number(v.priceDelta);
+        // ABSOLUTE: la variante define el precio propio (reemplaza al base).
+        // DELTA (default): suma su priceDelta al base.
+        unit =
+          p.variantPriceMode === 'ABSOLUTE'
+            ? Number(v.priceDelta)
+            : unit + Number(v.priceDelta);
         variantName = ` (${v.name})`;
       }
       const extras = (i.extraIds ?? []).map((eid) => {

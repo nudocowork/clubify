@@ -57,6 +57,8 @@ type Product = {
   basePrice: number;
   priceMode?: 'FIXED' | 'RANGE';
   priceMax?: number | null;
+  /** DELTA: variantes suman al base. ABSOLUTE: cada variante su precio propio. */
+  variantPriceMode?: 'DELTA' | 'ABSOLUTE';
   imageUrl: string | null;
   tags: string[];
   isAvailable: boolean;
@@ -381,6 +383,7 @@ export default function MenuEditor() {
         p.priceMode === 'RANGE' && p.priceMax != null
           ? Number(p.priceMax)
           : null,
+      variantPriceMode: p.variantPriceMode ?? 'DELTA',
       imageUrl: p.imageUrl || undefined,
       tags: p.tags ?? [],
       isAvailable: p.isAvailable ?? true,
@@ -2147,6 +2150,44 @@ function ProductDrawer({
               />
               )
             </legend>
+
+            {/* Toggle: cómo se interpreta el precio de cada opción/tamaño.
+                DELTA (default) = suma al base · ABSOLUTE = precio propio total. */}
+            <div className="mb-2">
+              <div className="text-[11px] font-semibold text-mute mb-1">
+                {t('variantPriceModeLabel')}
+              </div>
+              <div className="inline-flex rounded-lg border border-line overflow-hidden text-xs">
+                <button
+                  type="button"
+                  className={`px-3 py-1.5 transition ${
+                    (form.variantPriceMode ?? 'DELTA') === 'DELTA'
+                      ? 'bg-brand text-white'
+                      : 'bg-white text-mute hover:bg-bg2'
+                  }`}
+                  onClick={() => update('variantPriceMode', 'DELTA')}
+                >
+                  {t('variantModeDelta')}
+                </button>
+                <button
+                  type="button"
+                  className={`px-3 py-1.5 transition border-l border-line ${
+                    (form.variantPriceMode ?? 'DELTA') === 'ABSOLUTE'
+                      ? 'bg-brand text-white'
+                      : 'bg-white text-mute hover:bg-bg2'
+                  }`}
+                  onClick={() => update('variantPriceMode', 'ABSOLUTE')}
+                >
+                  {t('variantModeAbsolute')}
+                </button>
+              </div>
+              <p className="text-[10px] text-mute mt-1 leading-snug">
+                {(form.variantPriceMode ?? 'DELTA') === 'ABSOLUTE'
+                  ? t('variantModeAbsoluteHint')
+                  : t('variantModeDeltaHint')}
+              </p>
+            </div>
+
             {(form.variants ?? []).map((v, i) => (
               <div key={i} className="flex gap-2 mb-2">
                 <input
@@ -2162,7 +2203,11 @@ function ProductDrawer({
                 <input
                   type="number"
                   className="input w-28"
-                  placeholder={t('plusPricePlaceholder')}
+                  placeholder={
+                    (form.variantPriceMode ?? 'DELTA') === 'ABSOLUTE'
+                      ? t('absolutePricePlaceholder')
+                      : t('plusPricePlaceholder')
+                  }
                   value={v.priceDelta}
                   onChange={(e) => {
                     const arr = [...(form.variants ?? [])];

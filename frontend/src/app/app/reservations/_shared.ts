@@ -9,6 +9,12 @@ export type Zone = {
   slug: string;
   type: string;
   locationId?: string | null;
+  // Geometría explícita del recuadro en el plano (modo editor). null/undefined
+  // = "auto": el recuadro se deriva de las posiciones de las mesas.
+  posX?: number | null;
+  posY?: number | null;
+  width?: number | null;
+  height?: number | null;
 };
 
 export type Table = {
