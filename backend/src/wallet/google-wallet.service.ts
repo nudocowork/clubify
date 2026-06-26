@@ -246,6 +246,25 @@ export class GoogleWalletService {
       });
     }
 
+    // locations: geofence del LoyaltyObject. Equivalente al `locations` de
+    // Apple Wallet (wallet.service.ts): cuando el Android está cerca de una
+    // sede activa del negocio, Google muestra el pase en la pantalla de
+    // bloqueo. Google sólo acepta lat/lng (LatLongPoint) — no hay relevantText
+    // ni maxDistance por objeto (eso es Apple). Filtramos coords inválidas
+    // (0/0 o NaN) para no enviar geofences basura. Si el tenant no se cargó con
+    // locations (queries que no las incluyen), `?? []` evita romper.
+    const locations = (pass.tenant?.locations ?? [])
+      .map((l: any) => ({
+        latitude: Number(l.latitude),
+        longitude: Number(l.longitude),
+      }))
+      .filter(
+        (p: { latitude: number; longitude: number }) =>
+          Number.isFinite(p.latitude) &&
+          Number.isFinite(p.longitude) &&
+          (p.latitude !== 0 || p.longitude !== 0),
+      );
+
     return {
       id: objectId,
       classId,
@@ -266,6 +285,7 @@ export class GoogleWalletService {
       imageModulesData: imageModules.length > 0 ? imageModules : undefined,
       linksModuleData:
         linksList.length > 0 ? { uris: linksList } : undefined,
+      locations: locations.length > 0 ? locations : undefined,
     };
   }
 
@@ -322,7 +342,11 @@ export class GoogleWalletService {
   async generateSaveUrl(passId: string): Promise<string> {
     const pass = await this.prisma.pass.findUnique({
       where: { id: passId },
-      include: { card: true, tenant: true, customer: true },
+      include: {
+        card: true,
+        tenant: { include: { locations: { where: { isActive: true } } } },
+        customer: true,
+      },
     });
     if (!pass) throw new NotFoundException('Pass');
 
@@ -450,7 +474,11 @@ export class GoogleWalletService {
   ): Promise<{ ok: boolean; status: string; notified?: boolean; error?: string }> {
     const pass = await this.prisma.pass.findUnique({
       where: { id: passId },
-      include: { card: true, tenant: true, customer: true },
+      include: {
+        card: true,
+        tenant: { include: { locations: { where: { isActive: true } } } },
+        customer: true,
+      },
     });
     if (!pass) return { ok: false, status: 'pass_not_found' };
     if (!pass.googleObjectId)
