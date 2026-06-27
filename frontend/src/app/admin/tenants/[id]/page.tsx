@@ -30,6 +30,10 @@ export default function TenantDetail() {
   const [brandEditing, setBrandEditing] = useState(false);
   const [brandDraft, setBrandDraft] = useState('');
   const [brandSaving, setBrandSaving] = useState(false);
+  // PDF 925: editar info del negocio (email/WhatsApp/slug) desde el detalle.
+  const [infoEditing, setInfoEditing] = useState(false);
+  const [infoDraft, setInfoDraft] = useState({ email: '', whatsappPhone: '', slug: '' });
+  const [infoSaving, setInfoSaving] = useState(false);
   // MARKETING ve la página pero sin acciones de billing/status — esos
   // endpoints son SUPER_ADMIN only y mostrarían "Permisos insuficientes"
   // al click. Esconderlos limpia UX en lugar de fallar fuerte.
@@ -86,6 +90,56 @@ export default function TenantDetail() {
   }
 
   // Componente del selector de modo de reparto está al final del archivo.
+
+  // PDF 925: slug "amigable" derivado del nombre del negocio (cliente).
+  function slugifyClient(s: string): string {
+    return (
+      s
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '')
+        .slice(0, 40) || ''
+    );
+  }
+
+  function startInfoEdit() {
+    setInfoDraft({
+      email: t?.email ?? '',
+      whatsappPhone: t?.whatsappPhone ?? '',
+      slug: t?.slug ?? '',
+    });
+    setInfoEditing(true);
+  }
+
+  async function saveInfo() {
+    const payload: Record<string, string> = {};
+    const email = infoDraft.email.trim();
+    const whatsappPhone = infoDraft.whatsappPhone.trim();
+    const slug = infoDraft.slug.trim();
+    if (email && email !== (t?.email ?? '')) payload.email = email;
+    if (whatsappPhone !== (t?.whatsappPhone ?? '')) payload.whatsappPhone = whatsappPhone;
+    if (slug && slug !== (t?.slug ?? '')) payload.slug = slug;
+    if (Object.keys(payload).length === 0) {
+      setInfoEditing(false);
+      return;
+    }
+    setInfoSaving(true);
+    try {
+      await api(`/tenants/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
+      toast(tr('infoUpdated'), 'success');
+      setInfoEditing(false);
+      await load();
+    } catch (e: any) {
+      toast(e.message || tr('couldNotUpdate'), 'error');
+    } finally {
+      setInfoSaving(false);
+    }
+  }
 
   async function save() {
     setSaving(true);
@@ -486,44 +540,129 @@ export default function TenantDetail() {
       {/* Info */}
       <div className="grid md:grid-cols-2 gap-4">
         <div className="card card-pad">
-          <h2 className="text-base font-semibold m-0">{tr('information')}</h2>
-          <dl className="mt-3 space-y-2 text-sm">
-            <div className="flex justify-between">
-              <dt className="text-mute">{tr('email')}</dt>
-              <dd className="font-medium">{t.email}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-mute">{tr('whatsapp')}</dt>
-              <dd className="font-medium">{t.whatsappPhone || '—'}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-mute">{tr('slug')}</dt>
-              <dd className="font-mono text-xs">{t.slug}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-mute">{tr('created')}</dt>
-              <dd className="font-medium">
-                {new Date(t.createdAt).toLocaleDateString('es-CO', {
-                  day: 'numeric',
-                  month: 'short',
-                  year: 'numeric',
-                })}
-              </dd>
-            </div>
-            {/* Periodicidad ahora vive en la card "Plan actual" más abajo
-                — con modal de confirmación + checklist de tareas Hotmart
-                manuales (cancelar suscripción vieja + enviar nuevo link).
-                Ver PlanCurrentCard. */}
-          </dl>
-          <div className="mt-4 pt-3 border-t border-line">
-            <Link
-              href={`/m/${t.slug}`}
-              target="_blank"
-              className="text-sm text-brand hover:underline"
-            >
-              {tr('openStorefront')}
-            </Link>
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold m-0">{tr('information')}</h2>
+            {isSuperAdmin && !infoEditing && (
+              <button
+                className="text-xs text-brand hover:underline"
+                onClick={startInfoEdit}
+              >
+                ✏️ {tr('infoEdit')}
+              </button>
+            )}
           </div>
+
+          {!infoEditing ? (
+            <>
+              <dl className="mt-3 space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <dt className="text-mute">{tr('email')}</dt>
+                  <dd className="font-medium">{t.email}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-mute">{tr('whatsapp')}</dt>
+                  <dd className="font-medium">{t.whatsappPhone || '—'}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-mute">{tr('slug')}</dt>
+                  <dd className="font-mono text-xs">{t.slug}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-mute">{tr('created')}</dt>
+                  <dd className="font-medium">
+                    {new Date(t.createdAt).toLocaleDateString('es-CO', {
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric',
+                    })}
+                  </dd>
+                </div>
+              </dl>
+              <div className="mt-4 pt-3 border-t border-line">
+                <Link
+                  href={`/m/${t.slug}`}
+                  target="_blank"
+                  className="text-sm text-brand hover:underline"
+                >
+                  {tr('openStorefront')}
+                </Link>
+              </div>
+            </>
+          ) : (
+            <div className="mt-3 space-y-3 text-sm">
+              <div>
+                <label className="label">{tr('email')}</label>
+                <input
+                  className="input"
+                  type="email"
+                  value={infoDraft.email}
+                  onChange={(e) =>
+                    setInfoDraft((d) => ({ ...d, email: e.target.value }))
+                  }
+                />
+              </div>
+              <div>
+                <label className="label">{tr('whatsapp')}</label>
+                <input
+                  className="input"
+                  value={infoDraft.whatsappPhone}
+                  placeholder="+57 300 000 0000"
+                  onChange={(e) =>
+                    setInfoDraft((d) => ({ ...d, whatsappPhone: e.target.value }))
+                  }
+                />
+              </div>
+              <div>
+                <label className="label flex items-center justify-between">
+                  <span>{tr('slug')}</span>
+                  <button
+                    type="button"
+                    className="text-[11px] text-brand hover:underline font-normal"
+                    onClick={() =>
+                      setInfoDraft((d) => ({
+                        ...d,
+                        slug: slugifyClient(t.brandName || ''),
+                      }))
+                    }
+                  >
+                    {tr('slugFromName')}
+                  </button>
+                </label>
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-mute whitespace-nowrap">/m/</span>
+                  <input
+                    className="input font-mono text-xs"
+                    value={infoDraft.slug}
+                    onChange={(e) =>
+                      setInfoDraft((d) => ({
+                        ...d,
+                        slug: slugifyClient(e.target.value),
+                      }))
+                    }
+                  />
+                </div>
+                <p className="text-[11px] text-mute mt-1 leading-snug">
+                  {tr('slugHint')}
+                </p>
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button
+                  className="btn-primary text-sm"
+                  disabled={infoSaving}
+                  onClick={saveInfo}
+                >
+                  {infoSaving ? tr('saving') : tr('save')}
+                </button>
+                <button
+                  className="btn-ghost text-sm"
+                  disabled={infoSaving}
+                  onClick={() => setInfoEditing(false)}
+                >
+                  {tr('cancel')}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         <PlanCurrentCard tenant={t} isSuperAdmin={isSuperAdmin} onChange={load} />
@@ -574,7 +713,9 @@ export default function TenantDetail() {
             : true) && (
             <>
               <ReferralAssignmentCard tenantId={t.id} />
-              <CommissionModeCard tenant={t} onSaved={load} />
+              {/* PDF 925 #2: el modo de reparto solo aplica si hay un vendedor
+                  en la cadena (define cómo se le paga). Sin vendedor, se oculta. */}
+              {t.hasVendor && <CommissionModeCard tenant={t} onSaved={load} />}
             </>
           )}
 

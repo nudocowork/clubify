@@ -55,6 +55,10 @@ class AdjustTrialBody {
 
 class UpdateTenantBody {
   @IsOptional() @IsString() brandName?: string;
+  // Slug del storefront (/m/<slug>). Editable desde el detalle del negocio.
+  // Se normaliza y se asegura unicidad global en el service. Cambiarlo
+  // actualiza todas las URLs dinámicas (storefront/QR/wallet se recomputan).
+  @IsOptional() @IsString() @MaxLength(60) slug?: string;
   @IsOptional() @IsEmail() email?: string;
   @IsOptional() @IsString() phone?: string;
   @IsOptional() @IsString() logoUrl?: string;

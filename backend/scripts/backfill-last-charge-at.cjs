@@ -41,6 +41,7 @@ const MONTHS = { MENSUAL: 1, TRIMESTRAL: 3, SEMESTRAL: 6, ANUAL: 12 };
     `${tenants.length} negocios ACTIVE sin lastChargeAt (${apply ? 'APLICANDO' : 'DRY-RUN'}).`,
   );
 
+  const now = new Date();
   let updated = 0;
   for (const t of tenants) {
     const months = MONTHS[t.planPeriodicity] ?? 1; // null → MENSUAL
@@ -54,6 +55,9 @@ const MONTHS = { MENSUAL: 1, TRIMESTRAL: 3, SEMESTRAL: 6, ANUAL: 12 };
     } else {
       continue;
     }
+    // Un cobro no puede estar en el futuro (currentPeriodEnd extendido manual
+    // muy adelante → estimación futura). Clamp a hoy.
+    if (when.getTime() > now.getTime()) when = now;
     console.log(
       `  ${t.brandName} · ${t.planPeriodicity ?? 'MENSUAL'} → lastChargeAt=${when.toISOString().slice(0, 10)}`,
     );

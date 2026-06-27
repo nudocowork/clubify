@@ -3924,7 +3924,15 @@ export class ReferralsService {
     vendor: { id: string; commissionPercent: number } | null;
     sourceCodeId: string | null;
   }> {
-    const use = await this.prisma.referralUse.findFirst({
+    // PDF 925 (2026-06-27): un negocio puede tener MÁS DE UNA atribución viva
+    // (ej. Licores El Amanecer tiene el use del EMBAJADOR Santiago→Juan Y, además,
+    // un use del INFLUENCER Juan directo). Tomar la más reciente a secas hacía que
+    // a veces ganara el influencer-directo → el arqueo esperaba el % completo del
+    // influencer (25%) en vez del 5% indirecto, y el embajador quedaba fuera de la
+    // cadena (fantasma). Ahora preferimos el rol que representa al VENDEDOR REAL:
+    // VENDOR > AMBASSADOR > INFLUENCER, y a igualdad la más reciente. Así la
+    // cadena es la del embajador y el influencer queda como indirecto (5%).
+    const uses = await this.prisma.referralUse.findMany({
       where: {
         tenantId,
         status: { in: ['SIGNED_UP', 'ACTIVE', 'PAYING'] },
@@ -3939,6 +3947,19 @@ export class ReferralsService {
         },
       },
     });
+    const ROLE_RANK: Record<string, number> = {
+      VENDOR: 3,
+      AMBASSADOR: 2,
+      INFLUENCER: 1,
+    };
+    const use = uses
+      .slice()
+      .sort((a, b) => {
+        const ra = ROLE_RANK[a.referralCode.role] ?? 0;
+        const rb = ROLE_RANK[b.referralCode.role] ?? 0;
+        if (rb !== ra) return rb - ra;
+        return b.createdAt.getTime() - a.createdAt.getTime();
+      })[0];
     if (!use) {
       return { influencer: null, embajador: null, vendor: null, sourceCodeId: null };
     }

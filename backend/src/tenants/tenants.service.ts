@@ -70,6 +70,7 @@ export type CreateTenantDto = {
 
 export type UpdateTenantDto = Partial<{
   brandName: string;
+  slug: string;
   email: string;
   phone: string;
   logoUrl: string;
@@ -497,7 +498,18 @@ export class TenantsService {
         ? !!wl?.creditsUnlimited || (wl?.creditsAvailable ?? 0) >= 1
         : true,
     };
-    return { ...tenant, enabledModules, brandPlans, brandCredits };
+    // PDF 925 #2: el "Modo de reparto de comisión" solo aplica si el negocio
+    // tiene un VENDEDOR en su cadena (el modo define cómo se le paga). Sin
+    // vendedor, el card no debe mostrarse.
+    const hasVendor =
+      (await this.prisma.referralUse.count({
+        where: {
+          tenantId: id,
+          status: { in: ['SIGNED_UP', 'ACTIVE', 'PAYING'] },
+          referralCode: { role: 'VENDOR' },
+        },
+      })) > 0;
+    return { ...tenant, enabledModules, brandPlans, brandCredits, hasVendor };
   }
 
   /** #9: asegura un Plan "Sin plan" (precio 0) reutilizable para crear
@@ -513,24 +525,38 @@ export class TenantsService {
     });
   }
 
-  async create(dto: CreateTenantDto, user?: AuthUser) {
-    const base = dto.brandName
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/(^-|-$)/g, '')
-      .slice(0, 40) || `tenant-${nanoid(6)}`;
+  /** Normaliza un texto a slug (minúsculas, guiones, sin acentos sobrantes). */
+  private slugify(s: string): string {
+    return (
+      s
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '')
+        .slice(0, 40) || `tenant-${nanoid(6)}`
+    );
+  }
 
-    // #3: el MISMO nombre puede existir en marcas blancas distintas (Clubify y
-    // Sellea pueden tener cada uno "Mi Restaurante"). El slug se mantiene
-    // ÚNICO GLOBAL (las URLs /m/<slug> y subdominios lo exigen), así que si
-    // choca, le agregamos un sufijo en vez de rechazar la creación.
+  /** Asegura un slug ÚNICO GLOBAL (las URLs /m/<slug> y subdominios lo exigen).
+   *  Si choca, agrega sufijo -2, -3… (y nanoid al final). `excludeId` permite
+   *  editar el slug del propio tenant sin chocar consigo mismo. */
+  private async ensureUniqueSlug(base: string, excludeId?: string): Promise<string> {
     let slug = base;
     for (let n = 2; n <= 99; n++) {
       const exists = await this.prisma.tenant.findUnique({ where: { slug } });
-      if (!exists) break;
+      if (!exists || exists.id === excludeId) break;
       slug = `${base.slice(0, 37)}-${n}`;
       if (n === 99) slug = `${base.slice(0, 33)}-${nanoid(6)}`;
     }
+    return slug;
+  }
+
+  async create(dto: CreateTenantDto, user?: AuthUser) {
+    // #3: el MISMO nombre puede existir en marcas blancas distintas (Clubify y
+    // Sellea pueden tener cada uno "Mi Restaurante"). El slug se mantiene
+    // ÚNICO GLOBAL, así que si choca le agregamos un sufijo.
+    const slug = await this.ensureUniqueSlug(this.slugify(dto.brandName));
 
     // #9: si no se eligió plan (marca sin planes configurados, ej Sellea),
     // usamos el plan "Sin plan" (precio 0) que se asegura on-demand.
@@ -660,11 +686,25 @@ export class TenantsService {
 
   async update(id: string, dto: UpdateTenantDto) {
     const before = await this.getById(id);
+    // PDF 925: slug editable. Normaliza + asegura unicidad global (excluyendo
+    // el propio tenant). Vacío o sin cambio real = no se toca. Cambiar el slug
+    // actualiza todas las URLs dinámicas (storefront/QR/wallet se recomputan en
+    // runtime); las URLs externas ya compartidas con el slug viejo se rompen.
+    const data: any = { ...dto };
+    if (typeof dto.slug === 'string' && dto.slug.trim()) {
+      const normalized = this.slugify(dto.slug);
+      data.slug =
+        normalized === before.slug
+          ? before.slug
+          : await this.ensureUniqueSlug(normalized, id);
+    } else {
+      delete data.slug;
+    }
     const updated = await this.prisma.tenant.update({
       where: { id },
       // `as any`: deliveryAlertsPhones/Events son columnas Json (string[]|null)
       // y Prisma no acepta el tipo directo. Mismo patrón que updateMine.
-      data: dto as any,
+      data,
     });
     // Si cambió el modo de reparto de comisión, recalculamos las comisiones
     // PENDIENTES/APROBADAS del negocio con el nuevo split (las PAGADAS quedan
