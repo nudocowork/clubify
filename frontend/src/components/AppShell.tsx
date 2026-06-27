@@ -98,6 +98,8 @@ export default function AppShell({
   variant,
   children,
   serverBrandColor = null,
+  serverBrandLogo = null,
+  serverBrandName = null,
 }: {
   variant: 'admin' | 'app';
   children: React.ReactNode;
@@ -105,6 +107,12 @@ export default function AppShell({
    *  Se usa como valor inicial del tema → el primer paint (SSR) ya sale con el
    *  color real, sin flash del verde Clubify (FODT). */
   serverBrandColor?: string | null;
+  /** Logo de la marca resuelto en el SERVIDOR (host/slug). Se usa en el primer
+   *  paint del sidebar/topbar mientras el cliente confirma la marca → evita el
+   *  flash del logo Clubify (FODT del logo). null = Clubify (sin marca). */
+  serverBrandLogo?: string | null;
+  /** Nombre de la marca resuelto en el SERVIDOR → título del panel sin flash. */
+  serverBrandName?: string | null;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -850,8 +858,10 @@ export default function AppShell({
 
   const brandTitle =
     variant === 'admin'
-      ? activeBrand?.name || 'Admin Clubify'
-      : tenantInfo?.brandName?.trim() || 'Mi Negocio';
+      ? // Prioridad: marca confirmada por el cliente → marca resuelta en SSR
+        //   (host/slug, sin flash) → Clubify.
+        activeBrand?.name || serverBrandName || 'Admin Clubify'
+      : tenantInfo?.brandName?.trim() || serverBrandName || 'Mi Negocio';
 
   const renderBrandMark = (size: number) => {
     // 1) Logo DASHBOARD cuadrado → caja size×size (encaja perfecto, sin deformar).
@@ -893,6 +903,19 @@ export default function AppShell({
         >
           {activeBrand.name.charAt(0).toUpperCase()}
         </div>
+      );
+    }
+    // 4) Marca aún no confirmada por el cliente pero resuelta en el SERVIDOR
+    //    (host/slug). Usa su logo en el primer paint → sin flash del logo
+    //    Clubify. El client-side solo confirma después.
+    if (serverBrandLogo) {
+      return (
+        <img
+          src={serverBrandLogo}
+          alt={serverBrandName || 'Logo'}
+          className="bg-white rounded-input object-contain flex-none"
+          style={{ height: size, width: 'auto', maxWidth: size * 3.4 }}
+        />
       );
     }
     return branding.appLogoUrl ? (

@@ -57,6 +57,42 @@ async function resolveBrandForHost(host: string): Promise<{
   }
 }
 
+/** Igual que resolveBrandForHost pero por slug — para el acceso por
+ *  /admin/<slug> en dominio Clubify (sin dominio propio). El middleware setea
+ *  el header x-wl-slug en la request del documento. */
+async function resolveBrandForSlug(slug: string): Promise<{
+  name: string;
+  logoUrl: string | null;
+  shareImageUrl: string | null;
+  hasIcon: boolean;
+  primaryColor: string;
+  slug: string;
+  version: number;
+} | null> {
+  const s = (slug || '').trim().toLowerCase();
+  if (!s || s === 'clubify') return null;
+  try {
+    const r = await fetch(
+      `${API_URL}/api/superadmin-public/white-labels/branding?slug=${encodeURIComponent(s)}`,
+      { next: { revalidate: 60 } },
+    );
+    if (!r.ok) return null;
+    const d = await r.json();
+    if (!d || !d.slug || d.slug === 'clubify') return null;
+    return {
+      name: d.name,
+      logoUrl: d.logoUrl ?? null,
+      shareImageUrl: d.shareImageUrl ?? null,
+      hasIcon: !!(d.faviconUrl || d.iconUrl || d.logoUrl),
+      primaryColor: d.primaryColor || '#111827',
+      slug: d.slug,
+      version: Number(d.brandingVersion) || 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** URL del icono de marca generado al vuelo por el backend, con cache-bust. */
 function brandIconUrl(
   slug: string,
@@ -82,10 +118,15 @@ function brandFaviconDataUri(name: string, color: string): string {
  * favicons locales como siempre.
  */
 export async function generateMetadata(): Promise<Metadata> {
-  const host = headers().get('host') ?? '';
-  const brand = await resolveBrandForHost(host);
+  const h = headers();
+  const host = h.get('host') ?? '';
+  // Marca por dominio propio (host) o, si entra por /admin/<slug> en dominio
+  // Clubify, por el slug (header x-wl-slug del middleware).
+  const brand =
+    (await resolveBrandForHost(host)) ||
+    (await resolveBrandForSlug(h.get('x-wl-slug') ?? ''));
 
-  // ───────── Marca blanca (dominio propio) → metadata 100% de la marca ─────────
+  // ───────── Marca blanca (dominio propio o /admin/<slug>) → metadata de la marca ─────────
   if (brand) {
     // Iconos generados al vuelo por el backend desde la imagen de la marca
     // (favicon 32/48, apple-touch 180 OPACO). Si la marca no subió ninguna
@@ -108,7 +149,11 @@ export async function generateMetadata(): Promise<Metadata> {
       metadataBase: new URL(`https://${host.split(':')[0] || 'soyclubify.com'}`),
       title: { default: title, template: `%s · ${brand.name}` },
       description,
-      manifest: '/manifest.webmanifest',
+      // El slug en la URL del manifest hace que la request (separada) del
+      // browser resuelva la marca aunque no arrastre el host/header — clave
+      // para /admin/<slug> en dominio Clubify (sin dominio propio). En dominio
+      // propio el slug es redundante pero inofensivo (el host ya resuelve).
+      manifest: `/manifest.webmanifest?slug=${encodeURIComponent(brand.slug)}`,
       applicationName: brand.name,
       appleWebApp: {
         capable: true,
@@ -147,6 +192,9 @@ export async function generateMetadata(): Promise<Metadata> {
       },
       other: {
         'msapplication-TileColor': brand.primaryColor,
+        // Equivalente moderno de apple-mobile-web-app-capable (que Next emite
+        // por appleWebApp.capable). Silencia el warning de deprecación.
+        'mobile-web-app-capable': 'yes',
       },
     };
   }
@@ -270,6 +318,9 @@ export async function generateMetadata(): Promise<Metadata> {
     other: {
       'msapplication-TileColor': '#22C55E',
       'msapplication-TileImage': v('/icons/icon-192.png'),
+      // Equivalente moderno de apple-mobile-web-app-capable → silencia el
+      // warning de deprecación. iOS sigue usando appleWebApp.capable.
+      'mobile-web-app-capable': 'yes',
     },
   };
 }

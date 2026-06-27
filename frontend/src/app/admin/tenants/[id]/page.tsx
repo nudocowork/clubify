@@ -325,39 +325,59 @@ export default function TenantDetail() {
             )}
             {isSuperAdmin && t.status === 'TRIAL' && (
               <>
-                <button
-                  className="btn-ghost text-sm"
-                  disabled={actioning}
-                  onClick={() => extendTrial(7)}
-                >
-                  {tr('plus7Days')}
-                </button>
-                <button
-                  className="btn-ghost text-sm"
-                  disabled={actioning}
-                  onClick={() => extendTrial(30)}
-                >
-                  {tr('plus30Days')}
-                </button>
+                {/* PDF 752 #5: los negocios de MARCA BLANCA no reciben prueba/trial.
+                    Se activan con créditos (Marcar pagado/activo). Solo Clubify
+                    (o marca ilimitada/sin gate) ve los botones de +días. */}
+                {!t.brandCredits?.isWhiteLabel && (
+                  <>
+                    <button
+                      className="btn-ghost text-sm"
+                      disabled={actioning}
+                      onClick={() => extendTrial(7)}
+                    >
+                      {tr('plus7Days')}
+                    </button>
+                    <button
+                      className="btn-ghost text-sm"
+                      disabled={actioning}
+                      onClick={() => extendTrial(30)}
+                    >
+                      {tr('plus30Days')}
+                    </button>
+                  </>
+                )}
                 <button
                   className="btn-primary text-sm"
-                  disabled={actioning}
+                  disabled={
+                    actioning ||
+                    (t.brandCredits?.isWhiteLabel && !t.brandCredits?.canActivate)
+                  }
                   onClick={convertToPaying}
-                  title={tr('markAsPaidTitle')}
+                  title={
+                    t.brandCredits?.isWhiteLabel && !t.brandCredits?.canActivate
+                      ? tr('needCreditsToActivate')
+                      : t.brandCredits?.isWhiteLabel
+                        ? tr('markAsPaidConsumesCredit')
+                        : tr('markAsPaidTitle')
+                  }
                 >
                   {tr('markAsPaid')}
                 </button>
               </>
             )}
-            {isSuperAdmin && t.status === 'SUSPENDED' && (
-              <button
-                className="btn-primary text-sm"
-                disabled={actioning}
-                onClick={() => extendTrial(14)}
-              >
-                {tr('reactivatePlus14')}
-              </button>
-            )}
+            {/* Reactivar suspendido con +14 días = trial: solo Clubify. Para
+                marca blanca, la reactivación va por "Marcar como activo" (crédito). */}
+            {isSuperAdmin &&
+              t.status === 'SUSPENDED' &&
+              !t.brandCredits?.isWhiteLabel && (
+                <button
+                  className="btn-primary text-sm"
+                  disabled={actioning}
+                  onClick={() => extendTrial(14)}
+                >
+                  {tr('reactivatePlus14')}
+                </button>
+              )}
             {isSuperAdmin && (t.status === 'ACTIVE' ? (
               <button
                 className="btn-ghost text-sm text-bad"
@@ -369,8 +389,18 @@ export default function TenantDetail() {
             ) : (
               <button
                 className="btn-primary text-sm"
-                disabled={actioning}
+                disabled={
+                  actioning ||
+                  (t.brandCredits?.isWhiteLabel && !t.brandCredits?.canActivate)
+                }
                 onClick={() => setStatus('ACTIVE')}
+                title={
+                  t.brandCredits?.isWhiteLabel && !t.brandCredits?.canActivate
+                    ? tr('needCreditsToActivate')
+                    : t.brandCredits?.isWhiteLabel
+                      ? tr('markAsActiveConsumesCredit')
+                      : undefined
+                }
               >
                 {tr('markAsActive')}
               </button>

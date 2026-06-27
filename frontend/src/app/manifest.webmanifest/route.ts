@@ -2,13 +2,25 @@ import { headers } from 'next/headers';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
-/** Resuelve la marca blanca por host. null para Clubify/dev. */
-async function resolveBrand(host: string): Promise<{
+type BrandManifestInfo = {
   name: string;
   primaryColor: string;
   slug: string;
   version: number;
-} | null> {
+};
+
+function toBrandInfo(d: any): BrandManifestInfo | null {
+  if (!d || !d.slug || d.slug === 'clubify') return null;
+  return {
+    name: d.name,
+    primaryColor: d.primaryColor || '#111827',
+    slug: d.slug,
+    version: Number(d.brandingVersion) || 0,
+  };
+}
+
+/** Resuelve la marca blanca por host. null para Clubify/dev. */
+async function resolveBrandByHost(host: string): Promise<BrandManifestInfo | null> {
   const h = (host || '').toLowerCase().split(':')[0];
   if (
     !h ||
@@ -25,14 +37,24 @@ async function resolveBrand(host: string): Promise<{
       { next: { revalidate: 60 } },
     );
     if (!r.ok) return null;
-    const d = await r.json();
-    if (!d || !d.slug || d.slug === 'clubify') return null;
-    return {
-      name: d.name,
-      primaryColor: d.primaryColor || '#111827',
-      slug: d.slug,
-      version: Number(d.brandingVersion) || 0,
-    };
+    return toBrandInfo(await r.json());
+  } catch {
+    return null;
+  }
+}
+
+/** Resuelve la marca blanca por slug (acceso por /admin/<slug> en dominio
+ *  Clubify, donde el middleware setea el header x-wl-slug). null = clubify. */
+async function resolveBrandBySlug(slug: string): Promise<BrandManifestInfo | null> {
+  const s = (slug || '').trim().toLowerCase();
+  if (!s || s === 'clubify') return null;
+  try {
+    const r = await fetch(
+      `${API_URL}/api/superadmin-public/white-labels/branding?slug=${encodeURIComponent(s)}`,
+      { next: { revalidate: 60 } },
+    );
+    if (!r.ok) return null;
+    return toBrandInfo(await r.json());
   } catch {
     return null;
   }
@@ -79,9 +101,22 @@ const CLUBIFY_MANIFEST = {
  * su nombre/colores/icono; en Clubify devuelve el manifest de siempre. Sin
  * referencias a Clubify en el dominio de la marca.
  */
-export async function GET() {
-  const host = headers().get('host') ?? '';
-  const brand = await resolveBrand(host);
+// Lee headers de la request → debe ser dinámico para resolver por host/slug.
+export const dynamic = 'force-dynamic';
+
+export async function GET(req: Request) {
+  const h = headers();
+  const host = h.get('host') ?? '';
+  // Slug de marca (acceso por /admin/<slug> en dominio Clubify, sin dominio
+  // propio conectado). El documento que pide este manifest lo referencia como
+  // /manifest.webmanifest?slug=<slug> (ver layout.tsx); también aceptamos el
+  // header x-wl-slug que setea el middleware por si la request lo arrastra.
+  const slugParam = new URL(req.url).searchParams.get('slug') ?? '';
+  const slug = slugParam || h.get('x-wl-slug') || '';
+  // 1) Marca por dominio propio (host). 2) Si no, por slug → los iconos del
+  //    manifest son los de la marca y no caen al estático de Clubify (404/403).
+  const brand =
+    (await resolveBrandByHost(host)) || (await resolveBrandBySlug(slug));
 
   if (!brand) {
     return Response.json(CLUBIFY_MANIFEST, {

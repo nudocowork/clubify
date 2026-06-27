@@ -900,6 +900,7 @@ type AuditFinding = {
   tenant: string | null;
   recipient: string;
   role: string | null;
+  status?: string;
   periodKey: string | null;
   actual: number;
   expected?: number;
@@ -929,6 +930,7 @@ function CommissionAuditPanel() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AuditResult | null>(null);
   const [open, setOpen] = useState(false);
+  const [fixingId, setFixingId] = useState<string | null>(null);
 
   async function run() {
     setLoading(true);
@@ -940,6 +942,24 @@ function CommissionAuditPanel() {
       toast((e as Error)?.message || t('errorAuditing'), 'error');
     } finally {
       setLoading(false);
+    }
+  }
+
+  // PDF 752 #2.2: corrige UNA comisión al monto esperado (acción explícita).
+  async function recalcOne(commissionId: string) {
+    setFixingId(commissionId);
+    try {
+      await api(`/referrals/audit/commissions/${commissionId}/recalc`, {
+        method: 'POST',
+      });
+      toast(t('auditFixed'), 'success');
+      // Re-corre el arqueo para reflejar el estado actualizado.
+      const res = await api<AuditResult>('/referrals/audit/commissions');
+      setResult(res ?? null);
+    } catch (e: unknown) {
+      toast((e as Error)?.message || t('auditFixError'), 'error');
+    } finally {
+      setFixingId(null);
     }
   }
 
@@ -1016,6 +1036,7 @@ function CommissionAuditPanel() {
                     <th className="text-left px-3 py-2">{t('auditThPeriod')}</th>
                     <th className="text-right px-3 py-2">{t('auditThActual')}</th>
                     <th className="text-right px-3 py-2">{t('auditThExpected')}</th>
+                    <th className="text-right px-3 py-2">{t('auditThAction')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1039,6 +1060,9 @@ function CommissionAuditPanel() {
                           {f.role && (
                             <span className="text-mute text-xs"> · {f.role}</span>
                           )}
+                          {f.status && (
+                            <span className="text-mute text-xs"> · {f.status}</span>
+                          )}
                         </td>
                         <td className="px-3 py-2 text-mute">
                           {f.periodKey ?? '—'}
@@ -1050,6 +1074,26 @@ function CommissionAuditPanel() {
                           {f.expected !== undefined
                             ? `$${f.expected.toFixed(2)}`
                             : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          {f.type === 'WRONG_AMOUNT' &&
+                          f.expected !== undefined ? (
+                            <button
+                              type="button"
+                              onClick={() => recalcOne(f.commissionId)}
+                              disabled={fixingId === f.commissionId}
+                              className="text-xs px-2.5 py-1 rounded-pill bg-brand text-white font-semibold hover:opacity-90 transition disabled:opacity-50"
+                              title={t('auditFixTitle', {
+                                expected: f.expected.toFixed(2),
+                              })}
+                            >
+                              {fixingId === f.commissionId
+                                ? t('auditFixing')
+                                : t('auditFix')}
+                            </button>
+                          ) : (
+                            <span className="text-mute">—</span>
+                          )}
                         </td>
                       </tr>
                     );

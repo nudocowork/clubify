@@ -8,7 +8,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   // paint → sin flash FODT, también para marcas nuevas sin dominio.
   const brand = await resolveBrandFromHeadersOrSlug();
   return (
-    <AppShell variant="admin" serverBrandColor={brand?.primaryColor ?? null}>
+    <AppShell
+      variant="admin"
+      serverBrandColor={brand?.primaryColor ?? null}
+      serverBrandLogo={brand?.logoUrl ?? null}
+      serverBrandName={brand?.name ?? null}
+    >
       <MaintenanceAdminBanner />
       {children}
     </AppShell>

@@ -7,7 +7,12 @@ export default async function TenantLayout({ children }: { children: React.React
   // ya sale con el color real (sin flash del verde Clubify / FODT).
   const brand = await resolveBrandFromHeaders();
   return (
-    <AppShell variant="app" serverBrandColor={brand?.primaryColor ?? null}>
+    <AppShell
+      variant="app"
+      serverBrandColor={brand?.primaryColor ?? null}
+      serverBrandLogo={brand?.logoUrl ?? null}
+      serverBrandName={brand?.name ?? null}
+    >
       {children}
       <OnboardingFlow />
     </AppShell>

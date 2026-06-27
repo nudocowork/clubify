@@ -922,6 +922,7 @@ export class AdminReportsService {
 
     const [
       activeTenantsForPricing,
+      paidInRangeTenants,
       newCustomersCurrent,
       newCustomersPrev,
       pendingAgg,
@@ -949,6 +950,23 @@ export class AdminReportsService {
           planPeriodicity: true,
           currentPeriodEnd: true,
           createdAt: true,
+          subscriptionPriceUsd: true,
+          lastChargeAt: true,
+        },
+      }),
+      // PDF 752 #6 (2026-06-26): "monto facturado" del rango = pagos REALES.
+      // lastChargeAt es la fecha del cobro real (webhook Hotmart approved_date,
+      // o activación manual). Tomamos cualquier negocio que cobró en [from,to]
+      // SIN importar su status actual (un negocio que pagó este mes y luego se
+      // suspendió igual facturó). Misma lógica para todas las marcas (scope wl).
+      this.prisma.tenant.findMany({
+        where: {
+          lastChargeAt: { gte: from, lte: to },
+          ...tenantWhere,
+        },
+        select: {
+          id: true,
+          planPeriodicity: true,
           subscriptionPriceUsd: true,
         },
       }),
@@ -1097,21 +1115,34 @@ export class AdminReportsService {
       ANUAL: { count: 0, amount: 0 },
     };
     let billedUsd = 0;
+    // PDF 752 #6 (2026-06-26): el "monto facturado" del rango ahora se basa en
+    // la FECHA DE COBRO REAL (lastChargeAt, sincronizada con Hotmart) en vez de
+    // una estimación currentPeriodEnd−meses. Cada negocio que cobró en [from,to]
+    // suma su precio real (subscriptionPriceUsd ?? canónico), agrupado por
+    // periodicidad. Incluye negocios que luego se suspendieron (igual facturaron)
+    // y hace que día/semana/mes/trimestre/año cuadren igual para todas las marcas.
+    for (const t of paidInRangeTenants) {
+      const key = normalizePeriod(t.planPeriodicity);
+      const amount = billedAmountFor(t);
+      billedUsd += amount;
+      billedAcc[key].count += 1;
+      billedAcc[key].amount += amount;
+    }
+    // FALLBACK legacy: negocios ACTIVE SIN lastChargeAt (creados antes de que
+    // se cableara la fecha de cobro). Mantienen la estimación histórica
+    // (currentPeriodEnd−meses, o createdAt) para no desaparecer del facturado
+    // hasta que un cobro/activación real les setee lastChargeAt. Un script de
+    // backfill puede poblar lastChargeAt y volver esta rama inerte.
     for (const t of activeTenantsForPricing) {
+      if (t.lastChargeAt) continue; // ya contado por paidInRangeTenants si cae en rango
       const key = normalizePeriod(t.planPeriodicity);
       const period = PERIODS[key];
       const cpe = t.currentPeriodEnd ?? null;
-      // Si no hay currentPeriodEnd, aproximamos: el pago inicial ocurrió
-      // en createdAt. Para tenants viejos sin Hotmart wire-up esto da
-      // una cota inferior razonable.
       const lastPaymentApprox = cpe
         ? new Date(cpe)
         : t.createdAt
           ? new Date(t.createdAt)
           : null;
-      // FIX 2026-06-16 (review): restar meses sobre día 1 evita el overflow
-      // de setMonth cuando cpe cae un 31 (ej. 31-mar − 1 mes → 3-mar) que
-      // podía mis-bucketear el tenant dentro/fuera del rango.
       if (cpe && lastPaymentApprox) {
         lastPaymentApprox.setDate(1);
         lastPaymentApprox.setMonth(lastPaymentApprox.getMonth() - period.months);
@@ -1121,8 +1152,6 @@ export class AdminReportsService {
         lastPaymentApprox.getTime() >= from.getTime() &&
         lastPaymentApprox.getTime() <= to.getTime()
       ) {
-        // FIX 2026-06-16 (#18): suma el pago REAL (subscriptionPriceUsd) y
-        // sólo cae al canónico cuando no hay precio real registrado.
         const amount = billedAmountFor(t);
         billedUsd += amount;
         billedAcc[key].count += 1;
@@ -1600,7 +1629,7 @@ export class AdminReportsService {
     if (wl.creditsUnlimited) {
       await this.prisma.tenant.update({
         where: { id: tenant.id },
-        data: { status: 'ACTIVE', currentPeriodEnd: newPeriodEnd },
+        data: { status: 'ACTIVE', currentPeriodEnd: newPeriodEnd, lastChargeAt: now },
       });
       return {
         ok: true,
@@ -1627,7 +1656,7 @@ export class AdminReportsService {
     try {
       await this.prisma.tenant.update({
         where: { id: tenant.id },
-        data: { status: 'ACTIVE', currentPeriodEnd: newPeriodEnd },
+        data: { status: 'ACTIVE', currentPeriodEnd: newPeriodEnd, lastChargeAt: now },
       });
       await this.prisma.creditTransaction.create({
         data: {

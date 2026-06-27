@@ -4041,6 +4041,20 @@ export class ReferralsService {
   }
 
   /**
+   * % indirecto del influencer (Setting `referrals.indirectPercent`, default 5).
+   * Es lo que cobra el influencer cuando la venta NO la hizo él directo sino
+   * un EMBAJADOR (o un vendedor bajo su embajador). Fuente única para que el
+   * arqueo y la generación real coincidan (PDF 752 #3).
+   */
+  private async resolveIndirectPercent(): Promise<number> {
+    const row = await this.prisma.setting.findUnique({
+      where: { key: 'referrals.indirectPercent' },
+    });
+    const n = row?.value != null ? Number(row.value) : NaN;
+    return Number.isFinite(n) && n >= 0 ? n : 5;
+  }
+
+  /**
    * Genera las commission rows para un pago efectivo de un tenant.
    * 3-way split: hasta 3 rows (influencer / embajador / vendor). Si la
    * chain no tiene alguna persona, se omite esa row.
@@ -4085,11 +4099,24 @@ export class ReferralsService {
 
     // Cada nivel puede tener su propia excepción por tenant. Si no hay, cae al
     // % normal del ReferralCode (que vino en `chain`).
+    //
+    // PDF 752 #3 (2026-06-26): el influencer cobra su % COMPLETO solo cuando la
+    // venta la hizo ÉL directo (su code === source de la venta). Si la venta
+    // entró por un EMBAJADOR (o un vendedor bajo su embajador), el influencer es
+    // INDIRECTO → cobra `referrals.indirectPercent` (5%), no su 10%. Antes el
+    // arqueo aplicaba el % completo siempre → "esperaba 10%" en ventas de
+    // embajador y marcaba como mal la comisión correcta al 5% (caso Juan Camilo
+    // / MOTILART). La excepción por-tenant, si existe, sigue teniendo prioridad.
+    const influencerIsIndirect =
+      !!chain.influencer && chain.influencer.id !== chain.sourceCodeId;
+    const influencerFallbackPct = influencerIsIndirect
+      ? await this.resolveIndirectPercent()
+      : chain.influencer?.commissionPercent ?? 0;
     const influencerPct = chain.influencer
       ? await this.resolveExceptionPercent(
           tenantId,
           chain.influencer.id,
-          chain.influencer.commissionPercent,
+          influencerFallbackPct,
         )
       : 0;
     const embajadorPct = chain.embajador
@@ -4358,9 +4385,15 @@ export class ReferralsService {
       }
     }
 
+    // PDF 752 #2 (2026-06-26): arqueo COMPLETO. Antes solo {PENDING,APPROVED}
+    // ("vivas") → dejaba fuera PAGADAS, BLOQUEADAS y RETENIDAS, mostrando solo
+    // unas pocas. Ahora recorre el 100% de las comisiones reales SIN importar
+    // estado (PENDING=bloqueada, APPROVED=disponible, PAID=pagada, RETAINED=
+    // retenida). Excluimos REJECTED (cancelada/anulada, nunca suma) y ADJUSTMENT
+    // (asiento negativo de clawback, no es una comisión a validar contra base×%).
     const live = await this.prisma.commission.findMany({
       where: {
-        status: { in: ['PENDING', 'APPROVED'] },
+        status: { in: ['PENDING', 'APPROVED', 'PAID', 'RETAINED'] },
         ...(user.whiteLabelId
           ? { referralUse: { tenant: { whiteLabelId: user.whiteLabelId } } }
           : {}),
@@ -4398,6 +4431,7 @@ export class ReferralsService {
       tenant: string | null;
       recipient: string;
       role: string | null;
+      status?: string;
       periodKey: string | null;
       actual: number;
       expected?: number;
@@ -4509,6 +4543,7 @@ export class ReferralsService {
             tenant: t.brandName,
             recipient: c.recipientCode?.ownerName ?? '(?)',
             role: c.recipientCode?.role ?? null,
+            status: c.status,
             periodKey: c.periodKey,
             actual: Number(c.amount),
             expected: exp,
@@ -4531,6 +4566,121 @@ export class ReferralsService {
       ),
     };
     return { summary, findings };
+  }
+
+  /**
+   * PDF 752 #2.2 (2026-06-26): corrige UNA comisión al monto ESPERADO del arqueo.
+   * Acción individual y explícita por fila (nunca automática). Recalcula
+   * base × % correcto con la MISMA fuente que el arqueo
+   * (computeExpectedCommissionRows → incluye la regla 5% influencer-vía-embajador
+   * y el corte del socio) y actualiza el `amount`. Si la comisión ya estaba
+   * PAGADA, alinea también `amountPaid` (invariante de pago). Audita el cambio.
+   * NUNCA toca REJECTED/ADJUSTMENT ni comisiones fantasma (sin tenant/recipiente
+   * o fuera de la cadena) — esas se revisan a mano.
+   */
+  async recalcCommissionToExpected(user: AuthUser, commissionId: string) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    const c = await this.prisma.commission.findUnique({
+      where: { id: commissionId },
+      select: {
+        id: true,
+        amount: true,
+        amountPaid: true,
+        status: true,
+        recipientCodeId: true,
+        referralUse: {
+          select: {
+            tenant: {
+              select: {
+                id: true,
+                brandName: true,
+                whiteLabelId: true,
+                planPeriodicity: true,
+                subscriptionPriceUsd: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!c) throw new NotFoundException('Comisión no encontrada');
+    // Aislamiento por marca (igual que el arqueo).
+    if (
+      user.whiteLabelId &&
+      c.referralUse?.tenant?.whiteLabelId !== user.whiteLabelId
+    ) {
+      throw new ForbiddenException('Esta comisión no pertenece a tu marca.');
+    }
+    if (c.status === 'REJECTED' || c.status === 'ADJUSTMENT') {
+      throw new BadRequestException(
+        'Las comisiones canceladas o de ajuste no se recalculan.',
+      );
+    }
+    const tenant = c.referralUse?.tenant;
+    if (!tenant) {
+      throw new BadRequestException(
+        'La comisión no tiene negocio asociado (fantasma): revísala manualmente.',
+      );
+    }
+    if (!c.recipientCodeId) {
+      throw new BadRequestException(
+        'La comisión no tiene destinatario: revísala manualmente.',
+      );
+    }
+    const base = await this.recalc.getCommissionBase(
+      tenant.subscriptionPriceUsd ?? null,
+      tenant.planPeriodicity,
+    );
+    const { rows } = await this.computeExpectedCommissionRows(tenant.id, base);
+    const expectedMap = new Map<string, number>();
+    for (const r of rows) expectedMap.set(r.recipientCodeId, r.amount);
+    // SOCIO (10% global) — mismo "esperado" que el arqueo.
+    const socioRow = await this.prisma.setting.findUnique({
+      where: { key: 'referrals.socioCodeId' },
+    });
+    const socioCodeId = socioRow?.value || null;
+    if (socioCodeId && base > 0) {
+      let socioPct: number = COMMISSION_DEFAULTS.socioPct;
+      const s = await this.prisma.referralCode.findUnique({
+        where: { id: socioCodeId },
+        select: { commissionPercent: true },
+      });
+      if (s) socioPct = Number(s.commissionPercent ?? COMMISSION_DEFAULTS.socioPct);
+      expectedMap.set(socioCodeId, Math.round(base * socioPct) / 100);
+    }
+    const expected = expectedMap.get(c.recipientCodeId);
+    if (expected === undefined) {
+      throw new BadRequestException(
+        'Esta comisión no corresponde a la cadena de atribución actual (fantasma). Revísala manualmente.',
+      );
+    }
+    const previousAmount = Number(c.amount);
+    const data: { amount: number; amountPaid?: number } = { amount: expected };
+    // Invariante de pago: si ya estaba pagada, el amountPaid debe seguir = amount.
+    if (c.status === 'PAID') data.amountPaid = expected;
+    await this.prisma.commission.update({ where: { id: c.id }, data });
+
+    await this.audit.log({
+      actorId: user.id,
+      tenantId: tenant.id,
+      action: 'commission.recalc_to_expected',
+      resource: `commission:${c.id}`,
+      metadata: {
+        brandName: tenant.brandName,
+        base,
+        previousAmount,
+        newAmount: expected,
+        status: c.status,
+      },
+    });
+
+    return {
+      ok: true,
+      commissionId: c.id,
+      previousAmount,
+      newAmount: expected,
+      base,
+    };
   }
 
   /**

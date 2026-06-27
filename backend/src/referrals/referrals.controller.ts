@@ -167,6 +167,17 @@ export class ReferralsController {
     return this.svc.auditCommissions(user);
   }
 
+  // PDF 752 #2.2 (2026-06-26): corrige UNA comisión al monto esperado del
+  // arqueo (acción individual y explícita por fila, nunca automática).
+  @Roles('SUPER_ADMIN')
+  @Post('audit/commissions/:id/recalc')
+  recalcCommission(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    return this.svc.recalcCommissionToExpected(user, id);
+  }
+
   // #12 (2026-06-16): modificar/resetear la contraseña de un afiliado existente.
   @Roles('SUPER_ADMIN')
   @Patch('affiliates/:codeId/password')

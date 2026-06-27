@@ -454,6 +454,10 @@ export class TenantsService {
           select: {
             slug: true,
             name: true,
+            // Créditos de la marca → el detalle gatea trial/activación (PDF 752
+            // #5): marca blanca sin créditos NO puede activar; y nunca da trial.
+            creditsAvailable: true,
+            creditsUnlimited: true,
             modules: { where: { enabled: true }, select: { module: true } },
             // Planes de pago de la marca → el modal "Cambiar plan" muestra SOLO
             // las periodicidades/precios de la marca del negocio (no los de
@@ -478,7 +482,22 @@ export class TenantsService {
         amountUsd: l.amountUsd != null ? Number(l.amountUsd) : null,
         url: l.url ?? null,
       })) ?? [];
-    return { ...tenant, enabledModules, brandPlans };
+    // Estado de créditos de la marca para gatear la UI (PDF 752 #5). Un negocio
+    // de MARCA BLANCA (no-Clubify) no recibe trial y solo se activa con créditos:
+    //  - isWhiteLabel: el negocio pertenece a una marca blanca (no Clubify).
+    //  - canActivate: la marca puede activar (ilimitada o con ≥1 crédito).
+    // Para Clubify / sin marca → no hay restricción (canActivate true, sin gate).
+    const wl = tenant.whiteLabel;
+    const isWhiteLabel = !!wl && wl.slug !== 'clubify';
+    const brandCredits = {
+      isWhiteLabel,
+      unlimited: isWhiteLabel ? !!wl?.creditsUnlimited : true,
+      available: isWhiteLabel ? wl?.creditsAvailable ?? 0 : 0,
+      canActivate: isWhiteLabel
+        ? !!wl?.creditsUnlimited || (wl?.creditsAvailable ?? 0) >= 1
+        : true,
+    };
+    return { ...tenant, enabledModules, brandPlans, brandCredits };
   }
 
   /** #9: asegura un Plan "Sin plan" (precio 0) reutilizable para crear
@@ -709,6 +728,8 @@ export class TenantsService {
           trialEndsAt: null,
           currentPeriodEnd: null,
           suspendedAt: null,
+          // Activación manual = fecha de cobro real → monto facturado por rango.
+          lastChargeAt: now,
         };
         break;
       case 'trial': {
@@ -742,6 +763,8 @@ export class TenantsService {
           // simulador dejaba trialEndsAt seteado → banner de trial sobre un
           // negocio ya pago.
           trialEndsAt: null,
+          // Activación manual = fecha de cobro real → monto facturado por rango.
+          lastChargeAt: now,
         };
         if (dto.nextChargeDate) {
           const parsed = new Date(dto.nextChargeDate);
@@ -930,13 +953,35 @@ export class TenantsService {
   async setStatus(id: string, status: TenantStatus, actorId: string) {
     const previous = await this.prisma.tenant.findFirst({
       where: { id }, // findFirst → aislado por marca (middleware whiteLabel)
-      select: { status: true, brandName: true, suspendedAt: true },
+      select: {
+        id: true,
+        status: true,
+        brandName: true,
+        suspendedAt: true,
+        whiteLabelId: true,
+      },
     });
     if (!previous) throw new NotFoundException('Tenant');
     const data: any = { status };
-    if (status === 'ACTIVE') data.suspendedAt = null;
+    if (status === 'ACTIVE') {
+      data.suspendedAt = null;
+      // "Marcar como activo" = fecha de cobro real → monto facturado por rango.
+      data.lastChargeAt = new Date();
+    }
     if (status === 'SUSPENDED') data.suspendedAt = new Date();
-    const updated = await this.prisma.tenant.update({ where: { id }, data });
+    // Marca blanca: pasar a ACTIVE consume 1 crédito (bloquea si no hay).
+    const credit =
+      status === 'ACTIVE'
+        ? await this.chargeBrandCreditForActivation(previous, 'marcar activo')
+        : { rollback: async () => {}, commit: async () => {} };
+    let updated;
+    try {
+      updated = await this.prisma.tenant.update({ where: { id }, data });
+    } catch (e) {
+      await credit.rollback();
+      throw e;
+    }
+    await credit.commit();
     invalidateTenantStatusCache(id);
     // Audit 2026-06-08: cambio de status manual del super admin.
     this.audit.log({
@@ -963,6 +1008,66 @@ export class TenantsService {
    * efectivo) y el admin quiere convertirlo manualmente para que el
    * afiliado vea su comisión.
    */
+  /**
+   * Débito de 1 crédito de la marca al ACTIVAR un negocio de marca blanca
+   * (no-Clubify, no-ilimitada). Race-safe (updateMany con guard). Lanza
+   * ForbiddenException si la marca no tiene créditos. Para Clubify / sin marca
+   * / ilimitada / negocio ya ACTIVE no hace nada. Devuelve `rollback` (revertir
+   * si la escritura posterior falla) y `commit` (registrar la CreditTransaction).
+   * Unifica la regla "marca blanca SIN créditos NO PUEDE ACTIVAR negocios"
+   * en todas las vías manuales (marcar pagado / marcar activo / simulador).
+   */
+  private async chargeBrandCreditForActivation(
+    previous: {
+      id: string;
+      whiteLabelId: string | null;
+      status: TenantStatus;
+      brandName: string;
+    },
+    source: string,
+  ): Promise<{ rollback: () => Promise<void>; commit: () => Promise<void> }> {
+    const noop = { rollback: async () => {}, commit: async () => {} };
+    // Solo al PASAR a ACTIVE (no recobra si ya estaba activo) y solo marcas.
+    if (previous.status === 'ACTIVE' || !previous.whiteLabelId) return noop;
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id: previous.whiteLabelId },
+      select: { id: true, slug: true, creditsUnlimited: true },
+    });
+    if (!wl || wl.slug === 'clubify' || wl.creditsUnlimited) return noop;
+    const debit = await this.prisma.whiteLabel.updateMany({
+      where: { id: wl.id, creditsAvailable: { gte: 1 } },
+      data: { creditsAvailable: { decrement: 1 }, creditsUsed: { increment: 1 } },
+    });
+    if (debit.count === 0) {
+      throw new ForbiddenException(
+        'La marca no tiene créditos disponibles. Compra un pack para activar este negocio.',
+      );
+    }
+    return {
+      rollback: async () => {
+        await this.prisma.whiteLabel
+          .update({
+            where: { id: wl.id },
+            data: { creditsAvailable: { increment: 1 }, creditsUsed: { decrement: 1 } },
+          })
+          .catch(() => undefined);
+      },
+      commit: async () => {
+        await this.prisma.creditTransaction
+          .create({
+            data: {
+              whiteLabelId: wl.id,
+              type: 'CONSUME',
+              amount: -1,
+              tenantId: previous.id,
+              note: `Activación (${source}) · ${previous.brandName}`,
+            },
+          })
+          .catch(() => undefined);
+      },
+    };
+  }
+
   async convertToPaying(id: string, actorId: string, periodDays?: number) {
     const t = await this.prisma.tenant.findFirst({ where: { id } }); // aislado por marca (middleware)
     if (!t) throw new NotFoundException('Tenant');
@@ -974,18 +1079,29 @@ export class TenantsService {
       periodDays != null
         ? new Date(now.getTime() + periodDays * 24 * 60 * 60 * 1000)
         : addPlanPeriod(now, t.planPeriodicity);
-    const updated = await this.prisma.tenant.update({
-      where: { id },
-      data: {
-        status: 'ACTIVE',
-        suspendedAt: null,
-        trialEndsAt: null,
-        currentPeriodEnd: newPeriodEnd,
-        // Resetear contador de fallos al convertir manual (asumimos que
-        // el pago manual reseta cualquier fallo previo).
-        failedPaymentCount: 0,
-      },
-    });
+    // Marca blanca: "marcar pagado" ACTIVA → consume 1 crédito (bloquea si no hay).
+    const credit = await this.chargeBrandCreditForActivation(t, 'marcar pagado');
+    let updated;
+    try {
+      updated = await this.prisma.tenant.update({
+        where: { id },
+        data: {
+          status: 'ACTIVE',
+          suspendedAt: null,
+          trialEndsAt: null,
+          currentPeriodEnd: newPeriodEnd,
+          // Pago manual = fecha de cobro real → alimenta "monto facturado" por rango.
+          lastChargeAt: now,
+          // Resetear contador de fallos al convertir manual (asumimos que
+          // el pago manual reseta cualquier fallo previo).
+          failedPaymentCount: 0,
+        },
+      });
+    } catch (e) {
+      await credit.rollback();
+      throw e;
+    }
+    await credit.commit();
     invalidateTenantStatusCache(id);
 
     // Audit 2026-06-08: dispara backfill de comisión al afiliado. Sin
@@ -1096,13 +1212,12 @@ export class TenantsService {
       select: { creditsUnlimited: true, creditsAvailable: true, slug: true },
     });
     if (!wl || wl.slug === 'clubify' || wl.creditsUnlimited) return null;
-    if (wl.creditsAvailable >= 1) return null; // tiene créditos → sin tope
-    // Sin créditos → setting platform.maxTrialDaysNoCredits (default 7).
-    const s = await this.prisma.setting.findUnique({
-      where: { key: 'platform.maxTrialDaysNoCredits' },
-    });
-    const n = s?.value != null ? Number(s.value) : NaN;
-    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 7;
+    // 2026-06-26 (PDF 752 #5): los negocios de MARCA BLANCA NO reciben trial.
+    // La marca debe ACTIVAR con créditos (1 crédito = activación), no con
+    // pruebas gratis. Por eso el tope es 0 (trials bloqueados) SIEMPRE para
+    // marcas no-Clubify no-ilimitadas, tengan o no créditos — los créditos
+    // habilitan activar (marcar pagado/activo), no extender prueba.
+    return 0;
   }
 
   /** Aplica el tope de trial (créditos de la marca) a un trialEnd propuesto.
@@ -1117,7 +1232,7 @@ export class TenantsService {
     if (cap == null) return proposedEnd;
     if (cap === 0) {
       throw new BadRequestException(
-        'La marca no tiene créditos disponibles: no se pueden activar pruebas gratuitas. Recarga créditos para continuar.',
+        'Los negocios de marca blanca no usan prueba gratis. Actívalo con créditos: "Marcar como pagado" o "Marcar como activo" (consume 1 crédito).',
       );
     }
     const maxEnd = new Date(now.getTime() + cap * 24 * 60 * 60 * 1000);
