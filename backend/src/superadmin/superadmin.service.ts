@@ -25,7 +25,7 @@ export type PaymentConfigDto = {
 
 export type PaymentLinkDto = {
   gateway: PaymentGateway;
-  name: string;
+  name?: string;
   periodicity?: PaymentLinkPeriodicity;
   amountUsd: number;
   url?: string | null;
@@ -929,13 +929,24 @@ export class SuperAdminService {
   async createPaymentLink(whiteLabelId: string, dto: PaymentLinkDto, actorId?: string) {
     const wl = await this.prisma.whiteLabel.findUnique({ where: { id: whiteLabelId }, select: { id: true, name: true } });
     if (!wl) throw new NotFoundException();
-    if (!dto.name?.trim()) throw new BadRequestException('Nombre del plan requerido');
+    // Si no llega nombre, usamos "Plan {Periodicidad}" como default editable
+    // (en lugar de exigirlo / dejar "Sin plan"). PDF Modificaciones 2026-06-27.
+    const PERIOD_LABEL: Record<string, string> = {
+      MENSUAL: 'Mensual',
+      TRIMESTRAL: 'Trimestral',
+      SEMESTRAL: 'Semestral',
+      ANUAL: 'Anual',
+      CUSTOM: 'Personalizado',
+    };
+    const periodicity = dto.periodicity ?? 'MENSUAL';
+    const name =
+      dto.name?.trim() || `Plan ${PERIOD_LABEL[periodicity] ?? 'Mensual'}`;
     const created = await this.prisma.whiteLabelPaymentLink.create({
       data: {
         whiteLabelId,
         gateway: dto.gateway,
-        name: dto.name.trim(),
-        periodicity: dto.periodicity ?? 'MENSUAL',
+        name,
+        periodicity,
         amountUsd: new Prisma.Decimal(dto.amountUsd ?? 0),
         url: dto.url?.trim() || null,
         active: dto.active ?? true,

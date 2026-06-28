@@ -57,7 +57,8 @@ class PaymentConfigBody {
 
 class PaymentLinkBody {
   @IsIn(['HOTMART', 'STRIPE', 'MANUAL']) gateway!: 'HOTMART' | 'STRIPE' | 'MANUAL';
-  @IsString() @MaxLength(120) name!: string;
+  // Opcional: si no llega, el service usa "Plan {Periodicidad}" como default.
+  @IsOptional() @IsString() @MaxLength(120) name?: string;
   @IsOptional() @IsIn(['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL', 'CUSTOM']) periodicity?: any;
   @IsNumber() @Min(0) amountUsd!: number;
   @IsOptional() @IsString() @MaxLength(600) url?: string | null;

@@ -14,6 +14,7 @@ import {
   periodCadence,
   periodLabel,
   periodTotalUsd,
+  planDisplayName,
   type PlanPeriodicity,
 } from '@/lib/plan-format';
 
@@ -513,7 +514,12 @@ export default function TenantDetail() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5 mb-4">
         <div className="kpi">
           <div className="kpi-lbl">{tr('kpiPlan')}</div>
-          <div className="kpi-val text-brand">{t.plan?.name ?? 'Elite'}</div>
+          <div className="kpi-val text-brand">
+            {planDisplayName(
+              t.plan?.name,
+              t.planPeriodicity as PlanPeriodicity | null,
+            )}
+          </div>
           <div className="kpi-sub">
             🗓️ {periodLabel(t.planPeriodicity as PlanPeriodicity | null)} ·{' '}
             {periodTotalUsd(
@@ -2493,7 +2499,12 @@ function PlanCurrentCard({
       <dl className="mt-4 space-y-2 text-sm">
         <div className="flex justify-between">
           <dt className="text-mute">{t('planDt')}</dt>
-          <dd className="font-semibold text-brand">{tenant.plan?.name ?? '—'}</dd>
+          <dd className="font-semibold text-brand">
+            {planDisplayName(
+              tenant.plan?.name,
+              tenant.planPeriodicity as PlanPeriodicity | null,
+            )}
+          </dd>
         </div>
         <div className="flex justify-between">
           <dt className="text-mute">{t('periodicity')}</dt>

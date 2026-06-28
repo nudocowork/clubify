@@ -1720,7 +1720,9 @@ function PaymentGatewayConfig({
         method: 'POST',
         body: JSON.stringify({
           gateway: gateway === 'MANUAL' ? 'HOTMART' : gateway,
-          name: 'Nuevo plan',
+          // Default editable: "Plan Mensual" (no "Nuevo plan"). El usuario lo
+          // renombra en el input de nombre del plan.
+          name: 'Plan Mensual',
           periodicity: 'MENSUAL',
           amountUsd: 0,
           active: true,

@@ -53,6 +53,22 @@ export function periodTotalUsd(
 }
 
 /**
+ * Nombre a MOSTRAR del plan. Si el plan no tiene nombre real (vacío o el
+ * fallback genérico "Sin plan" del Plan compartido que usan las marcas
+ * blancas), mostramos "Plan {Periodicidad}" (ej. "Plan Mensual", "Plan Anual")
+ * en lugar de "Sin plan". Si tiene nombre propio (ej. "Elite", o el nombre
+ * editado del plan de la marca), se respeta. (PDF Modificaciones 2026-06-27).
+ */
+export function planDisplayName(
+  planName: string | null | undefined,
+  periodicity: PlanPeriodicity | null | undefined,
+): string {
+  const n = planName?.trim();
+  if (n && n.toLowerCase() !== 'sin plan') return n;
+  return `Plan ${periodLabel(periodicity)}`;
+}
+
+/**
  * Etiqueta corta del plan tipo "Elite · Trimestral".
  */
 export function formatPlanLabel(

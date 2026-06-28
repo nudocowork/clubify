@@ -9,7 +9,7 @@ import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { DuplicateBusinessModal } from '@/components/DuplicateBusinessModal';
 import { ManageTrialModal } from '@/components/ManageTrialModal';
-import { periodLabel, type PlanPeriodicity } from '@/lib/plan-format';
+import { periodLabel, planDisplayName, type PlanPeriodicity } from '@/lib/plan-format';
 
 function avatarClass(seed: string) {
   const sum = seed.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
@@ -403,7 +403,12 @@ export default function TenantsPage() {
                   </div>
                 </td>
                 <td className="px-4 py-3.5">
-                  <div className="font-medium">{tn.plan?.name ?? 'Elite'}</div>
+                  <div className="font-medium">
+                    {planDisplayName(
+                      tn.plan?.name,
+                      tn.planPeriodicity as PlanPeriodicity | null,
+                    )}
+                  </div>
                   <div className="text-[11px] text-mute">
                     {periodLabel(tn.planPeriodicity as PlanPeriodicity | null)}
                   </div>

@@ -29,6 +29,10 @@ class ProductBody {
   // priceMax solo válido cuando priceMode='RANGE'. Aceptamos null
   // explícito para limpiar (volver al modo FIXED).
   @ValidateIf((_, v) => v !== null) @IsOptional() @IsNumber() priceMax?: number | null;
+  // PDF 346 #1: cómo se interpreta el precio de las variantes/tamaños.
+  // Faltaba aquí → el ValidationPipe (forbidNonWhitelisted) rechazaba el
+  // create/update con "property variantPriceMode should not exist".
+  @IsOptional() @IsIn(['DELTA', 'ABSOLUTE']) variantPriceMode?: 'DELTA' | 'ABSOLUTE';
   @IsOptional() @IsString() imageUrl?: string;
   @IsOptional() @IsArray() tags?: string[];
   @IsOptional() @IsBoolean() isAvailable?: boolean;
