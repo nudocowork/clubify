@@ -56,10 +56,16 @@ export class MaintenanceGuard implements CanActivate {
     const status = await this.maintenance.getStatus();
     if (!status.enabled) return true;
 
-    // SUPER_ADMIN bypass — para que pueda seguir trabajando durante la
-    // ventana de mantenimiento (apagar el flag, hacer changes, etc).
+    // SUPER_ADMIN / PLATFORM_OWNER bypass — para que puedan seguir trabajando
+    // durante la ventana de mantenimiento (apagar el flag, hacer changes, etc).
+    // 2026-06-28: incluido PLATFORM_OWNER (master admin, está por encima de
+    // SUPER_ADMIN y es quien CORRE el mantenimiento) — antes en su sesión de
+    // Modo plataforma quedaba bloqueado y no podía operar /admin durante la
+    // ventana (ej. crear administradores).
     const user = req.user;
-    if (user?.role === 'SUPER_ADMIN') return true;
+    if (user?.role === 'SUPER_ADMIN' || user?.role === 'PLATFORM_OWNER') {
+      return true;
+    }
 
     // Calcular Retry-After: segundos hasta `until` si está, sino 300.
     let retryAfter = 300;
