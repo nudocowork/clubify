@@ -53,9 +53,15 @@ function genTempPassword() {
  * editar/eliminar admins. Pensado para que el founder agregue más miembros
  * del equipo interno (soporte, ventas) que necesitan acceso al panel
  * /admin/* sin estar vinculados a un tenant.
+ *
+ * 2026-06-28: incluido PLATFORM_OWNER (master admin) — en su sesión propia de
+ * "Modo plataforma" su rol es PLATFORM_OWNER (no SUPER_ADMIN), así que sin esto
+ * el panel /admin/clubify/users daba 403 al listar/crear admins. PLATFORM_OWNER
+ * está por encima de SUPER_ADMIN; gestiona los admins GLOBALES de Clubify
+ * (whiteLabelId null). El aislamiento por marca se mantiene vía user.whiteLabelId.
  */
 @Controller('admin/users')
-@Roles('SUPER_ADMIN')
+@Roles('SUPER_ADMIN', 'PLATFORM_OWNER')
 export class AdminUsersController {
   constructor(
     private prisma: PrismaService,
