@@ -23,6 +23,7 @@ type TenantMe = {
   whatsappPhone: string | null;
   whatsappOrdersPhone: string | null;
   whatsappDeliveryPhone: string | null;
+  whatsappReservationsPhone: string | null;
   mainSectionLabelOverride: string | null;
   businessCategorySlug: string | null;
   currency?: string;
@@ -155,6 +156,11 @@ export default function SettingsPage() {
   const [savingBrandName, setSavingBrandName] = useState(false);
   const [brandNameMsg, setBrandNameMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
+  // #1 (PDF Software 2026-06-29): número receptor de avisos de reservas.
+  const [resvPhone, setResvPhone] = useState<string>('');
+  const [savingResv, setSavingResv] = useState(false);
+  const [resvMsg, setResvMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
   const [sectionMode, setSectionMode] = useState<MainSectionMode>('menu');
   const [sectionCustom, setSectionCustom] = useState<string>('');
   const [savingSection, setSavingSection] = useState(false);
@@ -184,6 +190,7 @@ export default function SettingsPage() {
       .then((t) => {
         setTenant(t);
         setBrandNameDraft(t.brandName ?? '');
+        setResvPhone(t.whatsappReservationsPhone ?? '');
         const { mode, custom } = detectMainMode(t.mainSectionLabelOverride);
         setSectionMode(mode);
         setSectionCustom(custom);
@@ -327,6 +334,26 @@ export default function SettingsPage() {
       setProfileMsg({ ok: false, text: e.message || t('couldNotUpdate') });
     } finally {
       setSavingProfile(false);
+    }
+  }
+
+  async function saveReservationsPhone(e: React.FormEvent) {
+    e.preventDefault();
+    setResvMsg(null);
+    const trimmed = resvPhone.trim();
+    setSavingResv(true);
+    try {
+      const updated = await api<TenantMe>('/tenants/me', {
+        method: 'PATCH',
+        body: JSON.stringify({ whatsappReservationsPhone: trimmed }),
+      });
+      setTenant(updated);
+      setResvPhone(updated.whatsappReservationsPhone ?? trimmed);
+      setResvMsg({ ok: true, text: t('resvSaved') });
+    } catch (err: any) {
+      setResvMsg({ ok: false, text: err?.message || t('couldNotSave') });
+    } finally {
+      setSavingResv(false);
     }
   }
 
@@ -493,6 +520,43 @@ export default function SettingsPage() {
         <div className="mt-4 flex justify-end">
           <button type="submit" className="btn-primary" disabled={savingBrandName}>
             {savingBrandName ? t('saving') : t('saveName')}
+          </button>
+        </div>
+      </form>
+
+      {/* #1 (PDF Software 2026-06-29): número receptor de avisos de reservas.
+          El botón "Configurar número receptor" del módulo de reservas ancla
+          aquí (/app/settings#reservas). */}
+      <form
+        id="reservas"
+        onSubmit={saveReservationsPhone}
+        className="card card-pad mb-4 scroll-mt-20"
+      >
+        <h2 className="text-base font-semibold m-0">{t('resvReceiverTitle')}</h2>
+        <p className="text-xs text-mute mt-1">{t('resvReceiverDesc')}</p>
+        <div className="mt-4">
+          <label className="label">{t('resvReceiverLabel')}</label>
+          <input
+            className="input"
+            value={resvPhone}
+            onChange={(e) => setResvPhone(e.target.value)}
+            placeholder="+57 300 000 0000"
+            inputMode="tel"
+          />
+          <p className="text-[11px] text-mute mt-1">{t('resvReceiverHint')}</p>
+        </div>
+        {resvMsg && (
+          <div
+            className={`mt-3 text-sm rounded-lg px-3 py-2 ${
+              resvMsg.ok ? 'bg-ok-soft text-ok' : 'bg-bad-soft text-bad-ink'
+            }`}
+          >
+            {resvMsg.text}
+          </div>
+        )}
+        <div className="mt-4 flex justify-end">
+          <button type="submit" className="btn-primary" disabled={savingResv}>
+            {savingResv ? t('saving') : t('save')}
           </button>
         </div>
       </form>

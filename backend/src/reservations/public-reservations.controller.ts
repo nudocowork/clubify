@@ -30,6 +30,8 @@ class PublicReservationBody {
   @Matches(/^([01]\d|2[0-3]):[0-5]\d$/) time!: string;
   @IsOptional() @IsString() @MaxLength(500) notes?: string;
   @IsOptional() @IsString() zoneSlug?: string;
+  // PDF Software 2026-06-29: mesa específica elegida por el cliente (opcional).
+  @IsOptional() @IsString() tableId?: string;
 }
 
 @Controller('public/reservations')
@@ -177,6 +179,80 @@ export class PublicReservationsController {
     return { date, party, zoneSlug: zoneSlug ?? null, slots };
   }
 
+  /** PDF Software 2026-06-29: mesas de una zona para que el cliente elija cuál
+   *  reservar (+ plano visual). Devuelve geometría (posX/posY/shape/seats) y un
+   *  flag `taken` si la mesa ya está reservada para ese date+time. */
+  @Get(':slug/tables')
+  @Public()
+  async tables(
+    @Param('slug') slug: string,
+    @Query('zoneSlug') zoneSlug?: string,
+    @Query('date') date?: string,
+    @Query('time') time?: string,
+  ) {
+    const t = await this.prisma.tenant.findUnique({
+      where: { slug },
+      select: { id: true, status: true, reservationsEnabled: true },
+    });
+    if (!t || t.status === 'SUSPENDED' || !t.reservationsEnabled) {
+      throw new NotFoundException('Reservas no disponibles');
+    }
+    let zoneId: string | null = null;
+    if (zoneSlug) {
+      const z = await this.prisma.reservationZone.findFirst({
+        where: { tenantId: t.id, slug: zoneSlug, isActive: true },
+        select: { id: true },
+      });
+      if (!z) return { zoneSlug, tables: [] };
+      zoneId = z.id;
+    }
+    const tables = await this.prisma.reservationTable.findMany({
+      where: { tenantId: t.id, isActive: true, ...(zoneId ? { zoneId } : {}) },
+      orderBy: [{ posY: 'asc' }, { posX: 'asc' }],
+      select: {
+        id: true,
+        number: true,
+        seats: true,
+        shape: true,
+        posX: true,
+        posY: true,
+        width: true,
+        height: true,
+        isBlocked: true,
+        zoneId: true,
+      },
+    });
+    // Mesas ya tomadas para ese slot (date+time) → se muestran deshabilitadas.
+    let takenIds = new Set<string>();
+    if (
+      date &&
+      /^\d{4}-\d{2}-\d{2}$/.test(date) &&
+      time &&
+      /^([01]\d|2[0-3]):[0-5]\d$/.test(time) &&
+      tables.length
+    ) {
+      const [y, m, d] = date.split('-').map(Number);
+      const dateAtNoon = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+      const taken = await this.prisma.reservation.findMany({
+        where: {
+          tenantId: t.id,
+          date: dateAtNoon,
+          time,
+          tableId: { in: tables.map((x) => x.id) },
+          status: { in: ['PENDING', 'CONFIRMED', 'SEATED'] },
+        },
+        select: { tableId: true },
+      });
+      takenIds = new Set(
+        taken.map((x) => x.tableId).filter((x): x is string => !!x),
+      );
+    }
+    return {
+      zoneSlug: zoneSlug ?? null,
+      tables: tables.map((x) => ({ ...x, taken: takenIds.has(x.id) })),
+    };
+  }
+
   /** Crea reserva pública. Throttle ajustado: 5 por minuto desde la
    *  misma IP es razonable (4 pasos del wizard, retries). */
   @Post(':slug')
@@ -198,6 +274,19 @@ export class PublicReservationsController {
       });
       zoneId = z?.id ?? null;
     }
+    // Mesa específica elegida (PDF Software 2026-06-29): validamos que sea del
+    // tenant y esté activa; derivamos su zona si el cliente no eligió una.
+    let tableId: string | null = null;
+    if (body.tableId) {
+      const tbl = await this.prisma.reservationTable.findFirst({
+        where: { id: body.tableId, tenantId: t.id, isActive: true },
+        select: { id: true, zoneId: true },
+      });
+      if (tbl) {
+        tableId = tbl.id;
+        if (!zoneId) zoneId = tbl.zoneId ?? null;
+      }
+    }
     const r = await this.svc.createForTenant(
       t.id,
       {
@@ -209,6 +298,7 @@ export class PublicReservationsController {
         time: body.time,
         notes: body.notes,
         zoneId,
+        tableId,
       },
       'WEB',
       { notify: true },

@@ -840,9 +840,20 @@ export class ReservationsService {
   }) {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: reservation.tenantId },
-      select: { brandName: true, whatsappPhone: true, phone: true },
+      select: {
+        brandName: true,
+        whatsappReservationsPhone: true,
+        whatsappPhone: true,
+        phone: true,
+      },
     });
-    const dest = tenant?.whatsappPhone || tenant?.phone;
+    // PDF Software 2026-06-29: el aviso de reserva va al "Número receptor de
+    // reservas" si está configurado; sino cae al WhatsApp general y luego al
+    // teléfono del negocio.
+    const dest =
+      tenant?.whatsappReservationsPhone ||
+      tenant?.whatsappPhone ||
+      tenant?.phone;
     if (!dest) {
       this.logger.warn(
         `Tenant ${reservation.tenantId} sin whatsappPhone/phone — no se envió notificación`,

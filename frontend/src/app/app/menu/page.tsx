@@ -803,6 +803,34 @@ export default function MenuEditor() {
               );
             }}
           </SortableList>
+
+          {/* Sección virtual "Sin categoría" — productos huérfanos (categoryId
+              null). Antes solo se veían en el storefront ("Otros") pero no en el
+              panel de edición. Aparece si hay al menos un producto sin categoría;
+              al clickear muestra esos productos para editarlos / asignarles
+              categoría. (PDF Software Clubify 2026-06-29). */}
+          {cats.length > 0 && products.some((p) => p.categoryId === null) && (
+            <div
+              onClick={() => setActiveCat(null)}
+              className={`mt-1 flex items-center gap-2 px-2.5 py-2.5 rounded-lg cursor-pointer transition ${
+                activeCat === null
+                  ? 'bg-brand-soft text-brand-700'
+                  : 'hover:bg-bg2'
+              }`}
+            >
+              <span className="text-base">📦</span>
+              <div className="flex-1 min-w-0">
+                <div className="font-medium text-sm truncate">
+                  {t('uncategorized')}
+                </div>
+                <div className="text-xs text-mute">
+                  {t('productsCount', {
+                    count: products.filter((p) => p.categoryId === null).length,
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Productos */}

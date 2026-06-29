@@ -448,7 +448,7 @@ export default function AgendaPage() {
               {t.rich('noticeDesc', { strong: (chunks) => <strong>{chunks}</strong> })}
             </p>
             <Link
-              href="/app/settings"
+              href="/app/settings#reservas"
               className="block mt-3 text-center bg-white/15 hover:bg-white/25 backdrop-blur rounded-lg py-2 text-sm font-semibold transition"
             >
               {t('configureReceiverNumber')}

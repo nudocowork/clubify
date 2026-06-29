@@ -34,6 +34,8 @@ class UpdateMyBody {
   @IsOptional() @IsString() whatsappPhone?: string;
   @IsOptional() @IsString() whatsappOrdersPhone?: string;
   @IsOptional() @IsString() whatsappDeliveryPhone?: string;
+  // WhatsApp receptor de avisos de reservas (PDF Software 2026-06-29).
+  @IsOptional() @IsString() whatsappReservationsPhone?: string;
   @IsOptional() @IsString() logoUrl?: string;
   @IsOptional() @IsHexColor() primaryColor?: string;
   @IsOptional() @IsHexColor() secondaryColor?: string;

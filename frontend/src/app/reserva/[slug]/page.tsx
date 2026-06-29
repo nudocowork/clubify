@@ -36,6 +36,111 @@ function nextDates(n = 7) {
 
 type SlotAvailability = { time: string; available: boolean; remaining: number };
 
+type TableLite = {
+  id: string;
+  number: string;
+  seats: number;
+  shape: string;
+  posX: number;
+  posY: number;
+  width: number | null;
+  height: number | null;
+  isBlocked: boolean;
+  taken: boolean;
+};
+
+/** Dimensiones visuales de una mesa según forma/capacidad (espejo del panel). */
+function tableDims(t: TableLite) {
+  const round = t.shape === 'ROUND';
+  const w =
+    t.width ??
+    (round ? (t.seats <= 2 ? 54 : t.seats <= 4 ? 66 : 80) : t.shape === 'BAR' ? 130 : 100);
+  const h = t.height ?? (round ? w : t.shape === 'BAR' ? 50 : 60);
+  return { w, h, round };
+}
+
+/** Plano visual de las mesas de una zona (popup). Escala el bounding box de las
+ *  mesas para caber en el modal; cada mesa es seleccionable si está libre. */
+function PlanCanvas({
+  tables,
+  selected,
+  party,
+  primary,
+  onPick,
+}: {
+  tables: TableLite[];
+  selected: string | null;
+  party: number;
+  primary: string;
+  onPick: (id: string) => void;
+}) {
+  const PAD = 20;
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
+  for (const t of tables) {
+    const d = tableDims(t);
+    minX = Math.min(minX, t.posX);
+    minY = Math.min(minY, t.posY);
+    maxX = Math.max(maxX, t.posX + d.w);
+    maxY = Math.max(maxY, t.posY + d.h);
+  }
+  if (!Number.isFinite(minX)) {
+    minX = 0;
+    minY = 0;
+    maxX = 300;
+    maxY = 200;
+  }
+  const boxW = maxX - minX + PAD * 2;
+  const boxH = maxY - minY + PAD * 2;
+  const scale = Math.min(1, 320 / boxW);
+  return (
+    <div
+      className="relative mx-auto rounded-xl border border-line bg-bg2/40 overflow-hidden"
+      style={{ width: boxW * scale, height: boxH * scale }}
+    >
+      {tables.map((tb) => {
+        const d = tableDims(tb);
+        const disabled = tb.isBlocked || tb.taken || tb.seats < party;
+        const sel = selected === tb.id;
+        return (
+          <button
+            key={tb.id}
+            disabled={disabled}
+            onClick={() => onPick(tb.id)}
+            className="absolute flex flex-col items-center justify-center text-center"
+            style={{
+              left: (tb.posX - minX + PAD) * scale,
+              top: (tb.posY - minY + PAD) * scale,
+              width: d.w * scale,
+              height: d.h * scale,
+              borderRadius: d.round ? '50%' : 8 * scale,
+              background: sel ? primary : disabled ? '#f1f5f9' : '#fff',
+              color: sel ? '#fff' : disabled ? '#94a3b8' : '#0f172a',
+              border: `1.5px solid ${sel ? primary : '#cbd5e1'}`,
+              opacity: disabled ? 0.6 : 1,
+              cursor: disabled ? 'not-allowed' : 'pointer',
+            }}
+            title={
+              tb.isBlocked
+                ? 'No disponible'
+                : tb.taken
+                  ? 'Ya reservada'
+                  : tb.seats < party
+                    ? `Capacidad ${tb.seats}`
+                    : `Mesa ${tb.number}`
+            }
+          >
+            <span style={{ fontWeight: 800, fontSize: 12 * scale }}>{tb.number}</span>
+            <span style={{ fontSize: 9 * scale, opacity: 0.8 }}>{tb.seats}p</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function PublicReservation() {
   const { slug } = useParams<{ slug: string }>();
   const [info, setInfo] = useState<Info | null>(null);
@@ -45,6 +150,10 @@ export default function PublicReservation() {
   const [date, setDate] = useState(formatDate(new Date()));
   const [time, setTime] = useState<string | null>(null);
   const [zoneSlug, setZoneSlug] = useState<string | null>(null);
+  const [tableId, setTableId] = useState<string | null>(null);
+  const [tables, setTables] = useState<TableLite[] | null>(null);
+  const [loadingTables, setLoadingTables] = useState(false);
+  const [showPlan, setShowPlan] = useState(false);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [notes, setNotes] = useState('');
@@ -87,6 +196,27 @@ export default function PublicReservation() {
       .finally(() => setLoadingSlots(false));
   }, [info, slug, date, party, zoneSlug]);
 
+  /** Mesas de la zona elegida (PDF Software 2026-06-29). Solo cuando hay una
+   *  zona específica seleccionada (no en "asignación automática"). Recalcula al
+   *  cambiar zona/fecha/hora para reflejar mesas tomadas. */
+  useEffect(() => {
+    setTableId(null);
+    if (!info || !zoneSlug) {
+      setTables(null);
+      return;
+    }
+    const API = process.env.NEXT_PUBLIC_API_URL ?? '';
+    setLoadingTables(true);
+    const url = `${API}/api/public/reservations/${slug}/tables?zoneSlug=${zoneSlug}&date=${date}${
+      time ? `&time=${time}` : ''
+    }`;
+    fetch(url)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setTables(d?.tables ?? []))
+      .catch(() => setTables(null))
+      .finally(() => setLoadingTables(false));
+  }, [info, slug, zoneSlug, date, time]);
+
   if (error) {
     return (
       <main className="min-h-screen flex items-center justify-center p-6 bg-bg2">
@@ -125,6 +255,7 @@ export default function PublicReservation() {
           time,
           notes: notes.trim() || undefined,
           zoneSlug: zoneSlug || undefined,
+          tableId: tableId || undefined,
         }),
       });
       if (!r.ok) {
@@ -321,6 +452,70 @@ export default function PublicReservation() {
                   })}
                 </>
               )}
+
+              {/* PDF Software 2026-06-29: al elegir una zona, mostramos sus mesas
+                  para que el cliente elija una (opcional) + botón "Ver plano". */}
+              {zoneSlug && (
+                <div className="mt-5">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-[10px] uppercase tracking-wider text-mute font-bold">
+                      Elige tu mesa (opcional)
+                    </div>
+                    {tables && tables.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowPlan(true)}
+                        className="text-xs font-semibold"
+                        style={{ color: primary }}
+                      >
+                        🗺️ Ver plano
+                      </button>
+                    )}
+                  </div>
+                  {loadingTables ? (
+                    <div className="text-xs text-mute py-2">Cargando mesas…</div>
+                  ) : !tables || tables.length === 0 ? (
+                    <div className="text-xs text-mute py-2">
+                      Esta zona no tiene mesas configuradas. Se asignará automáticamente.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-4 gap-2">
+                      {tables.map((tb) => {
+                        const disabled = tb.isBlocked || tb.taken || tb.seats < party;
+                        const sel = tableId === tb.id;
+                        return (
+                          <button
+                            key={tb.id}
+                            type="button"
+                            disabled={disabled}
+                            onClick={() => setTableId(sel ? null : tb.id)}
+                            className={`py-2 rounded-lg border text-center ${
+                              disabled ? 'opacity-40 cursor-not-allowed line-through' : ''
+                            }`}
+                            style={
+                              sel
+                                ? { background: primary, color: '#fff', borderColor: primary }
+                                : { borderColor: '#e2e8f0', background: 'white' }
+                            }
+                            title={
+                              tb.isBlocked
+                                ? 'No disponible'
+                                : tb.taken
+                                  ? 'Ya reservada'
+                                  : tb.seats < party
+                                    ? `Capacidad ${tb.seats}`
+                                    : `Mesa ${tb.number}`
+                            }
+                          >
+                            <div className="text-sm font-bold">{tb.number}</div>
+                            <div className="text-[10px] opacity-80">{tb.seats}p</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
 
@@ -410,9 +605,16 @@ export default function PublicReservation() {
                 <div className="border-t border-dashed border-line px-4 py-3">
                   <div className="text-[10px] text-mute font-bold">MESA</div>
                   <div className="text-sm font-bold">
-                    {zoneSlug
-                      ? info.zones.find((z) => z.slug === zoneSlug)?.name ?? 'Por asignar'
-                      : 'Asignación automática'}
+                    {(() => {
+                      const zoneName = zoneSlug
+                        ? info.zones.find((z) => z.slug === zoneSlug)?.name ?? null
+                        : null;
+                      const tbl =
+                        tableId && tables ? tables.find((tt) => tt.id === tableId) : null;
+                      if (tbl)
+                        return `Mesa ${tbl.number}${zoneName ? ` · ${zoneName}` : ''}`;
+                      return zoneName ?? 'Asignación automática';
+                    })()}
                   </div>
                 </div>
               </div>
@@ -475,6 +677,8 @@ export default function PublicReservation() {
                 setNotes('');
                 setTime(null);
                 setZoneSlug(null);
+                setTableId(null);
+                setShowPlan(false);
                 setConfirmation(null);
               }}
               className="w-full mt-4 py-3 rounded-lg font-semibold border border-line"
@@ -484,6 +688,42 @@ export default function PublicReservation() {
           )}
         </div>
       </div>
+
+      {/* Popup del plano de mesas (PDF Software 2026-06-29) */}
+      {showPlan && tables && tables.length > 0 && (
+        <div
+          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+          onClick={() => setShowPlan(false)}
+        >
+          <div
+            className="bg-white rounded-2xl p-4 w-full max-w-md"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold text-sm m-0">Plano de mesas</h3>
+              <button
+                onClick={() => setShowPlan(false)}
+                className="text-mute text-lg leading-none"
+              >
+                ✕
+              </button>
+            </div>
+            <PlanCanvas
+              tables={tables}
+              selected={tableId}
+              party={party}
+              primary={primary}
+              onPick={(id) => {
+                setTableId(id);
+                setShowPlan(false);
+              }}
+            />
+            <p className="text-[11px] text-mute mt-3 text-center">
+              Toca una mesa disponible para elegirla.
+            </p>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

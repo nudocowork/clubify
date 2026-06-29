@@ -388,6 +388,10 @@ model Tenant {
   //   wa.me a este número con el resumen + dirección.
   whatsappOrdersPhone         String?
   whatsappDeliveryPhone       String?
+  // WhatsApp donde el negocio recibe el AVISO de cada reserva nueva (para
+  // confirmarla manualmente). Si null, el aviso cae a whatsappPhone y luego
+  // a phone. Configurable por el dueño en /app/settings (PDF Software 2026-06-29).
+  whatsappReservationsPhone   String?
   logoUrl                     String?
   // Logo específico para las tarjetas wallet (header de Apple/Google
   // Wallet). Si null, fallback a logoUrl. PNG con alpha recomendado.

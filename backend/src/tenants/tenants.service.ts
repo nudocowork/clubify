@@ -108,6 +108,7 @@ export type UpdateMyTenantDto = Partial<{
   whatsappPhone: string;
   whatsappOrdersPhone: string;
   whatsappDeliveryPhone: string;
+  whatsappReservationsPhone: string;
   currency: string;
   maxStampsPerDay: number;
   logoUrl: string;
