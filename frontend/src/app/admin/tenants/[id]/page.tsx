@@ -707,9 +707,15 @@ export default function TenantDetail() {
             que el backend gatea como SUPER_ADMIN-only. Antes se mostraban
             a MARKETING y al click recibía 403 — UX rota. Ahora se gatean
             con isSuperAdmin como el resto de cards admin. */}
-        {isSuperAdmin && (
-          <GrowBusinessCard tenantId={t.id} planName={t.plan?.name ?? null} />
-        )}
+        {/* PDF 2026-06-30: el card de Grow Business · SMS solo aparece si la
+            marca del negocio tiene el módulo GROW_BUSINESS_SMS habilitado
+            (Módulos en Master Admin). enabledModules null = Clubify (todo on). */}
+        {isSuperAdmin &&
+          (t.enabledModules
+            ? t.enabledModules.includes('GROW_BUSINESS_SMS')
+            : true) && (
+            <GrowBusinessCard tenantId={t.id} planName={t.plan?.name ?? null} />
+          )}
 
         {/* Panels de referidos: solo si la marca del negocio tiene el módulo
             REFERRALS habilitado. enabledModules null = Clubify (todo on). */}

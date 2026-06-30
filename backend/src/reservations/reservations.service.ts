@@ -845,6 +845,8 @@ export class ReservationsService {
         whatsappReservationsPhone: true,
         whatsappPhone: true,
         phone: true,
+        growBusinessLocationId: true,
+        growBusinessApiKey: true,
       },
     });
     // PDF Software 2026-06-29: el aviso de reserva va al "Número receptor de
@@ -856,29 +858,167 @@ export class ReservationsService {
       tenant?.phone;
     if (!dest) {
       this.logger.warn(
-        `Tenant ${reservation.tenantId} sin whatsappPhone/phone — no se envió notificación`,
+        `Tenant ${reservation.tenantId} sin número receptor de reservas — no se envió notificación`,
       );
       return;
     }
-    const dateStr = reservation.date.toISOString().slice(0, 10);
-    const zoneStr = reservation.zone?.name ? ` · ${reservation.zone.name}` : '';
-    const notesStr = reservation.notes ? `\nNotas: ${reservation.notes}` : '';
-    const body =
-      `🔔 NUEVA RESERVA · ${tenant?.brandName ?? ''}\n` +
-      `${reservation.customerName} · ${reservation.party} pax\n` +
-      `📅 ${dateStr} a las ${reservation.time}${zoneStr}\n` +
-      `📞 ${reservation.customerPhone}` +
-      notesStr +
-      `\n\nConfirmá manualmente con el cliente.`;
-    try {
-      await this.growBusiness.sendSms(reservation.tenantId, dest, body);
-      await this.prisma.reservation.update({
-        where: { id: reservation.id },
-        data: { notifiedAt: new Date() },
-      });
-    } catch (e) {
-      this.logger.warn(`SMS notif falló: ${(e as Error).message}`);
+    // Datos completos (incluye la mesa elegida, que no viaja en el objeto).
+    const full = await this.prisma.reservation.findUnique({
+      where: { id: reservation.id },
+      select: {
+        table: { select: { number: true } },
+        zone: { select: { name: true } },
+      },
+    });
+    const body = this.buildReservationNotifyBody({
+      brandName: tenant?.brandName ?? '',
+      customerName: reservation.customerName,
+      customerPhone: reservation.customerPhone,
+      party: reservation.party,
+      date: reservation.date,
+      time: reservation.time,
+      notes: reservation.notes,
+      zoneName: full?.zone?.name ?? reservation.zone?.name ?? null,
+      tableNumber: full?.table?.number ?? null,
+    });
+    // PDF 2026-06-30: envío robusto. Usa las credenciales de Grow Business del
+    // negocio si las tiene; si no, cae a la cuenta GLOBAL de la plataforma.
+    // Siempre enruta por switch 2 (#switch_unique|2|...).
+    const creds = await this.resolveReservationSmsCreds(tenant);
+    if (!creds) {
+      this.logger.warn(
+        `Sin credenciales Grow Business (negocio ni global) — no se envió aviso de reserva ${reservation.id}`,
+      );
+      return;
     }
+    try {
+      const res = await this.growBusiness.sendSmsWithCreds(creds, dest, body);
+      if (res.ok) {
+        await this.prisma.reservation.update({
+          where: { id: reservation.id },
+          data: { notifiedAt: new Date() },
+        });
+      } else {
+        this.logger.warn(
+          `Aviso de reserva no enviado (${reservation.id}): ${res.message ?? 'desconocido'}`,
+        );
+      }
+    } catch (e) {
+      this.logger.warn(`SMS notif reserva falló: ${(e as Error).message}`);
+    }
+  }
+
+  /** Cuerpo del SMS/WhatsApp de aviso de reserva (compartido con la prueba). */
+  private buildReservationNotifyBody(d: {
+    brandName: string;
+    customerName: string;
+    customerPhone: string;
+    party: number;
+    date: Date;
+    time: string;
+    notes: string | null;
+    zoneName: string | null;
+    tableNumber: string | null;
+  }): string {
+    const dateStr = d.date.toISOString().slice(0, 10);
+    const zoneStr = d.zoneName ? `\n📍 Zona: ${d.zoneName}` : '';
+    const tableStr = d.tableNumber ? `\n🍽️ Mesa: ${d.tableNumber}` : '';
+    const notesStr = d.notes ? `\n📝 Notas: ${d.notes}` : '';
+    return (
+      `🔔 NUEVA RESERVA · ${d.brandName}\n` +
+      `Cliente: ${d.customerName}\n` +
+      `📞 ${d.customerPhone}\n` +
+      `👥 ${d.party} personas\n` +
+      `📅 ${dateStr} a las ${d.time}` +
+      zoneStr +
+      tableStr +
+      notesStr +
+      `\n\nConfirma manualmente con el cliente.`
+    );
+  }
+
+  /**
+   * Resuelve las credenciales de Grow Business para el aviso de reserva:
+   * credenciales propias del negocio si está conectado, si no la cuenta GLOBAL
+   * de la plataforma (GENERAL). Siempre switch 2 (el aviso de reserva enruta
+   * por el número de soporte/operativo).
+   */
+  private async resolveReservationSmsCreds(tenant: {
+    growBusinessLocationId?: string | null;
+    growBusinessApiKey?: string | null;
+  } | null): Promise<{ locationId: string; apiKey: string; switchNumber: number } | null> {
+    if (tenant?.growBusinessLocationId && tenant?.growBusinessApiKey) {
+      return {
+        locationId: tenant.growBusinessLocationId,
+        apiKey: tenant.growBusinessApiKey,
+        switchNumber: 2,
+      };
+    }
+    const acc =
+      (await this.prisma.growBusinessAccount.findFirst({
+        where: { purpose: 'GENERAL', deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+        select: { locationId: true, apiKey: true },
+      })) ??
+      (await this.prisma.growBusinessAccount.findFirst({
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+        select: { locationId: true, apiKey: true },
+      }));
+    if (acc) {
+      return { locationId: acc.locationId, apiKey: acc.apiKey, switchNumber: 2 };
+    }
+    return null;
+  }
+
+  /**
+   * Envía una notificación de PRUEBA al número receptor de reservas del negocio
+   * (botón "Enviar prueba" en /app/settings#reservas). PDF 2026-06-30.
+   */
+  async sendTestNotification(user: AuthUser) {
+    if (!user.tenantId) {
+      throw new BadRequestException('Sesión sin negocio.');
+    }
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: user.tenantId },
+      select: {
+        brandName: true,
+        whatsappReservationsPhone: true,
+        whatsappPhone: true,
+        phone: true,
+        growBusinessLocationId: true,
+        growBusinessApiKey: true,
+      },
+    });
+    const dest =
+      tenant?.whatsappReservationsPhone ||
+      tenant?.whatsappPhone ||
+      tenant?.phone;
+    if (!dest) {
+      throw new BadRequestException(
+        'Configura primero el número receptor de reservas y guárdalo.',
+      );
+    }
+    const creds = await this.resolveReservationSmsCreds(tenant);
+    if (!creds) {
+      throw new BadRequestException(
+        'No hay credenciales de Grow Business configuradas (marca/plataforma).',
+      );
+    }
+    const body =
+      `🔔 PRUEBA · ${tenant?.brandName ?? ''}\n` +
+      `Esta es una notificación de prueba del sistema de reservas.\n` +
+      `Si la recibes, el número receptor está bien configurado. ✅`;
+    const res = await this.growBusiness
+      .sendSmsWithCreds(creds, dest, body)
+      .catch((e) => ({ ok: false as const, message: (e as Error).message }));
+    return {
+      ok: res.ok,
+      dest,
+      message: res.ok
+        ? 'Notificación de prueba enviada.'
+        : `No se pudo enviar: ${('message' in res && res.message) || 'error desconocido'}`,
+    };
   }
 
   // ============================================================
@@ -1416,13 +1556,10 @@ export class ReservationsService {
       });
     }
 
-    // Disparamos el grant SÍNCRONO (no fire-and-forget) para que la
-    // response al scanner incluya el Pass de sellos resultante.
-    await this.grantReservationStamp(reservationId).catch((e) => {
-      this.logger.warn(
-        `grantReservationStamp falló (scan reserva ${reservationId}): ${(e as Error).message}`,
-      );
-    });
+    // PDF 2026-06-30: escanear el pase de reserva SOLO confirma la asistencia
+    // (SEATED). NO se otorga ningún sello ni se crea tarjeta — si el cliente ya
+    // tiene tarjeta de sellos del local, no se le suma nada. Devolvemos su
+    // tarjeta existente (solo lectura) para que el staff la vea, sin modificarla.
 
     // Buscar el Pass que quedó (puede no existir si el tenant no tiene
     // STAMPS card configurada — devolvemos respuesta especial).
@@ -1500,11 +1637,9 @@ export class ReservationsService {
 
   /**
    * Cron de auto check-in: si una reserva pasa de 60 minutos de su hora
-   * sin haber sido SEATED manualmente, la marcamos como SEATED y otorgamos
-   * el sello automáticamente. Cubre el caso "el cliente llegó pero el staff
-   * no escaneó el pase". También cubre "el cliente nunca llegó" — el
-   * sello se otorga igual (decisión del negocio: el cumplimiento de la
-   * reserva es lo que valida la visita).
+   * sin haber sido SEATED manualmente, la marcamos como SEATED. Cubre el caso
+   * "el cliente llegó pero el staff no escaneó el pase".
+   * PDF 2026-06-30: la asistencia ya NO otorga sellos de fidelización.
    */
   @Cron(CronExpression.EVERY_5_MINUTES)
   async autoSeatOverdueReservations() {
@@ -1552,12 +1687,7 @@ export class ReservationsService {
       });
       if (claim.count === 0) continue;
       processed++;
-
-      await this.grantReservationStamp(r.id).catch((e) => {
-        this.logger.warn(
-          `auto-seat grant fail (${r.id}): ${(e as Error).message}`,
-        );
-      });
+      // PDF 2026-06-30: la asistencia ya NO otorga sellos (solo marca SEATED).
     }
     if (processed > 0) {
       this.logger.log(`Auto-seat cron: ${processed} reservas marcadas SEATED automáticamente`);

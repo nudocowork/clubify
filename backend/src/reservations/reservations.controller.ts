@@ -193,6 +193,13 @@ export class ReservationsController {
     return this.svc.stats(user, { from, to, tenantId });
   }
 
+  /** PDF 2026-06-30: envía una notificación de PRUEBA al número receptor de
+   *  reservas configurado, para validar la config desde /app/settings#reservas. */
+  @Post('test-notification')
+  testNotification(@CurrentUser() user: AuthUser) {
+    return this.svc.sendTestNotification(user);
+  }
+
   /** Disponibilidad por slot — útil para el admin antes de crear una
    *  reserva manual. zoneId / locationId opcionales. */
   @Get('availability')

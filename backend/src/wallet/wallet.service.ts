@@ -1388,9 +1388,6 @@ export class WalletService {
     const resBrand = await this.brand.resolveTenant(r.tenant.id);
     const resBrandHref = resBrand.websiteUrl;
     const resBrandDomain = resBrand.websiteUrl.replace(/^https?:\/\//, '');
-    const seatLabel = r.table?.number
-      ? `Mesa ${r.table.number}`
-      : r.zone?.name ?? 'Por asignar';
     const dateStr = r.date.toISOString().slice(0, 10);
     const primary = r.tenant.primaryColor || '#22C55E';
 
@@ -1410,7 +1407,9 @@ export class WalletService {
       labelColor: 'rgb(245,241,232)',
       barcodes: [
         {
-          format: 'PKBarcodeFormatQR',
+          // PDF 2026-06-30: mismo estilo de código de barras que las tarjetas
+          // de fidelización (PDF417, 1D) en vez de QR.
+          format: 'PKBarcodeFormatPDF417',
           message: `clubify-reservation:${r.id}`,
           altText: r.id.slice(0, 8).toUpperCase(),
           messageEncoding: 'iso-8859-1',
@@ -1442,12 +1441,19 @@ export class WalletService {
         primaryFields: [
           { key: 'event', label: 'RESERVA', value: brandName },
         ],
+        // PDF 2026-06-30: mostrar SIEMPRE la zona y la mesa elegida (antes
+        // mostraba solo una de las dos).
         secondaryFields: [
           { key: 'date', label: 'FECHA', value: dateStr },
-          { key: 'seat', label: r.table?.number ? 'MESA' : 'ZONA', value: seatLabel },
+          { key: 'zone', label: 'ZONA', value: r.zone?.name ?? 'Por asignar' },
         ],
         auxiliaryFields: [
           { key: 'name', label: 'TITULAR', value: r.customerName },
+          {
+            key: 'table',
+            label: 'MESA',
+            value: r.table?.number ? `Mesa ${r.table.number}` : '—',
+          },
           { key: 'party', label: 'PERSONAS', value: String(r.party) },
         ],
         backFields: [

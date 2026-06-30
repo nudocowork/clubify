@@ -160,6 +160,7 @@ export default function SettingsPage() {
   const [resvPhone, setResvPhone] = useState<string>('');
   const [savingResv, setSavingResv] = useState(false);
   const [resvMsg, setResvMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [testingResv, setTestingResv] = useState(false);
 
   const [sectionMode, setSectionMode] = useState<MainSectionMode>('menu');
   const [sectionCustom, setSectionCustom] = useState<string>('');
@@ -354,6 +355,22 @@ export default function SettingsPage() {
       setResvMsg({ ok: false, text: err?.message || t('couldNotSave') });
     } finally {
       setSavingResv(false);
+    }
+  }
+
+  async function sendTestReservation() {
+    setResvMsg(null);
+    setTestingResv(true);
+    try {
+      const res = await api<{ ok: boolean; dest: string; message: string }>(
+        '/reservations/test-notification',
+        { method: 'POST' },
+      );
+      setResvMsg({ ok: res.ok, text: res.message });
+    } catch (err: any) {
+      setResvMsg({ ok: false, text: err?.message || t('couldNotSave') });
+    } finally {
+      setTestingResv(false);
     }
   }
 
@@ -554,7 +571,15 @@ export default function SettingsPage() {
             {resvMsg.text}
           </div>
         )}
-        <div className="mt-4 flex justify-end">
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            className="btn-ghost"
+            disabled={testingResv || savingResv}
+            onClick={sendTestReservation}
+          >
+            {testingResv ? 'Enviando…' : 'Enviar prueba'}
+          </button>
           <button type="submit" className="btn-primary" disabled={savingResv}>
             {savingResv ? t('saving') : t('save')}
           </button>

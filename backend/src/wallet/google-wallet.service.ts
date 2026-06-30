@@ -652,9 +652,9 @@ export class GoogleWalletService {
     const tz = r.tenant.timezone || 'America/Bogota';
     const startIso = this.formatReservationDateTimeIso(r.date, r.time, tz, 0);
     const endIso = this.formatReservationDateTimeIso(r.date, r.time, tz, 120);
-    const seatLabel = r.table?.number
-      ? `Mesa ${r.table.number}`
-      : r.zone?.name ?? 'Por asignar';
+    // PDF 2026-06-30: zona y mesa por separado (antes una sola).
+    const zoneLabel = r.zone?.name ?? 'Por asignar';
+    const tableLabel = r.table?.number ? `Mesa ${r.table.number}` : '—';
     // Hereda el logo de la marca blanca si el negocio no tiene logo propio
     // (Sellea→Sellea, nunca Clubify). Sin marca con logo → sin logo (no Clubify).
     const resBrand = await this.brand.resolveTenant(r.tenantId);
@@ -693,14 +693,18 @@ export class GoogleWalletService {
       state: 'ACTIVE',
       ticketHolderName: r.customerName,
       seatInfo: {
-        seat: { defaultValue: { language: 'es', value: seatLabel } },
+        section: { defaultValue: { language: 'es', value: zoneLabel } },
+        seat: { defaultValue: { language: 'es', value: tableLabel } },
       },
       barcode: {
-        type: 'QR_CODE',
+        // PDF 2026-06-30: PDF417 como las tarjetas de fidelización (no QR).
+        type: 'PDF_417',
         value: `clubify-reservation:${r.id}`,
         alternateText: r.id.slice(0, 8).toUpperCase(),
       },
       textModulesData: [
+        { id: 'zone', header: 'Zona', body: zoneLabel },
+        { id: 'table', header: 'Mesa', body: tableLabel },
         { id: 'party', header: 'Personas', body: String(r.party) },
         { id: 'time', header: 'Hora', body: r.time },
       ],

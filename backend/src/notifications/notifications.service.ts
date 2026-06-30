@@ -176,6 +176,7 @@ export class NotificationsService {
     id: string;
     tenantId: string;
     cardId: string | null;
+    customerId?: string | null;
     title: string;
     body: string;
   }) {
@@ -183,6 +184,11 @@ export class NotificationsService {
       where: {
         tenantId: n.tenantId,
         ...(n.cardId ? { cardId: n.cardId } : {}),
+        // PDF 2026-06-30: si la notificación es individual (automatizaciones:
+        // cumpleaños, bienvenida, etc.) DEBE ir solo al pase de ESE cliente.
+        // Sin este filtro, una notificación programada con customerId se
+        // emitiría a todos los pases del tenant (broadcast no deseado).
+        ...(n.customerId ? { customerId: n.customerId } : {}),
         status: 'ACTIVE',
       },
       include: { walletDevices: true },
