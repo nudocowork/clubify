@@ -61,6 +61,11 @@ export class DeliveryPortalController {
     return this.svc.getPortalContext(user);
   }
 
+  @Get('stats')
+  stats(@CurrentUser() user: AuthUser) {
+    return this.svc.getPortalStats(user);
+  }
+
   @Get('deliveries')
   list(@CurrentUser() user: AuthUser, @Query('status') status?: string) {
     return this.svc.listPortalDeliveries(user, status);

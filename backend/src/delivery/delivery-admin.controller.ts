@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import {
   IsArray,
@@ -33,6 +34,7 @@ class DeliveryCompanyBody {
   @IsOptional() @IsEmail() email?: string;
   @IsOptional() @IsNumber() @Min(0) @Max(100000)
   commissionPerDelivery?: number | null;
+  @IsOptional() @IsNumber() @Min(0) @Max(100) brandSharePct?: number;
   @IsOptional() @IsBoolean() isActive?: boolean;
   @IsOptional() @IsArray() @IsString({ each: true }) brandIds?: string[];
   @IsOptional() @IsArray() @IsString({ each: true }) tenantIds?: string[];
@@ -52,6 +54,10 @@ class AdminToggleBody {
   @IsBoolean() isActive!: boolean;
 }
 
+class MarkPaidBody {
+  @IsOptional() @IsBoolean() paid?: boolean;
+}
+
 /**
  * Master Admin — Empresas de Domicilios (Fase 1, Red de Domicilios).
  * Solo PLATFORM_OWNER. Ruta bajo /superadmin para alinearse con el resto del
@@ -66,6 +72,30 @@ export class DeliveryAdminController {
   @Get('assignable')
   assignable() {
     return this.svc.assignableData();
+  }
+
+  // ── Comisiones / reportes (Fase 4) — declarado ANTES de :id para no chocar ──
+
+  @Get('commissions/summary')
+  commissionsSummary() {
+    return this.svc.commissionsSummary();
+  }
+
+  @Get('commissions')
+  commissionsList(
+    @Query('status') status?: string,
+    @Query('companyId') companyId?: string,
+  ) {
+    return this.svc.listCommissions({ status, companyId });
+  }
+
+  @Patch('commissions/:commId/paid')
+  markPaid(
+    @Param('commId') commId: string,
+    @Body() body: MarkPaidBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.markCommissionPaid(commId, body.paid ?? true, user.id);
   }
 
   @Get()

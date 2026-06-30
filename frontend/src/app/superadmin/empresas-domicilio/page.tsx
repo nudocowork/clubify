@@ -13,6 +13,7 @@ type Company = {
   responsible: string | null;
   email: string | null;
   commissionPerDelivery: number | null;
+  brandSharePct?: number;
   isActive: boolean;
   brandsCount?: number;
   tenantsCount?: number;
@@ -37,6 +38,7 @@ const EMPTY_FORM = {
   responsible: '',
   email: '',
   commissionPerDelivery: '' as string,
+  brandSharePct: '' as string,
   isActive: true,
   brandIds: [] as string[],
   tenantIds: [] as string[],
@@ -55,6 +57,7 @@ export default function EmpresasDomicilioPage() {
   const [admins, setAdmins] = useState<Admin[]>([]);
   const [newAdmin, setNewAdmin] = useState({ email: '', fullName: '', password: '' });
   const [adminBusy, setAdminBusy] = useState(false);
+  const [view, setView] = useState<'companies' | 'commissions'>('companies');
 
   async function load() {
     setLoading(true);
@@ -106,6 +109,7 @@ export default function EmpresasDomicilioPage() {
         email: c.email ?? '',
         commissionPerDelivery:
           c.commissionPerDelivery == null ? '' : String(c.commissionPerDelivery),
+        brandSharePct: c.brandSharePct == null ? '' : String(c.brandSharePct),
         isActive: c.isActive,
         brandIds: c.brandIds ?? [],
         tenantIds: c.tenantIds ?? [],
@@ -138,6 +142,8 @@ export default function EmpresasDomicilioPage() {
         form.commissionPerDelivery.trim() === ''
           ? null
           : Number(form.commissionPerDelivery),
+      brandSharePct:
+        form.brandSharePct.trim() === '' ? 0 : Number(form.brandSharePct),
       isActive: form.isActive,
       brandIds: form.brandIds,
       tenantIds: form.tenantIds,
@@ -282,16 +288,48 @@ export default function EmpresasDomicilioPage() {
             asignada y empieza el seguimiento.
           </p>
         </div>
-        <button
-          onClick={openNew}
-          className="text-sm font-semibold text-white rounded-[10px] px-4 py-2.5 shrink-0"
-          style={{ background: '#22c55e', boxShadow: '0 6px 14px rgba(34,197,94,.3)' }}
-        >
-          + Crear empresa
-        </button>
+        {view === 'companies' && (
+          <button
+            onClick={openNew}
+            className="text-sm font-semibold text-white rounded-[10px] px-4 py-2.5 shrink-0"
+            style={{ background: '#22c55e', boxShadow: '0 6px 14px rgba(34,197,94,.3)' }}
+          >
+            + Crear empresa
+          </button>
+        )}
       </div>
 
-      <div className="mt-5 grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))' }}>
+      <div className="flex gap-2 mt-4">
+        {(
+          [
+            ['companies', 'Empresas'],
+            ['commissions', 'Comisiones'],
+          ] as ['companies' | 'commissions', string][]
+        ).map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => setView(k)}
+            className="text-[13px] font-semibold rounded-full px-4 py-1.5"
+            style={
+              view === k
+                ? { background: '#16241c', color: 'white' }
+                : { background: 'white', color: '#475569', border: '1px solid #e2e8f0' }
+            }
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {view === 'commissions' && <CommissionsView />}
+
+      <div
+        className="mt-5 grid gap-3"
+        style={{
+          gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))',
+          display: view === 'companies' ? undefined : 'none',
+        }}
+      >
         {loading && <div className="text-sm" style={{ color: '#9aa4af' }}>Cargando…</div>}
         {!loading && companies.length === 0 && (
           <div
@@ -460,7 +498,7 @@ export default function EmpresasDomicilioPage() {
                     ))}
                   </select>
                 </Field>
-                <Field label="Comisión por domicilio (USD)">
+                <Field label="Comisión fija por domicilio (USD)">
                   <input
                     className={inputCls}
                     type="number"
@@ -474,6 +512,23 @@ export default function EmpresasDomicilioPage() {
                   />
                 </Field>
               </div>
+
+              <Field label="% de la comisión para la marca blanca (resto → Master Admin)">
+                <input
+                  className={inputCls}
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="1"
+                  value={form.brandSharePct}
+                  onChange={(e) => setForm({ ...form, brandSharePct: e.target.value })}
+                  placeholder="0"
+                />
+                <p className="text-[11.5px] mt-1" style={{ color: '#9aa4af' }}>
+                  Se genera al marcar el domicilio como <b>Entregado</b>. La empresa se
+                  queda con el valor del domicilio; esta comisión fija es de la plataforma.
+                </p>
+              </Field>
 
               <Field label="Logo (URL)">
                 <input
@@ -688,3 +743,177 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 const inputCls =
   'w-full rounded-[10px] px-3 py-2.5 text-sm outline-none border border-[#dfe3e8] focus:border-[#22c55e] bg-white';
+
+type Summary = {
+  totalAmount: number;
+  count: number;
+  pending: number;
+  paid: number;
+  masterTotal: number;
+  brandTotal: number;
+  byCompany: {
+    companyId: string | null;
+    name: string;
+    count: number;
+    amount: number;
+    master: number;
+    brand: number;
+  }[];
+};
+type CommissionRow = {
+  id: string;
+  amount: number;
+  brandAmount: number;
+  masterAmount: number;
+  status: 'PENDING' | 'PAID';
+  createdAt: string;
+  paidAt: string | null;
+  companyName: string;
+  orderCode: string | null;
+  businessName: string | null;
+};
+
+function CommissionsView() {
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [rows, setRows] = useState<CommissionRow[]>([]);
+  const [statusFilter, setStatusFilter] = useState<'' | 'PENDING' | 'PAID'>('');
+  const [loading, setLoading] = useState(true);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const [s, list] = await Promise.all([
+        api<Summary>('/superadmin/delivery-companies/commissions/summary'),
+        api<CommissionRow[]>(
+          `/superadmin/delivery-companies/commissions${statusFilter ? `?status=${statusFilter}` : ''}`,
+        ),
+      ]);
+      setSummary(s);
+      setRows(list ?? []);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter]);
+
+  async function togglePaid(r: CommissionRow) {
+    try {
+      await api(`/superadmin/delivery-companies/commissions/${r.id}/paid`, {
+        method: 'PATCH',
+        body: JSON.stringify({ paid: r.status !== 'PAID' }),
+      });
+      await load();
+    } catch (e: any) {
+      alert(e?.message ?? 'No se pudo actualizar.');
+    }
+  }
+
+  return (
+    <div className="mt-5">
+      {summary && (
+        <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
+          <Stat label="Total comisiones" value={summary.count} />
+          <BigStat label="Generado" value={`$${summary.totalAmount.toFixed(2)}`} />
+          <BigStat label="Master Admin" value={`$${summary.masterTotal.toFixed(2)}`} />
+          <BigStat label="Marcas" value={`$${summary.brandTotal.toFixed(2)}`} />
+          <BigStat label="Pendiente" value={`$${summary.pending.toFixed(2)}`} color="#b45309" />
+          <BigStat label="Pagado" value={`$${summary.paid.toFixed(2)}`} color="#15803d" />
+        </div>
+      )}
+
+      {summary && summary.byCompany.length > 0 && (
+        <div className="rounded-[14px] overflow-hidden mb-4" style={{ background: 'white', border: '1px solid #e7e9ec' }}>
+          <div className="px-4 py-2.5 text-[12px] font-bold uppercase" style={{ color: '#9aa4af', letterSpacing: 0.5, borderBottom: '1px solid #eef0f2' }}>
+            Por empresa
+          </div>
+          {summary.byCompany.map((c) => (
+            <div key={c.companyId ?? 'none'} className="flex items-center justify-between px-4 py-2.5 text-sm" style={{ borderBottom: '1px solid #f3f4f6' }}>
+              <div className="font-semibold" style={{ color: '#16241c' }}>{c.name}</div>
+              <div className="flex gap-4 text-[13px]" style={{ color: '#6b7785' }}>
+                <span>{c.count} entregas</span>
+                <span>Master ${c.master.toFixed(2)}</span>
+                <span>Marca ${c.brand.toFixed(2)}</span>
+                <span className="font-semibold" style={{ color: '#16241c' }}>${c.amount.toFixed(2)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="flex gap-2 mb-3">
+        {(
+          [
+            ['', 'Todas'],
+            ['PENDING', 'Pendientes'],
+            ['PAID', 'Pagadas'],
+          ] as ['' | 'PENDING' | 'PAID', string][]
+        ).map(([k, label]) => (
+          <button
+            key={k || 'all'}
+            onClick={() => setStatusFilter(k)}
+            className="text-[13px] font-semibold rounded-full px-3.5 py-1.5"
+            style={
+              statusFilter === k
+                ? { background: '#16241c', color: 'white' }
+                : { background: 'white', color: '#475569', border: '1px solid #e2e8f0' }
+            }
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {loading && <div className="text-sm" style={{ color: '#9aa4af' }}>Cargando…</div>}
+      {!loading && rows.length === 0 && (
+        <div className="rounded-[14px] p-8 text-center text-sm" style={{ background: 'white', border: '1px dashed #d8dce0', color: '#9aa4af' }}>
+          Sin comisiones todavía. Se generan cuando un domicilio se marca como entregado.
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {rows.map((r) => (
+          <div key={r.id} className="flex items-center justify-between gap-3 rounded-[12px] px-4 py-3" style={{ background: 'white', border: '1px solid #e7e9ec' }}>
+            <div className="min-w-0">
+              <div className="font-semibold text-sm" style={{ color: '#16241c' }}>
+                {r.companyName} {r.orderCode ? `· #${r.orderCode}` : ''}
+              </div>
+              <div className="text-[12px]" style={{ color: '#6b7785' }}>
+                {r.businessName ?? '—'} · Master ${r.masterAmount.toFixed(2)} · Marca ${r.brandAmount.toFixed(2)}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="font-bold text-sm" style={{ color: '#16241c' }}>${r.amount.toFixed(2)}</span>
+              <button
+                onClick={() => togglePaid(r)}
+                className="text-[12px] font-semibold rounded-[8px] px-2.5 py-1.5"
+                style={
+                  r.status === 'PAID'
+                    ? { background: '#dcfce7', color: '#15803d' }
+                    : { background: '#fef9c3', color: '#a16207' }
+                }
+              >
+                {r.status === 'PAID' ? '✓ Pagada' : 'Marcar pagada'}
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BigStat({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <div className="rounded-[12px] p-3" style={{ background: 'white', border: '1px solid #e7e9ec' }}>
+      <div className="text-[18px] font-bold" style={{ color: color ?? '#16241c' }}>{value}</div>
+      <div className="text-[10.5px] uppercase font-semibold mt-0.5" style={{ color: '#9aa4af', letterSpacing: 0.4 }}>
+        {label}
+      </div>
+    </div>
+  );
+}

@@ -65,6 +65,12 @@ export default function DeliveryBoardPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterKey>('active');
   const [busy, setBusy] = useState<string | null>(null);
+  const [stats, setStats] = useState<{
+    activeCount: number;
+    deliveredCount: number;
+    commissionTotal: number;
+    commissionPending: number;
+  } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -73,6 +79,9 @@ export default function DeliveryBoardPage() {
       );
       setMine(data?.mine ?? []);
       setClaimable(data?.claimable ?? []);
+      api<typeof stats>('/delivery-portal/stats')
+        .then((s) => s && setStats(s))
+        .catch(() => null);
     } catch (e) {
       console.error(e);
     } finally {
@@ -137,6 +146,15 @@ export default function DeliveryBoardPage() {
 
   return (
     <div>
+      {stats && (
+        <div className="grid grid-cols-4 gap-2 mb-4">
+          <StatChip label="Activos" value={String(stats.activeCount)} />
+          <StatChip label="Entregados" value={String(stats.deliveredCount)} />
+          <StatChip label="Comisión" value={`$${stats.commissionTotal.toFixed(2)}`} />
+          <StatChip label="Pendiente" value={`$${stats.commissionPending.toFixed(2)}`} />
+        </div>
+      )}
+
       {claimable.length > 0 && (
         <section className="mb-5">
           <h2 className="text-[13px] font-bold uppercase mb-2" style={{ color: '#a16207', letterSpacing: 0.5 }}>
@@ -375,3 +393,22 @@ function DeliveryCard({
 
 const inp =
   'w-full rounded-[10px] px-3 py-2.5 text-sm outline-none border border-[#dfe3e8] focus:border-[#0ea5e9] bg-white';
+
+function StatChip({ label, value }: { label: string; value: string }) {
+  return (
+    <div
+      className="rounded-[12px] p-3 text-center"
+      style={{ background: 'white', border: '1px solid #e7e9ec' }}
+    >
+      <div className="text-[15px] font-bold" style={{ color: '#16241c' }}>
+        {value}
+      </div>
+      <div
+        className="text-[10px] uppercase font-semibold mt-0.5"
+        style={{ color: '#9aa4af', letterSpacing: 0.3 }}
+      >
+        {label}
+      </div>
+    </div>
+  );
+}

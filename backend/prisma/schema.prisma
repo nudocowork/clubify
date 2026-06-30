@@ -4067,9 +4067,13 @@ model DeliveryCompany {
   /// Nombre del responsable / contacto de la empresa.
   responsible   String?
   email         String?
-  /// Comisión por domicilio entregado. En la Fase 1 SOLO se guarda; el cálculo
-  /// y los reportes llegan en la Fase 4. USD.
+  /// Comisión FIJA de la plataforma por domicilio entregado (Fase 4). Es lo que
+  /// la empresa "aporta" por entrega; la empresa se queda con el valor del
+  /// domicilio que le cobra al cliente. USD. Null/0 = no genera comisión.
   commissionPerDelivery Decimal? @db.Decimal(10, 2)
+  /// % de esa comisión que va a la MARCA BLANCA del negocio; el resto va al
+  /// Master Admin. Configurable por empresa (Fase 4). Default 0 = todo al Master.
+  brandSharePct Int     @default(0)
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -4079,6 +4083,7 @@ model DeliveryCompany {
   deliveries    Delivery[]
   /// Cuentas de login (role=DELIVERY_COMPANY) que operan esta empresa (Fase 2).
   admins        User[] @relation("DeliveryCompanyAdmin")
+  commissions   DeliveryCommission[]
 
   @@index([whiteLabelId])
   @@index([isActive])
@@ -4141,8 +4146,42 @@ model Delivery {
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
 
+  commission        DeliveryCommission?
+
   @@index([tenantId, status])
   @@index([deliveryCompanyId, status])
+}
+
+/// Comisión de plataforma generada por un domicilio ENTREGADO (Fase 4). Monto
+/// FIJO por empresa (DeliveryCompany.commissionPerDelivery), repartido entre la
+/// marca blanca y el Master Admin según brandSharePct (snapshot). 1 por delivery.
+model DeliveryCommission {
+  id                String                   @id @default(uuid())
+  deliveryId        String                   @unique
+  delivery          Delivery                 @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  orderId           String
+  deliveryCompanyId String?
+  deliveryCompany   DeliveryCompany?         @relation(fields: [deliveryCompanyId], references: [id], onDelete: SetNull)
+  /// Marca blanca del negocio (snapshot) — para reportes por marca. Null = Clubify.
+  whiteLabelId      String?
+  /// Monto total de la comisión (= commissionPerDelivery al momento). USD.
+  amount            Decimal                  @db.Decimal(10, 2)
+  /// Parte para la marca blanca y parte para el Master Admin (suman amount).
+  brandAmount       Decimal                  @db.Decimal(10, 2)
+  masterAmount      Decimal                  @db.Decimal(10, 2)
+  currency          String                   @default("USD")
+  status            DeliveryCommissionStatus @default(PENDING)
+  paidAt            DateTime?
+  createdAt         DateTime                 @default(now())
+
+  @@index([deliveryCompanyId, status])
+  @@index([whiteLabelId, status])
+  @@index([status, createdAt])
+}
+
+enum DeliveryCommissionStatus {
+  PENDING
+  PAID
 }
 
 /// Mensaje del chat de un domicilio (Fase 3B — 2026-06-30). Hilo por pedido,

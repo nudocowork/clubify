@@ -118,6 +118,7 @@ export class DeliveryService {
           dto.commissionPerDelivery == null
             ? null
             : new Prisma.Decimal(dto.commissionPerDelivery),
+        brandSharePct: clampPct(dto.brandSharePct),
         isActive: dto.isActive ?? true,
       },
     });
@@ -163,6 +164,8 @@ export class DeliveryService {
             : dto.commissionPerDelivery == null
               ? null
               : new Prisma.Decimal(dto.commissionPerDelivery),
+        brandSharePct:
+          dto.brandSharePct === undefined ? undefined : clampPct(dto.brandSharePct),
         isActive: dto.isActive === undefined ? undefined : dto.isActive,
       },
     });
@@ -263,6 +266,7 @@ export class DeliveryService {
       email: c.email,
       commissionPerDelivery:
         c.commissionPerDelivery == null ? null : Number(c.commissionPerDelivery),
+      brandSharePct: c.brandSharePct ?? 0,
       isActive: c.isActive,
       brandsCount: c._count?.brands ?? undefined,
       tenantsCount: c._count?.tenants ?? undefined,
@@ -348,9 +352,72 @@ export class DeliveryService {
         where: { orderId, status: { notIn: ['DELIVERED', 'CANCELLED'] } },
         data: { status: 'DELIVERED', deliveredAt: new Date() },
       });
+      const d = await this.prisma.delivery.findUnique({
+        where: { orderId },
+        select: { id: true, status: true },
+      });
+      if (d && d.status === 'DELIVERED') {
+        await this.ensureCommissionForDelivery(d.id).catch(() => null);
+      }
     } catch (e) {
       this.logger.warn(
         `markDelivered order=${orderId} falló: ${(e as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * Genera la comisión de plataforma de un domicilio ENTREGADO (Fase 4).
+   * Idempotente (DeliveryCommission.deliveryId @unique). Monto FIJO por empresa
+   * (commissionPerDelivery), repartido marca/master según brandSharePct.
+   * Best-effort: no propaga errores para no romper la transición.
+   */
+  async ensureCommissionForDelivery(deliveryId: string): Promise<void> {
+    try {
+      const existing = await this.prisma.deliveryCommission.findUnique({
+        where: { deliveryId },
+        select: { id: true },
+      });
+      if (existing) return;
+      const d = await this.prisma.delivery.findUnique({
+        where: { id: deliveryId },
+        select: {
+          id: true,
+          orderId: true,
+          status: true,
+          deliveryCompanyId: true,
+          deliveryCompany: {
+            select: { commissionPerDelivery: true, brandSharePct: true },
+          },
+          order: { select: { tenant: { select: { whiteLabelId: true } } } },
+        },
+      });
+      if (!d || d.status !== 'DELIVERED' || !d.deliveryCompanyId) return;
+      const fee = d.deliveryCompany?.commissionPerDelivery
+        ? Number(d.deliveryCompany.commissionPerDelivery)
+        : 0;
+      if (!(fee > 0)) return; // empresa sin comisión configurada → no genera
+      const pct = clampPct(d.deliveryCompany?.brandSharePct ?? 0);
+      const brand = Math.round(fee * pct) / 100;
+      const master = Math.round((fee - brand) * 100) / 100;
+      await this.prisma.deliveryCommission.create({
+        data: {
+          deliveryId: d.id,
+          orderId: d.orderId,
+          deliveryCompanyId: d.deliveryCompanyId,
+          whiteLabelId: d.order?.tenant?.whiteLabelId ?? null,
+          amount: new Prisma.Decimal(fee),
+          brandAmount: new Prisma.Decimal(brand),
+          masterAmount: new Prisma.Decimal(master),
+        },
+      });
+      this.logger.log(
+        `DeliveryCommission generada delivery=${d.id} fee=${fee} brand=${brand} master=${master}`,
+      );
+    } catch (e) {
+      // P2002 (carrera, ya existe) u otros → ignorar.
+      this.logger.warn(
+        `ensureCommissionForDelivery delivery=${deliveryId} falló: ${(e as Error).message}`,
       );
     }
   }
@@ -545,6 +612,110 @@ export class DeliveryService {
     return { ok: true };
   }
 
+  // ─────────────── Master Admin: comisiones / reportes (Fase 4) ───────────────
+
+  async commissionsSummary() {
+    const [totAgg, pendAgg, paidAgg, splitAgg] = await Promise.all([
+      this.prisma.deliveryCommission.aggregate({ _sum: { amount: true }, _count: true }),
+      this.prisma.deliveryCommission.aggregate({
+        where: { status: 'PENDING' },
+        _sum: { amount: true },
+      }),
+      this.prisma.deliveryCommission.aggregate({
+        where: { status: 'PAID' },
+        _sum: { amount: true },
+      }),
+      this.prisma.deliveryCommission.aggregate({
+        _sum: { masterAmount: true, brandAmount: true },
+      }),
+    ]);
+    const byCompanyRaw = await this.prisma.deliveryCommission.groupBy({
+      by: ['deliveryCompanyId'],
+      _sum: { amount: true, masterAmount: true, brandAmount: true },
+      _count: true,
+    });
+    const ids = byCompanyRaw
+      .map((r) => r.deliveryCompanyId)
+      .filter((x): x is string => !!x);
+    const companies = ids.length
+      ? await this.prisma.deliveryCompany.findMany({
+          where: { id: { in: ids } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const nameById = Object.fromEntries(companies.map((c) => [c.id, c.name]));
+    const byCompany = byCompanyRaw
+      .map((r) => ({
+        companyId: r.deliveryCompanyId,
+        name: r.deliveryCompanyId
+          ? (nameById[r.deliveryCompanyId] ?? '—')
+          : 'Sin empresa',
+        count: r._count,
+        amount: Number(r._sum.amount ?? 0),
+        master: Number(r._sum.masterAmount ?? 0),
+        brand: Number(r._sum.brandAmount ?? 0),
+      }))
+      .sort((a, b) => b.amount - a.amount);
+    return {
+      totalAmount: Number(totAgg._sum.amount ?? 0),
+      count: totAgg._count,
+      pending: Number(pendAgg._sum.amount ?? 0),
+      paid: Number(paidAgg._sum.amount ?? 0),
+      masterTotal: Number(splitAgg._sum.masterAmount ?? 0),
+      brandTotal: Number(splitAgg._sum.brandAmount ?? 0),
+      byCompany,
+    };
+  }
+
+  async listCommissions(opts: { status?: string; companyId?: string } = {}) {
+    const where: any = {};
+    if (opts.status === 'PENDING' || opts.status === 'PAID') where.status = opts.status;
+    if (opts.companyId) where.deliveryCompanyId = opts.companyId;
+    const rows = await this.prisma.deliveryCommission.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+      include: {
+        deliveryCompany: { select: { name: true } },
+        delivery: {
+          select: {
+            order: {
+              select: { code: true, tenant: { select: { brandName: true } } },
+            },
+          },
+        },
+      },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      amount: Number(r.amount),
+      brandAmount: Number(r.brandAmount),
+      masterAmount: Number(r.masterAmount),
+      status: r.status,
+      createdAt: r.createdAt,
+      paidAt: r.paidAt,
+      companyName: r.deliveryCompany?.name ?? '—',
+      orderCode: r.delivery?.order?.code ?? null,
+      businessName: r.delivery?.order?.tenant?.brandName ?? null,
+    }));
+  }
+
+  async markCommissionPaid(id: string, paid: boolean, actorId?: string) {
+    const c = await this.prisma.deliveryCommission.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!c) throw new NotFoundException('Comisión no encontrada');
+    await this.prisma.deliveryCommission.update({
+      where: { id },
+      data: { status: paid ? 'PAID' : 'PENDING', paidAt: paid ? new Date() : null },
+    });
+    await this.logAction(actorId, 'delivery.commission.paid', `deliveryCommission:${id}`, {
+      paid,
+    });
+    return { ok: true };
+  }
+
   // ─────────────────────── Portal de la empresa (Fase 2) ───────────────────────
 
   private assertCompanyUser(user: AuthUser): string {
@@ -570,6 +741,38 @@ export class DeliveryService {
     });
     if (!company) throw new NotFoundException('Empresa no encontrada');
     return company;
+  }
+
+  /** Resumen para el encabezado del portal (Fase 4). */
+  async getPortalStats(user: AuthUser) {
+    const companyId = this.assertCompanyUser(user);
+    const [active, delivered, agg, pendingAgg] = await Promise.all([
+      this.prisma.delivery.count({
+        where: {
+          deliveryCompanyId: companyId,
+          status: { notIn: ['DELIVERED', 'CANCELLED'] },
+        },
+      }),
+      this.prisma.delivery.count({
+        where: { deliveryCompanyId: companyId, status: 'DELIVERED' },
+      }),
+      this.prisma.deliveryCommission.aggregate({
+        where: { deliveryCompanyId: companyId },
+        _sum: { amount: true },
+        _count: true,
+      }),
+      this.prisma.deliveryCommission.aggregate({
+        where: { deliveryCompanyId: companyId, status: 'PENDING' },
+        _sum: { amount: true },
+      }),
+    ]);
+    return {
+      activeCount: active,
+      deliveredCount: delivered,
+      commissionTotal: Number(agg._sum.amount ?? 0),
+      commissionPending: Number(pendingAgg._sum.amount ?? 0),
+      commissionCount: agg._count,
+    };
   }
 
   /** IDs de negocios habilitados para la empresa (para reclamar domicilios). */
@@ -725,6 +928,9 @@ export class DeliveryService {
       where: { id: deliveryId },
       data: { status: next, ...stamp },
     });
+    if (next === 'DELIVERED') {
+      await this.ensureCommissionForDelivery(deliveryId).catch(() => null);
+    }
     return this.getPortalDelivery(user, deliveryId);
   }
 
@@ -954,6 +1160,12 @@ function serializeDelivery(d: any, claimable: boolean) {
   };
 }
 
+function clampPct(v: number | undefined | null): number {
+  const n = Math.round(Number(v ?? 0));
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, n));
+}
+
 export interface DeliveryCompanyInput {
   whiteLabelId?: string | null;
   name: string;
@@ -961,6 +1173,7 @@ export interface DeliveryCompanyInput {
   whatsapp?: string;
   city?: string;
   responsible?: string;
+  brandSharePct?: number;
   email?: string;
   commissionPerDelivery?: number | null;
   isActive?: boolean;
