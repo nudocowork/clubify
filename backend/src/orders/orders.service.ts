@@ -817,6 +817,20 @@ export class OrdersService {
           },
         },
         customer: { select: { fullName: true, phone: true } },
+        // Red de Domicilios (Fase 3A): seguimiento logístico para el cliente.
+        delivery: {
+          select: {
+            status: true,
+            courierName: true,
+            courierPlate: true,
+            etaMinutes: true,
+            assignedAt: true,
+            pickedUpAt: true,
+            onTheWayAt: true,
+            deliveredAt: true,
+            deliveryCompany: { select: { name: true, whatsapp: true } },
+          },
+        },
       },
     });
     if (!o) throw new NotFoundException();

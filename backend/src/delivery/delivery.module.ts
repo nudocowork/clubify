@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { DeliveryService } from './delivery.service';
 import { DeliveryAdminController } from './delivery-admin.controller';
 import { DeliveryPortalController } from './delivery-portal.controller';
+import { PublicDeliveriesController } from './public-deliveries.controller';
 import { IntegrationsModule } from '../integrations/integrations.module';
 
 /**
@@ -12,7 +13,11 @@ import { IntegrationsModule } from '../integrations/integrations.module';
 @Module({
   imports: [IntegrationsModule],
   providers: [DeliveryService],
-  controllers: [DeliveryAdminController, DeliveryPortalController],
+  controllers: [
+    DeliveryAdminController,
+    DeliveryPortalController,
+    PublicDeliveriesController,
+  ],
   exports: [DeliveryService],
 })
 export class DeliveryModule {}

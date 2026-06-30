@@ -30,6 +30,41 @@ type Order = {
   };
   brand?: BrandBadgeBrand;
   customer: { fullName: string; phone: string };
+  delivery?: {
+    status: DeliveryStatus;
+    courierName: string | null;
+    courierPlate: string | null;
+    etaMinutes: number | null;
+    assignedAt: string | null;
+    pickedUpAt: string | null;
+    onTheWayAt: string | null;
+    deliveredAt: string | null;
+    deliveryCompany: { name: string; whatsapp: string | null } | null;
+  } | null;
+};
+
+type DeliveryStatus =
+  | 'WAITING_COURIER'
+  | 'COURIER_ASSIGNED'
+  | 'PICKED_UP'
+  | 'ON_THE_WAY'
+  | 'DELIVERED'
+  | 'CANCELLED';
+
+const DELIVERY_FLOW: DeliveryStatus[] = [
+  'WAITING_COURIER',
+  'COURIER_ASSIGNED',
+  'PICKED_UP',
+  'ON_THE_WAY',
+  'DELIVERED',
+];
+const DELIVERY_LABEL: Record<DeliveryStatus, string> = {
+  WAITING_COURIER: 'Buscando repartidor',
+  COURIER_ASSIGNED: 'Repartidor asignado',
+  PICKED_UP: 'Pedido recogido',
+  ON_THE_WAY: 'En camino',
+  DELIVERED: 'Entregado',
+  CANCELLED: 'Cancelado',
 };
 
 const STATUS_FLOW = ['PENDING', 'CONFIRMED', 'READY', 'DELIVERED'] as const;
@@ -183,6 +218,65 @@ export default function OrderStatus() {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {!cancelled && order.delivery && order.delivery.status !== 'CANCELLED' && (
+          <div className="card card-pad mb-4">
+            <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-3">
+              🛵 Seguimiento del domicilio
+            </div>
+            {(() => {
+              const d = order.delivery!;
+              const dIdx = DELIVERY_FLOW.indexOf(d.status);
+              return (
+                <>
+                  <div className="flex items-center gap-2 mb-3">
+                    <span
+                      className="text-xs font-bold px-2.5 py-1 rounded-full"
+                      style={{ background: primary, color: '#fff' }}
+                    >
+                      {DELIVERY_LABEL[d.status]}
+                    </span>
+                    {d.etaMinutes != null && d.status !== 'DELIVERED' && (
+                      <span className="text-xs text-mute">⏱️ ~{d.etaMinutes} min</span>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {DELIVERY_FLOW.map((s, i) => (
+                      <div key={s} className="flex items-center gap-2.5">
+                        <div
+                          className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-none"
+                          style={{
+                            background: i <= dIdx ? primary : '#E5E7EB',
+                            color: i <= dIdx ? '#fff' : '#9CA3AF',
+                          }}
+                        >
+                          {i <= dIdx ? '✓' : i + 1}
+                        </div>
+                        <span
+                          className="text-sm"
+                          style={{ color: i <= dIdx ? '#111827' : '#9CA3AF' }}
+                        >
+                          {DELIVERY_LABEL[s]}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  {(d.courierName || d.deliveryCompany) && (
+                    <div className="border-t border-line2 mt-3 pt-3 text-sm text-mute space-y-0.5">
+                      {d.deliveryCompany && <div>🏢 {d.deliveryCompany.name}</div>}
+                      {d.courierName && (
+                        <div>
+                          🛵 {d.courierName}
+                          {d.courierPlate ? ` · ${d.courierPlate}` : ''}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
         )}
 

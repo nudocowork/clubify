@@ -25,6 +25,7 @@ import {
 import { BrandBadge, type BrandBadgeBrand } from '@/components/BrandBadge';
 import { isDarkBackground } from '@/lib/contrast';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
+import { DeliveryTrackWidget } from '@/components/DeliveryTrackWidget';
 import { CO_LOCATIONS, OTRO_MUNICIPIO } from '@/lib/co-locations';
 import { regionsForCountry } from '@/lib/regions';
 import {
@@ -1069,6 +1070,10 @@ function StorefrontPublicInner() {
 
       {/* Popup del menú: prioriza popups programados (#5), cae al legacy single. */}
       <StorefrontPopup menuPopups={s.menuPopups} legacy={s.popup} slug={slug} />
+
+      {/* Red de Domicilios (Fase 3A): seguimiento "mis pedidos" por teléfono.
+          Solo en el menú de domicilios para no recargar el de mesa. */}
+      {mode === 'delivery' && <DeliveryTrackWidget slug={slug} primary={primary} />}
 
       {/* Marca del negocio (per marca blanca). Hereda de s.brand (el backend
           lo resuelve por el whiteLabelId del tenant). Si no viene, NO mostramos

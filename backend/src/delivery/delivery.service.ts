@@ -728,6 +728,60 @@ export class DeliveryService {
     return this.getPortalDelivery(user, deliveryId);
   }
 
+  // ───────────────────── Público: seguimiento del cliente (Fase 3A) ─────────────────────
+
+  /**
+   * "Mis pedidos" por teléfono en el storefront de un negocio (sin login).
+   * Scopeado al tenant (slug) para evitar enumeración cross-tenant. Devuelve
+   * los pedidos recientes de ese teléfono con su estado + seguimiento.
+   */
+  async listPublicByPhone(slug: string, phoneRaw: string) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { slug },
+      select: { id: true, status: true },
+    });
+    if (!tenant || tenant.status === 'SUSPENDED') return { orders: [] };
+    const digits = (phoneRaw || '').replace(/\D/g, '');
+    const last = digits.slice(-10);
+    if (last.length < 7) return { orders: [] };
+
+    const orders = await this.prisma.order.findMany({
+      where: {
+        tenantId: tenant.id,
+        customer: { phone: { contains: last } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      select: {
+        code: true,
+        status: true,
+        fulfillment: true,
+        mode: true,
+        total: true,
+        createdAt: true,
+        delivery: {
+          select: { status: true, etaMinutes: true, courierName: true },
+        },
+      },
+    });
+    return {
+      orders: orders.map((o) => ({
+        code: o.code,
+        orderStatus: o.status,
+        isDelivery: o.fulfillment === 'DELIVERY' || o.mode === 'DELIVERY',
+        total: o.total == null ? null : Number(o.total),
+        createdAt: o.createdAt,
+        delivery: o.delivery
+          ? {
+              status: o.delivery.status,
+              etaMinutes: o.delivery.etaMinutes,
+              courierName: o.delivery.courierName,
+            }
+          : null,
+      })),
+    };
+  }
+
   /** Devuelve un domicilio propio serializado. */
   async getPortalDelivery(user: AuthUser, deliveryId: string) {
     const companyId = this.assertCompanyUser(user);
