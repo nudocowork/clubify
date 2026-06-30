@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { DeliveryService } from './delivery.service';
 import { DeliveryAdminController } from './delivery-admin.controller';
 import { DeliveryPortalController } from './delivery-portal.controller';
+import { DeliveryBusinessController } from './delivery-business.controller';
 import { PublicDeliveriesController } from './public-deliveries.controller';
 import { IntegrationsModule } from '../integrations/integrations.module';
 
@@ -16,6 +17,7 @@ import { IntegrationsModule } from '../integrations/integrations.module';
   controllers: [
     DeliveryAdminController,
     DeliveryPortalController,
+    DeliveryBusinessController,
     PublicDeliveriesController,
   ],
   exports: [DeliveryService],

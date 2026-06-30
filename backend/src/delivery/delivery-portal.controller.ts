@@ -15,6 +15,7 @@ import {
   Max,
   MaxLength,
   Min,
+  MinLength,
 } from 'class-validator';
 import { DeliveryStatus } from '@prisma/client';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -28,6 +29,10 @@ class PortalDeliveryBody {
   @IsOptional() @IsString() @MaxLength(300) address?: string;
   @IsOptional() @IsNumber() @Min(0) @Max(100000) deliveryValue?: number | null;
   @IsOptional() @IsNumber() @Min(0) @Max(600) etaMinutes?: number | null;
+}
+
+class ChatBody {
+  @IsString() @MinLength(1) @MaxLength(1000) body!: string;
 }
 
 class PortalStatusBody {
@@ -82,5 +87,20 @@ export class DeliveryPortalController {
     @Body() body: PortalStatusBody,
   ) {
     return this.svc.transitionPortalStatus(user, id, body.status);
+  }
+
+  // Chat del domicilio — lado empresa.
+  @Get('deliveries/:id/chat')
+  chatList(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.companyChatList(user, id);
+  }
+
+  @Post('deliveries/:id/chat')
+  chatPost(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: ChatBody,
+  ) {
+    return this.svc.companyChatPost(user, id, body.body);
   }
 }

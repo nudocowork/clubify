@@ -1728,6 +1728,8 @@ model Order {
   redemptions PromotionRedemption[]
   // Red de Domicilios (Fase 1, 2026-06-29): seguimiento logístico 1:1 (opcional).
   delivery    Delivery?
+  // Chat del domicilio (Fase 3B): hilo cliente↔negocio↔empresa.
+  deliveryMessages DeliveryMessage[]
 
   @@index([tenantId, status, createdAt])
   @@index([customerId, createdAt])
@@ -4141,6 +4143,28 @@ model Delivery {
 
   @@index([tenantId, status])
   @@index([deliveryCompanyId, status])
+}
+
+/// Mensaje del chat de un domicilio (Fase 3B — 2026-06-30). Hilo por pedido,
+/// compartido por las 3 partes: cliente, negocio y empresa de domicilios.
+model DeliveryMessage {
+  id         String           @id @default(uuid())
+  orderId    String
+  order      Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  senderRole DeliveryChatRole
+  /// Nombre mostrado del emisor (cliente / negocio / empresa) — snapshot.
+  senderName String?
+  body       String
+  createdAt  DateTime         @default(now())
+
+  @@index([orderId, createdAt])
+}
+
+/// Quién envía un mensaje del chat de domicilio.
+enum DeliveryChatRole {
+  CUSTOMER
+  BUSINESS
+  COMPANY
 }
 
 /// Estados logísticos del repartidor (Order.status cubre recibido/preparando/listo).

@@ -792,6 +792,123 @@ export class DeliveryService {
     if (!d) throw new NotFoundException('Domicilio no encontrado');
     return serializeDelivery(d, false);
   }
+
+  // ─────────────────── Chat del domicilio (Fase 3B, 3 vías) ───────────────────
+
+  private async chatList(orderId: string) {
+    const msgs = await this.prisma.deliveryMessage.findMany({
+      where: { orderId },
+      orderBy: { createdAt: 'asc' },
+      take: 300,
+    });
+    return msgs.map((m) => ({
+      id: m.id,
+      senderRole: m.senderRole,
+      senderName: m.senderName,
+      body: m.body,
+      createdAt: m.createdAt,
+    }));
+  }
+
+  private cleanBody(body: string): string {
+    const text = (body || '').trim().slice(0, 1000);
+    if (!text) throw new BadRequestException('Mensaje vacío.');
+    return text;
+  }
+
+  // --- Cliente (público, por código de pedido) ---
+  async customerChatList(code: string) {
+    const o = await this.prisma.order.findUnique({
+      where: { code },
+      select: { id: true },
+    });
+    if (!o) throw new NotFoundException('Pedido no encontrado');
+    return this.chatList(o.id);
+  }
+
+  async customerChatPost(code: string, body: string) {
+    const text = this.cleanBody(body);
+    const o = await this.prisma.order.findUnique({
+      where: { code },
+      select: { id: true, customer: { select: { fullName: true } } },
+    });
+    if (!o) throw new NotFoundException('Pedido no encontrado');
+    await this.prisma.deliveryMessage.create({
+      data: {
+        orderId: o.id,
+        senderRole: 'CUSTOMER',
+        senderName: o.customer?.fullName ?? 'Cliente',
+        body: text,
+      },
+    });
+    return this.chatList(o.id);
+  }
+
+  // --- Negocio (usuario del tenant) ---
+  private async assertBusinessOrder(user: AuthUser, orderId: string) {
+    const o = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, tenantId: true, tenant: { select: { brandName: true } } },
+    });
+    if (!o) throw new NotFoundException('Pedido no encontrado');
+    if (user.role !== 'SUPER_ADMIN' && o.tenantId !== user.tenantId) {
+      throw new BadRequestException('Pedido de otro negocio.');
+    }
+    return o;
+  }
+
+  async businessChatList(user: AuthUser, orderId: string) {
+    const o = await this.assertBusinessOrder(user, orderId);
+    return this.chatList(o.id);
+  }
+
+  async businessChatPost(user: AuthUser, orderId: string, body: string) {
+    const text = this.cleanBody(body);
+    const o = await this.assertBusinessOrder(user, orderId);
+    await this.prisma.deliveryMessage.create({
+      data: {
+        orderId: o.id,
+        senderRole: 'BUSINESS',
+        senderName: o.tenant?.brandName ?? 'Negocio',
+        body: text,
+      },
+    });
+    return this.chatList(o.id);
+  }
+
+  // --- Empresa de domicilios (portal) ---
+  private async assertCompanyDelivery(user: AuthUser, deliveryId: string) {
+    const companyId = this.assertCompanyUser(user);
+    const d = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, deliveryCompanyId: companyId },
+      select: {
+        id: true,
+        orderId: true,
+        deliveryCompany: { select: { name: true } },
+      },
+    });
+    if (!d) throw new NotFoundException('Domicilio no encontrado');
+    return d;
+  }
+
+  async companyChatList(user: AuthUser, deliveryId: string) {
+    const d = await this.assertCompanyDelivery(user, deliveryId);
+    return this.chatList(d.orderId);
+  }
+
+  async companyChatPost(user: AuthUser, deliveryId: string, body: string) {
+    const text = this.cleanBody(body);
+    const d = await this.assertCompanyDelivery(user, deliveryId);
+    await this.prisma.deliveryMessage.create({
+      data: {
+        orderId: d.orderId,
+        senderRole: 'COMPANY',
+        senderName: d.deliveryCompany?.name ?? 'Domicilios',
+        body: text,
+      },
+    });
+    return this.chatList(d.orderId);
+  }
 }
 
 const ORDER_SELECT = {

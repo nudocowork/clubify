@@ -4,6 +4,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { Icon } from '@/components/Icon';
 import { BrandBadge, type BrandBadgeBrand } from '@/components/BrandBadge';
+import { DeliveryChat, type ChatMessage } from '@/components/DeliveryChat';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -277,6 +278,31 @@ export default function OrderStatus() {
                 </>
               );
             })()}
+          </div>
+        )}
+
+        {!cancelled && order.fulfillment === 'DELIVERY' && (
+          <div className="card card-pad mb-4">
+            <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-3">
+              💬 Chat del domicilio
+            </div>
+            <DeliveryChat
+              meRole="CUSTOMER"
+              primary={primary}
+              load={async () => {
+                const r = await fetch(`${API}/api/public/deliveries/${order.code}/chat`);
+                return r.ok ? ((await r.json()) as ChatMessage[]) : [];
+              }}
+              send={async (body) => {
+                const r = await fetch(`${API}/api/public/deliveries/${order.code}/chat`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ body }),
+                });
+                if (!r.ok) throw new Error('No se pudo enviar.');
+                return (await r.json()) as ChatMessage[];
+              }}
+            />
           </div>
         )}
 

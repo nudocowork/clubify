@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
+import { DeliveryChat, type ChatMessage } from '@/components/DeliveryChat';
 
 type OrderItem = {
   productId: string;
@@ -286,6 +287,22 @@ export default function OrderDetail() {
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
         {/* Items */}
         <div className="space-y-4">
+          {o.fulfillment === 'DELIVERY' && (
+            <div className="card card-pad">
+              <h3 className="font-semibold mb-3">💬 Chat del domicilio</h3>
+              <DeliveryChat
+                meRole="BUSINESS"
+                primary="#0ea5e9"
+                load={() => api<ChatMessage[]>(`/delivery-business/orders/${id}/chat`)}
+                send={(body) =>
+                  api<ChatMessage[]>(`/delivery-business/orders/${id}/chat`, {
+                    method: 'POST',
+                    body: JSON.stringify({ body }),
+                  })
+                }
+              />
+            </div>
+          )}
           <div className="card card-pad">
             <h3 className="font-semibold mb-3">{t('orderItemsTitle')}</h3>
             <div className="divide-y divide-line2">

@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
+import { DeliveryChat, type ChatMessage } from '@/components/DeliveryChat';
 
 type Order = {
   code: string;
@@ -219,6 +220,7 @@ function DeliveryCard({
   onSave: (patch: Partial<Delivery>) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const [courierName, setCourierName] = useState(d.courierName ?? '');
   const [courierPhone, setCourierPhone] = useState(d.courierPhone ?? '');
   const [courierPlate, setCourierPlate] = useState(d.courierPlate ?? '');
@@ -338,6 +340,31 @@ function DeliveryCard({
                   Cancelar
                 </button>
               )}
+            </div>
+          )}
+
+          {/* Chat con el cliente y el negocio */}
+          <button
+            onClick={() => setChatOpen((v) => !v)}
+            className="mt-3 text-[13px] font-semibold"
+            style={{ color: '#0ea5e9' }}
+          >
+            {chatOpen ? '▾ Ocultar chat' : '💬 Chat con cliente / negocio'}
+          </button>
+          {chatOpen && (
+            <div className="mt-2">
+              <DeliveryChat
+                meRole="COMPANY"
+                primary="#0ea5e9"
+                heightPx={260}
+                load={() => api<ChatMessage[]>(`/delivery-portal/deliveries/${d.id}/chat`)}
+                send={(body) =>
+                  api<ChatMessage[]>(`/delivery-portal/deliveries/${d.id}/chat`, {
+                    method: 'POST',
+                    body: JSON.stringify({ body }),
+                  })
+                }
+              />
             </div>
           )}
         </>
