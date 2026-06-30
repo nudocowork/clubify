@@ -317,6 +317,7 @@ export async function middleware(req: NextRequest) {
     url.pathname.startsWith('/ref/') ||
     url.pathname.startsWith('/refer') ||
     url.pathname.startsWith('/affiliate') ||
+    url.pathname.startsWith('/domicilios') ||
     url.pathname.startsWith('/preview/') ||
     url.pathname.startsWith('/manifest') ||
     url.pathname.startsWith('/icons/') ||

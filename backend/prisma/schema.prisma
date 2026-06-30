@@ -35,6 +35,11 @@ enum Role {
   // El Socio recibe 10% de TODAS las ventas. Su panel muestra el
   // ledger de su código SOCIO (sin "clientes propios").
   AFFILIATE_SOCIO
+  // Red de Domicilios — Fase 2 (2026-06-30): cuenta de una EMPRESA de
+  // domicilios. Vinculada vía User.deliveryCompanyId. Sin tenantId ni
+  // whiteLabelId. Su portal (/domicilios) muestra SOLO los domicilios de
+  // su empresa. Los guards de tenant la dejan pasar (no tiene tenant).
+  DELIVERY_COMPANY
 }
 
 enum TenantStatus {
@@ -862,10 +867,17 @@ model User {
   whiteLabelAdminInvitesSent     WhiteLabelAdminInvite[] @relation("WhiteLabelAdminInviteInviter")
   whiteLabelAdminInviteAccepted  WhiteLabelAdminInvite[] @relation("WhiteLabelAdminInviteAcceptor")
 
+  // Red de Domicilios — Fase 2 (2026-06-30): cuenta de una empresa de
+  // domicilios (role=DELIVERY_COMPANY). NULL = usuario normal. Su portal ve
+  // solo los domicilios de su empresa.
+  deliveryCompanyId String?
+  deliveryCompany   DeliveryCompany? @relation("DeliveryCompanyAdmin", fields: [deliveryCompanyId], references: [id], onDelete: SetNull)
+
   @@index([tenantId])
   @@index([role])
   @@index([locationId])
   @@index([whiteLabelId])
+  @@index([deliveryCompanyId])
 }
 
 model Customer {
@@ -4063,6 +4075,8 @@ model DeliveryCompany {
   brands        DeliveryCompanyBrand[]
   tenants       DeliveryCompanyTenant[]
   deliveries    Delivery[]
+  /// Cuentas de login (role=DELIVERY_COMPANY) que operan esta empresa (Fase 2).
+  admins        User[] @relation("DeliveryCompanyAdmin")
 
   @@index([whiteLabelId])
   @@index([isActive])

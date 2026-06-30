@@ -14,6 +14,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Length,
   Max,
   MaxLength,
   Min,
@@ -35,6 +36,20 @@ class DeliveryCompanyBody {
   @IsOptional() @IsBoolean() isActive?: boolean;
   @IsOptional() @IsArray() @IsString({ each: true }) brandIds?: string[];
   @IsOptional() @IsArray() @IsString({ each: true }) tenantIds?: string[];
+}
+
+class CompanyAdminBody {
+  @IsEmail() email!: string;
+  @IsString() @MaxLength(120) fullName!: string;
+  @IsString() @Length(8, 200) password!: string;
+}
+
+class AdminPasswordBody {
+  @IsString() @Length(8, 200) password!: string;
+}
+
+class AdminToggleBody {
+  @IsBoolean() isActive!: boolean;
 }
 
 /**
@@ -80,5 +95,36 @@ export class DeliveryAdminController {
   @Delete(':id')
   remove(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.svc.deleteCompany(id, user.id);
+  }
+
+  // ── Cuentas de login de la empresa (portal /domicilios) ──
+
+  @Post(':id/admins')
+  createAdmin(
+    @Param('id') id: string,
+    @Body() body: CompanyAdminBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.createCompanyAdmin(id, body, user.id);
+  }
+
+  @Patch(':id/admins/:userId/password')
+  setAdminPassword(
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+    @Body() body: AdminPasswordBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.setCompanyAdminPassword(id, userId, body.password, user.id);
+  }
+
+  @Patch(':id/admins/:userId/toggle')
+  toggleAdmin(
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+    @Body() body: AdminToggleBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.toggleCompanyAdmin(id, userId, body.isActive, user.id);
   }
 }

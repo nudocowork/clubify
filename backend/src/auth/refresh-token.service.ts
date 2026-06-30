@@ -19,6 +19,9 @@ export type RefreshPayload = {
   // el admin de una marca (ej: Sellea) cae al default del panel /admin (Clubify)
   // → ve negocios de otra marca. Bug de aislamiento crítico 2026-06-23.
   whiteLabelId?: string | null;
+  // Empresa de domicilios (role=DELIVERY_COMPANY). Mismo motivo: DEBE viajar en
+  // el refresh para que al rotar el portal siga scopeado a su empresa. (Fase 2)
+  deliveryCompanyId?: string | null;
 };
 
 export type IssueOpts = {
@@ -142,6 +145,7 @@ export class RefreshTokenService {
         // Re-leemos la marca desde la DB (fuente de verdad) en cada rotación →
         // las sesiones viejas sin marca se auto-sanan al refrescar.
         whiteLabelId: true,
+        deliveryCompanyId: true,
         isActive: true,
         passwordChangedAt: true,
       },
@@ -169,6 +173,7 @@ export class RefreshTokenService {
       role: user.role,
       tenantId: user.tenantId,
       whiteLabelId: user.whiteLabelId ?? null,
+      deliveryCompanyId: user.deliveryCompanyId ?? null,
     };
     const newToken = await this.issue({
       userId: user.id,

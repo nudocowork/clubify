@@ -14,6 +14,9 @@ export type AuthUser = {
    *  PLATFORM_OWNER). Presente → los dashboards de /admin scopean sus
    *  métricas a los tenants de esta marca. null → vista global. */
   whiteLabelId?: string | null;
+  /** Empresa de domicilios de la sesión (role=DELIVERY_COMPANY). El portal
+   *  /domicilios scopea sus domicilios a esta empresa. (Fase 2, 2026-06-30) */
+  deliveryCompanyId?: string | null;
 };
 
 export const CurrentUser = createParamDecorator(

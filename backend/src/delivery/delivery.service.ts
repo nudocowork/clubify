@@ -5,9 +5,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, DeliveryStatus } from '@prisma/client';
+import * as argon2 from 'argon2';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
+import { AuthUser } from '../common/decorators/current-user.decorator';
 
 /**
  * Red de Domicilios — Fase 1 (2026-06-29).
@@ -70,6 +72,10 @@ export class DeliveryService {
         whiteLabel: { select: { id: true, name: true } },
         brands: { select: { whiteLabelId: true } },
         tenants: { select: { tenantId: true } },
+        admins: {
+          select: { id: true, email: true, fullName: true, isActive: true },
+          orderBy: { createdAt: 'asc' },
+        },
         _count: { select: { deliveries: true } },
       },
     });
@@ -78,6 +84,7 @@ export class DeliveryService {
       ...this.serializeCompany(c),
       brandIds: c.brands.map((b) => b.whiteLabelId),
       tenantIds: c.tenants.map((t) => t.tenantId),
+      admins: c.admins,
     };
   }
 
@@ -436,6 +443,344 @@ export class DeliveryService {
       select: { locationId: true, apiKey: true, switchNumber: true },
     });
   }
+
+  // ──────────── Master Admin: cuentas de login de la empresa (Fase 2) ────────────
+
+  /** Crea una cuenta de login (role=DELIVERY_COMPANY) para una empresa. */
+  async createCompanyAdmin(
+    companyId: string,
+    dto: { email: string; fullName: string; password: string },
+    actorId?: string,
+  ) {
+    const company = await this.prisma.deliveryCompany.findUnique({
+      where: { id: companyId },
+      select: { id: true, name: true },
+    });
+    if (!company) throw new NotFoundException('Empresa no encontrada');
+    const email = dto.email?.trim().toLowerCase();
+    const fullName = dto.fullName?.trim();
+    if (!email || !fullName) {
+      throw new BadRequestException('Email y nombre son requeridos');
+    }
+    if (!dto.password || dto.password.length < 8) {
+      throw new BadRequestException('La contraseña debe tener al menos 8 caracteres');
+    }
+    const existing = await this.prisma.user.findUnique({
+      where: { email },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new BadRequestException('Ya existe una cuenta con ese email.');
+    }
+    const passwordHash = await argon2.hash(dto.password, { type: argon2.argon2id });
+    const user = await this.prisma.user.create({
+      data: {
+        email,
+        fullName,
+        role: 'DELIVERY_COMPANY',
+        deliveryCompanyId: companyId,
+        passwordHash,
+        isActive: true,
+        passwordChangedAt: new Date(),
+      },
+      select: { id: true, email: true, fullName: true, isActive: true },
+    });
+    await this.logAction(
+      actorId,
+      'delivery.company_admin.create',
+      `deliveryCompany:${companyId}`,
+      { email, fullName },
+    );
+    return user;
+  }
+
+  /** Cambia la contraseña de una cuenta de la empresa. */
+  async setCompanyAdminPassword(
+    companyId: string,
+    userId: string,
+    password: string,
+    actorId?: string,
+  ) {
+    if (!password || password.length < 8) {
+      throw new BadRequestException('La contraseña debe tener al menos 8 caracteres');
+    }
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deliveryCompanyId: companyId, role: 'DELIVERY_COMPANY' },
+      select: { id: true },
+    });
+    if (!user) throw new NotFoundException('Cuenta no encontrada');
+    const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash, passwordChangedAt: new Date() },
+    });
+    await this.logAction(
+      actorId,
+      'delivery.company_admin.password',
+      `deliveryCompany:${companyId}`,
+      { userId },
+    );
+    return { ok: true };
+  }
+
+  /** Activa/desactiva una cuenta de la empresa. */
+  async toggleCompanyAdmin(
+    companyId: string,
+    userId: string,
+    isActive: boolean,
+    actorId?: string,
+  ) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deliveryCompanyId: companyId, role: 'DELIVERY_COMPANY' },
+      select: { id: true },
+    });
+    if (!user) throw new NotFoundException('Cuenta no encontrada');
+    await this.prisma.user.update({ where: { id: userId }, data: { isActive } });
+    await this.logAction(
+      actorId,
+      'delivery.company_admin.toggle',
+      `deliveryCompany:${companyId}`,
+      { userId, isActive },
+    );
+    return { ok: true };
+  }
+
+  // ─────────────────────── Portal de la empresa (Fase 2) ───────────────────────
+
+  private assertCompanyUser(user: AuthUser): string {
+    if (user.role !== 'DELIVERY_COMPANY' || !user.deliveryCompanyId) {
+      throw new BadRequestException('Sesión sin empresa de domicilios.');
+    }
+    return user.deliveryCompanyId;
+  }
+
+  /** Contexto del portal: datos de la empresa para el encabezado. */
+  async getPortalContext(user: AuthUser) {
+    const companyId = this.assertCompanyUser(user);
+    const company = await this.prisma.deliveryCompany.findUnique({
+      where: { id: companyId },
+      select: {
+        id: true,
+        name: true,
+        logoUrl: true,
+        city: true,
+        whatsapp: true,
+        isActive: true,
+      },
+    });
+    if (!company) throw new NotFoundException('Empresa no encontrada');
+    return company;
+  }
+
+  /** IDs de negocios habilitados para la empresa (para reclamar domicilios). */
+  private async enabledTenantIds(companyId: string): Promise<string[]> {
+    const links = await this.prisma.deliveryCompanyTenant.findMany({
+      where: { deliveryCompanyId: companyId },
+      select: { tenantId: true },
+    });
+    return links.map((l) => l.tenantId);
+  }
+
+  /**
+   * Lista los domicilios del portal: los de la empresa (cualquier estado) +
+   * los SIN asignar (reclamables) de los negocios habilitados que estén
+   * esperando repartidor.
+   */
+  async listPortalDeliveries(user: AuthUser, statusFilter?: string) {
+    const companyId = this.assertCompanyUser(user);
+    const enabled = await this.enabledTenantIds(companyId);
+
+    const mine = await this.prisma.delivery.findMany({
+      where: {
+        deliveryCompanyId: companyId,
+        ...(statusFilter ? { status: statusFilter as DeliveryStatus } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+      include: { order: { select: ORDER_SELECT } },
+    });
+
+    // Reclamables: sin empresa, esperando repartidor, de un negocio habilitado.
+    const claimable = enabled.length
+      ? await this.prisma.delivery.findMany({
+          where: {
+            deliveryCompanyId: null,
+            status: 'WAITING_COURIER',
+            tenantId: { in: enabled },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 100,
+          include: { order: { select: ORDER_SELECT } },
+        })
+      : [];
+
+    return {
+      mine: mine.map((d) => serializeDelivery(d, false)),
+      claimable: claimable.map((d) => serializeDelivery(d, true)),
+    };
+  }
+
+  /** Reclama un domicilio sin asignar de un negocio habilitado. */
+  async claimDelivery(user: AuthUser, deliveryId: string) {
+    const companyId = this.assertCompanyUser(user);
+    const enabled = await this.enabledTenantIds(companyId);
+    const d = await this.prisma.delivery.findUnique({
+      where: { id: deliveryId },
+      select: { id: true, deliveryCompanyId: true, tenantId: true },
+    });
+    if (!d) throw new NotFoundException('Domicilio no encontrado');
+    if (d.deliveryCompanyId) {
+      throw new BadRequestException('Este domicilio ya tiene empresa asignada.');
+    }
+    if (!enabled.includes(d.tenantId)) {
+      throw new BadRequestException('Tu empresa no está habilitada para este negocio.');
+    }
+    await this.prisma.delivery.update({
+      where: { id: deliveryId },
+      data: { deliveryCompanyId: companyId },
+    });
+    return { ok: true };
+  }
+
+  /** Edita los datos del repartidor / dirección / precio de un domicilio propio. */
+  async updatePortalDelivery(
+    user: AuthUser,
+    deliveryId: string,
+    dto: {
+      courierName?: string;
+      courierPhone?: string;
+      courierPlate?: string;
+      address?: string;
+      deliveryValue?: number | null;
+      etaMinutes?: number | null;
+    },
+  ) {
+    const companyId = this.assertCompanyUser(user);
+    const d = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, deliveryCompanyId: companyId },
+      select: { id: true },
+    });
+    if (!d) throw new NotFoundException('Domicilio no encontrado');
+    await this.prisma.delivery.update({
+      where: { id: deliveryId },
+      data: {
+        courierName:
+          dto.courierName === undefined ? undefined : dto.courierName.trim() || null,
+        courierPhone:
+          dto.courierPhone === undefined ? undefined : dto.courierPhone.trim() || null,
+        courierPlate:
+          dto.courierPlate === undefined ? undefined : dto.courierPlate.trim() || null,
+        address: dto.address === undefined ? undefined : dto.address.trim() || null,
+        deliveryValue:
+          dto.deliveryValue === undefined
+            ? undefined
+            : dto.deliveryValue == null
+              ? null
+              : new Prisma.Decimal(dto.deliveryValue),
+        etaMinutes:
+          dto.etaMinutes === undefined ? undefined : dto.etaMinutes ?? null,
+      },
+    });
+    return this.getPortalDelivery(user, deliveryId);
+  }
+
+  /** Avanza el estado logístico respetando la máquina de estados. */
+  async transitionPortalStatus(
+    user: AuthUser,
+    deliveryId: string,
+    next: DeliveryStatus,
+  ) {
+    const companyId = this.assertCompanyUser(user);
+    const d = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, deliveryCompanyId: companyId },
+      select: { id: true, status: true, courierName: true },
+    });
+    if (!d) throw new NotFoundException('Domicilio no encontrado');
+
+    const TRANSITIONS: Record<DeliveryStatus, DeliveryStatus[]> = {
+      WAITING_COURIER: ['COURIER_ASSIGNED', 'CANCELLED'],
+      COURIER_ASSIGNED: ['PICKED_UP', 'CANCELLED'],
+      PICKED_UP: ['ON_THE_WAY', 'CANCELLED'],
+      ON_THE_WAY: ['DELIVERED', 'CANCELLED'],
+      DELIVERED: [],
+      CANCELLED: [],
+    };
+    if (!TRANSITIONS[d.status].includes(next)) {
+      throw new BadRequestException(`Transición inválida: ${d.status} → ${next}`);
+    }
+    if (next === 'COURIER_ASSIGNED' && !d.courierName) {
+      throw new BadRequestException(
+        'Asigna primero el nombre del repartidor antes de marcar "Moto asignada".',
+      );
+    }
+
+    const stamp: Record<string, Date> = {};
+    if (next === 'COURIER_ASSIGNED') stamp.assignedAt = new Date();
+    if (next === 'PICKED_UP') stamp.pickedUpAt = new Date();
+    if (next === 'ON_THE_WAY') stamp.onTheWayAt = new Date();
+    if (next === 'DELIVERED') stamp.deliveredAt = new Date();
+    if (next === 'CANCELLED') stamp.cancelledAt = new Date();
+
+    await this.prisma.delivery.update({
+      where: { id: deliveryId },
+      data: { status: next, ...stamp },
+    });
+    return this.getPortalDelivery(user, deliveryId);
+  }
+
+  /** Devuelve un domicilio propio serializado. */
+  async getPortalDelivery(user: AuthUser, deliveryId: string) {
+    const companyId = this.assertCompanyUser(user);
+    const d = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, deliveryCompanyId: companyId },
+      include: { order: { select: ORDER_SELECT } },
+    });
+    if (!d) throw new NotFoundException('Domicilio no encontrado');
+    return serializeDelivery(d, false);
+  }
+}
+
+const ORDER_SELECT = {
+  code: true,
+  total: true,
+  deliveryAmount: true,
+  deliveryAddress: true,
+  createdAt: true,
+  status: true,
+  customer: { select: { fullName: true, phone: true } },
+  tenant: { select: { brandName: true, slug: true } },
+} as const;
+
+function serializeDelivery(d: any, claimable: boolean) {
+  return {
+    id: d.id,
+    status: d.status,
+    courierName: d.courierName,
+    courierPhone: d.courierPhone,
+    courierPlate: d.courierPlate,
+    etaMinutes: d.etaMinutes,
+    address: d.address ?? addressToText(d.order?.deliveryAddress),
+    deliveryValue: d.deliveryValue == null ? null : Number(d.deliveryValue),
+    assignedAt: d.assignedAt,
+    pickedUpAt: d.pickedUpAt,
+    onTheWayAt: d.onTheWayAt,
+    deliveredAt: d.deliveredAt,
+    cancelledAt: d.cancelledAt,
+    createdAt: d.createdAt,
+    claimable,
+    order: d.order
+      ? {
+          code: d.order.code,
+          total: d.order.total == null ? null : Number(d.order.total),
+          status: d.order.status,
+          createdAt: d.order.createdAt,
+          customerName: d.order.customer?.fullName ?? null,
+          customerPhone: d.order.customer?.phone ?? null,
+          businessName: d.order.tenant?.brandName ?? null,
+          businessSlug: d.order.tenant?.slug ?? null,
+        }
+      : null,
+  };
 }
 
 export interface DeliveryCompanyInput {

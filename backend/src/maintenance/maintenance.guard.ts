@@ -66,6 +66,11 @@ export class MaintenanceGuard implements CanActivate {
     if (user?.role === 'SUPER_ADMIN' || user?.role === 'PLATFORM_OWNER') {
       return true;
     }
+    // 2026-06-30: las empresas de domicilios (Fase 2) siguen operando durante
+    // el mantenimiento — la logística no depende del panel de la plataforma.
+    if (user?.role === 'DELIVERY_COMPANY') {
+      return true;
+    }
 
     // Calcular Retry-After: segundos hasta `until` si está, sino 300.
     let retryAfter = 300;

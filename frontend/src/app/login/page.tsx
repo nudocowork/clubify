@@ -49,6 +49,8 @@ function LoginInner() {
           ? '/superadmin'
           : data.user.role === 'SUPER_ADMIN' || data.user.role === 'MARKETING'
           ? '/admin'
+          : data.user.role === 'DELIVERY_COMPANY'
+          ? '/domicilios'
           : data.user.role?.startsWith('AFFILIATE_')
           ? '/affiliate'
           : '/app',
@@ -79,6 +81,8 @@ function LoginInner() {
           ? '/superadmin'
           : data.user.role === 'SUPER_ADMIN' || data.user.role === 'MARKETING'
           ? '/admin'
+          : data.user.role === 'DELIVERY_COMPANY'
+          ? '/domicilios'
           : data.user.role?.startsWith('AFFILIATE_')
           ? '/affiliate'
           : '/app',

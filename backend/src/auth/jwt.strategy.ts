@@ -17,6 +17,9 @@ export type JwtPayload = {
   // marca vía impersonateWhiteLabel). Cuando está presente, los dashboards
   // de /admin scopean sus métricas a los tenants de esta marca.
   whiteLabelId?: string | null;
+  // Empresa de domicilios de la sesión (role=DELIVERY_COMPANY). El portal
+  // /domicilios scopea sus domicilios a esta empresa. (Fase 2, 2026-06-30)
+  deliveryCompanyId?: string | null;
 };
 
 @Injectable()
@@ -37,6 +40,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       tenantId: payload.tenantId,
       impersonatedBy: payload.impersonatedBy ?? null,
       whiteLabelId: payload.whiteLabelId ?? null,
+      deliveryCompanyId: payload.deliveryCompanyId ?? null,
     };
   }
 }

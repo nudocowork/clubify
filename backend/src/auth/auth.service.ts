@@ -151,6 +151,7 @@ export class AuthService {
       tenantId: string | null;
       fullName: string;
       whiteLabelId?: string | null;
+      deliveryCompanyId?: string | null;
     },
     ip: string | undefined,
     opts: {
@@ -182,6 +183,8 @@ export class AuthService {
       // login (no solo en impersonación) hace que el admin de una marca
       // blanca quede aislado a sus datos también en login directo.
       whiteLabelId: user.whiteLabelId ?? null,
+      // Empresa de domicilios (role=DELIVERY_COMPANY). null = no aplica.
+      deliveryCompanyId: user.deliveryCompanyId ?? null,
     };
 
     const accessToken =

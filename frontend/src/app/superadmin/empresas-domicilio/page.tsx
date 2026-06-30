@@ -19,6 +19,7 @@ type Company = {
   deliveriesCount?: number;
 };
 
+type Admin = { id: string; email: string; fullName: string; isActive: boolean };
 type Brand = { id: string; name: string };
 type Tenant = {
   id: string;
@@ -51,6 +52,9 @@ export default function EmpresasDomicilioPage() {
   const [form, setForm] = useState<Form>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [tenantSearch, setTenantSearch] = useState('');
+  const [admins, setAdmins] = useState<Admin[]>([]);
+  const [newAdmin, setNewAdmin] = useState({ email: '', fullName: '', password: '' });
+  const [adminBusy, setAdminBusy] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -77,16 +81,21 @@ export default function EmpresasDomicilioPage() {
   function openNew() {
     setForm({ ...EMPTY_FORM });
     setTenantSearch('');
+    setAdmins([]);
+    setNewAdmin({ email: '', fullName: '', password: '' });
     setEditing('new');
   }
 
   async function openEdit(id: string) {
     setTenantSearch('');
+    setAdmins([]);
+    setNewAdmin({ email: '', fullName: '', password: '' });
     setEditing(id);
     try {
-      const c = await api<Company & { brandIds: string[]; tenantIds: string[] }>(
-        `/superadmin/delivery-companies/${id}`,
-      );
+      const c = await api<
+        Company & { brandIds: string[]; tenantIds: string[]; admins: Admin[] }
+      >(`/superadmin/delivery-companies/${id}`);
+      setAdmins(c.admins ?? []);
       setForm({
         name: c.name ?? '',
         whiteLabelId: c.whiteLabelId ?? '',
@@ -180,6 +189,68 @@ export default function EmpresasDomicilioPage() {
         [field]: has ? f[field].filter((x) => x !== id) : [...f[field], id],
       };
     });
+  }
+
+  async function reloadAdmins(id: string) {
+    try {
+      const c = await api<{ admins: Admin[] }>(`/superadmin/delivery-companies/${id}`);
+      setAdmins(c.admins ?? []);
+    } catch {
+      /* noop */
+    }
+  }
+
+  async function createAdmin() {
+    if (editing === 'new' || !editing) return;
+    if (!newAdmin.email.trim() || !newAdmin.fullName.trim() || newAdmin.password.length < 8) {
+      alert('Email, nombre y contraseña (mínimo 8 caracteres) son obligatorios.');
+      return;
+    }
+    setAdminBusy(true);
+    try {
+      await api(`/superadmin/delivery-companies/${editing}/admins`, {
+        method: 'POST',
+        body: JSON.stringify(newAdmin),
+      });
+      setNewAdmin({ email: '', fullName: '', password: '' });
+      await reloadAdmins(editing);
+    } catch (e: any) {
+      alert(e?.message ?? 'No se pudo crear la cuenta.');
+    } finally {
+      setAdminBusy(false);
+    }
+  }
+
+  async function resetAdminPassword(userId: string) {
+    if (editing === 'new' || !editing) return;
+    const pwd = prompt('Nueva contraseña (mínimo 8 caracteres):');
+    if (!pwd) return;
+    if (pwd.length < 8) {
+      alert('La contraseña debe tener al menos 8 caracteres.');
+      return;
+    }
+    try {
+      await api(`/superadmin/delivery-companies/${editing}/admins/${userId}/password`, {
+        method: 'PATCH',
+        body: JSON.stringify({ password: pwd }),
+      });
+      alert('Contraseña actualizada.');
+    } catch (e: any) {
+      alert(e?.message ?? 'No se pudo actualizar.');
+    }
+  }
+
+  async function toggleAdmin(userId: string, isActive: boolean) {
+    if (editing === 'new' || !editing) return;
+    try {
+      await api(`/superadmin/delivery-companies/${editing}/admins/${userId}/toggle`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive }),
+      });
+      await reloadAdmins(editing);
+    } catch (e: any) {
+      alert(e?.message ?? 'No se pudo cambiar.');
+    }
   }
 
   const filteredTenants = useMemo(() => {
@@ -480,6 +551,90 @@ export default function EmpresasDomicilioPage() {
                   ))}
                 </div>
               </div>
+              {/* Cuentas de login del portal (solo empresas existentes) */}
+              {editing !== 'new' && (
+                <div className="pt-2">
+                  <div className="text-[13px] font-bold mb-1" style={{ color: '#16241c' }}>
+                    Acceso al portal (login de la empresa)
+                  </div>
+                  <p className="text-[12px] mb-2" style={{ color: '#6b7785' }}>
+                    Crea una cuenta para que la empresa entre a su portal en{' '}
+                    <b>/domicilios</b> y gestione sus pedidos.
+                  </p>
+
+                  {admins.length > 0 && (
+                    <div className="space-y-1.5 mb-3">
+                      {admins.map((a) => (
+                        <div
+                          key={a.id}
+                          className="flex items-center justify-between gap-2 rounded-[10px] px-3 py-2"
+                          style={{ background: 'white', border: '1px solid #e7e9ec' }}
+                        >
+                          <div className="min-w-0">
+                            <div className="text-[13px] font-semibold truncate" style={{ color: '#16241c' }}>
+                              {a.fullName}
+                            </div>
+                            <div className="text-[12px] truncate" style={{ color: '#6b7785' }}>
+                              {a.email}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {!a.isActive && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: '#fef2f2', color: '#ef4444' }}>
+                                Inactiva
+                              </span>
+                            )}
+                            <button
+                              onClick={() => resetAdminPassword(a.id)}
+                              className="text-[12px] font-semibold rounded-[8px] px-2 py-1"
+                              style={{ background: '#f1f5f9', color: '#16241c' }}
+                            >
+                              Clave
+                            </button>
+                            <button
+                              onClick={() => toggleAdmin(a.id, !a.isActive)}
+                              className="text-[12px] font-semibold rounded-[8px] px-2 py-1"
+                              style={{ background: '#f1f5f9', color: a.isActive ? '#ef4444' : '#15803d' }}
+                            >
+                              {a.isActive ? 'Desactivar' : 'Activar'}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      className={inputCls}
+                      placeholder="Nombre"
+                      value={newAdmin.fullName}
+                      onChange={(e) => setNewAdmin({ ...newAdmin, fullName: e.target.value })}
+                    />
+                    <input
+                      className={inputCls}
+                      placeholder="Email"
+                      value={newAdmin.email}
+                      onChange={(e) => setNewAdmin({ ...newAdmin, email: e.target.value })}
+                    />
+                    <input
+                      className={inputCls + ' col-span-2'}
+                      type="text"
+                      placeholder="Contraseña (mínimo 8 caracteres)"
+                      value={newAdmin.password}
+                      onChange={(e) => setNewAdmin({ ...newAdmin, password: e.target.value })}
+                    />
+                    <button
+                      onClick={createAdmin}
+                      disabled={adminBusy}
+                      className="col-span-2 text-sm font-semibold text-white rounded-[10px] py-2"
+                      style={{ background: '#0ea5e9', opacity: adminBusy ? 0.6 : 1 }}
+                    >
+                      {adminBusy ? 'Creando…' : '+ Crear cuenta de acceso'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div
