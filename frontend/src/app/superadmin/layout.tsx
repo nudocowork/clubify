@@ -23,6 +23,7 @@ function buildNavGroups(badges: Badges): NavGroup[] {
       items: [
         { href: '/superadmin/creditos', label: 'Centro de Créditos', icon: '💳' },
         { href: '/superadmin/cobros', label: 'Centro de Cobros', icon: '🧾', badge: badges.billing },
+        { href: '/superadmin/empresas-domicilio', label: 'Empresas de Domicilios', icon: '🛵' },
         { href: '/superadmin/modulos', label: 'Módulos', icon: '⊞' },
       ],
     },

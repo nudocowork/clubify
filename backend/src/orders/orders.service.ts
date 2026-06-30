@@ -25,6 +25,7 @@ import { EmailService } from '../email/email.service';
 import { WalletService } from '../wallet/wallet.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
+import { DeliveryService } from '../delivery/delivery.service';
 import {
   orderConfirmedTemplate,
   orderCreatedTemplate,
@@ -117,6 +118,7 @@ export class OrdersService {
     private appConfig: AppConfigService,
     private growBusiness: GrowBusinessService,
     private brand: WhitelabelBrandService,
+    private delivery: DeliveryService,
   ) {}
 
   /** Lista de eventos del pedido delivery que pueden disparar SMS al
@@ -1216,6 +1218,17 @@ export class OrdersService {
         id,
         next.toLowerCase() as 'confirmed' | 'ready' | 'delivered',
       ).catch(() => null);
+    }
+
+    // Red de Domicilios (Fase 1): al marcar "listo" creamos el seguimiento
+    // logístico (si es pedido de domicilio) y avisamos a la empresa asignada;
+    // al entregar/cancelar reflejamos el estado. Best-effort (no rompe el flujo).
+    if (next === 'READY') {
+      this.delivery.ensureForOrder(id).catch(() => null);
+    } else if (next === 'DELIVERED') {
+      this.delivery.markDelivered(id).catch(() => null);
+    } else if (next === 'CANCELLED') {
+      this.delivery.markCancelled(id).catch(() => null);
     }
 
     this.broadcast(id).catch((e) =>

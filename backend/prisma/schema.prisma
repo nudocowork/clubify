@@ -642,6 +642,10 @@ model Tenant {
   // Item 6 sprint: excepciones de comisión configuradas para este tenant
   // (1 por nivel de la cadena: influencer/embajador/vendedor).
   commissionExceptions CommissionException[]
+  // Red de Domicilios (Fase 1, 2026-06-29): empresas habilitadas para este
+  // negocio + seguimientos logísticos de sus pedidos.
+  deliveryCompanyLinks DeliveryCompanyTenant[]
+  deliveries           Delivery[]
 
   @@index([status])
   @@index([stripeCustomerId])
@@ -1710,6 +1714,8 @@ model Order {
   events      OrderEvent[]
   stamps      Stamp[]
   redemptions PromotionRedemption[]
+  // Red de Domicilios (Fase 1, 2026-06-29): seguimiento logístico 1:1 (opcional).
+  delivery    Delivery?
 
   @@index([tenantId, status, createdAt])
   @@index([customerId, createdAt])
@@ -4016,8 +4022,121 @@ model WhiteLabel {
   hotmartCreditLinks HotmartCreditLink[] @relation("WhiteLabelCreditLinks")
   businessGroups  BusinessGroup[]      @relation("WhiteLabelGroups")
   paymentLinks    WhiteLabelPaymentLink[]
+  // Red de Domicilios (Fase 1, 2026-06-29): empresas logísticas que "pertenecen"
+  // a la marca + marcas donde una empresa (de cualquier dueño) está habilitada.
+  deliveryCompanies     DeliveryCompany[]
+  deliveryCompanyBrands DeliveryCompanyBrand[]
 
   @@index([status])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// RED DE DOMICILIOS (Fase 1 — 2026-06-29)
+// Empresas logísticas que entregan los pedidos de ciertos negocios. Las crea
+// el Master Admin. El seguimiento logístico vive en `Delivery` (1:1 con Order)
+// para NO tocar el ciclo de `Order.status` que ya funciona.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Empresa de domicilios. La crea/gestiona el Master Admin. Opera para las
+/// marcas (`brands`) y negocios (`tenants`) que se le habiliten.
+model DeliveryCompany {
+  id            String   @id @default(uuid())
+  /// Marca blanca "dueña" de la gestión de esta empresa (informativo / scoping
+  /// del Master Admin de marca). Las marcas/negocios donde realmente opera se
+  /// definen en `brands`/`tenants`. Null = gestionada por Clubify (plataforma).
+  whiteLabelId  String?
+  whiteLabel    WhiteLabel? @relation(fields: [whiteLabelId], references: [id], onDelete: SetNull)
+  name          String
+  logoUrl       String?
+  whatsapp      String?
+  city          String?
+  /// Nombre del responsable / contacto de la empresa.
+  responsible   String?
+  email         String?
+  /// Comisión por domicilio entregado. En la Fase 1 SOLO se guarda; el cálculo
+  /// y los reportes llegan en la Fase 4. USD.
+  commissionPerDelivery Decimal? @db.Decimal(10, 2)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  brands        DeliveryCompanyBrand[]
+  tenants       DeliveryCompanyTenant[]
+  deliveries    Delivery[]
+
+  @@index([whiteLabelId])
+  @@index([isActive])
+}
+
+/// Marca blanca habilitada para una empresa de domicilios (una empresa puede
+/// operar para varias marcas).
+model DeliveryCompanyBrand {
+  id                String          @id @default(uuid())
+  deliveryCompanyId String
+  deliveryCompany   DeliveryCompany @relation(fields: [deliveryCompanyId], references: [id], onDelete: Cascade)
+  whiteLabelId      String
+  whiteLabel        WhiteLabel      @relation(fields: [whiteLabelId], references: [id], onDelete: Cascade)
+
+  @@unique([deliveryCompanyId, whiteLabelId])
+  @@index([whiteLabelId])
+}
+
+/// Negocio habilitado para una empresa de domicilios (acota a ciertos negocios).
+model DeliveryCompanyTenant {
+  id                String          @id @default(uuid())
+  deliveryCompanyId String
+  deliveryCompany   DeliveryCompany @relation(fields: [deliveryCompanyId], references: [id], onDelete: Cascade)
+  tenantId          String
+  tenant            Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([deliveryCompanyId, tenantId])
+  @@index([tenantId])
+}
+
+/// Seguimiento logístico de un pedido (1:1 con Order). Los estados de cocina
+/// (recibido/preparando/listo) siguen en `Order.status`; aquí viven los estados
+/// del repartidor + datos del conductor + valor del domicilio.
+model Delivery {
+  id                String           @id @default(uuid())
+  orderId           String           @unique
+  order             Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  tenantId          String
+  tenant            Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  deliveryCompanyId String?
+  deliveryCompany   DeliveryCompany? @relation(fields: [deliveryCompanyId], references: [id], onDelete: SetNull)
+
+  status            DeliveryStatus   @default(WAITING_COURIER)
+  /// Datos que registra la empresa (Fase 2): repartidor, dirección, precio.
+  courierName       String?
+  courierPhone      String?
+  courierPlate      String?
+  etaMinutes        Int?
+  address           String?
+  /// Valor del domicilio. Se registra en Fase 1; las comisiones (split
+  /// empresa/marca/master) llegan en la Fase 4. USD.
+  deliveryValue     Decimal?         @db.Decimal(10, 2)
+
+  // Timestamps por estado.
+  assignedAt        DateTime?
+  pickedUpAt        DateTime?
+  onTheWayAt        DateTime?
+  deliveredAt       DateTime?
+  cancelledAt       DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@index([tenantId, status])
+  @@index([deliveryCompanyId, status])
+}
+
+/// Estados logísticos del repartidor (Order.status cubre recibido/preparando/listo).
+enum DeliveryStatus {
+  WAITING_COURIER  // Esperando domiciliario (pedido listo, sin moto asignada)
+  COURIER_ASSIGNED // Moto asignada
+  PICKED_UP        // Pedido recogido
+  ON_THE_WAY       // En camino
+  DELIVERED        // Entregado
+  CANCELLED        // Cancelado
 }
 
 enum WhiteLabelStatus {

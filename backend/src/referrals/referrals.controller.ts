@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Headers, Ip, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Ip, Param, Patch, Post, Query, UnauthorizedException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { IsBoolean, IsEmail, IsIn, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { CommissionStatus } from '@prisma/client';
@@ -636,6 +636,35 @@ export class ReferralsController {
 @Controller('admin/commissions')
 export class AdminCommissionsController {
   constructor(private svc: ReferralsService) {}
+
+  // ── Integración Team Clubify (lectura) ──────────────────────────────────────
+  // Endpoint server-to-server protegido por API key (header x-api-key ==
+  // TEAM_INTEGRATION_KEY). Devuelve el mismo dataset de comisiones que ve el
+  // panel admin, para reflejarlo en team.soyclubify.com. Solo lectura.
+  @Public()
+  @Get('integration/feed')
+  integrationFeed(
+    @Headers('x-api-key') apiKey: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('status') status?: string,
+    @Query('bucket') bucket?: string,
+    @Query('role') role?: string,
+    @Query('tenantId') tenantId?: string,
+    @Query('codeId') codeId?: string,
+  ) {
+    const expected = process.env.TEAM_INTEGRATION_KEY;
+    if (!expected || apiKey !== expected) throw new UnauthorizedException();
+    return this.svc.listAdminCommissions({ role: 'SUPER_ADMIN' } as AuthUser, {
+      dateFrom,
+      dateTo,
+      status: status as any,
+      bucket: bucket as any,
+      role: role as any,
+      tenantId,
+      codeId,
+    });
+  }
 
   @Roles('SUPER_ADMIN')
   @Get()

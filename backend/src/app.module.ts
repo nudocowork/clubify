@@ -63,6 +63,7 @@ import { LabModule } from './lab/lab.module';
 import { BroadcastsModule } from './broadcasts/broadcasts.module';
 import { ReservationsModule } from './reservations/reservations.module';
 import { SuperAdminModule } from './superadmin/superadmin.module';
+import { DeliveryModule } from './delivery/delivery.module';
 
 @Module({
   imports: [
@@ -134,6 +135,7 @@ import { SuperAdminModule } from './superadmin/superadmin.module';
     BroadcastsModule,
     ReservationsModule,
     SuperAdminModule,
+    DeliveryModule,
   ],
   providers: [
     // Sin esto, `ThrottlerModule.forRoot()` y los `@Throttle({...})` por

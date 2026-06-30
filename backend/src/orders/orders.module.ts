@@ -9,6 +9,7 @@ import { AutomationsModule } from '../automations/automations.module';
 import { AuthModule } from '../auth/auth.module';
 import { WalletModule } from '../wallet/wallet.module';
 import { IntegrationsModule } from '../integrations/integrations.module';
+import { DeliveryModule } from '../delivery/delivery.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { IntegrationsModule } from '../integrations/integrations.module';
     AuthModule,
     WalletModule,
     IntegrationsModule,
+    DeliveryModule,
   ],
   providers: [OrdersService, OrdersGateway],
   controllers: [OrdersController, PublicOrdersController],
