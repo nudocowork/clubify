@@ -4422,6 +4422,7 @@ export class ReferralsService {
       select: {
         id: true,
         amount: true,
+        baseAmountUsd: true,
         status: true,
         periodKey: true,
         recipientCodeId: true,
@@ -4500,10 +4501,20 @@ export class ReferralsService {
         }
         continue;
       }
-      const base = await this.recalc.getCommissionBase(
-        t.subscriptionPriceUsd ?? null,
-        t.planPeriodicity,
-      );
+      // PDF 2026-06-30: la base ESPERADA es el MONTO BRUTO REAL de la compra,
+      // congelado en cada comisión (baseAmountUsd). NO recalcular desde el
+      // subscriptionPriceUsd actual del negocio, que puede haber quedado en NETO
+      // (ej. Valmont $148.6 → esperaba $14.86) o haber cambiado. Fallback al
+      // precio real/canónico solo para filas legacy sin baseAmountUsd.
+      const snapBases = rows
+        .map((c) => Number(c.baseAmountUsd))
+        .filter((v) => Number.isFinite(v) && v > 0);
+      const base = snapBases.length
+        ? Math.max(...snapBases)
+        : await this.recalc.getCommissionBase(
+            t.subscriptionPriceUsd ?? null,
+            t.planPeriodicity,
+          );
       const { rows: expRows } = await this.computeExpectedCommissionRows(
         tid,
         base,
@@ -4607,6 +4618,7 @@ export class ReferralsService {
         id: true,
         amount: true,
         amountPaid: true,
+        baseAmountUsd: true,
         status: true,
         recipientCodeId: true,
         referralUse: {
@@ -4648,10 +4660,16 @@ export class ReferralsService {
         'La comisión no tiene destinatario: revísala manualmente.',
       );
     }
-    const base = await this.recalc.getCommissionBase(
-      tenant.subscriptionPriceUsd ?? null,
-      tenant.planPeriodicity,
-    );
+    // PDF 2026-06-30: usar el MONTO BRUTO congelado de esta comisión
+    // (baseAmountUsd) — misma regla que el arqueo. Nunca el subscriptionPriceUsd
+    // actual (puede ser neto/haber cambiado). Fallback canónico solo si falta.
+    const base =
+      c.baseAmountUsd != null && Number(c.baseAmountUsd) > 0
+        ? Number(c.baseAmountUsd)
+        : await this.recalc.getCommissionBase(
+            tenant.subscriptionPriceUsd ?? null,
+            tenant.planPeriodicity,
+          );
     const { rows } = await this.computeExpectedCommissionRows(tenant.id, base);
     const expectedMap = new Map<string, number>();
     for (const r of rows) expectedMap.set(r.recipientCodeId, r.amount);
@@ -4676,6 +4694,18 @@ export class ReferralsService {
       );
     }
     const previousAmount = Number(c.amount);
+    // PDF 2026-06-30: "Actualizar" NUNCA degrada un valor ya correcto. Si el
+    // monto actual ya coincide con el esperado (regla base × %), no tocamos nada.
+    if (Math.abs(previousAmount - expected) <= 0.01) {
+      return {
+        ok: true as const,
+        unchanged: true as const,
+        brandName: tenant.brandName,
+        amount: previousAmount,
+        expected,
+        base,
+      };
+    }
     const data: { amount: number; amountPaid?: number } = { amount: expected };
     // Invariante de pago: si ya estaba pagada, el amountPaid debe seguir = amount.
     if (c.status === 'PAID') data.amountPaid = expected;

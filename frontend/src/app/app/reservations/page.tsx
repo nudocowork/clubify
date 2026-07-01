@@ -198,8 +198,11 @@ export default function AgendaPage() {
     return counts;
   }, [reservations]);
 
+  // Contador "Aviso al negocio": PDF 2026-06-30. Antes contaba por CANAL
+  // (WHATSAPP/WEB/QR), lo cual no reflejaba los avisos realmente enviados al
+  // negocio. Ahora suma las reservas que SÍ dispararon el aviso (notifiedAt).
   const whatsappCount = useMemo(
-    () => reservations.filter((r) => ['WHATSAPP', 'WEB', 'QR'].includes(r.channel)).length,
+    () => reservations.filter((r) => !!r.notifiedAt).length,
     [reservations],
   );
 

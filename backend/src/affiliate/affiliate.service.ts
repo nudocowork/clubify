@@ -720,7 +720,18 @@ export class AffiliateService {
         const amount = Number(c.amount);
         const tenantId = c.referralUse?.tenant?.id;
         const base = tenantId ? baseByTenant.get(tenantId) ?? 0 : 0;
-        const percent = base > 0 ? Math.round((amount / base) * 100) : null;
+        // PDF 2026-06-30: el % mostrado usa el appliedPercent CONGELADO de la
+        // comisión (la verdad), NO amount/base recalculada. Antes, si el
+        // subscriptionPriceUsd del negocio cambiaba (o quedaba distinto del
+        // bruto real), amount/base daba porcentajes falsos (ej. "directa 2%"
+        // cuando en realidad es 10%). Fallback a amount/base solo para filas
+        // legacy sin appliedPercent.
+        const snapPct =
+          c.appliedPercent != null && Number(c.appliedPercent) > 0
+            ? Number(c.appliedPercent)
+            : null;
+        const percent =
+          snapPct ?? (base > 0 ? Math.round((amount / base) * 100) : null);
         const daysRemaining = affiliateDaysRemaining(c.createdAt, c.status);
         const availableAt = new Date(
           new Date(c.createdAt).getTime() + AFFILIATE_HOLD_DAYS * 86400000,

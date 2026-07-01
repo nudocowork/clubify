@@ -50,6 +50,9 @@ export type Reservation = {
   notes?: string | null;
   status: ReservationStatus;
   channel: string;
+  // Marca de tiempo del aviso enviado AL NEGOCIO al crearse la reserva.
+  // Alimenta el contador "Aviso al negocio". null = aún no notificado.
+  notifiedAt?: string | null;
   tableId?: string | null;
   zoneId?: string | null;
   table?: { number: string } | null;
