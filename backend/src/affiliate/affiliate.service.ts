@@ -662,6 +662,8 @@ export class AffiliateService {
           },
         },
         recipientCode: { select: { id: true, code: true, ownerName: true, role: true } },
+        // Punto 2: comisión de grupo empresarial (sin tenant) → mostramos el grupo.
+        businessGroup: { select: { name: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -744,8 +746,10 @@ export class AffiliateService {
           percent,
           createdAt: c.createdAt,
           paidAt: c.paidAt,
-          tenantBrand: c.referralUse?.tenant?.brandName ?? '—',
-          via,
+          tenantBrand:
+            c.referralUse?.tenant?.brandName ??
+            (c.businessGroup?.name ? `Grupo: ${c.businessGroup.name}` : '—'),
+          via: c.businessGroup ? 'grupo empresarial' : via,
           codeText: c.referralUse?.referralCode?.code ?? '',
           // Bloqueo de 15 días: días que faltan para desbloquear (0 = lista).
           daysRemaining,

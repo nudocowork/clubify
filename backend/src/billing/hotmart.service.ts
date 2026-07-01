@@ -318,6 +318,19 @@ export class HotmartService {
       });
     if (groupAction) {
       this.logger.log(`Hotmart event ${event} → grupo: ${groupAction}`);
+      // Punto 2 (2026-07-01): al activarse el cobro del grupo, generamos SU
+      // comisión (1 por el bruto del grupo) al recipiente elegido. Best-effort.
+      if (groupAction.startsWith('group_activated:')) {
+        const groupId = groupAction.slice('group_activated:'.length);
+        await this.referralsService
+          .generateGroupCommission({
+            groupId,
+            hotmartTransactionId: transactionId ?? subscriberCode ?? null,
+          })
+          .catch((e) =>
+            this.logger.error(`group commission falló: ${(e as Error)?.message}`),
+          );
+      }
       return { ok: true, action: groupAction };
     }
 

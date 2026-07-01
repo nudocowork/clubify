@@ -19,6 +19,8 @@ export type CreateGroupDto = {
   planPeriodicity?: string;
   nextChargeDate?: string;
   tenantIds?: string[];
+  // Punto 2: recipiente de la comisión del grupo (ReferralCode). '' o null = quitar.
+  referralCodeId?: string | null;
 };
 
 export type UpdateGroupDto = Partial<CreateGroupDto>;
@@ -70,6 +72,10 @@ export class BusinessGroupsService {
           },
           orderBy: { brandName: 'asc' },
         },
+        // Punto 2: recipiente de la comisión del grupo (para mostrar en la UI).
+        referralCode: {
+          select: { id: true, code: true, ownerName: true, role: true, commissionPercent: true },
+        },
       },
     });
     if (!group) throw new NotFoundException('Grupo no encontrado');
@@ -107,6 +113,7 @@ export class BusinessGroupsService {
         responsiblePhone: dto.responsiblePhone?.trim() || null,
         hotmartSubscriberCode: dto.hotmartSubscriberCode?.trim() || null,
         planPeriodicity: dto.planPeriodicity || null,
+        referralCodeId: dto.referralCodeId?.trim() || null,
         currentPeriodEnd,
         status: 'ACTIVE',
       },
@@ -136,6 +143,10 @@ export class BusinessGroupsService {
       data.hotmartSubscriberCode = dto.hotmartSubscriberCode?.trim() || null;
     if (dto.planPeriodicity !== undefined)
       data.planPeriodicity = dto.planPeriodicity || null;
+    if (dto.referralCodeId !== undefined) {
+      const rid = dto.referralCodeId?.trim() || null;
+      data.referralCode = rid ? { connect: { id: rid } } : { disconnect: true };
+    }
     if (dto.nextChargeDate !== undefined) {
       if (!dto.nextChargeDate) {
         data.currentPeriodEnd = null;

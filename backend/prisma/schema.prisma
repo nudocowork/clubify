@@ -2254,6 +2254,8 @@ model ReferralCode {
   /// Inverso de Commission.recipientCode. Permite query directo "todas
   /// las commissions del influencer X" sin walkear el referralUse.
   receivedCommissions    Commission[]      @relation("CommissionRecipient")
+  /// Grupos empresariales donde este code es el recipiente de comisión (Punto 2).
+  recipientGroups        BusinessGroup[]   @relation("BusinessGroupRecipient")
   /// Item 6 sprint: excepciones de comisión cuya recipientCodeId apunta
   /// a este code (= aplican al % que ESTE code cobraría normalmente).
   commissionExceptions   CommissionException[]
@@ -2324,8 +2326,15 @@ model ReferralUse {
 
 model Commission {
   id                   String                  @id @default(uuid())
-  referralUseId        String
-  referralUse          ReferralUse             @relation(fields: [referralUseId], references: [id], onDelete: Cascade)
+  // Nullable (Punto 2, 2026-07-01): las comisiones a nivel GRUPO EMPRESARIAL no
+  // cuelgan de un tenant/referralUse; usan businessGroupId. Para comisiones
+  // normales (por tenant) SIEMPRE va seteado.
+  referralUseId        String?
+  referralUse          ReferralUse?            @relation(fields: [referralUseId], references: [id], onDelete: Cascade)
+  // Grupo Empresarial dueño de la comisión (1 comisión por el bruto del grupo).
+  // Mutuamente excluyente con referralUseId. Null = comisión normal por tenant.
+  businessGroupId      String?
+  businessGroup        BusinessGroup?          @relation(fields: [businessGroupId], references: [id], onDelete: SetNull)
   amount               Decimal                 @db.Decimal(10, 2)
   currency             String                  @default("USD")
   status               CommissionStatus        @default(PENDING)
@@ -2388,6 +2397,7 @@ model Commission {
   @@index([externalTxId])
   @@index([vendorCodeId])
   @@index([recipientCodeId])
+  @@index([businessGroupId])
   @@index([hotmartTransactionId])
   // HOTFIX 2026-06-05 (bug #19): indexes para filtros del panel
   // /admin/commissions y /admin/commissions/payments.
@@ -4295,13 +4305,20 @@ model BusinessGroup {
   failedPaymentCount    Int                 @default(0)
   suspendedAt           DateTime?
   lastChargeAt          DateTime?
+  /// Recipiente de la comisión del grupo (Punto 2, 2026-07-01): afiliado
+  /// (influencer/embajador/vendedor) que cobra %×bruto en cada cobro del grupo.
+  /// Null = el grupo no genera comisión.
+  referralCodeId        String?
+  referralCode          ReferralCode?       @relation("BusinessGroupRecipient", fields: [referralCodeId], references: [id], onDelete: SetNull)
   createdAt             DateTime            @default(now())
   updatedAt             DateTime            @updatedAt
   deletedAt             DateTime?
   tenants               Tenant[]
+  commissions           Commission[]
 
   @@index([whiteLabelId])
   @@index([hotmartSubscriberCode])
+  @@index([referralCodeId])
 }
 
 /// Módulos toggleables por marca blanca. Si está deshabilitado, los

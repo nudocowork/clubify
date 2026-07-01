@@ -4371,6 +4371,68 @@ export class ReferralsService {
   }
 
   /**
+   * Punto 2 (2026-07-01): genera la comisión de un GRUPO EMPRESARIAL cuando entra
+   * su cobro recurrente. UNA comisión por el BRUTO del grupo (precio canónico de
+   * su periodicidad) al recipiente elegido = %_de_su_código × bruto. Misma regla
+   * única del Punto 1. Idempotente por (grupo, recipiente, período) o txId.
+   */
+  async generateGroupCommission(args: {
+    groupId: string;
+    hotmartTransactionId?: string | null;
+  }): Promise<{ generated: boolean; reason?: string }> {
+    const group = await this.prisma.businessGroup.findUnique({
+      where: { id: args.groupId },
+      select: { id: true, name: true, referralCodeId: true, planPeriodicity: true },
+    });
+    if (!group?.referralCodeId) return { generated: false, reason: 'grupo-sin-recipiente' };
+    const code = await this.prisma.referralCode.findUnique({
+      where: { id: group.referralCodeId },
+      select: { id: true, commissionPercent: true, isActive: true },
+    });
+    if (!code || code.isActive === false) return { generated: false, reason: 'code-inactivo' };
+    // BRUTO = precio canónico de la periodicidad del grupo (el plan, antes de fees).
+    const base = await this.recalc.getCommissionBase(null, group.planPeriodicity ?? null);
+    const pct = Number(code.commissionPercent ?? 0);
+    if (!(base > 0) || !(pct > 0)) return { generated: false, reason: 'base-o-pct-0' };
+    const amount = Math.round(base * pct) / 100;
+    const now = new Date();
+    const periodKey = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+    // Dedup: 1 por (grupo, recipiente, período) o por txId repetido.
+    const existing = await this.prisma.commission.findFirst({
+      where: {
+        businessGroupId: group.id,
+        recipientCodeId: code.id,
+        OR: [
+          { periodKey },
+          ...(args.hotmartTransactionId
+            ? [{ hotmartTransactionId: args.hotmartTransactionId }]
+            : []),
+        ],
+      },
+      select: { id: true },
+    });
+    if (existing) return { generated: false, reason: 'dedup' };
+    await this.prisma.commission.create({
+      data: {
+        businessGroupId: group.id,
+        referralUseId: null,
+        recipientCodeId: code.id,
+        amount,
+        baseAmountUsd: base,
+        appliedPercent: pct,
+        currency: 'USD',
+        status: 'PENDING',
+        periodKey,
+        hotmartTransactionId: args.hotmartTransactionId ?? null,
+      },
+    });
+    this.logger.log(
+      `Comisión de grupo "${group.name}": $${amount} (${pct}% de $${base}) → code ${code.id}`,
+    );
+    return { generated: true };
+  }
+
+  /**
    * #11 (2026-06-16): AUDITORÍA AVANZADA de comisiones (read-only). Recalcula
    * el split esperado DESDE LA FUENTE ORIGINAL (computeExpectedCommissionRows +
    * getCommissionBase, los mismos que usa el webhook de Hotmart) y lo compara
@@ -4415,6 +4477,9 @@ export class ReferralsService {
     const live = await this.prisma.commission.findMany({
       where: {
         status: { in: ['PENDING', 'APPROVED', 'PAID', 'RETAINED'] },
+        // Punto 2: las comisiones de GRUPO no son por-tenant → se excluyen de
+        // este arqueo (sino saldrían como PHANTOM "sin-tenant").
+        businessGroupId: null,
         ...(user.whiteLabelId
           ? { referralUse: { tenant: { whiteLabelId: user.whiteLabelId } } }
           : {}),

@@ -31,6 +31,23 @@ type Group = {
   tenants: GroupTenant[];
   tenantsCount?: number;
   activeCount?: number;
+  // Punto 2: recipiente de la comisión del grupo.
+  referralCodeId?: string | null;
+  referralCode?: {
+    id: string;
+    code: string;
+    ownerName: string | null;
+    role: string;
+    commissionPercent: number | string;
+  } | null;
+};
+
+type AffiliateOption = {
+  id: string;
+  code: string;
+  ownerName?: string | null;
+  role?: string;
+  commissionPercent?: number | string;
 };
 
 const PERIODS = ['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL'];
@@ -303,6 +320,41 @@ function GroupDetailModal({
   const [available, setAvailable] = useState<GroupTenant[]>([]);
   const [busy, setBusy] = useState(false);
   const [addId, setAddId] = useState('');
+  const [affiliates, setAffiliates] = useState<AffiliateOption[]>([]);
+  const [savingRecipient, setSavingRecipient] = useState(false);
+
+  useEffect(() => {
+    Promise.all([
+      api<AffiliateOption[]>('/referrals/influencers').catch(() => []),
+      api<AffiliateOption[]>('/referrals/ambassadors').catch(() => []),
+      api<AffiliateOption[]>('/referrals/vendors').catch(() => []),
+    ]).then(([inf, amb, ven]) => {
+      const tag = (arr: AffiliateOption[] | null, role: string) =>
+        (arr ?? []).map((a) => ({ ...a, role: a.role ?? role }));
+      setAffiliates([
+        ...tag(inf, 'INFLUENCER'),
+        ...tag(amb, 'AMBASSADOR'),
+        ...tag(ven, 'VENDOR'),
+      ]);
+    });
+  }, []);
+
+  async function saveRecipient(referralCodeId: string) {
+    setSavingRecipient(true);
+    try {
+      await api(`/admin/business-groups/${groupId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ referralCodeId }),
+      });
+      toast('Recipiente de comisión actualizado', 'success');
+      await reload();
+      onChanged();
+    } catch (e: any) {
+      toast(e?.message || tc('error'), 'error');
+    } finally {
+      setSavingRecipient(false);
+    }
+  }
 
   async function reload() {
     try {
@@ -443,6 +495,31 @@ function GroupDetailModal({
               <Info label={t('fieldPeriodicity')} value={g.planPeriodicity ? t(PERIODICITY_LABEL_KEY[g.planPeriodicity] ?? g.planPeriodicity) : '—'} />
               <Info label={t('nextCharge')} value={fmtDate(g.currentPeriodEnd)} />
               <Info label={t('hotmartCodeShort')} value={g.hotmartSubscriberCode || '—'} />
+            </div>
+
+            {/* Punto 2: recipiente de la comisión del grupo (%×bruto en cada cobro) */}
+            <div className="rounded-xl border border-line p-3 mb-4 bg-bg2">
+              <div className="text-sm font-semibold mb-1">Comisión del grupo</div>
+              <div className="text-xs text-mute mb-2">
+                Al cobrarse el grupo, se genera 1 comisión = % del código × precio del
+                plan ({g.planPeriodicity ? t(PERIODICITY_LABEL_KEY[g.planPeriodicity] ?? g.planPeriodicity) : 'periodicidad'}).
+                {g.referralCode
+                  ? ` Actual: ${g.referralCode.ownerName ?? g.referralCode.code} (${g.referralCode.role} · ${g.referralCode.commissionPercent}%).`
+                  : ' Sin recipiente: no genera comisión.'}
+              </div>
+              <select
+                className="input"
+                value={g.referralCodeId ?? ''}
+                disabled={savingRecipient}
+                onChange={(e) => saveRecipient(e.target.value)}
+              >
+                <option value="">— Sin comisión —</option>
+                {affiliates.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {(a.ownerName || a.code)} · {a.role} · {a.commissionPercent ?? '?'}%
+                  </option>
+                ))}
+              </select>
             </div>
 
             {/* Acciones financieras (cascada) */}

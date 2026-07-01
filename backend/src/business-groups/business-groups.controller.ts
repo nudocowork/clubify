@@ -31,6 +31,7 @@ class CreateGroupBody {
   @IsOptional() @IsIn(PERIODS) planPeriodicity?: string;
   @IsOptional() @IsString() nextChargeDate?: string;
   @IsOptional() @IsArray() @IsString({ each: true }) tenantIds?: string[];
+  @IsOptional() @IsString() @MaxLength(64) referralCodeId?: string;
 }
 
 class UpdateGroupBody {
@@ -41,6 +42,7 @@ class UpdateGroupBody {
   @IsOptional() @IsString() @MaxLength(120) hotmartSubscriberCode?: string;
   @IsOptional() @IsIn(PERIODS) planPeriodicity?: string;
   @IsOptional() @IsString() nextChargeDate?: string;
+  @IsOptional() @IsString() @MaxLength(64) referralCodeId?: string;
 }
 
 class StatusBody {
