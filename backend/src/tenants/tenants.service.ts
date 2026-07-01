@@ -647,7 +647,11 @@ export class TenantsService {
         planId,
         // #2/#6: el negocio hereda la MARCA BLANCA del admin que lo crea, así
         // aparece solo en esa marca y nunca en otra (Sellea→sellea, Clubify→clubify).
-        whiteLabelId: user?.whiteLabelId ?? null,
+        // PDF 2026-06-30: si el admin no tiene marca en sesión (plataforma/Clubify),
+        // asignamos EXPLÍCITAMENTE la marca Clubify en vez de dejar null. Antes los
+        // negocios creados por admins de Clubify quedaban whiteLabelId=null → conteos
+        // inconsistentes entre vistas (54 vs 46). Nunca más nulls nuevos.
+        whiteLabelId: user?.whiteLabelId ?? (await this.clubifyWlId()),
         planPeriodicity: dto.planPeriodicity ?? null,
         referredByCode: dto.referredByCode,
         status,
